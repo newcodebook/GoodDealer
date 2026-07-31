@@ -35,6 +35,7 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [安全模型](docs/SECURITY.md)
 - [连接器规范](docs/CONNECTORS.md)
 - [浏览器自动化](docs/BROWSER_AUTOMATION.md)
+- [域名所有权验证工作流](docs/VERIFICATION.md)
 - [同步与冲突语义](docs/SYNC_SEMANTICS.md)
 - [操作编排与任务语义](docs/OPERATIONS.md)
 - [数据生命周期与恢复](docs/DATA_LIFECYCLE.md)

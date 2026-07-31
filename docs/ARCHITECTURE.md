@@ -1,7 +1,7 @@
 # GoodDealer 系统架构
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 架构结论
 
@@ -88,7 +88,7 @@ flowchart TB
 
 远程平台页面可以执行网站自己的 JavaScript、保存该平台的登录会话并接受自动化操作，但不能访问数据库、密钥库、任意文件、Shell、License 或通用 Tauri IPC。网页自动化规则详见 [BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md)。
 
-Admin Web 不复用 account-web 登录态。Admin API 使用独立 StaffIdentity、Passkey/企业 SSO、最小角色 Scope 和 Staff 审计；只调用模块显式公开的管理 Port，不直接访问业务 Repository 或跨模块 SQL。管理员后台不得创建用户 SyncMutation、ApprovedOperation 或平台请求。
+Admin Web 不复用 account-web 登录态。首版 Owner 使用独立 StaffIdentity、强制 Passkey、Scope 和 Staff 审计；只调用模块显式公开的管理 Port，不直接访问业务 Repository 或跨模块 SQL。Role/Scope 为未来 Staff 扩展保留，首版不做多人审批。管理员后台不得创建用户 SyncMutation、ApprovedOperation 或平台请求。
 
 应用启动先进入 Account Gate。账号会话或 Offline Device Lease、设备绑定和 Entitlement 有效后，设备可以进入与权限匹配的界面。持有 ActiveDeviceLease 的设备挂载完整 SQLCipher 工作库、Outbox、连接器和 Worker；Standby 只挂载 Cloud Read-Only View，通过只读 API 和可丢弃缓存查看服务端已有数据。域名业务数据可以同步为服务端可读记录；数据库解密密钥、平台凭据和浏览器会话不得进入 Account/Sync Service。
 
@@ -208,10 +208,10 @@ running -> succeeded | failed_retryable | failed_final
 | RuntimeMode | 本地存储 | 云端权限 | 平台能力 |
 | --- | --- | --- | --- |
 | `Locked` | 不打开业务存储 | 登录、续费、设备和合规入口 | 无 |
-| `Standby` | 只打开分库分钥的加密只读缓存 | `account:manage`、`workspace:read` | 无 |
-| `Activating` | Standby Cache 保持只读；独立 Staging 校验/恢复 Active 工作库，不允许业务写入 | 拉取基线、Checkpoint、Mutation 和一致性摘要 | 无 |
+| `Standby` | 只打开分库分钥的加密只读缓存 | `account:manage`、`workspace:read`；旧 Epoch 事实/候选的窄 Ingest | 无 |
+| `Activating` | Standby Cache 保持只读；独立 Staging 校验/恢复 Active 工作库，不允许业务写入 | 仅 Bootstrap Capability：拉取基线、Checkpoint、Mutation 和一致性摘要 | 无 |
 | `Active` | 完整 SQLCipher 工作库、Outbox、Queue 和 Artifact | `workspace:mutate` 与 Execution Event Ingest | 平台读取、批准和执行 |
-| `Draining` | 完成当前原子步骤并冲刷 Outbox | 提交最后 `client_sequence`，等待服务端排空验收 | 不领取新任务 |
+| `Draining(reason)` | 完成当前原子步骤并停止领新任务；`handoff` 必须冲刷，`suspend` 尽力冲刷 | `handoff` 提交最后 `client_sequence` 并等待排空；`suspend` 不要求云端验收 | 仅完成当前原子步骤 |
 | `LocalContinuation` | 预留的停服本地延续模式 | 不依赖 GoodDealer Cloud | 按 Sunset Entitlement 本地执行 |
 
 `LocalContinuation` 只为 D-010 永久停服预案预留状态，不是正常版本可选择的纯本地模式。RuntimeMode 的权威状态和命令准入由 Rust `runtime-gate` 与云端 Scope/ActiveDeviceLease 共同决定；TypeScript 只消费状态快照，不能自行提升权限。

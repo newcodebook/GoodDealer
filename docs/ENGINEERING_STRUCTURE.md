@@ -1,7 +1,7 @@
 # GoodDealer 工程结构与模块边界
 
 状态：Accepted Design  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 目标
 
@@ -43,7 +43,8 @@ apps/
         admin-http.ts            # 独立 Admin API Composition Root（Fastify）
         jobs.ts                  # 导出打包、删除、通知、保留清理、Checkpoint、压缩
       modules/
-        admin-access/            # StaffIdentity、Role、Session 与管理权限判定
+        admin-access/            # 首版 Owner Identity/Session/Scope 与管理权限判定
+        job-runtime/             # Job Lease、幂等、TenantContext、重试与 Quarantine
         identity/
         licensing/
         devices/                 # DeviceBinding、ActiveDeviceLease、排空验收编排
@@ -67,6 +68,8 @@ apps/
         recovery/                # StaleDeviceCandidate / RestoreCandidate
         connections/             # ProviderConnection 与 quota 摘要
         compliance/
+        security-incidents/      # 账号接管、设备被盗、云端泄露的事件生命周期
+        support-integration/     # 外部 Helpdesk Adapter 与可信 CaseReference
         notifications/
         publication/
         audit/
@@ -156,7 +159,7 @@ crates/
 | Cloud Sync | client-core/sync、client-core/recovery | active-workspace/cloud-sync（Outbox/Cursor） | — | workspace/read、mutations、revisions、cursors、checkpoints、recovery |
 | Operations | client-core/operations | active-workspace/operations（Queue/DAG/审批/结果） | secure-host-core/operation-signing | workspace/state/operations（脱敏状态）、execution-ledger（LateExecutionEvent） |
 | Connections | client-core/connections | active-workspace/connections（共享元数据与设备绑定状态） | secure-host-core/keychain（credentialRef 实际值） | connections（共享元数据与 quota 摘要） |
-| Browser Automation | client-core/browser-automation（编排）+ packages/browser-automation（契约/Recipe/Probe） | active-workspace/browser-automation（Grant/Session/审计引用） | automation-host | workspace/state/browser-automation（非秘密设置与脱敏状态） |
+| Browser Automation | client-core/browser-automation（编排）+ packages/browser-automation（契约/Recipe/Probe） | active-workspace/browser-automation（BrowserSessionProfile/Grant/Session/审计引用） | automation-host | workspace/state/browser-automation（非秘密设置与脱敏状态） |
 | Account & Licensing | client-core/runtime-mode（投影） | —（Token/Lease 在 Keychain） | secure-host-core/runtime-gate、device-identity、keychain | identity、licensing、devices |
 | Active Device Coordination | client-core/runtime-mode（切换用例） | active-workspace/cloud-sync（排空进度） | secure-host-core/runtime-gate | devices |
 | Publication | —（未来发布界面） | — | — | publication |
@@ -174,8 +177,9 @@ Locked
   -> Standby
   -> Activating
   -> Active
-  -> Draining
-  -> Standby
+  -> Draining(reason: handoff | suspend)
+       handoff -> Standby
+       suspend -> Active | Standby
 
 LocalContinuation             # 仅 Sunset 构建/凭证可进入
 ```
@@ -195,12 +199,15 @@ LocalContinuation             # 仅 Sunset 构建/凭证可进入
 关键转换条件：
 
 - `Locked -> Standby`：账号或 OfflineDeviceLease、设备绑定和 Entitlement 有效。
-- `Standby -> Activating`：取得 ActiveDeviceLease，应用支持 Workspace Schema，开始建立当前 Revision 基线。
-- `Activating -> Active`：Checkpoint + 后续 Mutation 回放完成，并通过按实体类型的一致性摘要校验。
-- `Active -> Draining`：收到正常切换、退出或安全暂停请求；立即停止领取新任务。
-- `Draining -> Standby`：Outbox 冲刷成功，服务端按最后 `client_sequence` 完成排空验收并释放 Lease。
+- `Standby -> Activating`：取得绑定到当前 DeviceSwitchRequest 的短期只读 Bootstrap Capability；应用支持 Workspace Schema，开始建立当前 Revision 基线。Bootstrap Capability 不授予 Mutation、平台访问、批准或执行权限。
+- `Activating -> Active`：Checkpoint + 后续 Mutation 回放完成并通过按实体类型的一致性摘要校验后，服务端原子签发 ActiveDeviceLease。
+- `Active -> Draining(reason)`：收到正常切换、退出或安全暂停请求；立即停止领取新任务。`reason` 不改变命令准入，只决定退出条件。
+- `Draining(reason=handoff) -> Standby`：Outbox 冲刷成功，服务端按最后 `client_sequence` 完成排空验收并释放 Lease。
+- `Draining(reason=suspend) -> Active/Standby`：当前原子步骤结束并尽力冲刷；Cloud 不可用或冲刷失败不阻塞退出，恢复时先执行 Outbox 与结果未知对账。
 - `任意状态 -> Locked`：授权失效、设备移除或安全门禁失败；已经发出的原子平台请求进入结果确认语义。
 - `LocalContinuation`：只接受独立 Sunset Signing Key 签发的永久凭证，不出现在日常模式选择器中。
+
+同一账号最多存在一个未完成的 DeviceSwitchRequest/Bootstrap Capability。重复申请使用幂等键返回同一请求，新的申请不得与旧申请竞争激活。
 
 ## 5. 应用运行时所有权
 
@@ -232,8 +239,9 @@ LocalContinuation             # 仅 Sunset 构建/凭证可进入
 
 - `entrypoints/http.ts` 提供用户客户端与 account-web API；`entrypoints/admin-http.ts` 提供独立 Staff Admin API；两者首版均使用 Fastify，但拥有不同的认证、Scope、Route 注册和错误暴露策略。
 - Fastify Route 校验使用从 protocol Zod Schema 构建期派生的 JSON Schema（`fastify-type-provider-zod` 或等价工具）；Zod 是唯一契约事实源，禁止手写与之平行的 JSON Schema。
-- `entrypoints/jobs.ts` 使用基于 PostgreSQL 的任务队列（建议 pg-boss）调度导出、删除、通知、保留清理、Checkpoint 和压缩，延续“PostgreSQL 为正确性来源、不依赖 Redis”的基线。
-- `entrypoints/jobs.ts` 处理导出打包、删除、通知、保留清理、Checkpoint 和压缩等异步任务，不依赖 Fastify 或 HTTP Request Context。
+- `entrypoints/jobs.ts` 使用基于 PostgreSQL 的任务队列（建议 pg-boss）调度导出、删除、通知、保留清理、Checkpoint 和压缩，延续“PostgreSQL 为正确性来源、不依赖 Redis”的基线；它不依赖 Fastify 或 HTTP Request Context。
+- 窄 `job-runtime` 只负责 Job Lease、心跳、幂等、超时、退避、隔离和安全重放。业务 Payload、结果、取消和补偿语义仍由 compliance、notifications、workspace/checkpoints 等目标模块拥有。
+- 每个 Job Envelope 必须携带不可为空的 TenantContext、业务 Job ID、Payload Version、幂等键、创建者/触发源和目标模块；不得先无租户扫描再由 Handler 自行过滤。
 - 三个入口组装同一组模块、Repository 和事务边界，首版仍是一个模块化单体；Admin API 可以使用同一构建产物的独立进程/端口部署。
 - `src/db` 只包含连接池、事务基础设施和 Migration Runner；表、Migration 和 Repository 归各模块目录所有。
 - Cloud 只依赖 `protocol` 和云端基础设施，不依赖 `client-core`、连接器或浏览器自动化。
@@ -376,7 +384,7 @@ Local Repository 由 `local-storage/active-workspace/<capability>` 实现；Clou
 - `crypto`：AEAD、Hash、签名验证和密钥封装接口。
 - `keychain`：OS Keychain/Credential Manager 抽象。
 - `secure-http`：Allowlist、凭据注入、重定向、脱敏、超时和响应限制。
-- `operation-signing`：ApprovedOperation、LateExecutionEvent 签名与防重放序列。
+- `operation-signing`：ApprovedOperation、LateExecutionEvent 签名与防重放序列，以及短期、一次性的本机 AutomationExecutionTicket 签发与校验。
 
 Rust 集成测试直接针对该 Crate 运行，不需要启动 Tauri WebView。
 
@@ -396,7 +404,7 @@ Standby Cache 可以直接重建，Schema 不兼容时优先删除并重新拉�
 
 ### automation-host
 
-- 负责 Remote WebView 生命周期和每个平台独立 Profile。
+- 负责 Remote WebView 生命周期；Profile 按 `device_id + provider_connection_id + session_mode` 隔离，同一平台的不同账户不得共享 Cookie 或本地存储。
 - 负责 `eval_with_callback`、初始化脚本、窄 IPC Handler 和 ActionRequest/Report 序列校验。
 - 负责 NavigationPolicy、`on_navigation`、`on_new_window`、`on_page_load` 和下载目标拦截。
 - 依赖 `secure-host-core` 的 runtime-gate、设备身份和安全校验接口；不得读取 Active Workspace 的通用 Repository 或任意 Keychain 项。
@@ -419,9 +427,12 @@ local-storage   -> secure-host-core
 | 模块 | 拥有的数据与职责 |
 | --- | --- |
 | admin-access | StaffIdentity、StaffSession、Role/Scope、管理员登录与授权判定；不拥有客户业务表 |
+| support-integration | 外部 Helpdesk Adapter、可信 CaseReference 和账号关联；不复制完整工单、秘密或资产清单 |
+| security-incidents | SecurityIncident、影响范围、遏制动作、证据保全、通知决定和关闭状态；不代替外部 SupportCase |
 | identity | 账号、密码/Passkey、Auth Session、Refresh Token 轮换 |
 | licensing | Entitlement、支付事件、可信时间和 Sunset 元数据 |
 | devices | DeviceBinding、ActiveDeviceLease、Epoch、切换状态和排空验收编排 |
+| job-runtime | Job Lease、心跳、幂等、Payload 版本路由、重试/超时、Quarantine 和人工安全重放；不拥有业务 Job 状态 |
 | workspace/state/&lt;capability&gt; | 当前物化业务状态；按 capability 拥有表、Repository 与 Migration |
 | workspace/read | Standby/Active 查询、只读投影和数据新鲜度元数据 |
 | workspace/mutations | Mutation 幂等、`client_sequence`、`base_revision` 和事务提交 |
@@ -431,7 +442,7 @@ local-storage   -> secure-host-core
 | execution-ledger | LateExecutionEvent 独立 Ingest、签名/时间/序列验证和安全隔离区 |
 | recovery | StaleDeviceCandidate、RestoreCandidate 和重新应用流程 |
 | connections | ProviderConnection 共享元数据、QuotaScope 和退避摘要 |
-| compliance | 机器可读导出、账号删除编排和处理状态 |
+| compliance | DataRightsRequest、机器可读导出、账号删除编排和处理状态 |
 | notifications | 邮件、安全通知、切换请求和业务告警投递 |
 | publication | 用户显式发布投影，与私有 Workspace 隔离 |
 | audit | 服务端管理与安全审计，不替代设备本地审计链 |
@@ -443,7 +454,10 @@ local-storage   -> secure-host-core
 - `workspace/read` 与 `workspace/checkpoints` 通过 state 的公开查询/快照 Port 读取已提交状态；checkpoints 同时尊重 Cursor 与 Candidate 引用水位。
 - `execution-ledger` 追加事实后发布“需要对账”事件，不直接修改 Desired/Observed State。
 - `compliance` 编排各模块导出/删除接口，不直接执行跨模块 SQL 删除。
+- `security-incidents` 通过各模块公开的遏制、证据与通知 Port 编排安全事件，不直接修改设备、身份或 Workspace 表；外部 Helpdesk 只保存关联 CaseReference。
 - `admin-http` 只调用各模块显式公开的 Admin Application Port；不得直接注入 Repository、共享 ORM Entity 或执行跨模块 SQL。所有管理操作先由 `admin-access` 授权，再向 `audit` 写入 Staff actor、原因、工单标识和前后摘要。
+- TenantContext 从 Public/Admin 认证、Job 创建、事务、Repository 到对象存储 Key 全程显式传播；缺失或不匹配时在模块 Port 前拒绝。Admin 跨租户查询使用独立入口，不能复用普通租户 Repository 后关闭过滤。
+- Quarantine 中的 Job 只能使用原 TenantContext、Payload Version、幂等键和授权上下文重放；管理员不能编辑 Payload 后伪装成同一个 Job。
 - 管理员不得创建用户 Desired State、SyncMutation、ApprovedOperation 或平台执行请求。确需修复云端元数据时，使用模块拥有的受控 Repair Command，并保留可追溯审计。
 
 每个 Cloud 模块拥有自己的表、Migration 和 Repository。`workspace/state` 内进一步按 capability 分配所有权。首版可以共用一个 PostgreSQL Database 和事务基础设施，但禁止共享 ORM Entity 作为模块 API。Cloud Migration 按模块存放，文件名使用全局 UTC 时间戳或等价全局序号排序；Migration Runner 必须在部署前检测重复序号和依赖顺序。

@@ -1,21 +1,21 @@
 # GoodDealer 开发路线图
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 全阶段 Journey Gate
 
 Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用户旅程审理基线](USER_JOURNEYS.md) 定义的 Journey Gate。模块、页面或 API 已完成，不等于对应用户目标已能端到端完成。
 
-| Phase | 重点 Journey |
-| --- | --- |
-| Phase 0 | J-01 首次使用的 Bootstrap/Activation 骨架；J-03 自动化批准链；J-05 设备切换；J-06 账号门禁；J-08 管理权限隔离；J-10 Cloud/连接器发布骨架 |
-| Phase 1 | J-01 首次连接与导入；J-02 只读资产管理；J-05 Standby 与重建；J-07 Recovery Secret/备份/迁移 |
-| Phase 2 | J-02 批量计划、批准、执行和崩溃恢复；J-03 DNS 写入与浏览器执行安全 |
-| Phase 3 | J-03 所有权验证；J-04 SaleSignal、紧急下架 Incident 和完成确认 |
-| Phase 4 | J-06 支付与授权全生命周期；J-08 管理员运营；J-09 Support/合规/安全事件；J-10 生产运营与 Sunset 演练 |
-| Phase 5 | J-02/J-03 新连接器一致性；J-10 Connector/Recipe 生命周期 |
-| Phase 6 | J-05 移动端 Standby、切换、凭据准备和 Active 能力 |
+| Phase | 重点 Journey | Finding/Gate 边界 |
+| --- | --- | --- |
+| Phase 0 | J-01 Bootstrap/Activation 骨架；J-03 自动化批准链；J-05 设备切换；J-08 管理入口隔离 | JF-02、JF-04、JF-07、JF-15；JF-01 只做最小幂等原型，不展开完整 Onboarding |
+| Phase 1 | J-01 首次连接与导入；J-02 只读资产；J-05 Standby/重建；J-07 备份/迁移 | JF-01、JF-03、JF-08、JF-12 的备份内容部分 |
+| Phase 2 | J-02 批量计划、批准、执行和崩溃恢复；J-03 浏览器写入安全 | JF-05、JF-06；JF-17 的签名/兼容/撤销最小发布链必须在首个正式网页写连接器前完成 |
+| Phase 3 | J-03 所有权验证；J-04 紧急下架 | JF-09、JF-10；JD-01 在承诺紧急能力前确认 |
+| Phase 4 | J-06 商业授权；J-08 Owner 后台；J-09 Support/合规/安全；J-10 生产运营 | JF-11、JF-13、JF-14、JF-16、JF-17 完整运营；JD-03/05/06/09 |
+| Phase 5 | J-02/J-03 新连接器一致性；J-10 连接器扩展 | 复用已建立的 Connector/Recipe Lifecycle，不在此阶段才补首次安全发布链 |
+| Phase 6 | J-05 移动端 Standby、切换、凭据准备和 Active 能力 | D-011 保持 Standby 只审阅；RemoteApprovalToken 另立决策 |
 
 每个 Phase 开始前应确认本阶段 Journey 范围、责任人和 `Decision Required`；退出前不得遗留影响该阶段交付的 J0，并至少通过 Happy Path、权限拒绝、中断恢复和结果未知四类 E2E 场景。未确认的旅程审查建议仍保持 Open Finding，不得由实现者自行视为产品决策。
 
@@ -38,7 +38,8 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - Atom Token 脱敏验证。
 - Afternic CSV Golden File 验证。
 - 账号门禁、签名 Auth/Entitlement Token、两台绑定与单执行设备的 Staging 原型。
-- ActiveDeviceLease、正常切换、强制切换倒计时和 24 小时离线执行许可原型。
+- 账号级互斥 DeviceSwitchRequest、短期只读 Bootstrap Capability、摘要校验后原子签发 ActiveDeviceLease，以及设备签名公钥轮换/撤销原型。
+- `Draining(reason: handoff | suspend)`、正常切换、强制切换倒计时和 24 小时离线执行许可原型。
 - Standby Cloud Read-Only Scope、只读 API、可丢弃 Reader Cursor 和越权 Mutation 测试。
 - 消费级账号密码、Refresh Token 轮换、会话/设备管理与可选 Passkey 原型。
 - Sync Mutation、Revision、Cursor、快照重建和租户隔离原型。
@@ -51,14 +52,17 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 用户登录、暂停/接管和一次性自动化授权原型。
 - Windows WebView2 与 macOS WKWebView 的独立 Profile、脚本回调、弹窗/OAuth、下载拦截和上传验证。
 - Rust automation-host 对 WebView 会话、注入、导航/弹窗/下载策略的双引擎封装验证。
+- BrowserSessionConsent 与 BrowserAutomationGrant 分离；Secure Host 签发、automation-host 消费一次性 AutomationExecutionTicket 的越权/重放测试。
+- Job Runtime 的 TenantContext 强制传播、幂等、Lease、Quarantine 和跨租户负向测试。
 - 记录 Afternic、Atom、Spaceship、Cloudflare 的 ToS、账户政策和自动化风险，作为持续评估项而非发布硬门槛。
 
-退出条件：平台 API 密钥不进入普通 WebView、日志或 Sync Service，远程平台页面无法调用高权限 Tauri Command，两个桌面引擎通过浏览器自动化可行性闸门，单执行设备、Standby 只读隔离、正常/强制切换和 24 小时云故障执行通过原型验证，云同步能处理重复 Mutation、LateExecutionEvent 和恢复候选，Public Session 无法访问 Admin Route、Staff 管理操作不能绕过模块 Port，Active/Standby Query Adapter 通过同一契约测试，五种执行模式均能通过原型演示。平台政策风险必须被记录和展示，但不作为统一硬门槛。
+退出条件：平台 API 密钥不进入普通 WebView、日志或 Sync Service，远程平台页面无法调用高权限 Tauri Command，两个桌面引擎通过浏览器自动化可行性闸门；Bootstrap 完成前无法取得 Mutation/平台/批准 Scope，并发 Standby 不能竞争激活；自动化没有一次性 Ticket 时拒绝执行；handoff/suspend 退出条件不会混用；Job 缺失或伪造 TenantContext 时拒绝执行。单执行设备、Standby 只读隔离、正常/强制切换和 24 小时云故障执行通过原型验证，云同步能处理重复 Mutation、LateExecutionEvent 和恢复候选，Public Session 无法访问 Admin Route、Owner 管理操作不能绕过模块 Port，Active/Standby Query Adapter 通过同一契约测试，五种执行模式均能通过原型演示。平台政策风险必须被记录和展示，但不作为统一硬门槛。
 
 ## Phase 1：资产、云同步与只读连接
 
 - Portfolio、Connections、Observed Snapshot 数据模型。
 - DomainAsset、OwnershipEpisode、ProviderConnection 与多账户模型。
+- Connection Setup 状态机、Secure Host 凭据输入、BrowserSessionConsent 和凭据健康检查。
 - Recovery Secret、备份恢复和 Schema 迁移框架。
 - 账号登录门禁、记住设备会话和最多两台设备绑定。
 - 云端 Workspace、业务数据 Schema、Mutation Log、Revision 和 Device Cursor。
@@ -74,18 +78,23 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - Standby Cloud Read-Only View、资产/告警/任务进度查询和可丢弃只读缓存。
 - 内部运营后台的账号、设备、License、Lease、Mutation/Cursor/Checkpoint 和 Jobs 只读诊断。
 - 用户触发的本地加密备份导出和恢复。
+- Backup Content Manifest、默认关闭的平台凭据开关和永不包含清单。
+- 首次完整分页导入的 Observed/Base/Desired 初始化、快照完整性和新鲜度规则。
 
 退出条件：已登录且授权有效的用户可以在本地统一查看首批平台状态；Offline Device Lease 与 Entitlement 均有效时断网仍可查询。
 
 ## Phase 2：安全写操作
 
 - Operation Planner 和差异预览。
+- 跨分页 BulkSelectionSpec、物化目标集合、逐相关字段/前置条件 Plan Invalidation。
 - Durable Queue、Outbox、重试和账户限流。
+- 持久 Attempt 提交阶段、启动恢复扫描、结果未知确认和 ProviderConnection 熔断。
 - Cloudflare DNS Record 写操作。
 - Atom 价格更新。
 - Spaceship Nameserver、自动续费和 DNS 写操作。
 - Afternic CSV 生成和人工任务。
 - 用户授权的 Afternic CSV 上传和处理状态读取。
+- 签名 Recipe 发布、兼容 Manifest、双引擎门禁、灰度/撤销、Anti-Rollback 和离线旧 Recipe 规则。
 - 高风险操作确认。
 - 优先级队列、Workflow DAG、资源锁和完整取消语义。
 - ActiveDeviceLease、Lease Epoch、24 小时离线许可和重复提交测试。
@@ -100,6 +109,7 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - Atom Listing、Sales 和 Analytics。
 - Afternic 上传结果导入。
 - TXT 所有权验证工作流。
+- VerificationAttempt、DnsAuthoritySnapshot、RRset 条件写、权威/递归传播证据和秘密 Sync Projection。
 - Desired/Observed 对账。
 - 外部修改冲突处理。
 - 已售域名跨平台紧急下架。
@@ -115,7 +125,8 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 中英文 UI、帮助文档和支付渠道覆盖确认。
 - 云端数据保留/删除政策、租户隔离测试、员工访问审计和泄露响应流程。
 - 账号网页端在 License 过期后的合规导出、删除和会话/设备管理。
-- 生产 Admin Web、Staff Passkey/企业 SSO、角色 Scope、管理 Port、跨账号访问理由与 Staff 审计。
+- 生产 Admin Web、Owner Passkey、Scope、管理 Port、跨账号访问理由/CaseReference、重新认证与 Staff 审计；多人角色与审批留到增加 Staff 后。
+- 外部 Helpdesk 接入及内部可信 CaseReference；DataRightsRequest/SecurityIncident 仍由内部模块拥有。
 - License/订单/设备/同步/合规/版本通道运营功能，以及 Public/Admin Route 隔离渗透测试。
 - Sunset Signing Key 隔离演练、最终本地延续版本和永久离线凭证流程。
 - Windows 安装包与 macOS 公证。
@@ -127,7 +138,7 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 建立连接器开发模板和 Contract Test Kit。
 - 价格策略和续费成本分析。
 - 可选的本地自动化规则。
-- 签名浏览器自动化规则包、版本回滚和页面兼容测试。
+- 扩展已在 Phase 2 建立的签名 Recipe 生命周期、回滚和页面兼容矩阵。
 - 用户显式发布的域名资产展示、Publication Projection 和公开页面。
 
 ## Phase 6：iOS 与 Android

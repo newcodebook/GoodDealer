@@ -1,7 +1,7 @@
 # GoodDealer 浏览器自动化
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 目标
 
@@ -51,11 +51,12 @@ Tauri 2 不提供 CDP 级浏览器自动化。桌面首版采用 Tauri/Wry 已�
 Remote WebView 不获得通用 `invoke`、事件总线或文件接口。浏览器桥只接受以下消息：
 
 ```text
+HostActionCommand = automation_execution_ticket + ActionRequest
 ActionRequest  = session_id + action_id + sequence + nonce + recipe_step
 ActionReport   = session_id + action_id + sequence + nonce + observation
 ```
 
-Nonce 和序列号用于防止旧页面、重复回调和跨会话消息混入，但不能证明页面报告的业务结果真实。
+AutomationExecutionTicket 只在 Rust Command Handler 与 automation-host 之间传递，校验完成后才构造最小 ActionRequest；Ticket 和 host_authenticator 不得注入远程页面。Nonce 和序列号用于防止旧页面、重复回调和跨会话消息混入，但不能证明页面报告的业务结果真实。
 
 ### 结果可信度
 
@@ -84,13 +85,27 @@ Nonce 和序列号用于防止旧页面、重复回调和跨会话消息混入�
 
 ## 4. 用户交接流程
 
+连接建立和业务执行是两条不同的授权旅程。
+
+连接建立：
+
 ```text
 打开平台连接
-  -> 软件展示将打开的官方域名
-  -> 用户在隔离窗口自行登录
-  -> 软件检测到已登录页面状态
+  -> 软件展示官方域名、用途与会话模式
+  -> 用户授予 BrowserSessionConsent
+  -> 用户在隔离窗口自行登录/获取 API Key
+  -> 软件只检测 Origin 与登录状态
+  -> 用户复制或通过安全输入通道保存凭据
+  -> Consent 到期或用户关闭窗口
+```
+
+业务执行：
+
+```text
+已连接且检测到登录状态
   -> 软件生成将要执行的动作计划
   -> 用户选择目标和点击“授权执行”
+  -> Secure Host 原子消费批准与 Grant 并签发一次性 Ticket
   -> 软件接管页面操作
   -> 用户可随时暂停并接管
   -> 软件验证成功状态并写入审计记录
@@ -100,12 +115,27 @@ Nonce 和序列号用于防止旧页面、重复回调和跨会话消息混入�
 
 ## 5. 授权模型
 
-每次浏览器执行创建 `BrowserAutomationGrant`：
+首次登录、获取 API Key 或修复连接使用 `BrowserSessionConsent`：
 
 ```text
-provider
+provider_connection_id
+browser_session_id
+purpose: login | acquire_api_key | repair_connection
+allowed_auth_hosts
+session_mode
+issued_at
+expires_at
+```
+
+Consent 只允许 NavigationPolicy 内的导航、用户直接输入和登录状态检测。它不包含 Operation Plan、目标域名或业务动作，不允许自动填写业务字段、上传 Artifact 或触发最终提交。
+
+每次业务执行创建 `BrowserAutomationGrant`：
+
+```text
+provider_connection_id
 browser_session_id
 operation_plan_id
+approved_plan_hash
 allowed_actions
 target_domains
 allowed_hosts
@@ -114,13 +144,38 @@ expires_at
 requires_final_confirmation
 ```
 
-推荐授权级别：
+首版只提供单次执行授权：每个 BrowserAutomationGrant 只允许执行其绑定的当前计划。持久 Browser Profile 可以保留登录状态，但不能延长或复用自动化权限；任何后续软件接管都必须重新生成计划、BrowserAutomationGrant 和 ApprovedOperation。
 
-- 登录辅助：仅导航和读取登录状态。
-- 单次执行：只允许执行当前计划。
-- 当前会话：在窗口关闭前允许同类型操作，但每个高风险批次仍需确认。
+首版不提供会话级、永久或无界的网页操作授权。
 
-首版不提供永久、无界的网页操作授权。
+### 5.1 AutomationExecutionTicket
+
+普通 TypeScript 不能直接把 BrowserAutomationGrant 解释为执行权限。业务动作开始前：
+
+1. 薄 Rust Command Handler 调用 local-storage，在同一事务中校验并消费未过期的 BrowserAutomationGrant、ApprovedOperation 和当前 DAG Node；普通 TypeScript 不参与该交接。签发前崩溃按失败关闭处理，需要重新批准，不恢复已消费授权。
+2. `secure-host-core/operation-signing` 校验 RuntimeMode、设备、Epoch、计划 Hash 和 Recipe Hash，签发短期、一次性的本机 `AutomationExecutionTicket`。
+3. automation-host 校验 Ticket 的签名/MAC、单次 Nonce、当前 Browser Session、Origin、Recipe/Step、目标域名和有效期后才投递 Action。
+4. Ticket 被使用、过期、用户接管、导航越界或 Session Sequence 变化后立即失效；不得跨设备、跨 Cloud 持久化或做成通用 JWT。
+
+Ticket 至少绑定：
+
+```text
+ticket_id
+operation_id / workflow_node_id
+approved_plan_hash
+active_lease_epoch
+provider_connection_id
+browser_session_id
+recipe_id / version / content_hash
+allowed_origins / actions / target_domains
+artifact_capabilities
+required_evidence_level
+issued_at / expires_at
+single_use_nonce
+host_authenticator
+```
+
+automation-host 只返回 Evidence/Observation；是否完成 Operation Node 仍由连接器的证据策略与 operations 模块决定。
 
 ## 6. 自动化 Recipe
 
@@ -158,8 +213,8 @@ Recipe 禁止：
 
 - Windows 优先使用独立 `data_directory`；macOS 14+ 使用独立 `data_store_identifier`。更低版本 macOS 的隔离能力必须通过 Phase 0 实测决定支持范围。
 - Cookie 只保存在本机，不同步到 GoodDealer 服务端。
-- 用户可以查看、退出和清除某个平台会话。
-- 清除连接时同时清除该平台 Cookie、缓存和临时文件。
+- 用户可以查看、退出和清除某个 ProviderConnection 的会话。
+- 清除连接时只清除该 `device_id + provider_connection_id + session_mode` Profile 的 Cookie、缓存和临时文件，不影响同平台其他账户。
 - 会话过期后状态变为 `waiting_user_login`，不尝试读取或保存用户密码。
 
 客户端无法可靠地对 WebView2/WKWebView 自身数据目录做应用层二次加密。持久 Cookie 的保护依赖 OS 用户隔离与底层浏览器实现，这是明确接受的残余风险；GoodDealer 不声称能抵御已经取得当前 OS 用户权限的恶意进程。
@@ -169,7 +224,7 @@ Recipe 禁止：
 - 持久会话（默认）：减少重复登录，关闭应用后 Cookie 仍保留。
 - 私密会话：使用 Incognito/非持久数据存储，关闭会话即清除；用户每次重新登录。
 
-用户可随时执行“忘记此平台”，调用 `clear_all_browsing_data` 并删除该连接的临时下载。连接平台时必须明显提供私密会话选项。
+用户可随时执行“忘记此连接/账户”，调用该 Profile 的 `clear_all_browsing_data` 并删除该连接的临时下载。连接平台时必须明显提供私密会话选项。
 
 ## 9. 弹窗、OAuth、下载与上传
 

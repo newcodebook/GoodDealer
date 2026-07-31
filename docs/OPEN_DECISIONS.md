@@ -1,7 +1,7 @@
 # GoodDealer 产品决策记录
 
 状态：Closed  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 以下产品决策已由产品负责人确认，并已转入正式需求与 ADR。
 
@@ -101,3 +101,24 @@ Public HTTP 与 Admin HTTP 首版采用 Fastify 的独立 Composition Root，Job
 2026-07-31 补充：首版只有一名管理员（Owner），Role/Scope 结构保留但仅签发 Owner 身份；跨账号访问业务数据不要求用户逐次授权，以 Scope + 理由/工单 + Staff AuditEvent 为控制；单管理员模式下不设多人审批，高风险操作以重新认证与审计控制。
 
 状态：Closed / Accepted by [ADR-0007](adr/0007-admin-boundary-and-interface-reuse.md)。
+
+## D-013 本地备份中的平台凭据
+
+决定：首版只维护一种版本化加密备份包，不增加独立 Credential Vault 文件格式。
+
+- “包含平台 API 凭据”为用户显式开关，默认关闭；允许迁移的 API/OAuth 凭据作为同一包内的独立加密区段，并在 Manifest 中逐项列明。
+- Browser Profile、Cookie、Local Storage、设备签名私钥、ApprovedOperation、AutomationExecutionTicket、GoodDealer Auth/Entitlement/OfflineDeviceLease/ActiveDeviceLease、数据库 Master Key 明文和 Recovery Secret 永不进入备份。
+- 恢复凭据时写入当前设备的新 Keychain 条目并重新健康检查，不恢复旧设备身份、批准、Lease 或执行权。
+
+状态：Closed / Accepted。
+
+## D-014 首版客服工单系统
+
+决定：首版不自建完整客服工单系统，接入外部 Helpdesk。
+
+- GoodDealer 内部只保存可信 CaseReference、账号关联、必要状态和 Staff AuditEvent，不复制外部工单的全部消息或附件。
+- Helpdesk 不接收平台 API Key、Cookie、Browser Profile、Recovery Secret、未脱敏诊断包或不必要的完整域名资产清单。
+- DataRightsRequest 与 SecurityIncident 仍由 GoodDealer 内部领域模块拥有，不能由外部 SupportCase 状态代替。
+- 首版单 Owner 的跨账号访问继续遵循 D-012：Scope、理由/CaseReference、重新认证与审计；不要求用户逐次授权，也不设置多人审批。
+
+状态：Closed / Accepted。

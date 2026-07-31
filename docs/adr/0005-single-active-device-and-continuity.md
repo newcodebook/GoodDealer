@@ -2,6 +2,7 @@
 
 状态：Accepted  
 日期：2026-07-31
+修订：2026-08-01（两阶段激活与旧 Epoch Ingest）
 
 ## 背景
 
@@ -16,10 +17,10 @@ GoodDealer 强制同步域名业务数据，但平台 API Key、Cookie 和 Brows
 - Standby 可以使用 Cloud Read-Only View 查看 GoodDealer Cloud 已有资产、状态、告警和任务进度，但不能产生 Mutation、读取外部平台、批准操作或执行任务。
 - 服务端为账号签发 `ActiveDeviceLease`，使用单调递增的 `lease_epoch` 隔离设备代际。
 - 活动设备获得最长 24 小时的签名离线执行许可。GoodDealer 云故障时可继续平台读写；许可到期后暂停新的平台访问。
-- 正常切换先停止领取任务、完成或隔离当前原子步骤、上传 Outbox 并释放 Lease，然后递增 Epoch 并激活新设备。
+- 正常切换先停止领取任务、完成或隔离当前原子步骤、上传 Outbox，并通过服务端排空验收后释放旧 Lease。新设备先取得绑定切换请求的短期只读 Bootstrap Capability；重建和摘要校验通过后，服务端才原子签发新 ActiveDeviceLease。
 - 旧设备不可达时，强制切换必须等待旧设备的 `offline_execute_until` 到期，不能立即给新设备并行写权限。
 - 不再为每个 Operation 申请云端执行租约。Worker 校验 ActiveDeviceLease、Epoch、本机签名 ApprovedOperation 和本地资源锁。
-- 旧 Epoch 的 Operation 结果和审计事件作为 `LateExecutionEvent` 追加保存；可变业务修改成为 `StaleDeviceCandidate`；备份差异成为 `RestoreCandidate`。后两者不能静默覆盖云端。
+- 旧 Epoch 的 Operation 结果和审计事件作为 `LateExecutionEvent` 追加保存；可变业务修改成为 `StaleDeviceCandidate`；备份差异成为 `RestoreCandidate`。仍绑定且授权有效的旧设备降级为 Standby，并通过独立窄化 Ingest 提交事实/候选；该通道不恢复执行权。后两者不能静默覆盖云端。
 - 只有活动设备读取平台；切换时同步非秘密限流摘要，避免新设备立即重复刷新。
 - GoodDealer 账号采用消费级安全：邮箱验证、安全密码哈希、限流、Refresh Token 轮换、会话/设备管理和可选 Passkey，不要求 TOTP 或强制 2FA。
 - License 过期后客户端完全锁定，但账号网页端继续提供服务端数据的合规导出、删除和安全管理。

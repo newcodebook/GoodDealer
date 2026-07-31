@@ -1,7 +1,7 @@
 # GoodDealer 数据生命周期与恢复
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 域名身份
 
@@ -42,11 +42,21 @@ status
 provider_connection_id
 device_id
 credential_ref
-browser_profile_ref
 credential_health
 ```
 
-`credential_ref` 和 `browser_profile_ref` 不得进入 Sync Mutation 或服务端数据库。
+设备本地的浏览器 Profile 由 browser-automation 独立拥有：
+
+```text
+BrowserSessionProfile
+  device_id
+  provider_connection_id
+  session_mode: persistent | private
+  profile_ref
+  session_health
+```
+
+`credential_ref`、`profile_ref` 和 `session_health` 不得进入 Sync Mutation 或服务端数据库。`BrowserSessionProfile` 以 `device_id + provider_connection_id + session_mode` 唯一，不能用 DeviceCredentialBinding 上的单数引用表达多种会话模式。
 
 平台配额的非秘密摘要随 `ProviderConnection` 同步，包括 `quota_scope: credential | provider_account | provider_global | unknown`、剩余配额、重置时间、`backoff_until` 和最近刷新时间。只有当前活动设备读取平台并更新摘要；切换后的设备必须先继承退避状态，不能立即重复全量刷新。摘要可能滞后，不能替代连接器本地的并发控制。
 
@@ -69,7 +79,31 @@ UI、操作计划、冲突和错误必须显示账户别名。例如：`Spaceshi
 
 首次设置必须引导用户打印、抄写或保存 Recovery Secret，并立即完成恢复校验。用户可以选择跳过，但 UI 必须明确提示：云端可以重建已同步业务数据，平台凭据、Cookie、本地诊断和未同步数据仍可能永久丢失。
 
-加密备份是完整本地恢复路径；备份口令与 Recovery Secret 相互独立。云端重建是业务数据恢复路径，但不能代替本地凭据和完整 Artifact 备份。
+加密备份是本地业务库、允许 Artifact 与用户可选平台凭据的恢复路径；它不承诺迁移 Browser Profile、设备身份或 GoodDealer 授权凭证。备份口令与 Recovery Secret 相互独立。云端重建是业务数据恢复路径，但不能代替设备本地凭据和允许的 Artifact 备份。
+
+### 3.1 Backup Content Manifest
+
+首版只维护一种版本化加密备份包，业务数据和可选凭据区段使用同一 Manifest，不增加独立 Credential Vault 格式。
+
+默认包含：
+
+- Active Workspace 的一致性快照、Schema/应用版本和 Server Revision。
+- 历史 Operation/Audit 摘要；恢复后只读，不重新入队。
+- 用户选择保留的本地 Artifact 索引及其内容 Hash。
+
+默认不包含、但可由用户显式开启“包含平台 API 凭据”的内容：
+
+- 连接器允许导出的 API Key、API Secret 或平台 OAuth 凭据。
+- 每个凭据项的 ProviderConnection、类型、导出时间和兼容平台；不保存 OS Keychain 元数据。
+
+永不包含：
+
+- Browser Profile、Cookie、Local Storage 和登录会话。
+- 设备签名私钥、ApprovedOperation、AutomationExecutionTicket。
+- GoodDealer Auth Session、Entitlement Token、OfflineDeviceLease、ActiveDeviceLease。
+- 数据库 Master Key 明文、Recovery Secret、备份口令或解密密钥。
+
+恢复时先展示 Manifest 和不可移植项。凭据只能写入当前设备的新 Keychain 条目，并重新执行健康检查；不得恢复旧设备身份、Lease、批准或执行权。
 
 ## 4. 快照保留
 

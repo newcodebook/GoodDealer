@@ -1,7 +1,7 @@
 # GoodDealer License 与商业授权
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 商业模式
 
@@ -40,7 +40,7 @@ GoodDealer Staff 通过独立 Admin API 查询和处理订单、退款、Entitle
 
 Desktop 的 cloud-client 不读取或持有这些 Token。它只构造不含原始 Token 的类型化账号/Cloud 请求，并通过 TypeScript Tauri Adapter 交给 Rust `secure-http`；Secure Host 校验 Endpoint Allowlist 后从 Keychain 注入短期 Access Token。登录、刷新、撤销和轮换属于 Host-owned Session Command，Rust 直接解析 Token-bearing Response 并保存，只向 TypeScript 返回脱敏 AuthSessionStatus。account-web 使用独立的同源 HttpOnly/SameSite Web Session，不复用 Desktop Token 存储。
 
-应用启动先进入 Account Gate。账号会话或 Offline Device Lease、设备绑定和 Entitlement 有效后，Standby 可以进入 Cloud Read-Only View；只有本机 ActiveDeviceLease 也有效时，Secure Host 才打开完整业务数据库、Outbox、连接器和 Worker。用户启用“记住此设备”后可静默恢复登录，不要求每次手输密码。
+应用启动先进入 Account Gate。在线时以可刷新 Auth Session 校验账号，离线时以有效 Offline Device Lease 校验账号；同时要求设备绑定和 Entitlement 有效，随后 Standby 可以进入 Cloud Read-Only View。只有本机 ActiveDeviceLease 也有效时，Secure Host 才打开完整业务数据库、Outbox、连接器和 Worker。普通 Access Token 到期只触发后台刷新，不单独导致 Locked。用户启用“记住此设备”后可静默恢复登录，不要求每次手输密码。
 
 服务端签发带数字签名的 Entitlement Token，客户端内置公钥并在本地验证。Token 至少包含：
 
@@ -102,13 +102,13 @@ signature
 - 重装系统或换机可由用户自助解绑。
 - Windows、macOS、iOS 和 Android 共享同一两设备额度与单活动设备规则。
 - 远程解绑在目标设备下次联网或 Offline Device Lease 到期时生效；不能声称对离线设备实时生效。
-- 正常切换要求旧设备暂停任务、上传 Outbox 并释放 ActiveDeviceLease；新设备取得递增的 `lease_epoch` 后进入主界面。
+- 正常切换要求旧设备暂停任务、上传 Outbox 并释放 ActiveDeviceLease；新设备先取得绑定切换请求的短期只读 Bootstrap Capability，完成重建和摘要校验后才取得递增 `lease_epoch` 的 ActiveDeviceLease 并进入可编辑主界面。
 - 旧设备不可达时允许强制切换，但必须等待旧设备的 24 小时 `offline_execute_until` 到期。
 - 绑定设备通过 Sync Service 交接业务数据；平台凭据仍按设备单独配置，详见 [ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md)。
 
 ## 7. 过期与锁定行为
 
-订阅过期且离线宽限结束、账号会话失效或设备被撤销时：
+出现以下任一权威失败时进入 Locked：Entitlement 过期且离线宽限结束；设备绑定被移除；Offline Device Lease 到期且在线刷新被权威拒绝；本地凭证/数据库完整性校验失败。普通 Access Token 到期、暂时无法刷新或账号服务短时不可用不单独触发 Locked。
 
 - 不打开业务数据库，不挂载主界面。
 - 只显示登录、续费、设备管理、网络诊断、语言和退出入口。

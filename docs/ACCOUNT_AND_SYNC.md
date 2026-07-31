@@ -1,7 +1,7 @@
 # GoodDealer 账号、设备与云同步
 
 状态：Accepted Design  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 设计结论
 
@@ -78,8 +78,23 @@ DeviceBinding
   platform
   device_name
   status: bound | removed
+  signing_public_key
+  signing_key_id
+  signing_key_version
+  signing_key_status: active | rotated | revoked
   bound_at
   last_seen_at
+
+DeviceSwitchRequest
+  request_id
+  account_id
+  from_device_id
+  to_device_id
+  mode: normal | forced
+  status: requested | draining | waiting_expiry | bootstrapping | completed | cancelled | failed
+  idempotency_key
+  requested_at
+  bootstrap_expires_at
 
 ActiveDeviceLease
   account_id
@@ -96,10 +111,12 @@ ActiveDeviceLease
 
 - 每个账号最多两个 `bound` 设备，所有桌面和移动平台共用额度。
 - 服务端同一账号只能存在一个当前 `lease_epoch` 和 `active_device_id`。
+- 同一账号最多存在一个未完成的 DeviceSwitchRequest 和一个与之绑定的短期 Bootstrap Capability；重复请求按幂等键返回原请求，禁止两台 Standby 竞争激活。
 - ActiveDeviceLease 使用服务端签名并保存在 OS Keychain/Credential Manager。
 - `offline_execute_until = issued_at + 24 小时`，在线续签时滚动延长。
 - Standby 只能获得 `account:manage` 和 `workspace:read`；不得获得 `workspace:mutate`、`platform:read`、`platform:write` 或 `operation:approve`。
 - Standby 可以使用可丢弃的只读缓存和 Reader Cursor，但不能创建 Outbox、Desired State、DeviceCredentialBinding 或 ApprovedOperation。
+- 旧 Epoch 设备降级为 Standby 后，可以通过独立的 `execution-facts:ingest` 与 `recovery-candidates:ingest` 通道上传本机已经持久化、可验签的 LateExecutionEvent 和旧修改候选；这两个 Scope 不属于 `workspace:mutate`，不能创建新的 Desired State 或平台副作用。
 - Standby 只读缓存使用 SQLCipher 或等效静态加密，独立缓存密钥保存在 OS Keychain/Credential Manager；设备此前作为 Active 配置的 DeviceCredentialBinding 可以继续加密保留，但 Standby 无权调用。
 - 设备激活要求应用版本支持当前 Workspace `schema_version`；不支持时禁止激活并提示先升级应用。
 - 第三台设备必须先移除旧设备后才能绑定。
@@ -108,12 +125,13 @@ ActiveDeviceLease
 
 ### 4.1 正常切换
 
-1. Standby 设备请求“切换到此设备”。
+1. Standby 设备以幂等键请求“切换到此设备”，服务端创建账号级互斥的 DeviceSwitchRequest。
 2. 当前活动设备收到切换请求，停止领取新任务。
 3. 当前原子请求完成或进入 `outcome_unknown`，随后上传 Outbox 和最新 Cursor。
 4. 当前设备请求释放 ActiveDeviceLease，并附带本机最后一个 `client_sequence`。
-5. 服务端核对已接收序列与设备申报一致（排空验收）后递增 `lease_epoch`，向新设备签发 ActiveDeviceLease；不一致时拒绝释放，要求继续上传。
-6. 新设备校验应用版本支持当前 Workspace `schema_version`，拉取最新 Revision、建立完整本地工作库并强制执行一轮一致性校验后进入可编辑主界面；原只读缓存不作为 Mutation 基线。
+5. 服务端核对已接收序列与设备申报一致（排空验收）后释放旧 ActiveDeviceLease、递增待激活 Epoch，并向目标设备签发绑定该 DeviceSwitchRequest 的短期只读 Bootstrap Capability；不一致时拒绝进入 Bootstrap，要求继续上传。
+6. 新设备校验应用版本支持当前 Workspace `schema_version`，使用 Bootstrap Capability 拉取最新 Revision、建立完整本地工作库并强制执行一轮一致性校验；原只读缓存不作为 Mutation 基线。
+7. 新设备提交摘要和支持的 Schema 版本，服务端核验后原子签发 ActiveDeviceLease 并完成 DeviceSwitchRequest；在此之前 Cloud 和 Rust Host 均不授予 Mutation、平台读取/写入或批准能力。
 
 ### 4.2 强制切换
 
@@ -122,8 +140,9 @@ ActiveDeviceLease
 - Standby 可以申请强制切换，但必须等旧 Lease 的 `offline_execute_until` 到期。
 - UI 显示最早可接管时间和旧设备最后在线时间。
 - 等待期间 Standby 仍可查看云端资产和风险告警；紧急情况提供平台官网手工处置入口，事后由新活动设备重新读取并对账。
-- 到期后服务端递增 `lease_epoch` 并签发新 Lease。
-- 旧设备重新连接时发现 Epoch 过期，立即停止 Worker、退出业务主界面并上传恢复摘要。
+- 到期后服务端递增待激活 Epoch，向目标设备签发短期只读 Bootstrap Capability；重建和摘要校验通过后才原子签发 ActiveDeviceLease。
+- 旧设备重新连接时发现 Epoch 过期，立即停止 Worker。若设备仍为 `bound` 且 License 有效则降级为 Standby；设备已移除、授权失效或完整性校验失败才进入 Locked。
+- 降级后的旧设备使用独立 Ingest 上传 LateExecutionEvent 和 StaleDeviceCandidate；上传不能恢复旧 Epoch 的执行权，也不能写当前 Workspace。
 
 外部域名平台不理解 GoodDealer Epoch，因此不能同时承诺旧设备无限离线执行和新设备立即安全接管。24 小时是已确认的可用性与切换速度折中。
 
@@ -261,8 +280,14 @@ DeviceCredentialBinding       # 仅客户端
   provider_connection_id
   device_id
   credential_ref
-  browser_profile_ref
   credential_health
+
+BrowserSessionProfile         # 仅客户端，由 browser-automation 拥有
+  device_id
+  provider_connection_id
+  session_mode: persistent | private
+  profile_ref
+  session_health
 
 ApprovedOperation             # 活动设备本机生成
   operation_id
@@ -365,12 +390,12 @@ LateExecutionEvent            # 旧 Epoch 既成执行事实
 
 ### 11.1 GoodDealer Staff 管理访问
 
-内部管理员使用独立 StaffIdentity 和 Admin API，不复用用户账号 Session。普通用户“不强制 2FA”的决定不适用于 Staff；正式环境 Staff 使用 Passkey 或企业 SSO，并按最小角色授权。
+内部管理员使用独立 StaffIdentity 和 Admin API，不复用用户账号 Session。普通用户“不强制 2FA”的决定不适用于 Staff；首版只有一名管理员（Owner），正式环境强制 Passkey。Role/Scope 结构保留但首版只签发 Owner 身份，未来增加 Staff 时再启用角色细分。
 
-- support 默认只能查看账号、设备、License 和健康摘要；读取跨账号域名业务明细需要额外 Scope、理由和工单标识。
-- operations 可以诊断 Mutation、Cursor、Checkpoint、Candidate、Execution Ledger 隔离区和 Jobs，但不能创建用户 Mutation 或代表用户访问平台。
-- finance 只访问订单、退款和 Entitlement 所需字段；security 处理 Staff Session、风险事件和审计。
-- 所有 Staff 查询和修改通过模块显式 Admin Application Port，记录 Staff actor 与前后摘要；不得直接访问业务 Repository 或把任意 SQL 暴露为后台功能。
+- Owner 默认查看账号、设备、License 和健康摘要；读取跨账号域名业务明细必须具备对应 Scope，并记录理由/外部工单 CaseReference 和 Staff AuditEvent，不要求用户逐次授权。
+- Owner 可以诊断 Mutation、Cursor、Checkpoint、Candidate、Execution Ledger 隔离区和 Jobs，但不能创建用户 Mutation 或代表用户访问平台。
+- 所有 Admin 查询和修改通过模块显式 Admin Application Port。高风险动作要求 Passkey 重新认证；异步动作持久化 actor、Scope 快照、理由/CaseReference、重新认证时间、幂等键和前后摘要。
+- 单 Owner 首版不做多人审批；目标模块仍拥有具体 Repair Command，禁止万能 Admin Command、直接业务 Repository 或任意 SQL。
 - Cloud 从未持有的平台凭据、Cookie、Browser Profile、数据库密钥和本地备份秘密对管理员同样不可见。
 
 ## 12. License 过期与合规入口
@@ -411,7 +436,8 @@ GoodDealer 承诺：如永久停止运营，将向终身用户及停服时订阅
 ## 15. 本地加密备份
 
 - 创建、导出、选择文件和恢复都由用户主动发起。
-- 备份包默认加密，可以由用户明确选择是否包含本地平台凭据。
+- 首版使用一种版本化加密备份包，不引入独立 Credential Vault 工件。用户可以通过默认关闭的“包含平台 API 凭据”开关，将允许迁移的 API/OAuth 凭据区段写入同一备份；Manifest 必须明确记录范围。
+- 永不包含项以 [D-013](OPEN_DECISIONS.md#d-013-本地备份中的平台凭据) 和 [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) 的 Backup Content Manifest 为单一事实源，包括 Browser Profile/Cookie/Local Storage、设备签名私钥、ApprovedOperation、AutomationExecutionTicket、GoodDealer Auth/Entitlement/OfflineDeviceLease/ActiveDeviceLease、数据库 Master Key 明文、Recovery Secret、备份口令/解密密钥；OS Keychain 元数据不随凭据迁移。
 - 导出路径由系统文件选择器决定，用户自行保管文件。
 - GoodDealer 不集成第三方远程备份服务。
 - 云同步不能替代备份；误删除可能同步到所有设备。

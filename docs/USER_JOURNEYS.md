@@ -1,7 +1,7 @@
 # GoodDealer 用户旅程审理基线
 
 状态：Review Baseline / Open Findings  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 目的与适用范围
 
@@ -21,6 +21,7 @@
 - `Missing`：缺少入口、权威状态机、执行协议或明确完成条件。
 - `Decision Required`：实现方式取决于尚未确认的产品、安全或运营选择。
 - `Open Finding`：审查发现，尚未写入正式专题文档或 ADR，不代表方案已被接受。
+- `Design Resolved / Gate`：权威设计已经落档，仍需在标注 Phase 通过原型或 E2E Gate 才算实现完成。
 
 ## 2. 系统性审理方法
 
@@ -91,7 +92,7 @@
 | J-05 | 双设备/移动端用户 | Standby 查询、正常或强制切换、凭据准备和离线接管 | Desktop/Mobile Standby、Activating、Active | Partial |
 | J-06 | 月付、年付、终身及过期用户 | 购买、授权、续签、离线、退款/过期、续费恢复和停服延续 | account-web、Desktop Gate | Partial |
 | J-07 | 故障与恢复用户 | 崩溃恢复、Keychain 恢复、备份恢复、升级迁移、设备遗失和 Sunset 导入 | Desktop Recovery/Activating/LocalContinuation | Partial |
-| J-08 | Support、Operations、Finance、Security、合规人员 | 在最小权限下诊断、审批、执行受控管理动作并关闭案件 | admin-web、Admin HTTP、Jobs | Missing |
+| J-08 | 首版 Owner；未来 Staff 角色 | 在最小权限下诊断、执行受控管理动作并关闭案件 | admin-web、Admin HTTP、Jobs | Partial |
 | J-09 | 求助、合规或安全事件中的用户 | 身份核验、授权支持、导出/删除、被盗/接管遏制和争议处理 | account-web、Help、admin-web | Missing |
 | J-10 | Cloud Ops、发布负责人、连接器/Recipe 维护者 | 安全部署、迁移、运行 Jobs、恢复事故、发布和撤销连接器能力 | CI/CD、Admin、Jobs、Runbooks | Missing |
 
@@ -141,13 +142,15 @@
 
 ### J-08 内部管理员
 
-主链：Staff 强认证 → 建立 StaffSession 和 Scope → 进入 Case/Incident 上下文 → 获得限时 StaffAccessGrant → 只读诊断 → dry-run → 重新认证/独立审批 → 持久化 AdministrativeActionContext → 异步执行 → 通知 → 结案并撤销临时授权 → 审计复核。
+主链：Owner 使用 Passkey 强认证 → 建立 StaffSession 和 Scope → 绑定外部 CaseReference/内部 Incident → 只读诊断 → Repair dry-run → 高风险动作重新认证 → 持久化 AdminActionAuthorization/AdministrativeActionContext → 异步执行 → 通知 → 结案 → 审计复核。
+
+首版不建设多角色协作和多人审批；Role/Scope 保留为结构约束，只签发 Owner 身份。未来增加 Staff 时再启用细分角色、职责分离与审批流。
 
 管理员不能获取平台秘密、冒充用户、创建用户 ApprovedOperation、直接修改 Desired State 或把隔离事件手工标记为成功。
 
 ### J-09 Support、合规和安全事件
 
-主链：用户或系统建立 SupportCase、DataRightsRequest 或 SecurityIncident → 身份核验 → 分流 → 目的限定访问 → 处置/导出/删除/证据保全 → 通知与投递确认 → 用户确认或申诉 → 关闭并撤销临时授权。
+主链：用户通过外部 Helpdesk 建立 SupportCase，或系统建立 DataRightsRequest/SecurityIncident → 身份核验 → 保存可信 CaseReference 并分流 → Owner 按 Scope/理由进入目的限定上下文 → 处置/导出/删除/证据保全 → 通知与投递确认 → 用户确认或申诉 → 关闭并完成审计。
 
 三类案件可以互相关联，但不能共用万能状态机；关闭 SupportCase 不得提前终止合规或安全义务。
 
@@ -164,35 +167,35 @@
 | Finding | 根因 | 影响旅程 | 级别 | 类型 | 建议唯一所有者 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | JF-01 | Workspace Bootstrap 与首设备激活没有原子、幂等且可恢复的协议 | J-01、J-05、J-06、J-07 | J1 | 设计补全 | Cloud `identity/devices/workspace` 的 Bootstrap Application Service | Open Finding |
-| JF-02 | Activating 过早取得 ActiveDeviceLease；DeviceBinding 又缺可信签名密钥生命周期 | J-01、J-05、J-07 | J0 | 设计补全 | Cloud `devices` + `secure-host-core/device-identity` | Open Finding |
+| JF-02 | Activating 过早取得 ActiveDeviceLease；DeviceBinding 又缺可信签名密钥生命周期 | J-01、J-05、J-07 | J0 | 设计补全 | Cloud `devices` + `secure-host-core/device-identity` | Design Resolved / Phase 0 Gate |
 | JF-03 | ProviderConnection 建立、凭据输入、健康检查和浏览器登录同意没有统一状态机 | J-01、J-03、J-05 | J1 | 设计补全 | `client-core/connections` | Open Finding |
-| JF-04 | 用户批准无法在浏览器自动化的 Rust 执行边界被强制证明 | J-03、J-04 | J0 | 设计补全 | `secure-host-core/operation-signing` 签发 Ticket，`automation-host` 验证 | Open Finding |
-| JF-05 | 批量选择不稳定，计划批准后缺少失效与重新规划协议 | J-02、J-03、J-04 | J1 | 设计补全 | `client-core/operations` Planner | Open Finding |
-| JF-06 | Operation、Attempt、副作用提交边界、证据和崩溃恢复没有一套权威状态机 | J-02、J-03、J-04、J-06、J-07、J-09 | J0 | 设计补全 | `client-core/operations` + active-workspace operations Repository | Open Finding |
-| JF-07 | RuntimeMode 把设备交接、普通暂停/退出和恢复准入混为一类 | J-02、J-05、J-06、J-07 | J1 | 设计补全 | `secure-host-core/runtime-gate` | Open Finding |
+| JF-04 | 用户批准无法在浏览器自动化的 Rust 执行边界被强制证明 | J-03、J-04 | J0 | 设计补全 | `secure-host-core/operation-signing` 签发 Ticket，`automation-host` 验证 | Design Resolved / Phase 0 Gate |
+| JF-05 | 批量选择不稳定，计划批准后缺少失效与重新规划协议 | J-02、J-03、J-04 | J1 | 设计补全 | `client-core/operations` Planner | Design Resolved / Phase 2 Gate |
+| JF-06 | Operation、Attempt、副作用提交边界、证据和崩溃恢复没有一套权威状态机 | J-02、J-03、J-04、J-06、J-07、J-09 | J0 | 设计补全 | `client-core/operations` + active-workspace operations Repository | Design Resolved / Phase 2 Gate |
+| JF-07 | RuntimeMode 把设备交接、普通暂停/退出和恢复准入混为一类 | J-02、J-05、J-06、J-07 | J1 | 设计补全 | `secure-host-core/runtime-gate` | Design Resolved / Phase 0 Gate |
 | JF-08 | 首次导入/平台刷新缺少基线初始化、完整性、新鲜度与所有权证据规则 | J-01、J-02、J-03、J-05 | J1 | 设计补全 | `client-core/sync` | Open Finding |
-| JF-09 | Verification 没有权威聚合；DNS 委派识别、RRset 条件写和秘密 Sync Projection 未闭合 | J-03 | J0 | 设计补全 | `client-core/verification` 编排，`dns/registration/operations` 执行 | Open Finding |
+| JF-09 | Verification 没有权威聚合；DNS 委派识别、RRset 条件写和秘密 Sync Projection 未闭合 | J-03 | J0 | 设计补全 | `client-core/verification` 编排，`dns/registration/operations` 执行 | Design Resolved / Phase 3 Gate |
 | JF-10 | 售出发现、紧急事件和逐次批准之间没有统一产品语义 | J-02、J-04、J-05 | J1 | 产品决策 + 设计 | `client-core/marketplace` 的 SaleSignal 与 `operations` Incident 编排 | Decision Required |
 | JF-11 | 支付、订阅、Entitlement、账号安全 Epoch、删除和续费恢复只是规则集合，不是权威生命周期 | J-01、J-05、J-06、J-09 | J1 | 设计补全 | Cloud `licensing/identity/compliance` 的分立聚合与编排服务 | Open Finding |
 | JF-12 | 备份内容、离线灾难快照、Keychain 全丢、更新回退和 Sunset 导入缺少统一恢复契约 | J-05、J-06、J-07 | J1 | 产品决策 + 设计 | `client-core/recovery` + `local-storage/backup/migrations` | Decision Required |
-| JF-13 | SupportCase、DataRightsRequest、SecurityIncident 和 StaffAccessGrant 没有权威实体与关闭语义 | J-08、J-09 | J1 | 设计补全 + 政策参数 | Cloud `support/compliance/security-incidents/admin-access` | Open Finding |
-| JF-14 | Staff Role×Scope×Action、身份生命周期和异步 AdministrativeActionContext 不完整 | J-08、J-09、J-10 | J0 | 设计补全 + 政策参数 | Cloud `admin-access` | Open Finding |
-| JF-15 | Cloud Job 缺少 Lease、幂等、Tenant Context、隔离和安全重放协议 | J-06、J-08、J-09、J-10 | J0 | 设计补全 | 窄 `job-runtime` 基础设施 + 各业务模块拥有 Payload/结果 | Open Finding |
+| JF-13 | 外部 Support CaseReference、DataRightsRequest、SecurityIncident 和内部关闭语义没有闭环 | J-08、J-09 | J1 | 设计补全 + 政策参数 | Cloud `compliance/security-incidents/admin-access` + Helpdesk Adapter | Open Finding |
+| JF-14 | 单 Owner 的 AdminActionAuthorization、身份恢复和异步 AdministrativeActionContext 尚未完整定义 | J-08、J-09、J-10 | J1 | 设计补全 + 政策参数 | Cloud `admin-access` | Partially Resolved / Phase 4 Gate |
+| JF-15 | Cloud Job 缺少 Lease、幂等、TenantContext、隔离和安全重放协议 | J-06、J-08、J-09、J-10 | J0 | 设计补全 | 窄 `job-runtime` 基础设施 + 各业务模块拥有 Payload/结果 | Design Resolved / Phase 0 Gate |
 | JF-16 | Migration、Checkpoint 压缩、可观测性、灾备、密钥轮换和事故 Runbook 缺少运营事实源 | J-06、J-08、J-09、J-10 | J2 | 运营设计 + 产品指标 | Cloud 各业务模块 + 独立 Platform/Operations 责任 | Open Finding |
 | JF-17 | 连接器/Recipe 的灰度、撤销、双引擎持续门禁、Feature Policy 和退役流程未定义 | J-03、J-04、J-10 | J1 | 设计补全 + 平台政策 | Connector/Recipe Release Pipeline | Open Finding |
 
-### 5.1 已确认的文档内部冲突
+### 5.1 文档内部冲突处理状态
 
-以下是同一设计在不同文档中给出不同答案的情况，无需新增产品方向即可先统一语义：
-
-- Activating 已取得 ActiveDeviceLease，但准入矩阵又只允许基线重建；应改为只读 Bootstrap Capability 完成后再签发 ActiveDeviceLease。
-- `Active → Draining` 同时表示普通退出/暂停和设备交接；前者只尽力冲刷，后者必须经过云端排空验收。
-- 旧 Epoch 设备重连一处要求退出主界面，另一处要求降级只读；应统一为仍绑定且 License 有效则 Standby，否则 Locked。
-- Browser Profile 一处写“每个平台独立”，多账户模型则绑定到 ProviderConnection；应按 `device_id + provider_connection_id + session_mode` 隔离。
-- 登录辅助 Grant 强制要求 Operation Plan 和目标域名，无法覆盖首次获取 API Key；应将 `BrowserSessionConsent` 与业务 `BrowserAutomationGrant` 分离。
-- “Auth Session 失效即锁定”与有效 OfflineDeviceLease 可以离线进入互相冲突；普通 Access Token 到期不应单独触发 Locked。
-- “完整本地备份可迁移凭据”与平台凭据、设备签名密钥、Browser Profile 的范围/可移植性尚未定义互相冲突。
-- Staff 明细访问的两处表述已于 2026-07-31 按 D-012 补充统一：单管理员（Owner）模式，不要求用户逐次授权，跨账号业务数据访问以 Scope + 理由/工单 + Staff AuditEvent 为控制（已解决）。
+| 冲突 | 最终语义 | 状态 |
+| --- | --- | --- |
+| Activating 与 ActiveDeviceLease 时序 | 账号级互斥 Bootstrap Capability 完成重建/摘要校验后才签发 ActiveDeviceLease | Resolved |
+| Draining 同时表示交接与普通暂停 | 保留一个 `Draining(reason: handoff \| suspend)`；权限相同、退出条件分叉 | Resolved |
+| 旧 Epoch 重连进入 Locked 还是 Standby | 仍绑定且 License 有效则 Standby，否则 Locked；事实/候选使用独立 Ingest | Resolved |
+| Browser Profile 只按平台隔离 | 改为 `device_id + provider_connection_id + session_mode` | Resolved |
+| 登录辅助与业务 Grant 混用 | 分离 BrowserSessionConsent 与 BrowserAutomationGrant | Resolved |
+| Auth Session 失效即 Locked | Access Token 到期只刷新；仅权威授权/绑定/完整性失败触发 Locked | Resolved |
+| 备份凭据与不可移植内容不清 | 单一版本化备份包 + 默认关闭的凭据开关 + 永不包含清单 | Resolved by D-013 |
+| Staff 明细访问规则冲突 | 单 Owner，不要求用户逐次授权；Scope + 理由/CaseReference + 重新认证 + Audit | Resolved by D-012 |
 
 ## 6. 高优先级根因的最低闭环
 
@@ -201,6 +204,7 @@
 最低协议应保证：
 
 - 空账号的 Workspace、Revision 0、首个 DeviceBinding、初始 Epoch 和激活流程可由同一个幂等请求创建或安全重试。
+- 同一账号最多存在一个未完成的 DeviceSwitchRequest/Bootstrap Capability，并绑定目标设备与幂等键；并发 Standby 不能竞争激活。
 - 短期、单用途的 Bootstrap Capability 只允许下载 Checkpoint、重建、迁移和摘要校验，不授予 Mutation、平台访问或批准权限；首版无需再建立一种长期续签 Lease。
 - 校验通过后，Cloud 原子签发 `ActiveDeviceLease`；失败或超时可重试，不遗留“服务端认为 Active、本地尚未就绪”的幽灵设备。
 - DeviceBinding 保存可验证签名公钥、`key_id`、版本、轮换、撤销和 Tombstone；私钥只在设备 Secure Host。
@@ -210,7 +214,7 @@
 最低协议应保证：
 
 - `BulkSelectionSpec` 绑定查询条件、`query_snapshot_revision`、排除项和 `selection_hash`；Planner 在批准前固化实体 ID。
-- Observed State、权限、连接器 Capability、ProviderConnection、资源版本或数据新鲜度变化后，计划进入 `needs_replan`，不得沿用旧批准。
+- 只有计划实际读取/修改的字段、目标资源前置条件、影响动作语义的 Capability/Recipe 或声明的新鲜度阈值发生变化时，受影响项才进入 `needs_replan`；无关字段刷新只提示。
 - ApprovedOperation 绑定实体集合、计划 Hash、设备、Epoch、期限和连接器版本。
 - 浏览器执行时由本地存储原子消费 Grant/批准，Secure Host 签发短期一次性 `AutomationExecutionTicket`，automation-host 只接受该 Ticket。它是本机防重放 Capability，不是跨设备或跨 Cloud 的通用 JWT。
 
@@ -235,7 +239,7 @@ prepared
 
 最低协议应保证：
 
-- 设备交接使用 `DrainingForHandoff` 或明确的交接原因；普通退出/休眠使用 `SuspendingActive/LocalPause`，只尽力冲刷，不要求 Cloud 排空验收。
+- 保留一个 `Draining(reason: handoff | suspend)`：两种原因权限相同，均不领新任务并只完成当前原子步骤；`handoff` 必须 Cloud 排空验收，`suspend` 只尽力冲刷且失败不阻塞退出。
 - Cloud Lease/Scope 是远端授权，Rust `runtime-gate` 是本机命令准入，两者分别校验且不能互相代替。
 - 创建/检查备份、恢复秘密、恢复业务数据、Schema Migration、崩溃对账和 LocalContinuation 均进入命令准入矩阵。
 - 启动恢复扫描、Outbox 上传和结果未知对账完成前，不开放领取新任务。
@@ -254,10 +258,10 @@ prepared
 
 最低协议应保证：
 
-- SupportCase、DataRightsRequest 与 SecurityIncident 分立建模，只共享 CaseReference 等基础协议；若首版使用外部 Helpdesk，内部至少保存可信 Case Reference、AccessGrant 和审计关联，不必自建完整客服系统。
-- StaffAccessGrant 绑定目的、账号、Scope、用户同意或紧急依据、审批人、起止时间和撤销时间。
-- 异步 Repair/Job 持久化 Staff actor、Scope 快照、工单、重新认证时间、审批、幂等键、目标 Revision 和前后摘要。`admin-access` 只签发授权上下文，具体 Repair Command 仍由目标业务模块拥有，禁止万能 Admin Command。
-- 工单关闭自动撤销相关临时访问和 Artifact 权限，但不删除审计，也不关闭独立合规/安全义务。
+- 首版 SupportCase 使用外部 Helpdesk；GoodDealer 内部只保存可信 CaseReference、账号关联和审计，不同步平台秘密或不必要的资产明细。
+- 单 Owner 跨账号访问不要求用户逐次授权或多人审批，但必须绑定 Scope、理由/CaseReference、重新认证新鲜度和 Staff AuditEvent。
+- 异步 Repair/Job 持久化 Owner actor、Scope 快照、CaseReference、重新认证时间、幂等键、目标 Revision 和前后摘要。`admin-access` 只签发授权上下文，具体 Repair Command 仍由目标业务模块拥有，禁止万能 Admin Command。
+- 外部工单关闭不删除审计，也不关闭独立 DataRightsRequest/SecurityIncident；临时 Artifact 权限必须按内部生命周期到期。
 - 被盗设备处置明确显示离线许可残余窗口，并引导用户在各平台撤销设备持有的 API/OAuth/浏览器会话。
 
 ### 6.7 Cloud Job 与租户上下文
@@ -269,22 +273,20 @@ prepared
 - 管理员跨租户入口与普通业务入口分离；Public Session、错误 Staff Scope 或不匹配的 Tenant Context 在模块 Port 前被拒绝。
 - Job 版本升级保留旧 Payload 解码策略；毒任务进入 Quarantine，人工重放仍使用原幂等键和授权上下文。
 
-## 7. 需要产品负责人确认的事项
+## 7. 产品决策状态
 
-以下问题不能由实现者自行选择：
-
-| Decision | 问题 | 推荐默认方向 | 影响 |
+| Decision | 问题 | 当前方向 | 状态/门槛 |
 | --- | --- | --- | --- |
-| JD-01 | 首版“紧急下架”是否承诺无人值守发现和执行 | 首版只承诺应用运行且平台可读取时发现；自动生成 P0 计划仍需批准。无人值守 Standing Emergency Policy/Relay 独立立项 | J-04、定价与责任边界 |
-| JD-02 | Cloud 故障时能否创建未冲刷的灾难备份 | 同时提供 Synchronized Backup 与明确标识的 Emergency Local Snapshot；后者恢复时只生成 Candidate，不回放旧 Outbox | J-07 |
-| JD-03 | 突发停服如何兑现终身授权 | 在销售终身 License 前确定 Recovery Kit/签名材料的离线受托或等效方案，并做无生产服务演练 | J-06、J-07、J-10 |
-| JD-04 | Staff 在用户无法授权时能否 Break Glass 读取业务明细 | 默认禁止；仅 SecurityIncident/法定义务可限时、双审批、事后通知，Support 不得使用 | J-08、J-09 |
-| JD-05 | 合规删除冷静期、证据保留例外和下载保留时长 | 由目标市场法律与支付/安全需求分别制定，不用一个全局数字覆盖所有对象 | J-09、J-10 |
-| JD-06 | 正式销售前的 RPO、RTO、SLO 和旧备份支持窗口 | 在 Phase 4 前形成可公开/可运营的目标；不要由代码默认值反向形成承诺 | J-07、J-10 |
-| JD-07 | 移动端未来是否允许远程批准 | 维持现有 D-011：Standby 只审阅；RemoteApprovalToken 等真实需求出现后另立决策 | J-05 |
-| JD-08 | 本地备份是否包含平台 API Key 等设备秘密 | 默认业务备份不含秘密；如确有迁移需求，使用用户显式选择的独立 Credential Vault。Browser Profile、设备签名私钥和 Auth/Lease 永不迁移 | J-05、J-07 |
-| JD-09 | 支付失败宽限、部分退款、升降级、拒付和 Lifetime 退款规则 | 在接入支付商前形成商业状态表；Provider Payment Event 是支付事实，AccountEntitlement 是派生结果 | J-01、J-06、J-08 |
-| JD-10 | 首版 SupportCase 自建还是接入外部 Helpdesk | 优先评估外部 Helpdesk；无论选择哪种，GoodDealer 内部必须保留可信 Case Reference、StaffAccessGrant 和审计关联 | J-08、J-09 |
+| JD-01 | 首版“紧急下架”是否承诺无人值守发现和执行 | 首版只承诺应用运行且平台可读取时发现；自动生成 P0 计划仍需批准。无人值守 Standing Emergency Policy/Relay 独立立项 | Open / Phase 3 前确认 |
+| JD-02 | Cloud 故障时能否创建未冲刷的灾难备份 | 同时提供 Synchronized Backup 与明确标识的 Emergency Local Snapshot；后者恢复时只生成 Candidate，不回放旧 Outbox | Open / Phase 1 前确认 |
+| JD-03 | 突发停服如何兑现终身授权 | Sunset Key 离线硬件保存、商业条款披露和无生产服务演练为务实底线；是否外部托管另议 | Open / 仅阻塞 Phase 4 终身 SKU 开售 |
+| JD-04 | Staff 在用户无法授权时能否 Break Glass | D-012 已决定首版单 Owner、跨账号不要求用户逐次授权，不存在独立 Break Glass 通道；使用 Scope + 理由/CaseReference + 重新认证 + Audit | Resolved by D-012 |
+| JD-05 | 合规删除冷静期、证据保留例外和下载保留时长 | 由目标市场法律与支付/安全需求分别制定，不用一个全局数字覆盖所有对象 | Open / Phase 4 前确认 |
+| JD-06 | 正式销售前的 RPO、RTO、SLO 和旧备份支持窗口 | 在 Phase 4 前形成可公开/可运营目标，不由代码默认值反向形成承诺 | Open / Phase 4 前确认 |
+| JD-07 | 移动端是否允许远程批准 | Standby 只审阅；RemoteApprovalToken 有真实需求后另立决策 | Resolved by D-011 |
+| JD-08 | 本地备份是否包含平台 API Key 等设备秘密 | 单一备份包；凭据开关默认关闭；Browser Profile、设备私钥、Auth/Lease 等永不包含 | Resolved by D-013 |
+| JD-09 | 支付失败宽限、部分退款、升降级、拒付和 Lifetime 退款规则 | Provider Payment Event 是支付事实，AccountEntitlement 是派生结果；具体商业状态表待定 | Open / 支付接入前确认 |
+| JD-10 | 首版 SupportCase 自建还是接入外部 Helpdesk | 首版接入外部 Helpdesk；内部只保留可信 CaseReference、账号关联和审计 | Resolved by D-014 |
 
 ## 8. 最小端到端验收矩阵
 
@@ -322,7 +324,7 @@ prepared
 
 ### 8.5 Staff、合规和云端运营
 
-21. Support 无 StaffAccessGrant 不能读取 Workspace 明细；Finance 不能读取域名；super-admin 不能自批或绕过模块 Port。
+21. Owner 缺少目标 Scope、理由/CaseReference 或有效重新认证时不能读取 Workspace 明细或执行高风险动作；Public Session、错误 TenantContext 和绕过模块 Port 的请求均被拒绝。
 22. 被盗设备事件能撤销在线 Session、冻结破坏性账号动作、显示剩余离线窗口并生成平台凭据撤销清单。
 23. 导出、删除和安全事件分别完成身份核验、异步执行、通知、部分失败、证据保留和最终回执。
 24. Public/Admin/Jobs 联合部署经过 Migration、旧新版本并存、失败前滚/回滚和租户隔离检查。

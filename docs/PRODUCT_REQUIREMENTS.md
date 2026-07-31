@@ -1,7 +1,7 @@
 # GoodDealer 产品需求
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 产品定位
 
@@ -86,7 +86,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - 使用独立 Admin Web 管理用户账号、设备绑定、License、订单、会话和合规请求。
 - 查看 ActiveDeviceLease、Mutation、Cursor、Checkpoint、Candidate、LateExecutionEvent 隔离区和异步作业健康状态。
 - 管理客户端版本通道、Sunset 元数据、连接器政策与功能开关。
-- Staff 使用独立身份、Passkey/企业 SSO、最小角色 Scope 和完整操作审计，不复用用户账号 Session。
+- 首版 Owner 使用独立 StaffIdentity 和强制 Passkey；Role/Scope 结构保留但只签发 Owner 身份，未来增加 Staff 时再启用细分角色，不复用用户账号 Session。
 - 管理员不能读取平台凭据、Cookie、Browser Profile、本地数据库密钥或备份秘密，不能直接修改用户 Desired State，也不能代表用户访问域名平台。
 - 后台操作必须调用对应模块的受控管理 Port；不提供任意 SQL、直接 Repository 编辑或“把任务改为成功”的入口。
 
@@ -149,7 +149,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - TXT 验证不会破坏现有解析。
 - 不支持自动操作的平台会产生明确、可完成的人工任务。
 - GoodDealer 服务端数据库中不存在平台 API 密钥、OAuth Token、Cookie、Auth Code 或 Recovery Secret。
-- 管理员后台不能获得平台秘密、直接写用户业务表或触发平台副作用；所有 Staff 操作可追溯。
+- 管理员后台不能获得平台秘密、直接写用户业务表或触发平台副作用；所有 Owner/Admin 操作可追溯。
 - Standby 可以查看服务端业务数据，但不能修改或执行；切换为活动设备后，未重新配置本地凭据前仍不能执行对应平台操作。
 
 ## 7. 账号、授权与多设备

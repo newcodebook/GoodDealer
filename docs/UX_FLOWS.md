@@ -1,7 +1,7 @@
 # GoodDealer 核心 UX 流程
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 批量差异预览
 
@@ -70,6 +70,8 @@ Cloudflare / DNS-A / 新增 TXT / 17
 
 ## 5. 浏览器自动化交接
 
+连接建立与业务执行使用不同提示：首次登录/获取 API Key 显示 BrowserSessionConsent，只说明 ProviderConnection、官方 Host、用途、会话模式和到期时间，不要求选择域名或生成 Operation Plan；此时软件不获得业务填写、上传或提交权限。真正执行平台操作时才展示差异计划并创建 BrowserAutomationGrant。
+
 Remote Browser 窗口持续显示：
 
 - 当前平台、账户和允许 Host。
@@ -94,7 +96,7 @@ Remote Browser 窗口持续显示：
 ### 正常切换
 
 - Standby 点击“切换到此设备”后，显示旧设备停止任务、完成当前原子步骤、上传 Outbox 和释放权限的进度。
-- 新设备取得新 Epoch 并拉取最新 Revision 后才进入主界面。
+- 旧设备排空后，新设备先进入“正在安全激活”：使用只读 Bootstrap Capability 拉取最新 Revision、重建工作库并校验摘要；校验通过、服务端签发新 ActiveDeviceLease 后才进入可编辑主界面。
 - 尚未执行的 ApprovedOperation 不跨设备迁移；新设备需要重新读取、预览和确认。
 
 ### 强制切换
@@ -105,7 +107,7 @@ Remote Browser 窗口持续显示：
 - 若等待期间出现已售域名下架等紧急情况，显示受影响域名、平台和账户，提供“打开平台官网手工处理”和复制域名清单。
 - 人工入口使用系统浏览器或无自动化权限的纯人工窗口；不得由 Standby 自动提交，也不得仅凭用户点击“已处理”把任务标记成功。
 - 界面说明手工变更会在新活动设备接管后通过平台读取识别为外部修改并完成对账。
-- 旧设备以后联网时发现 Epoch 过期，立即停止后台任务并锁回账号页。
+- 旧设备以后联网时发现 Epoch 过期，立即停止后台任务；仍绑定且 License 有效时降级到 Cloud Read-Only View，并上传旧 Epoch 已持久化事实/候选；已移除或授权失效才锁回账号页。
 
 ### 云同步与本地凭据
 
@@ -135,6 +137,7 @@ Remote Browser 窗口持续显示：
 
 - 所有创建、导出和恢复操作均由用户点击触发。
 - 导出前显示备份范围、来源设备、Schema、加密状态和目标文件位置。
+- “包含平台 API 凭据”默认关闭；打开时逐项列出将包含的 ProviderConnection。界面按 [D-013](OPEN_DECISIONS.md#d-013-本地备份中的平台凭据) 的完整永不包含清单展示摘要和详情，不得省略 ApprovedOperation、AutomationExecutionTicket 或 Recovery Secret 等不可移植项。
 - 恢复前创建本地恢复点，并说明云端当前数据为基线、备份差异会进入恢复中心而不会直接覆盖。
 
 ### 账号网页端
@@ -156,3 +159,12 @@ Remote Browser 窗口持续显示：
 - 域名价格使用十进制定点数和 ISO 4217 币种，不使用浮点数。
 - 日期、数字和时区按 Locale 展示，数据库保存 UTC。
 - 平台原始错误保留原文，同时提供本地化解释。
+
+## 8. 首版 Owner 管理后台
+
+- Owner 使用独立 Admin Web 和 Passkey 登录，不复用普通用户 Session。
+- 进入账号详情后顶部固定显示目标账号、Tenant、当前 Scope 和外部 Helpdesk CaseReference，防止多标签页误操作。
+- 跨账号业务明细不要求用户逐次授权，但没有 Scope、理由/CaseReference 或有效重新认证时拒绝访问。
+- Repair Command 先显示 dry-run、目标 Revision 和前后摘要；高风险动作要求再次 Passkey 确认。
+- 异步动作显示 Job ID、幂等键、进度、是否可取消、Quarantine 和最终摘要；Owner 不能编辑 Payload 后重放为同一个 Job。
+- 首版不展示 Support/Operations/Finance/Security 角色切换或多人审批；未来增加 Staff 后再扩展。

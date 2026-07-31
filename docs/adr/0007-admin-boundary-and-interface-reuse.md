@@ -2,6 +2,7 @@
 
 状态：Accepted  
 日期：2026-07-31
+修订：2026-08-01（首版单 Owner 与外部 CaseReference）
 
 ## 背景
 
@@ -19,8 +20,11 @@ Cloud 首版是运行在 Node.js LTS、以 PostgreSQL 事务为正确性来源�
 - 新增 `apps/cloud/src/entrypoints/admin-http.ts`，作为独立 Admin API Composition Root；可以与 Public API 共用构建产物和业务模块，但可独立进程/端口部署。
 - 新增 Cloud `admin-access` 模块，拥有 StaffIdentity、StaffSession、Role/Scope 和管理授权判定，不复用客户账号 Session。
 - 正式环境 Staff 登录要求 Passkey 或企业 SSO。客户账号“不强制 2FA”的产品决定不适用于内部管理员。
+- 首版只有一名管理员（Owner）并强制 Passkey；Role/Scope 结构保留但只签发 Owner 身份。首版不做多角色职责分离或多人审批，未来增加 Staff 时重新启用。
 - Admin API 只能调用业务模块显式公开的 Admin Application Port，不得直接注入 Repository、共享 ORM Entity 或执行跨模块 SQL。
 - 所有管理操作记录 Staff actor、Scope、原因、工单标识和前后摘要；AuditEvent 由 Cloud `audit` 模块拥有。
+- 首版 SupportCase 使用外部 Helpdesk，GoodDealer 只保存可信 CaseReference、账号关联和必要审计；跨账号访问不要求用户逐次授权，但必须有 Scope、理由/CaseReference，高风险动作还要求 Passkey 重新认证。
+- 异步管理动作持久化 Owner actor、Scope 快照、CaseReference、重新认证时间、幂等键、目标 Revision 和前后摘要；`admin-access` 只授权，具体 Repair Command 由目标业务模块拥有。
 - 管理员不能获取平台 API Key、Cookie、Browser Profile、本地数据库密钥或备份秘密，不能创建用户 Desired State、SyncMutation、ApprovedOperation，也不能代表用户访问域名平台。
 - 云端元数据修复必须使用模块拥有的受控 Repair Command，不能把数据库管理工具包装成产品功能。
 

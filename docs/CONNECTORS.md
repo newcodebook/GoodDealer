@@ -1,7 +1,7 @@
 # GoodDealer 连接器规范
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 目标
 
@@ -28,6 +28,10 @@ interface ProviderHealthCheck {}
 ```
 
 不得要求一个连接器实现全部接口。
+
+`DnsWriter` 必须声明写入粒度（单 record 或整个 RRset）、是否支持条件写以及可用的 ETag/Revision/远端版本；不能用统一的 `writeRecord()` 隐藏整组替换语义。
+
+`VerificationConnector` 负责获取/刷新挑战、触发验证、读取状态并声明所需证据等级和记录保留策略；它不直接写 DNS/Nameserver，也不拥有 VerificationAttempt 状态机。详细工作流见 [VERIFICATION.md](VERIFICATION.md)。
 
 ## 3. Capability Descriptor
 
@@ -95,7 +99,7 @@ type RemoteOperation =
 
 错误必须归一化为：认证、权限、限流、校验、冲突、暂时不可用、结果未知、平台不支持和最终失败。
 
-`ProviderConnection` 是一等实体。同一 Provider 可以存在多个账户。平台、账户别名、远端账户 ID 和能力作为共享元数据同步；`credentialRef`、Browser Profile 和凭据健康状态属于每台设备的 `DeviceCredentialBinding`，不得上传服务端。
+`ProviderConnection` 是一等实体。同一 Provider 可以存在多个账户。平台、账户别名、远端账户 ID 和能力作为共享元数据同步；`credentialRef` 和凭据健康状态属于每台设备的 `DeviceCredentialBinding`。Browser Profile 由 browser-automation 的设备本地 `BrowserSessionProfile` 按 `device_id + provider_connection_id + session_mode` 独立管理。两类本地记录都不得上传服务端。
 
 ## 5. 安全 HTTP Gateway
 

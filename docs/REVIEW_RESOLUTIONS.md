@@ -1,7 +1,7 @@
 # 架构审查问题处理记录
 
 首次记录：2026-07-30  
-最近更新：2026-07-31
+最近更新：2026-08-01
 
 状态说明：
 
@@ -234,3 +234,31 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | Zod/JSON Schema 双源风险 | Zod 为唯一契约事实源，Fastify Route 的 JSON Schema 构建期派生（fastify-type-provider-zod 或等价），禁止手写平行 Schema | Resolved |
 | Jobs 调度器未定 | 采用基于 PostgreSQL 的任务队列（建议 pg-boss），延续不依赖 Redis 作为正确性来源的基线 | Resolved |
 | 无版本基线 | 初始化 Git 仓库并提交全量文档基线 | Resolved |
+
+## 2026-08-01 用户旅程评审复核与第一批落地
+
+| 评审意见 | 综合处理 | 状态 |
+| --- | --- | --- |
+| Activating 先取得 ActiveDeviceLease | 改为账号级互斥 DeviceSwitchRequest + 短期只读 Bootstrap Capability；重建和摘要校验后才原子签发 Lease | Resolved Design / Phase 0 Gate |
+| 两台 Standby 竞争激活 | 每账号最多一个未完成切换/Bootstrap，请求绑定目标设备和幂等键 | Resolved Design / Phase 0 Gate |
+| Draining 拆成两个顶层状态 | 不增加顶层状态，采用 `Draining(reason: handoff \| suspend)`；权限相同、退出条件不同 | Resolved |
+| RuntimeMode 摘要遗漏 suspend 返回 Active | 状态图补齐 `suspend -> Active | Standby`，handoff 仍只进入 Standby | Resolved |
+| 旧 Epoch 设备交不出事实与候选 | 仍绑定且授权有效则降级 Standby，并开放不属于 `workspace:mutate` 的窄 Ingest | Resolved Design / Phase 0 Gate |
+| Profile 按平台隔离不足 | 使用 `device_id + provider_connection_id + session_mode` | Resolved |
+| DeviceCredentialBinding 无法表达多 session_mode | Profile 从凭据绑定拆出为 browser-automation 所有的本地 BrowserSessionProfile | Resolved |
+| 登录辅助与业务 Grant 冲突 | 新增 BrowserSessionConsent；业务 Grant 继续绑定具体计划 | Resolved |
+| Verification 在 Consent 下读取挑战 | 首版由用户经 Secure Host 输入；自动读取必须另建可审阅计划与 Grant，Consent 不授权内容 Probe | Resolved |
+| 具体计划 Grant 与会话级泛授权冲突 | 删除会话级自动化授权；登录 Profile 可持续，但每次软件接管必须新建计划、Grant 和 ApprovedOperation | Resolved |
+| 浏览器批准无法在 Rust 边界证明 | local-storage 原子消费批准/Grant，Secure Host 签发一次性本机 AutomationExecutionTicket，automation-host 强制验证 | Resolved Design / Phase 0 Gate |
+| Auth Session 失效即 Locked | 普通 Access Token 到期只刷新；Locked 收敛为 Entitlement/绑定/Offline Lease/完整性权威失败 | Resolved |
+| `needs_replan` 过宽 | 只对计划实际依赖的字段、资源前置条件、动作语义或新鲜度阈值变化失效 | Resolved Design / Phase 2 Gate |
+| Operation 崩溃恢复不确定 | 新增持久 Attempt 提交阶段；跨过发送边界后只确认、不普通重试 | Resolved Design / Phase 2 Gate |
+| Verification 仍是模块集合 | 新增 VERIFICATION.md，收口委派发现、RRset 条件写、传播证据、秘密 Projection 和设备切换 | Resolved Design / Phase 3 Gate |
+| 备份拆独立 Credential Vault | 首版采用单一版本化加密包、默认关闭的凭据开关和永不包含清单 | Resolved by D-013 |
+| 首版自建客服系统过重 | 接入外部 Helpdesk；内部只保留可信 CaseReference、账号关联和审计 | Resolved by D-014 |
+| D-012 后 Staff 模型应整体降为 J2 | 部分采纳：多角色/多人审批延后；单 Owner 的重新认证、Scope、受控 Repair 与异步动作上下文仍是 J1，不可删除 | Adjusted |
+| JD-04 Break Glass | 已被 D-012 单 Owner 模式取代；跨账号访问不要求用户逐次授权，也不设置独立 Break Glass 通道 | Resolved by D-012 |
+| JD-03 突发停服 | 不阻塞 Phase 0–3；保持 Phase 4 终身 SKU 开售门槛，最低要求为离线 Sunset Key、条款披露和无生产服务演练 | Open / Phase 4 Gate |
+| 所有 Finding 挤入 Phase 0 | Roadmap 按依赖映射到 Phase 0–4；Recipe 最小发布链前移到首个正式网页写连接器之前 | Resolved |
+
+数字校正：落地前基线共有 8 条文档冲突和 6 个 J0；JF-14 按单 Owner 模型由 J0 调整为 J1 后，当前保留 5 个 J0。完整状态以 [USER_JOURNEYS.md](USER_JOURNEYS.md) 为准。

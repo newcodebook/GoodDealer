@@ -1,7 +1,7 @@
 # GoodDealer 安全模型
 
 状态：Draft  
-更新日期：2026-07-31
+更新日期：2026-08-01
 
 ## 1. 安全目标
 
@@ -36,6 +36,7 @@ GoodDealer 管理的是可直接影响域名所有权、解析和销售的高价
 - `localStorage` 和普通前端持久化不得保存平台凭证。
 - 导出的备份默认加密，并要求用户设置恢复口令。
 - 导出的备份文件必须在本机完成加密；用户可以自行复制到其他存储位置。
+- 首版只有一种版本化加密备份包；“包含平台 API 凭据”是默认关闭的显式选项。永不包含项以 [D-013](OPEN_DECISIONS.md#d-013-本地备份中的平台凭据) 和 [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) 的 Backup Content Manifest 为单一事实源，不得用本节摘要缩减该清单。
 - 禁止把活跃 SQLite/SQLCipher、WAL 和应用数据目录放入网盘或共享目录做文件级同步。
 - 临时 CSV 应放入应用私有目录；用户显式导出时才复制到外部路径。
 - 转移 Auth Code 默认不持久化；确需使用时采用短期加密记录并自动清理。
@@ -83,14 +84,14 @@ GoodDealer Cloud 请求使用独立的认证注入通道：
 - 远程平台页面只能在单独的 Remote Browser WebView 中打开。
 - Remote Browser WebView 使用独立的 Tauri Capability/ACL，不注册高权限 Command。
 - Remote Browser WebView 可以运行平台自身 JavaScript，但其页面内容始终视为不可信。
-- 各平台会话使用独立 Profile 或数据目录，避免 Cookie 跨平台共享。
+- Remote Browser Profile 按 `device_id + provider_connection_id + session_mode` 使用独立数据目录；同一平台的不同账户以及持久/私密会话不得共享 Cookie。
 - 导航默认限制在连接器声明的 Host；跳转到新的登录、支付或第三方 Host 时提示用户。
 - client-core 的 Port DTO 使用 Zod 校验；Desktop Adapter 的 IPC Envelope 再由 TypeScript 与 Rust Command Handler 双重校验。
 - Tauri Command 按最小权限拆分，禁止通用 Shell、通用文件和通用 HTTP 命令。
 - 用户可以在 Remote Browser WebView 中完成密码、2FA 和 CAPTCHA；软件不得读取、记录或自动填写这些敏感字段。
 - 自动化期间始终提供暂停、用户接管和关闭会话入口。
 
-浏览器自动化只能在用户已登录且对具体执行计划授权后开始。授权记录包含平台、动作、目标域名、预计修改和有效期。
+浏览器业务自动化只能在用户已登录且对具体执行计划授权后开始。首次登录、获取 API Key 等连接建立流程使用独立 BrowserSessionConsent，只允许导航和登录状态检测，不能获得填写业务字段、上传或最终提交权限。
 
 ## 6. 操作安全
 
@@ -168,6 +169,7 @@ GoodDealer 服务端不得接收：
 - 管理员不能查看或恢复平台 API Key、OAuth Token、Cookie、Browser Profile、数据库密钥、Recovery Secret 或本地备份秘密，也不能代表用户调用域名平台。
 - 管理员不能直接创建用户 Desired State、SyncMutation、ApprovedOperation 或把任务标记为成功。修复云端元数据必须使用模块拥有的受控 Repair Command，并记录前后摘要。
 - 高风险管理操作（账号删除介入、设备强制移除、License 人工调整、Sunset/发布通道变更）要求重新认证（Passkey 确认）。单管理员模式下不设多人审批，以重新认证、操作前后摘要和 Staff AuditEvent 作为控制；未来出现多名 Staff 时再补审批流。
+- 异步管理动作必须持久化 Owner actor、Scope 快照、理由/CaseReference、重新认证时间、幂等键、目标 Revision 和前后摘要；`admin-access` 只授权，具体 Repair Command 由目标模块拥有。
 
 普通用户不强制 2FA 的产品决定不适用于内部 Staff。管理员权限不是依靠隐藏 URL、前端按钮或管理员协议包不可见来保证，最终授权必须发生在 Admin API。
 
@@ -179,6 +181,7 @@ GoodDealer 服务端不得接收：
 - Worker 在平台副作用前校验 ActiveDeviceLease、本机设备 ID、Epoch、本机签名 ApprovedOperation 和本地资源锁。
 - 云故障时只允许当前活动设备在签名的 `offline_execute_until` 前继续平台访问，最长 24 小时；许可到期立即停止领取和提交新任务。
 - 强制切换必须等待旧设备离线许可到期。旧设备重新联网后发现 Epoch 过期，应停止 Worker、降级到 Cloud Read-Only View，并按语义上传 LateExecutionEvent 与 `StaleDeviceCandidate`。
+- LateExecutionEvent 与 StaleDeviceCandidate 使用独立、窄化的 Ingest Scope；仍绑定的 Standby 可以上传旧 Epoch 已持久化记录，但该通道不能创建当前 Mutation、批准或平台副作用。
 - 正常切换先停止领取新任务、完成或隔离当前原子请求、上传 Outbox，经服务端核对最后 `client_sequence` 的排空验收后再释放 ActiveDeviceLease。
 - 云端同步来的 Desired State 不能直接触发平台副作用，必须由当前活动设备本地预览并签署 ApprovedOperation。
 - 旧 Epoch 上传内容按语义分流：经过旧 Lease 窗口、可信时间锚点、单调时钟增量、签名和防重放验证的 Operation 结果与审计事件通过独立 Ingest 作为 LateExecutionEvent 追加保存；Desired State 等可变修改只能成为 StaleDeviceCandidate。
@@ -191,7 +194,7 @@ GoodDealer 服务端不得接收：
 - License 过期后客户端业务入口保持锁定，但账号网页端仍允许用户导出服务端持有的数据、申请删除，以及管理会话和设备。
 - 网页导出不包含 API Key、Cookie、Browser Profile、本地 Artifact 或数据库密钥，并要求重新认证、限流、审计和邮件通知。
 - 删除流程覆盖主库、索引、对象存储、分析副本和备份轮转，并向用户披露延迟删除周期。
-- `Sunset Signing Key` 与日常 Auth/License 私钥物理或逻辑隔离，日常服务无权使用；仅在正式停服流程中经多人审批启用。
+- `Sunset Signing Key` 与日常 Auth/License 私钥物理或逻辑隔离，使用离线硬件介质保存，日常服务无权使用。首版单 Owner 通过 Passkey 重新认证、离线操作清单、两次显式确认和完整审计启用；未来增加 Staff 时升级为多人控制。
 - 最终 `LocalContinuationMode` 安装包和永久凭证必须签名并通过多个静态渠道验证发布。
 
 ## 13. 更新安全
