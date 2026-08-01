@@ -7,7 +7,7 @@ use crate::endpoint_capability::{
 };
 
 pub const ENDPOINT_MANIFEST_SHA256: &str =
-    "f6a23fd25a89bdfbcc928dc9c313563394811b8c65f1eec0873c53d0910b08de";
+    "f99f46ef80fbfb6d38b266680c6037e23dde025668d1a237a650714d581725c8";
 #[rustfmt::skip]
 pub const ENDPOINT_CAPABILITIES: &[EndpointCapability] = &[
     EndpointCapability {
@@ -91,5 +91,44 @@ pub const ENDPOINT_CAPABILITIES: &[EndpointCapability] = &[
         redact_json_pointers: &[],
         timeout_ms: 10_000,
         max_response_bytes: 1_048_576,
+    },
+    EndpointCapability {
+        endpoint_id: "fixture.tokens.rotate",
+        provider: "fixture",
+        method: HttpMethod::Post,
+        origin: "https://api.fixture.invalid",
+        path_template: "/v1/tokens/rotate",
+        path_parameters: &[],
+        credential_namespace: CredentialNamespace::ProviderApi,
+        credential_profile_id: "fixture-api-v1",
+        credential_profile_version: 1,
+        credential_injections: &[
+            CredentialInjection {
+                slot_id: "api-token",
+                secret_kind: SecretKind::ApiToken,
+                target: CredentialTarget::Header,
+                wire_name: "authorization",
+                value_encoding: CredentialValueEncoding::Bearer,
+            },
+        ],
+        idempotency_header: None,
+        query_parameters: &[],
+        max_query_bytes: 0,
+        body_schema: BodySchema {
+            encoding: BodyEncoding::None,
+            fields: &[],
+        },
+        max_body_bytes: 0,
+        redirect_policy: RedirectPolicy::Deny,
+        retry_safety: RetrySafety::Never,
+        response_extractor: ResponseExtractor::HostOwned,
+        public_response_schema: BodySchema {
+            encoding: BodyEncoding::None,
+            fields: &[],
+        },
+        redact_headers: &["authorization"],
+        redact_json_pointers: &[],
+        timeout_ms: 10_000,
+        max_response_bytes: 16_384,
     },
 ];

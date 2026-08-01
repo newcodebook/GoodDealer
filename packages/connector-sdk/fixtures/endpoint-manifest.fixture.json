@@ -96,6 +96,42 @@
       },
       "redactHeaders": ["authorization"],
       "redactJsonPointers": []
+    },
+    {
+      "endpointId": "fixture.tokens.rotate",
+      "method": "POST",
+      "origin": "https://api.fixture.invalid",
+      "pathTemplate": "/v1/tokens/rotate",
+      "pathParameters": [],
+      "credentialProfileId": "fixture-api-v1",
+      "credentialProfileVersion": 1,
+      "credentialInjections": [
+        {
+          "slotId": "api-token",
+          "target": "header",
+          "wireName": "authorization",
+          "valueEncoding": "bearer"
+        }
+      ],
+      "idempotencyInjection": null,
+      "queryParameters": [],
+      "maxQueryBytes": 0,
+      "bodySchema": {
+        "encoding": "none",
+        "fields": []
+      },
+      "maxBodyBytes": 0,
+      "redirectPolicy": "deny",
+      "timeoutMs": 10000,
+      "maxResponseBytes": 16384,
+      "retrySafety": "never",
+      "responseExtractor": "host_owned",
+      "publicResponseSchema": {
+        "encoding": "none",
+        "fields": []
+      },
+      "redactHeaders": ["authorization"],
+      "redactJsonPointers": []
     }
   ]
 }

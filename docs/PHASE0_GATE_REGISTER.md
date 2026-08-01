@@ -58,5 +58,5 @@ R0-02、R0-03 与 R0-06 的当前事实源、已完成证据和剩余平台证�
 
 - 4 个生产 Connector 使用空 Endpoint Manifest，生成注册表为 deny-all；生成 Hash 和 TS/Rust 生成物由 `check:generated` 做差异门禁。
 - EndpointManifest 的 JSON Schema 与跨字段校验、版本化 Credential Profile/Slot/SecretKind、封闭请求/公开响应 AST、固定幂等 Header、Origin 规范化与单向生成负向测试；Rust Fixture Executor 覆盖生产 deny-all、非 Active 零资源访问、完整作用域绑定、参数/总量限制、凭据值与凭据/幂等 Header 累计上限、DNS 混合与特殊用途地址、固定地址集合、秘密延迟加载、代理策略、重定向、响应上限及未知/畸形公开 JSON 拒绝。该证据不代表 Windows/macOS 原生 Socket/TLS/系统代理或流式解压路径已经通过。
-- 3 个 Rust Host-owned Secret 测试，覆盖 Debug 脱敏、批量存储、公开状态重建和未知字段发网响应失败关闭；不声称覆盖原生输入面或进程外泄漏扫描。
+- 9 个 Rust Host-owned Secret/Executor 测试，覆盖秘密类型与原始 Transport Body 的 Debug 脱敏、强类型完整作用域、不透明整批提交回执、公开状态重建、Manifest/私有绑定表双向一致性，以及非 2xx、重定向、超限、畸形、缺失、未知、错类型或不安全响应和 Store 失败的失败关闭；生产 Registry 与执行入口仍为 deny-all。该证据不声称覆盖真实 Keychain、原生输入面、平台 Transport、解析器内部 scratch buffer 清零或进程外泄漏扫描。
 - `protocol/devices`、`apps/cloud` 包级契约测试与 Rust 按凭证类型解析器运行 Device Identity 共享正负向量，并证明合法 Entitlement 不能被 ActiveDeviceLease 消费点接受；Rust 另验证域分离、长度定界 Transcript。该证据不代表 Cloud Route/Handler 已接线，也不声称已经执行 Ed25519 验签或 Cloud 并发事务。

@@ -65,7 +65,7 @@ Gateway 必须：
 - 将本次 DNS 验证通过的地址集合固定到 Transport；连接 IP 必须属于该集合，TLS SNI/证书与 HTTP Host 使用 Manifest Host，禁止隐式重解析、系统代理和自动重定向。
 - 注入 API Key/Secret，并在返回前移除敏感 Header。
 - `provider_idempotency_key` 只能注入 Manifest 固定的非保留 Header；凭据 Header 自动纳入脱敏集合，禁止 Host、Cookie、代理认证和逐跳 Header。秘密值只接受非空可见 ASCII；编码后单值不超过 8 KiB，全部凭据与幂等 Header 合计不超过 16 KiB。
-- 公开 JSON 响应必须按封闭字段 Schema 拒绝未知/缺失/错类型字段并重建白名单结果；含秘密响应使用 Rust typed extractor，不使用 JSON Pointer denylist 清洗。
+- Transport 接收的所有原始响应 Body 都进入不可 Clone、Debug 脱敏并在释放时清零的 Rust 秘密包装；公开 JSON 路径只借用 Body 做封闭白名单投影，含秘密路径直接消费 Body 进入 Rust typed extractor，不使用 JSON Pointer denylist 清洗。
 - 对 URL、Query、Header、Body 和错误信息统一脱敏。
 - 限制请求超时，并在流式读取和解压后同时限制响应大小。
 - 按平台账户进行限流。
@@ -83,7 +83,7 @@ GoodDealer Cloud 请求使用独立的认证注入通道：
 
 平台 API Secret、OAuth Token、Recovery Material 等秘密只能通过 Rust Host 创建的原生秘密输入面进入。主应用 WebView 只能开始或取消 Capture Session，不能提交秘密值；成功后只取得 `credential_binding_id`、fingerprint、版本和脱敏状态，Keychain `credentialRef` 仍留在 Host 内。原生输入面不可用或 Keychain 写入失败时必须失败关闭，禁止降级到普通 WebView、剪贴板、配置、SQLite 或临时文件。
 
-含秘密的网络响应使用 Endpoint 绑定的 Rust typed extractor，在 Host 内直接解析并原子写入 Keychain，再按白名单重新构造公开响应。禁止把完整 Body 返回 TypeScript 后再清洗。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](PHASE0_SECURE_HOST_BASELINE.md)。
+含秘密的网络响应由 Manifest 标记为 `host_owned`，具体 typed extractor 只能由 Rust 私有编译期表按 Endpoint 绑定。Host 只接受 2xx 和封闭 typed contract，直接消费秘密 Body，并以 Device/Account 或 Provider Connection/Profile/来源 Endpoint 的完整作用域原子写入 Keychain；Store 的不透明回执只表达整批已提交，不返回数量、部分成功或 Ref，`Err` 必须表示零条目提交。3xx、其他非 2xx、超限、无效响应或 Store 失败都失败关闭，只允许返回专用脱敏状态。禁止把完整 Body、通用 JSON、Token、Secret Ref 或 Keychain Ref 返回 TypeScript。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](PHASE0_SECURE_HOST_BASELINE.md)。
 
 ## 5. WebView 隔离
 

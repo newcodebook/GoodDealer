@@ -287,6 +287,18 @@ test("requires a closed public response schema instead of denylist cleanup", () 
   })), "fixture"));
 });
 
+test("host-owned response code cannot be selected by Manifest or exposed as generic JSON", () => {
+  const endpoint = validEndpoint({
+    responseExtractor: "host_owned",
+    publicResponseSchema: { encoding: "none", fields: [] },
+  });
+  assert.doesNotThrow(() => validateEndpointManifest(manifest(endpoint), "fixture"));
+  assert.match(renderTs([endpoint], "fixture-hash"), /EndpointResponse = never/);
+
+  endpoint.extractorId = "provider_api_token_v1";
+  assert.throws(() => validateEndpointManifest(manifest(endpoint), "fixture"));
+});
+
 test("rejects body encoding none when fields are present", () => {
   const value = manifest();
   value.endpoints[0].bodySchema.encoding = "none";
@@ -365,6 +377,13 @@ test("keeps fixture capabilities unreachable from production composition", () =>
   );
   assert.match(productionRegistry, /ENDPOINT_CAPABILITIES: &\[EndpointCapability\] = &\[\];/);
   assert.doesNotMatch(productionRegistry, /fixture/i);
+
+  const fixtureRegistry = readFileSync(
+    resolve(root, "crates/secure-host-core/src/generated/fixture_endpoint_registry.rs"),
+    "utf8",
+  );
+  assert.match(fixtureRegistry, /endpoint_id: "fixture\.tokens\.rotate"/);
+  assert.match(fixtureRegistry, /response_extractor: ResponseExtractor::HostOwned/);
 
   const generatedModules = readFileSync(
     resolve(root, "crates/secure-host-core/src/generated/mod.rs"),

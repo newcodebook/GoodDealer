@@ -383,8 +383,8 @@ Local Repository 由 `local-storage/active-workspace/<capability>` 实现；Clou
 - `device-identity`：设备 ID、设备签名密钥和可信时间锚点。
 - `crypto`：AEAD、Hash、签名验证和密钥封装接口。
 - `keychain`：OS Keychain/Credential Manager 抽象。
-- `secure-http`：消费构建期 EndpointManifest 生成的嵌入式注册表；按 `device_id + provider_connection_id` 查询版本化 Credential Profile 与完整 Slot/SecretKind 绑定，并以完整作用域读取秘密；执行封闭参数编码和总量限制、固定幂等 Header、URL/DNS/IP、固定连接地址、TLS Host、禁系统代理/重定向、秘密延迟加载、公开响应白名单或 typed extractor、脱敏、超时和流式/解压响应限制。Fixture Executor seam 只在测试编译，生产模块不能接受外部 Transport 实现。
-- `secret-capture`：定义 Host-owned 原生秘密输入 Port、私有秘密内存类型和批量 Keychain 写入；普通 Tauri IPC 只返回 `credential_binding_id`、fingerprint 和脱敏状态，Keychain Ref 不离开 Host。
+- `secure-http`：消费构建期 EndpointManifest 生成的嵌入式注册表；Manifest 只标记 `host_owned`，具体 typed extractor 由 Rust 私有编译期表按 Endpoint 绑定，两张表在任何 Host 资源前做全表双向一致性校验；按 `device_id + provider_connection_id` 查询版本化 Credential Profile 与完整 Slot/SecretKind 绑定，并以完整作用域读取秘密；执行封闭参数编码和总量限制、固定幂等 Header、URL/DNS/IP、固定连接地址、TLS Host、禁系统代理/重定向、秘密延迟加载、公开响应白名单或秘密 Body 消费、脱敏、超时和流式/解压响应限制。Fixture Executor seam 只在测试编译，生产模块不能接受外部 Transport 实现。
+- `secret-capture`：定义 Host-owned 原生秘密输入 Port、不可 Clone/Debug 脱敏/释放清零的秘密内存类型，以及带 Device、Account 或 Provider Connection/Profile/来源 Endpoint 强类型作用域的原子批量 Keychain 写入；Store 只返回整批回执，普通 Tauri IPC 只返回 `credential_binding_id`、fingerprint 和脱敏状态，Keychain Ref 不离开 Host。
 - `operation-signing`：ApprovedOperation、LateExecutionEvent 签名与防重放序列，以及短期、一次性的本机 AutomationExecutionTicket 签发与校验。
 
 Rust 集成测试直接针对该 Crate 运行，不需要启动 Tauri WebView。
