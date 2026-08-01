@@ -167,11 +167,11 @@
 | Finding | 根因 | 影响旅程 | 级别 | 类型 | 建议唯一所有者 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | JF-01 | Workspace Bootstrap 与首设备激活没有原子、幂等且可恢复的协议 | J-01、J-05、J-06、J-07 | J1 | 设计补全 | Cloud `identity/devices/workspace` 的 Bootstrap Application Service | Open Finding |
-| JF-02 | Activating 过早取得 ActiveDeviceLease；DeviceBinding 又缺可信签名密钥生命周期 | J-01、J-05、J-07 | J0 | 设计补全 | Cloud `devices` + `secure-host-core/device-identity` | Design Resolved / Phase 0 Gate |
+| JF-02 | Activating 过早取得 ActiveDeviceLease；DeviceBinding 又缺可信签名密钥生命周期 | J-01、J-05、J-07 | J0 | 设计补全 | Cloud `devices` + `secure-host-core/device-identity` | Partially Resolved / Phase 0 Gate |
 | JF-03 | ProviderConnection 建立、凭据输入、健康检查和浏览器登录同意没有统一状态机 | J-01、J-03、J-05 | J1 | 设计补全 | `client-core/connections` | Open Finding |
-| JF-04 | 用户批准无法在浏览器自动化的 Rust 执行边界被强制证明 | J-03、J-04 | J0 | 设计补全 | `secure-host-core/operation-signing` 签发 Ticket，`automation-host` 验证 | Design Resolved / Phase 0 Gate |
+| JF-04 | 用户批准无法在浏览器自动化的 Rust 执行边界被强制证明 | J-02、J-03、J-04 | J0 | 设计补全 | `secure-host-core/operation-signing` 签发 Ticket，`automation-host` 验证 | Partially Resolved / Phase 0 Gate |
 | JF-05 | 批量选择不稳定，计划批准后缺少失效与重新规划协议 | J-02、J-03、J-04 | J1 | 设计补全 | `client-core/operations` Planner | Design Resolved / Phase 2 Gate |
-| JF-06 | Operation、Attempt、副作用提交边界、证据和崩溃恢复没有一套权威状态机 | J-02、J-03、J-04、J-06、J-07、J-09 | J0 | 设计补全 | `client-core/operations` + active-workspace operations Repository | Design Resolved / Phase 2 Gate |
+| JF-06 | Operation、Attempt、副作用提交边界、证据和崩溃恢复没有一套权威状态机 | J-02、J-03、J-04、J-06、J-07、J-09 | J0 | 设计补全 | `client-core/operations` + active-workspace operations Repository | Partially Resolved / Phase 2 Gate |
 | JF-07 | RuntimeMode 把设备交接、普通暂停/退出和恢复准入混为一类 | J-02、J-05、J-06、J-07 | J1 | 设计补全 | `secure-host-core/runtime-gate` | Design Resolved / Phase 0 Gate |
 | JF-08 | 首次导入/平台刷新缺少基线初始化、完整性、新鲜度与所有权证据规则 | J-01、J-02、J-03、J-05 | J1 | 设计补全 | `client-core/sync` | Open Finding |
 | JF-09 | Verification 没有权威聚合；DNS 委派识别、RRset 条件写和秘密 Sync Projection 未闭合 | J-03 | J0 | 设计补全 | `client-core/verification` 编排，`dns/registration/operations` 执行 | Design Resolved / Phase 3 Gate |
@@ -180,9 +180,9 @@
 | JF-12 | 备份内容、离线灾难快照、Keychain 全丢、更新回退和 Sunset 导入缺少统一恢复契约 | J-05、J-06、J-07 | J1 | 产品决策 + 设计 | `client-core/recovery` + `local-storage/backup/migrations` | Decision Required |
 | JF-13 | 外部 Support CaseReference、DataRightsRequest、SecurityIncident 和内部关闭语义没有闭环 | J-08、J-09 | J1 | 设计补全 + 政策参数 | Cloud `compliance/security-incidents/admin-access` + Helpdesk Adapter | Open Finding |
 | JF-14 | 单 Owner 的 AdminActionAuthorization、身份恢复和异步 AdministrativeActionContext 尚未完整定义 | J-08、J-09、J-10 | J1 | 设计补全 + 政策参数 | Cloud `admin-access` | Partially Resolved / Phase 4 Gate |
-| JF-15 | Cloud Job 缺少 Lease、幂等、TenantContext、隔离和安全重放协议 | J-06、J-08、J-09、J-10 | J0 | 设计补全 | 窄 `job-runtime` 基础设施 + 各业务模块拥有 Payload/结果 | Design Resolved / Phase 0 Gate |
+| JF-15 | Cloud Job 缺少 Lease、幂等、TenantContext、隔离和安全重放协议 | J-06、J-08、J-09、J-10 | J0 | 设计补全 | 窄 `job-runtime` 基础设施 + 各业务模块拥有 Payload/结果 | Partially Resolved / Phase 0 Gate |
 | JF-16 | Migration、Checkpoint 压缩、可观测性、灾备、密钥轮换和事故 Runbook 缺少运营事实源 | J-06、J-08、J-09、J-10 | J2 | 运营设计 + 产品指标 | Cloud 各业务模块 + 独立 Platform/Operations 责任 | Open Finding |
-| JF-17 | 连接器/Recipe 的灰度、撤销、双引擎持续门禁、Feature Policy 和退役流程未定义 | J-03、J-04、J-10 | J1 | 设计补全 + 平台政策 | Connector/Recipe Release Pipeline | Open Finding |
+| JF-17 | 连接器/Recipe 的灰度、撤销、双引擎持续门禁、Feature Policy 和退役流程未定义 | J-02、J-03、J-04、J-10 | J1 | 设计补全 + 平台政策 | Connector/Recipe Release Pipeline | Open Finding |
 
 ### 5.1 文档内部冲突处理状态
 

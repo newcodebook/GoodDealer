@@ -262,3 +262,9 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | 所有 Finding 挤入 Phase 0 | Roadmap 按依赖映射到 Phase 0–4；Recipe 最小发布链前移到首个正式网页写连接器之前 | Resolved |
 
 数字校正：落地前基线共有 8 条文档冲突和 6 个 J0；JF-14 按单 Owner 模型由 J0 调整为 J1 后，当前保留 5 个 J0。完整状态以 [USER_JOURNEYS.md](USER_JOURNEYS.md) 为准。
+
+## 2026-08-01 Phase 0 编码前全面审查
+
+本轮在提交 `9798b5a` 上冻结基线，从产品旅程、安全威胁、数据/状态机和工程可实现性四个通道独立审查，再由主审逐项复核、去重和定级。最终结论为 `Conditional Go`：允许工具链、工程骨架、结构测试和可丢弃 Spike；跨语言安全契约、设备/同步排空、受限 Recipe、备份投影与 Job TenantContext 等相关 Finding 关闭前，不进入受影响工作包的正式实现，也不对真实用户资产执行写操作。
+
+本轮没有把审查建议自动标记为 Resolved。JF-02、JF-04、JF-06、JF-15 调整为 `Partially Resolved`，JF-04/JF-17 补充 J-02 影响范围。完整基线、Finding、Accepted Risk、工作包和准入标准见 [PHASE0_READINESS_REVIEW_2026-08-01.md](PHASE0_READINESS_REVIEW_2026-08-01.md)。
