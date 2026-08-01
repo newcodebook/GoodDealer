@@ -183,6 +183,7 @@
 | JF-15 | Cloud Job 缺少 Lease、幂等、TenantContext、隔离和安全重放协议 | J-06、J-08、J-09、J-10 | J0 | 设计补全 | 窄 `job-runtime` 基础设施 + 各业务模块拥有 Payload/结果 | Partially Resolved / Phase 0 Gate |
 | JF-16 | Migration、Checkpoint 压缩、可观测性、灾备、密钥轮换和事故 Runbook 缺少运营事实源 | J-06、J-08、J-09、J-10 | J2 | 运营设计 + 产品指标 | Cloud 各业务模块 + 独立 Platform/Operations 责任 | Open Finding |
 | JF-17 | 连接器/Recipe 的灰度、撤销、双引擎持续门禁、Feature Policy 和退役流程未定义 | J-02、J-03、J-04、J-10 | J1 | 设计补全 + 平台政策 | Connector/Recipe Release Pipeline | Open Finding |
+| JF-18 | Cloud 部署拓扑、环境/区域隔离、数据驻留、跨境传输、备份副本位置和 IaC/KMS 责任尚未定义 | J-01～J-10（跨旅程） | J1 | 产品决策 + 运营设计 | Cloud Platform（执行 Owner）；Product + Privacy/Legal + Security（批准） | Decision Required / External Alpha Gate |
 
 ### 5.1 文档内部冲突处理状态
 
@@ -196,6 +197,7 @@
 | Auth Session 失效即 Locked | Access Token 到期只刷新；仅权威授权/绑定/完整性失败触发 Locked | Resolved |
 | 备份凭据与不可移植内容不清 | 单一版本化备份包 + 默认关闭的凭据开关 + 永不包含清单 | Resolved by D-013 |
 | Staff 明细访问规则冲突 | 单 Owner，不要求用户逐次授权；Scope + 理由/CaseReference + 重新认证 + Audit | Resolved by D-012 |
+| 设备切换后一律重录与本机凭据保留冲突 | 保留凭据只是候选；设备重新 Active 后执行本机健康检查，通过才复用，失败或无法验证时重录、登录或恢复 | Semantics Resolved / R0-12 Evidence Pending |
 
 ## 6. 高优先级根因的最低闭环
 
@@ -273,20 +275,32 @@ prepared
 - 管理员跨租户入口与普通业务入口分离；Public Session、错误 Staff Scope 或不匹配的 Tenant Context 在模块 Port 前被拒绝。
 - Job 版本升级保留旧 Payload 解码策略；毒任务进入 Quarantine，人工重放仍使用原幂等键和授权上下文。
 
+### 6.8 部署拓扑与数据驻留
+
+外部用户数据进入非本地开发环境前，最低决策包必须明确：
+
+- 首发目标市场、首个数据区域、账号/Workspace 主数据驻留承诺，以及跨区域或跨境传输的合法依据和用户披露。
+- Development、Staging、Production 的账号、网络、数据库、对象存储、KMS Key 和访问身份隔离；生产数据不得恢复到更低信任环境。
+- 主库、搜索、对象存储、分析副本、备份/PITR 和日志各自允许的区域、复制方向、删除传播和恢复边界。
+- IaC、Schema Migration、Secret/KMS、备份恢复和紧急变更的 Owner、审查与审计责任；禁止以控制台手工状态作为唯一生产事实源。
+- Cloud Platform 负责拓扑、环境隔离、IaC/KMS 与可重跑运营证据；Product、Privacy/Legal 和 Security 共同批准目标市场、驻留/跨境承诺、用户披露与残余风险。
+- 单区首发或多区部署的选择、可接受残余风险和升级触发条件。多区可以延后，但首个区域和数据驻留承诺不能由 SDK 默认值或临时测试环境反向决定。
+
 ## 7. 产品决策状态
 
-| Decision | 问题 | 当前方向 | 状态/门槛 |
-| --- | --- | --- | --- |
-| JD-01 | 首版“紧急下架”是否承诺无人值守发现和执行 | 首版只承诺应用运行且平台可读取时发现；自动生成 P0 计划仍需批准。无人值守 Standing Emergency Policy/Relay 独立立项 | Open / Phase 3 前确认 |
-| JD-02 | Cloud 故障时能否创建未冲刷的灾难备份 | 同时提供 Synchronized Backup 与明确标识的 Emergency Local Snapshot；后者恢复时只生成 Candidate，不回放旧 Outbox | Open / Phase 1 前确认 |
-| JD-03 | 突发停服如何兑现终身授权 | Sunset Key 离线硬件保存、商业条款披露和无生产服务演练为务实底线；是否外部托管另议 | Open / 仅阻塞 Phase 4 终身 SKU 开售 |
-| JD-04 | Staff 在用户无法授权时能否 Break Glass | D-012 已决定首版单 Owner、跨账号不要求用户逐次授权，不存在独立 Break Glass 通道；使用 Scope + 理由/CaseReference + 重新认证 + Audit | Resolved by D-012 |
-| JD-05 | 合规删除冷静期、证据保留例外和下载保留时长 | 由目标市场法律与支付/安全需求分别制定，不用一个全局数字覆盖所有对象 | Open / Phase 4 前确认 |
-| JD-06 | 正式销售前的 RPO、RTO、SLO 和旧备份支持窗口 | 在 Phase 4 前形成可公开/可运营目标，不由代码默认值反向形成承诺 | Open / Phase 4 前确认 |
-| JD-07 | 移动端是否允许远程批准 | Standby 只审阅；RemoteApprovalToken 有真实需求后另立决策 | Resolved by D-011 |
-| JD-08 | 本地备份是否包含平台 API Key 等设备秘密 | 单一备份包；凭据开关默认关闭；Browser Profile、设备私钥、Auth/Lease 等永不包含 | Resolved by D-013 |
-| JD-09 | 支付失败宽限、部分退款、升降级、拒付和 Lifetime 退款规则 | Provider Payment Event 是支付事实，AccountEntitlement 是派生结果；具体商业状态表待定 | Open / 支付接入前确认 |
-| JD-10 | 首版 SupportCase 自建还是接入外部 Helpdesk | 首版接入外部 Helpdesk；内部只保留可信 CaseReference、账号关联和审计 | Resolved by D-014 |
+| Decision | 问题 | 当前方向 | Owner 角色 | 状态 | 最迟决策点 |
+| --- | --- | --- | --- | --- | --- |
+| JD-01 | 首版“紧急下架”是否承诺无人值守发现和执行 | 首版只承诺应用运行且平台可读取时发现；自动生成 P0 计划仍需批准。无人值守 Standing Emergency Policy/Relay 独立立项 | Product + Operations/Security | Open | Phase 3 承诺紧急能力前 |
+| JD-02 | Cloud 故障时能否创建未冲刷的灾难备份 | 同时提供 Synchronized Backup 与明确标识的 Emergency Local Snapshot；后者恢复时只生成 Candidate，不回放旧 Outbox | Product + Recovery/Security | Open | Phase 1 备份实现前 |
+| JD-03 | 突发停服如何兑现终身授权 | Sunset Key 离线硬件保存、商业条款披露和无生产服务演练为务实底线；是否外部托管另议 | Product + Legal/Release | Open | Phase 4 终身 SKU 开售前 |
+| JD-04 | Staff 在用户无法授权时能否 Break Glass | D-012 已决定首版单 Owner、跨账号不要求用户逐次授权，不存在独立 Break Glass 通道；使用 Scope + 理由/CaseReference + 重新认证 + Audit | Product + Security | Resolved by D-012 | — |
+| JD-05 | 合规删除冷静期、证据保留例外和下载保留时长 | 由目标市场法律与支付/安全需求分别制定，不用一个全局数字覆盖所有对象 | Privacy/Legal + Security | Open | Phase 4 数据权利实现前 |
+| JD-06 | 正式销售前的 RPO、RTO、SLO 和旧备份支持窗口 | 在 Phase 4 前形成可公开/可运营目标，不由代码默认值反向形成承诺 | Platform/Operations + Release | Open | Phase 4 生产环境冻结前 |
+| JD-07 | 移动端是否允许远程批准 | Standby 只审阅；RemoteApprovalToken 有真实需求后另立决策 | Product + Security | Resolved by D-011 | — |
+| JD-08 | 本地备份是否包含平台 API Key 等设备秘密 | 单一备份包；凭据开关默认关闭；Browser Profile、设备私钥、Auth/Lease 等永不包含 | Product + Recovery/Security | Resolved by D-013 | — |
+| JD-09 | 支付失败宽限、部分退款、升降级、拒付和 Lifetime 退款规则 | Provider Payment Event 是支付事实，AccountEntitlement 是派生结果；具体商业状态表待定 | Product + Billing/Finance | Open | 支付 Provider 接入前 |
+| JD-10 | 首版 SupportCase 自建还是接入外部 Helpdesk | 首版接入外部 Helpdesk；内部只保留可信 CaseReference、账号关联和审计 | Product + Support/Security | Resolved by D-014 | — |
+| JD-11 | 首发 Cloud 区域、数据驻留、跨境传输、环境隔离和 IaC/KMS 责任如何确定 | 外部 Alpha 前冻结首个区域、驻留/复制/删除边界和环境隔离；多区可延后，但不能使用临时环境默认值形成产品承诺 | Cloud Platform（执行 Owner）；Product + Privacy/Legal + Security（批准） | Open | Phase 1 外部 Alpha 环境建立前 |
 
 ## 8. 最小端到端验收矩阵
 

@@ -32,7 +32,7 @@
 | R0-09 Tenant Job | WP-4 | Cloud Platform / Security Reviewer | 双租户同 ID、连接池复用、Quarantine | 可信 TenantJobEnvelope、逐租户 Fan-out、对象 Key/重放负向矩阵 | 禁用周期 Job，保留显式逐租户操作 | Open |
 | R0-10 Cross-language Contract | WP-0 | Engineering Baseline / Architecture Reviewer | TypeScript/Rust/Cloud 共用 Corpus | 唯一 Connector 注册边；unknown/missing/enum/version/error 正负 Corpus | 不冻结 IPC/Auth Wire | Closed |
 | R0-11 Toolchain/OS | WP-0 | Release Engineering / Architecture Reviewer | Windows 11 24H2 x64；macOS 15 arm64/x64 | 版本文件、lockfile、native CI、可重现构建、制品与签名责任 | Spike 只能标记为单平台/不可发布 | In Progress |
-| R0-12 Device Credential | WP-2 | Client Connections / Product Reviewer | 首配、切回、撤销、Keychain 丢失、Session 过期 | 五场景状态机和契约测试 | 要求重新录入/登录，不假定凭据存在 | Open |
+| R0-12 Device Credential | WP-2 | Client Connections / Product Reviewer | 首配、切回、撤销、Keychain 丢失、Session 过期 | 五场景状态机和契约测试；重新 Active 后执行 Active-only 本机健康检查，只有通过的保留凭据可复用 | 本机凭据不存在、检查失败或无法验证时要求重新录入/登录 | Open |
 | R0-13 Live Write Safety | WP-3/WP-6 | Connector + Security Reviewer / 非实现者批准 | 专用测试账号与可丢弃资产 | 资产清单、显式批准、执行前后证据、清理、紧急停用 | Fake Provider/Read-only | Open |
 | R0-14 Operation Retry Safety | WP-6 | Connector + Operations / Security Reviewer | 同一连接器混合安全等级 | 逐 operation/endpoint retrySafety、超时/重复 Contract Test | 写操作统一 `never`，转人工确认 | Open |
 

@@ -10,14 +10,27 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 | Phase | 重点 Journey | Finding/Gate 边界 |
 | --- | --- | --- |
 | Phase 0 | J-01 Bootstrap/Activation 骨架；J-03 自动化批准链；J-05 设备切换；J-08 管理入口隔离 | JF-02、JF-04、JF-07、JF-15；JF-01 只做最小幂等原型，不展开完整 Onboarding |
-| Phase 1 | J-01 首次连接与导入；J-02 只读资产；J-05 Standby/重建；J-07 备份/迁移 | JF-01、JF-03、JF-08、JF-12 的备份内容部分 |
+| Phase 1 | J-01 首次连接与导入；J-02 只读资产；J-05 Standby/重建；J-07 备份/迁移 | JF-01、JF-03、JF-08、JF-12 的备份内容部分；外部 Alpha 前关闭 JF-18/JD-11 |
 | Phase 2 | J-02 批量计划、批准、执行和崩溃恢复；J-03 浏览器写入安全 | JF-05、JF-06；JF-17 的签名/兼容/撤销最小发布链必须在首个正式网页写连接器前完成 |
 | Phase 3 | J-03 所有权验证；J-04 紧急下架 | JF-09、JF-10；JD-01 在承诺紧急能力前确认 |
-| Phase 4 | J-06 商业授权；J-08 Owner 后台；J-09 Support/合规/安全；J-10 生产运营 | JF-11、JF-13、JF-14、JF-16、JF-17 完整运营；JD-03/05/06/09 |
+| Phase 4 | J-06 商业授权；J-08 Owner 后台；J-09 Support/合规/安全；J-10 生产运营 | JF-11、JF-13、JF-14、JF-16、JF-17、JF-18 完整运营；JD-03/05/06/09/11 |
 | Phase 5 | J-02/J-03 新连接器一致性；J-10 连接器扩展 | 复用已建立的 Connector/Recipe Lifecycle，不在此阶段才补首次安全发布链 |
 | Phase 6 | J-05 移动端 Standby、切换、凭据准备和 Active 能力 | D-011 保持 Standby 只审阅；RemoteApprovalToken 另立决策 |
 
 每个 Phase 开始前应确认本阶段 Journey 范围、责任人和 `Decision Required`；退出前不得遗留影响该阶段交付的 J0，并至少通过 Happy Path、权限拒绝、中断恢复和结果未知四类 E2E 场景。未确认的旅程审查建议仍保持 Open Finding，不得由实现者自行视为产品决策。
+
+## 交付容量与范围预算
+
+Phase 是证据边界，不要求所有能力同时成熟。单个 Gate 阻塞时，使用 Gate 台账中的 Fallback 隔离该能力，不能把未关闭风险扩散成全局停工，也不能为了形成演示绕过安全边界。
+
+| 可观察里程碑 | 允许范围 | 不得冒充的状态 |
+| --- | --- | --- |
+| Phase 0 Contract Alpha | Fixture、Fake Provider、无副作用页面和本地/CI 负向矩阵；生产 Registry deny-all | 不代表真实凭据、真实平台网络、Cloud 并发事务或外部写入可用 |
+| 内部 Read-only Alpha | 只开放已通过平台 Transport、Host-owned Secret、设备身份、Sync Projection 和租户隔离 Gate 的只读连接；未通过的 Provider 保持 Manual/Disabled | 不承诺浏览器写入、批量副作用、紧急自动下架或商业可用性 |
+| 首个可售 Desktop 版本 | Phase 1～4 对应 Journey、生产运营和商业 Gate 已关闭；每个连接器能力按独立证据启用 | 单个未通过的连接器或执行模式不得由全局 Feature Flag 扩权 |
+| 扩展版本 | Phase 5/6 的新连接器、公开展示、移动端与可选自动化能力 | 不得在扩展阶段才补 Secure Host、Recipe 发布或生产运营的首次安全链 |
+
+任何对首个可售范围的缩减都必须保留以下不变量：平台秘密只在设备、业务数据按产品承诺同步到 Cloud、账号/License 门禁、最多两台绑定且单 Active、Cloud Desired State 不能直接产生平台副作用、生产网络能力由编译期 Registry 授权、Public/Admin/Jobs 信任域隔离。可以按 Gate 延后某个 Provider、写 Endpoint、浏览器自动化模式、移动端、公开展示、多 Staff 与多区部署；不能把这些延后项对应的失败关闭规则删除。
 
 ## Phase 0：技术验证
 
@@ -72,7 +85,7 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - Afternic CSV/Portfolio 导入。
 - 本地搜索、筛选、标签和到期提醒。
 - 批量差异预览、冲突中心和人工任务收件箱低保真流程。
-- 审计日志与加密备份原型。
+- 审计日志原型。
 - 单执行设备增量同步、切换后本地重建、共享限流摘要和恢复候选。
 - 同步时机触发器、排空验收、一致性校验（Anti-Entropy）和 Mutation Log Checkpoint 重建。
 - Standby Cloud Read-Only View、资产/告警/任务进度查询和可丢弃只读缓存。
@@ -114,6 +127,8 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 外部修改冲突处理。
 - 已售域名跨平台紧急下架。
 
+退出条件：VerificationAttempt、DNS 条件写和 Operations 结果交接可在重复、超时和崩溃后幂等恢复；同名 RRset 不被整组覆盖，挑战值不进入普通 TypeScript、Outbox 或 Cloud；权威与递归证据能够区分写入确认和传播完成。售出发现、人工/自动紧急处置与逐次批准语义已按 JD-01 冻结，外部修改不会被静默覆盖，J-03/J-04 的权限拒绝、中断恢复和 `outcome_unknown` 场景通过。
+
 ## Phase 4：商业发布
 
 - 月付、年付和终身 License。
@@ -132,6 +147,8 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - Windows 安装包与 macOS 公证。
 - 崩溃恢复、迁移和备份恢复测试。
 
+退出条件：支付事件在重复、乱序、退款和拒付下可确定性重建 Entitlement，账号恢复、License、设备撤销和续费恢复通过端到端测试；Windows 签名安装包与 macOS 公证制品可由锁定流水线重建并验证更新、回滚和撤销。JD-03/05/06/09/11 已在各自最迟决策点关闭，生产区域、数据驻留、KMS、PITR、RPO/RTO/SLO、备份恢复和删除传播完成演练；Public/Admin/Jobs、租户隔离、Owner 高风险动作、外部 Helpdesk CaseReference 和数据权利流程通过权限拒绝与审计复核。未通过平台安全或运营 Gate 的连接器能力保持 Disabled/Manual，不以商业发布日期豁免。
+
 ## Phase 5：扩展平台
 
 - 根据用户需求增加注册商和销售平台。
@@ -140,6 +157,8 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 可选的本地自动化规则。
 - 扩展已在 Phase 2 建立的签名 Recipe 生命周期、回滚和页面兼容矩阵。
 - 用户显式发布的域名资产展示、Publication Projection 和公开页面。
+
+退出条件：至少一个新增连接器只通过模板、版本化 Manifest/Recipe 和 Contract Test Kit 接入，不新增普通 TypeScript 任意网络、秘密或脚本能力；Capability/Data Classification Diff、灰度、撤销、Anti-Rollback、兼容矩阵和 Provider 退役路径均可重跑。Publication Projection 只包含用户显式选择的公开字段，私人 Workspace、成本、账号、操作和冲突数据不能通过公开接口读取。
 
 ## Phase 6：iOS 与 Android
 
@@ -152,3 +171,5 @@ Roadmap 的 Phase 退出条件除功能和技术原型外，还必须通过 [用
 - 文件分享和生物识别解锁。
 
 移动端 Standby 的“审阅”不形成 ApprovedOperation，也不能远程指令桌面执行。是否引入独立 RemoteApprovalToken，以及是否完整支持大规模 CSV 和批量表格操作，在桌面版真实使用数据出来后另行决策。
+
+退出条件：iOS/Android 在受支持系统矩阵上完成账号、Keychain/Keystore、设备总额度、Standby 只读、切换/重建和后台暂停恢复测试；Standby 无法形成 ApprovedOperation、读取平台秘密或远程命令桌面执行，移动端 Active 只能使用已通过对应平台 Gate 的能力。生物识别、文件分享、深链和后台唤醒不能绕过 RuntimeMode、License、DeviceBinding 或 ActiveDeviceLease；若 RemoteApprovalToken 尚无独立决策，产品中不得出现等价远程批准通道。

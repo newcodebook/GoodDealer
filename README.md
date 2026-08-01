@@ -45,14 +45,22 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [开发路线图](docs/ROADMAP.md)
 - [产品决策记录](docs/OPEN_DECISIONS.md)
 - [架构审查处理记录](docs/REVIEW_RESOLUTIONS.md)
+- [术语索引](docs/GLOSSARY.md)
+- [数据关系与所有权地图](docs/DATA_MODEL_MAP.md)
 - [Phase 0 编码前全面审查（2026-08-01）](docs/PHASE0_READINESS_REVIEW_2026-08-01.md)
+- [Phase 0 工程基线](docs/PHASE0_ENGINEERING_BASELINE.md)
 - [Phase 0 Secure Host 决策基线](docs/PHASE0_SECURE_HOST_BASELINE.md)
+- [Phase 0 Gate 台账](docs/PHASE0_GATE_REGISTER.md)
 - [ADR-0001：采用本地执行的 Tauri 客户端](docs/adr/0001-local-first-tauri.md)（已由 ADR-0004、ADR-0005 修订）
 - [ADR-0002：隔离且由用户授权的浏览器自动化](docs/adr/0002-isolated-browser-automation.md)
 - [ADR-0004：服务端同步域名业务数据，凭据保持设备本地](docs/adr/0004-cloud-business-data-sync.md)
 - [ADR-0005：最多两台绑定且仅一台执行](docs/adr/0005-single-active-device-and-continuity.md)
 - [ADR-0006：按运行时与安全边界组织工程结构](docs/adr/0006-runtime-and-security-boundaries.md)
 - [ADR-0007：管理员安全边界、Fastify 与本地/云端接口复用](docs/adr/0007-admin-boundary-and-interface-reuse.md)
+- [ADR-0008：Phase 0 工具链、支持矩阵与工程基线](docs/adr/0008-phase-0-engineering-baseline.md)
+- [ADR-0009：EndpointManifest 单向生成 Secure HTTP Capability](docs/adr/0009-endpoint-capability-registry.md)
+- [ADR-0010：秘密输入与秘密响应由 Host 全程拥有](docs/adr/0010-host-owned-secret-path.md)
+- [ADR-0011：设备身份、轮换与撤销生命周期](docs/adr/0011-device-identity-lifecycle.md)
 
 历史 ADR：
 
@@ -60,4 +68,6 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 
 ## 当前状态
 
-项目处于需求和架构设计阶段，尚未初始化应用代码。
+项目处于 `Phase 0 Validation / Conditional Go`。Monorepo、Tauri/Rust/TypeScript 工程骨架、依赖边界、跨语言契约和测试专用 Secure Host Fixture 已建立；生产 Endpoint Registry 仍为 deny-all，不具备真实平台发网、真实凭据写入或生产外部副作用能力。
+
+当前执行状态以 [Phase 0 Gate 台账](docs/PHASE0_GATE_REGISTER.md) 为准：R0-01 与 R0-10 已关闭，R0-02、R0-03、R0-06 与 R0-11 正在补平台级证据，其余 Gate 保持开放并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、Cloud 事务、签名验证或真实外部写入已经通过。
