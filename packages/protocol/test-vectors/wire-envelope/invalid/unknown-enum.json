@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "messageId": "msg-invalid-enum",
+  "body": {
+    "type": "error",
+    "data": {
+      "code": "SOMETHING_NEW",
+      "message": "unknown error",
+      "retryable": false
+    }
+  }
+}

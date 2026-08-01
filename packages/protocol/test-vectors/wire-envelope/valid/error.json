@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "messageId": "msg-error-1",
+  "body": {
+    "type": "error",
+    "data": {
+      "code": "INVALID_REQUEST",
+      "message": "request was rejected",
+      "retryable": false
+    }
+  }
+}

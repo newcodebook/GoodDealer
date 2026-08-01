@@ -470,6 +470,7 @@ local-storage   -> secure-host-core
 desktop -> client-core -> protocol
 client-core -> connector-sdk
 client-core/browser-automation -> browser-automation/contracts
+desktop/src/composition-root.ts -> connectors -> connector-sdk -> protocol/connectors
 desktop -> cloud-client -> protocol
 desktop/src/adapters/tauri -> cloud-client
 account-web -> cloud-client -> protocol
@@ -500,6 +501,8 @@ Standby path -X-> connector execution / Mutation Outbox
 ```
 
 使用 TypeScript Project References、`package.json` exports、ESLint import-boundary 规则和 Rust 可见性限制执行这些约束。任何跨模块临时绕行必须形成 ADR，不能使用深层相对导入隐藏耦合。
+
+具体 Connector 的唯一注册边是 `apps/desktop/src/composition-root.ts -> packages/connectors/*`。除该 Composition Root 和连接器自己的测试外，Desktop Feature、client-core、cloud-client、account-web、admin-web 与 Cloud 均不得导入具体 Connector；Repository 根目录结构测试必须对这一窄边做精确路径校验。
 
 ## 11. 测试归属
 

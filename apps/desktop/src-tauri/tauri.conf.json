@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GoodDealer",
+  "version": "0.0.0",
+  "identifier": "app.gooddealer.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "local-app",
+        "title": "GoodDealer",
+        "width": 1200,
+        "height": 800
+      }
+    ],
+    "security": {
+      "capabilities": ["local-app"]
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "gooddealer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": "24.18.1",
+    "pnpm": "11.18.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:structure": "node --test scripts/boundary-policy.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm test:structure",
+    "evidence:wp0": "node scripts/collect-wp0-evidence.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

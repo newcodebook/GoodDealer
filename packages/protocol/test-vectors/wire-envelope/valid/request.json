@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "messageId": "msg-request-1",
+  "body": {
+    "type": "request",
+    "data": {
+      "operation": "workspace.read",
+      "payload": {
+        "workspaceId": "workspace-1"
+      }
+    }
+  }
+}

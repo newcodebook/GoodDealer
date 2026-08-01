@@ -1,0 +1,29 @@
+{
+  "name": "@gooddealer/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@gooddealer/client-core": "workspace:*",
+    "@gooddealer/cloud-client": "workspace:*",
+    "@gooddealer/connector-afternic": "workspace:*",
+    "@gooddealer/connector-atom": "workspace:*",
+    "@gooddealer/connector-cloudflare": "workspace:*",
+    "@gooddealer/connector-sdk": "workspace:*",
+    "@gooddealer/connector-spaceship": "workspace:*",
+    "@tauri-apps/api": "2.11.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "vite": "8.2.0"
+  }
+}

@@ -1,0 +1,42 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.18.0
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Dependency vulnerability gate
+        run: pnpm audit --audit-level high
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+      - name: TypeScript, tests, and structure
+        run: pnpm check
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Portable Rust lint
+        run: cargo clippy -p gooddealer-secure-host-core -p gooddealer-local-storage --all-targets -- -D warnings
+      - name: Portable Rust tests
+        run: cargo test -p gooddealer-secure-host-core -p gooddealer-local-storage --all-targets
+      - name: Collect WP-0 environment evidence
+        run: pnpm evidence:wp0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp0-quality-environment
+          path: .artifacts/wp0/environment.json
+          retention-days: 30

@@ -1,0 +1,15 @@
+{
+  "name": "@gooddealer/browser-automation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts": "./src/contracts/index.ts",
+    "./recipes": "./src/recipes/index.ts",
+    "./probe-runtime": "./src/probe-runtime/index.ts",
+    "./test-kit": "./src/test-kit/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

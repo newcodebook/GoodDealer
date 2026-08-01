@@ -1,0 +1,22 @@
+{
+  "name": "@gooddealer/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./account": "./src/account/index.ts",
+    "./devices": "./src/devices/index.ts",
+    "./workspace": "./src/workspace/index.ts",
+    "./execution-events": "./src/execution-events/index.ts",
+    "./recovery": "./src/recovery/index.ts",
+    "./connectors": "./src/connectors/index.ts",
+    "./admin": "./src/admin/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  }
+}

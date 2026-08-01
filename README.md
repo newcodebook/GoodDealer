@@ -45,6 +45,7 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [开发路线图](docs/ROADMAP.md)
 - [产品决策记录](docs/OPEN_DECISIONS.md)
 - [架构审查处理记录](docs/REVIEW_RESOLUTIONS.md)
+- [Phase 0 编码前全面审查（2026-08-01）](docs/PHASE0_READINESS_REVIEW_2026-08-01.md)
 - [ADR-0001：采用本地执行的 Tauri 客户端](docs/adr/0001-local-first-tauri.md)（已由 ADR-0004、ADR-0005 修订）
 - [ADR-0002：隔离且由用户授权的浏览器自动化](docs/adr/0002-isolated-browser-automation.md)
 - [ADR-0004：服务端同步域名业务数据，凭据保持设备本地](docs/adr/0004-cloud-business-data-sync.md)

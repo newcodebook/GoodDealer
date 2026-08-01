@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GoodDealer Phase 0 placeholder icon">
+  <defs>
+    <linearGradient id="background" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18324A" />
+      <stop offset="1" stop-color="#0B1724" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)" />
+  <path d="M128 152h256v76H204v56h148v76H204v76h-76V152Z" fill="#F5F1E8" />
+  <circle cx="372" cy="360" r="44" fill="#F28C45" />
+</svg>

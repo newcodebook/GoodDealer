@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "body": {
+    "type": "success",
+    "data": {
+      "payload": {}
+    }
+  }
+}

@@ -10,6 +10,8 @@
 
 基线工作区：Clean，只有文档，尚未初始化应用代码
 
+Finding 的当前执行状态与证据由 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 管理；本报告保留审查时的证据、定级和关闭条件。
+
 ## 1. 最终结论
 
 本次审查结论为 **Conditional Go**。

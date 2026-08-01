@@ -1,0 +1,18 @@
+[package]
+name = "gooddealer-desktop-tauri"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+gooddealer-automation-host = { path = "../../../crates/automation-host" }
+gooddealer-local-storage = { path = "../../../crates/local-storage" }
+gooddealer-secure-host-core = { path = "../../../crates/secure-host-core" }
+tauri.workspace = true
+
+[lints]
+workspace = true

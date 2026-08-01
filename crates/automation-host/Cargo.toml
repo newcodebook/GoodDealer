@@ -1,0 +1,13 @@
+[package]
+name = "gooddealer-automation-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+gooddealer-secure-host-core = { path = "../secure-host-core" }
+wry.workspace = true
+
+[lints]
+workspace = true

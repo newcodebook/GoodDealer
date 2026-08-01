@@ -1,0 +1,51 @@
+name: native
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-11-x64
+            os: windows-2025
+          - name: macos-15-arm64
+            os: macos-15
+          - name: macos-15-intel
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.18.0
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+      - name: TypeScript, tests, and structure
+        run: pnpm check
+      - name: Build desktop frontend
+        run: pnpm --filter @gooddealer/desktop build
+      - name: Rust lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --workspace --all-targets
+      - name: Collect WP-0 environment evidence
+        run: pnpm evidence:wp0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp0-${{ matrix.name }}-environment
+          path: .artifacts/wp0/environment.json
+          retention-days: 30

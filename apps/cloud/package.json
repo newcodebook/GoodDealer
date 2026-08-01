@@ -1,0 +1,14 @@
+{
+  "name": "@gooddealer/cloud",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gooddealer/protocol": "workspace:*",
+    "fastify": "5.11.0"
+  }
+}

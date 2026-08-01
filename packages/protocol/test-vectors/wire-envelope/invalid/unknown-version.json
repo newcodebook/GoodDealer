@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "messageId": "msg-invalid-version",
+  "body": {
+    "type": "success",
+    "data": {
+      "payload": {}
+    }
+  }
+}

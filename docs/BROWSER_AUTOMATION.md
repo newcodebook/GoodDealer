@@ -211,7 +211,7 @@ Recipe 禁止：
 
 ## 8. 会话与 Cookie
 
-- Windows 优先使用独立 `data_directory`；macOS 14+ 使用独立 `data_store_identifier`。更低版本 macOS 的隔离能力必须通过 Phase 0 实测决定支持范围。
+- Windows 使用独立 `data_directory`；macOS 15 使用独立 `data_store_identifier`。首发不支持 macOS 14 及更低版本，因此不存在共享 Profile 的降级路径。
 - Cookie 只保存在本机，不同步到 GoodDealer 服务端。
 - 用户可以查看、退出和清除某个 ProviderConnection 的会话。
 - 清除连接时只清除该 `device_id + provider_connection_id + session_mode` Profile 的 Cookie、缓存和临时文件，不影响同平台其他账户。
