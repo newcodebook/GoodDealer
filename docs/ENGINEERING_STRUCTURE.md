@@ -288,7 +288,7 @@ LocalContinuation             # 仅 Sunset 构建/凭证可进入
 
 - 只依赖 `protocol`，负责只读 Workspace、Mutation、设备切换、Execution Event Ingest、合规 API 及非秘密账号操作的类型化请求构造与响应解析，并通过注入的 Transport Port 发送。
 - 不缓存领域状态，不实现冲突合并，不读取 Keychain，不持有账号 Token 或平台凭据，也不得自行构造 `Authorization` Header。
-- Desktop 中由 `apps/desktop/src/adapters/tauri` 组合 cloud-client 与 Tauri Transport；Transport 把已批准的 GoodDealer Cloud Endpoint ID、方法和 Payload 交给 Rust `secure-http`，由 Host 从 Keychain 读取并注入 Auth Session Token。
+- Desktop 中由 `apps/desktop/src/adapters/tauri` 组合 cloud-client 与 Tauri Transport；Transport 只把已批准的 GoodDealer Cloud Endpoint ID 和公开 Payload 交给 Rust `secure-http`，Method 与网络策略由 Host 注册表决定，Auth Session Token 由 Host 从 Keychain 读取并注入。
 - Desktop 的登录、Token 刷新、撤销和轮换是 Host-owned Session Command：Rust 解析 Token-bearing Response 并直接写入 Keychain，只向 TypeScript 返回脱敏 AuthSessionStatus；这些响应不得经过 cloud-client。
 - account-web 使用独立的同源 Web Transport 与 HttpOnly/SameSite 会话 Cookie；不得复用 Desktop Keychain Token 通道。
 
@@ -383,13 +383,13 @@ Local Repository 由 `local-storage/active-workspace/<capability>` 实现；Clou
 - `device-identity`：设备 ID、设备签名密钥和可信时间锚点。
 - `crypto`：AEAD、Hash、签名验证和密钥封装接口。
 - `keychain`：OS Keychain/Credential Manager 抽象。
-- `secure-http`：消费构建期 EndpointManifest 生成的嵌入式注册表；按 `device_id + provider_connection_id` 解析凭据绑定，执行 URL/DNS/IP、固定 443、禁重定向、注入、typed extractor、脱敏、超时和响应限制。
+- `secure-http`：消费构建期 EndpointManifest 生成的嵌入式注册表；按 `device_id + provider_connection_id` 查询版本化 Credential Profile 与完整 Slot/SecretKind 绑定，并以完整作用域读取秘密；执行封闭参数编码和总量限制、固定幂等 Header、URL/DNS/IP、固定连接地址、TLS Host、禁系统代理/重定向、秘密延迟加载、公开响应白名单或 typed extractor、脱敏、超时和流式/解压响应限制。Fixture Executor seam 只在测试编译，生产模块不能接受外部 Transport 实现。
 - `secret-capture`：定义 Host-owned 原生秘密输入 Port、私有秘密内存类型和批量 Keychain 写入；普通 Tauri IPC 只返回 `credential_binding_id`、fingerprint 和脱敏状态，Keychain Ref 不离开 Host。
 - `operation-signing`：ApprovedOperation、LateExecutionEvent 签名与防重放序列，以及短期、一次性的本机 AutomationExecutionTicket 签发与校验。
 
 Rust 集成测试直接针对该 Crate 运行，不需要启动 Tauri WebView。
 
-EndpointManifest 由各编译期 Connector 拥有，构建工具单向生成 `connector-sdk` 的 Endpoint ID/公开参数类型和 `secure-host-core` 的注册表；生成物在 CI 重建并差异检查。Device Identity 的公开 DTO 由 `protocol/devices` 拥有，Cloud `devices` 拥有 Challenge/版本/撤销状态，Rust `device-identity` 只拥有私钥、确定性 Transcript 与签名 Port。
+EndpointManifest 由各编译期 Connector 拥有，构建工具单向生成 `connector-sdk` 的 Endpoint ID/公开请求与响应类型和 `secure-host-core` 的完整安全注册表；前端不导出 Origin、注入或网络策略，生成物在 CI 重建并差异检查。Device Identity 的公开 DTO 由 `protocol/devices` 拥有，Cloud `devices` 拥有 Challenge/版本/撤销状态，Rust `device-identity` 只拥有私钥、确定性 Transcript 与签名 Port。
 
 ### local-storage
 

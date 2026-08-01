@@ -41,7 +41,14 @@ status
 ```text
 provider_connection_id
 device_id
-credential_ref
+provider
+credential_namespace
+credential_profile_id
+credential_profile_version
+slots[]
+  slot_id
+  secret_kind
+  credential_ref
 credential_health
 ```
 
@@ -56,7 +63,7 @@ BrowserSessionProfile
   session_health
 ```
 
-`credential_ref`、`profile_ref` 和 `session_health` 不得进入 Sync Mutation 或服务端数据库。`BrowserSessionProfile` 以 `device_id + provider_connection_id + session_mode` 唯一，不能用 DeviceCredentialBinding 上的单数引用表达多种会话模式。
+任一 Slot 的 `credential_ref`、`profile_ref` 和 `session_health` 不得进入 Sync Mutation 或服务端数据库。`BrowserSessionProfile` 以 `device_id + provider_connection_id + session_mode` 唯一，不能用 DeviceCredentialBinding 表达浏览器会话模式。
 
 平台配额的非秘密摘要随 `ProviderConnection` 同步，包括 `quota_scope: credential | provider_account | provider_global | unknown`、剩余配额、重置时间、`backoff_until` 和最近刷新时间。只有当前活动设备读取平台并更新摘要；切换后的设备必须先继承退避状态，不能立即重复全量刷新。摘要可能滞后，不能替代连接器本地的并发控制。
 

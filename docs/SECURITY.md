@@ -59,15 +59,18 @@ idempotency key
 Gateway 必须：
 
 - 只接受构建期 `EndpointManifest` 生成并嵌入制品的 Endpoint；Method 也由 Manifest 决定，TypeScript 不能提交 Host、端口、绝对 URL、Method、凭据 Header 或 `credentialRef`。
-- 根据当前 `device_id + provider_connection_id` 在 Host 内解析 DeviceCredentialBinding，并校验 Provider、凭据命名空间、RuntimeMode 与 Endpoint 完整绑定。
+- 编译期 Endpoint 命中后先校验 RuntimeMode；非 Active 模式不得查询 DeviceCredentialBinding、DNS、秘密或 Transport。Active 模式再根据当前 `device_id + provider_connection_id` 在 Host 内查询绑定，并校验 Provider、Credential Profile 版本、完整 Slot/SecretKind 集、凭据命名空间与 Endpoint 完整绑定；Keychain 读取继续携带全部作用域，普通调用方不能选择绑定或 Ref。
 - 只允许固定 HTTPS Origin 和 443 端口；拒绝 userinfo、路径穿越、预编码路径、私网/回环/链路本地地址及 DNS 解析异常。
-- Phase 0 的带凭据请求一律禁止重定向，并关闭 HTTP Client 自动重定向。
+- Query/JSON Body 只能由封闭字段 AST 编码，字符串必须有有限 UTF-8 字节上限，Integer 必须在 JavaScript Safe Integer 范围，编码后 Query/Body 还需满足 Endpoint 总字节上限；拒绝未知字段、类型强转、动态 Hook、原始 Query 和预编码值。
+- 将本次 DNS 验证通过的地址集合固定到 Transport；连接 IP 必须属于该集合，TLS SNI/证书与 HTTP Host 使用 Manifest Host，禁止隐式重解析、系统代理和自动重定向。
 - 注入 API Key/Secret，并在返回前移除敏感 Header。
+- `provider_idempotency_key` 只能注入 Manifest 固定的非保留 Header；凭据 Header 自动纳入脱敏集合，禁止 Host、Cookie、代理认证和逐跳 Header。秘密值只接受非空可见 ASCII；编码后单值不超过 8 KiB，全部凭据与幂等 Header 合计不超过 16 KiB。
+- 公开 JSON 响应必须按封闭字段 Schema 拒绝未知/缺失/错类型字段并重建白名单结果；含秘密响应使用 Rust typed extractor，不使用 JSON Pointer denylist 清洗。
 - 对 URL、Query、Header、Body 和错误信息统一脱敏。
-- 限制响应大小和请求超时。
+- 限制请求超时，并在流式读取和解压后同时限制响应大小。
 - 按平台账户进行限流。
 
-Atom Token 可能出现在 Query 中，因此完整 URL 绝不能进入日志。
+若 Atom 或其他平台只提供 Query Token，相关 Endpoint 在 Phase 0 不进入 Secure HTTP Registry；必须改用 Header 认证或通过新的安全决策后才能启用。作为纵深防御，完整 URL 始终不得进入日志。
 
 GoodDealer Cloud 请求使用独立的认证注入通道：
 
@@ -131,7 +134,7 @@ GoodDealer 服务端不得接收：
 - 备份口令、解密密钥或备份明文。
 - 未脱敏的 HTTP Header、URL/Query、原始响应或敏感 DNS 验证值。
 
-普通 DNS Record、价格、销售状态和脱敏操作记录可以同步。连接器标记为设备秘密的验证 Token、请求 Header、Query、Cookie 和敏感 Payload 必须在 Secure Host 内删除后才能上传。
+普通 DNS Record、价格、销售状态和脱敏操作记录可以同步。Phase 0 Secure HTTP 不允许秘密 Query 或 Cookie；来自浏览器流程、导入工件或诊断上下文的验证 Token、请求 Header、Query、Cookie 和敏感 Payload 必须通过封闭 Sync Projection 排除，不能依赖上传前再清洗。
 
 域名业务数据不使用端到端加密，但传输必须使用 TLS，服务端数据库、对象存储和备份必须启用静态加密。租户授权在每个查询和写入路径校验。生产环境运营访问默认拒绝；跨账号访问业务数据必须具有对应 Scope、记录理由/工单标识、限定范围与时间，并产生 Staff AuditEvent，不要求用户逐次授权（详见第 10 节）。
 

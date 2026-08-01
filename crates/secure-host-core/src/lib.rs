@@ -1,6 +1,8 @@
 pub mod device_identity;
 pub mod endpoint_capability;
 mod generated;
+#[cfg(test)]
+mod http_executor;
 pub mod secret;
 mod wire_envelope;
 

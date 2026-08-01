@@ -115,9 +115,9 @@ secureHttp.execute({
 });
 ```
 
-每个编译期连接器使用版本化、声明式、不可执行的 `EndpointManifest` 声明固定 HTTPS Origin、Method、Path 参数、凭据命名空间和注入方式、超时、响应上限、逐 Endpoint 重试安全级别、脱敏字段及可选的 Host-owned Response Extractor。Manifest 构建时单向生成 TypeScript Endpoint ID/公开参数类型和 Rust 嵌入式注册表；运行时配置与 Cloud 不得扩权。
+每个编译期连接器使用版本化、声明式、不可执行的 `EndpointManifest`。Provider 级 Credential Profile 声明版本、凭据命名空间和完整 Slot/SecretKind 集；Endpoint 只引用一个 Profile，并声明固定凭据 Header、可选的固定幂等 Header、封闭 Path/Query/JSON Body 字段 AST、请求/响应上限、逐 Endpoint 重试安全级别、公开响应白名单及可选的 Host-owned Response Extractor。Manifest 的 JSON Schema 与跨字段校验在构建时执行，并单向生成 TypeScript Endpoint ID/公开请求与响应类型和 Rust 嵌入式安全表；TypeScript 不导出完整安全注册表，运行时配置与 Cloud 不得扩权。
 
-TypeScript 不提交 Host、端口、绝对 URL、Method、凭据 Header 或 `credentialRef`。Secure Host 根据当前设备和 `providerConnectionId` 解析本机 DeviceCredentialBinding，并在发网前验证 Provider、凭据命名空间、Endpoint、RuntimeMode、URL、DNS/IP 和请求上限的完整绑定。Phase 0 Path 参数只允许严格不透明 Segment，带凭据 Endpoint 禁止重定向。完整决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)。
+TypeScript 不提交 Host、端口、绝对 URL、Method、原始 Query、凭据 Header 或 `credentialRef`。Secure Host 先校验 RuntimeMode，非 Active 模式不查询本机 DeviceCredentialBinding；随后根据当前设备和 `providerConnectionId` 验证 Provider、Profile 版本、完整 Slot/SecretKind、Endpoint、公开参数和总字节上限。解析 DNS 并拒绝任一非公网地址后，才按完整绑定作用域加载秘密并把已验证地址集合交给 Host Transport；凭据 Header 值与凭据/幂等 Header 总量使用固定安全上限。公开 JSON 响应拒绝未知字段并按白名单重建。Phase 0 Path 参数只允许有界不透明 Segment，带凭据 Endpoint 禁止系统代理与重定向。完整决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)。
 
 连接器还必须为返回字段声明云同步分类：`PUBLIC_BUSINESS`、`SENSITIVE_BUSINESS`、`DEVICE_SECRET` 或 `DIAGNOSTIC_LOCAL`。Secret-bearing Endpoint 必须由 Rust typed extractor 直接把 `DEVICE_SECRET` 写入 Keychain，并从白名单字段重建公开结果；普通 TypeScript 永远不能先取得完整响应再清洗。Sync Outbox 的封闭 Projection 由 Workspace Protocol 与 local-storage 写入口强制，不能依赖网络层事后删除。
 
@@ -172,7 +172,7 @@ TypeScript 不提交 Host、端口、绝对 URL、Method、凭据 Header 或 `cr
 - Standard Listing 移除。
 - Sales、Analytics 和 DNS 验证状态。
 
-Premium Listing 移除等限制操作返回人工任务。所有日志必须屏蔽 Query 中的 API Token。
+Premium Listing 移除等限制操作返回人工任务。若 Atom API 只能使用 Query Token，对应 Endpoint 在 Phase 0 保持禁用；日志仍不得记录完整 Query 或 URL。
 
 ### Afternic
 

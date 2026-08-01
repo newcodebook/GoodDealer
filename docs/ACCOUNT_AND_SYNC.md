@@ -291,7 +291,14 @@ ProviderConnectionShared
 DeviceCredentialBinding       # 仅客户端
   provider_connection_id
   device_id
-  credential_ref
+  provider
+  credential_namespace
+  credential_profile_id
+  credential_profile_version
+  slots[]
+    slot_id
+    secret_kind
+    credential_ref
   credential_health
 
 BrowserSessionProfile         # 仅客户端，由 browser-automation 拥有

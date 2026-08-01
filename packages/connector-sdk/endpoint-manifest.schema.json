@@ -4,58 +4,168 @@
   "title": "GoodDealer EndpointManifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "provider", "endpoints"],
+  "required": ["schemaVersion", "provider", "credentialProfiles", "endpoints"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "credentialProfiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/credentialProfile" }
+    },
     "endpoints": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "endpointId",
-          "method",
-          "origin",
-          "pathTemplate",
-          "pathParameters",
-          "credentialNamespace",
-          "credentialInjection",
-          "redirectPolicy",
-          "timeoutMs",
-          "maxResponseBytes",
-          "retrySafety",
-          "responseExtractor",
-          "redactHeaders",
-          "redactJsonPointers"
-        ],
-        "properties": {
-          "endpointId": { "type": "string" },
-          "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
-          "origin": { "type": "string", "format": "uri" },
-          "pathTemplate": { "type": "string" },
-          "pathParameters": {
-            "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
-            "uniqueItems": true
-          },
-          "credentialNamespace": { "enum": ["provider_api"] },
-          "credentialInjection": { "enum": ["bearer_header", "api_key_headers", "query_token"] },
-          "redirectPolicy": { "const": "deny" },
-          "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 30000 },
-          "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
-          "retrySafety": { "enum": ["safe", "provider_idempotency_key", "confirm_before_retry", "never"] },
-          "responseExtractor": { "enum": ["public_json", "host_owned"] },
-          "redactHeaders": {
-            "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
-            "uniqueItems": true
-          },
-          "redactJsonPointers": {
-            "type": "array",
-            "items": { "type": "string", "pattern": "^/" },
-            "uniqueItems": true
+      "items": { "$ref": "#/$defs/endpoint" }
+    }
+  },
+  "$defs": {
+    "credentialProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "version", "credentialNamespace", "slots"],
+      "properties": {
+        "profileId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "credentialNamespace": { "const": "provider_api" },
+        "slots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["slotId", "secretKind"],
+            "properties": {
+              "slotId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "secretKind": { "enum": ["api_token"] }
+            }
           }
+        }
+      }
+    },
+    "credentialInjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slotId", "target", "wireName", "valueEncoding"],
+      "properties": {
+        "slotId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "target": { "const": "header" },
+        "wireName": {
+          "type": "string",
+          "pattern": "^[a-z0-9!#$%&'*+.^_`|~-]+$"
+        },
+        "valueEncoding": { "enum": ["raw", "bearer"] }
+      }
+    },
+    "idempotencyInjection": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["target", "wireName"],
+      "properties": {
+        "target": { "const": "header" },
+        "wireName": {
+          "type": "string",
+          "pattern": "^[a-z0-9!#$%&'*+.^_`|~-]+$"
+        }
+      }
+    },
+    "publicField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fieldId", "wireName", "valueType", "required", "maxLength", "allowedValues"],
+      "properties": {
+        "fieldId": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+        "wireName": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+        "valueType": { "enum": ["string", "integer", "boolean"] },
+        "required": { "type": "boolean" },
+        "maxLength": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+            { "type": "null" }
+          ]
+        },
+        "allowedValues": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "bodySchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "fields"],
+      "properties": {
+        "encoding": { "enum": ["none", "json"] },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/publicField" }
+        }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endpointId",
+        "method",
+        "origin",
+        "pathTemplate",
+        "pathParameters",
+        "credentialProfileId",
+        "credentialProfileVersion",
+        "credentialInjections",
+        "idempotencyInjection",
+        "queryParameters",
+        "maxQueryBytes",
+        "bodySchema",
+        "maxBodyBytes",
+        "redirectPolicy",
+        "timeoutMs",
+        "maxResponseBytes",
+        "retrySafety",
+        "responseExtractor",
+        "publicResponseSchema",
+        "redactHeaders",
+        "redactJsonPointers"
+      ],
+      "properties": {
+        "endpointId": { "type": "string" },
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "origin": { "type": "string", "format": "uri" },
+        "pathTemplate": { "type": "string" },
+        "pathParameters": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+          "uniqueItems": true
+        },
+        "credentialProfileId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "credentialProfileVersion": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "credentialInjections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/credentialInjection" }
+        },
+        "idempotencyInjection": { "$ref": "#/$defs/idempotencyInjection" },
+        "queryParameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/publicField" }
+        },
+        "maxQueryBytes": { "type": "integer", "minimum": 0, "maximum": 1048576 },
+        "bodySchema": { "$ref": "#/$defs/bodySchema" },
+        "maxBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1048576 },
+        "redirectPolicy": { "const": "deny" },
+        "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 30000 },
+        "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "retrySafety": { "enum": ["safe", "provider_idempotency_key", "confirm_before_retry", "never"] },
+        "responseExtractor": { "enum": ["public_json", "host_owned"] },
+        "publicResponseSchema": { "$ref": "#/$defs/bodySchema" },
+        "redactHeaders": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9!#$%&'*+.^_`|~-]+$" },
+          "uniqueItems": true
+        },
+        "redactJsonPointers": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^/" },
+          "uniqueItems": true
         }
       }
     }

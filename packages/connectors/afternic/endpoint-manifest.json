@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
   "provider": "afternic",
+  "credentialProfiles": [],
   "endpoints": []
 }

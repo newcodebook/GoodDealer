@@ -6,6 +6,5 @@ export interface ConnectorRegistration {
 export {
   ENDPOINT_MANIFEST_SCHEMA_VERSION,
   ENDPOINT_MANIFEST_SHA256,
-  endpointRegistry,
 } from "./generated/endpoint-registry";
-export type { EndpointId } from "./generated/endpoint-registry";
+export type { EndpointId, EndpointRequest, EndpointResponse } from "./generated/endpoint-registry";
