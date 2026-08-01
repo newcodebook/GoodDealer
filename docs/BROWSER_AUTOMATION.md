@@ -95,9 +95,11 @@ AutomationExecutionTicket 只在 Rust Command Handler 与 automation-host 之间
   -> 用户授予 BrowserSessionConsent
   -> 用户在隔离窗口自行登录/获取 API Key
   -> 软件只检测 Origin 与登录状态
-  -> 用户复制或通过安全输入通道保存凭据
+  -> 用户把凭据输入 Rust Host 创建的原生秘密输入面
   -> Consent 到期或用户关闭窗口
 ```
+
+普通 Local App WebView 不拥有上述输入控件、秘密 DTO 或 `store_secret(value)` Command。Host 直接保存到 OS Keychain/Credential Manager，只返回 `credential_binding_id`、fingerprint 和脱敏状态；Keychain Ref 不离开 Host，原生输入面不可用时不得降级为普通 WebView 表单。完整决策见 [ADR-0010](adr/0010-host-owned-secret-path.md)。
 
 业务执行：
 

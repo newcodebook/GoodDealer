@@ -13,7 +13,7 @@ const errors = [];
 
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if ([".artifacts", ".git", "dist", "node_modules", "target"].includes(entry.name)) return [];
+    if ([".artifacts", ".git", ".pnpm-store", "dist", "node_modules", "target"].includes(entry.name)) return [];
     const path = resolve(directory, entry.name);
     return entry.isDirectory() ? walk(path) : [path];
   });

@@ -107,17 +107,19 @@ type RemoteOperation =
 
 ```typescript
 secureHttp.execute({
-  provider: "cloudflare",
-  credentialRef,
-  endpoint: "dns.records.create",
+  providerConnectionId,
+  endpointId: "cloudflare.dns.records.create",
   path: { zoneId },
   body,
+  idempotencyKey,
 });
 ```
 
-每个 Endpoint 声明 Host、Method、Path 模板、凭证注入方式、超时、重试策略和脱敏字段。
+每个编译期连接器使用版本化、声明式、不可执行的 `EndpointManifest` 声明固定 HTTPS Origin、Method、Path 参数、凭据命名空间和注入方式、超时、响应上限、逐 Endpoint 重试安全级别、脱敏字段及可选的 Host-owned Response Extractor。Manifest 构建时单向生成 TypeScript Endpoint ID/公开参数类型和 Rust 嵌入式注册表；运行时配置与 Cloud 不得扩权。
 
-连接器还必须为返回字段声明云同步分类：`PUBLIC_BUSINESS`、`SENSITIVE_BUSINESS`、`DEVICE_SECRET` 或 `DIAGNOSTIC_LOCAL`。Secure Host 在写入 Sync Outbox 前删除 `DEVICE_SECRET` 和未授权诊断数据。
+TypeScript 不提交 Host、端口、绝对 URL、Method、凭据 Header 或 `credentialRef`。Secure Host 根据当前设备和 `providerConnectionId` 解析本机 DeviceCredentialBinding，并在发网前验证 Provider、凭据命名空间、Endpoint、RuntimeMode、URL、DNS/IP 和请求上限的完整绑定。Phase 0 Path 参数只允许严格不透明 Segment，带凭据 Endpoint 禁止重定向。完整决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)。
+
+连接器还必须为返回字段声明云同步分类：`PUBLIC_BUSINESS`、`SENSITIVE_BUSINESS`、`DEVICE_SECRET` 或 `DIAGNOSTIC_LOCAL`。Secret-bearing Endpoint 必须由 Rust typed extractor 直接把 `DEVICE_SECRET` 写入 Keychain，并从白名单字段重建公开结果；普通 TypeScript 永远不能先取得完整响应再清洗。Sync Outbox 的封闭 Projection 由 Workspace Protocol 与 local-storage 写入口强制，不能依赖网络层事后删除。
 
 ## 6. Browser Transport
 

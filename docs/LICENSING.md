@@ -38,6 +38,25 @@ GoodDealer Staff 通过独立 Admin API 查询和处理订单、退款、Entitle
 
 四者均与 `account_id + device_id` 绑定。刷新凭证、Offline Device Lease 和 ActiveDeviceLease 存入 OS Keychain/Credential Manager；普通 WebView、配置和日志不得保存。
 
+所有服务端签名凭证都使用强类型 Envelope，至少包含：
+
+```text
+typ
+iss
+aud
+kid
+schema_version
+account_id
+device_id
+jti
+issued_at
+expires_at
+payload
+signature
+```
+
+Auth、Entitlement、OfflineDeviceLease、ActiveDeviceLease、Bootstrap Capability 和 Sunset 使用独立签名 Key，或不可混淆的 Key Purpose 做密码学域分离。每个解析器先固定预期的 `typ + iss + aud + schema_version + key purpose`，再验签和解析 Payload；跨 Token 类型、未知字段、未知版本、非规范编码、未知或已撤销 Key 和重复 JTI 一律拒绝。签名预映像使用版本化、长度定界的确定性编码，不直接签普通 JSON 字符串。设备绑定与密钥生命周期见 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
+
 Desktop 的 cloud-client 不读取或持有这些 Token。它只构造不含原始 Token 的类型化账号/Cloud 请求，并通过 TypeScript Tauri Adapter 交给 Rust `secure-http`；Secure Host 校验 Endpoint Allowlist 后从 Keychain 注入短期 Access Token。登录、刷新、撤销和轮换属于 Host-owned Session Command，Rust 直接解析 Token-bearing Response 并保存，只向 TypeScript 返回脱敏 AuthSessionStatus。account-web 使用独立的同源 HttpOnly/SameSite Web Session，不复用 Desktop Token 存储。
 
 应用启动先进入 Account Gate。在线时以可刷新 Auth Session 校验账号，离线时以有效 Offline Device Lease 校验账号；同时要求设备绑定和 Entitlement 有效，随后 Standby 可以进入 Cloud Read-Only View。只有本机 ActiveDeviceLease 也有效时，Secure Host 才打开完整业务数据库、Outbox、连接器和 Worker。普通 Access Token 到期只触发后台刷新，不单独导致 Locked。用户启用“记住此设备”后可静默恢复登录，不要求每次手输密码。

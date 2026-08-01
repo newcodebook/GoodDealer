@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gooddealer.invalid/schemas/endpoint-manifest-v1.json",
+  "title": "GoodDealer EndpointManifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "provider", "endpoints"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endpointId",
+          "method",
+          "origin",
+          "pathTemplate",
+          "pathParameters",
+          "credentialNamespace",
+          "credentialInjection",
+          "redirectPolicy",
+          "timeoutMs",
+          "maxResponseBytes",
+          "retrySafety",
+          "responseExtractor",
+          "redactHeaders",
+          "redactJsonPointers"
+        ],
+        "properties": {
+          "endpointId": { "type": "string" },
+          "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          "origin": { "type": "string", "format": "uri" },
+          "pathTemplate": { "type": "string" },
+          "pathParameters": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+            "uniqueItems": true
+          },
+          "credentialNamespace": { "enum": ["provider_api"] },
+          "credentialInjection": { "enum": ["bearer_header", "api_key_headers", "query_token"] },
+          "redirectPolicy": { "const": "deny" },
+          "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 30000 },
+          "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "retrySafety": { "enum": ["safe", "provider_idempotency_key", "confirm_before_retry", "never"] },
+          "responseExtractor": { "enum": ["public_json", "host_owned"] },
+          "redactHeaders": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
+            "uniqueItems": true
+          },
+          "redactJsonPointers": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^/" },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  }
+}

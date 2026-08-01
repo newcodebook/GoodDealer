@@ -25,7 +25,7 @@ macOS 15 同时存在 GitHub-hosted arm64 与 Intel GA Runner，可以让最低�
 - 具体 Connector 只能由 `apps/desktop/src/composition-root.ts` 注册；其他 Desktop Feature、client-core、Cloud、account-web 和 admin-web 均不得导入。
 - Cloud Workspace/Public/Admin Protocol 继续由 `packages/protocol` 的 Zod Schema 拥有。TypeScript、Cloud 和 Rust 使用同一组正负 Golden Corpus，明确 unknown/missing field、enum、版本和错误 Envelope 行为。
 - Rust-owned 普通 Tauri IPC 只能单向生成或维护一份 Rust 镜像 DTO，并用同一 Corpus 验证；不得形成 TS↔Rust 双向生成环。
-- Host-owned Secret/Auth Response 保持 Rust 私有 Wire Contract，只把 opaque ref、fingerprint 或脱敏状态暴露给普通 TypeScript。
+- Host-owned Secret/Auth Response 保持 Rust 私有 Wire Contract，只把 `credential_binding_id`、fingerprint 或脱敏状态暴露给普通 TypeScript；Keychain Ref 不离开 Host。
 - 结构测试扫描 Package Manifest、TypeScript import 和 Rust 依赖，拒绝禁止边和泛化 HTTP/Shell 能力。
 
 ### CI 与发布责任

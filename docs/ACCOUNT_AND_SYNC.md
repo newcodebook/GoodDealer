@@ -82,7 +82,9 @@ DeviceBinding
   signing_key_id
   signing_key_version
   signing_key_status: active | rotated | revoked
+  credential_epoch
   bound_at
+  removed_at
   last_seen_at
 
 DeviceSwitchRequest
@@ -120,6 +122,16 @@ ActiveDeviceLease
 - Standby 只读缓存使用 SQLCipher 或等效静态加密，独立缓存密钥保存在 OS Keychain/Credential Manager；设备此前作为 Active 配置的 DeviceCredentialBinding 可以继续加密保留，但 Standby 无权调用。
 - 设备激活要求应用版本支持当前 Workspace `schema_version`；不支持时禁止激活并提示先升级应用。
 - 第三台设备必须先移除旧设备后才能绑定。
+
+### 3.1 设备身份生命周期
+
+- 设备签名算法固定为 Ed25519；私钥由 Rust Secure Host 生成并保存在 OS Keychain/Credential Manager，普通 TypeScript、Cloud 与备份永不获得。
+- 首次绑定在已重新认证的账号 Session 下创建一次性、短期 `DeviceBindingChallenge`，绑定 Challenge ID、账号、设备、Purpose、Nonce、候选 Key ID/公钥 Fingerprint、期望 Key Version 和重新认证证明。服务端只在验证新钥 PoP 后原子消费 Challenge 并创建 `bound(v1)`。
+- 正常轮换创建绑定当前版本的 Rotation Challenge，并要求旧钥与新钥对同一版本化、长度定界、域分离 Transcript 双 PoP；服务端通过 CAS 在同一事务中把旧版本标记为 `rotated` 并创建 `active(vN+1)`。
+- 旧钥丢失不能降级为单新钥轮换；必须进入 Recovery/Rebind，重新认证账号并撤销旧设备 Session、OfflineDeviceLease、ActiveDeviceLease、未消费 Challenge 和签名能力。
+- 移除设备把状态置为 `removed`、推进 `credential_epoch` 并记录服务端生效时点。撤销后到达的 LateExecutionEvent 只有在预先签发的操作授权、Key Version、Lease Epoch、可信时间界限和 JTI/序列均可验证时才作为迟到事实处理；设备自报时间不能单独证明撤销前已发生。
+
+公开 Challenge/Proof DTO 由 `protocol/devices` 拥有；Cloud `devices` 拥有 Challenge、DeviceBinding、版本 CAS 和撤销事实；Rust `device-identity` 拥有私钥、Transcript 和签名 Port。完整决策见 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
 
 ## 4. 设备切换
 

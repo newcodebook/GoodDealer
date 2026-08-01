@@ -22,11 +22,11 @@
 | Finding | WP | Owner / Reviewer | 假设与环境 | 必须证据 | Fallback | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | R0-01 Phase 0 执行计划 | 全部 | Engineering Baseline / Architecture Reviewer | WP-0～WP-6 独立验收 | 本台账包含 Owner、环境、证据、Fallback 和状态 | 单个 WP 阻塞时不拖住无依赖 WP | Closed |
-| R0-02 Endpoint Capability | WP-1/WP-6 | Secure Host / Security Reviewer | Fixture + Fake Provider；Windows/macOS | EndpointManifest 生成物；URL、重定向、DNS/IP、跨 credentialRef 负向矩阵 | 连接器保持 Manual/Read-only | Open |
-| R0-03 Host-owned Secret | WP-1/WP-6 | Secure Host / Security Reviewer | Canary Secret；Windows/macOS | DOM、TS Heap、IPC、DB/WAL、日志、Crash、Outbox、Cloud 扫描 | 禁止真实凭据流程 | Open |
+| R0-02 Endpoint Capability | WP-1/WP-6 | Secure Host / Security Reviewer | Fixture + Fake Provider；Windows/macOS | EndpointManifest 生成物；URL、重定向、DNS/IP、跨连接凭据绑定负向矩阵 | 连接器保持 Manual/Read-only | In Progress |
+| R0-03 Host-owned Secret | WP-1/WP-6 | Secure Host / Security Reviewer | Canary Secret；Windows/macOS | DOM、TS Heap、IPC、DB/WAL、日志、Crash、Outbox、Cloud 扫描 | 禁止真实凭据流程 | In Progress |
 | R0-04 Sync Projection | WP-2 | Local Storage + Workspace Protocol / Security Reviewer | 属性测试 + Fixture DB | 封闭 Projection；未知字段和 DEVICE_SECRET 失败关闭 | 只允许本地、不可上传 Fixture | Open |
 | R0-05 Outbox Drain | WP-2 | Client Sync + Cloud Devices / Data Reviewer | 乱序、缺口、重复、并发切换 | 逐流连续水位和 Drain Manifest 测试 | 禁止正常 handoff，保留 Standby | Open |
-| R0-06 Device Identity | WP-1/WP-2 | Cloud Devices + Secure Host / Security Reviewer | 签名 Golden Vector + 并发 Fixture | Nonce/PoP、轮换、撤销、强类型 Envelope、重放矩阵 | 设备保持未绑定，不签发 Lease | Open |
+| R0-06 Device Identity | WP-1/WP-2 | Cloud Devices + Secure Host / Security Reviewer | 签名 Golden Vector + 并发 Fixture | Nonce/PoP、轮换、撤销、强类型 Envelope、重放矩阵 | 设备保持未绑定，不签发 Lease | In Progress |
 | R0-07 Recipe/Ticket | WP-3 | Browser Host / Security Reviewer | 无副作用页面 Fixture；双引擎 | 受限 AST、Host 复验、根 Ticket 兑换、递增 Step、崩溃失效 | Manual 模式或系统浏览器 | Open |
 | R0-08 Backup Projection | WP-5 | Recovery / Security Reviewer | 含 pending 状态的 Fixture DB；磁盘故障注入 | 白名单 Export Schema、Crypto Profile、篡改/截断/明文扫描 | 只开放 Cloud 重建，不发布本地备份 | Open |
 | R0-09 Tenant Job | WP-4 | Cloud Platform / Security Reviewer | 双租户同 ID、连接池复用、Quarantine | 可信 TenantJobEnvelope、逐租户 Fan-out、对象 Key/重放负向矩阵 | 禁用周期 Job，保留显式逐租户操作 | Open |
@@ -47,3 +47,16 @@ R0-10 已由以下可重跑证据关闭：
 - unknown field、missing field、unknown enum、unsupported version 和错误 Envelope 均有确定结果。
 
 R0-11 当前本地证据为 macOS 15 arm64 上的锁定 Node/pnpm/Rust、16 个 TypeScript workspace 类型检查、8 个 TypeScript/Cloud 协议测试、4 个结构负向测试、3 个 Rust 测试、全 workspace Clippy，以及 Tauri Release 无 Bundle 构建。`native.yml` 已覆盖 Windows 11 x64、macOS 15 arm64 与 macOS 15 Intel，但远端 Job 尚未执行并留存制品，因此 R0-11 保持 `In Progress`。
+
+## 4. Secure Host 决策包当前证据
+
+R0-02、R0-03 与 R0-06 的当前事实源、已完成证据和剩余平台证据见 [PHASE0_SECURE_HOST_BASELINE.md](PHASE0_SECURE_HOST_BASELINE.md)。对应决策为 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
+
+三项状态均为 `In Progress`：设计落档与可移植 Contract 证据不能替代 Windows/macOS 原生网络与秘密输入验证，也不能替代 Cloud 事务、并发和经审查密码学库的联合证据。在这些证据齐全前，Fallback 继续生效。
+
+当前可重跑证据包括：
+
+- 4 个生产 Connector 使用空 Endpoint Manifest，生成注册表为 deny-all；生成 Hash 和 TS/Rust 生成物由 `check:generated` 做差异门禁。
+- EndpointManifest 结构、Origin 规范化与生成负向测试，以及 Rust Endpoint 绑定、路径、RuntimeMode、DNS/IP 与重定向测试。
+- 3 个 Rust Host-owned Secret 测试，覆盖 Debug 脱敏、批量存储、公开状态重建和未知字段发网响应失败关闭；不声称覆盖原生输入面或进程外泄漏扫描。
+- `protocol/devices`、`apps/cloud` 包级契约测试与 Rust 按凭证类型解析器运行 Device Identity 共享正负向量，并证明合法 Entitlement 不能被 ActiveDeviceLease 消费点接受；Rust 另验证域分离、长度定界 Transcript。该证据不代表 Cloud Route/Handler 已接线，也不声称已经执行 Ed25519 验签或 Cloud 并发事务。

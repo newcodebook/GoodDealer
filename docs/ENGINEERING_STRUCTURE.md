@@ -383,10 +383,13 @@ Local Repository 由 `local-storage/active-workspace/<capability>` 实现；Clou
 - `device-identity`：设备 ID、设备签名密钥和可信时间锚点。
 - `crypto`：AEAD、Hash、签名验证和密钥封装接口。
 - `keychain`：OS Keychain/Credential Manager 抽象。
-- `secure-http`：Allowlist、凭据注入、重定向、脱敏、超时和响应限制。
+- `secure-http`：消费构建期 EndpointManifest 生成的嵌入式注册表；按 `device_id + provider_connection_id` 解析凭据绑定，执行 URL/DNS/IP、固定 443、禁重定向、注入、typed extractor、脱敏、超时和响应限制。
+- `secret-capture`：定义 Host-owned 原生秘密输入 Port、私有秘密内存类型和批量 Keychain 写入；普通 Tauri IPC 只返回 `credential_binding_id`、fingerprint 和脱敏状态，Keychain Ref 不离开 Host。
 - `operation-signing`：ApprovedOperation、LateExecutionEvent 签名与防重放序列，以及短期、一次性的本机 AutomationExecutionTicket 签发与校验。
 
 Rust 集成测试直接针对该 Crate 运行，不需要启动 Tauri WebView。
+
+EndpointManifest 由各编译期 Connector 拥有，构建工具单向生成 `connector-sdk` 的 Endpoint ID/公开参数类型和 `secure-host-core` 的注册表；生成物在 CI 重建并差异检查。Device Identity 的公开 DTO 由 `protocol/devices` 拥有，Cloud `devices` 拥有 Challenge/版本/撤销状态，Rust `device-identity` 只拥有私钥、确定性 Transcript 与签名 Port。
 
 ### local-storage
 

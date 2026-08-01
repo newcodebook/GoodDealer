@@ -10,10 +10,12 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "generate:secure-host": "node scripts/generate-endpoint-registry.mjs",
+    "check:generated": "node scripts/generate-endpoint-registry.mjs --check",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
-    "test:structure": "node --test scripts/boundary-policy.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
-    "check": "pnpm typecheck && pnpm test && pnpm test:structure",
+    "test:structure": "node --test scripts/boundary-policy.test.mjs scripts/endpoint-manifest.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
+    "check": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
     "evidence:wp0": "node scripts/collect-wp0-evidence.mjs"
   },
   "devDependencies": {

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "purpose": "binding",
+  "challengeId": "challenge-01",
+  "accountId": "account-01",
+  "deviceId": "device-01",
+  "nonce": "RmFrZU5vbmNlRm9yQ29udHJhY3RUZXN0",
+  "algorithm": "Ed25519",
+  "proposedKeyId": "device-01-key-01",
+  "proposedPublicKeyFingerprint": "RmFrZUZpbmdlcnByaW50",
+  "expectedKeyVersion": 0,
+  "expiresAt": "2026-08-01T10:05:00Z",
+  "reauthProofId": "reauth-01",
+  "publicKeyOverride": "attacker-key"
+}

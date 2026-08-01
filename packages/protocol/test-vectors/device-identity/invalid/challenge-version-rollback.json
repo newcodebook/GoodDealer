@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "purpose": "rotation",
+  "challengeId": "challenge-02",
+  "accountId": "account-01",
+  "deviceId": "device-01",
+  "nonce": "RmFrZU5vbmNlRm9yQ29udHJhY3RUZXN0",
+  "algorithm": "Ed25519",
+  "proposedKeyId": "device-01-key-02",
+  "proposedPublicKeyFingerprint": "RmFrZUZpbmdlcnByaW50Mg",
+  "expectedKeyVersion": 0,
+  "expiresAt": "2026-08-01T10:05:00Z",
+  "reauthProofId": "reauth-02"
+}

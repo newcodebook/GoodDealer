@@ -45,23 +45,23 @@ Recovery Secret、迁移和备份格式见 [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md
 
 ## 4. 密钥与网络
 
-平台连接保存 `credentialRef`，真实密钥存入 OS 密钥库。
+平台连接在普通应用层只保存共享的 `provider_connection_id` 和脱敏绑定状态；设备本地 `credentialRef` 与真实密钥都由 Rust Secure Host 和 OS 密钥库拥有。
 
 连接器向安全 HTTP Gateway 提交：
 
 ```text
-provider
-credentialRef
-method
+provider_connection_id
 approved endpoint id
-path/query/body
+typed public path/query/body parameters
 idempotency key
 ```
 
 Gateway 必须：
 
-- 只允许访问连接器声明的 HTTPS Host。
-- 禁止任意 URL、重定向到未知 Host 和明文 HTTP。
+- 只接受构建期 `EndpointManifest` 生成并嵌入制品的 Endpoint；Method 也由 Manifest 决定，TypeScript 不能提交 Host、端口、绝对 URL、Method、凭据 Header 或 `credentialRef`。
+- 根据当前 `device_id + provider_connection_id` 在 Host 内解析 DeviceCredentialBinding，并校验 Provider、凭据命名空间、RuntimeMode 与 Endpoint 完整绑定。
+- 只允许固定 HTTPS Origin 和 443 端口；拒绝 userinfo、路径穿越、预编码路径、私网/回环/链路本地地址及 DNS 解析异常。
+- Phase 0 的带凭据请求一律禁止重定向，并关闭 HTTP Client 自动重定向。
 - 注入 API Key/Secret，并在返回前移除敏感 Header。
 - 对 URL、Query、Header、Body 和错误信息统一脱敏。
 - 限制响应大小和请求超时。
@@ -77,6 +77,10 @@ GoodDealer Cloud 请求使用独立的认证注入通道：
 - Refresh Token 的轮换、持久化和清除都在 Rust Secure Host 内完成；普通 TypeScript、Local App WebView、日志和错误对象不得获得原始 Token。
 - Desktop 登录、刷新和撤销使用独立的 Host-owned Session Command。Rust 直接解析含 Token 的响应并保存，只向 TypeScript 返回脱敏会话状态；cloud-client 不解析 Token-bearing Response。
 - account-web 使用同源 HttpOnly、Secure、SameSite Cookie 或等效 Web 会话机制，不复用 Desktop Keychain Token 通道。
+
+平台 API Secret、OAuth Token、Recovery Material 等秘密只能通过 Rust Host 创建的原生秘密输入面进入。主应用 WebView 只能开始或取消 Capture Session，不能提交秘密值；成功后只取得 `credential_binding_id`、fingerprint、版本和脱敏状态，Keychain `credentialRef` 仍留在 Host 内。原生输入面不可用或 Keychain 写入失败时必须失败关闭，禁止降级到普通 WebView、剪贴板、配置、SQLite 或临时文件。
+
+含秘密的网络响应使用 Endpoint 绑定的 Rust typed extractor，在 Host 内直接解析并原子写入 Keychain，再按白名单重新构造公开响应。禁止把完整 Body 返回 TypeScript 后再清洗。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](PHASE0_SECURE_HOST_BASELINE.md)。
 
 ## 5. WebView 隔离
 
@@ -175,6 +179,10 @@ GoodDealer 服务端不得接收：
 
 ## 11. 活动设备与切换安全
 
+- 设备 Ed25519 私钥由 Rust Secure Host 生成并保存在 OS Keychain/Credential Manager。首次绑定使用账号重新认证、服务端一次性短期 Nonce Challenge 和新私钥 PoP；普通 Auth Session 不能直接替换公钥。
+- 正常轮换要求旧钥和新钥对同一域分离 Transcript 双 PoP，并以 `expected_key_version` 做事务 CAS。旧钥丢失时走独立 Recovery/Rebind，撤销旧 Session、Lease 和签名能力。
+- 移除设备推进 Credential Epoch，并撤销未消费 Challenge 与该设备凭证。撤销后到达的事实不能只凭设备自报时间接受，必须验证预先签发的操作授权、Key Version、Lease Epoch、可信时间和防重放标识，否则进入隔离区。
+- 服务端签名凭证使用强类型、域分离 Envelope；解析器固定校验 `typ/iss/aud/kid/schema_version/account_id/device_id/jti` 后才验签和解析 Payload。设备身份决策见 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
 - 服务端按账号唯一保存当前 `active_device_id` 和单调递增的 `lease_epoch`。
 - 有效绑定且 License 有效的 Standby 只获得 `account:manage` 和 `workspace:read`；ActiveDeviceLease 才授予 `workspace:mutate`、`platform:read`、`platform:write` 和 `operation:approve`。
 - Standby 只读 API 不接受 Mutation、凭据引用、执行计划批准或连接器请求；只读缓存不得包含 Outbox、DeviceCredentialBinding 或平台秘密，并遵循与主业务库同等级的落盘加密要求。

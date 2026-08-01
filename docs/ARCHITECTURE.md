@@ -84,7 +84,7 @@ flowchart TB
     CLOUDDB -. "仅显式选择字段" .-> PUBLIC
 ```
 
-本地应用 UI 与远程平台页面是两个不同的 WebView 信任域。UI 和普通 TypeScript 代码不直接读取平台密钥或 GoodDealer 账号 Token。连接器使用设备本地 `credentialRef` 构造请求；cloud-client 只构造不含原始 Token 的类型化 GoodDealer Cloud 请求并解析脱敏响应。Desktop 的两类请求都通过 Tauri Adapter 进入 Rust `secure-http`，由 Host 从系统密钥库取出对应凭据、注入请求并对日志脱敏；Token-bearing 登录/刷新响应也由 Host 直接解析和保存。平台凭据与账号 Token 使用不同的凭据命名空间和 Endpoint Allowlist。
+本地应用 UI 与远程平台页面是两个不同的 WebView 信任域。UI 和普通 TypeScript 代码不直接读取平台密钥或 GoodDealer 账号 Token。连接器只使用 `provider_connection_id + endpoint_id + 公开参数` 构造请求，设备本地 `credentialRef` 由 Rust Host 解析；cloud-client 只构造不含原始 Token 的类型化 GoodDealer Cloud 请求并解析脱敏响应。Desktop 的两类请求都通过 Tauri Adapter 进入 Rust `secure-http`，由 Host 从系统密钥库取出对应凭据、注入请求并对日志脱敏；Token-bearing 登录/刷新响应也由 Host 直接解析和保存。平台凭据与账号 Token 使用不同的请求类型、凭据命名空间和 Endpoint 注册表。
 
 远程平台页面可以执行网站自己的 JavaScript、保存该平台的登录会话并接受自动化操作，但不能访问数据库、密钥库、任意文件、Shell、License 或通用 Tauri IPC。网页自动化规则详见 [BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md)。
 
