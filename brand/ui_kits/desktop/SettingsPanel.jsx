@@ -18,18 +18,18 @@ function ConnRow({name,kind,meta,method,last,standby,onConnect,account,remoteId,
   // Never reads Keychain/Browser Profile/credential values, never runs a health check; 曾配置候选 ≠ 可用凭据.
   const cand={ok:"曾配置候选",warn:"曾配置候选",off:"从未配置"}[kind];
   const conn=account?{platform:name,account}:{platform:name};
-  return <div style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderBottom:"1px solid var(--gd-line)"}}>
+  const sub=[remoteId,(!standby&&quota)?quota:null].filter(Boolean).join(" · ");
+  return <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderBottom:"1px solid var(--gd-line)"}}>
     <PDot kind={standby?"neutral":dot}/>
-    <span style={{width:150,flex:"none",display:"flex",flexDirection:"column",gap:2,minWidth:0}}>
+    <span style={{width:140,flex:"none",display:"flex",flexDirection:"column",gap:2,minWidth:0}}>
       <span style={{fontSize:13,color:"var(--text-1)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{name}{account&&<span style={{color:"var(--gd-text-muted)"}}> · {account}</span>}</span>
-      {remoteId&&<span style={{fontSize:10,color:"var(--gd-text-faint)",fontFamily:"var(--font-mono)",whiteSpace:"nowrap"}}>{remoteId}</span>}
+      {sub&&<span style={{fontSize:10,color:"var(--gd-text-faint)",fontFamily:"var(--font-mono)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{sub}</span>}
     </span>
-    <span style={{width:88,flex:"none"}}>{standby?<PTag>{cand}</PTag>:<PBadge tone={kind==="ok"?"success":kind==="warn"?"warning":undefined} mono={false}>{label}</PBadge>}</span>
+    <span style={{width:80,flex:"none"}}>{standby?<PTag>{cand}</PTag>:<PBadge tone={kind==="ok"?"success":kind==="warn"?"warning":undefined} mono={false}>{label}</PBadge>}</span>
     <span style={{flex:1,minWidth:0,fontSize:12,color:"var(--gd-text-muted)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{standby?(cand==="从未配置"?"本设备从未配置":"未验证，切换为 Active 后才能检查"):meta}</span>
-    {!standby&&quota&&<PTag>{quota}</PTag>}
     {method&&<PTag>{method}</PTag>}
-    <span style={{width:96,flex:"none",textAlign:"right",fontFamily:"var(--font-mono)",fontSize:11,color:"var(--gd-text-faint)",whiteSpace:"nowrap"}}>{standby?"—":last}</span>
-    <span style={{width:92,flex:"none",display:"flex",justifyContent:"flex-end"}}>{standby?<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>只读</span>:kind==="off"?<PBtn size="sm" variant="primary" onClick={()=>onConnect&&onConnect(conn)}>连接</PBtn>:kind==="warn"?<PBtn size="sm" onClick={()=>onConnect&&onConnect(conn)}>重新授权</PBtn>:<PBtn size="sm" variant="ghost">管理</PBtn>}</span>
+    <span style={{width:60,flex:"none",textAlign:"right",fontFamily:"var(--font-mono)",fontSize:11,color:"var(--gd-text-faint)",whiteSpace:"nowrap"}}>{standby?"—":last}</span>
+    <span style={{width:82,flex:"none",display:"flex",justifyContent:"flex-end"}}>{standby?<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>只读</span>:kind==="off"?<PBtn size="sm" variant="primary" onClick={()=>onConnect&&onConnect(conn)}>连接</PBtn>:kind==="warn"?<PBtn size="sm" onClick={()=>onConnect&&onConnect(conn)}>重新授权</PBtn>:<PBtn size="sm" variant="ghost">管理</PBtn>}</span>
   </div>;
 }
 
