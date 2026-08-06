@@ -18,7 +18,7 @@ test("WP-5 SQLCipher evidence has a dedicated command and native matrix", () => 
     "node scripts/collect-wp0-evidence.mjs --slice sqlcipher",
   );
   assert.match(workflow, /windows-2025/);
-  assert.match(workflow, /macos-15\n/);
+  assert.match(workflow, /macos-15\r?\n/);
   assert.match(workflow, /macos-15-intel/);
   assert.match(workflow, /--profile native --slice sqlcipher/);
   assert.match(workflow, /\.artifacts\/wp5\/sqlcipher/);
