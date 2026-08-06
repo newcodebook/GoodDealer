@@ -1164,6 +1164,9 @@ version = "0.0.0"
 dependencies = [
  "gooddealer-secure-host-core",
  "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
 ]
 

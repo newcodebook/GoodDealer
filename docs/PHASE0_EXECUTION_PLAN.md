@@ -59,7 +59,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-04 | `protocol/admin` 信任域限制 | J-08 | R0-15 | Architecture Enforcement | P | 现有 boundary policy 正负 Fixture | Admin 协议只留骨架 |
 | P0-05 | Port DTO → Tauri Adapter → Rust Handler | J-01/J-05 | R0-01/R0-10/R0-15/R0-16 | Runtime Security | P/W/MA/MI | 现有根 `pnpm check`、RuntimeStatus 跨语言 Corpus、Command/Adapter 同集结构证据；native evidence 由 P0-06 的逐平台 `evidence:wp0 --profile native` 收集 | 只注册无参数、只读 `runtime_status`；其他业务 Command 不注册 |
 | P0-06 | Windows/macOS 构建、签名流水线试验 | J-01/J-07 | R0-11 | Release Engineering | W/MA/MI | `evidence:wp0 --profile native`、签名/公证制品清单 | 标记单平台、不可发布 |
-| P0-07 | SQLCipher 跨平台打包 | J-01/J-07 | R0-08/R0-16 | Local Storage/Recovery | W/MA/MI | 待建 `evidence:wp5 --slice sqlcipher`、明文/故障扫描包 | 只用临时 Fixture DB |
+| P0-07 | SQLCipher 跨平台打包 | J-01/J-07 | R0-08/R0-16 | Local Storage/Recovery | W/MA/MI | 现有 `pnpm evidence:wp5 --slice sqlcipher`、结构化明文/故障扫描包与三平台 `wp5-sqlcipher` Workflow；Tauri release bundle 仍待建 | 只用临时 Fixture DB |
 | P0-08 | OS Keychain/Credential Manager | J-01/J-05/J-07 | R0-03/R0-06/R0-12 | Secure Host | W/MA/MI | 待建 `evidence:wp1 --slice keychain`、Canary 扫描 | 禁止真实凭据流程 |
 | P0-09 | Cloud Token Host-owned 注入与命名空间隔离 | J-01/J-05 | R0-03/R0-16 | Secure Host/Account Access | P/W/MA/MI | 待建 `evidence:wp1 --slice cloud-session` | 账号入口保持 Fixture |
 | P0-10 | Secure HTTP Gateway | J-01/J-02/J-03 | R0-02/R0-03/R0-16 | Secure Host | P/W/MA/MI/FP | Endpoint Registry Corpus + 待建 native Transport 证据 | 生产 Registry deny-all |
@@ -93,6 +93,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 ```text
 pnpm check
 pnpm evidence:wp0
+pnpm evidence:wp5 --slice sqlcipher
 node scripts/collect-wp0-evidence.mjs --profile quality
 node scripts/collect-wp0-evidence.mjs --profile native
 ```
@@ -101,4 +102,6 @@ P0-05 的 Portable 实现已经完成：`client-core Port DTO -> Desktop Tauri A
 
 P0-06 的 compile-check 技术集合已在提交 `901dfd44a1bb8c9d007bb16a1d9f3c143d70188a` 完成：Quality Run `31079370330` 与 Native Run `31079370262` 的 Linux x64、Windows Server 2025 x64、macOS 15 arm64/x64 四份 Manifest 均为 `passed` 且 `technicalEligibility.eligible=true`，绑定干净稳定的同一提交和精确 Job URL。该集合不包含 Windows 11 24H2 真机打包、签名、公证、长期不可变归档或独立 Attestation，因此 R0-11 与 P0-06 仍保持 In Progress，不能声称可发布。
 
-当前下一动作进入 W1，按编号先执行 P0-07 SQLCipher 临时 Fixture DB 与跨平台打包证据；未通过 R0-08/R0-16 前不接真实业务数据、Keychain 或生产存储 Command。
+P0-07 已建立测试专用 SQLCipher 4.17.0/SQLite 3.53.3 Fixture 和 `evidence:wp5 --slice sqlcipher`。结构化报告失败关闭地验证 DB、WAL 与 rollback journal 无 Canary/SQLite 明文头，错误 Key、截断和篡改均拒绝，模拟进程在已提交 WAL 后退出可由正确 Key 恢复，并拒绝遗留未知临时文件。依赖只在 `gooddealer-local-storage` 的 dev-dependencies，所有数据库位于临时目录；不接 Keychain、真实数据、生产 Repository、IPC 或网络。macOS arm64 dirty 工作树诊断运行已 `passed`，但按规则 `technicalEligibility.eligible=false`，不能作为 Gate 证据。
+
+当前下一动作仍是 P0-07：取得 `wp5-sqlcipher` 的 Windows Server 2025 x64、macOS 15 arm64/x64 三份干净 CI Artifact，随后补齐 Tauri release bundle/安装包与长期不可变归档、独立 Security Review 和 GateClosureAttestation。完成这些条件前 P0-07、R0-08、R0-16 保持 In Progress，不进入 P0-08，不接真实业务数据、Keychain 或生产存储 Command。

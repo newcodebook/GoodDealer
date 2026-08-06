@@ -15,10 +15,8 @@ import { repositoryMaterialDirty } from "./git-dirty-state.mjs";
 import { platformCommand } from "./platform-command.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const outputDirectory = resolve(root, ".artifacts/wp0");
-const logDirectory = resolve(outputDirectory, "logs");
-const manifestPath = resolve(outputDirectory, "evidence.json");
 const supportedProfiles = new Set(["local", "native", "quality"]);
+const supportedSlices = new Set(["sqlcipher"]);
 const portableCrates = [
   "-p",
   "gooddealer-secure-host-core",
@@ -35,6 +33,7 @@ const keyInputPaths = [
   "Cargo.toml",
   "Cargo.lock",
   "crates/local-storage/Cargo.toml",
+  "crates/local-storage/examples/sqlcipher_evidence.rs",
   "crates/local-storage/src/sqlcipher_fixture.rs",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
@@ -55,11 +54,23 @@ const keyInputPaths = [
   ".github/dependabot.yml",
   ".github/workflows/quality.yml",
   ".github/workflows/native.yml",
+  ".github/workflows/wp5-sqlcipher.yml",
+];
+
+const sqlcipherRequiredChecks = [
+  "databaseAndWalEncrypted",
+  "rollbackJournalEncrypted",
+  "wrongKeyRejected",
+  "truncatedDatabaseRejected",
+  "tamperedDatabaseRejected",
+  "crashReopenRecovered",
+  "unexpectedTemporaryFilesAbsent",
 ];
 
 function parseArguments(argv) {
   let profile = "local";
   let prepareOnly = false;
+  let slice = null;
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -79,6 +90,15 @@ function parseArguments(argv) {
       profile = argument.slice("--profile=".length);
       continue;
     }
+    if (argument === "--slice") {
+      slice = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("--slice=")) {
+      slice = argument.slice("--slice=".length);
+      continue;
+    }
     throw new Error(`Unknown argument: ${argument}`);
   }
 
@@ -88,12 +108,19 @@ function parseArguments(argv) {
     );
   }
 
-  return { prepareOnly, profile };
+  if (slice !== null && !supportedSlices.has(slice)) {
+    throw new Error(
+      `Unsupported slice "${slice}". Expected one of: ${[...supportedSlices].join(", ")}.`,
+    );
+  }
+
+  return { prepareOnly, profile, slice };
 }
 
 function childEnvironment() {
   const environment = { ...process.env };
   delete environment.WP0_GITHUB_TOKEN;
+  delete environment.EVIDENCE_GITHUB_TOKEN;
   return environment;
 }
 
@@ -255,6 +282,9 @@ function technicalEligibility(manifest) {
   if (manifest.validations.some((validation) => validation.exitCode !== 0)) {
     reasons.push("validation-failed");
   }
+  if (!sliceEvidenceValid(manifest.sliceEvidence)) {
+    reasons.push("slice-evidence-invalid");
+  }
   return {
     eligible: reasons.length === 0,
     reasons,
@@ -262,9 +292,36 @@ function technicalEligibility(manifest) {
   };
 }
 
+function sliceEvidenceValid(sliceEvidence) {
+  if (sliceEvidence === null) {
+    return true;
+  }
+  const report = sliceEvidence.report;
+  return Boolean(
+    sliceEvidence.present &&
+      report?.schemaVersion === 1 &&
+      report.sqlcipherVersion === "4.17.0 community" &&
+      report.sqliteVersion === "3.53.3" &&
+      sqlcipherRequiredChecks.every((check) => report[check] === true) &&
+      Array.isArray(report.scans) &&
+      report.scans.length >= 7 &&
+      report.scans.every(
+        (scan) =>
+          scan.bytes > 0 &&
+          /^[0-9a-f]{64}$/.test(scan.sha256) &&
+          scan.canaryAbsent === true &&
+          scan.sqliteHeaderAbsent === true,
+      ),
+  );
+}
+
+function evidenceEnvironment(name) {
+  return process.env[`EVIDENCE_${name}`] ?? process.env[`WP0_${name}`];
+}
+
 function readExecutionContext() {
-  const expectedPlatform = process.env.WP0_EXPECTED_PLATFORM ?? null;
-  const expectedArch = process.env.WP0_EXPECTED_ARCH ?? null;
+  const expectedPlatform = evidenceEnvironment("EXPECTED_PLATFORM") ?? null;
+  const expectedArch = evidenceEnvironment("EXPECTED_ARCH") ?? null;
   const actualPlatform = platform();
   const actualArch = arch();
   const ci = process.env.GITHUB_ACTIONS === "true";
@@ -299,7 +356,39 @@ function hashKeyInputs() {
   });
 }
 
-function profileDefinition(profile) {
+function readSliceEvidence(slice, reportPath) {
+  if (slice === null) {
+    return null;
+  }
+  if (!existsSync(reportPath)) {
+    return {
+      slice,
+      reportPath: relative(root, reportPath),
+      present: false,
+      sha256: null,
+      report: null,
+    };
+  }
+  const content = readFileSync(reportPath);
+  let report;
+  let parseError = null;
+  try {
+    report = JSON.parse(content.toString("utf8"));
+  } catch (error) {
+    report = null;
+    parseError = error instanceof Error ? error.message : String(error);
+  }
+  return {
+    slice,
+    reportPath: relative(root, reportPath),
+    present: true,
+    sha256: sha256(content),
+    parseError,
+    report,
+  };
+}
+
+function profileDefinition(profile, slice, reportPath) {
   const pnpm = (args) => platformCommand("pnpm", args);
   const common = [
     {
@@ -332,6 +421,54 @@ function profileDefinition(profile) {
       args: ["test", "--workspace", "--all-targets"],
     },
   ];
+
+  if (slice === "sqlcipher") {
+    if (profile === "quality") {
+      throw new Error("The sqlcipher slice requires a native or local profile.");
+    }
+    return {
+      resolvedProfile: profile === "native" ? "wp5-sqlcipher-native" : "wp5-sqlcipher-local",
+      applicability:
+        "Test-only SQLCipher fixture on a supported native host; no production database, credentials, bundle, signing, or user data.",
+      commands: [
+        { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
+        {
+          id: "sqlcipher-fixture-lint",
+          binary: "cargo",
+          args: [
+            "clippy",
+            "--locked",
+            "-p",
+            "gooddealer-local-storage",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+          ],
+        },
+        {
+          id: "sqlcipher-fixture-tests",
+          binary: "cargo",
+          args: ["test", "--locked", "-p", "gooddealer-local-storage", "--all-targets"],
+        },
+        {
+          id: "sqlcipher-fault-and-plaintext-evidence",
+          binary: "cargo",
+          args: [
+            "run",
+            "--locked",
+            "--release",
+            "-p",
+            "gooddealer-local-storage",
+            "--example",
+            "sqlcipher_evidence",
+            "--",
+            reportPath,
+          ],
+        },
+      ],
+    };
+  }
 
   if (profile === "quality") {
     return {
@@ -402,7 +539,7 @@ async function resolveCiEvidence() {
   }
 
   const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
-  const jobName = process.env.WP0_CI_JOB_NAME ?? process.env.GITHUB_JOB ?? null;
+  const jobName = evidenceEnvironment("CI_JOB_NAME") ?? process.env.GITHUB_JOB ?? null;
   const runUrl = `${serverUrl}/${repository}/actions/runs/${runId}`;
   const ci = {
     provider: "github-actions",
@@ -415,7 +552,7 @@ async function resolveCiEvidence() {
     jobUrl: null,
     jobUrlResolution: "unavailable",
   };
-  const token = process.env.WP0_GITHUB_TOKEN;
+  const token = evidenceEnvironment("GITHUB_TOKEN");
   const apiUrl = process.env.GITHUB_API_URL;
   if (!token || !apiUrl || !jobName) {
     ci.jobUrlResolution = "missing-api-context";
@@ -517,16 +654,28 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 2;
-  options = { prepareOnly: true, profile: "local" };
+  options = { prepareOnly: true, profile: "local", slice: null };
 }
 
-const definition = profileDefinition(options.profile);
+const workPackage = options.slice === "sqlcipher" ? "wp5" : "wp0";
+const outputDirectory = resolve(
+  root,
+  options.slice === null
+    ? `.artifacts/${workPackage}`
+    : `.artifacts/${workPackage}/${options.slice}`,
+);
+const logDirectory = resolve(outputDirectory, "logs");
+const manifestPath = resolve(outputDirectory, "evidence.json");
+const sliceReportPath = resolve(outputDirectory, "sqlcipher-report.json");
+const definition = profileDefinition(options.profile, options.slice, sliceReportPath);
 const pnpmProbe = platformCommand("pnpm", ["--version"]);
 const startedAt = new Date();
 mkdirSync(logDirectory, { recursive: true });
 
 const manifest = {
   schemaVersion: 4,
+  workPackage: workPackage.toUpperCase().replace("WP", "WP-"),
+  slice: options.slice,
   phase: options.prepareOnly ? "prepared" : "running",
   profile: {
     requested: options.profile,
@@ -538,6 +687,10 @@ const manifest = {
     bundle: false,
     signedApplication: false,
     applicationArtifact: false,
+    releaseModeFixtureValidation: options.slice === "sqlcipher",
+    temporarySqlcipherFixture: options.slice === "sqlcipher",
+    productionStorage: false,
+    userData: false,
   },
   commit: probe("git", ["rev-parse", "HEAD"]),
   generatedAt: null,
@@ -554,13 +707,17 @@ const manifest = {
   },
   ci: await resolveCiEvidence(),
   responsibility: {
-    ownerRole: process.env.WP0_OWNER_ROLE ?? "Release Engineering Lead",
-    owningModules: commaSeparatedEnvironment("WP0_OWNING_MODULES").length
-      ? commaSeparatedEnvironment("WP0_OWNING_MODULES")
-      : ["engineering-baseline", "release-engineering"],
+    ownerRole: evidenceEnvironment("OWNER_ROLE") ?? "Release Engineering Lead",
+    owningModules: commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES").length
+      ? commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES")
+      : commaSeparatedEnvironment("WP0_OWNING_MODULES").length
+        ? commaSeparatedEnvironment("WP0_OWNING_MODULES")
+        : options.slice === "sqlcipher"
+          ? ["local-storage", "recovery", "release-engineering"]
+          : ["engineering-baseline", "release-engineering"],
     requiredReviewerRole:
-      process.env.WP0_REQUIRED_REVIEWER_ROLE ?? "Architecture Reviewer",
-    approverRole: process.env.WP0_APPROVER_ROLE ?? "Phase 0 Gate Approver",
+      evidenceEnvironment("REQUIRED_REVIEWER_ROLE") ?? "Architecture Reviewer",
+    approverRole: evidenceEnvironment("APPROVER_ROLE") ?? "Phase 0 Gate Approver",
     evidenceProducerRef: process.env.GITHUB_ACTOR_ID
       ? `github-user-id:${process.env.GITHUB_ACTOR_ID}`
       : process.env.GITHUB_ACTOR
@@ -620,6 +777,7 @@ const manifest = {
     final: null,
   },
   keyInputs: hashKeyInputs(),
+  sliceEvidence: readSliceEvidence(options.slice, sliceReportPath),
   validations: [],
   result: options.prepareOnly ? "not-run" : "pending",
   technicalEligibility: {
@@ -652,6 +810,7 @@ if (!options.prepareOnly && process.exitCode !== 2) {
         collectionError: error instanceof Error ? error.message : String(error),
       });
     }
+    manifest.sliceEvidence = readSliceEvidence(options.slice, sliceReportPath);
     writeManifest();
   }
   manifest.repository.final = readRepositoryState();
@@ -661,6 +820,7 @@ if (!options.prepareOnly && process.exitCode !== 2) {
   const validationsPassed = manifest.validations.every(
     (validation) => validation.exitCode === 0,
   );
+  const sliceEvidencePassed = sliceEvidenceValid(manifest.sliceEvidence);
   const ciRepositoryValid =
     manifest.ci === null ||
     (!manifest.repository.initial.dirty &&
@@ -668,7 +828,10 @@ if (!options.prepareOnly && process.exitCode !== 2) {
       repositoryInputStable(manifest.repository.initial, manifest.repository.final) &&
       Boolean(manifest.ci.jobUrl));
   manifest.result =
-    validationsPassed && ciRepositoryValid && manifest.executionContext.valid
+    validationsPassed &&
+    sliceEvidencePassed &&
+    ciRepositoryValid &&
+    manifest.executionContext.valid
       ? "passed"
       : "failed";
   writeManifest();

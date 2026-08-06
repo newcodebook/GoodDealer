@@ -36,7 +36,7 @@
 | 状态 | 当前项目含义 | 当前条目 |
 | --- | --- | --- |
 | Adopted | 已进入受 Lockfile 约束的构建输入，仍须通过对应 Gate | Tauri 2.11.5、Wry 0.55.1；P0-07 测试专用 SQLCipher 4.17.0/SQLite 3.53.3 与 rusqlite 0.40.1（上游 revision `62648175c23f84b45238f4a1fbb0133b75ce68f1`） |
-| Baseline Selected | 版本/方向已由 Accepted ADR 或工程基线选定，但依赖和原生证据尚未接入 | SQLCipher 生产 Repository/打包接线方向；P0-07 Fixture 依赖不等于生产采用或 Gate 通过 |
+| Baseline Selected | 版本/方向已由 Accepted ADR 或工程基线选定，但生产依赖和完整原生证据尚未接入 | SQLCipher 生产 Repository/Tauri release bundle 接线方向；P0-07 dev-only Fixture 与 `wp5-sqlcipher` 证据生产器不等于生产采用或 Gate 通过 |
 | Candidate | 允许进入 Spike，尚不能作为当前架构已实现事实 | 本表除上述 Adopted/Baseline Selected 与 Reference Only/Prohibited 条目外的 A/C 候选 |
 | Reference Only | 仅迁移语义、Fixture、测试场景或 UX，不进入运行时依赖 | B/D 条目，除非后续 ADR 明确升级 |
 | Prohibited by Default | 当前许可证或部署/安全模型不允许默认引入 | 所有含 X 的条目 |
