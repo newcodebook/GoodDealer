@@ -5,6 +5,7 @@ node_modules/
 dist/
 target/
 .artifacts/
+/apps/desktop/src-tauri/gen/schemas/windows-schema.json
 .DS_Store
 *.log
 .env

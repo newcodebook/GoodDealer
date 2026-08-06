@@ -11,6 +11,8 @@ import {
 import { arch, platform, release } from "node:os";
 import { relative, resolve } from "node:path";
 
+import { platformExecutable } from "./platform-executable.mjs";
+
 const root = resolve(import.meta.dirname, "..");
 const outputDirectory = resolve(root, ".artifacts/wp0");
 const logDirectory = resolve(outputDirectory, "logs");
@@ -24,6 +26,7 @@ const portableCrates = [
   "--all-targets",
 ];
 const keyInputPaths = [
+  ".gitignore",
   ".node-version",
   "package.json",
   "pnpm-lock.yaml",
@@ -31,6 +34,8 @@ const keyInputPaths = [
   "Cargo.lock",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
+  "scripts/platform-executable.mjs",
+  "scripts/platform-executable.test.mjs",
   "scripts/tauri-command-policy.mjs",
   "scripts/tauri-command-policy.test.mjs",
   "apps/desktop/src/adapters/tauri/index.ts",
@@ -276,10 +281,11 @@ function hashKeyInputs() {
 }
 
 function profileDefinition(profile) {
+  const pnpm = platformExecutable("pnpm");
   const common = [
     {
       id: "platform-neutral-checks",
-      binary: "pnpm",
+      binary: pnpm,
       args: ["check:platform-neutral"],
     },
     { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
@@ -316,7 +322,7 @@ function profileDefinition(profile) {
       commands: [
         {
           id: "dependency-vulnerability-gate",
-          binary: "pnpm",
+          binary: pnpm,
           args: ["audit", "--audit-level", "high"],
         },
         {
@@ -339,7 +345,7 @@ function profileDefinition(profile) {
         ...common,
         {
           id: "desktop-frontend-build",
-          binary: "pnpm",
+          binary: pnpm,
           args: ["--filter", "@gooddealer/desktop", "build"],
         },
         ...nativeRust,
@@ -364,7 +370,7 @@ function profileDefinition(profile) {
       ...common,
       {
         id: "desktop-frontend-build",
-        binary: "pnpm",
+        binary: pnpm,
         args: ["--filter", "@gooddealer/desktop", "build"],
       },
       ...nativeRust,
@@ -525,7 +531,7 @@ const manifest = {
   executionContext: readExecutionContext(),
   tools: {
     node: process.version,
-    pnpm: probe("pnpm", ["--version"]),
+    pnpm: probe(platformExecutable("pnpm"), ["--version"]),
     rustc: probe("rustc", ["--version"]),
     cargo: probe("cargo", ["--version"]),
     cargoAudit: probe("cargo", ["audit", "--version"]),
