@@ -34,6 +34,8 @@ const keyInputPaths = [
   "pnpm-lock.yaml",
   "Cargo.toml",
   "Cargo.lock",
+  "crates/local-storage/Cargo.toml",
+  "crates/local-storage/src/sqlcipher_fixture.rs",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
   "scripts/git-dirty-state.mjs",

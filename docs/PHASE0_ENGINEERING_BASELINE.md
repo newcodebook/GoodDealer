@@ -20,7 +20,7 @@
 | Tauri CLI / JS API | 2.11.4 / 2.11.1 | Desktop `package.json`、`pnpm-lock.yaml` |
 | Tauri Rust / tauri-build | 2.11.5 / 2.6.3 | `Cargo.toml`、`Cargo.lock` |
 | Wry | 0.55.1（与 Tauri 2.11.5 的 runtime-wry 对齐） | `Cargo.toml`、`Cargo.lock` |
-| SQLCipher | 4.17.0（SQLite 3.53.3 基线） | ADR、后续 local-storage Spike lock |
+| SQLCipher | 4.17.0（SQLite 3.53.3 基线） | `rusqlite` Git revision、`Cargo.lock`、local-storage Fixture Spike |
 | PostgreSQL | 18.4 | ADR、Cloud CI/开发容器 |
 
 应用依赖禁止使用浮动的 `latest`、`*` 或未受 lockfile 约束的范围。版本升级必须在一个独立变更中同步更新版本文件、Lockfile、SBOM/Third-Party Notice、支持矩阵证据和相关上游 Commit。

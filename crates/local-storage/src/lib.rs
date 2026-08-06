@@ -1,5 +1,8 @@
 use gooddealer_secure_host_core::{ActivationPurpose, RuntimeMode};
 
+#[cfg(test)]
+mod sqlcipher_fixture;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageKind {
     StandbyCache,

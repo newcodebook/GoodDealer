@@ -1,7 +1,7 @@
 # GoodDealer Phase 0 执行计划
 
 状态：Active / Gate-driven Delivery
-更新日期：2026-08-05
+更新日期：2026-08-06
 
 ## 1. 执行规则
 
@@ -99,4 +99,6 @@ node scripts/collect-wp0-evidence.mjs --profile native
 
 P0-05 的 Portable 实现已经完成：`client-core Port DTO -> Desktop Tauri Adapter -> Rust Command Handler` 最小链不含秘密和外部副作用，TypeScript/Rust 共享 Corpus、`AppManifest::commands`/`generate_handler!`/`#[tauri::command]`/逐命令 Permission/Adapter 同集、未声明命令拒绝和显式 Local WebView Capability 均进入根门禁。该切片只为 R0-01/R0-10/R0-15/R0-16 形成证据，不启用账号、平台或生产网络能力。
 
-当前下一动作是 P0-06：收集 Windows/macOS native evidence set；缺少任一平台、精确 CI Job URL、长期不可变归档或独立 Reviewer 时，R0-11 及 P0-05 涉及的 Gate 保持 In Progress。
+P0-06 的 compile-check 技术集合已在提交 `901dfd44a1bb8c9d007bb16a1d9f3c143d70188a` 完成：Quality Run `31079370330` 与 Native Run `31079370262` 的 Linux x64、Windows Server 2025 x64、macOS 15 arm64/x64 四份 Manifest 均为 `passed` 且 `technicalEligibility.eligible=true`，绑定干净稳定的同一提交和精确 Job URL。该集合不包含 Windows 11 24H2 真机打包、签名、公证、长期不可变归档或独立 Attestation，因此 R0-11 与 P0-06 仍保持 In Progress，不能声称可发布。
+
+当前下一动作进入 W1，按编号先执行 P0-07 SQLCipher 临时 Fixture DB 与跨平台打包证据；未通过 R0-08/R0-16 前不接真实业务数据、Keychain 或生产存储 Command。

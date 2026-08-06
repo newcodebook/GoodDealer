@@ -8,5 +8,9 @@ license.workspace = true
 [dependencies]
 gooddealer-secure-host-core = { path = "../secure-host-core" }
 
+[dev-dependencies]
+rusqlite.workspace = true
+tempfile = "=3.27.0"
+
 [lints]
 workspace = true
