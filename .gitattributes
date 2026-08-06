@@ -1,0 +1,3 @@
+/packages/connector-sdk/src/generated/endpoint-registry.ts text eol=lf
+/crates/secure-host-core/src/generated/endpoint_registry.rs text eol=lf
+/crates/secure-host-core/src/generated/fixture_endpoint_registry.rs text eol=lf

@@ -40,4 +40,5 @@ macOS 15 同时存在 GitHub-hosted arm64 与 Intel GA Runner，可以让最低�
 - Node 26、Windows ARM64 和旧 macOS 开发环境可以用于探索，但其结果不构成发布证据。
 - 扩大 OS/架构支持或改变契约生成方向必须更新本 ADR、工程基线、CI、结构测试和所有相关专题文档。
 - Tauri 在 Windows 编译时派生的 `windows-schema.json` 不作为版本化构建输入；可移植 Capability 契约由版本化的 Desktop Schema、Capability、Permission 与结构门禁共同定义，Evidence Manifest 将该忽略规则本身纳入关键输入 Hash。
+- Endpoint Registry 生成物由 `.gitattributes` 固定为 LF，跨平台逐字节检查不得依赖 Checkout 的默认换行策略。Evidence dirty 状态以 staged/unstaged 原始 diff 和 untracked 内容为权威材料，材料缺失必须失败关闭。
 - R0-10 只在 TypeScript/Cloud/Rust 的共享 Wire Envelope Corpus 均被根可重跑门禁编排，并取得锁定工具链/native CI 证据后关闭；根 `pnpm check` 已显式调用 Cargo，Evidence Profile 则使用 `check:platform-neutral` 后按平台追加 Portable 或 Native Rust 门禁，防止跨 Profile 重复或扩大平台声明。Connector 唯一注册边及其防绕过属于 R0-15；R0-10 也不关闭 typed IPC/Auth DTO、Adapter/Handler 接线或业务 Command。R0-11 只有在完整支持矩阵的 native CI、Manifest 和制品证据完成后才能关闭。本 ADR 本身不等于任一 Gate 已通过。

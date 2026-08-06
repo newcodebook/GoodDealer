@@ -11,7 +11,7 @@ import {
 import { arch, platform, release } from "node:os";
 import { relative, resolve } from "node:path";
 
-import { hasGitStatusChanges } from "./git-status.mjs";
+import { repositoryMaterialDirty } from "./git-dirty-state.mjs";
 import { platformCommand } from "./platform-command.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -27,6 +27,7 @@ const portableCrates = [
   "--all-targets",
 ];
 const keyInputPaths = [
+  ".gitattributes",
   ".gitignore",
   ".node-version",
   "package.json",
@@ -35,8 +36,8 @@ const keyInputPaths = [
   "Cargo.lock",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
-  "scripts/git-status.mjs",
-  "scripts/git-status.test.mjs",
+  "scripts/git-dirty-state.mjs",
+  "scripts/git-dirty-state.test.mjs",
   "scripts/platform-command.mjs",
   "scripts/platform-command.test.mjs",
   "scripts/tauri-command-policy.mjs",
@@ -165,6 +166,7 @@ function readRepositoryState() {
     ["ls-files", "--others", "--exclude-standard", "-z"],
   ];
   const changedPaths = new Set();
+  let pathsAvailable = true;
 
   for (const args of pathCommands) {
     const result = run("git", args);
@@ -172,26 +174,38 @@ function readRepositoryState() {
       for (const path of splitNullTerminated(result.stdout)) {
         changedPaths.add(path);
       }
+    } else {
+      pathsAvailable = false;
     }
   }
 
   const untracked = run("git", ["ls-files", "--others", "--exclude-standard", "-z"]);
   const untrackedPaths =
-    untracked.status === 0 ? splitNullTerminated(untracked.stdout).sort() : [];
+    untracked.status === 0 ? splitNullTerminated(untracked.stdout).sort() : null;
   const unstagedDiff = gitBytes(["diff", "--binary", "--no-ext-diff"]);
   const stagedDiff = gitBytes(["diff", "--cached", "--binary", "--no-ext-diff"]);
-  const untrackedFiles = untracked.status === 0 ? hashUntrackedFiles(untrackedPaths) : [];
+  const untrackedFiles = untrackedPaths === null ? [] : hashUntrackedFiles(untrackedPaths);
   const dirtyMaterial = {
     unstagedDiffSha256: unstagedDiff === null ? null : sha256(unstagedDiff),
     stagedDiffSha256: stagedDiff === null ? null : sha256(stagedDiff),
     untrackedFiles,
   };
+  const statusAvailable = Boolean(
+    status.status === 0 &&
+      pathsAvailable &&
+      untrackedPaths !== null &&
+      unstagedDiff !== null &&
+      stagedDiff !== null,
+  );
 
   return {
     headCommit: probe("git", ["rev-parse", "HEAD"]),
     headTree: probe("git", ["rev-parse", "HEAD^{tree}"]),
-    dirty: status.status === 0 ? hasGitStatusChanges(status.stdout) : null,
-    statusAvailable: status.status === 0,
+    dirty:
+      statusAvailable
+        ? repositoryMaterialDirty({ stagedDiff, unstagedDiff, untrackedPaths })
+        : null,
+    statusAvailable,
     changedPaths: [...changedPaths].sort(),
     dirtyMaterial: {
       ...dirtyMaterial,
