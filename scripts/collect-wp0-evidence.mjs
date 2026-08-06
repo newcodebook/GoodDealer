@@ -11,7 +11,8 @@ import {
 import { arch, platform, release } from "node:os";
 import { relative, resolve } from "node:path";
 
-import { platformExecutable } from "./platform-executable.mjs";
+import { hasGitStatusChanges } from "./git-status.mjs";
+import { platformCommand } from "./platform-command.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const outputDirectory = resolve(root, ".artifacts/wp0");
@@ -34,8 +35,10 @@ const keyInputPaths = [
   "Cargo.lock",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
-  "scripts/platform-executable.mjs",
-  "scripts/platform-executable.test.mjs",
+  "scripts/git-status.mjs",
+  "scripts/git-status.test.mjs",
+  "scripts/platform-command.mjs",
+  "scripts/platform-command.test.mjs",
   "scripts/tauri-command-policy.mjs",
   "scripts/tauri-command-policy.test.mjs",
   "apps/desktop/src/adapters/tauri/index.ts",
@@ -187,7 +190,7 @@ function readRepositoryState() {
   return {
     headCommit: probe("git", ["rev-parse", "HEAD"]),
     headTree: probe("git", ["rev-parse", "HEAD^{tree}"]),
-    dirty: status.status === 0 ? status.stdout.length > 0 : null,
+    dirty: status.status === 0 ? hasGitStatusChanges(status.stdout) : null,
     statusAvailable: status.status === 0,
     changedPaths: [...changedPaths].sort(),
     dirtyMaterial: {
@@ -281,12 +284,11 @@ function hashKeyInputs() {
 }
 
 function profileDefinition(profile) {
-  const pnpm = platformExecutable("pnpm");
+  const pnpm = (args) => platformCommand("pnpm", args);
   const common = [
     {
       id: "platform-neutral-checks",
-      binary: pnpm,
-      args: ["check:platform-neutral"],
+      ...pnpm(["check:platform-neutral"]),
     },
     { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
   ];
@@ -322,8 +324,7 @@ function profileDefinition(profile) {
       commands: [
         {
           id: "dependency-vulnerability-gate",
-          binary: pnpm,
-          args: ["audit", "--audit-level", "high"],
+          ...pnpm(["audit", "--audit-level", "high"]),
         },
         {
           id: "rust-dependency-vulnerability-gate",
@@ -345,8 +346,7 @@ function profileDefinition(profile) {
         ...common,
         {
           id: "desktop-frontend-build",
-          binary: pnpm,
-          args: ["--filter", "@gooddealer/desktop", "build"],
+          ...pnpm(["--filter", "@gooddealer/desktop", "build"]),
         },
         ...nativeRust,
       ],
@@ -370,8 +370,7 @@ function profileDefinition(profile) {
       ...common,
       {
         id: "desktop-frontend-build",
-        binary: pnpm,
-        args: ["--filter", "@gooddealer/desktop", "build"],
+        ...pnpm(["--filter", "@gooddealer/desktop", "build"]),
       },
       ...nativeRust,
     ],
@@ -506,6 +505,7 @@ try {
 }
 
 const definition = profileDefinition(options.profile);
+const pnpmProbe = platformCommand("pnpm", ["--version"]);
 const startedAt = new Date();
 mkdirSync(logDirectory, { recursive: true });
 
@@ -531,7 +531,7 @@ const manifest = {
   executionContext: readExecutionContext(),
   tools: {
     node: process.version,
-    pnpm: probe(platformExecutable("pnpm"), ["--version"]),
+    pnpm: probe(pnpmProbe.binary, pnpmProbe.args),
     rustc: probe("rustc", ["--version"]),
     cargo: probe("cargo", ["--version"]),
     cargoAudit: probe("cargo", ["audit", "--version"]),
