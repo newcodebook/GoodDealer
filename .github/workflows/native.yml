@@ -59,8 +59,11 @@ jobs:
         run: npm install --global pnpm@11.18.0
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+      - name: Remove partial pinned Rust toolchain from runner image
+        continue-on-error: true
+        run: rustup toolchain uninstall 1.97.1
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy --force
       - name: Run native gates and collect WP-0 evidence
         env:
           WP0_GITHUB_TOKEN: ${{ github.token }}
