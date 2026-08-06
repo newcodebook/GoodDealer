@@ -5,8 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+sqlcipher-bundle-spike = ["dep:rusqlite", "dep:serde", "dep:serde_json"]
+
 [dependencies]
 gooddealer-secure-host-core = { path = "../secure-host-core" }
+rusqlite = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 rusqlite.workspace = true

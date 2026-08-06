@@ -1,5 +1,11 @@
 use gooddealer_secure_host_core::{ActivationPurpose, RuntimeMode};
 
+#[cfg(feature = "sqlcipher-bundle-spike")]
+mod sqlcipher_bundle_spike;
+
+#[cfg(feature = "sqlcipher-bundle-spike")]
+pub use sqlcipher_bundle_spike::write_sqlcipher_bundle_spike_report;
+
 #[cfg(test)]
 mod sqlcipher_fixture;
 

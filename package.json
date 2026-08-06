@@ -19,7 +19,8 @@
     "check:platform-neutral": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
     "check": "pnpm check:platform-neutral && pnpm test:rust",
     "evidence:wp0": "node scripts/collect-wp0-evidence.mjs",
-    "evidence:wp5": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher"
+    "evidence:wp5": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher",
+    "evidence:wp5:bundle": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher-bundle"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
