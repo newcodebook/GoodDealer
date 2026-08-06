@@ -514,6 +514,10 @@ function profileDefinition(profile, slice, reportPath) {
       commands: [
         { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
         {
+          id: "desktop-frontend-build",
+          ...pnpm(["--filter", "@gooddealer/desktop", "build"]),
+        },
+        {
           id: "sqlcipher-bundle-spike-lint",
           binary: "cargo",
           args: [

@@ -27,6 +27,10 @@ const spikeTauriConfig = readFileSync(
   new URL("../apps/desktop/src-tauri/tauri.bundle-spike.conf.json", import.meta.url),
   "utf8",
 );
+const evidenceCollector = readFileSync(
+  new URL("../scripts/collect-wp0-evidence.mjs", import.meta.url),
+  "utf8",
+);
 
 test("WP-5 SQLCipher evidence has a dedicated command and native matrix", () => {
   assert.equal(
@@ -50,6 +54,14 @@ test("SQLCipher bundle evidence uses a dedicated feature-gated native matrix", (
   assert.match(bundleWorkflow, /macos-15-intel/);
   assert.match(bundleWorkflow, /--profile native --slice sqlcipher-bundle/);
   assert.match(bundleWorkflow, /target\/release\/bundle/);
+  const bundleSlice = evidenceCollector.slice(
+    evidenceCollector.indexOf('if (slice === "sqlcipher-bundle")'),
+  );
+  assert.ok(
+    bundleSlice.indexOf('id: "desktop-frontend-build"') <
+      bundleSlice.indexOf('id: "sqlcipher-bundle-spike-lint"'),
+    "the clean-runner frontendDist must exist before Tauri macro expansion during Clippy",
+  );
 });
 
 test("SQLCipher bundle linkage is opt-in and cannot alter the default desktop build", () => {
