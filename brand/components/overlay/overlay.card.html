@@ -1,0 +1,32 @@
+<!-- @dsCard group="Components" viewport="700x360" name="Overlay" subtitle="Dialog（遮罩是唯一 blur 处，面板不透明）· Tooltip" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:16px}
+.gd-dialog-scrim{position:relative!important;inset:auto!important;background:none!important;backdrop-filter:none!important;justify-content:flex-start!important}
+</style></head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {Dialog,Button,Tooltip,Badge,DiffValue}=window.GoodDealerDesignSystem_b5b0b6;
+function Card(){
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <Dialog open title="确认提交价格修改" width={520} danger={false}
+      footer={<><Button>取消</Button><Button variant="primary">提交 823 项修改</Button></>}>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <span>将向 <b>Atom · 主账户</b> 提交 823 项价格修改；6 项冲突已排除，12 项转入人工任务。</span>
+        <div style={{background:"var(--gd-ink)",border:"1px solid var(--gd-line)",borderRadius:5,padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:12}}>vault.io</span><DiffValue oldValue="1,499.00" newValue="1,288.00"/>
+        </div>
+        <span style={{fontSize:11,color:"var(--gd-text-faint)"}}>预计执行 4 分钟 · 可随时暂停并接管</span>
+      </div>
+    </Dialog>
+    <div style={{display:"flex",gap:20,alignItems:"center"}}>
+      <Tooltip label="最后平台读取 14:02"><Badge tone="sync">SYNCED</Badge></Tooltip>
+      <span style={{fontSize:11,color:"var(--gd-text-faint)"}}>← hover 查看 Tooltip</span>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Card/>);
+</script></body></html>

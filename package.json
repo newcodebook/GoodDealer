@@ -14,8 +14,10 @@
     "check:generated": "node scripts/generate-endpoint-registry.mjs --check",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
-    "test:structure": "node --test scripts/boundary-policy.test.mjs scripts/endpoint-manifest.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
-    "check": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
+    "test:rust": "cargo test --workspace --all-targets",
+    "test:structure": "node --test scripts/boundary-policy.test.mjs scripts/endpoint-manifest.test.mjs scripts/tauri-command-policy.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
+    "check:platform-neutral": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
+    "check": "pnpm check:platform-neutral && pnpm test:rust",
     "evidence:wp0": "node scripts/collect-wp0-evidence.mjs"
   },
   "devDependencies": {

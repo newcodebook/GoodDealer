@@ -1,0 +1,267 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=1200"><title>GoodDealer · 品牌动效方案</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08090C;font-family:'General Sans','Noto Sans SC',sans-serif;color:var(--gd-text);-webkit-font-smoothing:antialiased}
+a{color:var(--gd-blue);text-decoration:none}a:hover{color:var(--gd-blue-pressed)}
+.sheet{max-width:1180px;margin:0 auto;padding:56px 40px 88px}
+.mono{font-family:'JetBrains Mono',monospace}
+.kick{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:var(--gd-gold);text-transform:uppercase}
+h1{font-size:32px;font-weight:600;letter-spacing:-.015em;margin:12px 0 10px}
+.sub{font-size:13px;line-height:1.7;color:var(--gd-text-muted);max-width:720px;text-wrap:pretty}
+.sub b{color:var(--gd-text);font-weight:500}
+/* tier strategy */
+.tiers{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:26px 0 8px}
+.tier{border:1px solid var(--gd-line);border-radius:11px;padding:18px 20px;background:var(--gd-panel)}
+.tier.brand{border-color:rgba(212,164,55,.3)}
+.tier h4{margin:0 0 8px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.tier.brand h4{color:var(--gd-gold)}.tier.sys h4{color:var(--gd-blue)}
+.tier p{margin:0;font-size:12px;line-height:1.65;color:var(--gd-text-muted)}
+.tier .mono{color:var(--gd-text-faint);font-size:11px}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:52px 0 22px;padding-bottom:14px;border-bottom:1px solid var(--gd-line)}
+.sec-h .n{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gd-gold);letter-spacing:.1em}
+.sec-h .t{font-size:18px;font-weight:600}
+.sec-h .s{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gd-text-faint)}
+/* grid */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.tile{border:1px solid var(--gd-line);border-radius:12px;background:var(--gd-panel);overflow:hidden}
+.stage{height:196px;background:radial-gradient(120% 120% at 50% 36%,#15181F,#0A0B0F 82%);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.cap{padding:15px 17px}
+.cap .nm{font-size:15px;font-weight:600;display:flex;align-items:baseline;gap:8px}
+.cap .en{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--gd-text-faint);text-transform:uppercase;letter-spacing:.06em}
+.cap dl{margin:11px 0 0;display:grid;grid-template-columns:40px 1fr;gap:5px 10px;font-size:11.5px;line-height:1.5}
+.cap dt{color:var(--gd-text-faint);font-family:'JetBrains Mono',monospace;font-size:10px}
+.cap dd{margin:0;color:var(--gd-text-muted)}
+.cap dd b{color:var(--gd-gold);font-weight:500}
+.badge{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.06em;padding:2px 6px;border-radius:4px;margin-left:auto;align-self:center}
+.badge.b{background:var(--gd-gold-tint);color:var(--gd-gold)}
+.badge.s{background:var(--gd-blue-tint);color:var(--gd-blue)}
+.mk{width:96px;height:96px;display:block}
+/* ── keyframes ── */
+@keyframes st-detail{0%,18%{transform:scale(.35);opacity:0}25%{transform:scale(1.03);opacity:1}30%{transform:scale(1)}82%{transform:scale(1);opacity:1}95%,100%{transform:scale(.35);opacity:0}}
+@keyframes st-press{0%,18%{transform:scale(1)}22%{transform:scale(.965)}30%{transform:scale(1.008)}37%{transform:scale(1)}100%{transform:scale(1)}}
+@keyframes st-flash{0%,18%{opacity:0}24%{opacity:.8}42%{opacity:0}100%{opacity:0}}
+@keyframes st-shock{0%,19%{transform:scale(1);opacity:0}23%{opacity:.6}46%{transform:scale(1.8);opacity:0}100%{opacity:0}}
+.t-strike .disc{transform-origin:center;transform-box:fill-box;animation:st-press 3.4s cubic-bezier(.3,.7,.3,1) infinite}
+.t-strike .detail{transform-origin:center;transform-box:fill-box;animation:st-detail 3.4s cubic-bezier(.7,0,.25,1) infinite}
+.t-strike .flash{transform-origin:center;transform-box:fill-box;animation:st-flash 3.4s ease-out infinite}
+.t-strike .shock{transform-origin:center;transform-box:fill-box;animation:st-shock 3.4s cubic-bezier(.2,.6,.3,1) infinite}
+@keyframes bindL{0%,12%{transform:translateX(-9px)}42%{transform:translateX(0)}82%{transform:translateX(0)}100%{transform:translateX(-9px)}}
+@keyframes bindR{0%,12%{transform:translateX(9px)}42%{transform:translateX(0)}82%{transform:translateX(0)}100%{transform:translateX(9px)}}
+@keyframes halfdim{0%,12%{opacity:.78}42%,82%{opacity:1}100%{opacity:.78}}
+@keyframes seal{0%,36%{opacity:0}44%{opacity:.95}56%{opacity:.28}80%{opacity:.28}90%,100%{opacity:0}}
+.t-seam .hl{animation:bindL 3.6s cubic-bezier(.4,0,.2,1) infinite,halfdim 3.6s ease-in-out infinite}
+.t-seam .hr{animation:bindR 3.6s cubic-bezier(.4,0,.2,1) infinite,halfdim 3.6s ease-in-out infinite}
+.t-seam .seal{animation:seal 3.6s ease-out infinite}
+@keyframes rip{0%{transform:scale(.42);opacity:0}18%{opacity:.55}100%{transform:scale(1.5);opacity:0}}
+.t-ripple .r{transform-origin:center;transform-box:fill-box;animation:rip 3s ease-out infinite}
+.t-ripple .r2{animation-delay:1s}.t-ripple .r3{animation-delay:2s}
+@keyframes spin{0%{transform:rotateY(0)}44%{transform:rotateY(360deg)}100%{transform:rotateY(360deg)}}
+.t-spin .stage{perspective:640px}
+.t-spin .mk{animation:spin 3s cubic-bezier(.42,0,.16,1) infinite;transform-style:preserve-3d}
+@keyframes gilt{0%,4%{transform:translateX(-70px)}34%{transform:translateX(70px)}100%{transform:translateX(70px)}}
+.t-gilt .sweep{animation:gilt 3.2s ease-in-out infinite}
+@keyframes drawon{0%{stroke-dashoffset:100}46%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fillin{0%,40%{fill-opacity:0}62%{fill-opacity:1}100%{fill-opacity:1}}
+.t-draw .ln{stroke-dasharray:100;stroke-dashoffset:100;animation:drawon 3s ease-out infinite}
+.t-draw .solid{fill-opacity:0;animation:fillin 3s ease-out infinite}
+/* award (seal) */
+@keyframes aw-sweep{0%,30%{transform:translateX(-70px)}58%{transform:translateX(70px)}100%{transform:translateX(70px)}}
+.t-award .disc{transform-origin:center;transform-box:fill-box;animation:st-press 3.4s cubic-bezier(.3,.7,.3,1) infinite}
+.t-award .detail{transform-origin:center;transform-box:fill-box;animation:st-detail 3.4s cubic-bezier(.7,0,.25,1) infinite}
+.t-award .flash{transform-origin:center;transform-box:fill-box;animation:st-flash 3.4s ease-out infinite}
+.t-award .shock{transform-origin:center;transform-box:fill-box;animation:st-shock 3.4s cubic-bezier(.2,.6,.3,1) infinite}
+.t-award .sweep{animation:aw-sweep 3.4s ease-in-out infinite}
+@keyframes rnode{0%,100%{opacity:.18}50%{opacity:.6}}
+.t-ripple .node{animation:rnode 3s ease-in-out infinite}
+/* system tier */
+.sys-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.mini{border:1px solid var(--gd-line);border-radius:11px;background:var(--gd-panel);padding:0}
+.mini .stg{height:120px;display:flex;align-items:center;justify-content:center;background:var(--gd-ink);border-radius:11px 11px 0 0;position:relative}
+.mini .c{padding:13px 15px;font-size:11.5px;line-height:1.55;color:var(--gd-text-muted)}
+.mini .c b{color:var(--gd-text);font-weight:500;display:block;margin-bottom:3px;font-size:12.5px}
+@keyframes apulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes ahalo{0%{transform:scale(1);opacity:.5}70%{opacity:0}100%{transform:scale(2.1);opacity:0}}
+.apulse{animation:apulse 1.8s ease-in-out infinite}
+.ahalo{transform-origin:center;transform-box:fill-box;animation:ahalo 1.8s ease-out infinite}
+@keyframes lift{0%,100%{transform:translateY(0);background:var(--gd-panel);border-color:var(--gd-line)}45%,70%{transform:translateY(-2px);background:var(--gd-panel-raised);border-color:var(--gd-line-strong)}}
+.liftbox{width:120px;height:52px;border:1px solid var(--gd-line);border-radius:7px;background:var(--gd-panel);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--gd-text-muted);animation:lift 2.6s ease-out infinite}
+@keyframes ring{0%,100%{box-shadow:0 0 0 0 rgba(77,141,255,0)}40%,70%{box-shadow:0 0 0 2px rgba(77,141,255,.6)}}
+.focusbtn{padding:9px 16px;border-radius:6px;background:var(--gd-blue);color:#0A0B0F;font-size:12px;font-weight:600;border:none;animation:ring 2.6s ease-out infinite}
+/* ── icon tier ── */
+@keyframes kh-turn{0%,20%{transform:rotate(0)}40%{transform:rotate(-98deg)}48%,78%{transform:rotate(-90deg)}92%,100%{transform:rotate(0)}}
+@keyframes kh-flash{0%,34%{opacity:0}46%{opacity:.9}66%{opacity:0}100%{opacity:0}}
+@keyframes kh-core{0%,34%{opacity:0}48%,78%{opacity:.5}92%,100%{opacity:0}}
+.t-key .key{transform-box:view-box;transform-origin:60px 60px;animation:kh-turn 3.4s cubic-bezier(.3,.7,.25,1) infinite}
+.t-key .kflash{animation:kh-flash 3.4s ease-out infinite}
+.t-key .kcore{animation:kh-core 3.4s ease-out infinite}
+@keyframes fo-goldL{0%,40%{opacity:1}50%{opacity:0}84%{opacity:0}96%,100%{opacity:1}}
+@keyframes fo-blueL{0%,44%{opacity:0}54%{opacity:1}82%{opacity:1}92%,100%{opacity:0}}
+@keyframes fo-blueR{0%,40%{opacity:1}50%{opacity:0}84%{opacity:0}96%,100%{opacity:1}}
+@keyframes fo-goldR{0%,44%{opacity:0}54%{opacity:1}82%{opacity:1}92%,100%{opacity:0}}
+@keyframes fo-tok{0%,24%{transform:translateX(0);opacity:0}30%{opacity:1}47%{transform:translateX(36px);opacity:1}53%{transform:translateX(36px);opacity:0}100%{transform:translateX(36px);opacity:0}}
+@keyframes fo-glow{0%,30%{opacity:0}47%{opacity:.9}62%{opacity:0}100%{opacity:0}}
+@keyframes fo-pulse{0%,20%,100%{transform:scale(1)}10%{transform:scale(1.13)}}
+.t-fo .goldL{transform-box:fill-box;transform-origin:center;animation:fo-goldL 3.6s ease-out infinite,fo-pulse 3.6s ease-in-out infinite}
+.t-fo .blueL{animation:fo-blueL 3.6s ease-out infinite}
+.t-fo .blueR{animation:fo-blueR 3.6s ease-out infinite}
+.t-fo .goldR{animation:fo-goldR 3.6s ease-out infinite}
+.t-fo .tok{transform-box:view-box;animation:fo-tok 3.6s cubic-bezier(.4,0,.2,1) infinite}
+.t-fo .glow{animation:fo-glow 3.6s ease-out infinite}
+.foot{margin-top:52px;padding:22px 26px;border:1px solid var(--gd-line);border-radius:12px;background:var(--gd-panel);font-size:12.5px;line-height:1.7;color:var(--gd-text-muted)}
+.foot b{color:var(--gd-text);font-weight:500}
+.pl{color:var(--gd-text-faint);font-size:11px}
+</style></head>
+<body>
+<div class="sheet">
+
+<div class="kick">GoodDealer · Brand Motion</div>
+<h1>品牌动效 · 可执行方案</h1>
+<p class="sub">全部从 Coin Seal 语言长出——<b>颁章</b>、<b>骑缝</b>、<b>圜纹</b>、贵金属光泽。纯 CSS/SVG 落地（stroke-dashoffset · mask · transform），Tauri 开屏与 Web 同源，无需 Lottie。下面每个方案<b>正在循环播放</b>。</p>
+
+<div class="tiers">
+  <div class="tier brand"><h4>◆ 品牌时刻 · 可表现</h4><p>开屏 / logo reveal / 成交达成 / 首次设备绑定。<span class="mono">300–600ms · 一次性 · 贵金属</span>。允许光泽、旋铸、涟漪——但仍无弹簧、无橡皮筋。</p></div>
+  <div class="tier sys"><h4>● 系统 UI · 守克制</h4><p>表格 / 状态 / hover / 焦点。<span class="mono">120–160ms ease-out · 2px 位移 · 不缩放</span>。品牌华彩绝不泄进密集数据界面——这是红线。</p></div>
+</div>
+
+<div class="sec-h"><span class="n">01–06</span><span class="t">品牌时刻动效</span><span class="s">6 directions · looping</span></div>
+<div class="grid">
+
+  <!-- 1 SEAL AWARD -->
+  <div class="tile t-award"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs>
+      <linearGradient id="aw" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <linearGradient id="awg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#FFFDF5" stop-opacity=".72"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <clipPath id="awc"><circle cx="60" cy="60" r="52"/></clipPath></defs>
+      <circle class="shock" cx="60" cy="60" r="52" fill="none" stroke="#F2D488" stroke-width="2"/>
+      <g class="disc">
+        <circle cx="60" cy="60" r="52" fill="url(#aw)"/>
+        <circle cx="60" cy="60" r="49.5" fill="none" stroke="#7A5A18" stroke-width="6" stroke-dasharray="2 3.2"/>
+        <circle cx="60" cy="60" r="44.5" fill="none" stroke="#7A5A18" stroke-width="1" opacity=".6"/>
+        <circle cx="60" cy="60" r="41.5" fill="none" stroke="#F7E4A8" stroke-width=".8" opacity=".5"/>
+      </g>
+      <g class="detail"><rect x="45" y="45" width="30" height="30" fill="#0A0B0F"/><rect x="58" y="23" width="4" height="22" fill="#0A0B0F"/><rect x="58" y="75" width="4" height="22" fill="#0A0B0F"/></g>
+      <g clip-path="url(#awc)"><rect class="sweep" x="44" y="2" width="22" height="116" fill="url(#awg)" transform="translate(-70 0) skewX(-18)"/></g>
+      <circle class="flash" cx="60" cy="60" r="52" fill="#FFFDF5" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">颇章<span class="en">Seal Award</span><span class="badge b">徽章</span></div>
+      <dl><dt>用途</dt><dd>成交入账 · 认证达成 · 会员授予</dd><dt>技法</dt><dd>铣边奉章盖印 + 内方骑缝印入 + 铸缘转光</dd><dt>节奏</dt><dd><b>520ms</b> · 盖印→落定→转光</dd></dl></div>
+  </div>
+
+  <!-- 2 SEAM -->
+  <div class="tile t-seam"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s2" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <clipPath id="hl" clipPathUnits="userSpaceOnUse"><rect x="-8" y="-2" width="68" height="124"/></clipPath>
+      <clipPath id="hr" clipPathUnits="userSpaceOnUse"><rect x="60" y="-2" width="68" height="124"/></clipPath></defs>
+      <g class="half hl" clip-path="url(#hl)"><path fill-rule="evenodd" fill="url(#s2)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+      <g class="half hr" clip-path="url(#hr)"><path fill-rule="evenodd" fill="url(#s2)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+      <line class="seal" x1="60" y1="15" x2="60" y2="105" stroke="#F7E4A8" stroke-width="2.4" stroke-linecap="round" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">骑缝<span class="en">The Seam</span><span class="badge b">品牌</span></div>
+      <dl><dt>用途</dt><dd>设备绑定 · 配对 · 执行权交接</dd><dt>技法</dt><dd>两半 device 平移合拢 + 缝口封印脉冲</dd><dt>节奏</dt><dd><b>500ms</b> · ease · 事件触发</dd></dl></div>
+  </div>
+
+  <!-- 3 COIN RIPPLE (sand-flow) -->
+  <div class="tile t-ripple"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s3" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <g stroke="#D4A437" opacity=".12"><line x1="60" y1="8" x2="60" y2="112"/><line x1="8" y1="60" x2="112" y2="60"/></g>
+      <circle class="r r3" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <circle class="r r2" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <circle class="r" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <rect class="node" x="57.6" y="27.1" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="89.1" y="57.6" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="57.6" y="88.1" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="27.1" y="57.6" width="4.8" height="4.8" fill="#D4A437"/>
+      <g transform="translate(60 60) scale(.42) translate(-60 -60)"><path fill-rule="evenodd" fill="url(#s3)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+    </svg></div>
+    <div class="cap"><div class="nm">圜纹<span class="en">Coin Ripple</span><span class="badge b">图形</span></div>
+      <dl><dt>用途</dt><dd>同步进行 · 开屏氛围底 · 空状态</dd><dt>技法</dt><dd>同心钱波 emanate + 内方节点脉动（= sand-flow 环境档）</dd><dt>节奏</dt><dd><b>2–3s</b> · ease-out · 循环</dd></dl></div>
+  </div>
+
+  <!-- 4 SPIN -->
+  <div class="tile t-spin"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s4" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <path fill-rule="evenodd" fill="url(#s4)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+    </svg></div>
+    <div class="cap"><div class="nm">旋铸<span class="en">Coin Spin</span><span class="badge b">品牌</span></div>
+      <dl><dt>用途</dt><dd>加载 · 成交处理 · 估值计算</dd><dt>技法</dt><dd>rotateY 3D 翻面 + 金属受光</dd><dt>节奏</dt><dd><b>1200ms</b> · ease-in-out · 循环</dd></dl></div>
+  </div>
+
+  <!-- 5 GILT -->
+  <div class="tile t-gilt"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs>
+      <linearGradient id="s5" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <linearGradient id="g5" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#FFFDF5" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <clipPath id="c5"><circle cx="60" cy="60" r="46"/></clipPath></defs>
+      <path fill-rule="evenodd" fill="url(#s5)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+      <g clip-path="url(#c5)"><rect class="sweep" x="44" y="6" width="20" height="108" fill="url(#g5)" transform="translate(-70 0) skewX(-18)"/></g>
+    </svg></div>
+    <div class="cap"><div class="nm">光扫<span class="en">Gilt Sweep</span><span class="badge b">品牌</span></div>
+      <dl><dt>用途</dt><dd>价值时刻 · 增值强调 · premium hover</dd><dt>技法</dt><dd>高光带 translateX + clip 到外圆</dd><dt>节奏</dt><dd><b>700ms</b> · ease-in-out · 触发</dd></dl></div>
+  </div>
+
+  <!-- 6 DRAW -->
+  <div class="tile t-draw"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s6" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <path class="solid" fill-rule="evenodd" fill="url(#s6)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+      <circle class="ln" cx="60" cy="60" r="46" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6"/>
+      <path class="ln" d="M44.2 60 L44.2 44.2 L57.2 44.2 L57.2 21.2 L62.8 21.2 L62.8 44.2 L75.8 44.2 L75.8 60" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="ln" d="M44.2 60 L44.2 75.8 L57.2 75.8 L57.2 98.8 L62.8 98.8 L62.8 75.8 L75.8 75.8 L75.8 60" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg></div>
+    <div class="cap"><div class="nm">描金<span class="en">Draw-On</span><span class="badge b">品牌</span></div>
+      <dl><dt>用途</dt><dd>onboarding · 空状态 · 营销 hero</dd><dt>技法</dt><dd>沿 mark 轮廓：中央镀空上下两半同描·贯穿不闭合 + 填色渐显</dd><dt>节奏</dt><dd><b>900ms</b> · ease-out · 一次性</dd></dl></div>
+  </div>
+
+</div>
+
+<div class="sec-h"><span class="n">07</span><span class="t">系统级 · 守克制</span><span class="s">restrained · 120–160ms</span></div>
+<div class="sys-grid">
+  <div class="mini"><div class="stg">
+    <svg width="72" height="72" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="40" fill="none" stroke="#D4A437" stroke-width="3.5"/>
+      <line x1="60" y1="24" x2="60" y2="96" stroke="#D4A437" stroke-width="3.5" stroke-linecap="round"/>
+      <circle class="ahalo" cx="42" cy="60" r="9" fill="none" stroke="#D4A437" stroke-width="2"/>
+      <circle class="apulse" cx="42" cy="60" r="9" fill="#D4A437"/>
+      <circle cx="78" cy="60" r="8" fill="none" stroke="#4D8DFF" stroke-width="3.5"/>
+    </svg></div>
+    <div class="c"><b>Active 心跳</b>执行设备金点<span class="pl">opacity 脉动 · 1.8s</span>；Standby 蓝空心静止。仅透明度，不缩放。</div>
+  </div>
+  <div class="mini"><div class="stg"><div class="liftbox">面板</div></div>
+    <div class="c"><b>Hover 提亮一档</b>panel → raised + 2px 位移<span class="pl">140ms ease-out · 无缩放</span>。描线同步转强。</div>
+  </div>
+  <div class="mini"><div class="stg"><button class="focusbtn">提交 823 项</button></div>
+    <div class="c"><b>Focus 环</b>键盘优先 2px 蓝 ring<span class="pl">120ms · Raycast/Linear 心智</span>。按下=颜色加深。</div>
+  </div>
+</div>
+
+<div class="sec-h"><span class="n">08–09</span><span class="t">图标在动 · 产品事件</span><span class="s">icon-driven · product moments</span></div>
+<div class="grid" style="grid-template-columns:repeat(2,1fr)">
+  <!-- 8 VAULT UNLOCK -->
+  <div class="tile t-key"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120">
+      <path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z"/>
+      <rect class="kcore" x="45" y="45" width="30" height="30" fill="#F7E4A8" opacity="0"/>
+      <g class="key" fill="#D4A437"><circle cx="60" cy="56" r="6.4"/><path d="M57.2 60 L62.8 60 L64.4 70 L55.6 70 Z"/></g>
+      <circle class="kflash" cx="60" cy="60" r="46" fill="none" stroke="#FFF7E0" stroke-width="2.5" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">开锁<span class="en">Vault Unlock</span><span class="badge b">图标</span></div>
+      <dl><dt>用途</dt><dd>本地密钥解锁 · 设备授权 · 保险箱开启</dd><dt>技法</dt><dd>keyhole 转钥 90° 落定 + 环闪 + 方孔透光</dd><dt>节奏</dt><dd><b>360ms</b> · click 落定 · 事件触发</dd></dl></div>
+  </div>
+  <!-- 9 FAILOVER -->
+  <div class="tile t-fo"><div class="stage">
+    <svg class="mk" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="40" fill="none" stroke="#D4A437" stroke-width="3.5"/>
+      <line x1="60" y1="24" x2="60" y2="96" stroke="#D4A437" stroke-width="3.5" stroke-linecap="round"/>
+      <line class="glow" x1="60" y1="24" x2="60" y2="96" stroke="#FFF7E0" stroke-width="6" stroke-linecap="round" opacity="0"/>
+      <circle class="goldL" cx="42" cy="60" r="9" fill="#D4A437"/>
+      <circle class="blueL" cx="42" cy="60" r="9" fill="none" stroke="#4D8DFF" stroke-width="3.5" opacity="0"/>
+      <circle class="blueR" cx="78" cy="60" r="8" fill="none" stroke="#4D8DFF" stroke-width="3.5"/>
+      <circle class="goldR" cx="78" cy="60" r="8" fill="#D4A437" opacity="0"/>
+      <circle class="tok" cx="42" cy="60" r="4.5" fill="#F2D488"/>
+    </svg></div>
+    <div class="cap"><div class="nm">交权<span class="en">Failover</span><span class="badge b">图标</span></div>
+      <dl><dt>用途</dt><dd>执行权交接 · 故障转移 · 双设备切换</dd><dt>技法</dt><dd>金 token 越骑缝 · Active/Standby 互换</dd><dt>节奏</dt><dd><b>520ms</b> · ease · 事件触发</dd></dl></div>
+  </div>
+</div>
+
+<div class="foot"><b>下一步——告诉我落哪几个、用在哪：</b> ① Tauri <b>开屏</b>（颁章盖印 + 圜纹氛围底）；② 应用内<b>加载/同步</b>（旋铸 / 圜纹）；③ <b>成交/认证</b> 颁章（Seal Award）；④ Web 落地页 <b>hero</b>（描金 / 光扫）；⑤ 系统级三态写进 motion 规范卡。选定后我出<b>生产级实现</b>（可复用组件 + 精确 keyframe/时长 token + reduced-motion 降级），并可导出开屏用的独立 HTML/视频帧。<span class="pl">注：favicon / 菜单栏图标为静态，不参与动效。</span></div>
+
+</div>
+</body></html>

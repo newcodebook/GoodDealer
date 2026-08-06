@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::RuntimeMode;
+use crate::{PlatformAction, RuntimeMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpMethod {
@@ -16,6 +16,12 @@ pub enum HttpMethod {
 pub enum CredentialNamespace {
     ProviderApi,
     GoodDealerAccount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialAccessPolicy {
+    HealthyOnly,
+    HealthReverification,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +109,8 @@ pub enum ResponseExtractor {
 pub struct EndpointCapability {
     pub endpoint_id: &'static str,
     pub provider: &'static str,
+    pub platform_action: PlatformAction,
+    pub credential_access_policy: CredentialAccessPolicy,
     pub method: HttpMethod,
     pub origin: &'static str,
     pub path_template: &'static str,
@@ -172,6 +180,7 @@ pub struct ValidatedEndpointRequest<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointValidationError {
     RuntimeDenied,
+    PlatformAccessDenied,
     UnknownEndpoint,
     DeviceMismatch,
     ConnectionMismatch,
@@ -620,14 +629,15 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     use super::{
-        BodyEncoding, BodySchema, CredentialBinding, CredentialInjection, CredentialNamespace,
-        CredentialSlotBinding, CredentialTarget, CredentialValueEncoding, EndpointCapability,
-        EndpointRequest, EndpointValidationError, HttpMethod, PublicFieldSchema, PublicValue,
-        PublicValueType, RedirectPolicy, ResponseExtractor, RetrySafety, SecretKind,
-        reject_redirect, validate_endpoint_request, validate_endpoint_request_against_registry,
-        validate_public_value, validate_resolved_addresses,
+        BodyEncoding, BodySchema, CredentialAccessPolicy, CredentialBinding, CredentialInjection,
+        CredentialNamespace, CredentialSlotBinding, CredentialTarget, CredentialValueEncoding,
+        EndpointCapability, EndpointRequest, EndpointValidationError, HttpMethod,
+        PublicFieldSchema, PublicValue, PublicValueType, RedirectPolicy, ResponseExtractor,
+        RetrySafety, SecretKind, reject_redirect, validate_endpoint_request,
+        validate_endpoint_request_against_registry, validate_public_value,
+        validate_resolved_addresses,
     };
-    use crate::RuntimeMode;
+    use crate::{PlatformAction, RuntimeMode};
 
     const INJECTIONS: &[CredentialInjection] = &[CredentialInjection {
         slot_id: "api-token",
@@ -691,6 +701,8 @@ mod tests {
     const CAPABILITY: EndpointCapability = EndpointCapability {
         endpoint_id: "fixture.records.create",
         provider: "fixture",
+        platform_action: PlatformAction::Write,
+        credential_access_policy: CredentialAccessPolicy::HealthyOnly,
         method: HttpMethod::Post,
         origin: "https://api.fixture.invalid",
         path_template: "/v1/zones/{zoneId}/records",

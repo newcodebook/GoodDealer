@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs><linearGradient id="gd-ripple" x1="0" y1="0.37" x2="1" y2="0.63"><stop offset="0" stop-color="#F2D488"></stop><stop offset="0.46" stop-color="#D4A437"></stop><stop offset="1" stop-color="#8A671D"></stop></linearGradient></defs>
+  <g stroke="#D4A437" opacity="0.12"><line x1="60" y1="6" x2="60" y2="114"></line><line x1="6" y1="60" x2="114" y2="60"></line></g>
+  <circle cx="60" cy="60" r="22" fill="none" stroke="#D4A437" stroke-width="1.5" opacity="0.55"></circle><circle cx="60" cy="60" r="31" fill="none" stroke="#D4A437" stroke-width="1.3" opacity="0.4"></circle><circle cx="60" cy="60" r="41" fill="none" stroke="#D4A437" stroke-width="1.1" opacity="0.27"></circle><circle cx="60" cy="60" r="52" fill="none" stroke="#D4A437" stroke-width="0.9" opacity="0.16"></circle>
+  <rect x="57.6" y="27.1" width="4.8" height="4.8" fill="#D4A437" opacity="0.45"></rect><rect x="89.1" y="57.6" width="4.8" height="4.8" fill="#D4A437" opacity="0.45"></rect><rect x="57.6" y="88.1" width="4.8" height="4.8" fill="#D4A437" opacity="0.45"></rect><rect x="27.1" y="57.6" width="4.8" height="4.8" fill="#D4A437" opacity="0.45"></rect>
+  <g transform="translate(60 60) scale(0.283) translate(-60 -60)"><path fill-rule="evenodd" fill="url(#gd-ripple)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"></path></g>
+</svg>

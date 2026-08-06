@@ -1,0 +1,65 @@
+<!-- @dsCard group="Foundations" viewport="800x340" name="Risk & Confirmation" subtitle="危险操作视觉分级 + 确认仪式：陈述后果、精确数量、承认门、可跳过危险子集（Ledger 心智）" -->
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+body{padding:16px 18px;display:flex;gap:20px;align-items:stretch;font-size:12px}
+.col{display:flex;flex-direction:column;gap:9px}
+.h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:500}
+.tier{display:flex;gap:10px;align-items:center;border:1px solid var(--gd-line);border-radius:var(--radius-sm);background:var(--gd-panel);padding:9px 11px}
+.tier .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.tier .nm{font-weight:600;font-size:12px;color:var(--text-1)}
+.tier .tr{color:var(--text-2);font-size:11px;line-height:1.5;margin-top:2px}
+.tier .tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.04em;border-radius:999px;padding:2px 8px;white-space:nowrap;flex:none}
+.note{font-size:10px;color:var(--text-3);line-height:1.5;margin-top:1px}
+.dlg{width:334px;flex:none;border:1px solid var(--gd-danger);border-radius:var(--radius-lg);background:var(--gd-panel);box-shadow:var(--shadow-overlay);overflow:hidden;align-self:flex-start}
+.dlg .hd{padding:11px 14px;border-bottom:1px solid var(--gd-line);font-weight:600;color:var(--gd-danger);font-size:13px}
+.dlg .bd{padding:13px 14px;display:flex;flex-direction:column;gap:10px}
+.dlg .lead{font-size:11px;color:var(--text-1)}
+.rk{border:1px solid var(--gd-danger);background:var(--gd-danger-tint);border-radius:6px;padding:9px 11px;display:flex;flex-direction:column;gap:7px}
+.rk .t{display:flex;align-items:center;gap:6px;color:var(--gd-danger);font-weight:600;font-size:12px}
+.rk .t .rb{margin-left:auto;font-weight:400;font-size:10px;color:var(--text-2)}
+.rk .c{font-size:11px;color:var(--gd-text);line-height:1.5}
+.dm{display:flex;gap:6px}
+.dm span{font-family:var(--font-mono);font-size:10px;color:var(--gd-text);background:var(--gd-ink);border:1px solid var(--gd-line);border-radius:4px;padding:2px 7px}
+.chk{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--gd-text);border-top:1px solid rgba(229,115,95,.24);padding-top:8px}
+.box{width:14px;height:14px;border-radius:3px;border:1px solid var(--gd-blue);background:var(--gd-blue);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.ft{display:flex;justify-content:flex-end;gap:7px;padding:11px 14px;border-top:1px solid var(--gd-line)}
+.b{height:27px;padding:0 11px;border-radius:5px;font-size:11px;display:inline-flex;align-items:center;border:1px solid var(--gd-line-strong);background:var(--gd-panel-raised);color:var(--gd-text);font-family:var(--font-mono)}
+.b.dg{background:#C9503C;border-color:transparent;color:#fff;font-weight:500}
+.anat{font-size:10px;color:var(--text-3);line-height:1.55}
+.anat b{color:var(--gd-gold);font-weight:500}
+</style></head>
+<body>
+<div class="col" style="flex:1;min-width:0">
+  <span class="h">风险三档 · 视觉分级</span>
+  <div class="tier"><span class="dot" style="background:var(--gd-blue)"></span>
+    <div style="flex:1"><div class="nm">常规 Routine</div><div class="tr">改价 · 上架 / 下架 · 生成 CSV。默认蓝色主操作，直接确认。</div></div>
+    <span class="tag" style="color:var(--gd-blue);background:var(--gd-blue-tint)">E1 蓝 · 直接确认</span>
+  </div>
+  <div class="tier"><span class="dot" style="background:var(--gd-warning)"></span>
+    <div style="flex:1"><div class="nm">需留意 Elevated</div><div class="tr">最大价格变化 · DNS 记录变更（DNS 提供商；A/MX 影响解析）· 会话过期。橙色标注，说明原因。</div></div>
+    <span class="tag" style="color:var(--gd-warning);background:var(--gd-warning-tint)">橙 · 注意</span>
+  </div>
+  <div class="tier"><span class="dot" style="background:var(--gd-danger)"></span>
+    <div style="flex:1"><div class="nm">高风险 High</div><div class="tr">Nameserver 变更（注册商）· Sold 状态覆盖。红框 + 承认门 + 可跳过子集。</div></div>
+    <span class="tag" style="color:var(--gd-danger);background:var(--gd-danger-tint)">红 · 承认门</span>
+  </div>
+  <span class="note">分级依据后果，不吓唬：说明为什么、后果，并给出回滚路径。金不参与风险语义——红 / 橙 / 蓝 各司其职，金留给价值。</span>
+  <span class="anat" style="margin-top:2px"><b>确认仪式解剖</b>　① 陈述后果与回滚 → ② 精确数量入按钮（禁模糊「确定」）→ ③ 承认门解锁危险主操作 → ④ 提供「仅提交常规 · 跳过危险子集」出口。</span>
+</div>
+<div class="col" style="flex:none">
+  <span class="h">确认仪式 · 高风险实例</span>
+  <div class="dlg">
+    <div class="hd">最终确认 · 批量改价</div>
+    <div class="bd">
+      <span class="lead">向 <b>Atom · 主账户</b> 提交 799 项 API 修改；为 <b>Afternic</b> 生成 CSV 并创建 12 项人工任务。</span>
+      <div class="rk">
+        <div class="t"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>高风险 · Nameserver 变更 · 3 个域名<span class="rb">可回滚</span></div>
+        <div class="c">变更后指向旧 DNS 的解析与邮件在传播完成前可能中断（约 5–30 分钟）。回滚同样需传播时间。</div>
+        <div class="dm"><span>goldrail.com</span><span>quanta.trade</span><span>helio.systems</span></div>
+        <div class="chk"><span class="box"><svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M1.5 5.5 4 8l4.5-6" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>我已理解后果，确认对这 3 个域名执行 Nameserver 变更</div>
+      </div>
+    </div>
+    <div class="ft"><span class="b">仅提交常规 · 796 项</span><span class="b dg">提交全部 · 799 项</span></div>
+  </div>
+</div>
+</body></html>

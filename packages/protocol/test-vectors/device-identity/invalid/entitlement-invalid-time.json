@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.entitlement.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-desktop/entitlement",
+  "kid": "entitlement-key-2026-01",
+  "accountId": "account-01",
+  "deviceId": "device-01",
+  "accountSecurityEpoch": 1,
+  "jti": "entitlement-invalid-time",
+  "issuedAt": "2026-08-01T10:00:00Z",
+  "expiresAt": "2026-08-02T10:00:00Z",
+  "payload": {
+    "licenseId": "license-01",
+    "entitlementRevision": 1,
+    "paymentWatermark": "payment-watermark-01",
+    "plan": "lifetime",
+    "entitlementKind": "lifetime",
+    "commercialExpiresAt": null,
+    "offlineGraceUntil": "never",
+    "deviceLimit": 2,
+    "activeDeviceLimit": 1,
+    "standbyCloudRead": true,
+    "featureEntitlements": ["all_features"],
+    "allMajorVersions": true
+  },
+  "signature": "RmFrZVNpZ25hdHVyZQ"
+}

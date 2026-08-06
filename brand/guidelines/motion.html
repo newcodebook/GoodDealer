@@ -1,0 +1,15 @@
+<!-- @dsCard group="Foundations" viewport="700x170" name="Motion & States" subtitle="120–160ms ease-out；悬停提亮一档，按下加深不缩放；键盘优先的 2px 焦点 ring" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{padding:16px 24px;display:flex;gap:24px;align-items:center}
+.demo{display:flex;flex-direction:column;gap:8px;flex:1}
+.lbl{font-size:11px;color:var(--text-faint)}
+.btn{height:28px;padding:0 14px;border-radius:var(--radius-sm);border:none;font-family:var(--font-sans);font-size:13px;font-weight:500;cursor:pointer;transition:background var(--dur-fast) var(--ease-out);align-self:flex-start;display:inline-flex;align-items:center}
+.row{background:var(--gd-panel);border:1px solid var(--gd-line);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;transition:background var(--dur-fast) var(--ease-out)}
+.row:hover{background:var(--gd-panel-raised)}
+.chip{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);border:1px solid var(--gd-line);border-radius:999px;padding:2px 10px}</style></head>
+<body>
+<div class="demo"><span class="lbl">悬停：面板提亮一档（试试）</span><div class="row">example.com · Spaceship</div>
+<span class="lbl" style="margin-top:4px">按下：颜色加深，不缩放</span><button class="btn" style="background:var(--gd-blue);color:#fff" onmousedown="this.style.background='var(--gd-blue-pressed)'" onmouseup="this.style.background='var(--gd-blue)'">批准执行</button></div>
+<div class="demo"><span class="lbl">焦点态：2px 蓝 ring</span><button class="btn" style="background:var(--gd-panel-raised);color:var(--gd-text);box-shadow:var(--focus-ring)">键盘焦点</button>
+<div style="display:flex;gap:6px;margin-top:6px"><span class="chip">fast 120ms</span><span class="chip">base 160ms</span><span class="chip">slow 240ms</span><span class="chip">ease-out · 无弹跳</span></div></div>
+</body></html>

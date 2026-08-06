@@ -5,7 +5,7 @@
 
 ## 背景
 
-一个账号允许绑定两台设备，但按 ADR-0005 任意时刻只有一台拥有修改与平台执行权；Standby 可以只读查询云端业务数据。依靠用户手动传递和恢复完整备份无法提供自然的设备交接体验，也无法方便地支持未来的域名资产展示功能。
+日常账号/Cloud 路径允许一个账号绑定两台设备，但按 ADR-0005 任意时刻只有一台 Active 设备拥有修改与平台执行权；Standby 可以只读查询云端业务数据。正式停服后的 LocalContinuation 使用独立 Sunset 本地授权，不参与本 ADR 的 Cloud 同步与双设备协调。依靠用户手动传递和恢复完整备份无法提供自然的设备交接体验，也无法方便地支持未来的域名资产展示功能。
 
 域名资产信息泄露通常不会直接赋予攻击者注册商、DNS 或销售平台的操作权限。产品决定接受服务端可读取域名与商业数据的隐私风险，优先换取可靠的跨设备同步、服务端查询以及未来公开展示能力。
 
@@ -16,8 +16,8 @@
 - HTTPS、服务端数据库/磁盘/备份静态加密仍是强制安全基线。
 - API Key、OAuth Token、Cookie、密码、2FA、Auth Code、Browser Profile、数据库密钥和 Recovery Secret 永不上传 GoodDealer 服务端。
 - 活动设备维护完整 SQLCipher 工作库，通过 Mutation、Revision 和 Device Cursor 增量同步；Standby 只使用只读 API、Reader Cursor 和可丢弃缓存。禁止同步数据库文件。
-- ProviderConnection 的非秘密元数据共享，DeviceCredentialBinding 只存在本机。
-- 云端 ActiveDeviceLease 和单调递增的 Lease Epoch 保证只有当前活动设备产生 Mutation、读取平台、批准和执行任务；Standby 只读取云端已有快照。不再为每个 Operation 申请执行租约。Sync Service 不持有凭据，也不调用域名平台。
+- ProviderConnection 的非秘密元数据共享；DeviceCredentialBindingStatus 只存在本机 Active Workspace，DeviceCredentialCandidateStatus 只存在普通本机加密状态并供 Standby 显示非秘密存在性提示，HostCredentialBinding 只存在 Rust Secure Host；三者均不上传 Cloud。
+- 日常账号/Cloud 路径由 ActiveDeviceLease 和单调递增的 Lease Epoch 保证只有当前 Active 设备产生 Mutation、读取平台、批准和执行任务；Standby 只读取云端已有快照。不再为每个 Operation 申请执行租约。Sync Service 不持有凭据，也不调用域名平台。
 - 云端同步状态不能直接触发平台副作用；外部写操作必须由执行设备本地预览并签署 ApprovedOperation，默认不跨设备迁移批准。
 - 产品保留本地加密备份文件导出/恢复，不集成第三方远程备份服务。
 - 云同步不等于公开展示；未来 Publication Projection 必须由用户显式选择和发布。

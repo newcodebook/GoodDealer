@@ -1,0 +1,34 @@
+<!-- @dsCard group="Components" viewport="700x340" name="App Chrome" subtitle="WindowChrome + Toolbar + StatusBar：把界面做成原生软件而非 SaaS 网页" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:14px;height:340px}</style></head>
+<body><div id="root" style="height:100%"></div>
+<script type="text/babel">
+const {WindowChrome,StatusBar,Toolbar,Button,IconButton,Badge}=window.GoodDealerDesignSystem_b5b0b6;
+const Dot=({t,h})=><span style={{width:7,height:7,borderRadius:"50%",display:"inline-block",background:h?"transparent":`var(--gd-${t})`,border:h?`1.5px solid var(--gd-${t})`:"none"}}></span>;
+const S=({size=15,d})=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{d}</svg>;
+function Card(){
+  return <WindowChrome appName="GoodDealer" mark={<img src="../../assets/logo/mark-flat.svg" width="17" height="17"/>} context="个人 Workspace · 资产库"
+    footer={<StatusBar
+      left={[<><Dot t="blue"/>SYNCED</>,"未同步 0",<span style={{color:"var(--text-3)"}}>rev 8,241</span>]}
+      right={[<>MacBook Pro <Dot t="gold"/><span style={{color:"var(--gd-gold)"}}>Active</span></>,<span style={{color:"var(--text-3)"}}>Epoch 41</span>]}/>}>
+    <aside style={{width:150,borderRight:"1px solid var(--gd-line)",background:"var(--gd-panel)",padding:8,display:"flex",flexDirection:"column",gap:2,fontSize:13}}>
+      {["资产库","销售管理","DNS 与验证"].map((l,i)=><div key={l} style={{position:"relative",padding:"6px 8px",borderRadius:5,color:i===0?"var(--text-1)":"var(--text-2)",background:i===0?"var(--gd-panel-raised)":"transparent"}}>{i===0&&<span style={{position:"absolute",left:0,top:6,bottom:6,width:2,background:"var(--gd-gold)",borderRadius:1}}></span>}{l}</div>)}
+    </aside>
+    <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+      <Toolbar left={<><b style={{fontSize:14}}>资产库</b><span style={{color:"var(--text-3)",fontSize:12}}>1,024</span></>}
+        right={<><div style={{display:"flex",alignItems:"center",gap:6,height:28,padding:"0 8px",border:"1px solid var(--gd-line-strong)",borderRadius:5,color:"var(--text-3)",fontSize:12}}><S size={13} d={<><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>}/>命令 <span style={{fontFamily:"var(--font-mono)",fontSize:10,border:"1px solid var(--gd-line-strong)",borderRadius:3,padding:"0 4px"}}>⌘K</span></div><IconButton size="sm" label="刷新"><S size={14} d={<><path d="M3 12a9 9 0 0 1 15.6-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.6 6.2L3 16"/><path d="M3 21v-5h5"/></>}/></IconButton></>}/>
+      <Toolbar region left={<span style={{fontSize:12,color:"var(--text-2)"}}>筛选 · 全部注册商</span>} right={<Button size="sm" variant="primary">生成批量计划</Button>}/>
+      <div style={{flex:1,display:"flex",background:"var(--surface-region)"}}>
+        {[["组合估值","$284,120","var(--gd-gold)"],["活跃 Listing","692","var(--text-1)"],["冲突","6","var(--gd-danger)"]].map((s,i)=><div key={i} style={{flex:1,padding:"12px 14px",borderRight:i<2?"1px solid var(--gd-line)":"none",display:"flex",flexDirection:"column",gap:3}}>
+          <span style={{fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--text-2)"}}>{s[0]}</span>
+          <span style={{fontFamily:"var(--font-mono)",fontSize:19,fontWeight:500,color:s[2]}}>{s[1]}</span></div>)}
+      </div>
+    </div>
+  </WindowChrome>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Card/>);
+</script></body></html>

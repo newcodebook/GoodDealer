@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.offline-device-lease.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-desktop/offline-device-lease",
+  "kid": "account-key-2026-01",
+  "accountId": "acct_123",
+  "deviceId": "device_123",
+  "accountSecurityEpoch": 3,
+  "jti": "offline_lease_123",
+  "issuedAt": "2026-08-01T10:00:00Z",
+  "expiresAt": "2026-08-08T10:00:00Z",
+  "payload": {
+    "credentialEpoch": 4,
+    "renewAfter": "2026-08-06T10:00:00Z"
+  },
+  "signature": "c2lnbmF0dXJl"
+}

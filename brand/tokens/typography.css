@@ -1,0 +1,26 @@
+/* GoodDealer — typography tokens. Geometric sans + mono numerals + CJK. */
+:root{
+--font-sans:"General Sans","MiSans","HarmonyOS Sans","Noto Sans SC",-apple-system,"Segoe UI",sans-serif;
+--font-mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+/* Scale — desktop-density app; 13px is body default */
+--text-2xs:11px; /* table headers, badges — uppercase, tracked */
+--text-xs:12px; /* secondary, cell meta */
+--text-sm:13px; /* body / UI default */
+--text-md:14px; /* emphasized body, inputs lg */
+--text-lg:16px; /* panel titles */
+--text-xl:20px; /* page titles */
+--text-2xl:28px; /* KPI values */
+--text-3xl:40px; /* display / marketing */
+--leading-tight:1.2;
+--leading-normal:1.5;
+--tracking-caps:0.08em; /* uppercase labels */
+--tracking-display:-0.01em;
+--weight-regular:400;
+--weight-medium:500;
+--weight-semibold:600;
+--weight-bold:700;
+/* Numerals: valuations are ALWAYS tabular. Apply via .gd-num or font-variant-numeric */
+--numeric:tabular-nums; /* @kind other */
+}
+.gd-num{font-variant-numeric:tabular-nums;font-family:var(--font-mono)}
+.gd-caps{font-size:var(--text-2xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;font-weight:var(--weight-medium)}

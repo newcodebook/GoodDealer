@@ -1,0 +1,62 @@
+/* GoodDealer — color tokens. Raw (--gd-*) → semantic aliases. 70 ink / 20 gold / 10 blue. */
+:root{
+/* Ink (70%) — stage */
+--gd-ink:#0A0B0F;
+--gd-panel:#10131A;
+--gd-panel-raised:#14171F;
+--gd-line:#1E2230;
+--gd-line-strong:#2A3040;
+--gd-chrome:#0D0F15; /* @kind color */ /* titlebar / toolbar / status bar — between ink and panel */
+/* Sand gold (20%) — the protagonist; ≤20% of any screen */
+--gd-gold-highlight:#F2D488;
+--gd-gold:#D4A437; /* the ONLY gold for UI text/icons/strokes */
+--gd-gold-deep:#8A671D; /* decoration only, never text */
+--gd-gold-gradient:linear-gradient(105deg,#F2D488 0%,#D4A437 46%,#8A671D 100%); /* @kind color */
+--gd-gold-tint:rgba(212,164,55,0.10);
+/* Tech blue (10%) — system language, always matte */
+--gd-blue:#4D8DFF;
+--gd-blue-pressed:#2F62D8;
+--gd-blue-tint:rgba(77,141,255,0.12);
+/* Text */
+--gd-text:#EAE8E1;
+--gd-text-muted:#8D93A3;
+--gd-text-faint:#5C6272;
+/* Semantic status extensions (not in brand/tokens; added for operation results — see readme "Intentional additions") */
+--gd-success:#5CAE7D;
+--gd-success-tint:rgba(92,174,125,0.12);
+--gd-danger:#E5735F;
+--gd-danger-tint:rgba(229,115,95,0.12);
+--gd-warning:#E08A48;
+--gd-warning-tint:rgba(224,138,72,0.12);
+/* Data visualization (concept C · Ascent) */
+--gd-viz-input:#4D8DFF; /* invested / in progress */
+--gd-viz-gain:#D4A437; /* appreciated / result */
+--gd-viz-drawdown:#6E7482;/* drawdown / neutral */
+/* Semantic aliases */
+--surface-app:var(--gd-ink);
+--surface-card:var(--gd-panel);
+--surface-raised:var(--gd-panel-raised);
+--surface-chrome:var(--gd-chrome); /* native window chrome */
+--surface-region:var(--gd-panel); /* framed content region (seamed, not floated) */
+--surface-overlay:rgba(10,11,15,0.72); /* modal scrim; blur allowed on shell only */
+--border-default:var(--gd-line);
+--border-strong:var(--gd-line-strong);
+--text-body:var(--gd-text);
+--text-muted:var(--gd-text-muted);
+--text-faint:var(--gd-text-faint);
+/* Information hierarchy — 4 explicit text levels (see guidelines/hierarchy). Components reference these, never ad-hoc grays. */
+--text-1:var(--gd-text); /* primary: values, titles, active rows */
+--text-2:var(--gd-text-muted); /* secondary: labels, meta, inactive nav */
+--text-3:var(--gd-text-faint); /* tertiary: timestamps, ids, hints, placeholders */
+--emphasis-value:var(--gd-gold); /* semantic emphasis — money / ownership */
+--emphasis-system:var(--gd-blue); /* semantic emphasis — interactive / sync */
+--text-value:var(--gd-gold); /* prices, valuations */
+--text-link:var(--gd-blue);
+--accent-system:var(--gd-blue);
+--accent-system-pressed:var(--gd-blue-pressed);
+--accent-brand:var(--gd-gold);
+--sync:var(--gd-blue);
+--lease-active:var(--gd-gold); /* executing device: solid dot */
+--lease-standby:var(--gd-blue); /* standby device: hollow dot */
+--focus-ring:0 0 0 2px rgba(77,141,255,0.35);
+}

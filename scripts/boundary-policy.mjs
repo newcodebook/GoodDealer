@@ -46,7 +46,8 @@ export function importBoundaryErrors(localPath, specifier) {
     localPath.startsWith("apps/admin-web/") &&
     (specifier.startsWith("@gooddealer/client-core") ||
       specifier.startsWith("@gooddealer/cloud-client") ||
-      isConcreteConnector)
+      isConcreteConnector ||
+      (specifier.startsWith("@gooddealer/protocol") && specifier !== "@gooddealer/protocol/admin"))
   ) {
     errors.push("admin-web can only use protocol/admin and its own API adapter");
   }

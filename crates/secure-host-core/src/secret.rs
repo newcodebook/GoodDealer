@@ -1,8 +1,11 @@
 use std::fmt;
 
+#[cfg(test)]
 use serde::Deserialize;
 
+#[cfg(test)]
 const MAX_HEADER_SECRET_BYTES: usize = 8 * 1024;
+#[cfg(test)]
 const MAX_TOKEN_LIFETIME_SECONDS: u64 = 365 * 24 * 60 * 60;
 
 pub struct SecretMaterial(Vec<u8>);
@@ -39,6 +42,7 @@ impl SecretResponseBody {
         Self(bytes)
     }
 
+    #[cfg(test)]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
@@ -112,6 +116,7 @@ pub trait SecretStore {
     ) -> Result<SecretStoreReceipt, Self::Error>;
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthSessionStatus {
     pub authenticated: bool,
@@ -124,6 +129,7 @@ pub enum SecretExtractionError<StoreError> {
     Store(StoreError),
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AuthTokenResponse {
@@ -134,15 +140,18 @@ struct AuthTokenResponse {
     _token_type: TokenType,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 enum TokenType {
     #[serde(rename = "Bearer")]
     Bearer,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct SecretText(String);
 
+#[cfg(test)]
 impl SecretText {
     fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
@@ -153,12 +162,14 @@ impl SecretText {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for SecretText {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("SecretText([REDACTED])")
     }
 }
 
+#[cfg(test)]
 impl Drop for SecretText {
     fn drop(&mut self) {
         let mut bytes = std::mem::take(&mut self.0).into_bytes();
@@ -166,6 +177,7 @@ impl Drop for SecretText {
     }
 }
 
+#[cfg(test)]
 fn validate_header_secret(secret: &SecretText) -> bool {
     let bytes = secret.as_bytes();
     !bytes.is_empty()
@@ -173,17 +185,20 @@ fn validate_header_secret(secret: &SecretText) -> bool {
         && bytes.iter().all(|byte| matches!(byte, 0x21..=0x7e))
 }
 
+#[cfg(test)]
 const fn valid_token_lifetime(expires_in_seconds: u64) -> bool {
     expires_in_seconds > 0 && expires_in_seconds <= MAX_TOKEN_LIFETIME_SECONDS
 }
 
-/// Extracts a Host-owned auth response and atomically stores both tokens before constructing the
-/// public, redacted status.
+/// Test-only legacy fixture for Host-owned auth response parsing. It intentionally does not model
+/// the production split between a durable refresh-token store and an in-memory access-token
+/// session store, so it cannot be used as production session evidence.
 ///
 /// # Errors
 ///
 /// Returns [`SecretExtractionError`] when the response is malformed or contains unknown fields,
 /// or when the atomic store fails.
+#[cfg(test)]
 pub fn extract_and_store_auth_session<S: SecretStore>(
     response: SecretResponseBody,
     scope: AccountSessionSecretScope<'_>,

@@ -47,6 +47,14 @@ test("rejects Cloud, account-web, admin-web, and client-core forbidden edges", (
     [],
   );
   assert.notDeepEqual(
+    importBoundaryErrors("apps/admin-web/src/leak.ts", "@gooddealer/protocol/workspace"),
+    [],
+  );
+  assert.deepEqual(
+    importBoundaryErrors("apps/admin-web/src/index.ts", "@gooddealer/protocol/admin"),
+    [],
+  );
+  assert.notDeepEqual(
     importBoundaryErrors("packages/client-core/src/index.ts", "@tauri-apps/api"),
     [],
   );

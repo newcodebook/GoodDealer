@@ -1,11 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GoodDealer Phase 0 placeholder icon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="GoodDealer app icon">
+  <!-- Distribution mirror of brand/logo/app-icon.svg. The brand source remains authoritative. -->
   <defs>
-    <linearGradient id="background" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#18324A" />
-      <stop offset="1" stop-color="#0B1724" />
+    <linearGradient id="gd-icon-bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#14171F"/>
+      <stop offset="1" stop-color="#0A0B0F"/>
+    </linearGradient>
+    <linearGradient id="gd-icon-sand" x1="0" y1="0.37" x2="1" y2="0.63">
+      <stop offset="0" stop-color="#F2D488"/>
+      <stop offset="0.46" stop-color="#D4A437"/>
+      <stop offset="1" stop-color="#8A671D"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#background)" />
-  <path d="M128 152h256v76H204v56h148v76H204v76h-76V152Z" fill="#F5F1E8" />
-  <circle cx="372" cy="360" r="44" fill="#F28C45" />
+  <rect width="1024" height="1024" rx="228" fill="url(#gd-icon-bg)"/>
+  <g transform="translate(512 512) scale(6.2) translate(-61.5 -60)">
+    <path d="M 89.44 43 A 34 34 0 1 0 89.44 77" fill="none" stroke="url(#gd-icon-sand)" stroke-width="12"/>
+    <circle cx="94" cy="60" r="9" fill="#F2D488"/>
+  </g>
 </svg>

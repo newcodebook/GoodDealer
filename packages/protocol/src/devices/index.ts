@@ -15,3 +15,9 @@ export type {
   DeviceProof,
   SignedCredentialEnvelope,
 } from "./device-identity";
+
+export {
+  RUNTIME_STATUS_SCHEMA_VERSION,
+  runtimeStatusSchema,
+} from "./runtime-status";
+export type { RuntimeStatus } from "./runtime-status";

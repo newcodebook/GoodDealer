@@ -1,17 +1,17 @@
 use std::net::IpAddr;
 
-use crate::RuntimeMode;
 use crate::endpoint_capability::{
-    CredentialBinding, CredentialInjection, CredentialNamespace, CredentialSlotBinding,
-    CredentialTarget, CredentialValueEncoding, EndpointCapability, EndpointRequest,
-    EndpointValidationError, HttpMethod, ResponseExtractor, SecretKind, ValidatedEndpointRequest,
-    project_public_json_response, validate_endpoint_request_against_registry,
-    validate_resolved_addresses,
+    CredentialAccessPolicy, CredentialBinding, CredentialInjection, CredentialNamespace,
+    CredentialSlotBinding, CredentialTarget, CredentialValueEncoding, EndpointCapability,
+    EndpointRequest, EndpointValidationError, HttpMethod, ResponseExtractor, SecretKind,
+    ValidatedEndpointRequest, project_public_json_response,
+    validate_endpoint_request_against_registry, validate_resolved_addresses,
 };
 use crate::secret::{
     ProviderConnectionSecretScope, ProviderCredentialStatus, SecretExtractionError, SecretMaterial,
     SecretResponseBody, SecretStore, extract_and_store_provider_api_token,
 };
+use crate::{CredentialHealth, PlatformAccessContext, RuntimeMode};
 
 const MAX_CREDENTIAL_HEADER_VALUE_BYTES: usize = 8 * 1024;
 const MAX_INJECTED_HEADERS_BYTES: usize = 16 * 1024;
@@ -31,6 +31,7 @@ pub struct OwnedCredentialBinding {
     pub namespace: CredentialNamespace,
     pub credential_profile_id: String,
     pub credential_profile_version: u32,
+    pub credential_health: CredentialHealth,
     pub slots: Vec<OwnedCredentialSlotBinding>,
 }
 
@@ -239,8 +240,7 @@ type CredentialHeaderResult<C, D, T> = Result<
 /// Fails closed for any validation, credential, resolver, transport, redirect, response-limit, or
 /// extractor error.
 pub fn execute_endpoint_request<C, D, T>(
-    runtime_mode: RuntimeMode,
-    current_device_id: &str,
+    access_context: &PlatformAccessContext,
     request: &EndpointRequest<'_>,
     credentials: &mut C,
     resolver: &mut D,
@@ -252,8 +252,7 @@ where
     T: HttpTransport,
 {
     execute_endpoint_request_against_registry(
-        runtime_mode,
-        current_device_id,
+        access_context,
         ExecutorRegistry {
             endpoints: crate::generated::endpoint_registry::ENDPOINT_CAPABILITIES,
             host_owned_extractors: &[],
@@ -266,8 +265,7 @@ where
 }
 
 fn execute_endpoint_request_against_registry<C, D, T>(
-    runtime_mode: RuntimeMode,
-    current_device_id: &str,
+    access_context: &PlatformAccessContext,
     registry: ExecutorRegistry<'_>,
     request: &EndpointRequest<'_>,
     credentials: &mut C,
@@ -279,6 +277,12 @@ where
     D: DnsResolver,
     T: HttpTransport,
 {
+    if !access_context.can_resolve_endpoint(request.provider_connection_id) {
+        return Err(ExecuteEndpointError::Validation(
+            EndpointValidationError::PlatformAccessDenied,
+        ));
+    }
+
     let capability = registry
         .endpoints
         .iter()
@@ -287,9 +291,10 @@ where
             EndpointValidationError::UnknownEndpoint,
         ))?;
 
-    if runtime_mode != RuntimeMode::Active {
+    let action = capability.platform_action;
+    if !access_context.allows(request.provider_connection_id, action) {
         return Err(ExecuteEndpointError::Validation(
-            EndpointValidationError::RuntimeDenied,
+            EndpointValidationError::PlatformAccessDenied,
         ));
     }
 
@@ -300,8 +305,19 @@ where
     )?;
 
     let binding = credentials
-        .load_binding(current_device_id, request.provider_connection_id)
+        .load_binding(
+            access_context.current_device_id(),
+            request.provider_connection_id,
+        )
         .map_err(ExecuteEndpointError::Credential)?;
+    if !credential_health_allows(
+        capability.credential_access_policy,
+        binding.credential_health,
+    ) {
+        return Err(ExecuteEndpointError::Validation(
+            EndpointValidationError::PlatformAccessDenied,
+        ));
+    }
     let slot_bindings = binding
         .slots
         .iter()
@@ -321,8 +337,8 @@ where
         slots: &slot_bindings,
     };
     let validated = validate_endpoint_request_against_registry(
-        runtime_mode,
-        current_device_id,
+        RuntimeMode::Active,
+        access_context.current_device_id(),
         registry.endpoints,
         request,
         &borrowed_binding,
@@ -363,6 +379,21 @@ where
         response,
         credentials,
     )
+}
+
+const fn credential_health_allows(
+    policy: CredentialAccessPolicy,
+    health: CredentialHealth,
+) -> bool {
+    match policy {
+        CredentialAccessPolicy::HealthyOnly => matches!(health, CredentialHealth::Healthy),
+        CredentialAccessPolicy::HealthReverification => {
+            matches!(
+                health,
+                CredentialHealth::RetainedUnverified | CredentialHealth::Healthy
+            )
+        }
+    }
 }
 
 fn process_transport_response<C, D, T>(
@@ -630,9 +661,9 @@ mod tests {
         TransportResponse, execute_endpoint_request, execute_endpoint_request_against_registry,
         reserve_injected_header_bytes, validate_host_owned_extractor_bindings,
     };
-    use crate::RuntimeMode;
     use crate::endpoint_capability::{
-        CredentialNamespace, EndpointRequest, EndpointValidationError, PublicValue, SecretKind,
+        CredentialNamespace, EndpointCapability, EndpointRequest, EndpointValidationError,
+        PublicValue, SecretKind,
     };
     use crate::generated::fixture_endpoint_registry::{
         ENDPOINT_CAPABILITIES, ENDPOINT_MANIFEST_SHA256,
@@ -641,6 +672,7 @@ mod tests {
         SecretEntry, SecretMaterial, SecretResponseBody, SecretStore, SecretStoreReceipt,
         SecretWriteScope,
     };
+    use crate::{CredentialHealth, PlatformAccessContext, RuntimeMode};
 
     const CANARY: &str = "fixture-secret-canary";
 
@@ -649,6 +681,20 @@ mod tests {
             endpoints: ENDPOINT_CAPABILITIES,
             host_owned_extractors: FIXTURE_HOST_OWNED_EXTRACTORS,
         }
+    }
+
+    fn active_access() -> PlatformAccessContext {
+        PlatformAccessContext::from_verified_active_lease(
+            "device-a",
+            "device-a",
+            7,
+            7,
+            1_000,
+            2_000,
+            true,
+            true,
+            "connection-a",
+        )
     }
 
     struct RequestData {
@@ -705,6 +751,7 @@ mod tests {
         binding_loads: usize,
         secret_loads: usize,
         secret_bytes: Option<Vec<u8>>,
+        binding_health: Option<CredentialHealth>,
         store_calls: usize,
         stored_scope: Option<StoredProviderScope>,
         stored_entries: Vec<Vec<u8>>,
@@ -766,6 +813,7 @@ mod tests {
                 namespace: CredentialNamespace::ProviderApi,
                 credential_profile_id: "fixture-api-v1".to_owned(),
                 credential_profile_version: 1,
+                credential_health: self.binding_health.unwrap_or(CredentialHealth::Healthy),
                 slots: vec![OwnedCredentialSlotBinding {
                     slot_id: "api-token".to_owned(),
                     secret_kind: SecretKind::ApiToken,
@@ -868,6 +916,32 @@ mod tests {
         }
     }
 
+    fn assert_platform_access_denied_before_host_resources(access: &PlatformAccessContext) {
+        let data = RequestData::fixture();
+        let mut credentials = FakeCredentials::default();
+        let mut resolver = public_resolver();
+        let mut transport = FakeTransport::default();
+        let result = execute_endpoint_request_against_registry(
+            access,
+            fixture_registry(),
+            &data.request(),
+            &mut credentials,
+            &mut resolver,
+            &mut transport,
+        );
+
+        assert_eq!(
+            result,
+            Err(ExecuteEndpointError::Validation(
+                EndpointValidationError::PlatformAccessDenied
+            ))
+        );
+        assert_eq!(credentials.binding_loads, 0);
+        assert_eq!(credentials.secret_loads, 0);
+        assert_eq!(resolver.calls, 0);
+        assert_eq!(transport.calls, 0);
+    }
+
     #[test]
     fn fake_provider_pins_dns_and_injects_only_the_declared_slot() {
         assert_eq!(ENDPOINT_MANIFEST_SHA256.len(), 64);
@@ -876,8 +950,7 @@ mod tests {
         let mut resolver = public_resolver();
         let mut transport = FakeTransport::default();
         let response = execute_endpoint_request_against_registry(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             fixture_registry(),
             &data.request(),
             &mut credentials,
@@ -920,8 +993,7 @@ mod tests {
             ..FakeTransport::default()
         };
         let result = execute_endpoint_request_against_registry(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             fixture_registry(),
             &data.token_rotation_request(),
             &mut credentials,
@@ -966,8 +1038,7 @@ mod tests {
             let mut resolver = public_resolver();
             let mut transport = FakeTransport::default();
             let result = execute_endpoint_request_against_registry(
-                RuntimeMode::Active,
-                "device-a",
+                &active_access(),
                 ExecutorRegistry {
                     endpoints: ENDPOINT_CAPABILITIES,
                     host_owned_extractors: &[],
@@ -1081,8 +1152,7 @@ mod tests {
                 ..FakeTransport::default()
             };
             let result = execute_endpoint_request_against_registry(
-                RuntimeMode::Active,
-                "device-a",
+                &active_access(),
                 fixture_registry(),
                 &data.token_rotation_request(),
                 &mut credentials,
@@ -1115,8 +1185,7 @@ mod tests {
             ..FakeTransport::default()
         };
         let result = execute_endpoint_request_against_registry(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             fixture_registry(),
             &data.token_rotation_request(),
             &mut credentials,
@@ -1152,8 +1221,7 @@ mod tests {
         };
         let mut transport = FakeTransport::default();
         let result = execute_endpoint_request_against_registry(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             fixture_registry(),
             &data.request(),
             &mut credentials,
@@ -1172,14 +1240,214 @@ mod tests {
 
     #[test]
     fn non_active_runtime_fails_before_any_host_resource_access() {
+        assert_platform_access_denied_before_host_resources(
+            &active_access().with_runtime_mode_for_test(RuntimeMode::Standby),
+        );
+    }
+
+    #[test]
+    fn expired_active_lease_fails_before_any_host_resource_access() {
+        assert_platform_access_denied_before_host_resources(
+            &PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                2_001,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
+        );
+    }
+
+    #[test]
+    fn stale_lease_epoch_fails_before_any_host_resource_access() {
+        assert_platform_access_denied_before_host_resources(
+            &PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                6,
+                7,
+                1_000,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
+        );
+    }
+
+    #[test]
+    fn healthy_only_endpoint_rejects_unverified_or_invalid_binding_before_network_resources() {
         let data = RequestData::fixture();
+        for health in [
+            CredentialHealth::RetainedUnverified,
+            CredentialHealth::Invalid,
+        ] {
+            let mut credentials = FakeCredentials {
+                binding_health: Some(health),
+                ..FakeCredentials::default()
+            };
+            let mut resolver = public_resolver();
+            let mut transport = FakeTransport::default();
+            let result = execute_endpoint_request_against_registry(
+                &active_access(),
+                fixture_registry(),
+                &data.request(),
+                &mut credentials,
+                &mut resolver,
+                &mut transport,
+            );
+
+            assert_eq!(
+                result,
+                Err(ExecuteEndpointError::Validation(
+                    EndpointValidationError::PlatformAccessDenied
+                ))
+            );
+            assert_eq!(credentials.binding_loads, 1);
+            assert_eq!(credentials.secret_loads, 0);
+            assert_eq!(resolver.calls, 0);
+            assert_eq!(transport.calls, 0);
+        }
+    }
+
+    #[test]
+    fn health_reverification_policy_accepts_only_reverifiable_binding_states() {
+        assert!(super::credential_health_allows(
+            crate::endpoint_capability::CredentialAccessPolicy::HealthReverification,
+            CredentialHealth::RetainedUnverified,
+        ));
+        assert!(super::credential_health_allows(
+            crate::endpoint_capability::CredentialAccessPolicy::HealthReverification,
+            CredentialHealth::Healthy,
+        ));
+        assert!(!super::credential_health_allows(
+            crate::endpoint_capability::CredentialAccessPolicy::HealthReverification,
+            CredentialHealth::Invalid,
+        ));
+    }
+
+    #[test]
+    fn device_epoch_scope_and_action_failures_are_zero_resource() {
+        for access in [
+            PlatformAccessContext::from_verified_active_lease(
+                "device-b",
+                "device-a",
+                7,
+                7,
+                1_000,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
+            PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                0,
+                0,
+                1_000,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
+            PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                1_000,
+                2_000,
+                true,
+                true,
+                "connection-b",
+            ),
+            PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                1_000,
+                2_000,
+                true,
+                false,
+                "connection-a",
+            ),
+        ] {
+            assert_platform_access_denied_before_host_resources(&access);
+        }
+    }
+
+    #[test]
+    fn invalid_access_context_hides_unknown_endpoint() {
+        let data = RequestData::fixture();
+        let request = EndpointRequest {
+            endpoint_id: "fixture.unknown",
+            ..data.request()
+        };
         let mut credentials = FakeCredentials::default();
         let mut resolver = public_resolver();
         let mut transport = FakeTransport::default();
         let result = execute_endpoint_request_against_registry(
-            RuntimeMode::Standby,
-            "device-a",
+            &PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                2_001,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
             fixture_registry(),
+            &request,
+            &mut credentials,
+            &mut resolver,
+            &mut transport,
+        );
+
+        assert_eq!(
+            result,
+            Err(ExecuteEndpointError::Validation(
+                EndpointValidationError::PlatformAccessDenied
+            ))
+        );
+        assert_eq!(credentials.binding_loads, 0);
+        assert_eq!(resolver.calls, 0);
+        assert_eq!(transport.calls, 0);
+    }
+
+    #[test]
+    fn explicit_platform_action_is_not_inferred_from_http_method() {
+        let data = RequestData::fixture();
+        let read_capability = EndpointCapability {
+            platform_action: crate::PlatformAction::Read,
+            ..ENDPOINT_CAPABILITIES[0]
+        };
+        let mut credentials = FakeCredentials::default();
+        let mut resolver = public_resolver();
+        let mut transport = FakeTransport::default();
+        let result = execute_endpoint_request_against_registry(
+            &PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                1_000,
+                2_000,
+                false,
+                true,
+                "connection-a",
+            ),
+            ExecutorRegistry {
+                endpoints: std::slice::from_ref(&read_capability),
+                host_owned_extractors: &[],
+            },
             &data.request(),
             &mut credentials,
             &mut resolver,
@@ -1189,13 +1457,43 @@ mod tests {
         assert_eq!(
             result,
             Err(ExecuteEndpointError::Validation(
-                EndpointValidationError::RuntimeDenied
+                EndpointValidationError::PlatformAccessDenied
             ))
         );
         assert_eq!(credentials.binding_loads, 0);
-        assert_eq!(credentials.secret_loads, 0);
         assert_eq!(resolver.calls, 0);
         assert_eq!(transport.calls, 0);
+    }
+
+    #[test]
+    fn offline_execute_until_is_inclusive() {
+        let data = RequestData::fixture();
+        let mut credentials = FakeCredentials::default();
+        let mut resolver = public_resolver();
+        let mut transport = FakeTransport::default();
+        let result = execute_endpoint_request_against_registry(
+            &PlatformAccessContext::from_verified_active_lease(
+                "device-a",
+                "device-a",
+                7,
+                7,
+                2_000,
+                2_000,
+                true,
+                true,
+                "connection-a",
+            ),
+            fixture_registry(),
+            &data.request(),
+            &mut credentials,
+            &mut resolver,
+            &mut transport,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(credentials.binding_loads, 1);
+        assert_eq!(resolver.calls, 1);
+        assert_eq!(transport.calls, 1);
     }
 
     #[test]
@@ -1218,8 +1516,7 @@ mod tests {
             let mut resolver = public_resolver();
             let mut transport = FakeTransport::default();
             let result = execute_endpoint_request_against_registry(
-                RuntimeMode::Active,
-                "device-a",
+                &active_access(),
                 fixture_registry(),
                 &data.request(),
                 &mut credentials,
@@ -1257,8 +1554,7 @@ mod tests {
         let mut resolver = public_resolver();
         let mut transport = FakeTransport::default();
         let result = execute_endpoint_request_against_registry(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             fixture_registry(),
             &data.request(),
             &mut credentials,
@@ -1320,8 +1616,7 @@ mod tests {
                 ..FakeTransport::default()
             };
             let result = execute_endpoint_request_against_registry(
-                RuntimeMode::Active,
-                "device-a",
+                &active_access(),
                 fixture_registry(),
                 &data.request(),
                 &mut credentials,
@@ -1339,8 +1634,7 @@ mod tests {
         let mut resolver = public_resolver();
         let mut transport = FakeTransport::default();
         let result = execute_endpoint_request(
-            RuntimeMode::Active,
-            "device-a",
+            &active_access(),
             &data.request(),
             &mut credentials,
             &mut resolver,

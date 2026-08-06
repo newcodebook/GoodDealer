@@ -1,7 +1,7 @@
 # GoodDealer 域名所有权验证工作流
 
 状态：Draft
-更新日期：2026-08-01
+更新日期：2026-08-03
 
 ## 1. 目标与边界
 
@@ -71,7 +71,7 @@ verified -> cleanup_pending | retained
 
 1. 用户授予 BrowserSessionConsent，在隔离窗口自行登录；Consent 不需要 Operation Plan，也没有业务自动化权限。
 2. 首版软件只提供页面步骤提示并检查 Origin/登录状态；用户把页面显示的挑战复制到 Secure Host 输入通道。BrowserSessionConsent 不授权 Probe 读取挑战内容。
-3. 原始值写入设备本地秘密存储并返回 `challenge_ref`；普通 TypeScript 和 Cloud 只使用指纹/脱敏预览。
+3. 原始值写入 Rust Host-owned challenge vault/OS 安全存储并返回 `challenge_ref`；普通 TypeScript、Active Workspace 和 Cloud 只使用指纹/脱敏预览。原始值不得进入普通 verification 表、Mutation、ExecutionFact、Audit Payload、日志、Crash 或 BackupExportSchema。
 4. 触发 Verify 等业务动作必须在计划获批后另建 BrowserAutomationGrant，并由 Secure Host 签发 AutomationExecutionTicket。未来若自动读取挑战，也必须先形成绑定 VerificationAttempt、允许字段和 Recipe Hash 的可审阅动作计划，不得扩大 BrowserSessionConsent 权限。
 
 密码、2FA、CAPTCHA、Cookie、原始挑战值和 Browser Profile 永不上传 Cloud。
@@ -177,14 +177,14 @@ VerificationEvidence
 
 ## 8. 秘密 Sync Projection
 
-原始 Challenge 使用 opaque `challenge_ref`，不得进入通用 Workspace Entity DTO。
+原始 Challenge 使用 opaque `challenge_ref`，不得进入通用 Workspace Entity DTO、Active Workspace 业务列或备份投影；只有 Rust Host-owned vault 可以解析该引用。
 
 Cloud `workspace/state/verification` 与 DNS 投影只能包含：
 
 - 域名、记录名称/类型、脱敏预览、稳定 fingerprint。
 - VerificationAttempt 的非秘密状态、时间和证据等级。
 - DnsAuthoritySnapshot 的非秘密委派/Binding 摘要。
-- Operation 的脱敏状态与 LateExecutionEvent。
+- Operation 的脱敏状态与 ExecutionFact；旧 Epoch 事实通过服务端裁决后显示 LateExecutionEvent 分类。
 
 Outbox 必须通过显式 Sync Projection Schema 构造，禁止先序列化本地实体再“清洗”。通用 DNS 读取重新读到挑战值时，仍按 Verification 关联执行字段级秘密分类。
 
@@ -193,7 +193,7 @@ Outbox 必须通过显式 Sync Projection Schema 构造，禁止先序列化本�
 - Grant、AutomationExecutionTicket、Browser Session、Cookie 和原始挑战不迁移。
 - 新 Active 没有 `challenge_ref` 时，Attempt 进入 `requires_challenge_reacquisition`，不得恢复旧执行队列。
 - 重新取得挑战后比较 fingerprint；一致仍需重新检查委派/RRset 并生成新计划，不一致则旧 Attempt 过期。
-- 旧 Epoch 已发生的 DNS/平台执行结果走 LateExecutionEvent；旧批准、Ticket 和未开始动作不可复用。
+- 旧 Epoch 已发生的 DNS/平台执行结果始终走 ExecutionFact Ingest，服务端验证通过后增加 LateExecutionEvent 分类；旧批准、Ticket 和未开始动作不可复用。
 
 ## 10. 验收要求
 
@@ -205,3 +205,14 @@ Outbox 必须通过显式 Sync Projection Schema 构造，禁止先序列化本�
 - 挑战传播期间过期时不触发 Verify；旧记录清理另建 Operation。
 - 设备切换后旧 Grant、批准、Ticket、Profile 和挑战引用不可复用。
 - 页面最终点击后崩溃只进入确认路径，不重复提交。
+
+## 11. 开源 DNS 验证参考
+
+完整来源和许可证见 [OPEN_SOURCE_REFERENCES.md](OPEN_SOURCE_REFERENCES.md)。
+
+- [go-acme/lego](https://github.com/go-acme/lego) 的 Spaceship DNS Provider 可迁移 Zone 发现、TXT Present/Cleanup、传播超时与 Fixture；必须改为 GoodDealer Secure Host 凭据路径，并保留同名 TXT。
+- [libdns](https://github.com/libdns/libdns) 的增量 Record Port 比整区同步更接近本文件 RRset 安全模型，可作为 DnsReader/DnsWriter 接口参考。
+- [ExternalDNS](https://github.com/kubernetes-sigs/external-dns) 可借鉴 Desired → Plan → Provider、dry-run、所有权标记和 Fake Provider 测试；不得为借用其模型而擅自写入额外所有权 TXT。
+- [DNSControl](https://github.com/DNSControl/dnscontrol) 只借鉴 IR、Preview 和 Provider 测试矩阵。其整区声明可能删除未声明记录，禁止直接用于验证 TXT 写入。
+
+上述项目都不提供 GoodDealer 的 DnsAuthoritySnapshot、RRset Hash、委派匹配、VerificationAttempt、秘密 Projection、ApprovedOperation 或证据等级。上游 `Present/Cleanup` 成功只能证明请求执行，不能把 Attempt 标记为 `verified`。
