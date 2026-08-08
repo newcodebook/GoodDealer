@@ -1,0 +1,243 @@
+<!-- @dsCard group="Brand" viewport="1200x1720" name="Coin Seal 制标规范" subtitle="圜印主标：外圆内方 + 骑缝 · 尺规 / 安全区 / 最小尺寸 / 误用 / 单色版" -->
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=1200"><title>圜印 Coin Seal · 制标规范</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08090C;font-family:'General Sans','Noto Sans SC',sans-serif;color:var(--gd-text);-webkit-font-smoothing:antialiased}
+a{color:var(--gd-blue);text-decoration:none}a:hover{color:var(--gd-blue-pressed)}
+.sheet{max-width:1160px;margin:0 auto;padding:64px 40px 96px}
+.mono{font-family:'JetBrains Mono',monospace}
+/* section scaffolding */
+.sec{margin-top:64px}
+.sec-h{display:flex;align-items:baseline;gap:14px;padding-bottom:16px;margin-bottom:28px;border-bottom:1px solid var(--gd-line)}
+.sec-n{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gd-gold);letter-spacing:.1em}
+.sec-t{font-size:19px;font-weight:600;color:var(--gd-text)}
+.sec-s{margin-left:auto;font-size:11.5px;color:var(--gd-text-faint);font-family:'JetBrains Mono',monospace}
+.lead{font-size:13px;line-height:1.7;color:var(--gd-text-muted);max-width:760px;text-wrap:pretty;margin:0 0 24px}
+.lead b{color:var(--gd-text);font-weight:500}
+.panel{background:var(--gd-panel);border:1px solid var(--gd-line);border-radius:12px}
+.mk{display:block}
+/* header */
+.hero{display:flex;align-items:center;gap:34px;padding:38px 40px}
+.hero .badge{width:120px;height:120px;border-radius:26px;background:linear-gradient(160deg,#14171F,#0A0B0F);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 10px 30px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05)}
+.kick{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:var(--gd-gold);text-transform:uppercase}
+.hero h1{font-size:34px;font-weight:600;letter-spacing:-.015em;margin:10px 0 8px}
+.hero h1 b{color:var(--gd-gold)}
+.hero p{margin:0;font-size:13px;line-height:1.6;color:var(--gd-text-muted);max-width:620px}
+.meta-row{margin-left:auto;display:flex;flex-direction:column;gap:7px;text-align:right;flex:0 0 auto}
+.meta-row span{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--gd-text-faint)}
+.meta-row b{color:var(--gd-text-muted);font-weight:400}
+/* A · exploration */
+.vars{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.var{border:1px solid var(--gd-line);border-radius:11px;background:var(--gd-panel);padding:16px;position:relative;transition:none}
+.var.pick{border-color:var(--gd-gold);background:linear-gradient(180deg,rgba(212,164,55,.05),var(--gd-panel))}
+.var .stg{height:118px;border-radius:8px;background:radial-gradient(120% 120% at 50% 32%,#15181F,#0A0B0F 80%);display:flex;align-items:center;justify-content:center;border:1px solid var(--gd-line)}
+.var .vn{font-size:13px;font-weight:600;margin-top:13px}
+.var .vs{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--gd-text-faint);line-height:1.6;margin-top:6px}
+.var .pin{position:absolute;top:12px;right:12px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#0A0B0F;background:var(--gd-gold);padding:3px 7px;border-radius:5px}
+.why{margin-top:22px;padding:18px 20px;border-left:2px solid var(--gd-gold);background:var(--gd-panel-raised);border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.7;color:var(--gd-text-muted)}
+.why b{color:var(--gd-gold);font-weight:500}
+/* B · construction */
+.build{display:grid;grid-template-columns:420px 1fr;gap:32px;align-items:start}
+.blue{background:var(--gd-ink);border:1px solid var(--gd-line);border-radius:11px;padding:14px}
+.blue svg{display:block;width:100%;height:auto}
+table.spec{width:100%;border-collapse:collapse;font-size:12.5px}
+table.spec td{padding:11px 10px;border-bottom:1px solid var(--gd-line);vertical-align:baseline}
+table.spec tr td:first-child{color:var(--gd-text-muted);width:150px}
+table.spec tr td:nth-child(2){font-family:'JetBrains Mono',monospace;color:var(--gd-text)}
+table.spec tr td:last-child{font-family:'JetBrains Mono',monospace;color:var(--gd-gold);text-align:right;font-size:11px}
+table.spec tr:last-child td{border-bottom:none}
+.note{font-size:11.5px;color:var(--gd-text-faint);line-height:1.6;margin-top:14px}
+/* C clearspace + D sizes share grid */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.card{padding:26px}
+.card-t{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gd-text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px}
+.cs-stage{display:flex;align-items:center;justify-content:center;padding:8px}
+.ramp{display:flex;align-items:flex-end;gap:24px;justify-content:center;flex-wrap:wrap}
+.rr{display:flex;flex-direction:column;align-items:center;gap:9px}
+.rl{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--gd-text-faint)}
+.rl b{color:var(--gd-gold);font-weight:400}
+.divider{width:1px;align-self:stretch;background:var(--gd-line);margin:0 2px}
+/* E color */
+.swat{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.sw{border:1px solid var(--gd-line);border-radius:10px;overflow:hidden}
+.sw .box{height:120px;display:flex;align-items:center;justify-content:center}
+.sw .cap{padding:13px 15px;background:var(--gd-panel)}
+.sw .cap b{font-size:13px;font-weight:600;display:block}
+.sw .cap span{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--gd-text-faint);display:block;margin-top:4px;line-height:1.5}
+.matrix{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap}
+.mx{flex:1;min-width:120px;border:1px solid var(--gd-line);border-radius:9px;overflow:hidden}
+.mx .b{height:74px;display:flex;align-items:center;justify-content:center}
+.mx .l{padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--gd-text-muted);display:flex;justify-content:space-between;align-items:center;background:var(--gd-panel)}
+.ok{color:var(--gd-success)}.no{color:var(--gd-danger)}
+/* F wordmark */
+.wm{display:flex;flex-direction:column}
+.wm-row{display:flex;align-items:center;gap:20px;padding:20px 0;border-bottom:1px solid var(--gd-line)}
+.wm-row:last-child{border-bottom:none}
+.wm-tag{flex:0 0 130px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--gd-text-faint);letter-spacing:.04em;line-height:1.5}
+.wordmark{font-size:32px;font-weight:600;letter-spacing:-.012em}
+.domainmark{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:500;display:flex;align-items:center}
+.gd{font-size:32px;font-weight:600}.gd b{color:var(--gd-gold)}
+/* G misuse */
+.dont{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.dn{border:1px solid var(--gd-line);border-radius:10px;overflow:hidden;background:var(--gd-panel)}
+.dn .b{height:104px;display:flex;align-items:center;justify-content:center;background:radial-gradient(120% 120% at 50% 35%,#15181F,#0A0B0F 82%);position:relative}
+.dn .x{position:absolute;top:10px;left:10px;width:20px;height:20px;border-radius:50%;background:var(--gd-danger);color:#0A0B0F;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.dn .c{padding:12px 14px;font-size:12px;color:var(--gd-text-muted)}
+.foot-note{margin-top:56px;padding:22px 26px;border:1px solid var(--gd-line);border-radius:12px;background:var(--gd-panel);font-size:12.5px;line-height:1.7;color:var(--gd-text-muted)}
+.foot-note b{color:var(--gd-text);font-weight:500}
+</style></head>
+<body>
+<div class="sheet">
+
+<!-- HERO -->
+<div class="panel hero">
+  <div class="badge"><svg class="mk" viewBox="0 0 120 120" style="width:74px;height:74px"><defs><linearGradient id="gh" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs><path fill-rule="evenodd" fill="url(#gh)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div>
+  <div>
+    <div class="kick">GoodDealer · Brand Mark</div>
+    <h1>圜印 · <b>Coin Seal</b></h1>
+    <p>外圆内方的古钱，被一道骑缝竖分为两半——双设备绑定与防篡改，方孔为共享的执行内核。本页确定其最优比例并规定制标规范。</p>
+  </div>
+  <div class="meta-row"><span>版本 <b>v1.0-draft</b></span><span>基准框 <b>120 × 120 U</b></span><span>2026-08</span></div>
+</div>
+
+<!-- A · PROPORTION STUDY -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">A</span><span class="sec-t">比例探索 · 方孔与骑缝</span><span class="sec-s">Proportion study</span></div>
+  <p class="lead">同一构型，五组比例。变量：<b>内方边长</b>、<b>骑缝宽度</b>、<b>骑缝距缘</b>（seam 与外缘的呼吸间距）。目标是最优雅、最像有意为之的一枚金印——而非一枚裂开的铜钱。</p>
+  <div class="vars">
+    <div class="var"><div class="stg"><svg class="mk" viewBox="0 0 120 120" style="width:76px;height:76px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 16 L62 16 L62 45 L58 45 Z M58 75 L62 75 L62 104 L58 104 Z"/></svg></div><div class="vn">现行 · Current</div><div class="vs">□30 · w4 · inset 2<br>骑缝几乎触缘，像裂纹</div></div>
+    <div class="var pick"><div class="pin">✓ 推荐</div><div class="stg"><svg class="mk" viewBox="0 0 120 120" style="width:76px;height:76px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="vn">精炼 · Refined</div><div class="vs">□30 · w4 · inset 8<br>骑缝留 8U 呼吸，成一条轴</div></div>
+    <div class="var"><div class="stg"><svg class="mk" viewBox="0 0 120 120" style="width:76px;height:76px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M43 43 L77 43 L77 77 L43 77 Z M57.5 20 L62.5 20 L62.5 43 L57.5 43 Z M57.5 77 L62.5 77 L62.5 100 L57.5 100 Z"/></svg></div><div class="vn">方大 · Bold</div><div class="vs">□34 · w5 · inset 6<br>内方更重，金属剩得少</div></div>
+    <div class="var"><div class="stg"><svg class="mk" viewBox="0 0 120 120" style="width:76px;height:76px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M47 47 L73 47 L73 73 L47 73 Z M58.5 26 L61.5 26 L61.5 47 L58.5 47 Z M58.5 73 L61.5 73 L61.5 94 L58.5 94 Z"/></svg></div><div class="vn">留白 · Airy</div><div class="vs">□26 · w3 · inset 12<br>最含蓄，小尺寸骑缝先失</div></div>
+    <div class="var"><div class="stg"><svg class="mk" viewBox="0 0 120 120" style="width:76px;height:76px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M60 19.5 A40.5 40.5 0 1 0 60 100.5 A40.5 40.5 0 1 0 60 19.5 Z M60 21.5 A38.5 38.5 0 1 0 60 98.5 A38.5 38.5 0 1 0 60 21.5 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="vn">鋳缘 · Rimmed</div><div class="vs">推荐 + 铸缘线<br>hero/开屏用，≤32px 关闭</div></div>
+  </div>
+  <div class="why"><b>选「精炼」。</b>内方保持 Ø/3（30U）直角——最正统的「方正」，识别度与平衡最好；骑缝宽 4U、距外缘留 <b>8U</b> 呼吸，使它读作一条<b>刻意的竖轴</b>而非裂纹（现行 inset 2 的问题）；单段骑缝长度≈内方边长，三段（缝-方-缝）等律。<b>铸缘</b>作为 hero/开屏/app-icon 的可选华彩（≥48px），并在 ≤32px 关闭以保小尺寸干净。</div>
+</div>
+
+<!-- B · CONSTRUCTION -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">B</span><span class="sec-t">最终几何 · 制图网格</span><span class="sec-s">Construction grid</span></div>
+  <p class="lead">全部尺寸基于 <b>120 × 120 U</b> 基准框、中心 (60,60)。以下为唯一权威值——出稿、切图、favicon 皆以此为准。</p>
+  <div class="build">
+    <div class="blue"><svg viewBox="0 0 120 132">
+      <!-- grid -->
+      <g stroke="#1E2230" stroke-width=".5">
+        <line x1="0" y1="10" x2="120" y2="10"/><line x1="0" y1="20" x2="120" y2="20"/><line x1="0" y1="30" x2="120" y2="30"/><line x1="0" y1="40" x2="120" y2="40"/><line x1="0" y1="50" x2="120" y2="50"/><line x1="0" y1="70" x2="120" y2="70"/><line x1="0" y1="80" x2="120" y2="80"/><line x1="0" y1="90" x2="120" y2="90"/><line x1="0" y1="100" x2="120" y2="100"/><line x1="0" y1="110" x2="120" y2="110"/>
+        <line x1="10" y1="0" x2="10" y2="120"/><line x1="20" y1="0" x2="20" y2="120"/><line x1="30" y1="0" x2="30" y2="120"/><line x1="40" y1="0" x2="40" y2="120"/><line x1="50" y1="0" x2="50" y2="120"/><line x1="70" y1="0" x2="70" y2="120"/><line x1="80" y1="0" x2="80" y2="120"/><line x1="90" y1="0" x2="90" y2="120"/><line x1="100" y1="0" x2="100" y2="120"/><line x1="110" y1="0" x2="110" y2="120"/>
+      </g>
+      <!-- center axes -->
+      <g stroke="#2A3040" stroke-width=".7"><line x1="60" y1="0" x2="60" y2="120"/><line x1="0" y1="60" x2="120" y2="60"/></g>
+      <!-- mark fill faint + outlines -->
+      <path fill-rule="evenodd" fill="rgba(212,164,55,.12)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+      <circle cx="60" cy="60" r="46" fill="none" stroke="#D4A437" stroke-width=".8"/>
+      <rect x="45" y="45" width="30" height="30" fill="none" stroke="#D4A437" stroke-width=".8"/>
+      <rect x="58" y="22" width="4" height="23" fill="none" stroke="#D4A437" stroke-width=".6"/><rect x="58" y="75" width="4" height="23" fill="none" stroke="#D4A437" stroke-width=".6"/>
+      <!-- radius -->
+      <line x1="60" y1="60" x2="92.5" y2="27.5" stroke="#4D8DFF" stroke-width=".6"/><circle cx="60" cy="60" r="1.3" fill="#4D8DFF"/>
+      <text x="79" y="40" fill="#4D8DFF" font-family="'JetBrains Mono',monospace" font-size="4.4">R46</text>
+      <!-- Ø dimension -->
+      <g stroke="#8D93A3" stroke-width=".4"><line x1="14" y1="126" x2="106" y2="126"/><line x1="14" y1="123" x2="14" y2="129"/><line x1="106" y1="123" x2="106" y2="129"/></g>
+      <text x="60" y="131.5" fill="#8D93A3" font-family="'JetBrains Mono',monospace" font-size="4.4" text-anchor="middle">Ø 92</text>
+      <!-- square dim -->
+      <text x="60" y="61.6" fill="#D4A437" font-family="'JetBrains Mono',monospace" font-size="4.2" text-anchor="middle">□30</text>
+      <!-- seam width leader -->
+      <line x1="62" y1="33" x2="76" y2="33" stroke="#8D93A3" stroke-width=".4"/><text x="77" y="34.4" fill="#8D93A3" font-family="'JetBrains Mono',monospace" font-size="4.2">w4</text>
+      <!-- inset leader -->
+      <line x1="60" y1="14" x2="60" y2="22" stroke="#5CAE7D" stroke-width="1.4"/><line x1="60" y1="18" x2="44" y2="18" stroke="#8D93A3" stroke-width=".4"/><text x="24" y="19.4" fill="#5CAE7D" font-family="'JetBrains Mono',monospace" font-size="4.2">inset 8</text>
+    </svg></div>
+    <div>
+      <table class="spec">
+        <tr><td>基准框 Box</td><td>120 × 120 U</td><td>1.000</td></tr>
+        <tr><td>外圆 Ø / R</td><td>Ø92 · R46 · 居中</td><td>0.767 box</td></tr>
+        <tr><td>内方 □</td><td>30 U · 直角 r0</td><td>Ø ÷ 3</td></tr>
+        <tr><td>方孔坐标</td><td>x 45–75 · y 45–75</td><td>居中</td></tr>
+        <tr><td>骑缝宽 w</td><td>4 U</td><td>Ø ÷ 23</td></tr>
+        <tr><td>骑缝段</td><td>上 y22–45 · 下 y75–98</td><td>单段 ≈ □</td></tr>
+        <tr><td>骑缝距缘 inset</td><td>8 U</td><td>0.087 Ø</td></tr>
+        <tr><td>骑缝总跨</td><td>y22 → 98 = 76 U</td><td>0.826 Ø</td></tr>
+        <tr><td>铸缘（可选）</td><td>环 r38.5–40.5</td><td>≥48px 才用</td></tr>
+      </table>
+      <p class="note">红线：内方永远<b style="color:var(--gd-text-muted)">直角、正交、居中</b>——不旋转、不倒角。骑缝永远<b style="color:var(--gd-text-muted)">垂直居中</b>、上下等长。三段（缝·方·缝）共享同一条竖轴。</p>
+    </div>
+  </div>
+</div>
+
+<!-- C+D clearspace / sizes -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">C · D</span><span class="sec-t">安全区 与 最小尺寸</span><span class="sec-s">Clear space · Minimum sizes</span></div>
+  <div class="two">
+    <div class="panel card">
+      <div class="card-t">安全区 = 内方 □ (30U)</div>
+      <div class="cs-stage">
+        <svg viewBox="0 0 160 160" style="width:230px;height:230px">
+          <rect x="1" y="1" width="158" height="158" fill="none" stroke="#2A3040" stroke-width="1" stroke-dasharray="4 4"/>
+          <rect x="31" y="31" width="98" height="98" fill="none" stroke="#5C6272" stroke-width=".8"/>
+          <g stroke="#8A671D" stroke-width=".6"><line x1="1" y1="16" x2="31" y2="16"/><line x1="1" y1="13" x2="1" y2="19"/><line x1="31" y1="13" x2="31" y2="19"/></g>
+          <text x="7" y="12" fill="#8D93A3" font-family="'JetBrains Mono',monospace" font-size="7">30U</text>
+          <g transform="translate(41 41) scale(0.647)"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+        </svg>
+      </div>
+      <p class="note">四周留白 ≥ 内方边长（30U，即 Ø⅓）。任何文字、边缘、其他标记不得进入。锁定组合时以此隔开标记与字。</p>
+    </div>
+    <div class="panel card">
+      <div class="card-t">尺寸阶 · 最小值</div>
+      <div class="ramp">
+        <div class="rr"><svg class="mk" viewBox="0 0 120 120" style="width:88px;height:88px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg><span class="rl"><b>96</b> · 完整</span></div>
+        <div class="rr"><svg class="mk" viewBox="0 0 120 120" style="width:48px;height:48px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg><span class="rl"><b>48</b> · 完整</span></div>
+        <div class="rr"><svg class="mk" viewBox="0 0 120 120" style="width:32px;height:32px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg><span class="rl"><b>32</b> · 缝转细</span></div>
+        <div class="divider"></div>
+        <div class="rr"><svg class="mk" viewBox="0 0 120 120" style="width:20px;height:20px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z"/></svg><span class="rl"><b>20</b> · 无缝</span></div>
+        <div class="rr"><svg class="mk" viewBox="0 0 120 120" style="width:16px;height:16px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z"/></svg><span class="rl"><b>16</b> · 无缝</span></div>
+      </div>
+      <p class="note"><b style="color:var(--gd-text-muted)">≥48px</b> 用完整标（品牌层可上渐变）。<b style="color:var(--gd-text-muted)">24–48px</b> 骑缝转细、功能层本色金。<b style="color:var(--gd-text-muted)">≤20px</b> 切换<b style="color:var(--gd-gold)">无缝版</b>（外圆内方）——骑缝在此尺寸只会糊，主动隐去。绝对最小 14px。</p>
+    </div>
+  </div>
+</div>
+
+<!-- E · COLOR -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">E</span><span class="sec-t">色彩分层 · 载体</span><span class="sec-s">Color layers</span></div>
+  <p class="lead">沿用品牌金分层：<b>品牌层</b>渐变仅 ≥48px 的 logo/开屏/app-icon/徽章；<b>功能层</b>纯色 <span class="mono" style="color:var(--gd-gold)">#D4A437</span> 用于界面；<b>反相</b>墨黑用于金底/浅底。金标绝不做大面积填充。</p>
+  <div class="swat">
+    <div class="sw"><div class="box" style="background:radial-gradient(120% 120% at 50% 35%,#15181F,#0A0B0F 82%)"><svg class="mk" viewBox="0 0 120 120" style="width:66px;height:66px"><defs><linearGradient id="ge" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs><path fill-rule="evenodd" fill="url(#ge)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="cap"><b>品牌层 · 渐变</b><span>105° 流沙金 · ≥48px only<br>Logo / 开屏 / app-icon / seal</span></div></div>
+    <div class="sw"><div class="box" style="background:radial-gradient(120% 120% at 50% 35%,#15181F,#0A0B0F 82%)"><svg class="mk" viewBox="0 0 120 120" style="width:66px;height:66px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="cap"><b>功能层 · 本色</b><span>#D4A437 flat · 界面内<br>导航标 / 徽章 / 小尺寸</span></div></div>
+    <div class="sw"><div class="box" style="background:linear-gradient(105deg,#F2D488,#D4A437 46%,#8A671D)"><svg class="mk" viewBox="0 0 120 120" style="width:66px;height:66px"><path fill-rule="evenodd" fill="#0A0B0F" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="cap"><b>反相 · 墨黑</b><span>#0A0B0F · 金底 / 浅底<br>徽章内 / 成交凭证</span></div></div>
+  </div>
+  <div class="matrix">
+    <div class="mx"><div class="b" style="background:#0A0B0F"><svg class="mk" viewBox="0 0 120 120" style="width:40px;height:40px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="l"><span>墨黑底 · 金标</span><span class="ok">✓</span></div></div>
+    <div class="mx"><div class="b" style="background:#14171F"><svg class="mk" viewBox="0 0 120 120" style="width:40px;height:40px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="l"><span>面板底 · 金标</span><span class="ok">✓</span></div></div>
+    <div class="mx"><div class="b" style="background:linear-gradient(105deg,#F2D488,#8A671D)"><svg class="mk" viewBox="0 0 120 120" style="width:40px;height:40px"><path fill-rule="evenodd" fill="#0A0B0F" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="l"><span>金底 · 墨标</span><span class="ok">✓</span></div></div>
+    <div class="mx"><div class="b" style="background:#EAE8E1"><svg class="mk" viewBox="0 0 120 120" style="width:40px;height:40px"><path fill-rule="evenodd" fill="#0A0B0F" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="l"><span>浅底 · 墨标</span><span class="ok">✓</span></div></div>
+    <div class="mx"><div class="b" style="background:#4D8DFF"><svg class="mk" viewBox="0 0 120 120" style="width:40px;height:40px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="l"><span>蓝底 · 避免</span><span class="no">✕</span></div></div>
+  </div>
+</div>
+
+<!-- F · WORDMARK -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">F</span><span class="sec-t">Wordmark · 组合锁</span><span class="sec-s">Lockups</span></div>
+  <p class="lead">三种锁。标记与字距固定 = <b>内方 □（30U）</b>。西文 General Sans 600，域名式用 JetBrains Mono；缩写 <b>GD</b> 的 D 走本色金。</p>
+  <div class="panel card wm">
+    <div class="wm-row"><span class="wm-tag">正式 · 横向锁<br>General Sans 600</span><svg class="mk" viewBox="0 0 120 120" style="width:44px;height:44px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg><span class="wordmark">GoodDealer</span></div>
+    <div class="wm-row"><span class="wm-tag">域名式 · 点即钱<br>JetBrains Mono 500</span><span class="domainmark">good<svg class="mk" viewBox="0 0 120 120" style="width:21px;height:21px;margin:0 3px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg>dealer</span></div>
+    <div class="wm-row"><span class="wm-tag">缩写 · GD<br>D 用本色金</span><span class="gd">G<b>D</b></span><svg class="mk" viewBox="0 0 120 120" style="width:30px;height:30px;margin-left:8px"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div>
+  </div>
+</div>
+
+<!-- G · MISUSE -->
+<div class="sec">
+  <div class="sec-h"><span class="sec-n">G</span><span class="sec-t">误用 · 红线</span><span class="sec-s">Misuse</span></div>
+  <div class="dont">
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:58px;height:58px;transform:rotate(22deg)"><path fill-rule="evenodd" fill="#9a8552" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="c">禁旋转 · 内方须正交</div></div>
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:78px;height:52px"><path fill-rule="evenodd" fill="#9a8552" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="c">禁拉伸 · 等比缩放</div></div>
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:58px;height:58px"><path fill-rule="evenodd" fill="#4D8DFF" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="c">禁改色 · 蓝/纯金/彩虹</div></div>
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:58px;height:58px;filter:drop-shadow(0 0 7px #F2D488)"><path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="c">禁辉光 · 描边 · 阴影</div></div>
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:58px;height:58px"><path fill-rule="evenodd" fill="#9a8552" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M50 45 L70 45 A5 5 0 0 1 75 50 L75 70 A5 5 0 0 1 70 75 L50 75 A5 5 0 0 1 45 70 L45 50 A5 5 0 0 1 50 45 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></svg></div><div class="c">禁圆角方孔 · 须直角</div></div>
+    <div class="dn"><div class="b"><span class="x">✕</span><svg class="mk" viewBox="0 0 120 120" style="width:58px;height:58px"><path fill="#9a8552" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z"/><rect x="45" y="45" width="30" height="30" fill="#0A0B0F"/><rect x="50" y="50" width="20" height="20" fill="#9a8552"/></svg></div><div class="c">禁填实方孔 · 须留空</div></div>
+  </div>
+</div>
+
+<div class="foot-note"><b>确认这套比例与规范后，我落地：</b>① 生成 <span class="mono" style="color:var(--gd-gold)">mark.svg / mark-flat.svg / mark-16.svg（无缝）/ mark-ink.svg / app-icon.svg</span> 五个正式文件写入 <span class="mono" style="color:var(--gd-text-faint)">assets/logo</span>；② 更新 <span class="mono" style="color:var(--gd-text-faint)">guidelines/brand-logo · brand-wordmark</span> 规范卡；③ 把 <span class="mono" style="color:var(--gd-text-faint)">seal · sand-flow · ascent · keyhole · active-lease</span> 按外圆内方 + 骑缝的新构型对齐。任何数字（Ø、□、w、inset、铸缘）你都可以点名微调。</div>
+
+</div>
+</body></html>

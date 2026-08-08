@@ -1,42 +1,69 @@
 name: quality
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
+  actions: read
   contents: read
+
+env:
+  CI: true
 
 jobs:
   quality:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      WP0_CI_JOB_NAME: quality
+      WP0_EXPECTED_PLATFORM: linux
+      WP0_EXPECTED_ARCH: x64
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Initialize WP-0 evidence
+        env:
+          WP0_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile quality --prepare
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - name: Install pinned pnpm
         run: npm install --global pnpm@11.18.0
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
-      - name: Dependency vulnerability gate
-        run: pnpm audit --audit-level high
+      - name: Remove partial pinned Rust toolchain from runner image
+        continue-on-error: true
+        run: rustup toolchain uninstall 1.97.1
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
-      - name: TypeScript, tests, and structure
-        run: pnpm check
-      - name: Rust formatting
-        run: cargo fmt --all --check
-      - name: Portable Rust lint
-        run: cargo clippy -p gooddealer-secure-host-core -p gooddealer-local-storage --all-targets -- -D warnings
-      - name: Portable Rust tests
-        run: cargo test -p gooddealer-secure-host-core -p gooddealer-local-storage --all-targets
-      - name: Collect WP-0 environment evidence
-        run: pnpm evidence:wp0
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy --force
+      - name: Restore pinned Rust dependency auditor
+        id: cargo-audit-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          name: wp0-quality-environment
-          path: .artifacts/wp0/environment.json
-          retention-days: 30
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ runner.arch }}-0.22.2-rust-1.97.1
+      - name: Install pinned Rust dependency auditor
+        if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Run quality gates and collect WP-0 evidence
+        env:
+          WP0_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile quality
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: wp0-quality-${{ github.run_id }}-${{ github.run_attempt }}-evidence
+          path: .artifacts/wp0
+          include-hidden-files: true
+          retention-days: 90

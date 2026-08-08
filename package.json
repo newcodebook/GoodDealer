@@ -14,9 +14,13 @@
     "check:generated": "node scripts/generate-endpoint-registry.mjs --check",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
-    "test:structure": "node --test scripts/boundary-policy.test.mjs scripts/endpoint-manifest.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
-    "check": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
-    "evidence:wp0": "node scripts/collect-wp0-evidence.mjs"
+    "test:rust": "cargo test --workspace --all-targets",
+    "test:structure": "node --test scripts/boundary-policy.test.mjs scripts/endpoint-manifest.test.mjs scripts/git-dirty-state.test.mjs scripts/platform-command.test.mjs scripts/sqlcipher-evidence-policy.test.mjs scripts/tauri-command-policy.test.mjs && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
+    "check:platform-neutral": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm test:structure",
+    "check": "pnpm check:platform-neutral && pnpm test:rust",
+    "evidence:wp0": "node scripts/collect-wp0-evidence.mjs",
+    "evidence:wp5": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher",
+    "evidence:wp5:bundle": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher-bundle"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

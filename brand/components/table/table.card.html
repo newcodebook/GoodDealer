@@ -1,0 +1,50 @@
+<!-- @dsCard group="Components" viewport="700x420" name="Table · 核心组件" subtitle="金融级：三档密度 · 11px 大写表头 · 右对齐等宽数字 · 批量选择 + BatchBar" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:14px}</style></head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {Table,BatchBar,Badge,StatusDot,Money,Tag,Button,Tabs}=window.GoodDealerDesignSystem_b5b0b6;
+const rows=[
+ {id:1,domain:"vault.io",registrar:"Spaceship",tags:["三字母"],status:"synced",platform:"Atom · Afternic",bin:12800,expiry:"2027-03-14"},
+ {id:2,domain:"goldrail.com",registrar:"Spaceship",tags:["portfolio-a"],status:"pending",platform:"Atom",bin:3500,expiry:"2026-11-02"},
+ {id:3,domain:"kanban.ai",registrar:"Namecheap",tags:["AI"],status:"synced",platform:"Afternic",bin:45000,expiry:"2027-01-28"},
+ {id:4,domain:"lumen.dev",registrar:"Dynadot",tags:[],status:"conflict",platform:"SellerHub",bin:980,expiry:"2026-09-19"},
+ {id:5,domain:"north.capital",registrar:"Spaceship",tags:["portfolio-a"],status:"synced",platform:"Atom · Afternic",bin:8200,expiry:"2028-05-01"},
+ {id:6,domain:"tessera.xyz",registrar:"Namecheap",tags:[],status:"offline",platform:"—",bin:null,expiry:"2026-08-30"},
+];
+const STATUS={synced:<Badge tone="sync">SYNCED</Badge>,pending:<Badge tone="warning" mono={false}>等待平台</Badge>,conflict:<Badge tone="danger" mono={false}>冲突</Badge>,offline:<Badge tone="neutral" mono={false}>未上架</Badge>};
+function Card(){
+  const [sel,setSel]=React.useState([2,4]);
+  const [density,setDensity]=React.useState("regular");
+  const [sortKey,setSortKey]=React.useState("bin");
+  const [sortDir,setSortDir]=React.useState("desc");
+  const sorted=[...rows].sort((a,b)=>{const m=sortDir==="asc"?1:-1;const va=a[sortKey],vb=b[sortKey];if(va==null)return 1;if(vb==null)return -1;return va>vb?m:-m;});
+  return <div style={{display:"flex",flexDirection:"column",gap:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <Tabs active={density} onChange={setDensity} items={[{key:"compact",label:"紧凑 32"},{key:"regular",label:"常规 40"},{key:"spacious",label:"宽松 48"}]}/>
+      <BatchBar count={sel.length} onClear={()=>setSel([])} style={{padding:"5px 8px 5px 12px",boxShadow:"none"}}>
+        <Button size="sm" variant="primary">批量改价</Button>
+        <Button size="sm">修改 DNS</Button>
+      </BatchBar>
+    </div>
+    <Table density={density} selectable selected={sel} onSelectionChange={setSel}
+      sortKey={sortKey} sortDir={sortDir} onSort={(k,d)=>{setSortKey(k);setSortDir(d);}}
+      columns={[
+        {key:"domain",label:"域名",sortable:true,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text)"}}>{r.domain}</span>},
+        {key:"registrar",label:"注册商",muted:true},
+        {key:"tags",label:"标签",render:r=><span style={{display:"inline-flex",gap:4}}>{r.tags.map(t=><Tag key={t}>{t}</Tag>)}</span>},
+        {key:"status",label:"状态",render:r=>STATUS[r.status]},
+        {key:"platform",label:"平台",muted:true},
+        {key:"bin",label:"BIN",numeric:true,sortable:true,render:r=><Money amount={r.bin}/>},
+        {key:"expiry",label:"到期",numeric:true,muted:true,sortable:true,render:r=><span style={{fontSize:12}}>{r.expiry}</span>},
+      ]}
+      rows={sorted}
+      footer={<><span>1,024 个域名 · 已选 <b style={{color:"var(--gd-blue)",fontFamily:"var(--font-mono)",fontWeight:500}}>{sel.length}</b></span><span style={{marginLeft:"auto",fontFamily:"var(--font-mono)",fontSize:11}}>组合估值 <span style={{color:"var(--gd-gold)"}}>$284,120.00</span></span></>}/>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Card/>);
+</script></body></html>

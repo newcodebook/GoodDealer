@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GoodDealer SQLCipher Bundle Spike",
+  "identifier": "app.gooddealer.desktop.sqlcipher-spike",
+  "app": {
+    "windows": [
+      {
+        "label": "local-app",
+        "title": "GoodDealer SQLCipher Bundle Spike",
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  },
+  "bundle": {
+    "active": true
+  }
+}

@@ -1,0 +1,23 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Data Visualization" subtitle="蓝 = 投入/过程，金 = 增值/结果，灰 = 回撤——金蓝渐变唯一许可处" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{display:flex;gap:24px;padding:16px 24px;align-items:center}
+.chart{flex:1;display:flex;align-items:flex-end;gap:14px;height:130px;border-bottom:1px solid var(--gd-line);padding:0 8px}
+.bar{width:34px;border-radius:2px 2px 0 0}
+.leg{display:flex;flex-direction:column;gap:10px;font-size:12px}
+.leg span{display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+.lbl{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);text-align:center;margin-top:4px}</style></head>
+<body>
+<div class="chart">
+<div><div class="bar" style="height:44px;background:var(--gd-viz-input)"></div><div class="lbl">投入</div></div>
+<div><div class="bar" style="height:64px;background:var(--gd-viz-input)"></div><div class="lbl">投入</div></div>
+<div><div class="bar" style="height:30px;background:var(--gd-viz-drawdown)"></div><div class="lbl">回撤</div></div>
+<div><div class="bar" style="height:88px;background:linear-gradient(180deg,var(--gd-viz-gain),var(--gd-viz-input))"></div><div class="lbl">投入→增值</div></div>
+<div><div class="bar" style="height:104px;background:var(--gd-viz-gain)"></div><div class="lbl">增值</div></div>
+</div>
+<div class="leg">
+<span><i class="dot" style="background:var(--gd-viz-input)"></i>投入 / 过程 <code style="color:var(--text-faint);font-size:10px">#4D8DFF</code></span>
+<span><i class="dot" style="background:var(--gd-viz-gain)"></i>增值 / 结果 <code style="color:var(--text-faint);font-size:10px">#D4A437</code></span>
+<span><i class="dot" style="background:var(--gd-viz-drawdown)"></i>回撤 / 中性 <code style="color:var(--text-faint);font-size:10px">#6E7482</code></span>
+<span style="color:var(--text-muted);font-size:11px">数据标签用等宽字体 · 基线用描线色</span>
+</div>
+</body></html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="design_doc_mode" content="canvas"><title>GoodDealer · 主标方向</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;width:1280px;height:1320px;position:relative;background:transparent;font-family:'General Sans','Noto Sans SC',sans-serif;color:var(--gd-text)}
+a{color:var(--gd-blue);text-decoration:none}a:hover{color:var(--gd-blue-pressed)}
+.frame{position:absolute}
+.mono{font-family:'JetBrains Mono',monospace}
+.panel{background:var(--gd-panel);border:1px solid var(--gd-line);border-radius:12px}
+/* header */
+.head{left:40px;top:40px;width:1160px;padding:26px 30px;box-sizing:border-box;display:flex;gap:30px;justify-content:space-between;align-items:flex-start}
+.kick{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--gd-gold);text-transform:uppercase}
+.h-title{font-size:27px;font-weight:600;letter-spacing:-.01em;margin:12px 0 10px;color:var(--gd-text)}
+.h-sub{font-size:13px;line-height:1.65;color:var(--gd-text-muted);max-width:660px;text-wrap:pretty}
+.h-sub b{color:var(--gd-text);font-weight:500}
+.legend{flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
+.leg-row{display:flex;gap:8px;align-items:center}
+.sw{width:26px;height:26px;border-radius:6px;border:1px solid rgba(255,255,255,.08)}
+.leg-l{font-size:11px;color:var(--gd-text-muted)}.leg-l .mono{color:var(--gd-text-faint);font-size:10px}
+.states{border-top:1px solid var(--gd-line);padding-top:12px;font-size:10.5px;line-height:1.6;color:var(--gd-text-faint);font-family:'JetBrains Mono',monospace}
+.states b{color:var(--gd-gold);font-weight:400}
+/* card */
+.card{width:360px;padding:18px;box-sizing:border-box}
+.stage{height:184px;border-radius:9px;background:radial-gradient(120% 120% at 50% 35%,#15181F 0%,#0A0B0F 78%);border:1px solid var(--gd-line);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.stage::after{content:"";position:absolute;left:18px;right:18px;bottom:0;height:1px;background:linear-gradient(90deg,transparent,rgba(212,164,55,.35),transparent)}
+.mk{width:132px;height:132px;display:block}
+.meta{margin:16px 2px 0;display:flex;align-items:baseline;gap:10px}
+.num{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gd-gold)}
+.nm{font-size:16px;font-weight:600;color:var(--gd-text)}
+.en{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gd-text-muted);margin:5px 2px 0}
+.desc{font-size:12px;line-height:1.6;color:var(--gd-text-muted);margin:9px 2px 0;text-wrap:pretty;min-height:57px}
+.desc em{color:var(--gd-gold);font-style:normal}
+.strip{margin-top:14px;display:flex;gap:10px}
+.chip{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.box{width:100%;height:58px;border-radius:8px;display:flex;align-items:center;justify-content:center;border:1px solid var(--gd-line);background:var(--gd-chrome)}
+.box.gold{background:var(--gd-gold-gradient);border-color:transparent}
+.chip-mk{display:block}
+.c-flat{width:34px;height:34px;color:var(--gd-gold)}
+.c-16{width:16px;height:16px;color:var(--gd-gold)}
+.c-inv{width:34px;height:34px;color:#0A0B0F}
+.chip-l{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--gd-text-faint);letter-spacing:.04em}
+/* footer note */
+.foot{left:40px;top:1244px;width:1160px;padding:18px 24px;box-sizing:border-box;display:flex;gap:24px;align-items:center}
+.foot .kick{flex:0 0 auto}
+.foot p{margin:0;font-size:12px;line-height:1.6;color:var(--gd-text-muted)}
+.foot b{color:var(--gd-text);font-weight:500}
+</style></head>
+<body>
+
+<!-- shared gradients -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="g-sand" x1="0" y1="0.37" x2="1" y2="0.63"><stop offset="0" stop-color="#F2D488"/><stop offset="0.46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+<linearGradient id="g-lit" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F4DA92"/><stop offset="1" stop-color="#CFA03A"/></linearGradient>
+<linearGradient id="g-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B98B2C"/><stop offset="1" stop-color="#7A5A18"/></linearGradient>
+<!-- flat symbols (currentColor) -->
+<symbol id="m1flat" viewBox="0 0 120 120"><polygon points="100.65,76.84 76.84,100.65 43.16,100.65 19.35,76.84 19.35,43.16 43.16,19.35 76.84,19.35 100.65,43.16" fill="none" stroke="currentColor" stroke-width="8.5"/><path d="M60 46 L74 60 L60 74 L46 60 Z" fill="currentColor"/></symbol>
+<symbol id="m2flat" viewBox="0 0 120 120"><path fill-rule="evenodd" fill="currentColor" d="M60 14 L99.84 37 L99.84 83 L60 106 L20.16 83 L20.16 37 Z M60 33 L83.38 46.5 L83.38 73.5 L60 87 L36.62 73.5 L36.62 46.5 Z"/><polygon points="60,37 79.92,48.5 79.92,71.5 60,83 40.08,71.5 40.08,48.5" fill="currentColor"/></symbol>
+<symbol id="m3flat" viewBox="0 0 120 120"><path fill-rule="evenodd" fill="currentColor" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z"/></symbol>
+<symbol id="m4flat" viewBox="0 0 120 120"><path fill-rule="evenodd" fill="currentColor" d="M38 16 L82 16 A22 22 0 0 1 104 38 L104 82 A22 22 0 0 1 82 104 L38 104 A22 22 0 0 1 16 82 L16 38 A22 22 0 0 1 38 16 Z M60 47 A13 13 0 1 0 60 73 A13 13 0 1 0 60 47 Z M58.7 16 L61.3 16 L61.3 104 L58.7 104 Z"/><circle cx="60" cy="60" r="6" fill="currentColor"/></symbol>
+<symbol id="m5flat" viewBox="0 0 120 120"><rect x="16" y="40" width="88" height="40" rx="20" fill="none" stroke="currentColor" stroke-width="3"/><path d="M44 44 L60 60 L44 76 L28 60 Z" fill="currentColor"/><circle cx="82" cy="60" r="12" fill="none" stroke="currentColor" stroke-width="5"/></symbol>
+<symbol id="m6flat" viewBox="0 0 120 120"><path fill-rule="evenodd" fill="currentColor" d="M60 16 A44 44 0 1 0 60 104 A44 44 0 1 0 60 16 Z M78.48 67.65 L67.65 78.48 L52.35 78.48 L41.52 67.65 L41.52 52.35 L52.35 41.52 L67.65 41.52 L78.48 52.35 Z"/><circle cx="60" cy="60" r="6" fill="currentColor"/></symbol>
+</defs></svg>
+
+<!-- HEADER -->
+<div class="frame head panel">
+  <div>
+    <div class="kick">GoodDealer · Brand Mark · 全新方向</div>
+    <div class="h-title">六个全新主标概念</div>
+    <div class="h-sub"><b>彻底重来</b>，珠宝／私人银行／贵金属气质，配色照旧（流沙金 + 墨黑 + 哑光蓝）。从最稳妥的成色钢印，到最本土的古钱、把产品机制变成标的双持——每个方向都是可混搭的原子。选 <b>1–2 个</b>，我再落全套资产。</div>
+  </div>
+  <div class="legend">
+    <div class="leg-row"><span class="sw" style="background:var(--gd-gold-gradient)"></span><span class="leg-l">流沙金渐变 · 品牌层 <span class="mono">#F2D488→#8A671D</span></span></div>
+    <div class="leg-row"><span class="sw" style="background:var(--gd-gold)"></span><span class="leg-l">本色金 · 功能层 <span class="mono">#D4A437</span></span></div>
+    <div class="leg-row"><span class="sw" style="background:var(--gd-blue)"></span><span class="leg-l">哑光蓝 · 系统语言 <span class="mono">#4D8DFF</span></span></div>
+    <div class="states">每卡四态 · <b>渐变 hero</b> ／ 单色 ／ 16px ／ 金底反相<br>判断缩放稳定性与反白可用性</div>
+  </div>
+</div>
+
+<!-- CARD 1 -->
+<div class="frame card panel" style="left:40px;top:300px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <polygon points="100.65,76.84 76.84,100.65 43.16,100.65 19.35,76.84 19.35,43.16 43.16,19.35 76.84,19.35 100.65,43.16" fill="none" stroke="url(#g-sand)" stroke-width="8.5"/>
+    <polygon points="89.55,72.24 72.24,89.55 47.76,89.55 30.45,72.24 30.45,47.76 47.76,30.45 72.24,30.45 89.55,47.76" fill="none" stroke="#8A671D" stroke-width="1.6" opacity=".55"/>
+    <path d="M60 45 L75 60 L60 75 L45 60 Z" fill="url(#g-sand)"/>
+    <path d="M60 45 L75 60 L45 60 Z" fill="url(#g-lit)"/>
+    <path d="M45 60 L60 75 L60 60 Z" fill="url(#g-shade)"/>
+  </svg></div>
+  <div class="meta"><span class="num">01</span><span class="nm">戳记 · Assay</span></div>
+  <div class="en">Assay Octagon · 成色钢印</div>
+  <div class="desc">八边闭合戳记 + 中心镶石，把旧「起点」升级为交易所<em>验金纯度印</em>。最克制、反白稳、小尺寸不糊。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m1flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m1flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m1flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- CARD 2 -->
+<div class="frame card panel" style="left:420px;top:300px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <polygon points="60,14 99.84,37 99.84,83 60,106 20.16,83 20.16,37" fill="url(#g-sand)"/>
+    <polygon points="60,29 87.11,44.5 87.11,75.5 60,91 32.89,75.5 32.89,44.5" fill="#0A0B0F" opacity=".26"/>
+    <path d="M60 60 L60 31 L85.11 45.5 Z" fill="url(#g-lit)"/>
+    <path d="M60 60 L85.11 45.5 L85.11 74.5 Z" fill="url(#g-shade)"/>
+    <path d="M60 60 L85.11 74.5 L60 89 Z" fill="url(#g-lit)"/>
+    <path d="M60 60 L60 89 L34.89 74.5 Z" fill="url(#g-shade)"/>
+    <path d="M60 60 L34.89 74.5 L34.89 45.5 Z" fill="url(#g-lit)"/>
+    <path d="M60 60 L34.89 45.5 L60 31 Z" fill="url(#g-shade)"/>
+    <circle cx="60" cy="60" r="3.2" fill="#F7E4A8"/>
+  </svg></div>
+  <div class="meta"><span class="num">02</span><span class="nm">包镶 · Bezel</span></div>
+  <div class="en">Bezel Gem · 刻面宝石</div>
+  <div class="desc">六边包镶宝石，六向刻面分光。资产 = 被<em>托管的宝石</em>，呼应硬件钱包／keyhole 的六边形语汇。最具珠宝感。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m2flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m2flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m2flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- CARD 3 -->
+<div class="frame card panel" style="left:800px;top:300px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="46" fill="url(#g-sand)"/>
+    <circle cx="60" cy="60" r="40" fill="none" stroke="#8A671D" stroke-width="1.8" opacity=".55"/>
+    <rect x="41" y="41" width="38" height="38" rx="6" fill="none" stroke="#8A671D" stroke-width="1.8" opacity=".55"/>
+    <rect x="45.5" y="45.5" width="29" height="29" rx="4" fill="#0A0B0F"/>
+    <path d="M25 45 A46 46 0 0 1 95 45" fill="none" stroke="#F7E4A8" stroke-width="2" opacity=".5" stroke-linecap="round"/>
+  </svg></div>
+  <div class="meta"><span class="num">03</span><span class="nm">圜金 · The Coin</span></div>
+  <div class="en">Outer-Round Inner-Square · 外圆内方</div>
+  <div class="desc">外圆内方古钱。中式财富符号 + 贵金属铸币，暗合<em>圆融待人、方正做事</em>。最本土、最难撞标。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m3flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m3flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m3flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- CARD 4 -->
+<div class="frame card panel" style="left:40px;top:772px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <defs><clipPath id="c4"><rect x="16" y="16" width="88" height="88" rx="22"/></clipPath></defs>
+    <g clip-path="url(#c4)">
+      <rect x="16" y="16" width="44" height="88" fill="url(#g-lit)"/>
+      <rect x="60" y="16" width="44" height="88" fill="url(#g-shade)"/>
+      <rect x="16" y="16" width="88" height="7" fill="#F7E4A8" opacity=".3"/>
+    </g>
+    <rect x="16" y="16" width="88" height="88" rx="22" fill="none" stroke="#8A671D" stroke-width="1.5" opacity=".5"/>
+    <line x1="60" y1="16" x2="60" y2="104" stroke="#0A0B0F" stroke-width="2.4"/>
+    <circle cx="60" cy="60" r="13" fill="none" stroke="#0A0B0F" stroke-width="3.2"/>
+    <circle cx="60" cy="60" r="6" fill="url(#g-sand)"/>
+  </svg></div>
+  <div class="meta"><span class="num">04</span><span class="nm">骑缝 · The Seam</span></div>
+  <div class="en">Tamper Seal · 骑缝章</div>
+  <div class="desc">一枚印盖过接缝：<em>双设备绑定</em>与防篡改托管。中缝上的金点 = 唯一执行权的交接点。产品叙事最强。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m4flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m4flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m4flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- CARD 5 -->
+<div class="frame card panel" style="left:420px;top:772px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <rect x="16" y="40" width="88" height="40" rx="20" fill="none" stroke="url(#g-sand)" stroke-width="3"/>
+    <line x1="58" y1="60" x2="70" y2="60" stroke="#8A671D" stroke-width="3"/>
+    <path d="M44 43 L61 60 L44 77 L27 60 Z" fill="url(#g-sand)"/>
+    <path d="M44 43 L61 60 L27 60 Z" fill="url(#g-lit)"/>
+    <circle cx="82" cy="60" r="13" fill="none" stroke="#4D8DFF" stroke-width="6"/>
+  </svg></div>
+  <div class="meta"><span class="num">05</span><span class="nm">双持 · Active·Standby</span></div>
+  <div class="en">Two Holdings · 一座两石</div>
+  <div class="desc">金实心（<em>Active 执行</em>）+ 蓝空心（Standby），一个镶座里两枚石。把产品最独特的机制变成主标。天生双色。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m5flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m5flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m5flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- CARD 6 -->
+<div class="frame card panel" style="left:800px;top:772px">
+  <div class="stage"><svg class="mk" viewBox="0 0 120 120">
+    <defs><clipPath id="c6"><circle cx="60" cy="60" r="44"/></clipPath></defs>
+    <circle cx="60" cy="60" r="44" fill="url(#g-sand)"/>
+    <g clip-path="url(#c6)">
+      <path d="M60 60 L112 8 L112 112 Z" fill="url(#g-shade)" opacity=".88"/>
+      <path d="M60 60 L8 112 L112 112 Z" fill="#8A671D" opacity=".32"/>
+    </g>
+    <circle cx="60" cy="60" r="44" fill="none" stroke="#8A671D" stroke-width="1.6" opacity=".6"/>
+    <g stroke="#0A0B0F" stroke-width="1.1" opacity=".33">
+      <line x1="78.48" y1="67.65" x2="100.66" y2="76.84"/><line x1="67.65" y1="78.48" x2="76.84" y2="100.66"/>
+      <line x1="52.35" y1="78.48" x2="43.16" y2="100.66"/><line x1="41.52" y1="67.65" x2="19.34" y2="76.84"/>
+      <line x1="41.52" y1="52.35" x2="19.34" y2="43.16"/><line x1="52.35" y1="41.52" x2="43.16" y2="19.34"/>
+      <line x1="67.65" y1="41.52" x2="76.84" y2="19.34"/><line x1="78.48" y1="52.35" x2="100.66" y2="43.16"/>
+    </g>
+    <polygon points="78.48,67.65 67.65,78.48 52.35,78.48 41.52,67.65 41.52,52.35 52.35,41.52 67.65,41.52 78.48,52.35" fill="url(#g-lit)" stroke="#8A671D" stroke-width="1"/>
+    <circle cx="50" cy="50" r="3" fill="#FFFDF5" opacity=".85"/>
+  </svg></div>
+  <div class="meta"><span class="num">06</span><span class="nm">明点 · The Brilliant</span></div>
+  <div class="en">The Domain Dot, Cut · 切面明点</div>
+  <div class="desc">把域名里那个「.」切成<em>明亮式钻石</em>。honors 旧「The Dot」，但彻底珠宝化、更专属——旧概念的珠宝级转世。</div>
+  <div class="strip">
+    <div class="chip"><div class="box"><svg class="chip-mk c-flat"><use href="#m6flat"/></svg></div><span class="chip-l">单色</span></div>
+    <div class="chip"><div class="box"><svg class="chip-mk c-16"><use href="#m6flat"/></svg></div><span class="chip-l">16px</span></div>
+    <div class="chip"><div class="box gold"><svg class="chip-mk c-inv"><use href="#m6flat"/></svg></div><span class="chip-l">反相</span></div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="frame foot panel">
+  <div class="kick">下一步</div>
+  <p>告诉我你偏好的 <b>1–2 个方向</b>（可指定「01 的戳记 + 06 的刻面」这类混搭）。我会把选中方向落成 <b>全套资产</b>：主标四版本（mark / mark-flat / mark-16 / mark-ink）、app-icon、wordmark（GoodDealer / good.dealer / GD）、seal 徽章、辅助图形（sand-flow / ascent）与场景图标（keyhole / active-lease），并更新 <span class="mono" style="color:var(--gd-text-faint)">tokens</span> 与规范卡。</p>
+</div>
+
+</body></html>

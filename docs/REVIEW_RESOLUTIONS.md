@@ -1,9 +1,11 @@
 # 架构审查问题处理记录
 
 首次记录：2026-07-30  
-最近更新：2026-08-01
+最近更新：2026-08-05
 
 状态说明：
+
+本文件是“当前有效处理结论”的整合台账，不是按日期冻结的历史审查快照。各日期标题表示 Finding 首次进入审查批次的日期；其中行内容会随当前正式决策被整洁改写，因此不能用标题日期推断某项决策当时已经存在。需要历史原文时以 dated readiness report、Git commit/diff/blame 或专门审计材料为准。
 
 - Resolved：已形成默认技术决策并写入正式文档。
 - Gate：必须由技术原型或跨引擎测试验证，失败则更换方案。
@@ -27,7 +29,7 @@
 | 问题 | 处理 | 状态 |
 | --- | --- | --- |
 | 冲突规则 | `base/local/remote` 字段级三方合并；按价格、状态、DNS、NS 定义默认规则 | Resolved |
-| 读配额 | 每账户令牌桶、P0～P4 读优先级、保留令牌、增量/全量能力与退避 | Resolved |
+| 读配额 | 每账户令牌桶、`Priority-0～4` 读优先级、保留令牌、增量/全量能力与退避 | Resolved |
 | Webhook 矛盾 | 删除 `supportsWebhook`；改为 `pushMode: none/optional_relay`，首版固定 none | Resolved |
 
 对应文档：[SYNC_SEMANTICS.md](SYNC_SEMANTICS.md)、[CONNECTORS.md](CONNECTORS.md)。
@@ -36,7 +38,7 @@
 
 | 问题 | 处理 | 状态 |
 | --- | --- | --- |
-| 优先级与抢占 | P0 资产保护至 P4 维护；只抢占未开始任务，原子外部请求不强杀 | Resolved |
+| 优先级与抢占 | Priority-0 Asset Protection 至 Priority-4 Maintenance；只抢占未开始任务，原子外部请求不强杀 | Resolved |
 | 任务依赖 | Workflow DAG、depends_on、run_if、资源锁和 Afternic Replace 账户互斥 | Resolved |
 | 取消语义 | 为 queued/running/waiting_remote/waiting_dns/manual/succeeded 分别定义行为 | Resolved |
 
@@ -73,7 +75,7 @@
 | 平台 ToS | 保留逐平台评估和风险记录，但不设统一发布硬门槛；明确高风险流程逐项处置 | Resolved |
 | 多设备一致性 | 2026-07-31 修订：每账号最多两台绑定、一次一台活动；域名业务数据强制云同步，平台凭据按设备本地保存 | Superseded by ADR-0004/0005 |
 | UX 缺失 | 新增批量差异预览、冲突中心、人工任务收件箱和部分失败流程 | Resolved |
-| 语言与市场 | P0 i18n，正式版中英文双语首发，ISO 4217 定点金额 | Resolved |
+| 语言与市场 | MVP-Core 建立 i18n，正式版中英文双语首发，ISO 4217 定点金额 | Resolved |
 
 对应文档：[UX_FLOWS.md](UX_FLOWS.md)、[PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md)、[ROADMAP.md](ROADMAP.md)。
 
@@ -100,10 +102,10 @@
 
 | 问题 | 最终处理 | 状态 |
 | --- | --- | --- |
-| 云同步能否关闭 | 强制启用，不提供永久纯本地模式；停服时的 LocalContinuationMode 是独立 Sunset 机制 | Resolved |
+| 云同步能否关闭 | 强制启用，不提供永久纯本地模式；停服时的 LocalContinuation 是独立 Sunset 机制 | Resolved |
 | 并行设备风险 | 所有平台合计最多绑定两台，但一次只有一台 Active；另一台为 Standby | Resolved by ADR-0005 |
 | 云故障绑架平台操作 | 活动设备获得最长 24 小时签名离线执行许可，到期后暂停新的平台读写 | Resolved |
-| 设备切换 | 正常切换先暂停任务并上传 Outbox；强制切换等待旧许可到期后递增 Epoch | Resolved |
+| 设备切换 | 正常切换先暂停任务并通过 Mutation/ExecutionFact/Workspace-scope DeviceAuditEvent 三流签名 DrainManifest；Account DeviceAudit 独立续传；强制切换等待旧许可到期后递增 Epoch | Resolved |
 | 操作协调 | 移除逐 Operation 云端租约，改为 ActiveDeviceLease + Epoch + 本机签名 ApprovedOperation | Resolved |
 | 双设备读配额 | 只有活动设备读取平台；切换时继承共享的非秘密限流摘要 | Resolved |
 | 过期用户数据权利 | 客户端继续锁定；账号网页端保留服务端数据导出、删除和安全管理 | Resolved |
@@ -120,9 +122,9 @@
 | 问题 | 最终处理 | 状态 |
 | --- | --- | --- |
 | 移动端与单活动设备冲突 | 将“单活动”明确为“单执行”；Standby 可使用 Cloud Read-Only View，但不能 Mutation、访问平台、批准或执行 | Resolved by D-011 / ADR-0005 |
-| 移动端审批承诺 | Standby 仅审阅；正式批准和自动紧急下架必须切换 Active，RemoteApprovalToken 留作未来独立决策 | Resolved |
+| 移动端审批承诺 | Standby 仅审阅；正式批准和经批准的平台紧急下架执行必须切换 Active；D-016 明确首版不提供无人值守能力，RemoteApprovalToken 留作未来独立决策 | Resolved by D-016 |
 | 强制切换期间紧急处置 | 等待界面提供平台官网手工操作和域名清单，接管后按外部修改重新对账 | Resolved |
-| 旧 Epoch 事实与意图混合 | Operation 结果和审计写入不可丢弃 LateExecutionEvent；可变修改才进入 StaleDeviceCandidate | Resolved |
+| 旧 Epoch 事实与意图混合 | Operation 结果始终写入不可丢弃的 ExecutionFact，旧 Epoch 验证通过后增加 LateExecutionEvent 分类；DeviceAuditEvent 保持独立设备 Hash 链，User/Staff/Service AuditEvent 不参与设备 Ingest；可变修改由签名 StaleChangeProposal 经 Cloud recovery 裁决为 StaleDeviceCandidate | Resolved |
 | quotaScope 契约缺失 | ConnectorCapabilities 增加 rateLimit.quotaScope，并定义 credential/provider_account/provider_global/unknown | Resolved |
 | 审查记录文件名 | 以 REVIEW_RESOLUTIONS.md 作为持续维护入口，旧日期文件保留兼容索引 | Resolved |
 
@@ -136,9 +138,9 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | --- | --- | --- |
 | 同步时机未定义 | 新增“同步时机与触发器”：事件驱动上传（2～5 秒去抖批量）、阻塞型/尽力型两级强制冲刷点、上传优先级通道、不对称拉取策略 | Resolved |
 | 未同步增量丢失窗口 | 冲刷节奏 + 活动设备常驻未同步计数；活动设备在上传前永久损失导致增量不可恢复列为已接受残余风险并进入威胁模型 | Resolved |
-| 切换排空可信度 | 释放 Lease 时附带最后 `client_sequence`，服务端排空验收通过后才递增 Epoch | Resolved |
+| 切换排空可信度 | 释放 Lease 时提交 Mutation、ExecutionFact、Workspace-scope DeviceAuditEvent 三条设备流各自的连续水位、Gap、待上传数和摘要；Account DeviceAudit 不阻塞，签名 DrainManifest 验收通过后才递增 Epoch | Resolved |
 | Standby 数据新鲜度 | 只读视图双时间戳（云端数据截至时间/Revision + 最后平台读取时间）与活动设备未同步计数；Lease 续签搭载同步进度 | Resolved |
-| 静默物化不一致 | 按实体类型的 Revision 摘要一致性校验（Anti-Entropy）：激活后强制、P4 周期执行，差异定向重拉并记录审计 | Resolved |
+| 静默物化不一致 | 按实体类型的 Revision 摘要一致性校验（Anti-Entropy）：激活后强制、`Priority-4 Maintenance` 周期执行，差异定向重拉并记录审计 | Resolved |
 | Mutation Log 无界增长 | 服务端周期 Checkpoint + 压缩保留策略；重建 = 最近 Checkpoint + 后续 Mutation；压缩不越过最慢 Cursor 与未解决 Candidate | Resolved |
 | 日志语义混用风险 | 明确三类追加式记录的分类与回放边界：SyncMutation 可回放，执行事实与审计不回放为状态 | Resolved |
 | 激活 Schema 门禁 | 应用版本不支持 Workspace `schema_version` 时禁止激活并提示升级 | Resolved |
@@ -160,7 +162,7 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | Cloud 异步任务无入口 | 原决议建立 http/jobs；现由 ADR-0007 扩展为 Public HTTP/Admin HTTP/Jobs 三入口模块化单体 | Revised by ADR-0007 |
 | Rust 浏览器宿主缺失 | 新增 automation-host，拥有 WebView/Profile/注入/IPC/导航/弹窗/下载策略 | Resolved |
 | Checkpoint 与摘要无模块归属 | cloud/workspace/checkpoints 负责 Checkpoint、压缩水位和服务端一致性摘要；client-core/sync 负责 Anti-Entropy | Resolved |
-| 排空验收跨模块耦合 | devices 通过 workspace/mutations 的公开 Drain Verification Port 核对 `client_sequence`，不直接读表 | Resolved |
+| 排空验收跨模块耦合 | devices 通过 workspace/mutations、execution-ledger 与 audit 的公开 Drain Verification Port 分别核对连续水位、Gap、待上传数和摘要，不直接读表 | Resolved |
 | capability-gate 命名冲突 | 改名 runtime-gate，避免与 Tauri 声明式 Capability 混淆 | Resolved |
 | Rust Crate 依赖未定义 | local-storage 与 automation-host 均依赖 secure-host-core；secure-host-core 不反向依赖 Tauri/Wry 或其他 Crate | Resolved |
 | 公共 test-kit 杂物化 | 不创建泛化 packages/test-kit；Fixture 和 Helper 归属具体模块或命名明确的专用 test-kit | Resolved |
@@ -193,7 +195,7 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | Cloud 当前物化状态无 owner | 新增 workspace/state/&lt;capability&gt;，拥有业务表、Repository 与模块 Migration；mutations/read/checkpoints 只能通过公开 Port 访问 | Resolved |
 | Cloud Migration 跨模块顺序 | Migration 按模块存放，但文件名使用全局 UTC 时间戳或等价序号排序，Runner 检测重复与依赖顺序 | Resolved |
 | Verification 与平台对账被整体判为不同步 | 敏感挑战值仅本地；脱敏验证状态、三方基线和冲突分别进入 workspace/state/verification 与 workspace/state/platform-sync | Resolved |
-| Operation 事实与 Audit 所有权重叠 | execution-ledger 只拥有 LateExecutionEvent，audit 只拥有 AuditEvent；审计时间线通过只读投影组合 | Resolved |
+| Operation 事实与 Audit 所有权重叠 | execution-ledger 拥有全部 ExecutionFact，旧 Epoch 通过裁决后增加 LateExecutionEvent 分类；audit 独占 AuditEvent；审计时间线通过引用和只读投影组合 | Resolved |
 | 架构图绕过编排和适配层 | 调用链改为 client-core → Desktop Adapter/cloud-client → Tauri Handler → secure-host-core/local-storage/automation-host；自动化不再绕过 client-core | Resolved |
 | Activating 双库语义冲突 | 允许 Standby Cache 只读挂载并在独立 Staging 构建 Active Workspace；禁止跨库写入，进入 Active 前关闭 Cache | Resolved |
 
@@ -215,13 +217,13 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 
 ## 2026-07-31 用户旅程审理机制
 
-本轮不把新增建议直接写成 Resolved 决策，而是建立持续使用的 [用户旅程审理基线](USER_JOURNEYS.md)：
+以下内容记录该批次建立审理机制时的处理方法，不代表 Finding 的当前状态；当前状态只看 [用户旅程审理基线](USER_JOURNEYS.md)。该批次没有把新增建议直接写成 Resolved 决策，而是：
 
 - 以首次使用、日常批量、DNS/验证、紧急下架、双设备/移动端、账号/License、恢复/升级、管理员、Support/合规和云端运营十条旅程覆盖主要角色。
 - 每条旅程统一审查入口、RuntimeMode/Scope、数据新鲜度、完成证据、异常恢复、跨模块交接、安全合规和 E2E 验收。
 - 使用 Journey Gate 区分“模块已存在”与“用户目标已端到端成立”。
-- 将重复症状归并为 Bootstrap/Activation、设备身份、稳定选择与计划失效、批准到执行、Operation/Attempt、Verification、紧急 Incident、授权生命周期、恢复、案件管理和云端运营等 Open Finding。
-- Open Finding 只有在产品确认、专题设计落档并补充验收后才转为 Resolved；本轮未改写既有 D-001～D-012 或 ADR 决策。
+- 将重复症状归并为 Bootstrap/Activation、设备身份、稳定选择与计划失效、批准到执行、Operation/Attempt、Verification、紧急 Incident、授权生命周期、恢复、案件管理和云端运营等当时的 Open Finding。
+- 规定 Finding 只有在产品确认、专题设计落档并补充验收后才转为 Resolved；该批次未改写既有 D-001～D-012 或 ADR 决策。
 
 ## 2026-07-31 单管理员与接口复用收尾修订
 
@@ -242,10 +244,10 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | Activating 先取得 ActiveDeviceLease | 改为账号级互斥 DeviceSwitchRequest + 短期只读 Bootstrap Capability；重建和摘要校验后才原子签发 Lease | Resolved Design / Phase 0 Gate |
 | 两台 Standby 竞争激活 | 每账号最多一个未完成切换/Bootstrap，请求绑定目标设备和幂等键 | Resolved Design / Phase 0 Gate |
 | Draining 拆成两个顶层状态 | 不增加顶层状态，采用 `Draining(reason: handoff \| suspend)`；权限相同、退出条件不同 | Resolved |
-| RuntimeMode 摘要遗漏 suspend 返回 Active | 状态图补齐 `suspend -> Active | Standby`，handoff 仍只进入 Standby | Resolved |
+| RuntimeMode 摘要遗漏 suspend 返回 Active | 状态图补齐 `suspend -> Active \| Standby`，handoff 仍只进入 Standby | Resolved |
 | 旧 Epoch 设备交不出事实与候选 | 仍绑定且授权有效则降级 Standby，并开放不属于 `workspace:mutate` 的窄 Ingest | Resolved Design / Phase 0 Gate |
-| Profile 按平台隔离不足 | 使用 `device_id + provider_connection_id + session_mode` | Resolved |
-| DeviceCredentialBinding 无法表达多 session_mode | Profile 从凭据绑定拆出为 browser-automation 所有的本地 BrowserSessionProfile | Resolved |
+| Profile 按平台隔离不足 | 使用 strict `profile_scope + provider_connection_id + session_mode`；Active device 与 Sunset installation namespace 互斥 | Resolved |
+| 凭据绑定无法表达多 session_mode | Browser Profile 从 DeviceCredentialBindingStatus/HostCredentialBinding 拆出，成为 browser-automation 所有的本地 BrowserSessionProfile | Resolved |
 | 登录辅助与业务 Grant 冲突 | 新增 BrowserSessionConsent；业务 Grant 继续绑定具体计划 | Resolved |
 | Verification 在 Consent 下读取挑战 | 首版由用户经 Secure Host 输入；自动读取必须另建可审阅计划与 Grant，Consent 不授权内容 Probe | Resolved |
 | 具体计划 Grant 与会话级泛授权冲突 | 删除会话级自动化授权；登录 Profile 可持续，但每次软件接管必须新建计划、Grant 和 ApprovedOperation | Resolved |
@@ -255,10 +257,10 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 | Operation 崩溃恢复不确定 | 新增持久 Attempt 提交阶段；跨过发送边界后只确认、不普通重试 | Resolved Design / Phase 2 Gate |
 | Verification 仍是模块集合 | 新增 VERIFICATION.md，收口委派发现、RRset 条件写、传播证据、秘密 Projection 和设备切换 | Resolved Design / Phase 3 Gate |
 | 备份拆独立 Credential Vault | 首版采用单一版本化加密包、默认关闭的凭据开关和永不包含清单 | Resolved by D-013 |
-| 首版自建客服系统过重 | 接入外部 Helpdesk；内部只保留可信 CaseReference、账号关联和审计 | Resolved by D-014 |
+| 首版自建客服系统过重 | 接入外部 Helpdesk；内部只保留可信 SupportCaseReference、账号关联和审计 | Resolved by D-014 |
 | D-012 后 Staff 模型应整体降为 J2 | 部分采纳：多角色/多人审批延后；单 Owner 的重新认证、Scope、受控 Repair 与异步动作上下文仍是 J1，不可删除 | Adjusted |
 | JD-04 Break Glass | 已被 D-012 单 Owner 模式取代；跨账号访问不要求用户逐次授权，也不设置独立 Break Glass 通道 | Resolved by D-012 |
-| JD-03 突发停服 | 不阻塞 Phase 0–3；保持 Phase 4 终身 SKU 开售门槛，最低要求为离线 Sunset Key、条款披露和无生产服务演练 | Open / Phase 4 Gate |
+| JD-03 突发停服 | D-017 固定离线硬件 Sunset Key、两地 2-of-3 恢复控制、逐版本 LocalContinuation 制品与年度无生产服务演练；不阻塞 Phase 0–3，演练证据仍是 Lifetime SKU 开售门槛 | Resolved by D-017 / Phase 4 Evidence |
 | 所有 Finding 挤入 Phase 0 | Roadmap 按依赖映射到 Phase 0–4；Recipe 最小发布链前移到首个正式网页写连接器之前 | Resolved |
 
 数字校正：落地前基线共有 8 条文档冲突和 6 个 J0；JF-14 按单 Owner 模型由 J0 调整为 J1 后，当前保留 5 个 J0。完整状态以 [USER_JOURNEYS.md](USER_JOURNEYS.md) 为准。

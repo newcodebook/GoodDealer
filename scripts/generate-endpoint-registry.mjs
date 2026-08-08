@@ -12,6 +12,8 @@ const generatedRust = resolve(root, "crates/secure-host-core/src/generated/endpo
 const generatedFixtureRust = resolve(root, "crates/secure-host-core/src/generated/fixture_endpoint_registry.rs");
 
 const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+const platformActions = new Set(["read", "write"]);
+const credentialAccessPolicies = new Set(["healthy_only", "health_reverification"]);
 const retrySafety = new Set(["safe", "provider_idempotency_key", "confirm_before_retry", "never"]);
 const extractors = new Set(["public_json", "host_owned"]);
 const valueTypes = new Set(["string", "integer", "boolean"]);
@@ -27,9 +29,11 @@ const bodySchemaKeys = new Set(["encoding", "fields"]);
 const endpointKeys = new Set([
   "bodySchema",
   "credentialInjections",
+  "credentialAccessPolicy",
   "credentialProfileId",
   "credentialProfileVersion",
   "endpointId",
+  "platformAction",
   "idempotencyInjection",
   "maxBodyBytes",
   "maxQueryBytes",
@@ -171,6 +175,8 @@ export function validateEndpointManifest(manifest, expectedProvider) {
     );
     invariant(!ids.has(endpoint.endpointId), `${context}: duplicate endpointId`);
     ids.add(endpoint.endpointId);
+    invariant(platformActions.has(endpoint.platformAction), `${context}: invalid platformAction`);
+    invariant(credentialAccessPolicies.has(endpoint.credentialAccessPolicy), `${context}: invalid credentialAccessPolicy`);
     invariant(methods.has(endpoint.method), `${context}: invalid method`);
 
     let origin;
@@ -298,6 +304,13 @@ export function validateEndpointManifest(manifest, expectedProvider) {
     } else {
       invariant(endpoint.publicResponseSchema.encoding === "none" && endpoint.publicResponseSchema.fields.length === 0, `${context}: host_owned response is defined by its Rust extractor`);
     }
+    if (endpoint.credentialAccessPolicy === "health_reverification") {
+      invariant(endpoint.platformAction === "read", `${context}: health_reverification must be a read action`);
+      invariant(endpoint.retrySafety === "safe", `${context}: health_reverification must be retry-safe`);
+      invariant(endpoint.responseExtractor === "host_owned", `${context}: health_reverification requires a Host-owned response`);
+      invariant(endpoint.bodySchema.encoding === "none" && endpoint.maxBodyBytes === 0, `${context}: health_reverification cannot carry a request body`);
+      invariant(endpoint.idempotencyInjection === null, `${context}: health_reverification cannot inject an idempotency header`);
+    }
   }
   return manifest;
 }
@@ -400,12 +413,12 @@ export function renderRust(registry, hash) {
       const idempotencyHeader = endpoint.idempotencyInjection === null
         ? "None"
         : `Some(${rustString(endpoint.idempotencyInjection.wireName)})`;
-      return `    EndpointCapability {\n        endpoint_id: ${rustString(endpoint.endpointId)},\n        provider: ${rustString(endpoint.endpointId.split(".")[0])},\n        method: HttpMethod::${endpoint.method[0]}${endpoint.method.slice(1).toLowerCase()},\n        origin: ${rustString(endpoint.origin)},\n        path_template: ${rustString(endpoint.pathTemplate)},\n        path_parameters: &[${endpoint.pathParameters.map(rustString).join(", ")}],\n        credential_namespace: CredentialNamespace::ProviderApi,\n        credential_profile_id: ${rustString(endpoint.credentialProfileId)},\n        credential_profile_version: ${endpoint.credentialProfileVersion},\n        credential_injections: ${injections},\n        idempotency_header: ${idempotencyHeader},\n        query_parameters: ${renderRustFields(endpoint.queryParameters, "        ")},\n        max_query_bytes: ${endpoint.maxQueryBytes},\n        body_schema: BodySchema {\n            encoding: BodyEncoding::${rustVariant(endpoint.bodySchema.encoding)},\n            fields: ${renderRustFields(endpoint.bodySchema.fields, "            ")},\n        },\n        max_body_bytes: ${endpoint.maxBodyBytes},\n        redirect_policy: RedirectPolicy::Deny,\n        retry_safety: RetrySafety::${rustVariant(endpoint.retrySafety)},\n        response_extractor: ResponseExtractor::${rustVariant(endpoint.responseExtractor)},\n        public_response_schema: BodySchema {\n            encoding: BodyEncoding::${rustVariant(endpoint.publicResponseSchema.encoding)},\n            fields: ${renderRustFields(endpoint.publicResponseSchema.fields, "            ")},\n        },\n        redact_headers: &[${endpoint.redactHeaders.map(rustString).join(", ")}],\n        redact_json_pointers: &[${endpoint.redactJsonPointers.map(rustString).join(", ")}],\n        timeout_ms: ${endpoint.timeoutMs},\n        max_response_bytes: ${endpoint.maxResponseBytes},\n    }`;
+      return `    EndpointCapability {\n        endpoint_id: ${rustString(endpoint.endpointId)},\n        provider: ${rustString(endpoint.endpointId.split(".")[0])},\n        platform_action: PlatformAction::${rustVariant(endpoint.platformAction)},\n        credential_access_policy: CredentialAccessPolicy::${rustVariant(endpoint.credentialAccessPolicy)},\n        method: HttpMethod::${endpoint.method[0]}${endpoint.method.slice(1).toLowerCase()},\n        origin: ${rustString(endpoint.origin)},\n        path_template: ${rustString(endpoint.pathTemplate)},\n        path_parameters: &[${endpoint.pathParameters.map(rustString).join(", ")}],\n        credential_namespace: CredentialNamespace::ProviderApi,\n        credential_profile_id: ${rustString(endpoint.credentialProfileId)},\n        credential_profile_version: ${endpoint.credentialProfileVersion},\n        credential_injections: ${injections},\n        idempotency_header: ${idempotencyHeader},\n        query_parameters: ${renderRustFields(endpoint.queryParameters, "        ")},\n        max_query_bytes: ${endpoint.maxQueryBytes},\n        body_schema: BodySchema {\n            encoding: BodyEncoding::${rustVariant(endpoint.bodySchema.encoding)},\n            fields: ${renderRustFields(endpoint.bodySchema.fields, "            ")},\n        },\n        max_body_bytes: ${endpoint.maxBodyBytes},\n        redirect_policy: RedirectPolicy::Deny,\n        retry_safety: RetrySafety::${rustVariant(endpoint.retrySafety)},\n        response_extractor: ResponseExtractor::${rustVariant(endpoint.responseExtractor)},\n        public_response_schema: BodySchema {\n            encoding: BodyEncoding::${rustVariant(endpoint.publicResponseSchema.encoding)},\n            fields: ${renderRustFields(endpoint.publicResponseSchema.fields, "            ")},\n        },\n        redact_headers: &[${endpoint.redactHeaders.map(rustString).join(", ")}],\n        redact_json_pointers: &[${endpoint.redactJsonPointers.map(rustString).join(", ")}],\n        timeout_ms: ${endpoint.timeoutMs},\n        max_response_bytes: ${endpoint.maxResponseBytes},\n    }`;
     })
     .join(",\n");
   const imports = registry.length === 0
     ? "use crate::endpoint_capability::EndpointCapability;"
-    : "use crate::endpoint_capability::{\n    BodyEncoding, BodySchema, CredentialInjection, CredentialNamespace, CredentialTarget,\n    CredentialValueEncoding, EndpointCapability, HttpMethod, PublicFieldSchema, PublicValueType,\n    RedirectPolicy, ResponseExtractor, RetrySafety, SecretKind,\n};";
+    : "use crate::PlatformAction;\nuse crate::endpoint_capability::{\n    BodyEncoding, BodySchema, CredentialAccessPolicy, CredentialInjection, CredentialNamespace,\n    CredentialTarget, CredentialValueEncoding, EndpointCapability, HttpMethod, PublicFieldSchema,\n    PublicValueType, RedirectPolicy, ResponseExtractor, RetrySafety, SecretKind,\n};";
   const registryValue = entries === "" ? "&[]" : `&[\n${entries},\n]`;
   const formattedRegistryValue = registryValue
     .replaceAll(/(?<=max_length: Some\()\d+(?=\))/g, (value) => rustInteger(Number(value)))

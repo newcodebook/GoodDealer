@@ -1,0 +1,78 @@
+name: wp5-sqlcipher
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CI: true
+
+jobs:
+  sqlcipher:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: wp5-sqlcipher-windows-server-2025-x64
+            os: windows-2025
+            platform: win32
+            arch: x64
+          - name: wp5-sqlcipher-macos-15-arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+          - name: wp5-sqlcipher-macos-15-intel
+            os: macos-15-intel
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      EVIDENCE_CI_JOB_NAME: ${{ matrix.name }}
+      EVIDENCE_EXPECTED_PLATFORM: ${{ matrix.platform }}
+      EVIDENCE_EXPECTED_ARCH: ${{ matrix.arch }}
+      EVIDENCE_OWNER_ROLE: Local Storage and Recovery Lead
+      EVIDENCE_OWNING_MODULES: local-storage,recovery,release-engineering
+      EVIDENCE_REQUIRED_REVIEWER_ROLE: Security Reviewer
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Initialize WP-5 SQLCipher evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile native --slice sqlcipher --prepare
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.18.0
+      - name: Remove partial pinned Rust toolchain from runner image
+        continue-on-error: true
+        run: rustup toolchain uninstall 1.97.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy --force
+      - name: Run SQLCipher fixture and collect WP-5 evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile native --slice sqlcipher
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: wp5-sqlcipher-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}-evidence
+          path: .artifacts/wp5/sqlcipher
+          include-hidden-files: true
+          retention-days: 90

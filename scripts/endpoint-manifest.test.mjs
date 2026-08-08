@@ -32,6 +32,8 @@ function validProfile(overrides = {}) {
 function validEndpoint(overrides = {}) {
   return {
     endpointId: "fixture.records.create",
+    platformAction: "write",
+    credentialAccessPolicy: "healthy_only",
     method: "POST",
     origin: "https://api.fixture.invalid",
     pathTemplate: "/v1/zones/{zoneId}/records",
@@ -299,6 +301,36 @@ test("host-owned response code cannot be selected by Manifest or exposed as gene
   assert.throws(() => validateEndpointManifest(manifest(endpoint), "fixture"));
 });
 
+test("health reverification is a closed Host-owned read-only policy", () => {
+  const endpoint = validEndpoint({
+    endpointId: "fixture.credentials.health",
+    platformAction: "read",
+    credentialAccessPolicy: "health_reverification",
+    method: "GET",
+    pathTemplate: "/v1/credentials/health",
+    pathParameters: [],
+    queryParameters: [],
+    maxQueryBytes: 0,
+    bodySchema: { encoding: "none", fields: [] },
+    maxBodyBytes: 0,
+    idempotencyInjection: null,
+    retrySafety: "safe",
+    responseExtractor: "host_owned",
+    publicResponseSchema: { encoding: "none", fields: [] },
+  });
+  assert.doesNotThrow(() => validateEndpointManifest(manifest(endpoint), "fixture"));
+
+  for (const override of [
+    { platformAction: "write" },
+    { retrySafety: "never" },
+    { responseExtractor: "public_json", publicResponseSchema: validEndpoint().publicResponseSchema },
+    { bodySchema: validEndpoint().bodySchema, maxBodyBytes: validEndpoint().maxBodyBytes },
+    { idempotencyInjection: validEndpoint().idempotencyInjection, retrySafety: "provider_idempotency_key" },
+  ]) {
+    assert.throws(() => validateEndpointManifest(manifest({ ...endpoint, ...override }), "fixture"));
+  }
+});
+
 test("rejects body encoding none when fields are present", () => {
   const value = manifest();
   value.endpoints[0].bodySchema.encoding = "none";
@@ -339,6 +371,7 @@ test("generates Rust security metadata and TypeScript public request types", () 
   const typescript = renderTs([endpoint], "fixture-hash");
 
   assert.match(rust, /credential_profile_id: "fixture-api-v1"/);
+  assert.match(rust, /credential_access_policy: CredentialAccessPolicy::HealthyOnly/);
   assert.match(rust, /credential_profile_version: 1/);
   assert.match(rust, /slot_id: "api-token"/);
   assert.match(rust, /target: CredentialTarget::Header/);

@@ -1,0 +1,11 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Semantic States" subtitle="本系统扩展：操作结果与风险分级——哑光、深底可读、远离金" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{display:flex;gap:8px;padding:16px}
+.sw{flex:1;border:1px solid var(--gd-line);border-radius:var(--radius-md);background:var(--gd-panel);padding:12px;display:flex;flex-direction:column;gap:8px;height:118px;justify-content:center}
+.pill{align-self:flex-start;font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;border-radius:999px;padding:2px 8px}
+.t{font-size:12px}.v{font-family:var(--font-mono);font-size:10px;color:var(--text-faint)}</style></head>
+<body>
+<div class="sw"><span class="pill" style="color:var(--gd-success);background:var(--gd-success-tint)">SUCCESS</span><span class="t" style="color:var(--gd-success)">成功 · 已提交并确认</span><span class="v">#5CAE7D</span></div>
+<div class="sw"><span class="pill" style="color:var(--gd-warning);background:var(--gd-warning-tint)">PENDING</span><span class="t" style="color:var(--gd-warning)">等待平台 · 结果未知</span><span class="v">#E08A48</span></div>
+<div class="sw"><span class="pill" style="color:var(--gd-danger);background:var(--gd-danger-tint)">FAILED</span><span class="t" style="color:var(--gd-danger)">失败 · 高风险操作</span><span class="v">#E5735F</span></div>
+</body></html>

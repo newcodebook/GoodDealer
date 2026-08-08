@@ -1,9 +1,11 @@
 node_modules/
 .pnpm-store/
 .specability/
+.ref/
 dist/
 target/
 .artifacts/
+/apps/desktop/src-tauri/gen/schemas/windows-schema.json
 .DS_Store
 *.log
 .env

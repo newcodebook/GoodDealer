@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+sqlcipher-bundle-spike = ["gooddealer-local-storage/sqlcipher-bundle-spike"]
+
 [build-dependencies]
 tauri-build.workspace = true
 

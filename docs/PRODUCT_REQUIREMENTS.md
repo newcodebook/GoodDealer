@@ -1,7 +1,7 @@
 # GoodDealer 产品需求
 
-状态：Draft  
-更新日期：2026-08-01
+状态：Accepted Product Baseline / Evidence Pending
+更新日期：2026-08-05
 
 ## 1. 产品定位
 
@@ -33,7 +33,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - 批量设置 BIN、最低报价、销售状态和平台价格。
 - 对不支持实时 API 的平台生成文件或人工任务。
 - 检测外部平台被人工修改后的状态冲突。
-- 域名售出后启动最高优先级的跨平台下架流程。
+- 当前 Active 应用在用户主动刷新或其他已批准业务流程本来就要执行的平台读取中发现域名售出，生成 `Priority-0 Asset Protection` 跨平台下架计划，并在用户逐次批准后执行。`Priority-0` 只保证 SaleSignal 已形成后的调度优先级；首版明确不提供后台周期轮询、OS 后台唤醒、Cloud Relay、Standing Emergency Policy、RemoteApprovalToken 或无人值守执行。各平台信号来源、刷新触发、最大陈旧阈值、去重和通知时效只有在 JF-10/Phase 3 证据关闭后才能对外承诺。
 
 ### 3.3 DNS 与所有权验证
 
@@ -55,7 +55,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 
 - 在客户端内打开平台登录页面和 API Key 管理页面。
 - 用户自行输入账号、密码、2FA 和 CAPTCHA。
-- 登录完成后，软件在同一隔离会话中读取必要页面状态。
+- 登录完成后，软件在同一隔离会话中只读取 Origin、登录完成状态和非秘密连接健康信号；不得读取、抓取或回传 API Key、密码、2FA、恢复码、CAPTCHA 或 Challenge 内容。API Key 必须由用户复制到 Rust Host 创建的原生秘密输入面。
 - 用户确认具体操作计划后，软件可以继续点击、填写、上传 CSV 和读取处理结果。
 - 用户可随时暂停自动化并重新接管页面。
 - 对没有 API 或 API 能力不完整的平台，可使用经过签名和版本管理的平台脚本执行。
@@ -64,13 +64,13 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 
 - 应用启动先显示账号门禁，未登录或授权无效时不展示主界面。
 - 云同步是基础能力，不提供永久关闭或纯本地模式。
-- Windows、macOS、iOS 和 Android 合计最多绑定两台设备；任意时刻只有一台活动设备拥有业务修改和平台执行权。
+- 日常账号/Cloud 路径在 Windows、macOS、iOS 和 Android 合计最多绑定两台设备；任意时刻只有一台 Active 设备拥有业务修改和平台执行权。正式停服后的 LocalContinuation 适用独立 Sunset 规则。
 - Standby 可以进入 Cloud Read-Only View，查看服务端已有资产、状态、告警和任务进度；不能产生 Mutation、读取外部平台、批准操作或执行任务。
-- 第三台设备需要先解绑旧设备。
+- 第三台设备需要先解绑旧设备；若解绑的是当前 Active，新设备可以完成绑定和 Cloud Read-Only View，但必须等待旧 `offline_execute_until` 后才能取得平台执行权。
 - 域名、Portfolio、价格、Listing、目标状态和脱敏操作记录自动增量同步。
 - 修改落库即触发异步批量上传；活动设备常驻显示未同步修改数，设备切换前必须通过服务端排空验收。
-- 正常切换时，旧设备暂停任务并上传 Outbox 后由新设备接管；旧设备不可达时，强制切换需等待其 24 小时离线执行许可到期。
-- GoodDealer 云故障时，当前活动设备可继续平台读写最多 24 小时；到期后暂停平台访问。
+- 正常切换时，旧设备暂停任务，分别冲刷 Mutation、ExecutionFact、Workspace-scope DeviceAuditEvent 并通过签名 handoff DrainManifest 后才由新设备接管；Account-scope DeviceAuditEvent 独立续传，不阻塞 handoff。旧设备不可达时，强制切换需等待其 24 小时离线执行许可到期。
+- GoodDealer Cloud 不可达但设备仍可连接外部平台时，当前活动设备可在签名离线窗口内继续平台读写最多 24 小时；设备完全断网或目标平台不可达时不承诺平台访问。离线窗口到期后暂停新的平台访问。
 - 切换后的设备获得业务数据，但平台凭据不会随云端业务数据迁移。设备此前配置的平台凭据可以在 Standby 加密保留，但只能在重新成为 Active 后执行本机健康检查；检查通过后才可复用。该设备从未配置凭据，或检查失败、无法验证、凭据已撤销、丢失或过期时，必须重新输入 API Key、重新登录平台或从用户明确授权的加密备份恢复。Standby 期间不得读取、健康检查或使用凭据。
 - 支持用户主动导出和恢复本地加密备份文件；备份文件由用户自行保管或复制到任意存储位置。
 
@@ -92,7 +92,9 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 
 ## 4. 首版范围
 
-### P0
+`MVP-Core` / `MVP-Next` 只表示 Backlog 优先级，不是可独立发布切片，不等同于 Roadmap 的 `Phase 0` / `Phase 1` 证据阶段，也不等同于 Operations 的 `Priority-0` / `Priority-1` 运行调度优先级。任何包含业务修改或平台副作用的 `MVP-Core` 能力，都必须同时具备并通过单 Active、Lease Epoch、三流排空、设备签名 `ApprovedOperation`、Attempt 恢复和对应连接器安全 Gate；不能因为某个依赖被列在 `MVP-Next` 就提前发布不闭合的写能力。两组能力都按依赖进入 Roadmap Phase 及其 Gate。
+
+### MVP-Core
 
 - 本地资产数据库与加密密钥存储。
 - Spaceship 域名读取。
@@ -104,11 +106,11 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - License 激活、设备绑定与离线宽限。
 - 账号注册/登录、会话恢复和双设备管理。
 - Standby Cloud Read-Only View、只读 API Scope 和可丢弃 Reader Cursor。
-- ActiveDeviceLease、单活动设备切换和 24 小时离线执行许可。
+- ActiveDeviceLease、Lease Epoch、单活动设备切换、三流排空、设备签名 ApprovedOperation 和 24 小时离线执行许可的最小闭环。
 - Sync Mutation、Revision、Cursor 和服务端业务数据 Schema 原型。
 - Public/Admin API 独立认证和 Route 边界，以及最小化账号、License、设备和同步诊断后台。
 
-### P1
+### MVP-Next
 
 - Spaceship 注册信息写操作和 SellerHub。
 - Atom 上架、Standard Listing 下架、销售和分析数据。
@@ -116,8 +118,8 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - 目标状态与平台实际状态对账。
 - 已售域名跨平台下架。
 - Afternic CSV 上传、Upload History 检查等用户授权浏览器流程。
-- 单活动设备增量同步、Lease Epoch、恢复候选和 ApprovedOperation。
-- 同步触发器、排空验收、一致性校验和 Mutation Log Checkpoint。
+- 同步与恢复增强：恢复候选、完整 Checkpoint/压缩链和大规模重建优化。
+- 同步触发器、持续一致性校验、排空可观测性和恢复诊断增强。
 - 用户触发的本地加密备份导出和恢复。
 
 ### 暂不包含
@@ -135,7 +137,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 - 同一业务核心可供未来 iOS 与 Android 复用。
 - 10,000 个域名的常规筛选和排序保持流畅。
 - 1,000 个域名的批量操作必须按项目拆分执行，不能形成单个不可恢复任务。
-- 无网络时，已缓存账号会话和签名授权仍有效的活动设备可查看资产、编辑目标状态和准备操作计划；平台读写受 24 小时离线执行许可限制。
+- 网络能力按三个独立轴判定：设备基础网络、GoodDealer Cloud、每个目标 Provider。设备完全断网时，已缓存账号会话和签名授权仍有效的 Active 可以查看本地资产、编辑目标状态和准备操作计划，但不能访问任何外部平台；仅 GoodDealer Cloud 不可达且具体目标 Provider 仍可达时，当前 Active 才可在有效签名离线窗口内继续该 Provider 读写，最长 24 小时；任一 Provider 不可达时，只暂停该 Provider 的读取、提交和确认。多个故障同时出现时权限取最严格交集，界面同时展示全部原因，不能用 Cloud-only 分支掩盖设备或 Provider 故障。
 - 所有外部写操作必须可审计。
 - Public API 与 Staff Admin API 必须分 Session、Scope、Route 注册和审计，不能依赖前端隐藏按钮隔离。
 - 崩溃或强制退出后任务可恢复，不重复执行已确认成功的写操作。
@@ -153,13 +155,15 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 
 ## 7. 账号、授权与多设备
 
+本节只描述日常账号/Cloud 双设备路径；正式停服后的 LocalContinuation 不使用账号、ActiveDeviceLease 或 Cloud 同步，详见 [License 与停服预案](LICENSING.md)。
+
 - 用户必须先登录账号；有效的记住登录会话可在本机静默恢复。
 - 一个账号在所有平台合计最多绑定两台设备，但一次只有一台设备拥有业务修改、平台读取、批准和执行权；云同步不可永久关闭。
 - 订阅和离线宽限均结束后不能进入主界面，不提供客户端只读、导出或紧急下架例外；本地数据不删除，续费后恢复访问。账号网页端仍保留依法要求的数据导出、删除以及会话/设备安全管理。
 - 终身 License 包含所有未来大版本。
 - ProviderConnection 元数据共享，API Key、Cookie 和 Browser Profile 按设备单独配置。
 - 活动设备通过 ActiveDeviceLease 和 `lease_epoch` 获得 Mutation、平台访问、批准和执行权；Standby 只有账号管理、Cloud Read-Only View 和设备切换权。
-- 正常切换先暂停任务并上传 Outbox；强制切换必须等待旧设备最长 24 小时的离线许可到期。
+- 正常切换先暂停任务并完成三流签名排空验收；强制切换必须等待旧设备最长 24 小时的离线许可到期。
 - 旧 Epoch 执行结果和审计事实必须追加保存；旧 Epoch 可变修改、备份恢复差异和外部平台修改进入候选或冲突中心，不允许静默覆盖。
 - 云端 Desired State 不直接触发平台副作用；平台写操作必须由当前活动设备生成本机签名的 ApprovedOperation。
 - 不直接同步 SQLite/SQLCipher、WAL 或应用数据目录。
@@ -168,7 +172,7 @@ GoodDealer 是一个以客户端为主要操作界面的域名资产管理产品
 
 ## 8. 国际化与币种
 
-- UI 从 P0 使用 i18n Key。
+- UI 从 `MVP-Core` 使用 i18n Key。
 - 正式发布同时支持简体中文与英文。
 - 金额使用定点十进制和 ISO 4217 币种。
 - 平台原始错误保留原文并提供本地化解释。

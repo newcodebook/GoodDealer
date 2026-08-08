@@ -1,0 +1,36 @@
+<!-- @dsCard group="Foundations" viewport="700x210" name="Native Desktop Form" subtitle="不是 SaaS 网页：窗口标题栏 + 命令工具栏 + 终端式状态栏 + 无阴影缝合区块" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{padding:18px 20px;display:flex;align-items:center;justify-content:center}
+.win{width:560px;border:1px solid var(--gd-line-strong);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-overlay);font-size:11px}
+.tb{height:32px;display:flex;align-items:center;gap:7px;padding:0 10px;background:var(--gd-chrome);border-bottom:1px solid var(--gd-line)}
+.tb b{font-size:11px;font-weight:600}
+.ctl{margin-left:auto;display:flex;gap:8px;color:var(--text-3)}
+.tool{height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--gd-ink);border-bottom:1px solid var(--gd-line);color:var(--text-2)}
+.cmd{margin-left:auto;display:flex;align-items:center;gap:6px;height:22px;padding:0 6px 0 8px;border:1px solid var(--gd-line-strong);border-radius:5px;color:var(--text-3)}
+.kbd{font-family:var(--font-mono);font-size:9px;border:1px solid var(--gd-line-strong);border-radius:3px;padding:0 3px}
+.body{display:flex;height:66px;background:var(--gd-panel)}
+.sb{width:96px;border-right:1px solid var(--gd-line);padding:8px;display:flex;flex-direction:column;gap:5px;color:var(--text-2)}
+.sb .on{color:var(--text-1);border-left:2px solid var(--gd-gold);padding-left:5px}
+.region{flex:1;display:flex}
+.seg{flex:1;padding:8px 10px;border-right:1px solid var(--gd-line);display:flex;flex-direction:column;gap:2px}
+.seg .l{font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-2)}
+.seg .v{font-family:var(--font-mono);font-size:14px}
+.sbar{height:22px;display:flex;align-items:center;gap:0;padding:0 4px;background:var(--gd-chrome);border-top:1px solid var(--gd-line);font-family:var(--font-mono);font-size:9px;color:var(--text-2)}
+.sbar span{padding:0 8px;border-right:1px solid var(--gd-line-strong)}
+.sbar .sp{flex:1;border:none}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:3px}</style></head>
+<body>
+<div class="win">
+  <div class="tb"><img src="../assets/logo/mark-flat.svg" width="15" height="15" alt=""><b>GoodDealer</b><span style="color:var(--text-3)">· 资产库</span><span class="ctl">— ▢ ✕</span></div>
+  <div class="tool"><b style="color:var(--text-1);font-size:12px">资产库</b><span style="color:var(--text-3)">1,024</span><span class="cmd">搜索或输入命令 <span class="kbd">⌘K</span></span></div>
+  <div class="body">
+    <div class="sb"><span class="on">资产库</span><span>销售管理</span><span>DNS 与验证</span></div>
+    <div class="region">
+      <div class="seg"><span class="l">组合估值</span><span class="v" style="color:var(--gd-gold)">$284,120</span></div>
+      <div class="seg"><span class="l">活跃 Listing</span><span class="v" style="color:var(--text-1)">692</span></div>
+      <div class="seg" style="border-right:none"><span class="l">冲突</span><span class="v" style="color:var(--gd-danger)">6</span></div>
+    </div>
+  </div>
+  <div class="sbar"><span><span class="dot" style="background:var(--gd-blue)"></span>SYNCED</span><span>未同步 0</span><span style="color:var(--text-3)">rev 8,241</span><span class="sp"></span><span>MacBook Pro <span class="dot" style="background:var(--gd-gold)"></span><span style="color:var(--gd-gold)">Active</span></span><span style="border:none">Epoch 41</span></div>
+</div>
+</body></html>

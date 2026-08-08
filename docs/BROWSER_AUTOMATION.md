@@ -1,7 +1,7 @@
 # GoodDealer 浏览器自动化
 
 状态：Draft  
-更新日期：2026-08-01
+更新日期：2026-08-03
 
 ## 1. 目标
 
@@ -129,6 +129,30 @@ issued_at
 expires_at
 ```
 
+`BrowserSessionConsent` 只是用户同意记录，不是平台访问授权。创建 Session、导航、检测登录状态、写入持久 Profile、获取凭据和修复连接之前，Browser Host 必须从 Rust `runtime-gate` 取得独立且不可与 Secure HTTP Guard 互换的 Host-owned `BrowserSessionAccessContext`。该 Context 绑定当前 ActiveDeviceLease、设备、Epoch、可信时间、`offline_execute_until`、ProviderConnection、Browser Session、Session mode、NavigationPolicy、Consent purpose 与到期时间；它不要求已有 `healthy` 凭据，否则首次登录、获取 API Key 和凭据修复会形成死锁。它只能创建/恢复受限登录会话、执行允许导航并检测非秘密登录状态，不能进入 Secure HTTP、读取 DeviceCredentialBindingStatus、HostCredentialBinding/Keychain、运行秘密 Probe、填写业务字段、上传 Artifact 或触发业务提交。Standby、Activating、过期 Lease 或旧 Epoch 均不得创建/恢复自动化 Profile。强制切换期间的平台官网兜底只能使用系统浏览器或零自动化、零状态检测、零秘密捕获能力的纯人工窗口。
+
+LocalContinuation 不构造上述 Active Context。正式 Sunset 构建只可从 `purpose=browser_connection_establishment + credential_source=none` 的 `SunsetAuthorization` 派生 `SunsetBrowserSessionAccessContext`；尚无 HostCredentialBinding/Browser Profile 或现有凭据不健康不能形成授权死锁：
+
+```text
+context_id
+schema_version
+key_purpose: gooddealer.sunset.browser-session-context.v1
+sunset_authorization_id
+sunset_credential_id / sunset_credential_generation
+sunset_installation_id / workspace_id
+device_signing_key_id / device_signing_key_version
+runtime_generation
+trusted_time_anchor_id / trusted_time_deadline
+provider_connection_id
+browser_session_id / session_mode / session_sequence
+navigation_policy_digest
+consent_purpose
+issued_at / expires_at
+host_authenticator
+```
+
+其 Transcript 域固定为 `GOODDEALER-SUNSET-BROWSER-SESSION-CONTEXT-V1`。每次导航或恢复 Session 都重新验证 LocalContinuation、授权/credential/runtime generation、本地可信时间、Session Sequence、Consent 和 NavigationPolicy；只能执行与日常登录 Context 相同的窄化连接建立动作，不能进入业务自动化。Active 与 Sunset 两种 Session Context 的解析器、Key Purpose 和 Profile 存储命名空间互相拒绝。
+
 Consent 只允许 NavigationPolicy 内的导航、用户直接输入和登录状态检测。它不包含 Operation Plan、目标域名或业务动作，不允许自动填写业务字段、上传 Artifact 或触发最终提交。
 
 每次业务执行创建 `BrowserAutomationGrant`：
@@ -146,17 +170,21 @@ expires_at
 requires_final_confirmation
 ```
 
-首版只提供单次执行授权：每个 BrowserAutomationGrant 只允许执行其绑定的当前计划。持久 Browser Profile 可以保留登录状态，但不能延长或复用自动化权限；任何后续软件接管都必须重新生成计划、BrowserAutomationGrant 和 ApprovedOperation。
+首版只提供单次执行授权：每个 BrowserAutomationGrant 只允许执行其绑定的当前计划。持久 Browser Profile 可以保留登录状态，但不能延长或复用自动化权限；任何后续软件接管都必须重新生成计划、BrowserAutomationGrant，以及由当前模式决定的 `ApprovedOperation` 或 `SunsetApprovedOperation`。
 
 首版不提供会话级、永久或无界的网页操作授权。
 
-### 5.1 AutomationExecutionTicket
+`BrowserAutomationGrant` 只记录用户对计划的短期意图，可在日常或 Sunset 路径使用；它本身不决定授权模式。消费端必须根据 RuntimeMode 原子匹配 `ApprovedOperation` 或 `SunsetApprovedOperation`，混合两个模式的 Grant、批准、Session Context 或 Ticket 一律失败关闭。
+
+### 5.1 Browser Execution Ticket 判别联合
 
 普通 TypeScript 不能直接把 BrowserAutomationGrant 解释为执行权限。业务动作开始前：
 
+日常 Active 分支：
+
 1. 薄 Rust Command Handler 调用 local-storage，在同一事务中校验并消费未过期的 BrowserAutomationGrant、ApprovedOperation 和当前 DAG Node；普通 TypeScript 不参与该交接。签发前崩溃按失败关闭处理，需要重新批准，不恢复已消费授权。
-2. `secure-host-core/operation-signing` 校验 RuntimeMode、设备、Epoch、计划 Hash 和 Recipe Hash，签发短期、一次性的本机 `AutomationExecutionTicket`。
-3. automation-host 校验 Ticket 的签名/MAC、单次 Nonce、当前 Browser Session、Origin、Recipe/Step、目标域名和有效期后才投递 Action。
+2. `secure-host-core/operation-signing` 校验 RuntimeMode、设备、账号安全 Epoch、Lease Epoch、Runtime generation、可信时间、计划 Hash 和 Recipe Hash，签发短期、一次性的本机 `AutomationExecutionTicket`；`expires_at` 不得晚于 BrowserAutomationGrant、ApprovedOperation、可信时间 deadline 与当前 `offline_execute_until` 中最早者。
+3. automation-host 在每个 Step 投递前校验 Ticket 的签名/MAC、单次 Nonce、当前 Browser Session、设备、账号安全/Lease Epoch、Runtime generation、可信时间 deadline、Origin、Recipe/Step、目标域名和有效期；任一状态推进都立即失败关闭。
 4. Ticket 被使用、过期、用户接管、导航越界或 Session Sequence 变化后立即失效；不得跨设备、跨 Cloud 持久化或做成通用 JWT。
 
 Ticket 至少绑定：
@@ -165,9 +193,41 @@ Ticket 至少绑定：
 ticket_id
 operation_id / workflow_node_id
 approved_plan_hash
+device_id
+account_security_epoch
 active_lease_epoch
+runtime_generation
+trusted_time_deadline
 provider_connection_id
 browser_session_id
+recipe_id / version / content_hash
+allowed_origins / actions / target_domains
+artifact_capabilities
+required_evidence_level
+issued_at / expires_at
+offline_execute_until_binding       # expires_at <= 此边界
+single_use_nonce
+host_authenticator
+```
+
+LocalContinuation 分支使用独立 `SunsetAutomationExecutionTicket`，不得签发或解析 `AutomationExecutionTicket`。薄 Rust Handler 在同一事务中消费 `BrowserAutomationGrant + SunsetApprovedOperation`，重新验证 `purpose=platform_access + credential_source=browser_profile` 的匹配 `SunsetAuthorization`，并读取当前 BrowserSessionProfile ID/generation、Browser Session Sequence、登录状态和 NavigationPolicy 后签发；automation-host 在每个 Step 投递前重复验证并单次消费。连接建立用的 `SunsetBrowserSessionAccessContext` 不能进入或替代该业务授权联合，Ticket 也不引用其 `purpose=browser_connection_establishment` Authorization。其规范字段为：
+
+```text
+ticket_id
+schema_version
+key_purpose: gooddealer.sunset.browser-ticket.v1
+sunset_authorization_id
+sunset_credential_id / sunset_credential_generation
+sunset_installation_id / workspace_id
+device_signing_key_id / device_signing_key_version
+runtime_generation
+trusted_time_anchor_id / trusted_time_deadline
+operation_id / workflow_node_id
+approved_plan_hash
+provider_connection_id
+credential_source: browser_profile
+browser_profile_id / browser_profile_generation
+browser_session_id / session_sequence
 recipe_id / version / content_hash
 allowed_origins / actions / target_domains
 artifact_capabilities
@@ -176,6 +236,8 @@ issued_at / expires_at
 single_use_nonce
 host_authenticator
 ```
+
+Key Purpose 固定为 `gooddealer.sunset.browser-ticket.v1`，Transcript 域固定为 `GOODDEALER-SUNSET-AUTOMATION-TICKET-V1`；`expires_at` 不得晚于 platform-access Authorization、BrowserAutomationGrant、SunsetApprovedOperation 与本地可信时间 deadline 中最早者。浏览器 Ticket 固定 `credential_source=browser_profile` 并要求 Profile ID/generation；HostCredentialBinding 字段、连接建立 Authorization/Context 或未知字段必须缺席。Ticket 被使用、过期、用户接管、NavigationPolicy/Session Sequence/Recipe/Browser Profile generation/runtime generation 变化后立即失效。它不含 `account_id`、`active_lease_epoch` 或 `offline_execute_until`，也不能跨安装、Workspace、设备、Session、Recipe 或 Sunset credential generation 重放。两种 Ticket 使用封闭判别类型、独立解析器和独立消费 Nonce 表，未知 variant 或跨模式输入在访问 Browser Profile 前拒绝。
 
 automation-host 只返回 Evidence/Observation；是否完成 Operation Node 仍由连接器的证据策略与 operations 模块决定。
 
@@ -216,7 +278,7 @@ Recipe 禁止：
 - Windows 使用独立 `data_directory`；macOS 15 使用独立 `data_store_identifier`。首发不支持 macOS 14 及更低版本，因此不存在共享 Profile 的降级路径。
 - Cookie 只保存在本机，不同步到 GoodDealer 服务端。
 - 用户可以查看、退出和清除某个 ProviderConnection 的会话。
-- 清除连接时只清除该 `device_id + provider_connection_id + session_mode` Profile 的 Cookie、缓存和临时文件，不影响同平台其他账户。
+- 清除连接时只清除该 `profile_scope + provider_connection_id + session_mode` Profile 的 Cookie、缓存和临时文件；Active/Sunset scope 互不解析，也不影响同平台其他账户。
 - 会话过期后状态变为 `waiting_user_login`，不尝试读取或保存用户密码。
 
 客户端无法可靠地对 WebView2/WKWebView 自身数据目录做应用层二次加密。持久 Cookie 的保护依赖 OS 用户隔离与底层浏览器实现，这是明确接受的残余风险；GoodDealer 不声称能抵御已经取得当前 OS 用户权限的恶意进程。
@@ -234,6 +296,7 @@ Recipe 禁止：
 
 - 使用 `on_new_window` 拦截。
 - 已允许 Host 的弹窗创建为同一平台 Browser Session 的子 Remote WebView，继承无高权限 IPC 的 Capability。
+- 子 Remote WebView 使用与 Local App 不同且受控的 WebView label；若 Remote 与 Local 共用 Window，Local Capability 只按 `webviews` 精确匹配本地 UI，禁止用 `windows` 或通配符使 Remote 主页面或弹窗继承 Local 权限。
 - 未识别 Host 不自动打开，先展示目标域名和原因由用户决定。
 - iOS/Android 当前不依赖 `on_new_window`，移动端需要另行设计。
 
@@ -311,3 +374,17 @@ Windows WebView2 与 macOS WKWebView 必须分别验证：
 - [Tauri WebviewWindow：eval_with_callback 与浏览数据](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindow.html)
 - [Tauri WebviewWindowBuilder：脚本、数据存储、弹窗与下载](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html)
 - [Tauri Capabilities：按 Window/WebView 限定权限](https://v2.tauri.app/security/capabilities/)
+
+## 15. 开源实现参考
+
+完整登记、许可证和采用级别见 [OPEN_SOURCE_REFERENCES.md](OPEN_SOURCE_REFERENCES.md)。本模块使用以下来源时必须遵守对应边界：
+
+| 来源 | 参考内容 | 不可继承的默认行为 |
+| --- | --- | --- |
+| [Tauri](https://github.com/tauri-apps/tauri) | Capability/Permission/Scope、按 Window/WebView 限定 IPC、Single Instance 和 Updater 组织 | 静态 ACL 不替代 RuntimeMode、ActiveDeviceLease、批准和 Ticket；Remote WebView 默认零高权限 IPC |
+| [Wry](https://github.com/tauri-apps/wry) | Navigation、New Window、Download、IPC、Initialization Script、WebContext/Profile | 统一 API 不证明平台安全能力相同；macOS 自定义 Data Store Identifier 依赖 macOS 14+，首发最低 macOS 15 仍必须单独验证 |
+| [Puppeteer Replay](https://github.com/puppeteer/replay) | JSON User Flow、Step/Selector/Timeout Schema、Canonical Fixture 和 Runner 测试 | 不使用任意脚本生成、字符串化执行或开放 Extension；Recipe opcode、selector、Origin 和输出上限必须由 Rust Host 二次验证 |
+| [TUF](https://github.com/theupdateframework/python-tuf) / [tough](https://github.com/awslabs/tough) | Recipe 发布元数据、过期、阈值签名、密钥轮换、灰度/撤销和 Anti-Rollback | Recipe 签名只能证明发布来源；不能替代本机根 Ticket 兑换和递增单步 Action Capability |
+| [JobCtrl](https://github.com/ebarti/JobCtrl) | 批准绑定精确制品、最终提交 fail-closed、Review Queue 和人工接管 UX | AGPL，仅作设计参考；不复制代码，不采用其桌面端 Temporal/Node/Python 部署组合 |
+
+Phase 0 Spike 必须记录所用 Tauri/Wry 版本和上游 Commit，并分别保存 Windows 11 24H2 x86_64、macOS 15 arm64 与 macOS 15 x86_64 的 WebView 证据。某一平台或架构的 Profile、弹窗或下载测试通过，不能推断另一平台或架构通过。

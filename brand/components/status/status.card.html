@@ -1,0 +1,23 @@
+<!-- @dsCard group="Components" viewport="700x260" name="Status & Values" subtitle="Badge · StatusDot（金实心 Active / 蓝空心 Standby）· Money · DiffValue · Tag · ProgressBar" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:16px}.lbl{font-size:10px;color:var(--gd-text-faint);font-family:var(--font-mono);width:86px;flex:none}</style></head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {Badge,StatusDot,Money,DiffValue,Tag,ProgressBar}=window.GoodDealerDesignSystem_b5b0b6;
+function Row({l,children}){return <div style={{display:"flex",alignItems:"center",gap:12}}><span className="lbl">{l}</span><div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>{children}</div></div>;}
+function Card(){
+  return <div style={{display:"flex",flexDirection:"column",gap:13}}>
+    <Row l="Badge"><Badge tone="sync">SYNCED</Badge><Badge tone="sync">OUTBOX 3</Badge><Badge tone="gold">OWNER VERIFIED</Badge><Badge tone="success" mono={false}>成功</Badge><Badge tone="warning" mono={false}>等待平台</Badge><Badge tone="danger" dot mono={false}>高风险</Badge><Badge mono={false}>未上架</Badge></Row>
+    <Row l="StatusDot"><StatusDot kind="active" label="MacBook Pro · Active"/><StatusDot kind="standby" label="iPhone 17 · Standby"/><StatusDot kind="sync" pulse label="正在同步"/><StatusDot kind="danger" label="3 项失败"/></Row>
+    <Row l="Money"><Money amount={12800} size={16}/><Money amount={284120} showCurrency currency="USD" size={16}/><Money amount={520.5} tone="success" sign size={14}/><Money amount={-320} tone="danger" size={14}/><Money amount={null}/></Row>
+    <Row l="DiffValue"><DiffValue oldValue="1,499.00" newValue="1,288.00"/><DiffValue oldValue="ns1.spaceship.net" newValue="ada.ns.cloudflare.com"/></Row>
+    <Row l="Tag"><Tag color="var(--gd-blue)">三字母</Tag><Tag color="var(--gd-gold)">portfolio-a</Tag><Tag onRemove={()=>{}}>AI</Tag></Row>
+    <Row l="Progress"><div style={{width:200}}><ProgressBar segments={[{value:71,tone:"success"},{value:9,tone:"danger"},{value:12,tone:"warning"}]}/></div><span style={{fontSize:11,color:"var(--gd-text-muted)"}}>成功 71 · 失败 9 · 等待 12</span></Row>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Card/>);
+</script></body></html>

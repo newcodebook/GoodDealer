@@ -1,0 +1,19 @@
+<!-- @dsCard group="Foundations" viewport="700x200" name="Surface Elevation" subtitle="编号阶梯 L0→L4；层次来自 1px 描线色阶，不用阴影/透明度叠层；数据面完全不透明" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{padding:16px 20px;display:flex;gap:16px;align-items:center}
+.lv{border-radius:var(--radius-md);padding:11px 13px}
+.n{font-family:var(--font-mono);font-size:10px;color:var(--text-3)}
+.t{font-size:11px;color:var(--text-2)}</style></head>
+<body>
+<div class="lv" style="background:var(--surface-app);border:1px solid var(--gd-line);flex:1.7">
+<div class="n">L0 · --surface-app · app 底</div>
+<div class="lv" style="background:var(--surface-card);border:1px solid var(--gd-line);margin-top:8px">
+<div class="n">L1 · --surface-card · 区块 / 卡片</div>
+<div class="lv" style="background:var(--surface-raised);border:1px solid var(--gd-line-strong);margin-top:8px">
+<div class="n">L2 · --surface-raised · 悬停 / 当前行</div>
+</div></div></div>
+<div class="lv" style="background:var(--surface-chrome);border:1px solid var(--gd-line);flex:1;height:96px;display:flex;flex-direction:column;justify-content:center;gap:3px">
+<div class="n">chrome · --surface-chrome</div><div class="t">标题栏 / 状态栏</div></div>
+<div class="lv" style="background:var(--surface-raised);border:1px solid var(--gd-line-strong);box-shadow:var(--shadow-overlay);flex:1;height:110px;display:flex;flex-direction:column;justify-content:center;gap:3px">
+<div class="n">L4 · --surface-raised</div><div class="t">浮层 · 唯一大阴影处</div><div class="n" style="color:var(--text-2)">壳层可低强度 blur</div></div>
+</body></html>

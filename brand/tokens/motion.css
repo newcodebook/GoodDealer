@@ -1,0 +1,94 @@
+/* GoodDealer — motion tokens & brand keyframes.
+   Two-tier: BRAND MOMENTS (expressive, 一次性) vs SYSTEM UI (restrained, 120–160ms).
+   All brand cycles include idle+settle so they loop cleanly; the perceived "beat"
+   is noted per motion in guidelines/brand-motion.html. Reduced-motion neutralizes brand tier. */
+:root{
+/* ── brand-tier easings (drive the keyframe bindings below); system UI motion = --dur-* / --ease-out from spacing.css ── */
+--gd-ease-out:cubic-bezier(.2,.7,.3,1); /* @kind other */
+--gd-ease-strike:cubic-bezier(.7,0,.25,1); /* @kind other */
+--gd-ease-settle:cubic-bezier(.3,.7,.3,1); /* @kind other */
+--gd-ease-inout:cubic-bezier(.42,0,.16,1); /* @kind other */
+/* ── brand-moment cycle lengths (full loop incl. idle); beats: strike~520 seam~500 gilt~700 draw~900 unlock~360 failover~520 ── */
+--gd-motion-strike:3.4s; /* @kind other */
+--gd-motion-seam:3.6s; /* @kind other */
+--gd-motion-ripple:3s; /* @kind other */
+--gd-motion-spin:3s; /* @kind other */
+--gd-motion-gilt:3.2s; /* @kind other */
+--gd-motion-draw:3s; /* @kind other */
+--gd-motion-unlock:3.4s; /* @kind other */
+--gd-motion-failover:3.6s; /* @kind other */
+--gd-motion-active:1.8s; /* @kind other */
+}
+
+/* ══ keyframes ══ */
+/* strike / seal award */
+@keyframes gd-strike-press{0%,18%{transform:scale(1)}22%{transform:scale(.965)}30%{transform:scale(1.008)}37%,100%{transform:scale(1)}}
+@keyframes gd-strike-detail{0%,18%{transform:scale(.35);opacity:0}25%{transform:scale(1.03);opacity:1}30%{transform:scale(1)}82%{transform:scale(1);opacity:1}95%,100%{transform:scale(.35);opacity:0}}
+@keyframes gd-strike-flash{0%,18%{opacity:0}24%{opacity:.8}42%,100%{opacity:0}}
+@keyframes gd-strike-shock{0%,19%{transform:scale(1);opacity:0}23%{opacity:.6}46%{transform:scale(1.8);opacity:0}100%{opacity:0}}
+@keyframes gd-award-sweep{0%,30%{transform:translateX(-70px)}58%{transform:translateX(70px)}100%{transform:translateX(70px)}}
+/* seam bind */
+@keyframes gd-seam-l{0%,12%{transform:translateX(-9px)}42%{transform:translateX(0)}82%{transform:translateX(0)}100%{transform:translateX(-9px)}}
+@keyframes gd-seam-r{0%,12%{transform:translateX(9px)}42%{transform:translateX(0)}82%{transform:translateX(0)}100%{transform:translateX(9px)}}
+@keyframes gd-seam-dim{0%,12%{opacity:.78}42%,82%{opacity:1}100%{opacity:.78}}
+@keyframes gd-seam-seal{0%,36%{opacity:0}44%{opacity:.95}56%{opacity:.28}80%{opacity:.28}90%,100%{opacity:0}}
+/* ripple (sand-flow) */
+@keyframes gd-ripple{0%{transform:scale(.42);opacity:0}18%{opacity:.55}100%{transform:scale(1.5);opacity:0}}
+@keyframes gd-ripple-node{0%,100%{opacity:.18}50%{opacity:.6}}
+/* spin */
+@keyframes gd-spin{0%{transform:rotateY(0)}44%{transform:rotateY(360deg)}100%{transform:rotateY(360deg)}}
+/* gilt sweep */
+@keyframes gd-gilt{0%,4%{transform:translateX(-70px)}34%{transform:translateX(70px)}100%{transform:translateX(70px)}}
+/* draw-on (mark contour) */
+@keyframes gd-draw-on{0%{stroke-dashoffset:100}46%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes gd-fill-in{0%,40%{fill-opacity:0}62%{fill-opacity:1}100%{fill-opacity:1}}
+/* unlock (keyhole) */
+@keyframes gd-unlock-turn{0%,20%{transform:rotate(0)}40%{transform:rotate(-98deg)}48%,78%{transform:rotate(-90deg)}92%,100%{transform:rotate(0)}}
+@keyframes gd-unlock-flash{0%,34%{opacity:0}46%{opacity:.9}66%,100%{opacity:0}}
+@keyframes gd-unlock-core{0%,34%{opacity:0}48%,78%{opacity:.5}92%,100%{opacity:0}}
+/* failover (active-lease) */
+@keyframes gd-fo-goldL{0%,40%{opacity:1}50%{opacity:0}84%{opacity:0}96%,100%{opacity:1}}
+@keyframes gd-fo-blueL{0%,44%{opacity:0}54%{opacity:1}82%{opacity:1}92%,100%{opacity:0}}
+@keyframes gd-fo-blueR{0%,40%{opacity:1}50%{opacity:0}84%{opacity:0}96%,100%{opacity:1}}
+@keyframes gd-fo-goldR{0%,44%{opacity:0}54%{opacity:1}82%{opacity:1}92%,100%{opacity:0}}
+@keyframes gd-fo-tok{0%,24%{transform:translateX(0);opacity:0}30%{opacity:1}47%{transform:translateX(36px);opacity:1}53%{transform:translateX(36px);opacity:0}100%{transform:translateX(36px);opacity:0}}
+@keyframes gd-fo-glow{0%,30%{opacity:0}47%{opacity:.9}62%,100%{opacity:0}}
+@keyframes gd-fo-pulse{0%,20%,100%{transform:scale(1)}10%{transform:scale(1.13)}}
+/* system · active heartbeat */
+@keyframes gd-active-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes gd-active-halo{0%{transform:scale(1);opacity:.5}70%{opacity:0}100%{transform:scale(2.1);opacity:0}}
+
+/* ══ binding classes — add to the canonical SVG (see guidelines/brand-motion.html) ══ */
+.gd-strike .disc{transform-origin:center;transform-box:fill-box;animation:gd-strike-press var(--gd-motion-strike) var(--gd-ease-settle) infinite}
+.gd-strike .detail{transform-origin:center;transform-box:fill-box;animation:gd-strike-detail var(--gd-motion-strike) var(--gd-ease-strike) infinite}
+.gd-strike .flash{transform-origin:center;transform-box:fill-box;animation:gd-strike-flash var(--gd-motion-strike) var(--gd-ease-out) infinite}
+.gd-strike .shock{transform-origin:center;transform-box:fill-box;animation:gd-strike-shock var(--gd-motion-strike) var(--gd-ease-out) infinite}
+.gd-strike .sweep{animation:gd-award-sweep var(--gd-motion-strike) var(--gd-ease-inout) infinite}
+.gd-seam .hl{animation:gd-seam-l var(--gd-motion-seam) var(--gd-ease-inout) infinite,gd-seam-dim var(--gd-motion-seam) ease-in-out infinite}
+.gd-seam .hr{animation:gd-seam-r var(--gd-motion-seam) var(--gd-ease-inout) infinite,gd-seam-dim var(--gd-motion-seam) ease-in-out infinite}
+.gd-seam .seal{animation:gd-seam-seal var(--gd-motion-seam) var(--gd-ease-out) infinite}
+.gd-ripple .r{transform-origin:center;transform-box:fill-box;animation:gd-ripple var(--gd-motion-ripple) var(--gd-ease-out) infinite}
+.gd-ripple .r2{animation-delay:1s}.gd-ripple .r3{animation-delay:2s}
+.gd-ripple .node{animation:gd-ripple-node var(--gd-motion-ripple) ease-in-out infinite}
+.gd-spin{perspective:640px}
+.gd-spin .mk{transform-style:preserve-3d;animation:gd-spin var(--gd-motion-spin) var(--gd-ease-inout) infinite}
+.gd-gilt .sweep{animation:gd-gilt var(--gd-motion-gilt) var(--gd-ease-inout) infinite}
+.gd-draw .ln{stroke-dasharray:100;animation:gd-draw-on var(--gd-motion-draw) var(--gd-ease-out) infinite}
+.gd-draw .solid{animation:gd-fill-in var(--gd-motion-draw) var(--gd-ease-out) infinite}
+.gd-unlock .key{transform-box:view-box;transform-origin:60px 60px;animation:gd-unlock-turn var(--gd-motion-unlock) var(--gd-ease-settle) infinite}
+.gd-unlock .kflash{animation:gd-unlock-flash var(--gd-motion-unlock) var(--gd-ease-out) infinite}
+.gd-unlock .kcore{animation:gd-unlock-core var(--gd-motion-unlock) var(--gd-ease-out) infinite}
+.gd-failover .goldL{transform-box:fill-box;transform-origin:center;animation:gd-fo-goldL var(--gd-motion-failover) var(--gd-ease-out) infinite,gd-fo-pulse var(--gd-motion-failover) ease-in-out infinite}
+.gd-failover .blueL{animation:gd-fo-blueL var(--gd-motion-failover) var(--gd-ease-out) infinite}
+.gd-failover .blueR{animation:gd-fo-blueR var(--gd-motion-failover) var(--gd-ease-out) infinite}
+.gd-failover .goldR{animation:gd-fo-goldR var(--gd-motion-failover) var(--gd-ease-out) infinite}
+.gd-failover .tok{transform-box:view-box;animation:gd-fo-tok var(--gd-motion-failover) var(--gd-ease-inout) infinite}
+.gd-failover .glow{animation:gd-fo-glow var(--gd-motion-failover) var(--gd-ease-out) infinite}
+.gd-active .apulse{animation:gd-active-pulse var(--gd-motion-active) ease-in-out infinite}
+.gd-active .ahalo{transform-box:fill-box;transform-origin:center;animation:gd-active-halo var(--gd-motion-active) var(--gd-ease-out) infinite}
+
+/* ══ reduced-motion — brand tier off; canonical SVGs rest on a valid static frame ══ */
+@media (prefers-reduced-motion:reduce){
+.gd-strike *,.gd-seam *,.gd-ripple *,.gd-spin *,.gd-gilt *,.gd-draw *,.gd-unlock *,.gd-failover *,.gd-active *{animation:none!important}
+.gd-draw .solid{fill-opacity:1}.gd-draw .ln{stroke-dashoffset:0}
+}

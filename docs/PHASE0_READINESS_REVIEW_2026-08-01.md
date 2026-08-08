@@ -10,7 +10,7 @@
 
 基线工作区：Clean，只有文档，尚未初始化应用代码
 
-Finding 的当前执行状态与证据由 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 管理；本报告保留审查时的证据、定级和关闭条件。
+Finding 的当前执行状态、范围、关闭条件和最终准入由 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 管理；本报告保留审查时 R0-01～R0-14 的证据、定级和初始关闭条件。其 §10 执行顺序与 §11 最终准入只描述 2026-08-01 基线，已被当前 Gate 台账取代；后续新增的 R0-15/R0-16 不属于本历史报告。
 
 ## 1. 最终结论
 
@@ -201,7 +201,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J1。
 - 处置：Start Blocker，阻塞“可复现工程骨架”和 Phase 0 通过声明；不阻塞临时 Spike。
-- 证据：[ARCHITECTURE.md](ARCHITECTURE.md#11-初始技术基线) 只列大版本和工具类别；[BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md#8-会话与-cookie) 已承认 macOS 14+ 与更低版本隔离能力不同。
+- 证据：[ARCHITECTURE.md](ARCHITECTURE.md#11-目标技术基线与验收范围) 在当时只列大版本和工具类别；[BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md#8-会话与-cookie) 已承认 macOS 14+ 与更低版本隔离能力不同。
 - 关闭条件：锁定 Node/pnpm/Rust channel+components/Tauri/Wry/SQLCipher/PostgreSQL 版本和升级策略；确定 Windows 最低版本、架构和 WebView2 分发策略，macOS 最低版本、Intel/Apple Silicon；定义 native CI runner、制品留存、签名/公证责任。随后落地版本文件、lockfile 和 CI matrix。
 
 ### R0-12：设备切换后的凭据可用性存在直接文档冲突

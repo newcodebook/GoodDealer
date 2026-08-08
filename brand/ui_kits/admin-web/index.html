@@ -1,0 +1,76 @@
+<!-- @dsCard group="Admin Web" viewport="1280x900" name="GoodDealer Owner 管理后台" subtitle="独立 Staff 控制台：强制 Passkey 门禁 · 账号/License/设备/案件诊断 · 读明细走 AdminReadAuthorization(Scope+理由+PurposeRef+Passkey) · Repair dry-run · Job/隔离区。管理员永不见平台凭据/密钥" -->
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoodDealer · Admin</title>
+<link rel="icon" href="../../assets/logo/mark-16.svg">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="./data.js"></script>
+<style>
+html,body{height:100%}body{margin:0;background:var(--gd-ink);color:var(--text-1);font-family:var(--font-sans);font-size:13px}#root{min-height:100vh}
+@keyframes gd-spinner{to{transform:rotate(360deg)}}
+/* admin-web shell — internal staff console: denser than account-web, a STAFF accent to avoid confusion with the user web */
+.adm{min-height:100vh;display:flex;flex-direction:column}
+.adm-top{position:sticky;top:0;z-index:20;height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--gd-chrome);border-bottom:1px solid var(--gd-line);box-shadow:inset 0 2px 0 var(--gd-gold)}
+.adm-brand{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;color:var(--text-1)}
+.adm-staff{font-size:10px;font-family:var(--font-mono);letter-spacing:0.08em;color:var(--gd-gold);border:1px solid var(--gd-gold);border-radius:4px;padding:1px 6px}
+.adm-top-right{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--text-2)}
+.adm-top-right button{background:none;border:none;color:var(--text-2);cursor:pointer;font:inherit}
+.adm-top-right button:hover{color:var(--text-1)}
+.adm-body{flex:1;min-height:0;display:flex}
+.adm-side{width:210px;flex:none;border-right:1px solid var(--gd-line);background:var(--gd-panel);padding:12px 10px;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.adm-nav{display:flex;align-items:center;gap:9px;height:32px;padding:0 10px;border-radius:6px;font-size:13px;color:var(--text-2);cursor:pointer;border:none;background:none;text-align:left;width:100%;font-family:var(--font-sans)}
+.adm-nav:hover{background:var(--gd-panel-raised);color:var(--text-1)}
+.adm-nav--on{background:var(--gd-panel-raised);color:var(--text-1);font-weight:500}
+.adm-nav--soon{opacity:.5;cursor:default}
+.adm-main{flex:1;min-width:0;overflow:auto;padding:24px 28px 48px}
+.adm-main-inner{max-width:960px}
+.adm-h1{font-size:20px;font-weight:600;letter-spacing:-0.01em;margin:0 0 3px}
+.adm-sub{font-size:13px;color:var(--text-2);margin:0 0 20px}
+.adm-card{border:1px solid var(--gd-line);background:var(--gd-panel);border-radius:8px}
+.adm-foot{border-top:1px solid var(--gd-line);padding:12px 20px;font-size:11px;color:var(--text-3);display:flex;gap:14px}
+@media (max-width:900px){.adm-body{flex-direction:column}.adm-side{width:auto;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--gd-line);padding:8px 12px;gap:6px}.adm-nav{width:auto;flex:none;white-space:nowrap}.adm-main{padding:18px 16px 36px}}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel" src="./AdminShell.jsx"></script>
+<script type="text/babel" src="./AdminGate.jsx"></script>
+<script type="text/babel" src="./Overview.jsx"></script>
+<script type="text/babel" src="./ActionAuth.jsx"></script>
+<script type="text/babel" src="./Accounts.jsx"></script>
+<script type="text/babel" src="./Licensing.jsx"></script>
+<script type="text/babel" src="./Cases.jsx"></script>
+<script type="text/babel" src="./Jobs.jsx"></script>
+<script type="text/babel" src="./Diagnostics.jsx"></script>
+<script type="text/babel" src="./Release.jsx"></script>
+<script type="text/babel" src="./Audit.jsx"></script>
+<script type="text/babel">
+function Stub({name}){return <div style={{maxWidth:520,margin:"56px auto",textAlign:"center",color:"var(--text-3)",fontSize:13}}>{name} · 后续阶段（有意留空，避免虚构未定义的后台）</div>;}
+const TITLES={overview:"概览",accounts:"账号",licensing:"License 与订单",cases:"案件",diagnostics:"同步诊断",jobs:"Jobs 与隔离区",release:"发布与政策",audit:"审计"};
+function App(){
+  const [authed,setAuthed]=React.useState(false);
+  const [page,setPage]=React.useState("overview");
+  const [acct,setAcct]=React.useState(null);
+  const [caseId,setCaseId]=React.useState(null);
+  if(!authed) return <window.ADMGate onAuthed={()=>setAuthed(true)}/>;
+  const go=(p)=>{setAcct(null);setCaseId(null);setPage(p);window.scrollTo(0,0);};
+  const openAcct=id=>{setAcct(id);setCaseId(null);setPage("accounts");window.scrollTo(0,0);};
+  const openCase=ref=>{setCaseId(ref);setPage("cases");window.scrollTo(0,0);};
+  const body=page==="overview"?<window.ADMOverview onOpenAccount={openAcct} onOpenCase={openCase} onGo={go}/>
+    :page==="accounts"?<window.ADMAccounts openId={acct} onClearOpen={()=>setAcct(null)}/>
+    :page==="licensing"?<window.ADMLicensing onOpenAccount={openAcct}/>
+    :page==="cases"?<window.ADMCases openId={caseId} onOpenAccount={openAcct} onClearOpen={()=>setCaseId(null)}/>
+    :page==="jobs"?<window.ADMJobs onOpenAccount={openAcct}/>
+    :page==="diagnostics"?<window.ADMDiagnostics onOpenAccount={openAcct}/>
+    :page==="release"?<window.ADMRelease/>
+    :page==="audit"?<window.ADMAudit onOpenAccount={openAcct}/>
+    :<Stub name={TITLES[page]}/>;
+  return <window.ADMShell page={page} onGo={go} onLogout={()=>setAuthed(false)}>{body}</window.ADMShell>;
+}
+(function boot(){
+  if(window.ADMShell&&window.ADMGate&&window.ADMOverview&&window.ADMAccounts&&window.ADMLicensing&&window.ADMActionAuth&&window.ADMCases&&window.ADMJobs&&window.ADMDiagnostics&&window.ADMRelease&&window.ADMAudit&&window.ADM_DATA){
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  }else{setTimeout(boot,20);}
+})();
+</script></body></html>

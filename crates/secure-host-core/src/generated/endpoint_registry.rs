@@ -3,6 +3,6 @@
 use crate::endpoint_capability::EndpointCapability;
 
 pub const ENDPOINT_MANIFEST_SHA256: &str =
-    "b65a2bd72881d6f7d277f876f8ba02accf0021e042d74d25f2be9cdb54e1b71d";
+    "a0e5608db0c2bc5331f67229b35bc1ab076b769e76e62a98fc7c4456a18c8469";
 #[rustfmt::skip]
 pub const ENDPOINT_CAPABILITIES: &[EndpointCapability] = &[];

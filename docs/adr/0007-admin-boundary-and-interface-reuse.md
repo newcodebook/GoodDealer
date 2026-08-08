@@ -2,7 +2,7 @@
 
 状态：Accepted  
 日期：2026-07-31
-修订：2026-08-01（首版单 Owner 与外部 CaseReference）
+修订：2026-08-03（AdminPurposeRef、跨账号重新认证与可撤销授权上下文）
 
 ## 背景
 
@@ -23,8 +23,8 @@ Cloud 首版是运行在 Node.js LTS、以 PostgreSQL 事务为正确性来源�
 - 首版只有一名管理员（Owner）并强制 Passkey；Role/Scope 结构保留但只签发 Owner 身份。首版不做多角色职责分离或多人审批，未来增加 Staff 时重新启用。
 - Admin API 只能调用业务模块显式公开的 Admin Application Port，不得直接注入 Repository、共享 ORM Entity 或执行跨模块 SQL。
 - 所有管理操作记录 Staff actor、Scope、原因、工单标识和前后摘要；AuditEvent 由 Cloud `audit` 模块拥有。
-- 首版 SupportCase 使用外部 Helpdesk，GoodDealer 只保存可信 CaseReference、账号关联和必要审计；跨账号访问不要求用户逐次授权，但必须有 Scope、理由/CaseReference，高风险动作还要求 Passkey 重新认证。
-- 异步管理动作持久化 Owner actor、Scope 快照、CaseReference、重新认证时间、幂等键、目标 Revision 和前后摘要；`admin-access` 只授权，具体 Repair Command 由目标业务模块拥有。
+- 首版 SupportCase 使用外部 Helpdesk，GoodDealer 只保存可信 SupportCaseReference、账号关联、外部 revision/同步水位、映射后的必要状态和审计；跨账号访问不要求用户逐次授权，但业务明细读取与修改必须有 Scope、理由、判别联合 `AdminPurposeRef` 和新鲜 Passkey 重新认证。
+- 跨账号明细读取消费独立短期 `AdminReadAuthorization`，绑定 actor/Staff Security Epoch、Tenant/目标及目标 `account_security_epoch`、字段/实体 Scope、规范 Query Shape Hash、AdminPurposeRef 状态/revision、重新认证证明与有效期；每次请求复验且不能兑换写授权。异步管理动作引用独立 `AdminActionAuthorization`，绑定 Tenant/目标、目标客户 `account_security_epoch`、命令参数 Hash、命令相关 Aggregate Revision、Owner actor、Staff Security Epoch、Scope 快照、AdminPurposeRef 状态/revision、重新认证时间、有效期、消费/幂等与取消状态；删除、设备、License 命令分别额外绑定 `deletion_epoch`、`credential_epoch`、`entitlement_revision`，执行/重放时全部复验，并持久化前后摘要。`admin-access` 只授权，具体 Repair Command 由目标业务模块拥有。
 - 管理员不能获取平台 API Key、Cookie、Browser Profile、本地数据库密钥或备份秘密，不能创建用户 Desired State、SyncMutation、ApprovedOperation，也不能代表用户访问域名平台。
 - 云端元数据修复必须使用模块拥有的受控 Repair Command，不能把数据库管理工具包装成产品功能。
 
@@ -54,7 +54,7 @@ Hono 暂不采用。只有明确出现 Cloudflare Workers 等边缘运行时、W
 - Schema Version、兼容转换、确定性序列化 Codec 和 Anti-Entropy Golden Test Vector。
 - 经证明在两端语义完全相同的纯函数；必须放入命名具体的能力模块，不创建 shared/common/utils 杂物包。
 
-client-core 定义宿主无关的只读 Query Port。Active 使用 Local Query Adapter，Standby 使用 Cloud Query Adapter；Desktop Composition Root 按 RuntimeMode 注入。查询结果必须携带数据来源、Server Revision、最后云同步时间、最后平台读取时间和 `can_edit`。共享 Query Port 只返回可同步的非秘密业务投影；DeviceCredentialBinding、Browser Profile、Keychain 状态和本地 Artifact 使用独立 Active-only Port。
+client-core 定义宿主无关的只读 Query Port。Active 使用 Local Query Adapter，Standby 使用 Cloud Query Adapter；Desktop Composition Root 按 RuntimeMode 注入。查询结果必须携带数据来源、Server Revision、最后云同步时间、最后平台读取时间和 `can_edit`。共享 Query Port 只返回可同步的非秘密业务投影；DeviceCredentialBindingStatus、Browser automation 非秘密编排状态和本地 Artifact 使用模式限定的专用 Port，DeviceCredentialCandidateStatus 使用独立本机 Standby-safe Port 且仅返回三态提示。Browser Profile 原件、Ref、health、generation、sequence、Keychain 状态与 HostCredentialBinding 只在 Host 内消费，不进入任何普通 Query Port。
 
 禁止共享：
 

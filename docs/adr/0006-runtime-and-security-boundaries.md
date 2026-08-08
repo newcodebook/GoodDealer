@@ -3,11 +3,13 @@
 状态：Accepted，管理员边界与接口复用由 ADR-0007 扩展  
 日期：2026-07-31
 
+修订：2026-08-03（RuntimeMode 准入与三流 Drain）
+
 ## 背景
 
-GoodDealer 已形成多种权限完全不同的运行状态：Locked、Standby、Activating、Active、Draining，以及仅用于永久停服预案的 LocalContinuation。Standby 只能读取云端投影；Active 才能打开完整工作库、产生 Mutation、读取平台、批准和执行操作。
+GoodDealer 已形成多种权限完全不同的运行状态：Locked、Standby、Activating、Active、Draining，以及仅用于永久停服预案的 LocalContinuation。Standby 只能读取云端投影；日常运行只有 Active 能打开完整工作库、产生 Mutation、读取平台、批准和执行操作。LocalContinuation 由正式 Sunset 构建与永久凭证单独进入，使用域分离的本地执行授权，不伪装成 Active。
 
-同步协议同时包含 SyncMutation、Checkpoint、Device/Reader Cursor、一致性摘要、LateExecutionEvent 和恢复 Candidate。浏览器自动化的命令投递、导航/弹窗/下载策略和 Profile 管理由 Rust Host 承担，而 TypeScript 只定义 Recipe、契约和 Probe。
+Workspace 同步/Drain 协议包含 Mutation、ExecutionFact、Workspace-scope DeviceAuditEvent 三条独立追加流，以及 Checkpoint、Device/Reader Cursor、一致性摘要和恢复 Candidate；旧 Epoch 验证通过的 ExecutionFact 只增加 LateExecutionEvent 分类。Account-scope DeviceAuditEvent 使用独立设备链，User/Staff/Service AuditEvent 使用服务端独立链，均不进入 Workspace Drain。浏览器自动化的命令投递、导航/弹窗/下载策略和 Profile 管理由 Rust Host 承担，而 TypeScript 只定义 Recipe、契约和 Probe。
 
 原工程草案使用宽泛的 `domain/application/schemas/cloud-contracts` 包，未为 account-web、Cloud Jobs、执行事实入口、Standby Cache、Rust 浏览器宿主和 Checkpoint 模块提供明确归属，无法通过工程边界执行现有安全决策。
 
@@ -37,7 +39,7 @@ GoodDealer 已形成多种权限完全不同的运行状态：Locked、Standby�
 
 - `secure-host-core` 不依赖 Tauri/Wry，拥有 runtime-gate、设备身份、密码学、Keychain、受控 HTTP 和操作签名。
 - `secure-http` 为 GoodDealer Cloud 和外部平台使用隔离的请求类型、Allowlist 与凭据命名空间；TypeScript 不接触账号 Token 或平台密钥。
-- `local-storage` 依赖 `secure-host-core` 的 keychain/crypto 接口，并物理分离 Active Workspace 与 Standby Cache。
+- `local-storage` 依赖 `secure-host-core` 的 keychain/crypto 接口，并物理分离四个长期持久化域：Active Workspace、Standby Cache、LocalContinuation Workspace 与追加式 evidence-spool。四者分别拥有数据库文件、WAL、连接、Master Key 和 Migration/Schema Runner；Activation/Recovery Staging 是第五类临时隔离域，使用独立临时 Key，完成后销毁，不能安装为 Active 或 Sunset 数据库。
 - `automation-host` 拥有 Remote WebView、Profile、脚本注入、窄 IPC、导航/弹窗/下载策略，并依赖 `secure-host-core` 的运行时门禁。
 - `runtime-gate` 是命令准入组件的名称，避免与 Tauri 声明式 Capability 混淆。
 
@@ -46,20 +48,20 @@ GoodDealer 已形成多种权限完全不同的运行状态：Locked、Standby�
 - `devices` 拥有绑定、ActiveDeviceLease、Epoch 和排空验收编排。
 - `workspace` 明确包含 state、read、mutations、revisions、cursors 和 checkpoints；`state/<capability>` 拥有当前物化业务表、Repository 与模块 Migration，checkpoints 负责服务端一致性摘要与压缩水位。
 - `workspace/mutations` 通过 state 的公开写入 Port 物化状态；read 与 checkpoints 通过查询/快照 Port 读取，不直接跨 capability 操作表。
-- `devices` 通过公开 Port 请求 `workspace/mutations` 核对最后 `client_sequence`，不能直接读取其表。
-- `execution-ledger` 独立接收 LateExecutionEvent 并管理验证失败隔离区，不经过 SyncMutation。
+- `devices` 通过公开 Port 请求 `workspace/mutations`、`execution-ledger` 与 `audit` 分别验证签名 `DrainManifest` 中 Mutation、ExecutionFact、Workspace-scope DeviceAuditEvent 三条设备流的连续接收水位、Gap、待上传数和摘要，不能直接读取其表，也不能用单一最大序号证明排空；Account DeviceAudit 与 User/Staff/Service AuditEvent 不属于该验收。
+- `execution-ledger` 独立接收所有 ExecutionFact，旧 Epoch 验证通过后标记为 LateExecutionEvent，并管理验证失败隔离区；`audit` 以 `DeviceAuditEvent | UserAuditEvent | StaffAuditEvent | ServiceAuditEvent` 判别联合接收审计记录并按来源维护独立序列/Hash 链。ExecutionFact 与各类 AuditEvent 都不经过 SyncMutation，只通过引用关联。
 - recovery、connections、compliance、notifications、publication 和 audit 分别拥有自己的数据与用例。
 - Cloud 不依赖 client-core、连接器或平台凭据。
 
 ### RuntimeMode
 
-RuntimeMode 的权威状态由 Rust runtime-gate 与云端 Scope/ActiveDeviceLease 共同决定，不能只依赖 UI。枚举预留 `LocalContinuation`，但只有 Sunset Signing Key 签发的最终凭证可以进入，日常版本不提供纯本地开关。
+日常 RuntimeMode 的权威状态由 Rust runtime-gate 与云端 Scope/ActiveDeviceLease 共同决定，不能只依赖 UI。枚举预留 `LocalContinuation`，但只有正式 Sunset 构建在 Rust 验证独立 Sunset Signing Key 凭证后可以进入，日常版本不提供纯本地开关。LocalContinuation 使用 `SunsetAuthorization | SunsetApprovedOperation | SunsetBrowserSessionAccessContext | SunsetAutomationExecutionTicket`，绑定安装实例、Workspace、设备签名 Key、本地可信时间、runtime/Sunset credential generation，以及按封闭来源选择的 HostCredentialBinding generation 或 Browser Profile generation；连接建立变体可使用 `credential_source=none`，但不能业务提交。它们和日常 Lease/Context/ApprovedOperation/AutomationExecutionTicket 使用不同 Key Purpose、Schema、Transcript、Nonce 表与解析器，并在所有消费点互相拒绝。
 
 ## 结果
 
 优点：
 
-- Active/Standby 权限、两套本地存储和命令准入形成可测试的结构边界。
+- Active/Standby/LocalContinuation/evidence-spool 的四域物理隔离、临时 Staging 和命令准入形成可测试的结构边界。
 - TypeScript Port、Desktop IPC 和 Rust Handler 分层明确，账号 Token 与平台密钥不会因类型化客户端下沉到 TypeScript。
 - Rust 安全核心可以脱离 Tauri 做集成测试，并为未来移动宿主复用。
 - 浏览器自动化的最高权限宿主有明确的 Rust 工程归属。

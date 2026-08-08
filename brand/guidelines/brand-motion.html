@@ -1,0 +1,229 @@
+<!-- @dsCard group="Brand" viewport="1180x1640" name="Motion" subtitle="生产级：tokens/motion.css 驱动 · 品牌时刻(可表现) + 系统级(守克制) + 图标事件 · prefers-reduced-motion 降级" -->
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08090C;font-family:'General Sans','Noto Sans SC',sans-serif;color:var(--gd-text);-webkit-font-smoothing:antialiased;padding:34px 36px 44px}
+.mono{font-family:'JetBrains Mono',monospace}
+.kick{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--gd-gold);text-transform:uppercase}
+h1{font-size:26px;font-weight:600;letter-spacing:-.01em;margin:10px 0 8px}
+.sub{font-size:12.5px;line-height:1.7;color:var(--gd-text-muted);max-width:760px;text-wrap:pretty}
+.sub b{color:var(--gd-text);font-weight:500}
+.tier2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0 6px}
+.tc{border:1px solid var(--gd-line);border-radius:11px;padding:16px 18px;background:var(--gd-panel);font-size:12px;line-height:1.6;color:var(--gd-text-muted)}
+.tc.brand{border-color:rgba(212,164,55,.3)}.tc h4{margin:0 0 7px;font-size:12.5px;font-weight:600}
+.tc.brand h4{color:var(--gd-gold)}.tc.sys h4{color:var(--gd-blue)}
+.tc .mono{color:var(--gd-text-faint);font-size:10.5px}
+.sec{display:flex;align-items:baseline;gap:12px;margin:40px 0 20px;padding-bottom:12px;border-bottom:1px solid var(--gd-line)}
+.sec .n{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gd-gold);letter-spacing:.08em}
+.sec .t{font-size:16px;font-weight:600}.sec .s{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--gd-text-faint)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.tile{border:1px solid var(--gd-line);border-radius:11px;background:var(--gd-panel);overflow:hidden}
+.stage{height:170px;background:radial-gradient(120% 120% at 50% 36%,#15181F,#0A0B0F 82%);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.mk{width:88px;height:88px;display:block}
+.cap{padding:13px 15px}
+.cap .nm{font-size:14px;font-weight:600;display:flex;align-items:baseline;gap:7px}
+.cap .en{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--gd-text-faint);text-transform:uppercase;letter-spacing:.05em}
+.cap .badge{margin-left:auto;align-self:center;font-family:'JetBrains Mono',monospace;font-size:8px;padding:2px 6px;border-radius:4px;letter-spacing:.05em}
+.badge.b{background:var(--gd-gold-tint);color:var(--gd-gold)}.badge.s{background:var(--gd-blue-tint);color:var(--gd-blue)}
+.cap dl{margin:9px 0 0;display:grid;grid-template-columns:34px 1fr;gap:4px 9px;font-size:11px;line-height:1.5}
+.cap dt{color:var(--gd-text-faint);font-family:'JetBrains Mono',monospace;font-size:9.5px}
+.cap dd{margin:0;color:var(--gd-text-muted)}.cap dd .mono{color:var(--gd-gold);font-size:10px}
+/* system row */
+.sys{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.mini{border:1px solid var(--gd-line);border-radius:11px;background:var(--gd-panel);overflow:hidden}
+.mini .stg{height:104px;display:flex;align-items:center;justify-content:center;background:var(--gd-ink)}
+.mini .c{padding:12px 14px;font-size:11px;line-height:1.55;color:var(--gd-text-muted)}
+.mini .c b{color:var(--gd-text);font-weight:500;display:block;margin-bottom:2px;font-size:12px}
+.mini .c .mono{color:var(--gd-gold);font-size:10px}
+.liftbox{width:118px;height:48px;border:1px solid var(--gd-line);border-radius:7px;background:var(--gd-panel);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--gd-text-muted);transition:transform var(--dur-base) var(--ease-out),background var(--dur-base) var(--ease-out),border-color var(--dur-base) var(--ease-out)}
+.liftbox:hover{transform:translateY(-2px);background:var(--gd-panel-raised);border-color:var(--gd-line-strong)}
+.focusbtn{padding:9px 15px;border-radius:6px;background:var(--gd-blue);color:#0A0B0F;font-size:12px;font-weight:600;border:none;outline:none;transition:box-shadow var(--dur-fast) var(--ease-out)}
+.focusbtn:focus,.focusbtn:hover{box-shadow:0 0 0 2px rgba(77,141,255,.6)}
+/* timing table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+.tbl th,.tbl td{padding:9px 10px;border-bottom:1px solid var(--gd-line);text-align:left;vertical-align:baseline}
+.tbl th{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--gd-text-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:400}
+.tbl td:first-child{color:var(--gd-text);font-weight:500}
+.tbl td .mono{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--gd-gold)}
+.tbl td .tag{font-family:'JetBrains Mono',monospace;font-size:9px;padding:2px 6px;border-radius:4px}
+.tag.b{background:var(--gd-gold-tint);color:var(--gd-gold)}.tag.s{background:var(--gd-blue-tint);color:var(--gd-blue)}
+.usage{margin-top:20px;border:1px solid var(--gd-line);border-radius:11px;background:var(--gd-panel);padding:18px 20px}
+.usage h4{margin:0 0 10px;font-size:12.5px;font-weight:600;color:var(--gd-text)}
+pre{margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.65;color:var(--gd-text-muted);white-space:pre-wrap;background:var(--gd-ink);border:1px solid var(--gd-line);border-radius:8px;padding:13px 15px;overflow:auto}
+pre .k{color:var(--gd-gold)}pre .c{color:var(--gd-text-faint)}
+.note{margin-top:14px;font-size:11.5px;line-height:1.65;color:var(--gd-text-muted)}.note b{color:var(--gd-text);font-weight:500}
+</style></head>
+<body>
+
+<div class="kick">GoodDealer · Brand Motion · Production</div>
+<h1>动效规范</h1>
+<p class="sub">全部由 <b class="mono" style="color:var(--gd-gold)">tokens/motion.css</b> 驱动——时长/缓动 token + 命名 keyframes + 绑定类。语言从 Coin Seal 长出：<b>颁章 · 骑缝 · 圜纹 · 贵金属光泽</b>。下面每个<b>正在循环</b>。两级铁律：品牌时刻可表现，系统 UI 守克制；<b>prefers-reduced-motion</b> 关闭品牌层。</p>
+
+<div class="tier2">
+  <div class="tc brand"><h4>◆ 品牌时刻 · 可表现</h4>开屏 / logo reveal / 成交 / 绑定 / 解锁 / 交权。<span class="mono">beat 360–700ms · 一次性 · 贵金属</span>。允许光泽、旋铸、涟漪；仍无弹簧、无橡皮筋、内方不旋转。</div>
+  <div class="tc sys"><h4>● 系统 UI · 守克制</h4>表格 / 状态 / hover / 焦点。<span class="mono">--dur-fast 120ms · --dur-base 160ms · --ease-out</span>。只透明度/描线/2px 位移，不缩放。品牌华彩绝不泄进密集界面。</div>
+</div>
+
+<div class="sec"><span class="n">01–06</span><span class="t">品牌时刻</span><span class="s">brand moments · looping</span></div>
+<div class="grid">
+
+  <!-- 1 SEAL AWARD -->
+  <div class="tile"><div class="stage gd-strike">
+    <svg class="mk" viewBox="0 0 120 120"><defs>
+      <linearGradient id="aw" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <linearGradient id="awg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#FFFDF5" stop-opacity=".72"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <clipPath id="awc"><circle cx="60" cy="60" r="52"/></clipPath></defs>
+      <circle class="shock" cx="60" cy="60" r="52" fill="none" stroke="#F2D488" stroke-width="2" opacity="0"/>
+      <g class="disc"><circle cx="60" cy="60" r="52" fill="url(#aw)"/><circle cx="60" cy="60" r="49.5" fill="none" stroke="#7A5A18" stroke-width="6" stroke-dasharray="2 3.2"/><circle cx="60" cy="60" r="44.5" fill="none" stroke="#7A5A18" stroke-width="1" opacity=".6"/><circle cx="60" cy="60" r="41.5" fill="none" stroke="#F7E4A8" stroke-width=".8" opacity=".5"/></g>
+      <g class="detail"><rect x="45" y="45" width="30" height="30" fill="#0A0B0F"/><rect x="58" y="23" width="4" height="22" fill="#0A0B0F"/><rect x="58" y="75" width="4" height="22" fill="#0A0B0F"/></g>
+      <g clip-path="url(#awc)"><rect class="sweep" x="44" y="2" width="22" height="116" fill="url(#awg)" transform="translate(-70 0) skewX(-18)"/></g>
+      <circle class="flash" cx="60" cy="60" r="52" fill="#FFFDF5" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">颁章<span class="en">Seal Award</span><span class="badge b">徽章</span></div>
+      <dl><dt>触发</dt><dd>成交入账 · 认证 · 会员授予</dd><dt>类</dt><dd><span class="mono">.gd-strike</span></dd><dt>beat</dt><dd>520ms</dd></dl></div>
+  </div>
+
+  <!-- 2 SEAM -->
+  <div class="tile"><div class="stage gd-seam">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s2" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <clipPath id="hl" clipPathUnits="userSpaceOnUse"><rect x="-8" y="-2" width="68" height="124"/></clipPath>
+      <clipPath id="hr" clipPathUnits="userSpaceOnUse"><rect x="60" y="-2" width="68" height="124"/></clipPath></defs>
+      <g class="half hl" clip-path="url(#hl)"><path fill-rule="evenodd" fill="url(#s2)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+      <g class="half hr" clip-path="url(#hr)"><path fill-rule="evenodd" fill="url(#s2)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+      <line class="seal" x1="60" y1="15" x2="60" y2="105" stroke="#F7E4A8" stroke-width="2.4" stroke-linecap="round" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">骑缝<span class="en">The Seam</span><span class="badge b">品牌</span></div>
+      <dl><dt>触发</dt><dd>设备绑定 · 配对 · 执行权交接</dd><dt>类</dt><dd><span class="mono">.gd-seam</span></dd><dt>beat</dt><dd>500ms</dd></dl></div>
+  </div>
+
+  <!-- 3 RIPPLE -->
+  <div class="tile"><div class="stage gd-ripple">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s3" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <g stroke="#D4A437" opacity=".12"><line x1="60" y1="8" x2="60" y2="112"/><line x1="8" y1="60" x2="112" y2="60"/></g>
+      <circle class="r r3" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <circle class="r r2" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <circle class="r" cx="60" cy="60" r="30" fill="none" stroke="#D4A437" stroke-width="1.4"/>
+      <rect class="node" x="57.6" y="27.1" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="89.1" y="57.6" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="57.6" y="88.1" width="4.8" height="4.8" fill="#D4A437"/><rect class="node" x="27.1" y="57.6" width="4.8" height="4.8" fill="#D4A437"/>
+      <g transform="translate(60 60) scale(.42) translate(-60 -60)"><path fill-rule="evenodd" fill="url(#s3)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/></g>
+    </svg></div>
+    <div class="cap"><div class="nm">圜纹<span class="en">Coin Ripple</span><span class="badge b">图形</span></div>
+      <dl><dt>触发</dt><dd>同步 · 开屏氛围 · 空状态</dd><dt>类</dt><dd><span class="mono">.gd-ripple</span></dd><dt>循环</dt><dd>3s ambient</dd></dl></div>
+  </div>
+
+  <!-- 4 SPIN -->
+  <div class="tile"><div class="stage gd-spin">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s4" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <path fill-rule="evenodd" fill="url(#s4)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+    </svg></div>
+    <div class="cap"><div class="nm">旋铸<span class="en">Coin Spin</span><span class="badge b">品牌</span></div>
+      <dl><dt>触发</dt><dd>加载 · 成交处理 · 估值</dd><dt>类</dt><dd><span class="mono">.gd-spin</span></dd><dt>循环</dt><dd>3s loop</dd></dl></div>
+  </div>
+
+  <!-- 5 GILT -->
+  <div class="tile"><div class="stage gd-gilt">
+    <svg class="mk" viewBox="0 0 120 120"><defs>
+      <linearGradient id="s5" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient>
+      <linearGradient id="g5" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#FFFDF5" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <clipPath id="c5"><circle cx="60" cy="60" r="46"/></clipPath></defs>
+      <path fill-rule="evenodd" fill="url(#s5)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+      <g clip-path="url(#c5)"><rect class="sweep" x="44" y="6" width="20" height="108" fill="url(#g5)" transform="translate(-70 0) skewX(-18)"/></g>
+    </svg></div>
+    <div class="cap"><div class="nm">光扫<span class="en">Gilt Sweep</span><span class="badge b">品牌</span></div>
+      <dl><dt>触发</dt><dd>价值时刻 · 增值 · premium hover</dd><dt>类</dt><dd><span class="mono">.gd-gilt</span></dd><dt>beat</dt><dd>700ms</dd></dl></div>
+  </div>
+
+  <!-- 6 DRAW -->
+  <div class="tile"><div class="stage gd-draw">
+    <svg class="mk" viewBox="0 0 120 120"><defs><linearGradient id="s6" x1="0" y1=".37" x2="1" y2=".63"><stop offset="0" stop-color="#F2D488"/><stop offset=".46" stop-color="#D4A437"/><stop offset="1" stop-color="#8A671D"/></linearGradient></defs>
+      <path class="solid" fill-rule="evenodd" fill="url(#s6)" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z M58 22 L62 22 L62 45 L58 45 Z M58 75 L62 75 L62 98 L58 98 Z"/>
+      <circle class="ln" cx="60" cy="60" r="46" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6"/>
+      <path class="ln" d="M44.2 60 L44.2 44.2 L57.2 44.2 L57.2 21.2 L62.8 21.2 L62.8 44.2 L75.8 44.2 L75.8 60" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="ln" d="M44.2 60 L44.2 75.8 L57.2 75.8 L57.2 98.8 L62.8 98.8 L62.8 75.8 L75.8 75.8 L75.8 60" pathLength="100" fill="none" stroke="#D4A437" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg></div>
+    <div class="cap"><div class="nm">描金<span class="en">Draw-On</span><span class="badge b">品牌</span></div>
+      <dl><dt>触发</dt><dd>onboarding · 空状态 · hero</dd><dt>类</dt><dd><span class="mono">.gd-draw</span></dd><dt>beat</dt><dd>900ms</dd></dl></div>
+  </div>
+
+</div>
+
+<div class="sec"><span class="n">07–08</span><span class="t">图标事件</span><span class="s">icon-driven · product moments</span></div>
+<div class="grid" style="grid-template-columns:repeat(2,1fr)">
+  <!-- 7 UNLOCK -->
+  <div class="tile"><div class="stage gd-unlock">
+    <svg class="mk" viewBox="0 0 120 120">
+      <path fill-rule="evenodd" fill="#D4A437" d="M60 14 A46 46 0 1 0 60 106 A46 46 0 1 0 60 14 Z M45 45 L75 45 L75 75 L45 75 Z"/>
+      <rect class="kcore" x="45" y="45" width="30" height="30" fill="#F7E4A8" opacity="0"/>
+      <g class="key" fill="#D4A437"><circle cx="60" cy="56" r="6.4"/><path d="M57.2 60 L62.8 60 L64.4 70 L55.6 70 Z"/></g>
+      <circle class="kflash" cx="60" cy="60" r="46" fill="none" stroke="#FFF7E0" stroke-width="2.5" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">开锁<span class="en">Vault Unlock</span><span class="badge b">图标</span></div>
+      <dl><dt>触发</dt><dd>密钥解锁 · 设备授权 · 保险箱开启</dd><dt>类</dt><dd><span class="mono">.gd-unlock</span></dd><dt>beat</dt><dd>360ms</dd></dl></div>
+  </div>
+  <!-- 8 FAILOVER -->
+  <div class="tile"><div class="stage gd-failover">
+    <svg class="mk" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="40" fill="none" stroke="#D4A437" stroke-width="3.5"/>
+      <line x1="60" y1="24" x2="60" y2="96" stroke="#D4A437" stroke-width="3.5" stroke-linecap="round"/>
+      <line class="glow" x1="60" y1="24" x2="60" y2="96" stroke="#FFF7E0" stroke-width="6" stroke-linecap="round" opacity="0"/>
+      <circle class="goldL" cx="42" cy="60" r="9" fill="#D4A437"/>
+      <circle class="blueL" cx="42" cy="60" r="9" fill="none" stroke="#4D8DFF" stroke-width="3.5" opacity="0"/>
+      <circle class="blueR" cx="78" cy="60" r="8" fill="none" stroke="#4D8DFF" stroke-width="3.5"/>
+      <circle class="goldR" cx="78" cy="60" r="8" fill="#D4A437" opacity="0"/>
+      <circle class="tok" cx="42" cy="60" r="4.5" fill="#F2D488" opacity="0"/>
+    </svg></div>
+    <div class="cap"><div class="nm">交权<span class="en">Failover</span><span class="badge b">图标</span></div>
+      <dl><dt>触发</dt><dd>执行权交接 · 故障转移 · 双设备切换</dd><dt>类</dt><dd><span class="mono">.gd-failover</span></dd><dt>beat</dt><dd>520ms</dd></dl></div>
+  </div>
+</div>
+
+<div class="sec"><span class="n">09</span><span class="t">系统级 · 守克制</span><span class="s">restrained · token-timed</span></div>
+<div class="sys">
+  <div class="mini"><div class="stg gd-active">
+    <svg width="66" height="66" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="40" fill="none" stroke="#D4A437" stroke-width="3.5"/>
+      <line x1="60" y1="24" x2="60" y2="96" stroke="#D4A437" stroke-width="3.5" stroke-linecap="round"/>
+      <circle class="ahalo" cx="42" cy="60" r="9" fill="none" stroke="#D4A437" stroke-width="2"/>
+      <circle class="apulse" cx="42" cy="60" r="9" fill="#D4A437"/>
+      <circle cx="78" cy="60" r="8" fill="none" stroke="#4D8DFF" stroke-width="3.5"/>
+    </svg></div>
+    <div class="c"><b>Active 心跳</b>执行设备金点脉动 <span class="mono">.gd-active · 1.8s</span>；Standby 蓝空心静止。仅透明度。</div>
+  </div>
+  <div class="mini"><div class="stg"><div class="liftbox">hover 我</div></div>
+    <div class="c"><b>Hover 提亮一档</b>panel→raised + 2px <span class="mono">--dur-base 160ms</span>。真 CSS transition，无缩放。</div>
+  </div>
+  <div class="mini"><div class="stg"><button class="focusbtn">提交 823 项</button></div>
+    <div class="c"><b>Focus 环</b>2px 蓝 ring <span class="mono">--dur-fast 120ms</span>。hover/focus 均可触发。</div>
+  </div>
+</div>
+
+<div class="sec"><span class="n">TOKENS</span><span class="t">时长 · 缓动 · 绑定</span><span class="s">tokens/motion.css</span></div>
+<table class="tbl">
+  <tr><th>动效</th><th>绑定类</th><th>Token（循环）</th><th>Beat</th><th>层级</th><th>触发</th></tr>
+  <tr><td>颁章 Seal Award</td><td><span class="mono">.gd-strike</span></td><td><span class="mono">--gd-motion-strike</span></td><td>520ms</td><td><span class="tag b">品牌</span></td><td>成交/认证</td></tr>
+  <tr><td>骑缝 Seam</td><td><span class="mono">.gd-seam</span></td><td><span class="mono">--gd-motion-seam</span></td><td>500ms</td><td><span class="tag b">品牌</span></td><td>绑定/交接</td></tr>
+  <tr><td>圜纹 Ripple</td><td><span class="mono">.gd-ripple</span></td><td><span class="mono">--gd-motion-ripple</span></td><td>ambient</td><td><span class="tag b">品牌</span></td><td>同步/氛围</td></tr>
+  <tr><td>旋铸 Spin</td><td><span class="mono">.gd-spin</span></td><td><span class="mono">--gd-motion-spin</span></td><td>loop</td><td><span class="tag b">品牌</span></td><td>加载</td></tr>
+  <tr><td>光扫 Gilt</td><td><span class="mono">.gd-gilt</span></td><td><span class="mono">--gd-motion-gilt</span></td><td>700ms</td><td><span class="tag b">品牌</span></td><td>价值时刻</td></tr>
+  <tr><td>描金 Draw-On</td><td><span class="mono">.gd-draw</span></td><td><span class="mono">--gd-motion-draw</span></td><td>900ms</td><td><span class="tag b">品牌</span></td><td>onboarding</td></tr>
+  <tr><td>开锁 Unlock</td><td><span class="mono">.gd-unlock</span></td><td><span class="mono">--gd-motion-unlock</span></td><td>360ms</td><td><span class="tag b">图标</span></td><td>解锁/授权</td></tr>
+  <tr><td>交权 Failover</td><td><span class="mono">.gd-failover</span></td><td><span class="mono">--gd-motion-failover</span></td><td>520ms</td><td><span class="tag b">图标</span></td><td>交接/转移</td></tr>
+  <tr><td>Active 心跳</td><td><span class="mono">.gd-active</span></td><td><span class="mono">--gd-motion-active</span></td><td>ambient</td><td><span class="tag s">系统</span></td><td>执行中</td></tr>
+  <tr><td>Hover / Focus / Press</td><td><span class="mono">transition</span></td><td><span class="mono">--dur-base / -fast</span></td><td>120–160ms</td><td><span class="tag s">系统</span></td><td>交互</td></tr>
+</table>
+
+<div class="usage">
+  <h4>用法 · 把绑定类加到 Coin Seal 的 SVG（styles.css 已含 motion.css）</h4>
+  <pre><span class="c">&lt;!-- 颁章：盖印落定 + 铸缘转光 --&gt;</span>
+&lt;div class=<span class="k">"gd-strike"</span>&gt;
+  &lt;svg class="mk" viewBox="0 0 120 120"&gt;
+    &lt;g class="disc"&gt;…铣边奖章…&lt;/g&gt;
+    &lt;g class="detail"&gt;…内方+骑缝…&lt;/g&gt;
+    &lt;rect class="sweep" …/&gt; &lt;circle class="flash" opacity="0"/&gt;
+  &lt;/svg&gt;
+&lt;/div&gt;
+<span class="c">/* 系统级：用 token，别用品牌 keyframes */</span>
+.card{ transition: transform <span class="k">var(--dur-base) var(--ease-out)</span>; }</pre>
+  <p class="note"><b>reduced-motion：</b><span class="mono" style="color:var(--gd-text-faint)">@media (prefers-reduced-motion:reduce)</span> 自动关闭全部品牌层动效，画面停在有效静态帧（描金=已描已填、交权=Active 在左、颁章=已成章）。系统级 transition 保留。子元素类名（<span class="mono" style="color:var(--gd-text-faint)">.disc/.detail/.hl/.hr/.r/.node/.key/.tok…</span>）是绑定契约，须与 SVG 一致。</p>
+</div>
+
+</body></html>

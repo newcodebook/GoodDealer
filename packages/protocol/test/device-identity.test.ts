@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   activeDeviceLeaseEnvelopeSchema,
   deviceBindingChallengeSchema,
+  entitlementEnvelopeSchema,
+  offlineDeviceLeaseEnvelopeSchema,
   signedCredentialEnvelopeSchema,
 } from "../src/devices/device-identity";
 
@@ -26,9 +28,25 @@ describe("device identity contract", () => {
     expect(signedCredentialEnvelopeSchema.safeParse(vector("valid/entitlement.json")).success).toBe(true);
   });
 
+  it("binds offline lease renewal to the outer access deadline", () => {
+    expect(offlineDeviceLeaseEnvelopeSchema.safeParse(vector("valid/offline-device-lease.json")).success).toBe(true);
+    expect(
+      offlineDeviceLeaseEnvelopeSchema.safeParse(vector("invalid/offline-lease-renewal-after-access.json")).success,
+    ).toBe(false);
+  });
+
+  it("separates a lifetime commercial entitlement from credential expiry", () => {
+    expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement.json")).success).toBe(true);
+    expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement-grace.json")).success).toBe(true);
+    expect(
+      entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-lifetime-expiry.json")).success,
+    ).toBe(false);
+  });
+
   for (const path of [
     "invalid/challenge-unknown-field.json",
     "invalid/challenge-version-rollback.json",
+    "invalid/challenge-unsafe-key-version.json",
   ]) {
     it(`rejects ${path}`, () => {
       expect(deviceBindingChallengeSchema.safeParse(vector(path)).success).toBe(false);
@@ -39,6 +57,15 @@ describe("device identity contract", () => {
     "invalid/credential-cross-audience.json",
     "invalid/credential-unknown-field.json",
     "invalid/credential-unknown-version.json",
+    "invalid/credential-unsafe-lease-epoch.json",
+    "invalid/credential-invalid-time-order.json",
+    "invalid/credential-snake-case-wire.json",
+    "invalid/entitlement-lifetime-expiry.json",
+    "invalid/entitlement-missing-commercial-expiry.json",
+    "invalid/entitlement-invalid-time.json",
+    "invalid/entitlement-expiry-after-grace.json",
+    "invalid/active-lease-offline-window-too-long.json",
+    "invalid/offline-lease-renewal-after-access.json",
   ]) {
     it(`rejects ${path}`, () => {
       expect(signedCredentialEnvelopeSchema.safeParse(vector(path)).success).toBe(false);

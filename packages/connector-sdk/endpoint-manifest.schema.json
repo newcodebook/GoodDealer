@@ -106,6 +106,8 @@
       "additionalProperties": false,
       "required": [
         "endpointId",
+        "platformAction",
+        "credentialAccessPolicy",
         "method",
         "origin",
         "pathTemplate",
@@ -129,6 +131,8 @@
       ],
       "properties": {
         "endpointId": { "type": "string" },
+        "platformAction": { "enum": ["read", "write"] },
+        "credentialAccessPolicy": { "enum": ["healthy_only", "health_reverification"] },
         "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
         "origin": { "type": "string", "format": "uri" },
         "pathTemplate": { "type": "string" },

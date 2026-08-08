@@ -1,0 +1,14 @@
+/* GoodDealer — base element styles */
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;background:var(--surface-app);color:var(--text-body);font-family:var(--font-sans);font-size:var(--text-sm);line-height:var(--leading-normal);-webkit-font-smoothing:antialiased}
+a{color:var(--text-link);text-decoration:none}
+a:hover{color:#7AAAFF;text-decoration:underline;text-underline-offset:2px}
+::selection{background:rgba(77,141,255,0.30)}
+code,pre,kbd{font-family:var(--font-mono)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--gd-line-strong);border-radius:5px;border:2px solid var(--surface-app)}
+::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+/* Composite controls (Input/Select/Textarea) draw the ring on their wrapper via :focus-within — the inner native control must not draw a second, stacked ring. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{box-shadow:none}

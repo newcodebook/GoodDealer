@@ -17,6 +17,8 @@
   "endpoints": [
     {
       "endpointId": "fixture.records.create",
+      "platformAction": "write",
+      "credentialAccessPolicy": "healthy_only",
       "method": "POST",
       "origin": "https://api.fixture.invalid",
       "pathTemplate": "/v1/zones/{zoneId}/records",
@@ -99,6 +101,8 @@
     },
     {
       "endpointId": "fixture.tokens.rotate",
+      "platformAction": "write",
+      "credentialAccessPolicy": "healthy_only",
       "method": "POST",
       "origin": "https://api.fixture.invalid",
       "pathTemplate": "/v1/tokens/rotate",

@@ -1,0 +1,20 @@
+<!-- @dsCard group="Brand" viewport="700x190" name="Icons" subtitle="品牌场景图标（keyhole 金库锁孔 / active-lease 骑缝双持）+ 功能图标 Lucide 1.5px 描边（CDN 替代）" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{padding:16px 24px;display:flex;gap:24px;align-items:center}
+.v{display:flex;flex-direction:column;align-items:center;gap:8px}
+.l{font-family:var(--font-mono);font-size:10px;color:var(--text-faint)}
+.fn{flex:1;border-left:1px solid var(--gd-line);padding-left:24px;display:flex;flex-direction:column;gap:10px}
+.icons{display:flex;gap:16px;color:var(--text-muted);align-items:center}
+.icons svg{width:16px;height:16px}</style></head>
+<body>
+<div class="v"><img src="../assets/icons/keyhole.svg" height="96" alt=""><span class="l">keyhole · 安全能力</span></div>
+<div class="v"><img src="../assets/icons/active-lease.svg" height="96" alt=""><span class="l">骑缝双持 · Active/Standby</span></div>
+<div class="fn">
+<div class="icons">
+<i data-lucide="globe"></i><i data-lucide="refresh-cw"></i><i data-lucide="search"></i><i data-lucide="filter"></i><i data-lucide="tag"></i><i data-lucide="upload"></i><i data-lucide="shield-check"></i><i data-lucide="alert-triangle" style="color:var(--gd-warning)"></i><i data-lucide="check" style="color:var(--gd-success)"></i><i data-lucide="coins" style="color:var(--gd-gold)"></i>
+</div>
+<span class="l">功能图标：Lucide · 14/16px · 默认 --text-muted，语义色点缀；金色仅价值时刻。无 emoji、无 Unicode 图标。</span>
+</div>
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body></html>
