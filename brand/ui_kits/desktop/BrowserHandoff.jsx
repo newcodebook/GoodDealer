@@ -10,27 +10,43 @@
 //    user operation; the final submit returns to local confirmation per risk policy.
 // The API Key is never taken by the browser: the user pastes it into a Rust-Host NATIVE secret pane that
 // the software cannot read; it is stored encrypted by a local key and never uploaded.
-const {Dialog:HDlg,Button:HBtn,Badge:HBadge,Checkbox:HCheck,StatusDot:HDot,Input:HInput}=window.GoodDealerDesignSystem_b5b0b6;
+const {Dialog:HDlg,Button:HBtn,Badge:HBadge,Checkbox:HCheck,StatusDot:HDot,Input:HInput,Select:HSel}=window.GoodDealerDesignSystem_b5b0b6;
+const HANDOFF_PLATFORMS=["Atom","Afternic","SellerHub","Spaceship","Namecheap","Dynadot","Cloudflare"];
 
-const KV=({k,children})=><div style={{display:"flex",alignItems:"baseline",gap:10,fontSize:12,padding:"4px 0"}}>
-  <span style={{width:96,flex:"none",color:"var(--gd-text-faint)"}}>{k}</span>
+const KV=({k,children})=><div style={{display:"flex",alignItems:"baseline",gap:14,fontSize:12,padding:"4px 0"}}>
+  <span style={{width:128,flex:"none",color:"var(--gd-text-faint)",whiteSpace:"nowrap"}}>{k}</span>
   <span style={{flex:1,minWidth:0,color:"var(--text-1)"}}>{children}</span>
 </div>;
 
 // ——— connection establishment: consent → login observe → native secret pane ———
-function ConnectFlow({platform="SellerHub",account="主账户",host,onClose,onConnected}){
+function ConnectFlow({platform,account,host,pick=false,onClose,onConnected}){
   const I=window.GDI;
-  const h=host||`*.${platform.toLowerCase()}.com`;
-  const pa=`${platform} · ${account}`;
-  const [stage,setStage]=React.useState("consent"); // consent | login | secret
+  const [plat,setPlat]=React.useState(platform||"Atom");
+  const [acct,setAcct]=React.useState(pick?"":(account||"主账户"));
+  const h=host||`*.${plat.toLowerCase()}.com`;
+  const pa=`${plat} · ${acct||"新账户"}`;
+  const [stage,setStage]=React.useState(pick?"select":"consent"); // select | consent | login | secret
   const [key,setKey]=React.useState("");
 
   return <>
+    {/* new-account: choose platform + name the account BEFORE any consent */}
+    <HDlg open={stage==="select"} onClose={onClose} title="新增账户连接 · 选择平台" width={460}
+      footer={<><HBtn onClick={onClose}>取消</HBtn><HBtn variant="primary" disabled={!acct.trim()} onClick={()=>setStage("consent")}>继续</HBtn></>}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <span style={{fontSize:13,color:"var(--gd-text-muted)",lineHeight:1.5}}>同一平台可连接多个账户，每个账户是独立的 ProviderConnection，各自独立凭据、浏览器 Profile 与限流桶。</span>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          <span style={{fontSize:11,color:"var(--gd-text-faint)",letterSpacing:"0.04em"}}>平台</span>
+          <HSel size="md" options={HANDOFF_PLATFORMS} value={plat} onChange={e=>setPlat(e&&e.target?e.target.value:e)}/>
+        </div>
+        <HInput label="账户别名" size="md" placeholder="如 子账户 C · 用于在应用内区分同平台多账户" value={acct} onChange={e=>setAcct(e.target.value)}/>
+      </div>
+    </HDlg>
+
     {/* BrowserSessionConsent — connection only */}
     <HDlg open={stage==="consent"} onClose={onClose} title="连接会话授权 · BrowserSessionConsent" width={520}
-      footer={<><HBtn onClick={onClose}>取消</HBtn><HBtn variant="primary" onClick={()=>setStage("login")} icon={<I.ExternalLink size={13}/>}>打开官方登录页</HBtn></>}>
+      footer={<>{pick&&<HBtn onClick={()=>setStage("select")}>上一步</HBtn>}<HBtn onClick={onClose}>取消</HBtn><HBtn variant="primary" onClick={()=>setStage("login")} icon={<I.ExternalLink size={13}/>}>打开官方登录页</HBtn></>}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <span style={{fontSize:13}}>将在隔离浏览器窗口打开 <b>{platform}</b> 官方登录页，为账户 <b>{account}</b> 建立 ProviderConnection。</span>
+        <span style={{fontSize:13}}>将在隔离浏览器窗口打开 <b>{plat}</b> 官方登录页，为账户 <b>{acct||"新账户"}</b> 建立 ProviderConnection。</span>
         <div style={{border:"1px solid var(--gd-line-strong)",borderRadius:7,background:"var(--gd-panel)",padding:"8px 13px"}}>
           <KV k="ProviderConnection">{pa}</KV>
           <KV k="官方 Host"><span style={{fontFamily:"var(--font-mono)"}}>{h}</span></KV>
@@ -77,7 +93,7 @@ function ConnectFlow({platform="SellerHub",account="主账户",host,onClose,onCo
           <HBadge tone="gold" mono={false} style={{marginLeft:"auto"}}>Rust Host</HBadge>
         </div>
         <div style={{padding:"16px 18px",display:"flex",flexDirection:"column",gap:13}}>
-          <span style={{fontSize:12.5,color:"var(--text-1)",lineHeight:1.55}}>请将从 <b>{platform}</b> 控制台（账户 <b>{account}</b>）复制的 API Key 粘贴到此处。</span>
+          <span style={{fontSize:12.5,color:"var(--text-1)",lineHeight:1.55}}>请将从 <b>{plat}</b> 控制台（账户 <b>{acct||"新账户"}</b>）复制的 API Key 粘贴到此处。</span>
           <HInput label="API Key" size="lg" mono type="password" placeholder="粘贴 API Key" value={key} onChange={e=>setKey(e.target.value)}/>
           <div style={{display:"flex",alignItems:"flex-start",gap:9,padding:"9px 11px",background:"var(--gd-ink)",border:"1px solid var(--gd-line)",borderRadius:6}}>
             <I.Shield size={14} style={{color:"var(--gd-gold)",flex:"none",marginTop:1}}/>

@@ -89,3 +89,33 @@ function MetricStrip({metrics=[]}){
   </div>;
 }
 window.GDMetricStrip=MetricStrip;
+
+// Column priority — narrow tables DROP low-priority columns instead of squeezing them unreadable.
+// column.priority: "essential"(default, always) | "secondary"(hide < bpSecondary) | "supplementary"(hide < bpSupplementary).
+// Judged on the TABLE's own width (ResizeObserver), so a table in a narrow panel sheds regardless of window size.
+// Mirrors the canonical mechanism in components/table/Table.jsx (this kit uses the prebuilt bundle, so the shim
+// bridges until the bundle is rebuilt). forceWidth overrides measurement for testing.
+function GDColumnsForWidth(columns,w,bpSec=640,bpSup=900){
+  if(w==null)return columns;
+  return columns.filter(c=>{const p=c.priority||"essential";
+    if(p==="secondary")return w>=bpSec;
+    if(p==="supplementary")return w>=bpSup;
+    return true;});
+}
+function GDResponsiveTable({columns=[],footer,forceWidth=null,bpSecondary=640,bpSupplementary=900,maxHeight,...rest}){
+  const {Table:GDBundledTable}=window.GoodDealerDesignSystem_b5b0b6;
+  const ref=React.useRef(null);
+  const [w,setW]=React.useState(null);
+  React.useEffect(()=>{if(forceWidth!=null)return;const el=ref.current;if(!el||typeof ResizeObserver==="undefined")return;
+    const ro=new ResizeObserver(es=>setW(es[0].contentRect.width));ro.observe(el);return ()=>ro.disconnect();},[forceWidth]);
+  const eff=forceWidth!=null?forceWidth:w;
+  const shown=GDColumnsForWidth(columns,eff,bpSecondary,bpSupplementary);
+  const hidden=columns.length-shown.length;
+  const foot=(footer||hidden>0)?<>{footer}{hidden>0&&<span style={{marginLeft:"auto",color:"var(--gd-text-faint)"}}>{hidden} 列已折叠 · 加宽以显示</span>}</>:undefined;
+  const fill=maxHeight==="100%";
+  return <div ref={ref} style={{minWidth:0,...(fill?{flex:1,minHeight:0,display:"flex",flexDirection:"column"}:{})}}>
+    <GDBundledTable columns={shown} footer={foot} maxHeight={maxHeight} {...rest}/>
+  </div>;
+}
+window.GDColumnsForWidth=GDColumnsForWidth;
+window.GDResponsiveTable=GDResponsiveTable;

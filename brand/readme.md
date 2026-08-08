@@ -79,6 +79,7 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 对标私人银行终端 / 硬件钱包 / 原生桌面软件（Ledger Live、Linear、Warp、Kraken Pro），刻意避开通用 SaaS 网页观感。规范见 `guidelines/native-chrome.html`。
 
 - **窗口壳层**：`WindowChrome` 提供标题栏（品牌标 + 居中上下文 + 窗口控制键）；应用坐落于深色「桌面」之上、带窗口圆角与外阴影——像原生窗口，不像网页。
+- **窗口尺寸与断点**（规范见 `guidelines/window-sizing.html`，token 在 `tokens/spacing.css`）：原生桌面终端用刻意档位而非流式适配——**最小 960×640、默认首启 1280×832**（写进 `apps/desktop/src-tauri/tauri.conf.json`，非只在 CSS）。断点按窗口宽度：**compact <1080**（主 nav 收 56px 图标轨、状态栏留核心 4 段、⌘K 转图标+键位）· **regular 1080–1320**（full nav）· **wide ≥1320**（状态栏全环境段）。收轨专治设置类双侧栏挤压。
 - **命令工具栏**：`Toolbar` 主栏含 ⌘K 命令域（Raycast/Linear 心智）；次栏（`region`）承载筛选与主动作，而非页面顶部漂浮的 CTA 行。
 - **终端式状态栏**：`StatusBar` 常驻底部，等宽、hairline 分段，显示同步态 / 未同步数 / 最后同步 / Revision / Active 设备 / Epoch / License——原生软件最强信号。
 - **缝合式区块**：内容区用 1px 描线彼此缝合、边到边（KPI 用分隔条 ribbon 而非漂浮卡片网格），结构面无投影；圆角只留给交互控件（按钮/输入/药丸），结构区块方角。
@@ -92,6 +93,8 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **例外仅限单行短文**：`left:50%/translateX(-50%)` 只允许用于**必然单行**的浮层，且必须 `white-space:nowrap` + 内容短到不撞右缘（`WindowChrome` 居中上下文、`Tooltip` 气泡即此类，已合规）。
 - **紧凑横条**（BatchBar / Toolbar / StatusBar）：文字块一律 `white-space:nowrap`；分组用 flex `gap` 与显式分隔符（`.gd-batchbar-sep`），不靠空白符或 auto 宽度承载多元素；计数/标签做成定宽 chip 锚点，避免被压缩。
 - **审查通过**：全库 `left:50%/translateX(-50%)` 两处——WindowChrome context、Tooltip bubble（均为 nowrap 短文，安全）；BatchBar 已改整宽 flex，不再使用。新增浮层须过此三条。
+- **浮层继承 `white-space:nowrap`**：`position:fixed` 只脱离布局定位，不脱离 DOM 继承链。渲染在 `.gd-statusbar-seg`（nowrap）内的浮层（如 `NetworkStatus` 三轴弹层）会继承 nowrap，长文案不换行而溢出定宽浮层——浮层根须显式 `whiteSpace:"normal"` 复位。任何挂在 StatusBar/Tooltip 等 nowrap 容器内的浮层同理。
+- **窄窗（应用 minWidth 960）体检**：验证不能只断言"文案在"，要量**列对齐与横向溢出**。双侧栏界面（设置 = Shell nav 210 + 设置子栏 176）在 compact 档主 nav 收 56px 图标轨补回内容宽度；仍要量最小档：多列行改为收窄定宽 + `minWidth:0` 让次要列 ellipsis 降级（勿让定宽列之和超容器）；并排的多卡/时钟+详情行用 `flexWrap:"wrap"` + `flex:"1 1 220px"` 在窄区自然堆叠。判定真溢出以 `main.scrollWidth>clientWidth`（页面横向滚动）为准，单元素因 ellipsis 产生的 `scrollWidth>clientWidth` 属预期截断、非缺陷。
 
 ## ICONOGRAPHY
 

@@ -68,7 +68,7 @@ function NetworkStatus({net="healthy",onNet}){
     </button>
     {open&&<>
       <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:60}}></div>
-      <div style={{position:"fixed",left:24,bottom:44,zIndex:61,width:340,background:"var(--gd-panel-raised)",border:"1px solid var(--gd-line-strong)",borderRadius:9,boxShadow:"var(--shadow-overlay)",padding:14,display:"flex",flexDirection:"column",gap:11,fontFamily:"var(--font-sans)"}}>
+      <div style={{position:"fixed",left:24,bottom:44,zIndex:61,width:340,background:"var(--gd-panel-raised)",border:"1px solid var(--gd-line-strong)",borderRadius:9,boxShadow:"var(--shadow-overlay)",padding:14,display:"flex",flexDirection:"column",gap:11,fontFamily:"var(--font-sans)",whiteSpace:"normal"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span className="gd-t-label">网络状态 · 三轴独立判定</span>
           {m.degraded?<NBadge tone={m.worst==="danger"?"danger":"warning"} mono={false}>降级</NBadge>:<NBadge tone="success" mono={false}>正常</NBadge>}

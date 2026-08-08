@@ -1,10 +1,10 @@
 window.GD_DATA={
 domains:[
-{id:1,domain:"vault.io",tags:["三字母"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"sold",bin:12800,expiry:"2027-03-14"},
-{id:2,domain:"goldrail.com",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:3500,expiry:"2026-11-02"},
-{id:3,domain:"kanban.ai",tags:["AI"],registrar:"Namecheap",dns:"注册商",platforms:"Afternic",status:"synced",bin:45000,expiry:"2027-01-28"},
+{id:1,domain:"vault.io",tags:["三字母"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"sold",bin:12800,expiry:"2027-03-14",cost:4000,notes:"2021 收购 · 三字母金融词"},
+{id:2,domain:"goldrail.com",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:3500,expiry:"2026-11-02",cost:2800,notes:"组合 A · 关键词域名"},
+{id:3,domain:"kanban.ai",tags:["AI"],registrar:"Namecheap",dns:"注册商",platforms:"Afternic",status:"synced",bin:45000,expiry:"2027-01-28",cost:6500,notes:"AI 热词 · 高潜标的"},
 {id:4,domain:"lumen.dev",tags:[],registrar:"Dynadot",dns:"Cloudflare",platforms:"SellerHub",status:"conflict",bin:980,expiry:"2026-09-19"},
-{id:5,domain:"north.capital",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"synced",bin:8200,expiry:"2028-05-01"},
+{id:5,domain:"north.capital",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"synced",bin:8200,expiry:"2028-05-01",cost:9000,notes:"组合 A · 成本略高于当前 BIN"},
 {id:6,domain:"tessera.xyz",tags:[],registrar:"Namecheap",dns:"注册商",platforms:"—",status:"unlisted",bin:null,expiry:"2026-08-30"},
 {id:7,domain:"quanta.trade",tags:["金融"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:6600,expiry:"2027-06-11"},
 {id:8,domain:"driftline.com",tags:["portfolio-b"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"pending",bin:2400,expiry:"2026-12-24"},

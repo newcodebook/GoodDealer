@@ -25,25 +25,45 @@ function ReadOnlyBanner({unsynced=0,onSwitch}){
     <button onClick={onSwitch} className="gd-btn gd-btn--md gd-btn--primary" style={{flex:"none"}}><I.RefreshCw size={13}/><span style={{marginLeft:6}}>切换为此设备执行</span></button>
   </div>;
 }
-function NavItem({icon:Ic,label,k,active,onGo,count,tone}){
+// Nav item. In the compact breakpoint the sidebar collapses to a 56px icon rail (labels hidden,
+// counts become a corner dot, native title tooltip); this reclaims ~150px exactly where the
+// double-sidebar (Settings) screens run out of room.
+function NavItem({icon:Ic,label,k,active,onGo,count,tone,railed}){
   const on=active===k;
-  return <button style={{...shellStyles.item(on),position:"relative"}} onClick={()=>onGo(k)}
-    onMouseEnter={e=>{if(!on)e.currentTarget.style.background="var(--gd-panel-raised)";}}
-    onMouseLeave={e=>{if(!on)e.currentTarget.style.background="transparent";}}>
+  const [tip,setTip]=React.useState(false);
+  // Collapsed rail: hover/focus shows a styled tooltip to the RIGHT (faster + on-brand vs native title;
+  // also surfaces the count that's otherwise just a dot). aria-label keeps the hidden label accessible.
+  return <button aria-label={railed?(count!=null?`${label} · ${count}`:label):undefined} onClick={()=>onGo(k)}
+    style={{...shellStyles.item(on),position:"relative",justifyContent:railed?"center":"flex-start",padding:railed?0:"0 8px",gap:railed?0:9,width:railed?"calc(100% - 12px)":"calc(100% - 16px)",margin:railed?"1px 6px":"1px 8px"}}
+    onMouseEnter={e=>{setTip(true);if(!on)e.currentTarget.style.background="var(--gd-panel-raised)";}}
+    onMouseLeave={e=>{setTip(false);if(!on)e.currentTarget.style.background="transparent";}}
+    onFocus={()=>setTip(true)} onBlur={()=>setTip(false)}>
     {on&&<span style={shellStyles.itemActiveBar}></span>}
-    <Ic size={15} style={{flex:"none",opacity:on?1:.7}}/>{label}
-    {count!=null&&<span style={{...shellStyles.count,...(tone?{color:`var(--gd-${tone})`}:{})}}>{count}</span>}
+    <Ic size={railed?17:15} style={{flex:"none",opacity:on?1:.7}}/>
+    {!railed&&label}
+    {!railed&&count!=null&&<span style={{...shellStyles.count,...(tone?{color:`var(--gd-${tone})`}:{})}}>{count}</span>}
+    {railed&&count!=null&&<span style={{position:"absolute",top:3,right:5,width:6,height:6,borderRadius:"50%",background:`var(--gd-${tone||"blue"})`}}></span>}
+    {railed&&tip&&<span role="tooltip" style={{position:"absolute",left:"calc(100% + 9px)",top:"50%",transform:"translateY(-50%)",background:"var(--gd-panel-raised)",border:"1px solid var(--gd-line-strong)",borderRadius:"var(--radius-sm)",boxShadow:"var(--shadow-raised)",color:"var(--gd-text)",fontSize:11,fontWeight:400,lineHeight:1.4,padding:"4px 8px",whiteSpace:"nowrap",pointerEvents:"none",zIndex:60,display:"flex",alignItems:"center",gap:7}}>
+      {label}{count!=null&&<span style={{fontFamily:"var(--font-mono)",fontSize:10,color:`var(--gd-${tone||"blue"})`}}>{count}</span>}
+    </span>}
   </button>;
 }
-function Shell({active,onGo,title,crumb,syncing,onSync,unsynced=0,device={name:"MacBook Pro",epoch:41},net="healthy",onNet,role="active",onRole,children}){
+function Shell({active,onGo,title,crumb,syncing,onSync,unsynced=0,device={name:"MacBook Pro",epoch:41},net="healthy",onNet,role="active",onRole,onOpenDomain,children}){
   const [shellW,setShellW]=React.useState(1280);
   React.useEffect(()=>{const el=document.getElementById("root");if(!el)return;const ro=new ResizeObserver(es=>setShellW(es[0].contentRect.width));ro.observe(el);return ()=>ro.disconnect();},[]);
-  const showP2=shellW>=980, showP3=shellW>=1180;
+  const [cmdOpen,setCmdOpen]=React.useState(false);
+  React.useEffect(()=>{const onKey=e=>{if((e.metaKey||e.ctrlKey)&&(e.key==="k"||e.key==="K")){e.preventDefault();setCmdOpen(o=>!o);}};window.addEventListener("keydown",onKey);return ()=>window.removeEventListener("keydown",onKey);},[]);
+  // Named breakpoints on shell (window) width — compact <1080 · regular 1080–1320 · wide ≥1320.
+  // Judged on window width because the 210px nav eats into content; the rail collapse gives it back.
+  const bp=shellW<1080?"compact":shellW<1320?"regular":"wide";
+  const railed=bp==="compact", showP2=bp!=="compact", showP3=bp==="wide";
   const I=window.GDI;
   const standby=role==="standby";
   const other=device.name==="MacBook Pro"?"iPhone 17":"MacBook Pro";
   const mark=<img src="../../assets/logo/mark-flat.svg" width="18" height="18" alt=""/>;
-  const cmd=<div style={shellStyles.cmd}><I.Search size={13}/><span>搜索域名或输入命令</span><span style={shellStyles.kbd}>⌘K</span></div>;
+  const cmd=railed
+    ?<div onClick={()=>setCmdOpen(true)} style={{...shellStyles.cmd,width:"auto",padding:"0 8px",cursor:"pointer"}} title="搜索域名或输入命令 (⌘K)"><I.Search size={13}/><span style={{...shellStyles.kbd,marginLeft:6}}>⌘K</span></div>
+    :<div onClick={()=>setCmdOpen(true)} style={{...shellStyles.cmd,cursor:"pointer"}}><I.Search size={13}/><span>搜索域名或输入命令</span><span style={shellStyles.kbd}>⌘K</span></div>;
   const roleSeg=<button onClick={()=>onRole&&onRole(standby?"active":"standby")} title="切换本机角色（演示）" style={{background:"none",border:"none",padding:0,cursor:"pointer",font:"inherit",color:"inherit",display:"inline-flex",alignItems:"center",gap:6}}>
     {device.name} <Dot tone={standby?"blue":"gold"} hollow={standby}/> <span style={{color:standby?"var(--gd-blue)":"var(--gd-gold)"}}>{standby?"Standby":"Active"}</span></button>;
   const otherSeg=<>{other} <Dot tone={standby?"gold":"blue"} hollow={!standby}/> <span style={standby?{color:"var(--gd-gold)"}:undefined}>{standby?"Active":"Standby"}</span></>;
@@ -64,25 +84,26 @@ function Shell({active,onGo,title,crumb,syncing,onSync,unsynced=0,device={name:"
       ...(showP3?[<span style={{color:"var(--text-3)"}}>Epoch {device.epoch}</span>]:[]),
       ...(showP3?[<span style={{color:"var(--text-3)"}}>年付 License</span>]:[]),
     ]}/>;
-  return <WindowChrome appName="GoodDealer" mark={mark} context={`个人 Workspace · ${title}`} footer={footer} style={{minWidth:760}}>
-    <aside style={shellStyles.side}>
-      <div style={shellStyles.navSec}>资产</div>
-      <NavItem icon={I.Globe} label="资产库" k="assets" active={active} onGo={onGo}/>
-      <NavItem icon={I.Coins} label="销售管理" k="sales" active={active} onGo={onGo}/>
-      <NavItem icon={I.Shield} label="DNS 与验证" k="dns" active={active} onGo={onGo}/>
-      <div style={shellStyles.navSec}>执行</div>
-      <NavItem icon={I.ShieldAlert} label="资产保护" k="protect" active={active} onGo={onGo} count={1} tone="danger"/>
-      <NavItem icon={I.ListChecks} label="批量任务" k="batch" active={active} onGo={onGo}/>
-      <NavItem icon={I.AlertTriangle} label="冲突中心" k="conflicts" active={active} onGo={onGo} count={6} tone="danger"/>
-      <NavItem icon={I.LifeBuoy} label="恢复中心" k="recovery" active={active} onGo={onGo} count={6} tone="warning"/>
-      <NavItem icon={I.Inbox} label="人工任务" k="inbox" active={active} onGo={onGo} count={4} tone="warning"/>
-      <NavItem icon={I.History} label="操作历史" k="history" active={active} onGo={onGo}/>
-      <div style={{marginTop:"auto"}}>
-        <NavItem icon={I.Settings} label="设置" k="settings" active={active} onGo={onGo}/>
-      </div>
-      <div style={{padding:"8px 12px 12px",borderTop:"1px solid var(--gd-line)",margin:"4px 0 0",display:"flex",alignItems:"center",gap:7}}>
-        <img src="../../assets/icons/keyhole.svg" width="14" height="14" alt="" style={{opacity:.85}}/>
-        <span style={{fontSize:10,color:"var(--text-3)",fontFamily:"var(--font-mono)",lineHeight:1.3}}>凭据本地加密<br/>永不上云</span>
+  const navSec=(t)=>railed
+    ?<div style={{height:1,background:"var(--gd-line)",margin:"8px 12px 4px"}}></div>
+    :<div style={shellStyles.navSec}>{t}</div>;
+  return <WindowChrome appName="GoodDealer" mark={mark} context={railed?title:`个人 Workspace · ${title}`} footer={footer} style={{minWidth:960}}>
+    <aside style={{...shellStyles.side,width:railed?56:210}}>
+      {navSec("资产")}
+      <NavItem icon={I.Globe} label="资产库" k="assets" active={active} onGo={onGo} railed={railed}/>
+      <NavItem icon={I.Coins} label="销售管理" k="sales" active={active} onGo={onGo} railed={railed}/>
+      <NavItem icon={I.Shield} label="DNS 与验证" k="dns" active={active} onGo={onGo} railed={railed}/>
+      {navSec("执行")}
+      <NavItem icon={I.ShieldAlert} label="资产保护" k="protect" active={active} onGo={onGo} count={1} tone="danger" railed={railed}/>
+      <NavItem icon={I.ListChecks} label="批量任务" k="batch" active={active} onGo={onGo} railed={railed}/>
+      <NavItem icon={I.AlertTriangle} label="冲突中心" k="conflicts" active={active} onGo={onGo} count={6} tone="danger" railed={railed}/>
+      <NavItem icon={I.LifeBuoy} label="恢复中心" k="recovery" active={active} onGo={onGo} count={6} tone="warning" railed={railed}/>
+      <NavItem icon={I.Inbox} label="人工任务" k="inbox" active={active} onGo={onGo} count={4} tone="warning" railed={railed}/>
+      <NavItem icon={I.History} label="操作历史" k="history" active={active} onGo={onGo} railed={railed}/>
+      {/* Nav is navigation only. The "凭据永不上云" trust promise is made once at the decision point
+          (SignIn); a permanent slogan in the chrome reads as over-reassurance, not reassurance. */}
+      <div style={{marginTop:"auto",paddingBottom:8}}>
+        <NavItem icon={I.Settings} label="设置" k="settings" active={active} onGo={onGo} railed={railed}/>
       </div>
     </aside>
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
@@ -97,6 +118,7 @@ function Shell({active,onGo,title,crumb,syncing,onSync,unsynced=0,device={name:"
           :children}
       </main>
     </div>
+    <window.GDCommandPalette open={cmdOpen} onClose={()=>setCmdOpen(false)} onGo={k=>onGo&&onGo(k)} onOpenDomain={onOpenDomain}/>
   </WindowChrome>;
 }
 window.GDShell=Shell;

@@ -18,7 +18,7 @@ function Stepper({idx}){
           {st==="done"?<window.GDI.Check size={12}/>:i+1}</span>
         {l}
       </div>;})}
-    <div style={{marginTop:"auto",fontSize:10,color:"var(--gd-text-faint)",lineHeight:1.6,padding:"0 4px"}}>本地执行 · 云端同步<br/>凭据经本地密钥加密，永不上云</div>
+    <div style={{marginTop:"auto",fontSize:10,color:"var(--gd-text-faint)",lineHeight:1.6,padding:"0 4px"}}>本地执行 · 云端同步</div>
   </div>;
 }
 const Field=({label,children})=><div style={{display:"flex",flexDirection:"column",gap:6}}><span className="gd-t-label">{label}</span>{children}</div>;

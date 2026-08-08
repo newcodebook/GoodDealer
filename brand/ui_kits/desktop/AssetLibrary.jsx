@@ -55,22 +55,22 @@ function AssetLibrary({domains,updateDomains,addUnsynced,onPlan,onOpenDomain,onR
         <Select size="sm" options={Object.keys(STATUS_MAP)} value={statusF} onChange={e=>setStatusF(e.target.value)}/>
       </>}
       right={<>
-        <Button size="sm" icon={<I.Upload size={14}/>}>导入 CSV</Button>
+        <Button size="sm" icon={<I.Upload size={14}/>} onClick={()=>setDlg("import")}>导入 CSV</Button>
         <Button size="sm" variant="primary" disabled={sel.length===0} onClick={()=>setDlg("price")}>生成批量计划{sel.length>0?` · ${sel.length}`:""}</Button>
       </>}/>
     <div style={{flex:1,minHeight:0,position:"relative",display:"flex"}}>
-      <Table density="regular" selectable selected={sel} onSelectionChange={setSel} onRowClick={r=>onOpenDomain(r.id)}
+      <window.GDResponsiveTable density="regular" selectable selected={sel} onSelectionChange={setSel} onRowClick={r=>onOpenDomain(r.id)}
         sortKey={sortKey} sortDir={sortDir} onSort={(k,d)=>{setSortKey(k);setSortDir(d);}}
         maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
         columns={[
-          {key:"domain",label:"域名",sortable:true,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
-          {key:"tags",label:"标签",render:r=><span style={{display:"inline-flex",gap:4}}>{r.tags.map(t=><Tag key={t} color={t.startsWith("portfolio")?"var(--gd-blue)":undefined}>{t}</Tag>)}</span>},
-          {key:"registrar",label:"注册商",muted:true},
-          {key:"dns",label:"DNS",muted:true},
-          {key:"platforms",label:"平台",muted:true},
-          {key:"status",label:"状态",render:r=>STATUS_BADGE[r.status]},
-          {key:"bin",label:"BIN",numeric:true,sortable:true,render:r=><EditableCell value={r.bin} prefix="$" display={<Money amount={r.bin}/>} onCommit={v=>setPending({row:r,newVal:anum(v)})}/>},
-          {key:"expiry",label:"到期",numeric:true,muted:true,sortable:true,render:r=><span style={{fontSize:12,color:r.expiry<"2026-10-01"?"var(--gd-warning)":undefined}}>{r.expiry}</span>},
+          {priority:"essential",key:"domain",label:"域名",sortable:true,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
+          {priority:"supplementary",key:"tags",label:"标签",render:r=><span style={{display:"inline-flex",gap:4}}>{r.tags.map(t=><Tag key={t} color={t.startsWith("portfolio")?"var(--gd-blue)":undefined}>{t}</Tag>)}</span>},
+          {priority:"secondary",key:"registrar",label:"注册商",muted:true},
+          {priority:"supplementary",key:"dns",label:"DNS",muted:true},
+          {priority:"secondary",key:"platforms",label:"平台",muted:true},
+          {priority:"essential",key:"status",label:"状态",render:r=>STATUS_BADGE[r.status]},
+          {priority:"essential",key:"bin",label:"BIN",numeric:true,sortable:true,render:r=><EditableCell value={r.bin} prefix="$" display={<Money amount={r.bin}/>} onCommit={v=>setPending({row:r,newVal:anum(v)})}/>},
+          {priority:"secondary",key:"expiry",label:"到期",numeric:true,muted:true,sortable:true,render:r=><span style={{fontSize:12,color:r.expiry<"2026-10-01"?"var(--gd-warning)":undefined}}>{r.expiry}</span>},
         ]}
         rows={pageRows}
         footer={<Pagination page={cur} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}
@@ -87,6 +87,7 @@ function AssetLibrary({domains,updateDomains,addUnsynced,onPlan,onOpenDomain,onR
         </BatchBar>
       </div>}
     </div>
+    {dlg==="import"&&<window.GDCsvImport open onClose={()=>setDlg(null)} onImport={n=>{setDlg(null);addUnsynced&&addUnsynced(n);}}/>}
     {dlg==="price"&&<BatchPriceDialog open domains={selDomains} onClose={()=>setDlg(null)} onSubmit={c=>{setDlg(null);onPlan(c);}}/>}
     {dlg==="ns"&&<BatchNsDialog open domains={selDomains} onClose={()=>setDlg(null)} onApply={({applied})=>patchSel({dns:nsProvider(applied)})}/>}
     {dlg==="records"&&<BatchRecordsDialog open domains={selDomains} onClose={()=>setDlg(null)} onApply={()=>queueSel()}/>}

@@ -34,6 +34,9 @@ body{background:#06070A;background-image:radial-gradient(120% 80% at 100% 100%,r
 <script type="text/babel" src="./DomainDetail.jsx"></script>
 <script type="text/babel" src="./EmergencyDelisting.jsx"></script>
 <script type="text/babel" src="./RecoveryCenter.jsx"></script>
+<script type="text/babel" src="./CsvImport.jsx"></script>
+<script type="text/babel" src="./CommandPalette.jsx"></script>
+<script type="text/babel" src="./BackupRestore.jsx"></script>
 <script type="text/babel" src="./ForcedSwitch.jsx"></script>
 <script type="text/babel" src="./BrowserHandoff.jsx"></script>
 <script type="text/babel">
@@ -79,10 +82,10 @@ function App(){
     :screen==="conflicts"?<GDConflictCenter/>
     :screen==="inbox"?<GDTaskInbox/>
     :<Stub name={TITLES[screen]}/>;
-  return <GDShell active={detail?"assets":(screen==="renew"?"assets":screen)} onGo={go} title={title} crumb={crumb} syncing={syncing} onSync={sync} unsynced={unsynced} device={activeDevice} net={net} onNet={setNet} role={role} onRole={setRole}>{body}</GDShell>;
+  return <GDShell active={detail?"assets":(screen==="renew"?"assets":screen)} onGo={go} title={title} crumb={crumb} syncing={syncing} onSync={sync} unsynced={unsynced} device={activeDevice} net={net} onNet={setNet} role={role} onRole={setRole} onOpenDomain={setDetailId}>{body}</GDShell>;
 }
 (function boot(){
-  if(window.GDShell&&window.GDAssetLibrary&&window.GDBatchPreview&&window.GDConflictCenter&&window.GDTaskInbox&&window.GDDomainDetail&&window.GDSettings&&window.GDHistoryLog&&window.GDSalesDesk&&window.GDOnboarding&&window.GDDnsVerify&&window.GDRenewDesk&&window.GDEmergencyDelisting&&window.GDRecoveryCenter&&window.GDForcedSwitch&&window.GDConnectFlow&&window.GDBrowserAutomationGrant&&window.GDNetworkStatus&&window.GDNetworkBanner&&window.GDPagination&&window.GDEditableCell&&window.GDDialogs&&window.GDI){
+  if(window.GDShell&&window.GDAssetLibrary&&window.GDBatchPreview&&window.GDConflictCenter&&window.GDTaskInbox&&window.GDDomainDetail&&window.GDSettings&&window.GDHistoryLog&&window.GDSalesDesk&&window.GDOnboarding&&window.GDDnsVerify&&window.GDRenewDesk&&window.GDEmergencyDelisting&&window.GDRecoveryCenter&&window.GDForcedSwitch&&window.GDCsvImport&&window.GDCommandPalette&&window.GDBackupRestore&&window.GDConnectFlow&&window.GDBrowserAutomationGrant&&window.GDNetworkStatus&&window.GDNetworkBanner&&window.GDPagination&&window.GDEditableCell&&window.GDResponsiveTable&&window.GDDialogs&&window.GDI){
     ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
   }else{setTimeout(boot,20);}
 })();

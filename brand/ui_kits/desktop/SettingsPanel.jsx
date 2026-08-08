@@ -3,7 +3,7 @@
 // the hardware-wallet lease system (Trezor device-status lesson). Handoff runs a confirmation ceremony.
 const {Panel:PPanel,Switch:PSwitch,Button:PBtn,Badge:PBadge,StatusDot:PDot,Select:PSel,Tag:PTag,Dialog:PDlg,Checkbox:PCheck}=window.GoodDealerDesignSystem_b5b0b6;
 
-const SECTIONS=[["conn","连接"],["device","设备与运行态"],["license","许可"],["sync","同步偏好"],["about","关于"]];
+const SECTIONS=[["conn","连接"],["device","设备与运行态"],["license","许可"],["sync","同步偏好"],["backup","备份"],["about","关于"]];
 const KV=({k,children,muted})=><div style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:"1px solid var(--gd-line)",fontSize:13}}>
   <span style={{width:120,flex:"none",color:"var(--gd-text-faint)",fontSize:12}}>{k}</span>
   <span style={{flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8,textAlign:"right",color:muted?"var(--gd-text-muted)":undefined}}>{children}</span>
@@ -106,7 +106,7 @@ function Settings({activeDevice,onSetActive,onRunOnboarding,role}){
       <PPanel flush title="交易平台" actions={<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>改价 / 上下架处理平台 · 按账号连接</span>}>
         {conns.platform.map(c=><ConnRow key={c.platform+c.account} name={c.platform} account={c.account} remoteId={c.remoteId} kind={c.kind} meta={c.meta} method={c.method} quota={c.quota} last={c.last} standby={standby} onConnect={setConnect}/>)}
         {!standby&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"10px 14px"}}>
-          <PBtn size="sm" variant="ghost" icon={<I.ExternalLink size={13}/>} onClick={()=>setConnect({platform:"Atom",account:"新账户"})}>新增账户连接</PBtn>
+          <PBtn size="sm" variant="ghost" icon={<I.ExternalLink size={13}/>} onClick={()=>setConnect({pick:true})}>新增账户连接</PBtn>
           <span style={{fontSize:11,color:"var(--gd-text-faint)"}}>同一平台可连接多个账户，各自独立凭据、浏览器 Profile 与限流桶</span>
         </div>}
       </PPanel>
@@ -155,6 +155,7 @@ function Settings({activeDevice,onSetActive,onRunOnboarding,role}){
         <div style={{fontSize:11,color:"var(--gd-text-faint)",paddingTop:10,lineHeight:1.6}}>离线只读开启时，云端不可达即进入只读视图，常驻显示「数据来自 GoodDealer Cloud · 截至时间」。冲突项永不自动覆盖，统一入冲突中心人工裁决。</div>
       </div>
     </PPanel>,
+    backup:<window.GDBackupRestore/>,
     about:<PPanel title="关于">
       <div style={{display:"flex",flexDirection:"column"}}>
         <KV k="语言 / Locale"><PSel size="sm" options={["中文（zh-CN）","English (en-US)"]} value="中文（zh-CN）" onChange={()=>{}}/></KV>
@@ -183,7 +184,7 @@ function Settings({activeDevice,onSetActive,onRunOnboarding,role}){
         <div style={{borderTop:"1px solid var(--gd-line)",paddingTop:10}}><PCheck checked={ack} onChange={()=>setAck(a=>!a)} label="我确认移交执行权；期间本机将暂时无法执行写操作"/></div>
       </div>}
     </PDlg>
-    {connect&&<window.GDConnectFlow platform={connect.platform} account={connect.account} onClose={()=>setConnect(null)} onConnected={()=>{}}/>}
+    {connect&&<window.GDConnectFlow pick={connect.pick} platform={connect.platform} account={connect.account} onClose={()=>setConnect(null)} onConnected={()=>{}}/>}
   </div>;
 }
 window.GDSettings=Settings;

@@ -69,16 +69,16 @@ function DnsVerify({addUnsynced}){
       <span><b style={{color:"var(--gd-text)",fontWeight:500}}>Nameserver</b> 由注册商委派、<b style={{color:"var(--gd-text)",fontWeight:500}}>DNS 记录</b> 由 DNS 提供商下发；<b style={{color:"var(--gd-text)",fontWeight:500}}>所有权</b>经 DNS TXT <span style={{fontFamily:"var(--font-mono)",color:"var(--gd-text)"}}>_atomverify</span> 校验。修复分别走对应处理平台。</span>
     </div>
     <div style={{flex:1,minHeight:0}}>
-      <VTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
+      <window.GDResponsiveTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
         columns={[
-          {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
-          {key:"owner",label:"所有权",width:96,render:r=><VBadge tone={OWNER[r.owner].tone} mono={false}>{OWNER[r.owner].label}</VBadge>},
-          {key:"ns",label:"Nameserver",render:r=><span style={{display:"inline-flex",alignItems:"center",gap:6,fontFamily:"var(--font-mono)",fontSize:12,color:r.nsOk?"var(--gd-text-muted)":"var(--gd-danger)"}}>{!r.nsOk&&<I.AlertTriangle size={12}/>}{r.ns}</span>},
-          {key:"records",label:"记录",width:84,render:r=><VBadge tone={REC[r.records].tone} mono={false}>{REC[r.records].label}</VBadge>},
-          {key:"provider",label:"DNS 提供商",muted:true,width:112},
-          {key:"status",label:"状态",width:100,render:r=><span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12}}><VDot kind={STAT[r.status].dot} pulse={r.status==="propagating"}/>{STAT[r.status].label}</span>},
-          {key:"last",label:"最后校验",numeric:true,muted:true,width:92},
-          {key:"act",label:"",width:118,render:r=><span style={{display:"flex",justifyContent:"flex-end"}}>{actionCell(r)}</span>},
+          {priority:"essential",key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
+          {priority:"essential",key:"owner",label:"所有权",width:96,render:r=><VBadge tone={OWNER[r.owner].tone} mono={false}>{OWNER[r.owner].label}</VBadge>},
+          {priority:"secondary",key:"ns",label:"Nameserver",render:r=><span style={{display:"inline-flex",alignItems:"center",gap:6,fontFamily:"var(--font-mono)",fontSize:12,color:r.nsOk?"var(--gd-text-muted)":"var(--gd-danger)"}}>{!r.nsOk&&<I.AlertTriangle size={12}/>}{r.ns}</span>},
+          {priority:"secondary",key:"records",label:"记录",width:84,render:r=><VBadge tone={REC[r.records].tone} mono={false}>{REC[r.records].label}</VBadge>},
+          {priority:"supplementary",key:"provider",label:"DNS 提供商",muted:true,width:112},
+          {priority:"essential",key:"status",label:"状态",width:100,render:r=><span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12}}><VDot kind={STAT[r.status].dot} pulse={r.status==="propagating"}/>{STAT[r.status].label}</span>},
+          {priority:"supplementary",key:"last",label:"最后校验",numeric:true,muted:true,width:92},
+          {priority:"essential",key:"act",label:"",width:118,render:r=><span style={{display:"flex",justifyContent:"flex-end"}}>{actionCell(r)}</span>},
         ]}
         rows={view}/>
     </div>

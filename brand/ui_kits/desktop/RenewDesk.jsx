@@ -57,16 +57,16 @@ function RenewDesk({onBack,addUnsynced}){
         <span style={{fontSize:12,color:"var(--gd-text-muted)",whiteSpace:"nowrap"}}>60 天内到期 · 按到期升序 · 续费为注册商操作</span></>}
       right={<RBtn size="sm" variant="primary" disabled={sel.length===0} onClick={()=>setConfirm(true)}>续费所选{sel.length?` · ${sel.length}`:""}</RBtn>}/>
     <div style={{flex:1,minHeight:0,position:"relative",display:"flex"}}>
-      <RTable density="regular" selectable selected={sel} onSelectionChange={setSel} rowKey="id" maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
+      <window.GDResponsiveTable density="regular" selectable selected={sel} onSelectionChange={setSel} rowKey="id" maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
         columns={[
-          {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.renewed?"var(--gd-text-faint)":"var(--text-1)"}}>{r.domain}</span>},
-          {key:"expiry",label:"到期",numeric:true,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.renewed?"var(--gd-text-faint)":expColor(r.expiry)}}>{r.expiry}</span>,width:108},
-          {key:"days",label:"剩余",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{daysTo(r.expiry)}d</span>},
-          {key:"registrar",label:"注册商",muted:true,width:104},
-          {key:"auto",label:"自动续费",width:88,render:r=>r.renewed?<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>:<RSwitch checked={r.auto} onChange={()=>setAuto(r.id,!r.auto)}/>},
-          {key:"term",label:"续费年限",width:112,render:r=>r.renewed?<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>:<RSel size="sm" options={["1","2","3"]} value={String(yearsOf(r.id))} onChange={e=>setTerm(t=>({...t,[r.id]:e.target.value}))}/>},
-          {key:"price",label:"单价/年",numeric:true,width:90,render:r=><RMoney amount={priceOf(r.domain)} tone="body"/>},
-          {key:"subtotal",label:"小计",numeric:true,width:104,render:r=>r.renewed?<RBadge tone="success" mono={false}>已续费</RBadge>:<RMoney amount={lineCost(r)}/>},
+          {priority:"essential",key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.renewed?"var(--gd-text-faint)":"var(--text-1)"}}>{r.domain}</span>},
+          {priority:"secondary",key:"expiry",label:"到期",numeric:true,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.renewed?"var(--gd-text-faint)":expColor(r.expiry)}}>{r.expiry}</span>,width:108},
+          {priority:"essential",key:"days",label:"剩余",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{daysTo(r.expiry)}d</span>},
+          {priority:"supplementary",key:"registrar",label:"注册商",muted:true,width:104},
+          {priority:"secondary",key:"auto",label:"自动续费",width:88,render:r=>r.renewed?<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>:<RSwitch checked={r.auto} onChange={()=>setAuto(r.id,!r.auto)}/>},
+          {priority:"essential",key:"term",label:"续费年限",width:112,render:r=>r.renewed?<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>:<RSel size="sm" options={["1","2","3"]} value={String(yearsOf(r.id))} onChange={e=>setTerm(t=>({...t,[r.id]:e.target.value}))}/>},
+          {priority:"supplementary",key:"price",label:"单价/年",numeric:true,width:90,render:r=><RMoney amount={priceOf(r.domain)} tone="body"/>},
+          {priority:"essential",key:"subtotal",label:"小计",numeric:true,width:104,render:r=>r.renewed?<RBadge tone="success" mono={false}>已续费</RBadge>:<RMoney amount={lineCost(r)}/>},
         ]}
         rows={rows}/>
       {sel.length>0&&<div style={{position:"absolute",bottom:14,left:0,right:0,display:"flex",justifyContent:"center",pointerEvents:"none",zIndex:5}}>

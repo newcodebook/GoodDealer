@@ -36,12 +36,12 @@ function ForcedSwitch({onExit,oldDevice="MacBook Pro",lastOnline="06-12 05:44",u
     {/* stage: countdown (isolation waiting) */}
     {stage==="countdown"&&<>
       <FPanel title="强制切换 · 隔离倒计时" actions={<FBadge tone="warning" mono={false}>隔离中</FBadge>}>
-        <div style={{display:"flex",gap:20,alignItems:"center",padding:"4px 0 12px"}}>
+        <div style={{display:"flex",gap:20,alignItems:"center",flexWrap:"wrap",padding:"4px 0 12px"}}>
           <div style={{flex:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"0 8px"}}>
             <span style={{fontFamily:"var(--font-mono)",fontSize:34,fontWeight:600,color:"var(--gd-warning)",letterSpacing:"0.02em"}}>{untilRel}</span>
             <span style={{fontSize:11,color:"var(--gd-text-faint)"}}>距最早接管时间</span>
           </div>
-          <div style={{flex:1,minWidth:0}}>
+          <div style={{flex:"1 1 240px",minWidth:0}}>
             <Row k="旧设备">{oldDevice}</Row>
             <Row k="最后在线" tone="var(--gd-text-muted)">{lastOnline}</Row>
             <Row k="最早接管时间" tone="var(--gd-warning)">{untilAbs}</Row>
@@ -50,13 +50,13 @@ function ForcedSwitch({onExit,oldDevice="MacBook Pro",lastOnline="06-12 05:44",u
         </div>
       </FPanel>
 
-      <div style={{display:"flex",gap:12}}>
-        <div style={{flex:1,border:"1px solid var(--gd-line)",borderRadius:7,background:"var(--gd-panel)",padding:"11px 13px"}}>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 220px",minWidth:0,border:"1px solid var(--gd-line)",borderRadius:7,background:"var(--gd-panel)",padding:"11px 13px"}}>
           <div style={{fontSize:11,letterSpacing:"0.06em",textTransform:"uppercase",color:"var(--gd-text-faint)",marginBottom:8}}>隔离期内暂停</div>
           {["修改业务数据","批准操作","访问外部平台"].map(x=><div key={x} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"3px 0",color:"var(--gd-text-muted)"}}><I.X size={13} style={{color:"var(--gd-danger)"}}/>{x}</div>)}
           <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"5px 0 0",marginTop:5,borderTop:"1px solid var(--gd-line)",color:"var(--gd-text)"}}><FDot kind="sync" size={7}/>Cloud Read-Only View 保持可用</div>
         </div>
-        <div style={{flex:1,border:"1px solid var(--gd-line)",borderRadius:7,background:"var(--gd-panel)",padding:"11px 13px",display:"flex",flexDirection:"column",gap:7}}>
+        <div style={{flex:"1 1 220px",minWidth:0,border:"1px solid var(--gd-line)",borderRadius:7,background:"var(--gd-panel)",padding:"11px 13px",display:"flex",flexDirection:"column",gap:7}}>
           <div style={{fontSize:11,letterSpacing:"0.06em",textTransform:"uppercase",color:"var(--gd-text-faint)"}}>接管后</div>
           <div style={{fontSize:13,color:"var(--text-1)"}}>预计进入恢复中心 <span style={{fontFamily:"var(--font-mono)",color:"var(--gd-gold)"}}>~{recoveryScale}</span> 项旧修改</div>
           <span style={{fontSize:11,color:"var(--gd-text-faint)",lineHeight:1.5}}>基于活动设备最后申报的同步进度预估；旧修改进入候选，不静默覆盖当前云端值。</span>

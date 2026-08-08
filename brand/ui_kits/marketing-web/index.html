@@ -1,0 +1,256 @@
+<!-- @dsCard group="Marketing Web" viewport="1280x900" name="GoodDealer 营销官网" subtitle="公开落地页（漏斗顶部）· 单页长滚动：Hero → 价值支柱 → 安全模型 → 定价 → FAQ → 下载。四个表面里唯一使用品牌表现层（Coin Seal / 流沙金 / display 标题）；CTA 交接 account-web。严守首版诚实边界（不夸大 Priority-0）" -->
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GoodDealer — 域名批量管理软件 | 多注册商、多平台一处掌控</title>
+<meta name="description" content="从 Spaceship、Namecheap 等注册商统一管理域名，批量上架到 Atom、Afternic 等销售平台，自动完成平台验证，一键同步价格。平台密码始终留在你的电脑上。macOS 与 Windows 桌面软件。">
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="GoodDealer — 域名批量管理软件">
+<meta property="og:description" content="多注册商域名统一管理，批量上架、自动验证、价格同步。平台密码始终留在你的电脑上。">
+<meta property="og:site_name" content="GoodDealer">
+<!-- og:url and og:image: set when the production domain is decided -->
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="GoodDealer — 域名批量管理软件">
+<meta name="twitter:description" content="多注册商域名统一管理，批量上架、自动验证、价格同步。密码不上云。">
+<!-- JSON-LD structured data -->
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"GoodDealer","applicationCategory":"BusinessApplication","operatingSystem":"macOS, Windows","description":"域名批量管理桌面软件。从多个注册商统一管理域名资产，批量上架到销售平台，自动完成平台验证，一键同步价格。平台密码始终留在本地。","offers":[{"@type":"Offer","price":"9.80","priceCurrency":"USD","name":"月付"},{"@type":"Offer","price":"98.00","priceCurrency":"USD","name":"年付"},{"@type":"Offer","price":"498.00","priceCurrency":"USD","name":"终身买断"}]}
+</script>
+<link rel="icon" href="../../assets/logo/mark-16.svg">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="./data.js"></script>
+<style>
+html{scroll-behavior:smooth}
+html,body{height:100%}
+body{margin:0;background:var(--gd-ink);color:var(--text-1);font-family:var(--font-sans);font-size:14px}
+#root{min-height:100vh}
+/* ——— marketing-web shell — the ONLY surface that uses the brand-expressive layer (gold gradient / Coin Seal / display) ——— */
+.mk{min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+.mk-top{position:sticky;top:0;z-index:40;height:60px;flex:none;display:flex;align-items:center;gap:26px;padding:0 28px;background:var(--gd-chrome);border-bottom:1px solid var(--gd-line)}
+.mk-brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--text-1);text-decoration:none}
+.mk-top-nav{display:none;align-items:center;gap:22px;font-size:13px}
+.mk-top-nav a{color:var(--text-2);text-decoration:none}
+.mk-top-nav a:hover{color:var(--text-1)}
+.mk-top-right{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px}
+.mk-top-right a{color:var(--text-2);text-decoration:none}
+.mk-top-right a:hover{color:var(--text-1)}
+.mk-main{flex:1}
+/* section rhythm — marketing spacing, looser than the dense app */
+.mk-sec{padding:88px 28px;max-width:1120px;margin:0 auto}
+.mk-sec--tight{padding:64px 28px}
+.mk-h2{font-size:28px;font-weight:600;letter-spacing:-0.015em;margin:0;color:var(--text-1)}
+.mk-lead{font-size:15px;color:var(--text-2);line-height:1.6;max-width:640px}
+.mk-card{border:1px solid var(--gd-line);background:var(--gd-panel);border-radius:9px;padding:22px 22px}
+.mk-foot{border-top:1px solid var(--gd-line);background:var(--gd-panel);padding:40px 28px 28px}
+.mk-foot-inner{max-width:1120px;margin:0 auto;display:flex;gap:48px;flex-wrap:wrap}
+/* refined primary — gold discipline: the only gold is a 10px minted seal-square, never a fill */
+/* primary CTA — monochromatic gold chip (gold text+border+seal, no fill; faint tint only on hover). No color clash. */
+.mk-stamp{display:inline-flex;align-items:center;gap:10px;height:46px;padding:0 20px;border-radius:6px;border:1px solid var(--gd-gold);background:transparent;color:var(--gd-gold);font-size:14px;font-weight:500;text-decoration:none;cursor:pointer;transition:background-color 160ms ease}
+.mk-stamp:hover{background:var(--gd-gold-tint)}
+/* the nav stamp is an <a> inside .mk-top-right (color:text-2) — keep its gold text from being overridden */
+.mk-top-right a.mk-stamp{color:var(--gd-gold)}
+.mk-stamp i{width:9px;height:9px;background:var(--gd-gold);flex:none;transition:transform 220ms cubic-bezier(.16,.84,.44,1)}
+.mk-stamp:hover i{transform:rotate(45deg)}
+.mk-quiet{display:inline-flex;align-items:center;gap:7px;height:46px;color:var(--text-2);font-size:14px;text-decoration:none;transition:color 150ms ease}
+.mk-quiet:hover{color:var(--gd-gold)}
+.mk-quiet svg{transition:transform 170ms ease}
+.mk-quiet:hover svg{transform:translateX(3px)}
+/* focus & link transitions */
+.mk-top-nav a,.mk-top-right a,.mk-foot a{transition:color 150ms ease}
+.mk a:focus-visible,.mk button:focus-visible{outline:2px solid var(--gd-blue);outline-offset:3px;border-radius:4px}
+/* seal — outer ring rotates continuously (bezel), rosette counter-turns; center Coin Seal stays still */
+@keyframes mk-bezel{to{transform:rotate(360deg)}}
+@keyframes mk-bezel-rev{to{transform:rotate(-360deg)}}
+.mk-seal .mk-reed{transform-box:fill-box;transform-origin:center;animation:mk-bezel 30s linear infinite}
+.mk-seal .mk-rose{transform-box:fill-box;transform-origin:center;animation:mk-bezel-rev 60s linear infinite}
+/* hover ONLY — ripple emanates from the outer ring and expands BEYOND it (bigger than 外圈); no ripple at rest.
+   Modeled on the brand 圜纹 gd-ripple (expand+fade+stagger); tuned radii + brand --gd-motion-ripple/--gd-ease-out. */
+/* breathing cadence: from the mark (scale 1 = R*0.33) swell (吸) → expand past the outer ring + fade (呼) →
+   idle rest gap between pulses. 5s, brand ease-inout. non-scaling-stroke keeps the ring hairline as it grows. */
+@keyframes mk-ripple{0%{transform:scale(1);opacity:0}30%{opacity:.42}55%{transform:scale(4.2);opacity:0}100%{transform:scale(4.2);opacity:0}}
+.mk-seal .mk-ripple{transform-box:fill-box;transform-origin:center;opacity:0}
+.mk-seal:hover .mk-ripple-1{animation:mk-ripple 5s var(--gd-ease-inout) infinite}
+.mk-seal:hover .mk-ripple-2{animation:mk-ripple 5s var(--gd-ease-inout) infinite 1.7s}
+.mk-seal:hover .mk-ripple-3{animation:mk-ripple 5s var(--gd-ease-inout) infinite 3.4s}
+/* 法阵 — hover-only counter-rotating squares (外圆内方). Different speeds create interference.
+   sq-2 base rotation (45°) lives in CSS, not SVG attr, so animation composes cleanly. */
+.mk-seal .mk-sq{transform-box:fill-box;transform-origin:center;transition:opacity .4s ease}
+.mk-seal .mk-sq-2{transform:rotate(45deg)}
+@keyframes mk-sq2-rev{from{transform:rotate(45deg)}to{transform:rotate(-315deg)}}
+.mk-seal:hover .mk-sq-1{animation:mk-bezel 18s linear infinite;opacity:0.28}
+.mk-seal:hover .mk-sq-2{animation:mk-sq2-rev 14s linear infinite;opacity:0.28}
+/* entrance motion */
+@keyframes mk-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes mk-seal-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}
+.mk-rise{animation:mk-rise .62s cubic-bezier(.16,.84,.44,1) both}
+.mk-seal-anim{animation:mk-seal-in .8s cubic-bezier(.16,.84,.44,1) both}
+/* scroll reveal — JS-gated (.js-reveal only added by script), so content is visible if JS/off */
+.js-reveal{opacity:0;transform:translateY(16px)}
+.js-reveal.mk-in{opacity:1;transform:none;transition:opacity .6s cubic-bezier(.16,.84,.44,1),transform .6s cubic-bezier(.16,.84,.44,1)}
+@media (prefers-reduced-motion:reduce){.mk-rise,.mk-seal-anim,.js-reveal,.mk-seal .mk-reed,.mk-seal .mk-rose,.mk-seal .mk-ripple,.mk-seal .mk-sq{animation:none!important;transition:none!important;opacity:1!important;transform:none!important}.mk-seal .mk-ripple{opacity:0!important}}
+/* 骑缝 — perforated gold seam divider */
+.mk-seam{height:1px;width:100%;background-image:linear-gradient(90deg,var(--gd-gold) 0 6px,transparent 6px 14px);background-size:14px 1px;background-repeat:repeat-x;opacity:0.22}
+.mk-rule{width:26px;height:1px;background:var(--gd-line-strong);flex:none}
+/* restrained mono tag — replaces colored badge fills */
+.mk-tag{display:inline-flex;align-items:center;height:19px;padding:0 7px;border:1px solid var(--gd-line-strong);border-radius:3px;font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-3)}
+.mk-tag--gold{border-color:var(--gd-gold);color:var(--gd-gold)}
+/* section registration eyebrow */
+.mk-eyebrow2{display:flex;align-items:center;gap:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-3)}
+.mk-eyebrow2 b{color:var(--gd-gold);font-weight:400}
+/* product vignette — window chrome framing a faithful in-DS reproduction of a real desktop screen */
+.mk-win{border:1px solid var(--gd-line-strong);border-radius:10px;overflow:hidden;background:var(--gd-ink);box-shadow:0 24px 70px -34px rgba(0,0,0,.85)}
+.mk-win-bar{height:34px;flex:none;display:flex;align-items:center;gap:12px;padding:0 13px;background:var(--gd-chrome);border-bottom:1px solid var(--gd-line)}
+.mk-win-dots{display:flex;gap:6px}
+.mk-win-dots span{width:8px;height:8px;border-radius:50%;background:var(--gd-line-strong)}
+.mk-win-title{font-family:var(--font-mono);font-size:11px;color:var(--text-3);letter-spacing:0.04em}
+.mk-win-body{padding:0}
+.mk-vrow{display:flex;align-items:center;height:34px;padding:0 14px;border-top:1px solid var(--gd-line);font-size:12px}
+.mk-vhead{height:28px;font-size:10px;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-3);border-top:none}
+.mk-mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.mk-gold{color:var(--gd-gold)}
+.mk-dot{width:7px;height:7px;border-radius:50%;flex:none}
+/* ═══ feature animations — each panel loops a demonstration of a real feature (6s cycle w/ reset). ═══ */
+.fa{position:relative;padding:16px 16px 14px;min-height:190px}
+.fa-cap{position:absolute;left:16px;bottom:11px;font-size:10.5px;color:var(--text-3);font-family:var(--font-mono)}
+.fa-chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border:1px solid var(--gd-line-strong);border-radius:5px;font-size:11px;color:var(--text-2);background:var(--gd-panel)}
+.fa-live{color:var(--gd-gold);border-color:var(--gd-gold)}
+/* aggregate: the library steps up ONE row per import (rhythmic, tied to arrivals — not a marquee) */
+@keyframes mk-tickup{from{transform:translateY(0)}to{transform:translateY(-30px)}}
+.mk-tickup{animation:mk-tickup .45s ease forwards}
+@keyframes mk-pop{0%{opacity:0;transform:scale(.9)}15%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
+.mk-pop{animation:mk-pop .8s ease forwards}
+/* batch packet flight — CSS (plays on mount, unlike dynamically-added one-shot SMIL). Per-source via --sx/--sy→--ex/--ey. */
+@keyframes mk-pktfly{0%{transform:translate(var(--sx),var(--sy));opacity:0}13%{opacity:1}87%{opacity:1}100%{transform:translate(var(--ex),var(--ey));opacity:0}}
+.mk-pktfly{animation:mk-pktfly 1.2s cubic-bezier(.4,0,.2,1) forwards}
+/* ── 批量上架: domain×platform matrix, cascade of 草稿→在售 (per-cell delay = a diagonal execution wave) ── */
+@keyframes mk-cellon{0%{opacity:0}5%{opacity:1}72%{opacity:1}80%{opacity:0}100%{opacity:0}}
+@keyframes mk-celloff{0%{opacity:1}5%{opacity:0}80%{opacity:0}88%{opacity:1}100%{opacity:1}}
+@keyframes mk-press2{0%,4%{transform:scale(1)}9%{transform:scale(.93)}15%,100%{transform:scale(1)}}
+@keyframes mk-done2{0%,74%{opacity:0}80%{opacity:1}95%,100%{opacity:0}}
+.mk-cellon{animation:mk-cellon 6.5s ease infinite both}
+.mk-celloff{animation:mk-celloff 6.5s ease infinite both}
+.mk-press2{transform-box:fill-box;transform-origin:center;animation:mk-press2 6.5s ease infinite}
+.mk-done2{animation:mk-done2 6.5s ease infinite}
+/* pulsing dots (verifying sub-step indicator) + a live/active dot */
+@keyframes mk-dotpulse{0%,100%{opacity:.2}50%{opacity:1}}
+.mk-dotpulse{animation:mk-dotpulse 1.05s ease-in-out infinite}
+/* ── 所有权验证: write TXT → propagation rings → polling → verified stamp ── */
+@keyframes mk-write{0%,4%{clip-path:inset(0 100% 0 0)}20%{clip-path:inset(0 0 0 0)}100%{clip-path:inset(0 0 0 0)}}
+@keyframes mk-prop{0%,20%{opacity:0;transform:scale(.28)}30%{opacity:.5}58%{opacity:0;transform:scale(1)}100%{opacity:0}}
+@keyframes mk-vwait2{0%,22%{opacity:1}26%,100%{opacity:0}}
+@keyframes mk-ving2{0%,26%{opacity:0}30%,62%{opacity:1}66%,100%{opacity:0}}
+@keyframes mk-vok2{0%,64%{opacity:0}71%{opacity:1}95%{opacity:1}99%,100%{opacity:0}}
+@keyframes mk-stamp2{0%,64%{opacity:0;transform:scale(1.5)}71%{opacity:1;transform:scale(1)}95%{opacity:1;transform:scale(1)}99%,100%{opacity:0}}
+.mk-write{animation:mk-write 7s ease infinite}
+.mk-prop{transform-box:fill-box;transform-origin:center;animation:mk-prop 7s ease-out infinite}
+.mk-vwait2{animation:mk-vwait2 7s steps(1,end) infinite}
+.mk-ving2{animation:mk-ving2 7s steps(1,end) infinite}
+.mk-vok2{animation:mk-vok2 7s steps(1,end) infinite}
+.mk-stamp2{transform-box:fill-box;transform-origin:center;animation:mk-stamp2 7s ease infinite}
+/* ── 价格同步: central price change → pulses travel OUT along spokes → nodes light SYNCED ── */
+@keyframes mk-pold2{0%,16%{opacity:1}22%{opacity:0}90%{opacity:0}96%,100%{opacity:1}}
+@keyframes mk-pnew2{0%,18%{opacity:0}24%{opacity:1}88%{opacity:1}94%,100%{opacity:0}}
+@keyframes mk-spoke{0%,22%{opacity:0;transform:translate(0,0)}30%{opacity:1}58%{opacity:1;transform:translate(var(--dx),var(--dy))}66%{opacity:0}100%{opacity:0}}
+@keyframes mk-synced2{0%,54%{opacity:0;transform:translateY(3px)}63%{opacity:1;transform:none}90%{opacity:1}96%,100%{opacity:0}}
+.mk-pold2{animation:mk-pold2 6.5s ease infinite}
+.mk-pnew2{animation:mk-pnew2 6.5s ease infinite}
+.mk-spoke{animation:mk-spoke 6.5s cubic-bezier(.4,0,.2,1) infinite}
+.mk-synced2{animation:mk-synced2 6.5s ease infinite}
+@media (prefers-reduced-motion:reduce){
+  .mk-cellon,.mk-celloff,.mk-press2,.mk-done2,.mk-write,.mk-prop,.mk-vwait2,.mk-ving2,.mk-vok2,.mk-stamp2,.mk-pold2,.mk-pnew2,.mk-spoke,.mk-synced2,.mk-pktfly,.mk-dotpulse{animation:none!important}
+  .mk-celloff,.mk-vwait2,.mk-ving2,.mk-prop,.mk-pold2,.mk-spoke{opacity:0!important}
+  .mk-cellon,.mk-vok2,.mk-stamp2,.mk-pnew2,.mk-synced2{opacity:1!important}
+  .mk-write{clip-path:none!important}
+}
+/* aggregate: full ledger stays; a gold highlight travels down it (continuous intake); sources pulse */
+@keyframes fa-rowflash{0%,8%{background:transparent}15%{background:var(--gd-gold-tint)}30%,100%{background:transparent}}
+@keyframes fa-srcp{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes fa-blip{0%,60%{opacity:0}68%{opacity:1}90%,100%{opacity:0}}
+.fa-arow{animation:fa-rowflash 6s var(--gd-ease-out) infinite}
+.fa-src .mk-dot{animation:fa-srcp 6s ease-in-out infinite}
+.fa-dedup{animation:fa-blip 6s ease-out infinite}
+/* list: confirm → sweep → 草稿转在售 cascade → done */
+@keyframes fa-press{0%,4%{transform:scale(1)}8%{transform:scale(.93)}14%,100%{transform:scale(1)}}
+@keyframes fa-sweep{0%,11%{opacity:0;transform:translateY(4px)}15%{opacity:.45}66%{opacity:.45;transform:translateY(var(--sh,116px))}72%{opacity:0}100%{opacity:0}}
+@keyframes fa-on{0%,17%{opacity:0;transform:scale(.85)}25%{opacity:1;transform:none}84%{opacity:1}92%,100%{opacity:0}}
+@keyframes fa-off{0%,17%{opacity:1}25%{opacity:0}92%{opacity:0}100%{opacity:1}}
+@keyframes fa-done{0%,70%{opacity:0;transform:translateY(4px)}77%{opacity:1;transform:none}90%,100%{opacity:0}}
+.fa-press{animation:fa-press 6s var(--gd-ease-out) infinite}
+.fa-sweep{position:absolute;left:14px;right:14px;height:30px;background:linear-gradient(var(--gd-gold-tint),transparent);border-top:1px solid var(--gd-gold);pointer-events:none;animation:fa-sweep 6s var(--gd-ease-inout) infinite}
+.fa-on{animation:fa-on 6s var(--gd-ease-out) infinite both}
+.fa-off{animation:fa-off 6s var(--gd-ease-out) infinite both}
+.fa-done{animation:fa-done 6s var(--gd-ease-out) infinite both}
+/* verify: TXT writes → verifying spinner → verified */
+@keyframes fa-txtin{0%,7%{opacity:0;transform:translateY(-5px)}17%{opacity:1;transform:none}100%{opacity:1}}
+@keyframes fa-spin{to{transform:rotate(360deg)}}
+@keyframes fa-vwait{0%,19%{opacity:1}23%,100%{opacity:0}}
+@keyframes fa-ving{0%,23%{opacity:0}27%,63%{opacity:1}67%,100%{opacity:0}}
+@keyframes fa-vok{0%,65%{opacity:0}71%,90%{opacity:1}96%,100%{opacity:0}}
+.fa-txtin{animation:fa-txtin 6s var(--gd-ease-out) infinite both}
+.fa-spin{animation:fa-spin 1s linear infinite}
+.fa-vwait{animation:fa-vwait 6s steps(1,end) infinite both}
+.fa-ving{animation:fa-ving 6s steps(1,end) infinite both}
+.fa-vok{animation:fa-vok 6s steps(1,end) infinite both}
+/* sync: central price change → propagation pulses → nodes SYNCED */
+@keyframes fa-pold{0%,13%{opacity:1}19%{opacity:0}88%{opacity:0}96%,100%{opacity:1}}
+@keyframes fa-pnew{0%,15%{opacity:0}21%{opacity:1}86%{opacity:1}94%,100%{opacity:0}}
+@keyframes fa-prop{0%,22%{opacity:0;transform:scale(.3)}31%{opacity:.55}56%{opacity:0;transform:scale(1)}100%{opacity:0}}
+@keyframes fa-synced{0%,30%{opacity:0;transform:translateY(3px)}40%{opacity:1;transform:none}86%{opacity:1}94%,100%{opacity:0}}
+.fa-pold{animation:fa-pold 6s ease-out infinite both}
+.fa-pnew{animation:fa-pnew 6s ease-out infinite both}
+.fa-prop{position:absolute;border:1px solid var(--gd-gold);border-radius:50%;pointer-events:none;transform-box:fill-box;transform-origin:center;animation:fa-prop 6s var(--gd-ease-out) infinite both}
+.fa-synced{animation:fa-synced 6s var(--gd-ease-out) infinite both}
+@media (prefers-reduced-motion:reduce){
+  .fa-arow,.fa-src .mk-dot,.fa-dedup,.fa-press,.fa-sweep,.fa-on,.fa-off,.fa-done,.fa-txtin,.fa-spin,.fa-vwait,.fa-ving,.fa-vok,.fa-pold,.fa-pnew,.fa-prop,.fa-synced{animation:none!important}
+  .fa-sweep,.fa-off,.fa-vwait,.fa-ving,.fa-pold,.fa-prop{opacity:0!important}   /* hide transient states */
+  .fa-arow,.fa-on,.fa-done,.fa-vok,.fa-pnew,.fa-synced{opacity:1!important;transform:none!important}  /* rest on resolved frame */
+}
+@media (min-width:880px){.mk-top-nav{display:flex}}
+@media (max-width:880px){.mk-sec{padding:64px 18px}.mk-foot-inner{gap:28px}}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel" src="./SiteShell.jsx"></script>
+<script type="text/babel" src="./Seal.jsx"></script>
+<script type="text/babel" src="./Hero.jsx"></script>
+<script type="text/babel" src="./Benefits.jsx"></script>
+<script type="text/babel" src="./Pillars.jsx"></script>
+<script type="text/babel" src="./Workflow.jsx"></script>
+<script type="text/babel" src="./Showcase.jsx"></script>
+<script type="text/babel" src="./Security.jsx"></script>
+<script type="text/babel" src="./Pricing.jsx"></script>
+<script type="text/babel" src="./Faq.jsx"></script>
+<script type="text/babel" src="./DownloadCTA.jsx"></script>
+<script type="text/babel">
+function App(){
+  return <window.MKShell>
+    <window.MKHero/>
+    <section id="benefits"><window.MKBenefits/></section>
+    <section id="value"><window.MKPillars/></section>
+    <section id="workflow"><window.MKWorkflow/></section>
+    <section id="showcase"><window.MKShowcase/></section>
+    <section id="security"><window.MKSecurity/></section>
+    <section id="pricing"><window.MKPricing/></section>
+    <section id="faq"><window.MKFaq/></section>
+    <section id="download"><window.MKDownload/></section>
+  </window.MKShell>;
+}
+(function boot(){
+  if(window.MKShell&&window.MKSeal&&window.MKHero&&window.MKBenefits&&window.MKPillars&&window.MKWorkflow&&window.MKShowcase&&window.MKSecurity&&window.MKPricing&&window.MKFaq&&window.MKDownload&&window.MK_DATA){
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+    reveal();
+  }else{setTimeout(boot,20);}
+})();
+// scroll reveal — sections fade up as they enter. JS-gated so nothing is hidden if this never runs.
+function reveal(){
+  if(window.matchMedia&&window.matchMedia("(prefers-reduced-motion:reduce)").matches) return;
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add("mk-in");io.unobserve(e.target);}});},{threshold:0.12,rootMargin:"0px 0px -8% 0px"});
+  (function arm(){var secs=document.querySelectorAll("#root main > section");if(!secs.length){return void setTimeout(arm,40);}
+    secs.forEach(function(s){s.classList.add("js-reveal");io.observe(s);});})();
+}
+</script></body></html>

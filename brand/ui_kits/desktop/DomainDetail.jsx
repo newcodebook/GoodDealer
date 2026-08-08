@@ -49,6 +49,7 @@ function DomainDetail({domain,onBack,updateDomains,addUnsynced}){
     {l:"当前状态",v:<span style={{display:"inline-flex"}}>{STATUS[domain.status]}</span>},
     {l:"到期",v:<span style={{fontFamily:"var(--font-mono)",fontSize:16,color:soon?"var(--gd-warning)":"var(--text-1)"}}>{domain.expiry}</span>},
     {l:"活跃 Listing",v:<span style={{fontFamily:"var(--font-mono)",fontSize:18}}>{s.listings.filter(x=>x.status==="active").length}</span>},
+    {l:"购入成本",v:domain.cost!=null?<span style={{display:"flex",flexDirection:"column",gap:2}}><DMoney amount={domain.cost} size={16} tone="body"/>{domain.bin!=null&&<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:domain.bin-domain.cost>=0?"var(--gd-success)":"var(--gd-danger)"}}>{domain.bin-domain.cost>=0?"浮盈 +":"浮亏 −"}{Math.abs(domain.bin-domain.cost).toLocaleString()}</span>}</span>:<span style={{fontFamily:"var(--font-mono)",fontSize:16,color:"var(--gd-text-faint)"}}>—</span>},
   ];
   const lstBadge=st=>st==="sold"?<DBadge tone="gold">SOLD</DBadge>:st==="pending"?<DBadge tone="warning" mono={false}>等待</DBadge>:<DBadge tone="success" mono={false}>在售</DBadge>;
   return <div data-screen-label="域名详情" style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,overflow:"auto"}}>
@@ -67,6 +68,10 @@ function DomainDetail({domain,onBack,updateDomains,addUnsynced}){
       {ribbon.map((r,i)=><div key={i} style={{flex:1,padding:"12px 18px",borderRight:i<ribbon.length-1?"1px solid var(--gd-line)":"none",display:"flex",flexDirection:"column",gap:5}}>
         <span className="gd-t-label">{r.l}</span>{r.v}</div>)}
     </div>
+    {domain.notes&&<div style={{display:"flex",alignItems:"baseline",gap:10,padding:"9px 18px",borderBottom:"1px solid var(--gd-line)",flex:"none",fontSize:12}}>
+      <span className="gd-t-label" style={{flex:"none"}}>备注</span>
+      <span style={{color:"var(--gd-text-muted)"}}>{domain.notes}</span>
+    </div>}
     <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1.1fr)",gap:14,padding:16,alignItems:"start"}}>
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
         <DPanel title="注册信息">
@@ -98,23 +103,23 @@ function DomainDetail({domain,onBack,updateDomains,addUnsynced}){
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
         <DPanel flush title="销售 Listing" actions={listed?<DBtn size="sm" variant="ghost" onClick={()=>setDlg("price")}>改价</DBtn>:null}>
-          {s.listings.length>0?<DTable density="compact" rowKey="platform"
+          {s.listings.length>0?<window.GDResponsiveTable density="compact" rowKey="platform"
             columns={[
-              {key:"platform",label:"平台"},
-              {key:"status",label:"状态",render:r=>lstBadge(r.status)},
-              {key:"price",label:"价格",numeric:true,render:r=><DMoney amount={r.price}/>},
-              {key:"updated",label:"更新",numeric:true,muted:true},
+              {priority:"essential",key:"platform",label:"平台"},
+              {priority:"essential",key:"status",label:"状态",render:r=>lstBadge(r.status)},
+              {priority:"essential",key:"price",label:"价格",numeric:true,render:r=><DMoney amount={r.price}/>},
+              {priority:"supplementary",key:"updated",label:"更新",numeric:true,muted:true},
             ]} rows={s.listings} style={{border:"none",borderRadius:0}}/>
           :<div style={{padding:"20px 14px",fontSize:12,color:"var(--gd-text-faint)",display:"flex",alignItems:"center",gap:10}}>
             未在任何平台上架 · <DBtn size="sm" variant="primary" onClick={()=>setDlg("list")}>上架</DBtn></div>}
         </DPanel>
         <DPanel flush title="DNS 记录" actions={<DBtn size="sm" variant="ghost" onClick={()=>setDlg("records")}>修改记录</DBtn>}>
-          <DTable density="compact" rowKey="host"
+          <window.GDResponsiveTable density="compact" rowKey="host"
             columns={[
-              {key:"type",label:"类型",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--gd-blue)"}}>{r.type}</span>,width:64},
-              {key:"host",label:"主机",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.host}</span>},
-              {key:"value",label:"值",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{r.value}</span>},
-              {key:"ttl",label:"TTL",numeric:true,muted:true,width:64},
+              {priority:"essential",key:"type",label:"类型",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--gd-blue)"}}>{r.type}</span>,width:64},
+              {priority:"essential",key:"host",label:"主机",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.host}</span>},
+              {priority:"essential",key:"value",label:"值",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{r.value}</span>},
+              {priority:"secondary",key:"ttl",label:"TTL",numeric:true,muted:true,width:64},
             ]} rows={s.records} style={{border:"none",borderRadius:0}}/>
         </DPanel>
         <DPanel flush title="操作历史">
