@@ -2,3 +2,6 @@ packages:
   - apps/*
   - packages/*
   - packages/connectors/*
+
+overrides:
+  nanoid@<3.3.17: 3.3.17
