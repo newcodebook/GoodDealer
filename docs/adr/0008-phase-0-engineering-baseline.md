@@ -14,7 +14,7 @@ Phase 0 审查中的 R0-10 与 R0-11 指出：目录和依赖方向虽然已经�
 
 ### 工具链
 
-采用 [Phase 0 工程基线](../PHASE0_ENGINEERING_BASELINE.md) 中的精确版本：Node 24 LTS、pnpm 11、Rust 1.97.1、TypeScript 7、Tauri 2.11、与 Tauri runtime 对齐的 Wry 0.55.1、SQLCipher 4.17 和 PostgreSQL 18.4。版本文件和 Lockfile 是构建输入，不依赖开发者机器上的隐式全局版本。
+采用 [Phase 0 工程基线](../phase0/PHASE0_ENGINEERING_BASELINE.md) 中的精确版本：Node 24 LTS、pnpm 11、Rust 1.97.1、TypeScript 7、Tauri 2.11、与 Tauri runtime 对齐的 Wry 0.55.1、SQLCipher 4.17 和 PostgreSQL 18.4。版本文件和 Lockfile 是构建输入，不依赖开发者机器上的隐式全局版本。
 
 ### 平台范围
 
@@ -32,7 +32,7 @@ macOS 15 同时存在 GitHub-hosted arm64 与 Intel GA Runner，可以让最低�
 
 ### CI 与发布责任
 
-使用固定版本 Runner 标签，不使用会漂移的 `*-latest`。Workflow 在 PR、`main` Push 与人工触发时运行且不使用路径过滤；仅取消相同 PR 的过期运行，不取消 `main` 或人工证据运行。PR 检出 Head SHA，其他事件检出触发 SHA，证据不得绑定 GitHub 合成 Merge Commit。权限固定为 `contents: read` 与解析精确 Job URL 所需的 `actions: read`，Checkout 不持久化凭据，Action 引用固定到完整 Commit SHA。质量 Profile 执行 pnpm 与锁定版本 `cargo-audit` 的依赖漏洞门禁；Dependabot 每周检查 npm、Cargo 与 GitHub Actions 更新。当前私有仓库套餐不提供 Branch Protection、Ruleset 或 Secret Scanning，因此不把平台强制合并控制作为 Phase 0 前置；日常变更由 Owner 使用 PR 模板确认最终 Commit 的四个 CI Check，缺失、失败、取消或 Commit 不匹配均不得人工放行。普通 PR 只执行无生产秘密的质量和原生编译门禁；签名、公证及生产证书只允许 Release Engineering 在专用环境执行。每个 Job 失败关闭校验预期/实际平台，记录 Runner Image，并以 Run ID/Attempt 区分 Manifest 与日志传输制品，保留 90 天；Gate 关闭前必须把 Attestation `evidence_sets[]` 引用的逐字节相同证据包提升到覆盖 Gate 与项目审计期的长期不可变归档。软门禁不改变独立 Reviewer、Approver 或 GateClosureAttestation 的约束。
+使用固定版本 Runner 标签，不使用会漂移的 `*-latest`。Workflow 在 PR、`main` Push 与人工触发时运行且不使用路径过滤；仅取消相同 PR 的过期运行，不取消 `main` 或人工证据运行。PR 检出 Head SHA，其他事件检出触发 SHA，证据不得绑定 GitHub 合成 Merge Commit。权限固定为 `contents: read` 与解析精确 Job URL 所需的 `actions: read`，Checkout 不持久化凭据，Action 引用固定到完整 Commit SHA。质量 Profile 执行 pnpm 与锁定版本 `cargo-audit` 的依赖漏洞门禁；Dependabot 每周检查 npm、Cargo 与 GitHub Actions 更新。开发阶段仓库临时公开以使用 GitHub Hosted Runner，正式运营前仍计划恢复为封闭项目；当前公开窗口未配置 Branch Protection 或 Ruleset，因此平台强制合并控制不能成为跨可见性状态的永久假设。日常变更由 Owner 使用 PR 模板确认最终 Commit 的四个 CI Check，缺失、失败、取消或 Commit 不匹配均不得人工放行。普通 PR 只执行无生产秘密的质量和原生编译门禁；签名、公证及生产证书只允许 Release Engineering 在专用环境执行。每个 Job 失败关闭校验预期/实际平台，记录 Runner Image，并以 Run ID/Attempt 区分 Manifest 与日志传输制品，保留 90 天；Gate 关闭前必须把 Attestation `evidence_sets[]` 引用的逐字节相同证据包提升到覆盖 Gate 与项目审计期的长期不可变归档。软门禁不改变独立 Reviewer、Approver 或 GateClosureAttestation 的约束。
 
 Runner 镜像中的同版本残缺 rustup 组件不是可信构建输入。Workflow 在临时 Runner 上先卸载该固定版本（不存在时允许继续），再用 `--force`、minimal profile 和明确的 rustfmt/clippy 集合重装；Manifest 中的最终 rustc/cargo 版本探针仍必须匹配基线。
 

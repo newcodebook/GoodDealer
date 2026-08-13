@@ -84,7 +84,7 @@ Roadmap 的每一项 Phase 0 工作必须在进入实现前归入上述一个 WP
 
 ### 3.1 WP-0 当前证据
 
-WP-0 的版本和支持范围由 [PHASE0_ENGINEERING_BASELINE.md](PHASE0_ENGINEERING_BASELINE.md) 管理，决策理由见 [ADR-0008](adr/0008-phase-0-engineering-baseline.md)。
+WP-0 的版本和支持范围由 [PHASE0_ENGINEERING_BASELINE.md](PHASE0_ENGINEERING_BASELINE.md) 管理，决策理由见 [ADR-0008](../adr/0008-phase-0-engineering-baseline.md)。
 
 R0-10 的共享 Wire Envelope 语义已冻结，但证据仍在执行中：
 
@@ -100,11 +100,11 @@ P0-07 的 `pnpm evidence:wp5 --slice sqlcipher` 已建立测试专用结构化�
 
 第二入口 `pnpm evidence:wp5:bundle` 仅通过默认关闭的 `sqlcipher-bundle-spike` feature 链接 optional SQLCipher，并使用独立命名/identifier 的可丢弃 Tauri 配置；普通桌面仍不链接 SQLCipher。它生成 macOS `.app` 或 Windows `.msi`，从包内程序运行随机临时 DB 探针并记录包内 executable/bundle SHA-256。本机 macOS arm64 已通过完整构建和包内运行，但 dirty 诊断 Manifest 不具技术资格；三平台 `wp5-sqlcipher-bundle` CI 仍待取得。即使该 CI 通过，也仍缺 Windows 11 24H2 实际安装/运行、长期不可变归档、独立 Security Review 和 GateClosureAttestation；Spike 无签名身份、不接生产存储、Keychain、业务 IPC、网络或用户数据。因此 P0-07、R0-08、R0-16 继续保持 In Progress。
 
-当前账号套餐不提供私有仓库 Branch Protection/Ruleset，因此上述四个 Check 通过 PR 模板和 Owner 合并前复核执行，不属于 GitHub 平台强制的 Required Checks。该账号能力差异不降低 R0-11 关闭标准：人工勾选、直接 Push 或 Owner 自审均不能替代与最终 Commit 一致的四份 CI Evidence、长期不可变归档和独立 Attestation。
+开发阶段仓库临时公开以取得 Hosted Runner 证据，正式运营前计划恢复为封闭项目；当前公开窗口没有配置 Branch Protection/Ruleset，恢复封闭后可用的平台治理能力需按届时套餐重验。因此上述四个 Check 仍通过 PR 模板和 Owner 合并前复核执行，不属于 GitHub 平台强制的 Required Checks。该可见性策略不降低 R0-11 关闭标准：人工勾选、直接 Push 或 Owner 自审均不能替代与最终 Commit 一致的四份 CI Evidence、长期不可变归档和独立 Attestation。
 
 ## 4. Secure Host 决策包当前证据
 
-R0-02、R0-03 与 R0-06 的当前事实源、已完成证据和剩余平台证据见 [PHASE0_SECURE_HOST_BASELINE.md](PHASE0_SECURE_HOST_BASELINE.md)。对应决策为 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
+R0-02、R0-03 与 R0-06 的当前事实源、已完成证据和剩余平台证据见 [PHASE0_SECURE_HOST_BASELINE.md](PHASE0_SECURE_HOST_BASELINE.md)。对应决策为 [ADR-0009](../adr/0009-endpoint-capability-registry.md)、[ADR-0010](../adr/0010-host-owned-secret-path.md) 和 [ADR-0011](../adr/0011-device-identity-lifecycle.md)。
 
 三项状态均为 `In Progress`：设计落档与可移植 Contract 证据不能替代 Windows/macOS 原生网络与秘密输入验证，也不能替代 Cloud 事务、并发和经审查密码学库的联合证据。在这些证据齐全前，Fallback 继续生效。
 

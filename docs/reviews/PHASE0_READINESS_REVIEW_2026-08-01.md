@@ -10,7 +10,7 @@
 
 基线工作区：Clean，只有文档，尚未初始化应用代码
 
-Finding 的当前执行状态、范围、关闭条件和最终准入由 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 管理；本报告保留审查时 R0-01～R0-14 的证据、定级和初始关闭条件。其 §10 执行顺序与 §11 最终准入只描述 2026-08-01 基线，已被当前 Gate 台账取代；后续新增的 R0-15/R0-16 不属于本历史报告。
+Finding 的当前执行状态、范围、关闭条件和最终准入由 [PHASE0_GATE_REGISTER.md](../phase0/PHASE0_GATE_REGISTER.md) 管理；本报告保留审查时 R0-01～R0-14 的证据、定级和初始关闭条件。其 §10 执行顺序与 §11 最终准入只描述 2026-08-01 基线，已被当前 Gate 台账取代；后续新增的 R0-15/R0-16 不属于本历史报告。
 
 ## 1. 最终结论
 
@@ -46,11 +46,11 @@ Finding 的当前执行状态、范围、关闭条件和最终准入由 [PHASE0_
 
 ### 2.2 权威层级
 
-按 [USER_JOURNEYS.md](USER_JOURNEYS.md#9-评审与维护规则) 已有规则执行：
+按 [USER_JOURNEYS.md](../USER_JOURNEYS.md#9-评审与维护规则) 已有规则执行：
 
 - Journey 文档拥有端到端目标、覆盖状态和阶段 Gate。
 - 专题文档拥有具体状态机、协议和恢复语义。
-- [ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md) 拥有目录、依赖和工程归属。
+- [ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md) 拥有目录、依赖和工程归属。
 - ADR 和已接受产品决定拥有不应由实现者擅自改变的决策。
 - Review Finding 不是产品决定；只有落入权威专题文档、ADR 或决策记录并补齐验收后才能关闭。本报告裁定 Finding 的级别、阻塞范围和关闭证据；其中的方案在正式落档前均只是建议关闭方向，不能被实现者直接当成已批准契约。
 
@@ -113,7 +113,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J1。
 - 处置：Start Blocker，仅不阻塞最小工程初始化。
-- 证据：[ROADMAP.md](ROADMAP.md#phase-0技术验证) 包含约三十项跨 Desktop、Cloud、Auth、Sync、Admin、Jobs、Backup、Connector 和 Browser 的任务，但只有一个复合退出段；Roadmap 同时要求每阶段确认责任人。
+- 证据：[ROADMAP.md](../ROADMAP.md#phase-0技术验证) 包含约三十项跨 Desktop、Cloud、Auth、Sync、Admin、Jobs、Backup、Connector 和 Browser 的任务，但只有一个复合退出段；Roadmap 同时要求每阶段确认责任人。
 - 风险：一次演示可能被误当成可重复证据；外部平台、证书或某个 OS 阻塞会拖住整个阶段；无法知道哪些原型可丢弃。
 - 关闭条件：建立 `Gate ID → Journey/Finding → 假设 → Fixture/平台 → OS 矩阵 → 证据 → Owner → Fallback → 状态` 台账，并采用本报告 WP-0～WP-6 边界。
 
@@ -121,7 +121,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞正式 `secure-http` 和真实连接器。
-- 证据：[CONNECTORS.md](CONNECTORS.md#5-安全-http-gateway) 让 TypeScript 连接器按 Endpoint ID 声明 Host、Method、Path、凭据注入和脱敏；[ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md#8-rust-crate-边界) 又让 Rust `secure-host-core` 拥有 Allowlist 和凭据注入，但没有定义 Rust 如何取得并验证连接器声明。
+- 证据：[CONNECTORS.md](../CONNECTORS.md#5-安全-http-gateway) 让 TypeScript 连接器按 Endpoint ID 声明 Host、Method、Path、凭据注入和脱敏；[ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md#8-rust-crate-边界) 又让 Rust `secure-host-core` 拥有 Allowlist 和凭据注入，但没有定义 Rust 如何取得并验证连接器声明。
 - 失败路径：信任 TS 传入规则会退化为任意 HTTP/SSRF/凭据外送；Rust 手写第二份表会产生漂移。
 - 建议关闭方向（待落档）：使用版本化、声明式、不可执行的 `EndpointManifest` 作为规范输入，构建时生成/嵌入 Rust 注册表和 TS 类型。Host 只接受制品内已登记条目，并校验 `device_id + provider_connection_id + provider + credentialRef + endpoint` 的完整绑定。
 - 关闭证据：URL 编码、userinfo、端口、重定向、DNS/IP、跨连接 credentialRef、Cloud/平台凭据命名空间混淆负向测试全部在发网前拒绝。
@@ -130,7 +130,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞真实 API Key/OAuth/Challenge 流程。
-- 证据：[SECURITY.md](SECURITY.md#2-信任边界) 限制普通 TypeScript/WebView 只能取得脱敏数据；[BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md#11-首批场景) 要求 API Key 直接交给 Secure Host，但未定义输入界面；普通 React 输入框必然先让值进入 WebView DOM/JS。
+- 证据：[SECURITY.md](../SECURITY.md#2-信任边界) 限制普通 TypeScript/WebView 只能取得脱敏数据；[BROWSER_AUTOMATION.md](../BROWSER_AUTOMATION.md#11-首批场景) 要求 API Key 直接交给 Secure Host，但未定义输入界面；普通 React 输入框必然先让值进入 WebView DOM/JS。
 - 失败路径：前端依赖污染、XSS、调试注入、日志或崩溃报告读取原始平台密钥；API 响应中的新密钥/挑战先返回 TS 再清洗。
 - 建议关闭方向（待落档）：Phase 0 选择一种 Host 控制的专用凭据输入面；可以是原生控件，也可以是 Host 创建、无第三方依赖、无持久化、只拥有单一 `store_secret` 能力的隔离专用 Surface，但不能使用普通应用 WebView 表单。秘密响应由 Host typed extractor 直接折叠为 Keychain 条目，只返回 opaque ref/fingerprint。
 - 关闭证据：Canary Secret 在普通 DOM、TS heap、IPC trace、前端日志、Crash Report、Outbox 和 Cloud 中均不可见。
@@ -139,7 +139,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞 Sync Mutation 原型被认定为安全。
-- 证据：[ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md#23-字段分类) 和 [CONNECTORS.md](CONNECTORS.md#5-安全-http-gateway) 说 Secure Host 在写 Outbox 前删除秘密；[ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md#client-core) 又把 Outbox 交给 `client-core/sync`；[VERIFICATION.md](VERIFICATION.md#8-秘密-sync-projection) 则正确要求显式 Projection，禁止先序列化本地实体再清洗。
+- 证据：[ACCOUNT_AND_SYNC.md](../ACCOUNT_AND_SYNC.md#23-字段分类) 和 [CONNECTORS.md](../CONNECTORS.md#5-安全-http-gateway) 说 Secure Host 在写 Outbox 前删除秘密；[ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md#client-core) 又把 Outbox 交给 `client-core/sync`；[VERIFICATION.md](../VERIFICATION.md#8-秘密-sync-projection) 则正确要求显式 Projection，禁止先序列化本地实体再清洗。
 - 失败路径：秘密可能已经进入本地实体、WAL、Outbox、备份或日志，上传前删除为时已晚；Connector 分类与 Workspace protocol 分类可能冲突。
 - 建议关闭方向（待落档）：不允许“完整实体序列化后清洗”。client-core 只能构造 protocol/workspace 明确允许的封闭 Sync Projection；`local-storage/active-workspace/cloud-sync` 是唯一 Outbox 写入口，拒绝未知字段和 DEVICE_SECRET。Rust 端使用由同一协议构建产物生成的投影校验清单，执行 fail-closed 验证，不修改后放行未知 Payload。
 - 关闭证据：对 API Token、Cookie、Auth Code、挑战值、原始 URL/Header/Body 和诊断数据做 Canary/属性测试，扫描 DB、WAL、Outbox、备份、日志和 Cloud。
@@ -148,7 +148,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞设备切换与 Sync Drain 正式协议。
-- 证据：[ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md#63-上传优先级) 允许非 FIFO 优先上传，但续签和切换只上报“最后上传的 `client_sequence`”；[ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md#9-cloud-模块所有权) 也只要求核对最后序号。
+- 证据：[ACCOUNT_AND_SYNC.md](../ACCOUNT_AND_SYNC.md#63-上传优先级) 允许非 FIFO 优先上传，但续签和切换只上报“最后上传的 `client_sequence`”；[ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md#9-cloud-模块所有权) 也只要求核对最后序号。
 - 最小失败序列：低优 `seq=101` 未上传，高优 `seq=102` 先上传；若 102 被当成排空水位，正常切换会在 101 未到达时释放旧 Lease。
 - 建议关闭方向（待落档）：分开 `last_assigned_sequence`、`highest_seen_sequence` 和 `contiguous_received_through`；Drain 只接受连续确认水位等于本地已分配尾部且本地没有待提交记录。Mutation、Execution Event、Audit 若为独立日志，使用独立命名的序列空间和逐流 Drain Manifest。
 - 关闭证据：乱序、缺口、重复、跨批次和切换并发测试不能误判排空。
@@ -157,7 +157,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，重新打开 JF-02 的设计完成状态。
-- 证据：[ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md#3-账号绑定与活动设备) 定义公钥、Key ID、版本和状态字段，但没有设备绑定仪式、旧钥 PoP、轮换和撤销时序；[LICENSING.md](LICENSING.md#3-登录与授权凭证) 的签名凭证也缺少明确类型、issuer、audience、kid、schema version 和唯一 ID。
+- 证据：[ACCOUNT_AND_SYNC.md](../ACCOUNT_AND_SYNC.md#3-账号绑定与活动设备) 定义公钥、Key ID、版本和状态字段，但没有设备绑定仪式、旧钥 PoP、轮换和撤销时序；[LICENSING.md](../LICENSING.md#3-登录与授权凭证) 的签名凭证也缺少明确类型、issuer、audience、kid、schema version 和唯一 ID。
 - 失败路径：被盗 Auth Session 替换设备公钥；跨 Token 解析器类型混淆；旧签名 Key 或旧 Envelope 无法安全撤销；撤销前发生但撤销后上传的事实无确定规则。
 - 建议关闭方向（待落档）：设备绑定使用服务端 Nonce + 设备私钥 PoP + 账号重新认证；轮换要求旧钥或恢复流程证明并原子推进版本。每类服务端签名凭证使用强类型 Envelope 和独立密钥或严格域分离，至少包含 `typ/iss/aud/kid/schema_version/account_id/device_id/jti`。
 - 关闭证据：替换公钥、Nonce 重放、并发轮换、版本回退、跨 Token 类型、旧 Key 和撤销前后迟到事实均有确定结果。
@@ -166,7 +166,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞 Browser Automation 写能力；不阻塞双 WebView/Profile Spike。
-- 证据：[BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md#6-自动化-recipe) 只列允许/禁止动作，但未定义 AST、raw JavaScript 禁令和 Host 语义校验；同文又让每个 HostActionCommand 携带一次性 Ticket，同时 Recipe 是多步骤流程。
+- 证据：[BROWSER_AUTOMATION.md](../BROWSER_AUTOMATION.md#6-自动化-recipe) 只列允许/禁止动作，但未定义 AST、raw JavaScript 禁令和 Host 语义校验；同文又让每个 HostActionCommand 携带一次性 Ticket，同时 Recipe 是多步骤流程。
 - 失败路径：有效签名只能证明发布者和内容 Hash，不能证明 `recipe_step` 没有越权 JavaScript；若 Ticket 首步后失效，多步骤无法执行，若复用则可重放。
 - 建议关闭方向（待落档）：定义版本化 Recipe AST/bytecode、允许 opcode、selector/输入/输出 Schema、大小和时间上限；Rust automation-host 二次验证并生成动作，TS 不能提交 raw JS。根 Ticket 只能单次兑换为 Host 内存执行会话，每一步派生严格递增、单次 Action Capability；接管、导航越界或崩溃使余下能力失效。未知 Host 在 Consent/自动化内失败关闭；用户坚持访问时转系统浏览器或全新无 Session Surface，并结束自动化。
 - 关闭证据：畸形 AST、密码字段、越权 selector、超大输出、重复/乱序 Step、导航竞争、接管和各崩溃边界负向测试通过。
@@ -175,7 +175,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，阻塞 Phase 0 Backup Gate 被认定通过。
-- 证据：[DATA_LIFECYCLE.md](DATA_LIFECYCLE.md#31-backup-content-manifest) 默认包含 Active Workspace 的一致性快照，同时永不包含 ApprovedOperation、Ticket、Auth/Lease；同文要求备份从 SQLite Backup API 或等效一致性快照产生，但没有定义最终 Export Schema、允许表/字段或从一致性来源到最终工件的投影规则。
+- 证据：[DATA_LIFECYCLE.md](../DATA_LIFECYCLE.md#31-backup-content-manifest) 默认包含 Active Workspace 的一致性快照，同时永不包含 ApprovedOperation、Ticket、Auth/Lease；同文要求备份从 SQLite Backup API 或等效一致性快照产生，但没有定义最终 Export Schema、允许表/字段或从一致性来源到最终工件的投影规则。
 - 失败路径：实现者若把一致性来源快照直接当成最终工件或复制完整数据库，会把不可移植授权和队列带进备份；现有文档没有提供可机器强制的边界来阻止这一误实现，恢复时可能重新入队或违反永不包含清单。
 - 建议关闭方向（待落档）：SQLite Backup API 只用于取得一致性读取源，不直接成为最终工件。最终工件使用版本化 Backup Export Schema/临时数据库，按白名单复制业务数据和允许历史，结构上不存在 Outbox、Queue、Grant、批准、设备身份、Lease 和运行时恢复标记。定义版本化 Crypto Profile：内存困难 KDF、AEAD、Manifest AAD、Nonce 唯一性、流式加密、凭据独立密钥域、无明文临时文件和原子发布。
 - 关闭证据：源库含真实 pending 状态时，导出包结构扫描为零；错误口令、篡改、截断、降级、崩溃和磁盘明文扫描全部通过。
@@ -184,7 +184,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，重新打开 JF-15 的设计完成状态。
-- 证据：[ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md#appscloud) 同时要求周期性 Checkpoint/压缩和“不得无租户扫描”，但没有定义系统任务如何受控枚举租户，也没有说明 TenantContext 是否来自可信认证上下文还是 Payload。
+- 证据：[ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md#appscloud) 同时要求周期性 Checkpoint/压缩和“不得无租户扫描”，但没有定义系统任务如何受控枚举租户，也没有说明 TenantContext 是否来自可信认证上下文还是 Payload。
 - 失败路径：攻击者替换 Job Payload 中的租户；周期任务引入全局管理员上下文；连接池、Repository 或对象存储 Key 漏传导致跨租户读取/删除。
 - 建议关闭方向（待落档）：TenantContext 只能由认证入口、受控系统 Fan-out 或已授权 Admin Context 派生，进入不可变 Job Envelope；业务 Payload 不得覆盖。系统 Fan-out 只产生逐租户子 Job。Repository 主键/外键、事务和对象存储前缀强制携带租户；评估 PostgreSQL RLS 作为纵深防御，不把它作为唯一控制。
 - 关闭证据：两个租户同业务 ID、Payload 篡改、连接池复用、对象 Key、Quarantine 重放、Admin Scope 不匹配和周期 Fan-out 负向矩阵通过。
@@ -193,7 +193,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J1。
 - 处置：Start Blocker，阻塞正式 IPC/Auth wire 和 import-boundary 基线。
-- 证据：[ENGINEERING_STRUCTURE.md](ENGINEERING_STRUCTURE.md#10-依赖与导入规则) 的允许方向没有列出 Desktop Composition Root 到具体 Connectors 的合法边，但同文要求 Desktop 注册连接器；Port DTO/Zod 与 Rust 镜像 DTO 只有“契约测试”目标，没有生成、未知字段和版本策略。
+- 证据：[ENGINEERING_STRUCTURE.md](../ENGINEERING_STRUCTURE.md#10-依赖与导入规则) 的允许方向没有列出 Desktop Composition Root 到具体 Connectors 的合法边，但同文要求 Desktop 注册连接器；Port DTO/Zod 与 Rust 镜像 DTO 只有“契约测试”目标，没有生成、未知字段和版本策略。
 - 建议关闭方向（待落档）：增加唯一窄边 `apps/desktop composition-root -> packages/connectors/*`，其他 Desktop Feature、client-core、Cloud、account/admin 均不得使用。指定 Zod/规范 Schema 到 Rust 生成，或至少建立共享正/负 Golden Corpus；明确 unknown/missing field、enum、版本协商和错误 Envelope。Host-owned Auth response 使用不向普通 TS 导出的私有版本化 Wire Contract。
 - 关闭证据：结构测试允许唯一注册边并拒绝其他消费者；TS/Rust/Cloud 同跑兼容 Golden Corpus。
 
@@ -201,14 +201,14 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J1。
 - 处置：Start Blocker，阻塞“可复现工程骨架”和 Phase 0 通过声明；不阻塞临时 Spike。
-- 证据：[ARCHITECTURE.md](ARCHITECTURE.md#11-目标技术基线与验收范围) 在当时只列大版本和工具类别；[BROWSER_AUTOMATION.md](BROWSER_AUTOMATION.md#8-会话与-cookie) 已承认 macOS 14+ 与更低版本隔离能力不同。
+- 证据：[ARCHITECTURE.md](../ARCHITECTURE.md#11-目标技术基线与验收范围) 在当时只列大版本和工具类别；[BROWSER_AUTOMATION.md](../BROWSER_AUTOMATION.md#8-会话与-cookie) 已承认 macOS 14+ 与更低版本隔离能力不同。
 - 关闭条件：锁定 Node/pnpm/Rust channel+components/Tauri/Wry/SQLCipher/PostgreSQL 版本和升级策略；确定 Windows 最低版本、架构和 WebView2 分发策略，macOS 最低版本、Intel/Apple Silicon；定义 native CI runner、制品留存、签名/公证责任。随后落地版本文件、lockfile 和 CI matrix。
 
 ### R0-12：设备切换后的凭据可用性存在直接文档冲突
 
 - 级别：J1。
 - 处置：Start Blocker，阻塞 J-05 切换原型验收，不阻塞设备协调基础设施。
-- 证据：[PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md#36-账号设备与云同步) 与 [ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md#22-默认不同步仅设备本地) 无条件描述切换后重新录入；[UX_FLOWS.md](UX_FLOWS.md#账号门禁) 又明确此前在该设备配置的凭据可继续安全保留，切回时无需临时录入。
+- 证据：[PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md#36-账号设备与云同步) 与 [ACCOUNT_AND_SYNC.md](../ACCOUNT_AND_SYNC.md#22-默认不同步仅设备本地) 无条件描述切换后重新录入；[UX_FLOWS.md](../UX_FLOWS.md#账号门禁) 又明确此前在该设备配置的凭据可继续安全保留，切回时无需临时录入。
 - 建议关闭方向（待落档）：按设备状态化处理，而不是“一律重输”。本机已有、未撤销且健康检查通过的 DeviceCredentialBinding 可以继续使用；缺失、过期、不可验证或 Browser Session 失效时才重新录入/登录。共享 ProviderConnection 健康不能替代设备本地健康。
 - 关闭证据：J-05 覆盖首次配置、切回已有凭据、凭据撤销、Keychain 丢失、浏览器会话过期五种场景。
 
@@ -216,7 +216,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0。
 - 处置：Start Blocker，仅阻塞真实外部副作用；Fake Provider 和本地 Fixture 可继续。
-- 证据：[ROADMAP.md](ROADMAP.md#phase-0技术验证) 要求 Cloudflare 最小读写和五种模式演示，而完整 Operation/Attempt、批准和防重放 Gate 位于 Phase 2。
+- 证据：[ROADMAP.md](../ROADMAP.md#phase-0技术验证) 要求 Cloudflare 最小读写和五种模式演示，而完整 Operation/Attempt、批准和防重放 Gate 位于 Phase 2。
 - 建议关闭方向（待落档）：任何 Phase 0 Live Write 只能使用专用测试账号、专用可丢弃资产、允许动作白名单、最小数量、显式人工确认、独立审计、执行前后截图/读取证据、清理步骤和紧急停用。Ticket Spike 使用固定 Stub Plan，不提前冻结 Phase 2 Operation 聚合。
 - 关闭证据：每个 Live Spike 有资产清单、批准人、执行窗口、回滚/清理结果和残余风险记录。
 
@@ -224,7 +224,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 
 - 级别：J0，相对于外部写主链。
 - 处置：Start Blocker，阻塞 connector-sdk 正式接口和真实写；只读 Spike 可继续。
-- 证据：[CONNECTORS.md](CONNECTORS.md#3-capability-descriptor) 只有连接器全局布尔值，但同一 Provider 通常同时存在安全读、有幂等键的写和无幂等保证的提交。
+- 证据：[CONNECTORS.md](../CONNECTORS.md#3-capability-descriptor) 只有连接器全局布尔值，但同一 Provider 通常同时存在安全读、有幂等键的写和无幂等保证的提交。
 - 建议关闭方向（待落档）：按 feature/operation/endpoint 声明 `retrySafety: safe | provider_idempotency_key | confirm_before_retry | never`，并记录 Key 注入位置、稳定期、提交边界和确认通道。Operation Attempt 消费逐操作策略，不能消费连接器全局布尔值。
 - 关闭证据：Contract Test Kit 对同一连接器的混合安全等级、超时和重复请求逐操作验证。
 
@@ -235,7 +235,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 ### G1：字段级合并缺少可持久的历史基线
 
 - 级别：J0；Phase 1 Mutation 实现前关闭。
-- 证据：[SYNC_SEMANTICS.md](SYNC_SEMANTICS.md#1-活动设备与云端合并) 需要 `cloud_base/device_local/cloud_current`；[ACCOUNT_AND_SYNC.md](ACCOUNT_AND_SYNC.md#7-云同步与执行数据模型) 的 Mutation 只有全局 `base_revision + changed_fields`；历史又会被 Checkpoint 压缩。
+- 证据：[SYNC_SEMANTICS.md](../SYNC_SEMANTICS.md#1-活动设备与云端合并) 需要 `cloud_base/device_local/cloud_current`；[ACCOUNT_AND_SYNC.md](../ACCOUNT_AND_SYNC.md#7-云同步与执行数据模型) 的 Mutation 只有全局 `base_revision + changed_fields`；历史又会被 Checkpoint 压缩。
 - 要求：Mutation 携带受影响字段的稳定 Base Fingerprint/Value，或服务端持久化字段最后修改 Revision；定义 `base_too_old`，不得猜测合并。压缩不能假定 Device Cursor 等于本地所有未上传 Outbox 的最小基线。
 
 ### G2：Cursor 与持续 Schema 兼容协议不完整
@@ -259,7 +259,7 @@ Phase 0 必须拆成可独立关闭的工作包。每个工作包都要有负责
 - JF-06 应从 `Design Resolved` 调整为 `Partially Resolved / Phase 2 Gate`：Attempt 提交边界已清楚，但 OperationBatch、Workflow、Node、OperationItem、Attempt 的状态派生、事务边界、重试代次、取消、补偿和 Roll-up 尚未形成一套权威状态机。
 - 旧 Epoch 的真正 AuditEvent 不能改写为 LateExecutionEvent；需要明确独立 Audit Ingest，或只在 Execution Event 中保存 `audit_event_ref/hash`。
 - JF-04/JF-17 的影响旅程应补 J-02，因为 Afternic 上传和日常批量管理同样使用 Browser Transport。
-- [USER_JOURNEYS.md](USER_JOURNEYS.md#82-批量操作与自动化) 的 `needs_replan` 用例应限定为“计划实际依赖的 Observed/Credential/Capability/RRset 变化”，并增加无关变化不失效的反例。
+- [USER_JOURNEYS.md](../USER_JOURNEYS.md#82-批量操作与自动化) 的 `needs_replan` 用例应限定为“计划实际依赖的 Observed/Credential/Capability/RRset 变化”，并增加无关变化不失效的反例。
 
 ### G5：Verification 与 Operations 缺少持久、幂等交接
 

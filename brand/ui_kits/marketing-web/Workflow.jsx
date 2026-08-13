@@ -3,7 +3,7 @@
 // clickable. Reduced-motion / hover pauses the auto-cycle. Layout differs from every other section.
 const {}={};
 function Workflow(){
-  const steps=window.MK_DATA.workflow;
+  const steps=window.MK_DATA.workflow;const U=window.MK_DATA.ui.workflow;
   const [active,setActive]=React.useState(0);
   const [hover,setHover]=React.useState(false);
   const reduce=typeof window.matchMedia==="function"&&window.matchMedia("(prefers-reduced-motion:reduce)").matches;
@@ -15,9 +15,9 @@ function Workflow(){
   return <div>
     <div className="mk-sec" onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}>
       <div style={{maxWidth:640,display:"flex",flexDirection:"column",gap:14,marginBottom:34}}>
-        <div className="mk-eyebrow2"><b>核心流程</b><span className="mk-rule"></span><span>一次批量操作的四步</span></div>
-        <h2 className="mk-h2">筛选 · 预览 · 确认 · 同步</h2>
-        <p className="mk-lead">每一次批量操作都走同一条路径——先看清即将发生的变化，再由你确认执行。</p>
+        <div className="mk-eyebrow2"><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
+        <h2 className="mk-h2">{U.h2}</h2>
+        <p className="mk-lead">{U.lead}</p>
       </div>
       {/* progress rail */}
       <div style={{height:2,background:"var(--gd-line)",borderRadius:2,overflow:"hidden",marginBottom:26}}>

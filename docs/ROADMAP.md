@@ -36,7 +36,7 @@ Phase 是证据边界，不要求所有能力同时成熟。单个 Gate 阻塞�
 
 目标：验证安全边界和五类连接器执行模式。
 
-本阶段 32 条 Requirement 的编号、Gate/Journey/Owner/环境/证据/Fallback 映射和推荐波次见 [PHASE0_EXECUTION_PLAN.md](PHASE0_EXECUTION_PLAN.md)。Roadmap 保留交付范围与退出条件，执行计划负责可领取切片。
+本阶段 32 条 Requirement 的编号、Gate/Journey/Owner/环境/证据/Fallback 映射和推荐波次见 [PHASE0_EXECUTION_PLAN.md](phase0/PHASE0_EXECUTION_PLAN.md)。Roadmap 保留交付范围与退出条件，执行计划负责可领取切片。
 
 Phase 0 中作为协议/Fixture/语义来源、对照 Spike 或安全关键实现依据的上游必须登记到 [开源实现参考登记表](OPEN_SOURCE_REFERENCES.md)，并在 Gate 证据中固定 Repository、版本/Commit、许可证和退出方案。React、Vite、Zod、Fastify 等常规构建依赖由 Lockfile、SBOM、许可证清单和漏洞 Gate 穷举管理，不要求重复登记为设计参考。上游演示或测试通过不能替代 GoodDealer 的负向矩阵。
 
@@ -73,7 +73,7 @@ Phase 0 中作为协议/Fixture/语义来源、对照 Spike 或安全关键实�
 - Job Runtime 的 TenantContext 强制传播、幂等、Lease、Quarantine 和跨租户负向测试。
 - 记录 Afternic、Atom、Spaceship、Cloudflare 的 ToS、账户政策和自动化风险，作为持续评估项而非发布硬门槛。
 
-退出条件：R0-01～R0-16 全部按 [Phase 0 Gate 台账](PHASE0_GATE_REGISTER.md) 的当前范围关闭。平台 API 密钥不进入普通 WebView、日志或 Sync Service，远程平台页面无法调用高权限 Tauri Command，两个桌面引擎通过浏览器自动化可行性闸门；Bootstrap 完成前无法取得 Mutation/平台/批准 Scope，并发 Standby 不能竞争激活；自动化没有一次性 Ticket 时拒绝执行；handoff/suspend 退出条件不会混用；Job 缺失或伪造 TenantContext 时拒绝执行。单执行设备、Standby 只读隔离、正常/强制切换和 24 小时云故障执行通过原型验证，云同步能处理重复 Mutation、LateExecutionEvent 和恢复候选，Public Session 无法访问 Admin Route、Owner 管理操作不能绕过模块 Port，Active/Standby Query Adapter 通过同一契约测试，五种执行模式均能通过原型演示。平台政策风险必须被记录和展示，但不作为统一硬门槛。
+退出条件：R0-01～R0-16 全部按 [Phase 0 Gate 台账](phase0/PHASE0_GATE_REGISTER.md) 的当前范围关闭。平台 API 密钥不进入普通 WebView、日志或 Sync Service，远程平台页面无法调用高权限 Tauri Command，两个桌面引擎通过浏览器自动化可行性闸门；Bootstrap 完成前无法取得 Mutation/平台/批准 Scope，并发 Standby 不能竞争激活；自动化没有一次性 Ticket 时拒绝执行；handoff/suspend 退出条件不会混用；Job 缺失或伪造 TenantContext 时拒绝执行。单执行设备、Standby 只读隔离、正常/强制切换和 24 小时云故障执行通过原型验证，云同步能处理重复 Mutation、LateExecutionEvent 和恢复候选，Public Session 无法访问 Admin Route、Owner 管理操作不能绕过模块 Port，Active/Standby Query Adapter 通过同一契约测试，五种执行模式均能通过原型演示。平台政策风险必须被记录和展示，但不作为统一硬门槛。
 
 ## Phase 1：资产、云同步与只读连接
 

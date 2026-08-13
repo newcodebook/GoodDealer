@@ -1,5 +1,7 @@
 # GoodDealer Design System
 
+> **边界声明**：`brand/` 目录是品牌与界面设计的事实源和参考实现，不属于产品代码，不参与任何构建。目录内的组件、UI kit 与样式仅供设计对照；生产组件的归属是 `packages/ui` 与各 App 的 `src/`，设计向产品目录的迁移是后续工作。
+
 GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面客户端（Tauri）：域名投资人在一个界面统一管理分散在多个注册商（Spaceship）、DNS（Cloudflare）和交易平台（Atom、Afternic、SellerHub）的资产——注册信息、DNS、价格、销售状态、所有权验证、批量操作。最多两台绑定设备，单活动设备持有执行权（Active 金实心点 / Standby 蓝空心点）；平台凭据永不上云。
 
 **视觉气质**：私人银行终端 / 硬件钱包，而非通用 SaaS。资产感（金）、掌控感（黑）、安全感（蓝）。中文优先（zh-CN 默认 locale），en-US 其次。
@@ -8,9 +10,9 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 
 - Codebase: `GoodDealer/` monorepo（本地挂载，只读）。UI 代码为 Phase 0 脚手架（`apps/desktop`、`apps/account-web`、`apps/admin-web`、`packages/ui` 均为占位）——**`brand/` 目录与 `docs/` 是设计事实源**：
   - `brand/README.md` 品牌视觉规范（色彩 70/20/10、金色分层、红线）
-  - `brand/logo/SPEC.md` 主标制图规范（本项目已重设计为「圩印 Coin Seal」：外圆内方 + 骑缝；完整规范见 `guidelines/coin-seal-spec.html`）
-  - `brand/tokens/brand.css|json` 官方 token（`--gd-*`）
-  - `brand/references.md` 风格对标（Linear 工艺 / Carbon 密度 / Kraken 表格 / Mercury 文案 / Amex 金色纪律）
+  - `brand/guidelines/coin-seal-spec.html` 主标制图规范（「圩印 Coin Seal」：外圆内方 + 骑缝）
+  - `brand/tokens/*.css` 官方 token（`--gd-*`；base / colors / typography / spacing / motion / fonts / hierarchy）
+  - 风格对标：Linear 工艺 / Carbon 密度 / Kraken 表格 / Mercury 文案 / Amex 金色纪律（散见本文各节）
   - `docs/UX_FLOWS.md`、`docs/PRODUCT_REQUIREMENTS.md`、`docs/GLOSSARY.md`、`docs/USER_JOURNEYS.md` 界面流程与术语
 - 无 Figma、无成品 UI 截图。UI kit 屏幕是按上述文档首次实例化，非对既有界面的复刻。
 
@@ -111,7 +113,7 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - `--gd-line-strong`、`--gd-text-faint`、tint 色（选中行、徽章底）
 - Lucide 功能图标集（CDN 替代，见 ICONOGRAPHY）
 - 组件库为标准集（代码库 `packages/ui` 为空占位，无既有组件清单）
-- 原生桌面壳层 `WindowChrome` / `Toolbar` / `StatusBar`（references.md 指向 Warp 状态栏、Linear/Raycast 壳层工艺——去 SaaS 化的界面语言）
+- 原生桌面壳层 `WindowChrome` / `Toolbar` / `StatusBar`（风格对标 Warp 状态栏、Linear/Raycast 壳层工艺——去 SaaS 化的界面语言）
 
 ## FONT SUBSTITUTIONS — 需要你提供
 

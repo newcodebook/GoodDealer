@@ -2,12 +2,12 @@
 // local-only mode, credentials never uploaded, 2 devices / single Active. Expandable list; first item open.
 const {}={};
 function Faq(){
-  const items=window.MK_DATA.faq;
+  const items=window.MK_DATA.faq;const U=window.MK_DATA.ui.faq;
   const [open,setOpen]=React.useState(0);
   return <div><div className="mk-sec" style={{maxWidth:820}}>
     <div style={{marginBottom:32}}>
-      <div className="mk-eyebrow2"><b>常见问题</b><span className="mk-rule"></span><span>边界与承诺</span></div>
-      <h2 className="mk-h2" style={{marginTop:10}}>把边界说清楚</h2>
+      <div className="mk-eyebrow2"><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 className="mk-h2" style={{marginTop:10}}>{U.h2}</h2>
     </div>
     <div style={{border:"1px solid var(--gd-line)",borderRadius:10,overflow:"hidden"}}>
       {items.map((it,i)=>{const isOpen=open===i;

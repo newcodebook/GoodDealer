@@ -5,7 +5,7 @@
 
 ## 1. 架构结论
 
-本文是目标架构摘要，不是实现清单。除明确标注“当前骨架/当前证据”的内容外，所列模块、Handler、数据库、技术组件和测试均表示目标责任与 Gate 要求；当前是否已实现只以 [工程结构](ENGINEERING_STRUCTURE.md) 的当前骨架说明、[Phase 0 Gate 台账](PHASE0_GATE_REGISTER.md) 和可重跑证据为准。
+本文是目标架构摘要，不是实现清单。除明确标注“当前骨架/当前证据”的内容外，所列模块、Handler、数据库、技术组件和测试均表示目标责任与 Gate 要求；当前是否已实现只以 [工程结构](ENGINEERING_STRUCTURE.md) 的当前骨架说明、[Phase 0 Gate 台账](phase0/PHASE0_GATE_REGISTER.md) 和可重跑证据为准。
 
 GoodDealer 采用本地执行、云端业务数据同步的模块化架构：
 

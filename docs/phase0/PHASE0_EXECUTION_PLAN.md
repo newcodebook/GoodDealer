@@ -5,14 +5,14 @@
 
 ## 1. 执行规则
 
-本文件把 [ROADMAP.md](ROADMAP.md) 的 Phase 0 要求映射为可领取的交付项；Gate 的关闭条件和状态仍只以 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 为准。
+本文件把 [ROADMAP.md](../ROADMAP.md) 的 Phase 0 要求映射为可领取的交付项；Gate 的关闭条件和状态仍只以 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 为准。
 
 - 每项进入实现前必须填写稳定的 `owner_ref`，并确认表中 Gate、Journey、环境、证据和 Fallback。角色名不是实际责任人身份。
 - 一个交付项可以形成多个 Gate 的证据，但一份 GateClosureAttestation 只能关闭一个 Gate，且必须满足该 Gate 的全部 Required Reviewer 和 Approver 约束。
 - `现有` 表示命令或证据生产器已在仓库中；`待建` 表示该交付项的第一部分就是建立对应生产器。待建命令不存在、失败或只产生 Fixture 证据时，相关 Gate 保持 Open/In Progress。
 - 生产 Endpoint Registry、真实凭据、真实用户数据和真实外部写入继续默认禁止；只有对应 Gate 明确允许的专用环境可以解除该项 Fallback。
 - 所有实现都必须通过根 `pnpm check`；原生或 Cloud 事务结论还必须通过表中专用 Profile，不能用 Portable 单元测试代替。
-- 当前私有仓库套餐不提供 Branch Protection/Ruleset；日常变更仍使用 PR，Owner 按 PR 模板核对最终 Commit 的四个 CI Check。该人工软门禁不允许绕过 Gate-specific 独立 Reviewer、长期证据归档或 Attestation。
+- 开发阶段仓库临时公开以取得 Hosted Runner 证据，正式运营前计划恢复为封闭项目；当前未配置 Branch Protection/Ruleset，恢复封闭后再按届时套餐确认平台治理能力。日常变更仍使用 PR，Owner 按 PR 模板核对最终 Commit 的四个 CI Check。该人工软门禁不允许绕过 Gate-specific 独立 Reviewer、长期证据归档或 Attestation。
 
 ## 2. 推荐执行波次
 

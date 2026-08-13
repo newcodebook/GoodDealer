@@ -16,27 +16,27 @@ function Node({title,tone,sub,items,seal}){
         <span style={{fontSize:11,color:c}}>{seal?"◆":"○"}</span>{it}</div>)}
     </div>
     {seal&&<div style={{marginTop:12,fontSize:11,color:"var(--gd-gold)",display:"flex",alignItems:"center",gap:6}}>
-      <img src="../../assets/icons/keyhole.svg" width="12" height="12" alt=""/>永不离开本设备</div>}
+      <img src={window.MK_DATA.assetBase+"assets/icons/keyhole.svg"} width="12" height="12" alt=""/>{window.MK_DATA.ui.security.neverLeaves}</div>}
   </div>;
 }
 function Security(){
-  const S=window.MK_DATA.security;
+  const S=window.MK_DATA.security;const U=window.MK_DATA.ui.security;const UH=window.MK_DATA.ui.security;
   return <div><div className="mk-sec">
     <div style={{maxWidth:660,marginBottom:32}}>
-      <div className="mk-eyebrow2"><b>安全模型</b><span className="mk-rule"></span><span>密码留在本地 · 云端只读</span></div>
+      <div className="mk-eyebrow2"><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
       <h2 className="mk-h2" style={{marginTop:10}}>{S.title}</h2>
       <p className="mk-lead" style={{marginTop:12}}>{S.sub}</p>
     </div>
 
     {/* local vs cloud diagram */}
     <div style={{display:"flex",alignItems:"stretch",gap:14,flexWrap:"wrap",marginBottom:36}}>
-      <Node title="你的电脑" tone="gold" sub="操作在这台执行" seal items={["平台密码","登录信息","浏览器数据"]}/>
+      <Node title={UH.localNode.title} tone="gold" sub={UH.localNode.sub} seal items={UH.localNode.items}/>
       <div style={{flex:"0 0 auto",alignSelf:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:120,padding:"0 4px"}}>
-        <span style={{fontSize:11,color:"var(--text-3)"}}>只同步业务数据</span>
+        <span style={{fontSize:11,color:"var(--text-3)"}}>{UH.arrow.label}</span>
         <svg width="88" height="16" viewBox="0 0 88 16" fill="none"><path d="M2 8h74M70 3l7 5-7 5" stroke="var(--gd-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        <span style={{fontSize:11,color:"var(--text-3)",fontFamily:"var(--font-mono)"}}>不含密码</span>
+        <span style={{fontSize:11,color:"var(--text-3)",fontFamily:"var(--font-mono)"}}>{UH.arrow.sub}</span>
       </div>
-      <Node title="GoodDealer 云端" tone="blue" sub="供第二台设备查看" items={["域名 · 价格 · 上架状态","操作记录（不含密码）"]}/>
+      <Node title={UH.cloudNode.title} tone="blue" sub={UH.cloudNode.sub} items={UH.cloudNode.items}/>
     </div>
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>

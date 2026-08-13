@@ -3,12 +3,12 @@
 // framing; the recommended plan carries a 骑缝 ticket-perforation. License = term, not a feature tier.
 const {}={};
 function Pricing(){
-  const D=window.MK_DATA;
+  const D=window.MK_DATA;const U=D.ui.pricing;
   return <div>
     <div className="mk-sec">
       <div style={{maxWidth:640,display:"flex",flexDirection:"column",gap:14,marginBottom:40}}>
-        <div className="mk-eyebrow2"><b>定价</b><span className="mk-rule"></span><span>月付 · 年付 · 买断</span></div>
-        <h2 className="mk-h2">选一个时长，功能完全一样</h2>
+        <div className="mk-eyebrow2"><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
+        <h2 className="mk-h2">{U.h2}</h2>
         <p className="mk-lead">{D.planNote}</p>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:18,maxWidth:920}}>
@@ -16,8 +16,8 @@ function Pricing(){
           {p.popular&&<div className="mk-seam" style={{position:"absolute",top:0,left:14,right:14,width:"auto"}}></div>}
           <div style={{display:"flex",alignItems:"center",gap:10,minHeight:20}}>
             <span style={{fontFamily:"var(--font-mono)",fontSize:12,letterSpacing:"0.04em",color:"var(--text-2)"}}>{p.name}</span>
-            {p.popular&&<span className="mk-tag">最受欢迎</span>}
-            {p.gold&&<span className="mk-tag mk-tag--gold">一次买断</span>}
+            {p.popular&&<span className="mk-tag">{U.popular}</span>}
+            {p.gold&&<span className="mk-tag mk-tag--gold">{U.oneTime}</span>}
           </div>
           <div>
             <div style={{display:"flex",alignItems:"baseline",gap:5}}>

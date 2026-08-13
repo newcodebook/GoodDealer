@@ -269,4 +269,4 @@ Phase 0 的账号、同步、ActiveDeviceLease 和双引擎浏览器验证范围
 
 本轮在提交 `9798b5a` 上冻结基线，从产品旅程、安全威胁、数据/状态机和工程可实现性四个通道独立审查，再由主审逐项复核、去重和定级。最终结论为 `Conditional Go`：允许工具链、工程骨架、结构测试和可丢弃 Spike；跨语言安全契约、设备/同步排空、受限 Recipe、备份投影与 Job TenantContext 等相关 Finding 关闭前，不进入受影响工作包的正式实现，也不对真实用户资产执行写操作。
 
-本轮没有把审查建议自动标记为 Resolved。JF-02、JF-04、JF-06、JF-15 调整为 `Partially Resolved`，JF-04/JF-17 补充 J-02 影响范围。完整基线、Finding、Accepted Risk、工作包和准入标准见 [PHASE0_READINESS_REVIEW_2026-08-01.md](PHASE0_READINESS_REVIEW_2026-08-01.md)。
+本轮没有把审查建议自动标记为 Resolved。JF-02、JF-04、JF-06、JF-15 调整为 `Partially Resolved`，JF-04/JF-17 补充 J-02 影响范围。完整基线、Finding、Accepted Risk、工作包和准入标准见 [PHASE0_READINESS_REVIEW_2026-08-01.md](reviews/PHASE0_READINESS_REVIEW_2026-08-01.md)。

@@ -3,13 +3,13 @@
 // Kraken density + certificate ruling. Registration eyebrow + closing 骑缝 seam.
 const {}={};
 function Pillars(){
-  const D=window.MK_DATA;
+  const D=window.MK_DATA;const U=D.ui.pillars;
   return <div>
     <div className="mk-sec" style={{paddingBottom:40}}>
       <div style={{maxWidth:620,display:"flex",flexDirection:"column",gap:14}}>
-        <div className="mk-eyebrow2"><b>能力</b><span className="mk-rule"></span><span>四项核心场景</span></div>
-        <h2 className="mk-h2">从资产库到批量操作</h2>
-        <p className="mk-lead">注册商、DNS、销售平台各管各的；GoodDealer 把它们统一成一张可以批量操作、先看后改的域名总表。</p>
+        <div className="mk-eyebrow2"><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
+        <h2 className="mk-h2">{U.h2}</h2>
+        <p className="mk-lead">{U.lead}</p>
       </div>
       <div style={{marginTop:40,borderTop:"1px solid var(--gd-line-strong)"}}>
         {D.pillars.map((p,i)=><div key={p.k} style={{display:"flex",gap:28,padding:"26px 0",borderBottom:"1px solid var(--gd-line)",flexWrap:"wrap"}}>

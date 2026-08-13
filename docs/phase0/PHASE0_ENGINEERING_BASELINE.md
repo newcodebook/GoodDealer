@@ -25,6 +25,8 @@
 
 应用依赖禁止使用浮动的 `latest`、`*` 或未受 lockfile 约束的范围。版本升级必须在一个独立变更中同步更新版本文件、Lockfile、SBOM/Third-Party Notice、支持矩阵证据和相关上游 Commit。
 
+每个组件的版本声明只允许存在于上表"锁定位置"列出的文件；禁止在仓库中另建平行的版本声明文件（例如 `.nvmrc`、独立的版本常量或脚本内硬编码版本）。CI 与本地工具一律从锁定位置读取（Node 用 `.node-version`，pnpm 用 `package.json#packageManager` 经 Corepack，Rust 用 `rust-toolchain.toml`），新增锁定位置必须同步更新本表。
+
 ## 2. 支持矩阵
 
 | 平台 | 最低版本 | 架构 | 浏览器运行时 | Phase 0 证据 |
@@ -40,7 +42,7 @@ Windows ARM64、macOS 14 及更低版本、Linux、iOS 和 Android 不属于首�
 - `quality` 在固定 Ubuntu 24.04 Runner 上执行 Lockfile 安装、pnpm/Cargo 依赖漏洞检查、平台无关的生成物检查、TypeScript 类型检查、单元/契约测试、结构测试、Rust 格式检查，以及不依赖桌面 WebView 的安全核心/存储 Crate Clippy 与测试。`cargo-audit` 在 Workflow 中锁定精确版本；npm、Cargo 与 GitHub Actions 依赖由 Dependabot 每周提出独立升级 PR。
 - `native` 在 `windows-2025`、`macos-15`、`macos-15-intel` 上执行 TypeScript/结构检查、Rust 格式检查、Desktop 前端 Build 和完整 Rust Workspace 的 Clippy/Test；它是 native compile-check Profile，不执行 Tauri release build、bundle、签名或公证，也不产生可发布应用制品。依赖漏洞门禁由同一提交的 `quality` Job 统一执行。
 - 两个 Workflow 均支持 PR、`main` Push 和人工重跑，不使用路径过滤。相同 PR 的旧运行会被取消；`main` 与人工运行保留完整执行，避免 Gate 证据被后续 Push 静默中断。PR 明确检出 Head SHA，Push/人工运行检出触发 SHA，使 Manifest 直接绑定待评审最终提交而不是 GitHub 合成 Merge Commit。Workflow 仅授予 `contents: read` 与用于解析精确 Job URL 的 `actions: read`，Checkout 不持久化 GitHub 凭据；Action 引用必须固定到完整 Commit SHA。
-- 当前 GitHub 账号的私有仓库能力不提供 Branch Protection、Ruleset 或 Secret Scanning，本项目不把这些能力作为 Phase 0 开工或日常合并的前置条件，也不声称四个 CI Check 受到平台强制。日常变更使用 PR，Owner 在合并前通过 PR 模板人工确认最终 Commit 的 `quality`、`windows-server-2025-x64-compile`、`macos-15-arm64`、`macos-15-intel` 均成功；失败、缺失、取消或对应其他 Commit 的运行不得视为通过。该软门禁只替代合并控制，不替代 Evidence Manifest、长期不可变归档、独立 Reviewer 或 GateClosureAttestation。
+- 开发阶段仓库临时公开以使用 GitHub Hosted Runner，正式运营前仍计划恢复为封闭项目。当前公开窗口未配置 Branch Protection 或 Ruleset；仓库恢复封闭后可用的平台治理能力还需按届时套餐重新确认。因此本项目不把平台强制合并控制作为 Phase 0 开工或日常合并的永久前置，也不声称四个 CI Check 当前受到平台强制。日常变更使用 PR，Owner 在合并前通过 PR 模板人工确认最终 Commit 的 `quality`、`windows-server-2025-x64-compile`、`macos-15-arm64`、`macos-15-intel` 均成功；失败、缺失、取消或对应其他 Commit 的运行不得视为通过。该软门禁只替代合并控制，不替代 Evidence Manifest、长期不可变归档、独立 Reviewer 或 GateClosureAttestation。
 - 每个 Job 使用对应的 `quality` 或 `native` Profile 生成 WP-0 Evidence Manifest，记录预期/实际 OS 与架构、GitHub Runner Image 标识、工具版本、提交 SHA、工作区 dirty 状态与变更路径、关键输入文件 Hash、CI Job URL，以及每条验证命令的退出码和 stdout/stderr Hash；预期平台与 Node 实际平台不一致时失败关闭。Manifest 还固定声明 `tauriReleaseBuild/bundle/signedApplication/applicationArtifact=false`，防止把 compile-check 证据解释成发布制品。Artifact 名包含 Run ID 与 Attempt；命令日志和 Manifest 一并作为 CI 传输制品保留 90 天，Gate 关闭前另行提升到长期不可变归档。采集器在依赖安装前先生成预备 Manifest，验证失败时仍上传现有证据，不能把缺失证据解释为 Gate 通过。
 - GitHub Runner 镜像偶尔包含相同固定版本的残缺 rustup 组件集合；Workflow 在临时 Runner 上先尝试卸载该版本，再以 `--force` 和明确的 minimal/rustfmt/clippy 组件集合重新安装，避免把镜像残留误当作项目回归。最终工具版本仍必须由 Manifest 探针证明为锁定值。
 - Phase 0 普通 PR 不读取生产签名、Apple Notarization 或 Windows Code Signing 秘密。Release Engineering 负责受保护环境中的签名、公证、证书轮换和制品 Hash 登记。

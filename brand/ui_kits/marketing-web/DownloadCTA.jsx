@@ -3,10 +3,10 @@
 // the main interface (cloud sync is baseline).
 const {}={};
 function Download(){
-  const D=window.MK_DATA.download;
+  const D=window.MK_DATA.download;const U=window.MK_DATA.ui.download;
   return <div className="mk-sec" style={{display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",gap:20,paddingTop:72,paddingBottom:80}}>
     <window.MKSeal size={132}/>
-    <div className="mk-eyebrow2" style={{justifyContent:"center"}}><b>下载</b><span className="mk-rule"></span><span>macOS · Windows</span></div>
+    <div className="mk-eyebrow2" style={{justifyContent:"center"}}><b>{U.tag}</b><span className="mk-rule"></span><span>{U.tagSub}</span></div>
     <h2 style={{fontSize:"clamp(26px,3.4vw,34px)",fontWeight:600,letterSpacing:"-0.02em",margin:0,color:"var(--text-1)"}}>{D.title}</h2>
     <p style={{fontSize:15,color:"var(--text-2)",lineHeight:1.6,margin:0,maxWidth:520}}>{D.sub}</p>
     <div style={{display:"flex",gap:14,flexWrap:"wrap",justifyContent:"center",marginTop:4}}>

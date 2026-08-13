@@ -47,14 +47,14 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [已接受 D 系列产品决策归档](docs/OPEN_DECISIONS.md)（开放 JD 状态见用户旅程 §7）
 - [当前审查处理结论整合台账](docs/REVIEW_RESOLUTIONS.md)（日期标题是 Finding 批次，不是历史快照）
 - [开源实现参考登记表](docs/OPEN_SOURCE_REFERENCES.md)
-- [Tauri 架构对照验证（2026-08-06）](docs/TAURI_ARCHITECTURE_VALIDATION_2026-08-06.md)
+- [Tauri 架构对照验证（2026-08-06）](docs/reviews/TAURI_ARCHITECTURE_VALIDATION_2026-08-06.md)
 - [术语索引](docs/GLOSSARY.md)
 - [数据关系与所有权地图](docs/DATA_MODEL_MAP.md)
-- [Phase 0 编码前全面审查（2026-08-01）](docs/PHASE0_READINESS_REVIEW_2026-08-01.md)
-- [Phase 0 工程基线](docs/PHASE0_ENGINEERING_BASELINE.md)
-- [Phase 0 Secure Host 决策基线](docs/PHASE0_SECURE_HOST_BASELINE.md)
-- [Phase 0 Gate 台账](docs/PHASE0_GATE_REGISTER.md)
-- [Phase 0 Gate 驱动执行计划](docs/PHASE0_EXECUTION_PLAN.md)
+- [Phase 0 编码前全面审查（2026-08-01）](docs/reviews/PHASE0_READINESS_REVIEW_2026-08-01.md)
+- [Phase 0 工程基线](docs/phase0/PHASE0_ENGINEERING_BASELINE.md)
+- [Phase 0 Secure Host 决策基线](docs/phase0/PHASE0_SECURE_HOST_BASELINE.md)
+- [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md)
+- [Phase 0 Gate 驱动执行计划](docs/phase0/PHASE0_EXECUTION_PLAN.md)
 - [ADR-0001：采用本地执行的 Tauri 客户端](docs/adr/0001-local-first-tauri.md)（已由 ADR-0004、ADR-0005 修订）
 - [ADR-0002：隔离且由用户授权的浏览器自动化](docs/adr/0002-isolated-browser-automation.md)
 - [ADR-0004：服务端同步域名业务数据，凭据保持设备本地](docs/adr/0004-cloud-business-data-sync.md)
@@ -74,6 +74,6 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 
 项目处于 `Phase 0 Validation / Conditional Go`。Monorepo、Tauri/Rust/TypeScript 工程骨架、共享 Wire Envelope Corpus、Connector 注册边和测试专用 Secure Host Fixture 已建立；真实 typed IPC/Auth DTO 与 Adapter/Handler 尚未接线，生产 Endpoint Registry 仍为 deny-all，不具备真实平台发网、真实凭据写入或生产外部副作用能力。
 
-当前执行状态以 [Phase 0 Gate 台账](docs/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01、R0-02、R0-03、R0-06、R0-10、R0-11、R0-12、R0-15 与 R0-16 正在补范围映射、实现或可重跑/平台级证据；其余 Gate 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
+当前执行状态以 [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01、R0-02、R0-03、R0-06、R0-10、R0-11、R0-12、R0-15 与 R0-16 正在补范围映射、实现或可重跑/平台级证据；其余 Gate 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
 
 当前登记的产品决策 JD-01～JD-11 已全部收口；D-016～D-021 固定首版无人值守边界、Lifetime 停服兑现、删除/保留、SLO、支付和 Cloud 区域策略。未来新增能力仍可触发新的决策。后续工作是把已接受设计转成实现与可重跑证据；决策关闭不自动关闭任何 R0 Gate。

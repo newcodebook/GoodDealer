@@ -109,6 +109,6 @@
 | `AdminPurposeRef` | `SupportCaseReference \| DataRightsRequestId \| SecurityIncidentId` 判别联合；每种引用保留自身状态与授权语义 | [用户旅程](USER_JOURNEYS.md) |
 | `AdminReadAuthorization` | 短期、目标/查询形状/字段 Scope/案件与新鲜重新认证绑定的跨账号明细读取授权；不可兑换管理命令 | [安全模型](SECURITY.md) |
 | `AdminActionAuthorization` | 短期、目标与参数绑定、可撤销的 Staff 管理命令授权；绑定目标账号安全 Epoch、命令相关 Aggregate Revision，执行和重放时复验 Scope、PurposeRef、专属 Epoch/Revision 与有效期 | [安全模型](SECURITY.md) |
-| `Gate` | 需要权威设计和可重跑证据才能关闭的阶段准入条件 | [Phase 0 Gate 台账](PHASE0_GATE_REGISTER.md) |
-| `GateClosureAttestation` | 与技术 Evidence Manifest 分离的不可变 Gate 关闭证明；绑定最终 Manifest 摘要、制品、具名责任身份、时间和独立性声明 | [Phase 0 Gate 台账](PHASE0_GATE_REGISTER.md) |
-| `Fallback` | Gate 未关闭时必须使用的收窄能力或失败关闭路径 | [Phase 0 Gate 台账](PHASE0_GATE_REGISTER.md) |
+| `Gate` | 需要权威设计和可重跑证据才能关闭的阶段准入条件 | [Phase 0 Gate 台账](phase0/PHASE0_GATE_REGISTER.md) |
+| `GateClosureAttestation` | 与技术 Evidence Manifest 分离的不可变 Gate 关闭证明；绑定最终 Manifest 摘要、制品、具名责任身份、时间和独立性声明 | [Phase 0 Gate 台账](phase0/PHASE0_GATE_REGISTER.md) |
+| `Fallback` | Gate 未关闭时必须使用的收窄能力或失败关闭路径 | [Phase 0 Gate 台账](phase0/PHASE0_GATE_REGISTER.md) |

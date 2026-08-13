@@ -6,8 +6,25 @@ desktop / account-web / admin-web 都刻意克制(功能层纯金、无 display 
 
 ## 运行方式
 和其他 kit 一致:React 18 UMD + 浏览器内 Babel(`type="text/babel"`),DS 组件来自 `../../_ds_bundle.js`
-(`window.GoodDealerDesignSystem_b5b0b6`),tokens 来自 `../../styles.css`。无构建工具。打开 `index.html` 预览。
-**单页长滚动**:`index.html` 顺序堆叠各 section 组件,顶栏锚点跳转(`#value`/`#security`/`#pricing`/`#faq`/`#download`)。
+(`window.GoodDealerDesignSystem_b5b0b6`),tokens 来自 `../../styles.css`。无构建工具。
+**单页长滚动**:各 `index.html` 顺序堆叠 section 组件,顶栏锚点跳转(`#features`/`#platforms`/`#demo`/`#security`/`#pricing`/`#faq`)。
+
+## i18n 目录结构
+英文版为首页,其他语种放子目录:
+
+```
+marketing-web/
+  index.html          ← 英文首页 (lang="en"), loads data.en.js
+  data.en.js           ← 英文内容 + ui 字符串
+  data.zh.js           ← 中文内容 + ui 字符串
+  zh/index.html        ← 中文版 (lang="zh-Hans"), loads ../data.zh.js
+  *.jsx                ← 共享组件 (语言无关, 所有文本从 MK_DATA.ui 读取)
+```
+
+- **共享 JSX**:所有 11 个 `.jsx` 组件语言无关,UI 字符串通过 `window.MK_DATA.ui.<section>` 读取。
+- **数据文件**:`data.<lang>.js` 导出 `window.MK_DATA`,含 `lang`、`assetBase`、全部内容数组、和完整 `ui` 块。
+- **资源路径**:`MK_DATA.assetBase` 解决子目录深度差异——根目录为 `"../../"`,`zh/` 为 `"../../../"`(在 `zh/index.html` 加载数据后内联覆盖)。
+- **新增语种**:创建 `data.<lang>.js` + `<lang>/index.html`(从 `zh/index.html` 复制,改 `lang`/meta/JSON-LD/数据文件路径)。
 
 ## 设计语言:「镌刻凭证 / 铸币印记」
 把官网当成一张**镌刻的所有权凭证 / 私人银行票据 / 铸币**,而非 App 广告——产品内核是「对分散托管资产的主权掌控」。
@@ -32,6 +49,8 @@ desktop / account-web / admin-web 都刻意克制(功能层纯金、无 display 
 - **meta description**:覆盖核心价值(统一管理 / 批量上架 / 自动验证 / 密码本地)+ 平台(macOS / Windows)。
 - **Open Graph + Twitter Card**:标题/描述,社交分享出预览卡。`og:image` 待正式域名确定后补。
 - **JSON-LD `SoftwareApplication`**:产品名、平台(macOS/Windows)、三档价格,触发搜索富摘要。
+- **JSON-LD `FAQPage`**:6 条 FAQ Q&A 结构化数据,触发搜索结果 FAQ 折叠富摘要。
+- **平台名称 SEO 锚点**:Platforms 区把每个平台名(Spaceship / Namecheap / Afternic / Cloudflare …)作为长尾关键词锚点,中英文覆盖(如"Afternic 批量上架"、"Spaceship 域名管理")。
 - **关键词矩阵**:核心词(域名管理软件 / 域名批量管理)、场景词(多注册商域名管理 / 域名价格同步)、长尾词(批量上架域名到销售平台 / Spaceship 域名管理)。
 
 ## 交互与动效(克制,`prefers-reduced-motion` 自动关闭)
@@ -58,15 +77,18 @@ desktop / account-web / admin-web 都刻意克制(功能层纯金、无 display 
 | `MKHero` | `Hero.jsx` | 编排式非对称:左栏(登记行 + display 标题〔金重点词「一处掌控」〕+ 定位 + 钢印/文字 CTA + 发丝信任承诺)+ 右侧 `MKSeal`,收于骑缝。 |
 | `MKBenefits` | `Benefits.jsx` | **好处盘点(你得到什么)**:转变磁贴(金色 metric + 「从(灰)→ 到(金)」outcome),h2 含搜索关键词「多注册商域名，统一批量管理」。 |
 | `MKPillars` | `Pillars.jsx` | 四价值支柱(PRD §3)的**账簿**:金色 mono 编号 01–04 + 发丝行 + 右置能力列。h2「从资产库到批量操作」。 |
-| `MKWorkflow` | `Workflow.jsx` | **核心流程(动态)**:横向四步(筛选→预览改动→确认执行→同步/撤回),高亮**自动轮转**(2.4s)+ 金色进度轨;可点选、hover/reduced-motion 暂停。 |
+| `MKWorkflow` | `Workflow.jsx` | **核心流程(动态)**:横向四步(筛选→预览改动→确认执行→同步/纠正),高亮**自动轮转**(2.4s)+ 金色进度轨;可点选、hover/reduced-motion 暂停。纠正是新的可审阅补偿操作，不承诺事务回滚。 |
+| `MKPlatforms` | `Platforms.jsx` | **平台覆盖(SEO 关键)**:三组(注册商 / 销售平台 / DNS),每个平台名是长尾关键词锚点;正式发布目标使用金色边框 + 金色方块，后续目标使用灰色标签。金色只表达经产品确认的发布目标，不表示当前已接入；每项能力仍由对应兼容性与安全 Gate 决定是否开放。 |
 | `MKShowcase` | `Showcase.jsx` | **功能动效**:左右交替行,每个窗口面板**循环演示一个真实功能的机制**(用动效表达,非静态截图)——统一归集(多注册商域名批量导入 + 资产表)、批量上架(前置确认弹窗→逐项状态更新)、自动验证(写入验证记录→等待生效→确认通过,脉冲金点 + 描述性状态)、价格同步(改价→向各平台/设备扩散→SYNCED)。诚实护栏:上架带「确认执行」拍子(非无人值守),验证/同步为自动。`prefers-reduced-motion` 落在已完成静态帧。 |
 | `MKSecurity` | `Security.jsx` | 差异化图解:你的电脑(金,持密码/永不离开)—只同步业务数据(不含密码)→ GoodDealer 云端(蓝,只读)+ 四点模型。 |
 | `MKPricing` | `Pricing.jsx` | 三档期限定价(与 account-web 一致:月 9.8 / 年 98 popular / 终身 498 gold),价格金色等宽大数字 + 票据框 + `.mk-tag` + 钢印 CTA;h2「选一个时长，功能完全一样」;交接 account-web 结账。 |
 | `MKFaq` | `Faq.jsx` | 手风琴 FAQ,诚实回答红线问题(自动下架 / 密码上传 / 设备数 / 平台支持 / 纯本地 / 买断扣费),日常语言而非开发者术语。 |
 | `MKDownload` | `DownloadCTA.jsx` | 收尾 CTA:`MKSeal` 印记复现(非辉光)+ macOS / Windows 钢印/文字 CTA + 登录/绑定前置说明。 |
-| — | `data.js` | `window.MK_DATA`:nav / hero / benefits / pillars / workflow / showcase / security / plans / faq / download / footer。 |
+| — | `data.en.js` | `window.MK_DATA`:英文内容 + `ui` 块(所有组件 UI 字符串)。 |
+| — | `data.zh.js` | `window.MK_DATA`:中文内容 + `ui` 块。 |
+| — | `zh/index.html` | 中文版 HTML shell(`lang="zh-Hans"`,中文 meta/SEO/JSON-LD,加载 `../data.zh.js` + `../*.jsx`)。 |
 
-**分区架构(版式刻意多样化)**:`Hero`(非对称)→ `Benefits`(转变磁贴)→ `Pillars`(账簿)→ `Workflow`(横向动态步进)→ `Showcase`(左右交替 + **会动的功能演示面板**)→ `Security`(图解)→ `Pricing`(卡片)→ `Faq`(手风琴)→ `Download`(居中印记)。相邻分区版式互不重复。
+**分区架构(版式刻意多样化)**:`Hero`(非对称)→ `Benefits`(转变磁贴)→ `Pillars`(账簿)→ `Workflow`(横向动态步进)→ `Platforms`(三组标签云)→ `Showcase`(左右交替 + **会动的功能演示面板**)→ `Security`(图解)→ `Pricing`(卡片)→ `Faq`(手风琴)→ `Download`(居中印记)。相邻分区版式互不重复。
 
 ## 交接关系
 营销站是入口,不做实际购买或账户操作——所有 CTA 指向 **account-web**:下载后登录/注册走 account-web Auth,

@@ -83,7 +83,7 @@ GoodDealer Cloud 请求使用独立的认证注入通道：
 
 平台 API Secret、OAuth Token、Recovery Material 等秘密只能通过 Rust Host 创建的原生秘密输入面进入。主应用 WebView 只能开始或取消 Capture Session，不能提交秘密值；成功后只取得 `credential_binding_id`、fingerprint、版本和脱敏状态，Keychain `credentialRef` 仍留在 Host 内。原生输入面不可用或 Keychain 写入失败时必须失败关闭，禁止降级到普通 WebView、剪贴板、配置、SQLite 或临时文件。
 
-含秘密的网络响应由 Manifest 标记为 `host_owned`，具体 typed extractor 只能由 Rust 私有编译期表按 Endpoint 绑定。Host 只接受 2xx 和封闭 typed contract，直接消费秘密 Body，并以 Device/Account 或 Provider Connection/Profile/来源 Endpoint 的完整作用域原子写入 Keychain；Store 的不透明回执只表达整批已提交，不返回数量、部分成功或 Ref，`Err` 必须表示零条目提交。3xx、其他非 2xx、超限、无效响应或 Store 失败都失败关闭，只允许返回专用脱敏状态。禁止把完整 Body、通用 JSON、Token、Secret Ref 或 Keychain Ref 返回 TypeScript。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](PHASE0_SECURE_HOST_BASELINE.md)。
+含秘密的网络响应由 Manifest 标记为 `host_owned`，具体 typed extractor 只能由 Rust 私有编译期表按 Endpoint 绑定。Host 只接受 2xx 和封闭 typed contract，直接消费秘密 Body，并以 Device/Account 或 Provider Connection/Profile/来源 Endpoint 的完整作用域原子写入 Keychain；Store 的不透明回执只表达整批已提交，不返回数量、部分成功或 Ref，`Err` 必须表示零条目提交。3xx、其他非 2xx、超限、无效响应或 Store 失败都失败关闭，只允许返回专用脱敏状态。禁止把完整 Body、通用 JSON、Token、Secret Ref 或 Keychain Ref 返回 TypeScript。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](phase0/PHASE0_SECURE_HOST_BASELINE.md)。
 
 ## 5. WebView 隔离
 

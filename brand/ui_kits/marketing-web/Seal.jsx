@@ -34,7 +34,7 @@ function Seal({size=248}){
       <circle className="mk-ripple mk-ripple-3" cx={c} cy={c} r={R*0.33} vectorEffect="non-scaling-stroke" opacity="0"/>
     </g>
     {/* minted Coin Seal at center */}
-    <image href="../../assets/logo/mark.svg" x={c-R*0.34} y={c-R*0.34} width={R*0.68} height={R*0.68}/>
+    <image href={(window.MK_DATA&&window.MK_DATA.assetBase||"../../")+"assets/logo/mark.svg"} x={c-R*0.34} y={c-R*0.34} width={R*0.68} height={R*0.68}/>
   </svg>;
 }
 window.MKSeal=Seal;

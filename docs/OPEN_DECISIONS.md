@@ -3,7 +3,7 @@
 状态：Closed D-series Archive
 更新日期：2026-08-05
 
-以下 D 系列产品决策已由产品负责人确认，并已转入正式需求与专题设计。当前产品决策状态的唯一入口是 [USER_JOURNEYS.md §7](USER_JOURNEYS.md#7-产品决策状态)；Gate 的实现与证据状态仍以 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md) 为准。
+以下 D 系列产品决策已由产品负责人确认，并已转入正式需求与专题设计。当前产品决策状态的唯一入口是 [USER_JOURNEYS.md §7](USER_JOURNEYS.md#7-产品决策状态)；Gate 的实现与证据状态仍以 [PHASE0_GATE_REGISTER.md](phase0/PHASE0_GATE_REGISTER.md) 为准。
 
 ## D-001 浏览器会话默认模式
 

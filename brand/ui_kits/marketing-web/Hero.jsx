@@ -4,7 +4,7 @@
 // a 骑缝 seam. The credential-local promise is stated once here; the Security section explains it.
 const {}={};
 function Hero(){
-  const H=window.MK_DATA.hero;
+  const H=window.MK_DATA.hero;const U=window.MK_DATA.ui.hero;
   return <div style={{position:"relative"}}>
     <div className="mk-sec" style={{display:"flex",alignItems:"center",gap:56,flexWrap:"wrap",paddingTop:84,paddingBottom:64}}>
       {/* left — editorial content */}
@@ -12,10 +12,10 @@ function Hero(){
         <div style={{display:"flex",alignItems:"center",gap:12,fontFamily:"var(--font-mono)",fontSize:11,letterSpacing:"0.14em",textTransform:"uppercase"}}>
           <span style={{color:"var(--gd-gold)"}}>GoodDealer</span>
           <span className="mk-rule"></span>
-          <span style={{color:"var(--text-3)"}}>域名资产管理</span>
+          <span style={{color:"var(--text-3)"}}>{U.eyebrowSub}</span>
         </div>
         <h1 style={{fontSize:"clamp(30px,4.2vw,46px)",fontWeight:600,letterSpacing:"-0.025em",lineHeight:1.12,margin:0,color:"var(--text-1)",maxWidth:560}}>
-          分散在多个注册商<br/>与平台的域名，<span style={{color:"var(--gd-gold)"}}>一处掌控</span>
+          {U.titleBefore.split("\n").map((ln,i,a)=><React.Fragment key={i}>{ln}{i<a.length-1&&<br/>}</React.Fragment>)}<span style={{color:"var(--gd-gold)"}}>{U.titleGold}</span>
         </h1>
         <p style={{fontSize:15.5,color:"var(--text-2)",lineHeight:1.65,margin:0,maxWidth:500}}>{H.sub}</p>
         <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center",marginTop:2}}>

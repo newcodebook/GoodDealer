@@ -149,7 +149,7 @@
 | R0-15 信任域依赖执行 | 无可替代本项目策略的上游；可借鉴 Tauri Capability 与语言模块图工具 | deny-by-default 路径×子路径/依赖/能力矩阵、真实静态注册、计算型动态 import 与 Tauri/Rust 越权负向测试 |
 | R0-16 RuntimeMode 命令准入 | 无可替代本项目状态机的上游；可借鉴 Tauri Command/Capability 测试组织 | Host-owned 状态、逐命令资源准入、消费点 Epoch/时间复验、Active/Standby Query Contract 与零资源负向矩阵 |
 
-R0-01～R0-14 的原始证据和初始关闭条件见 [PHASE0_READINESS_REVIEW_2026-08-01.md](PHASE0_READINESS_REVIEW_2026-08-01.md)；R0-15/R0-16 的来源和失败路径只见当前 Gate 台账。当前状态、范围和可重跑证据的唯一入口是 [PHASE0_GATE_REGISTER.md](PHASE0_GATE_REGISTER.md)。
+R0-01～R0-14 的原始证据和初始关闭条件见 [PHASE0_READINESS_REVIEW_2026-08-01.md](reviews/PHASE0_READINESS_REVIEW_2026-08-01.md)；R0-15/R0-16 的来源和失败路径只见当前 Gate 台账。当前状态、范围和可重跑证据的唯一入口是 [PHASE0_GATE_REGISTER.md](phase0/PHASE0_GATE_REGISTER.md)。
 
 ## 11. 引入检查清单
 

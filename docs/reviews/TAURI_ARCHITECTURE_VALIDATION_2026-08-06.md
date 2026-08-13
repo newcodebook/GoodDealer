@@ -23,7 +23,7 @@
 | Yaak | `.ref/yaak` | `784a3d3a324f9a657d032cdf75db624047df5bf1` | MIT；工程拆分、SQLite/同步和 API 客户端对照 |
 | GitButler | `.ref/gitbutler` | `e52b631574b093fffc0af1499cbd865d76c30748` | FSL-1.1-MIT；只作设计/测试参考，不复制到商业产品 |
 
-参考 Commit 只固定本次结论的可复查输入，不使其成为 GoodDealer 构建依赖。未来采用代码或依赖仍按 [开源实现参考登记表](OPEN_SOURCE_REFERENCES.md) 重新核验。
+参考 Commit 只固定本次结论的可复查输入，不使其成为 GoodDealer 构建依赖。未来采用代码或依赖仍按 [开源实现参考登记表](../OPEN_SOURCE_REFERENCES.md) 重新核验。
 
 关键源码证据入口：
 
