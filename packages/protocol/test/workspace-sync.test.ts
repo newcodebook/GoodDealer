@@ -45,6 +45,7 @@ describe("workspace sync golden corpus", () => {
   for (const path of [
     "page-cross-workspace.json",
     "page-revision-gap.json",
+    "page-returned-revision-mismatch.json",
     "page-terminal-before-target.json",
     "page-cursor-at-target.json",
   ] as const) {

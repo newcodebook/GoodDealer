@@ -27,7 +27,7 @@ jobs:
       EVIDENCE_EXPECTED_PLATFORM: linux
       EVIDENCE_EXPECTED_ARCH: x64
       EVIDENCE_OWNER_ROLE: Account Access and Cloud Devices Lead
-      EVIDENCE_OWNING_MODULES: protocol-account,protocol-devices,cloud-account-fixtures,client-core
+      EVIDENCE_OWNING_MODULES: protocol-account,protocol-devices,protocol-workspace,cloud-account-device-bootstrap-fixtures,client-core
       EVIDENCE_REQUIRED_REVIEWER_ROLE: Security Reviewer
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
