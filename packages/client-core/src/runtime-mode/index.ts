@@ -1,6 +1,7 @@
 import type {
   AccountGateStatus,
   AccountLockReason,
+  AccountRejection,
   EntitlementProjection,
 } from "@gooddealer/protocol/account";
 import type {
@@ -8,6 +9,8 @@ import type {
   CloudScope,
   DeviceAuthorityProjection,
   DeviceBindingList,
+  DeviceSwitchRequest,
+  DeviceSwitchRequestView,
   RuntimeStatus,
 } from "@gooddealer/protocol/devices";
 
@@ -41,6 +44,12 @@ export interface DeviceDirectoryPort {
   listBindings(): Promise<DeviceBindingList>;
   getLeaseStatus(): Promise<ActiveDeviceLeaseStatus>;
   getAuthority(): Promise<DeviceAuthorityProjection>;
+}
+
+/** Read-only consumer surface. Cloud adjudicates every returned field and rejection. */
+export interface DeviceSwitchPort {
+  requestSwitch(request: DeviceSwitchRequest): Promise<DeviceSwitchRequestView | AccountRejection>;
+  getSwitchStatus(requestId: string): Promise<DeviceSwitchRequestView | null>;
 }
 
 /** Read-only commercial entitlement projection. */
@@ -93,4 +102,40 @@ export function projectAccountSurface(
         ? [...authority.scopes]
         : authority.scopes.filter((scope) => !isActiveOnlyCapability(scope)),
   };
+}
+
+export type SwitchProgress =
+  | "idle"
+  | "awaiting_drain"
+  | "awaiting_takeover_window"
+  | "rebuilding"
+  | "finished"
+  | "abandoned";
+
+/**
+ * Pure display progress from the server-adjudicated switch state. In particular,
+ * the takeover timestamp is display data; only a server command can decide when
+ * the waiting state may advance.
+ */
+export function projectSwitchProgress(view: DeviceSwitchRequestView | null): SwitchProgress {
+  if (view === null) return "idle";
+
+  switch (view.status) {
+    case "draining":
+      return view.fromDeviceId === null ? "idle" : "awaiting_drain";
+    case "waiting_expiry":
+      return view.mode === "forced" && view.earliestTakeoverAt !== null
+        ? "awaiting_takeover_window"
+        : "idle";
+    case "bootstrapping":
+      return view.bootstrapExpiresAt === null ? "idle" : "rebuilding";
+    case "completed":
+      return "finished";
+    case "cancelled":
+    case "failed":
+      return "abandoned";
+    case "requested":
+    default:
+      return "idle";
+  }
 }
