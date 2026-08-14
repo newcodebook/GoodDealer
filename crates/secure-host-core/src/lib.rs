@@ -2,6 +2,7 @@ mod account_status;
 mod active_device_lease_status;
 mod bootstrap_steps;
 pub mod device_identity;
+mod drain;
 pub mod endpoint_capability;
 mod generated;
 #[cfg(test)]
@@ -25,6 +26,17 @@ pub use bootstrap_steps::{
     BOOTSTRAP_STEP_SCHEMA_VERSION, BootstrapStepKind, BootstrapStepRequest, BootstrapStepResult,
     BootstrapStepValidationError, validate_bootstrap_step_request_json,
     validate_bootstrap_step_result_json,
+};
+pub use drain::{
+    DRAIN_PROOF_SCHEMA_VERSION, DRAIN_STREAM_GENESIS_DIGEST, DRAIN_STREAM_GENESIS_DOMAIN,
+    DrainManifest, DrainProof, DrainSequenceDomain, DrainStream, DrainValidationError,
+    SynchronizedBackupDrainProof, advance_drain_chain_digest, drain_stream_genesis_digest,
+    encode_account_device_audit_chain_domain, encode_device_audit_drain_envelope_json,
+    encode_drain_chain_step_input, encode_drain_proof_digest_input,
+    encode_drain_proof_signature_transcript, encode_drain_sequence_domain,
+    encode_execution_fact_drain_envelope_json, encode_mutation_drain_envelope_json,
+    encode_workspace_device_audit_chain_domain, validate_drain_manifest_json,
+    validate_drain_proof_json,
 };
 
 pub use runtime_gate::{
