@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "device_switch_request_id": "switch-1",
+  "capability_jti": "bootstrap-jti-1",
+  "step_number": 1,
+  "step_nonce": "bm9uY2UtMQ",
+  "expected_workflow_revision": 0,
+  "step_kind": "pin_checkpoint",
+  "step_payload": {},
+  "request_digest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+}

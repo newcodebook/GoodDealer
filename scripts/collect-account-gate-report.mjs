@@ -10,17 +10,24 @@ const requiredInputs = [
   "packages/protocol/src/account/auth-session.ts",
   "packages/protocol/src/account/entitlement-projection.ts",
   "packages/protocol/src/devices/device-management.ts",
+  "packages/protocol/src/devices/bootstrap-steps.ts",
+  "packages/protocol/src/wire/canonical-codec.ts",
+  "packages/protocol/src/workspace/sync-mutation.ts",
   "packages/client-core/src/runtime-mode/index.ts",
   "apps/cloud/src/modules/identity/index.ts",
   "apps/cloud/src/modules/licensing/index.ts",
   "apps/cloud/src/modules/devices/index.ts",
+  "apps/cloud/src/modules/devices/bootstrap-fixture.ts",
   "packages/protocol/test/account-auth.test.ts",
   "packages/protocol/test/account-gate.test.ts",
   "packages/protocol/test/device-management.test.ts",
+  "packages/protocol/test/bootstrap-steps.test.ts",
+  "packages/protocol/test/workspace-sync.test.ts",
   "packages/client-core/test/runtime-mode.test.ts",
   "apps/cloud/test/identity-fixture.test.ts",
   "apps/cloud/test/licensing-fixture.test.ts",
   "apps/cloud/test/devices-fixture.test.ts",
+  "apps/cloud/test/bootstrap-fixture.test.ts",
 ];
 
 function sha256(content) {
@@ -78,7 +85,7 @@ export function collectAccountGateReport() {
   return {
     schemaVersion: 1,
     scope:
-      "Internal non-sellable account/device Cloud fixtures and read-only client projection only; no production route, raw credential, native keychain, external network, or user data.",
+      "Internal non-sellable account/device/bootstrap/workspace Cloud fixtures and read-only client projection only; no production route, lease signing, raw credential, native keychain, external network, or user data.",
     fixtureOnly: true,
     productionRoutesRegistered: sourceRegistersProductionRoute(runtimeSource),
     rawCredentialFieldsAbsent: !sourceDeclaresRawCredentialField(runtimeSource),
@@ -86,6 +93,8 @@ export function collectAccountGateReport() {
     requiredInputsPresent: inputs.length === requiredInputs.length,
     accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
     deviceVectors: vectorCounts("packages/protocol/test-vectors/device-management"),
+    bootstrapVectors: vectorCounts("packages/protocol/test-vectors/bootstrap-steps"),
+    workspaceVectors: vectorCounts("packages/protocol/test-vectors/workspace-sync"),
     inputs,
   };
 }
@@ -104,6 +113,10 @@ function main() {
     report.accountVectors.invalid > 0 &&
     report.deviceVectors.valid > 0 &&
     report.deviceVectors.invalid > 0 &&
+    report.bootstrapVectors.valid > 0 &&
+    report.bootstrapVectors.invalid > 0 &&
+    report.workspaceVectors.valid > 0 &&
+    report.workspaceVectors.invalid > 0 &&
     report.inputs.every((input) => statSync(resolve(root, input.path)).isFile());
 
   console.log(JSON.stringify(report, null, 2));

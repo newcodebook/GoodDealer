@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "deviceSwitchRequestId": "switch-1",
+  "capabilityJti": "bootstrap-jti-1",
+  "stepNumber": 1,
+  "stepNonce": "bm9uY2UtMQ",
+  "expectedWorkflowRevision": 9007199254740992,
+  "stepKind": "pin_checkpoint",
+  "stepPayload": {
+    "checkpointId": "checkpoint-4",
+    "checkpointRevision": 4,
+    "checkpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+}

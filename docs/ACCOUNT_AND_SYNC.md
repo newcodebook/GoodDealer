@@ -181,7 +181,9 @@ Bootstrap Capability 是绑定整个激活流程的短期 workflow Capability，
 - `fetch_mutations`：`pinnedCheckpointId/pinnedCheckpointRevision/pinnedCheckpointDigest/fromRevisionExclusive/throughRevisionInclusive/cursor/pageLimit`；大链可用连续递增的 step number 分页，下一页必须携带上一页响应给出的 cursor，不能在同一步换 cursor。
 - `submit_rebuild_digest`：`targetRevision/workspaceSchemaVersion/entityDigests[]`；每个元素是 strict、稳定排序的 `entityType/partitionId?/digest`，用于验证完整本地重建结果。
 
-`requestDigest` 使用版本化、长度定界编码覆盖除 `stepNonce` 与 `requestDigest` 自身外的完整 canonical request，包括全部 `stepPayload`；nonce 仍由服务端工作流状态独立绑定和单次判定，不能用“摘要相同”绕过 nonce/step CAS。响应 `BootstrapStepResult` 也是 strict 判别联合，共同字段为 `schemaVersion=1/workflowRevision/acceptedStepNumber/stepKind/resultPayload/resultDigest`：`pin_checkpoint` 返回固定的 Checkpoint ID/Revision/Digest 与 pin deadline，`fetch_mutations` 返回 strict Mutation 页、页摘要、已返回 Revision 与 next cursor，`submit_rebuild_digest` 返回核验 Revision、核验摘要和 accepted 状态。`resultDigest` 覆盖除自身外的完整 canonical response；同一步相同规范请求重试必须逐字节返回同一结果。`protocol/devices` 必须以 strict DTO 与 TS/Rust/Cloud 正负 Corpus 冻结这些请求/响应后才可实现生产 Bootstrap；当前仅有静态 Capability Envelope，没有上述 step DTO、分页状态机或 Corpus，不能被误解为步骤已交付。
+`requestDigest` 使用版本化、长度定界编码覆盖除 `stepNonce` 与 `requestDigest` 自身外的完整 canonical request，包括全部 `stepPayload`；nonce 仍由服务端工作流状态独立绑定和单次判定，不能用“摘要相同”绕过 nonce/step CAS。响应 `BootstrapStepResult` 也是 strict 判别联合，共同字段为 `schemaVersion=1/workflowRevision/acceptedStepNumber/stepKind/resultPayload/resultDigest`：`pin_checkpoint` 返回固定的 Checkpoint ID/Revision/Digest 与 pin deadline，`fetch_mutations` 返回 strict Mutation 页、页摘要、已返回 Revision 与 next cursor，`submit_rebuild_digest` 返回核验 Revision、核验摘要和 accepted 状态。`resultDigest` 覆盖除自身外的完整 canonical response；同一步相同规范请求重试必须逐字节返回同一结果。
+
+当前 `protocol/devices` 已交付上述 strict step DTO、域分离长度定界摘要 Transcript 和 TS 正负 Corpus；`protocol/workspace` 已交付 Bootstrap 所需的最小 strict Mutation 页；Cloud `devices` 只交付 Fixture-only 的 Checkpoint pin、分页、step nonce/number + Revision CAS、相同呈交幂等和重建摘要校验。Fixture 不注册生产 Route、不验证真实签名 Capability、不持久化 Repository，也不签发 ActiveDeviceLease。生产事务、Rust/客户端重建和跨语言 Corpus 完成前，P0-16/R0-06/R0-16 仍不能关闭。
 
 ### 4.2 强制切换
 
@@ -532,6 +534,10 @@ StaleChangeProposal           # 设备签名的旧 Epoch 可变修改提案
   signature_transcript_version
   device_signature
 ```
+
+公开 Workspace Wire V1 使用 strict lowerCamelCase，并把 `Revision` 限制在 `0..Number.MAX_SAFE_INTEGER`；服务端分配的 Mutation Revision、Lease Epoch 和设备 Mutation Sequence 必须为正数。`checkpointDigest`、Mutation 页摘要、实体摘要及 Bootstrap request/result 摘要统一使用 32 字节 SHA-256 的无填充 base64url 表达。
+
+当前 P0-20 最小回放切片只冻结 `entityType=domain_asset`，`changedFields` 是按 `fieldPath` 严格升序、不得重复的封闭判别联合：`note`、`portfolioId`、`tags`、`targetPrice`。`tags` 自身必须按 UTF-8 字节序去重并稳定排序；价格使用去前导零、去无意义尾随零的规范十进制字符串和三位大写币种码，不使用浮点 JSON Number。字段隐私与合并等级由 `protocol/workspace` 的同一注册表拥有；未知字段、`credentialRef` 等 DEVICE_SECRET、任意 JSON、跨 Workspace Mutation、Revision Gap 和非规范排序全部失败关闭。该切片用于先冻结 Bootstrap 可消费的最小契约，不宣称已经覆盖完整 Portfolio/Listing/DNS 领域；后续实体和字段必须随 Workspace Schema 显式扩展注册表、回放器和正负 Corpus，不能把 V1 放宽为开放对象。
 
 `DeviceCredentialCandidateStatus` 不证明凭据存在、有效或可用，也不是 `DeviceCredentialBindingStatus` 的降级副本。新设备首次看到 ProviderConnection 时初始化为 `never_configured`；Secure Host 成功提交完整凭据写事务后置为 `configured_candidate`；用户显式删除该设备凭据后置回 `never_configured`；旧版本迁移缺字段、状态文件损坏、重装后无法证明历史或 Host 检测到状态与秘密存储不一致时置为 `unknown`。状态更新只接受上述 Host/迁移来源并单调推进 `state_version`，不得通过读取 Keychain、Browser Profile、凭据值或执行健康检查来渲染 Standby 页面。切回 Active 后仍必须以 HostCredentialBinding 的权威 health/generation 完成健康检查。
 

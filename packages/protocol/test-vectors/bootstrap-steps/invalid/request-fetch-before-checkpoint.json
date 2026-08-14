@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "deviceSwitchRequestId": "switch-1",
+  "capabilityJti": "bootstrap-jti-1",
+  "stepNumber": 2,
+  "stepNonce": "bm9uY2UtMg",
+  "expectedWorkflowRevision": 1,
+  "stepKind": "fetch_mutations",
+  "stepPayload": {
+    "pinnedCheckpointId": "checkpoint-4",
+    "pinnedCheckpointRevision": 4,
+    "pinnedCheckpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "fromRevisionExclusive": 3,
+    "throughRevisionInclusive": 5,
+    "cursor": null,
+    "pageLimit": 100
+  },
+  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+}

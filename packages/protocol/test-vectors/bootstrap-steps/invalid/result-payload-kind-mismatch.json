@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "workflowRevision": 2,
+  "acceptedStepNumber": 2,
+  "stepKind": "fetch_mutations",
+  "resultPayload": {
+    "verifiedRevision": 5,
+    "verifiedDigest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "accepted": true
+  },
+  "resultDigest": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+}

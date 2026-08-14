@@ -6,3 +6,4 @@ export {
   safePositiveInteger,
   safeUnsignedInteger,
 } from "./scalars";
+export { encodeCanonicalWireValue, encodeDomainSeparatedWireValue } from "./canonical-codec";

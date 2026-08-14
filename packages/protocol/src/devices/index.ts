@@ -50,3 +50,12 @@ export type {
 
 export { deviceOperationSchema } from "./operations";
 export type { DeviceOperation } from "./operations";
+
+export {
+  BOOTSTRAP_STEP_SCHEMA_VERSION,
+  bootstrapStepRequestSchema,
+  bootstrapStepResultSchema,
+  encodeBootstrapStepRequestDigestInput,
+  encodeBootstrapStepResultDigestInput,
+} from "./bootstrap-steps";
+export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-steps";

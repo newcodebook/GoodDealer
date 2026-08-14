@@ -18,7 +18,7 @@
 
 当前 auth response parser 也仅为 `cfg(test)` 旧 Fixture，会把 Access/Refresh 两个 Token 写入同一个 Fake SecretStore；它不代表生产存储设计。生产 Host-owned Session Command 必须拆成耐久 RefreshTokenStore 与可清零的内存 AccessTokenSessionStore，持久化 Refresh 成功后才建立内存 Session，任一步失败都不得返回 authenticated；该接线仍属于 R0-03/R0-06 未完成证据。
 
-当前 `protocol/devices` 只有静态 Bootstrap Capability Envelope，没有 Bootstrap/Recovery step request/result、Recovery Capability Envelope、分页/工作流状态机或对应 Cloud/Rust Handler。文档中的 V1 判别联合是待实现合同，不是已交付 Wire；R0-06/R0-08/R0-16 在共享正负 Corpus、CAS/重复呈交和真实 Adapter/Handler 接线通过前保持未关闭。
+当前 `protocol/devices` 已有静态 Bootstrap Capability Envelope、Bootstrap strict step request/result、摘要 Transcript 与 TS 正负 Corpus；`protocol/workspace` 已有最小 strict Mutation 页，Cloud `devices` 已有 Fixture-only 分页/工作流状态机、CAS 与重复呈交证据。Recovery step、Recovery Capability Envelope、Rust/客户端 Handler、生产 Capability 验签、事务 Repository 与 Lease 签发仍未交付；R0-06/R0-08/R0-16 在跨语言 Corpus 和真实 Adapter/Handler 接线通过前保持未关闭。
 
 ## 2. 不可越过的实现边界
 

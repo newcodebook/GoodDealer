@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "workspace-a",
+  "fromRevisionExclusive": 4,
+  "throughRevisionInclusive": 6,
+  "mutations": [],
+  "returnedThroughRevision": 4,
+  "nextCursor": null,
+  "pageDigest": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+}

@@ -18,6 +18,13 @@ import {
   type DeviceSwitchRequestView,
 } from "@gooddealer/protocol/devices";
 
+export { BootstrapFixtureService } from "./bootstrap-fixture";
+export type {
+  BootstrapFixtureOptions,
+  BootstrapFixtureRejection,
+  BootstrapFixtureRejectionCode,
+} from "./bootstrap-fixture";
+
 interface LeaseRecord {
   readonly deviceId: string;
   readonly leaseEpoch: number;

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "mutationId": "mutation-unsafe",
+  "workspaceId": "workspace-a",
+  "workspaceSchemaVersion": 1,
+  "entityType": "domain_asset",
+  "entityId": "domain-example-com",
+  "baseRevision": 9007199254740992,
+  "changedFields": [{ "fieldPath": "note", "value": null }],
+  "sourceDeviceId": "device-a",
+  "activeLeaseEpoch": 2,
+  "mutationSequence": 9,
+  "serverRevision": 10
+}

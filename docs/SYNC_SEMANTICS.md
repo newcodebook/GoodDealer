@@ -33,6 +33,8 @@ cloud_current   服务端已接受的最新值
 
 Mutation 使用全局唯一 `mutation_id` 幂等处理。Device Cursor 按服务器 Revision 增量拉取；Revision 表示 GoodDealer 内部顺序，不证明外部平台状态。
 
+当前已实现的 P0-20 最小 Wire 只包含 `domain_asset` 的 `note/portfolioId/tags/targetPrice`，字段元数据、隐私分类和 `mergeClass` 均由 `protocol/workspace` 单源导出。它是 Bootstrap/重建的首个封闭切片，不是完整产品字段表；新增实体或字段必须通过 Workspace Schema 版本、同一元数据注册表和回放 Corpus 一起扩展，禁止用任意 JSON `changedFields` 提前绕过领域建模。
+
 设备来源的可变状态冲突只在以下恢复场景进入系统：
 
 - 强制切换后，旧设备携带过期 `active_lease_epoch` 上线；其修改只能形成签名 `StaleChangeProposal`，再由 Cloud recovery 生成 `StaleDeviceCandidate`。

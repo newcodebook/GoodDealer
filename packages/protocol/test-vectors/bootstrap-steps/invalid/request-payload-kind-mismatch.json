@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "deviceSwitchRequestId": "switch-1",
+  "capabilityJti": "bootstrap-jti-1",
+  "stepNumber": 1,
+  "stepNonce": "bm9uY2UtMQ",
+  "expectedWorkflowRevision": 0,
+  "stepKind": "pin_checkpoint",
+  "stepPayload": {
+    "targetRevision": 5,
+    "workspaceSchemaVersion": 1,
+    "entityDigests": []
+  },
+  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+}

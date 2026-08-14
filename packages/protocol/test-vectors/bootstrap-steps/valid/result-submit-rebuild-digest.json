@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "workflowRevision": 3,
+  "acceptedStepNumber": 3,
+  "stepKind": "submit_rebuild_digest",
+  "resultPayload": {
+    "verifiedRevision": 5,
+    "verifiedDigest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "accepted": true
+  },
+  "resultDigest": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+}

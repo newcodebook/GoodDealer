@@ -65,9 +65,16 @@ const accountGateKeyInputPaths = [
   "packages/client-core/test/runtime-mode.test.ts",
   "packages/protocol/src/account/index.ts",
   "packages/protocol/src/devices/index.ts",
+  "packages/protocol/src/devices/bootstrap-steps.ts",
+  "packages/protocol/src/wire/canonical-codec.ts",
+  "packages/protocol/src/workspace/sync-mutation.ts",
   "apps/cloud/src/modules/identity/index.ts",
   "apps/cloud/src/modules/licensing/index.ts",
   "apps/cloud/src/modules/devices/index.ts",
+  "apps/cloud/src/modules/devices/bootstrap-fixture.ts",
+  "packages/protocol/test/bootstrap-steps.test.ts",
+  "packages/protocol/test/workspace-sync.test.ts",
+  "apps/cloud/test/bootstrap-fixture.test.ts",
   ".github/workflows/wp2-account-gate.yml",
 ];
 
@@ -486,7 +493,7 @@ function profileDefinition(profile, slice, reportPath) {
     return {
       resolvedProfile: "wp2-account-gate-cloud-fixture",
       applicability:
-        "Portable account/device contract and Cloud fixture evidence; no production routes, raw credentials, sellable accounts, native secret storage, or external network.",
+        "Portable account/device/bootstrap/workspace contract and Cloud fixture evidence; no production routes, lease signing, raw credentials, sellable accounts, native secret storage, or external network.",
       commands: [
         {
           id: "protocol-typecheck",
@@ -912,7 +919,7 @@ const manifest = {
       : commaSeparatedEnvironment("WP0_OWNING_MODULES").length
         ? commaSeparatedEnvironment("WP0_OWNING_MODULES")
         : options.slice === "account-gate"
-          ? ["protocol-account", "protocol-devices", "cloud-account-fixtures", "client-core"]
+          ? ["protocol-account", "protocol-devices", "protocol-workspace", "cloud-account-device-bootstrap-fixtures", "client-core"]
           : options.slice?.startsWith("sqlcipher")
           ? ["local-storage", "recovery", "release-engineering"]
           : ["engineering-baseline", "release-engineering"],
