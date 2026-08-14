@@ -19,9 +19,13 @@ const requiredInputs = [
   "apps/cloud/src/modules/devices/index.ts",
   "apps/cloud/src/modules/devices/bootstrap-fixture.ts",
   "apps/cloud/src/modules/devices/bootstrap-workflow.ts",
+  "apps/cloud/src/modules/devices/drain-verification.ts",
   "apps/cloud/src/modules/devices/lease-lifecycle.ts",
   "apps/cloud/src/modules/devices/ports.ts",
   "apps/cloud/src/modules/devices/switch-workflow.ts",
+  "apps/cloud/src/modules/workspace/mutations/index.ts",
+  "apps/cloud/src/modules/execution-ledger/index.ts",
+  "apps/cloud/src/modules/audit/index.ts",
   "packages/protocol/test/account-auth.test.ts",
   "packages/protocol/test/account-gate.test.ts",
   "packages/protocol/test/device-management.test.ts",
@@ -33,6 +37,10 @@ const requiredInputs = [
   "apps/cloud/test/devices-fixture.test.ts",
   "apps/cloud/test/bootstrap-fixture.test.ts",
   "apps/cloud/test/bootstrap-workflow.test.ts",
+  "apps/cloud/test/drain-handoff.test.ts",
+  "apps/cloud/test/drain-ledgers.test.ts",
+  "apps/cloud/test/drain-transaction.test.ts",
+  "apps/cloud/test/drain-verification.test.ts",
   "apps/cloud/test/lease-lifecycle.test.ts",
   "apps/cloud/test/switch-workflow.test.ts",
 ];
@@ -106,6 +114,52 @@ export function sourceVerifiesSignature(source) {
   return importsNodeVerify || requiresNodeVerify || invokesVerificationPrimitive;
 }
 
+function drainSignatureWindows(source) {
+  return [...source.matchAll(/\bcheckDrainProofSignature\b/g)].map(({ index = 0 }) =>
+    source.slice(index, index + 600)
+  );
+}
+
+export function sourceAcceptsDrainProof(source) {
+  return drainSignatureWindows(source).some((window) =>
+    /\b(?:accepted|verified)\b\s*(?:\?|readonly\s+)?\s*:\s*(?:boolean|true)\b/.test(window) ||
+    /\breturn\s*{[^}]*\b(?:accepted|verified)\s*:\s*true\b/s.test(window)
+  );
+}
+
+export function drainProofSignaturePortCannotSucceed(source) {
+  const refusingReturn = /\binterface\s+DrainProofSignaturePort\b[\s\S]*?\bcheckDrainProofSignature\s*\([\s\S]*?\)\s*:\s*Promise\s*<\s*{\s*readonly\s+verified\s*:\s*false\s*;\s*readonly\s+reason\s*:\s*["']signature_verification_disabled["']\s*;?\s*}\s*>\s*;/.test(
+    source,
+  );
+  return refusingReturn && !sourceAcceptsDrainProof(source);
+}
+
+export function drainProofSignatureCheckNamingCompliant(source) {
+  const declaresCanonicalPortMethod = /\binterface\s+DrainProofSignaturePort\b[\s\S]*?\bcheckDrainProofSignature\s*\(/.test(
+    source,
+  );
+  const usesForbiddenSignatureMethod = /\b(?:verifyDrainProofSignature|verifyDrainSignature|verifyHandoffSignature)\s*\(/.test(
+    source,
+  );
+  return declaresCanonicalPortMethod && !usesForbiddenSignatureMethod;
+}
+
+export function sourceAcceptDrainReleasesLease(source) {
+  const acceptDrainStart = source.search(/\basync\s+acceptDrain\s*\(/);
+  if (acceptDrainStart < 0) return true;
+  const remainder = source.slice(acceptDrainStart);
+  const nextMethod = remainder.search(/\n\s{2}(?:async\s+)?claimTakeover\s*\(/);
+  if (nextMethod < 0) return true;
+  const acceptDrainSource = remainder.slice(0, nextMethod);
+  const mutatesLeaseLifecycle = /\b(?:this\s*\.\s*)?#?leaseLifecycle\s*\.\s*(?!readHeldLease\b)\w+\s*\(/.test(
+    acceptDrainSource,
+  );
+  const mutatesLeaseState = /\b(?:beginBootstrap|releaseActiveDeviceLease|releaseHeldLease|releaseLease)\s*\(|\breleasedAt\s*(?::|=)|#activeLease\s*=\s*null\b/.test(
+    acceptDrainSource,
+  );
+  return mutatesLeaseLifecycle || mutatesLeaseState;
+}
+
 export function identityFixtureIsNonSellable(source) {
   return /\breadonly\s+sellable\s*=\s*false(?:\s+as\s+const)?\s*;/.test(source);
 }
@@ -120,7 +174,18 @@ export function collectAccountGateReport() {
     .map((path) => ({ path, source: readFileSync(resolve(root, path), "utf8") }));
   const runtimeSource = runtimeSources.map(({ source }) => source).join("\n");
   const cloudRuntimeSources = runtimeSources.filter(({ path }) => path.startsWith("apps/cloud/src/"));
+  const drainRuntimeSources = cloudRuntimeSources.filter(({ path }) =>
+    path === "apps/cloud/src/modules/devices/index.ts" ||
+    path === "apps/cloud/src/modules/devices/ports.ts" ||
+    path === "apps/cloud/src/modules/devices/drain-verification.ts" ||
+    path === "apps/cloud/src/modules/workspace/mutations/index.ts" ||
+    path === "apps/cloud/src/modules/execution-ledger/index.ts" ||
+    path === "apps/cloud/src/modules/audit/index.ts"
+  );
   const identitySource = readFileSync(resolve(root, "apps/cloud/src/modules/identity/index.ts"), "utf8");
+  const devicesSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/index.ts"), "utf8");
+  const drainPortSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/ports.ts"), "utf8");
+  const drainRuntimeSource = drainRuntimeSources.map(({ source }) => source).join("\n");
 
   return {
     schemaVersion: 1,
@@ -135,6 +200,15 @@ export function collectAccountGateReport() {
     signatureVerificationAbsent: cloudRuntimeSources.every(
       ({ source }) => !sourceVerifiesSignature(source),
     ),
+    drainProofAcceptanceAbsent: cloudRuntimeSources.every(
+      ({ source }) => !sourceAcceptsDrainProof(source),
+    ),
+    drainProofSignatureSuccessUnrepresentable: drainProofSignaturePortCannotSucceed(drainPortSource),
+    acceptDrainLeaseReleaseAbsent: !sourceAcceptDrainReleasesLease(devicesSource),
+    drainProductionRoutesAbsent: drainRuntimeSources.every(
+      ({ source }) => !sourceRegistersProductionRoute(source),
+    ),
+    drainProofSignatureCheckNamingCompliant: drainProofSignatureCheckNamingCompliant(drainRuntimeSource),
     internalAccountSellable: !identityFixtureIsNonSellable(identitySource),
     requiredInputsPresent: inputs.length === requiredInputs.length,
     accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
@@ -151,6 +225,11 @@ export function accountGateReportPassesPolicy(report) {
     report.rawCredentialFieldsAbsent &&
     report.activeDeviceLeaseIssuanceAbsent &&
     report.signatureVerificationAbsent &&
+    report.drainProofAcceptanceAbsent &&
+    report.drainProofSignatureSuccessUnrepresentable &&
+    report.acceptDrainLeaseReleaseAbsent &&
+    report.drainProductionRoutesAbsent &&
+    report.drainProofSignatureCheckNamingCompliant &&
     report.internalAccountSellable === false &&
     report.requiredInputsPresent &&
     report.accountVectors.valid > 0 &&

@@ -5,7 +5,11 @@ import test from "node:test";
 import {
   accountGateReportPassesPolicy,
   collectAccountGateReport,
+  drainProofSignatureCheckNamingCompliant,
+  drainProofSignaturePortCannotSucceed,
   identityFixtureIsNonSellable,
+  sourceAcceptDrainReleasesLease,
+  sourceAcceptsDrainProof,
   sourceDeclaresRawCredentialField,
   sourceIssuesActiveDeviceLease,
   sourceRegistersProductionRoute,
@@ -26,6 +30,18 @@ const c0RuntimeSources = [
   file,
   readFileSync(new URL(`../apps/cloud/src/modules/devices/${file}`, import.meta.url), "utf8"),
 ]);
+const drainPortSource = readFileSync(
+  new URL("../apps/cloud/src/modules/devices/ports.ts", import.meta.url),
+  "utf8",
+);
+const devicesSource = readFileSync(
+  new URL("../apps/cloud/src/modules/devices/index.ts", import.meta.url),
+  "utf8",
+);
+const drainVerificationSource = readFileSync(
+  new URL("../apps/cloud/src/modules/devices/drain-verification.ts", import.meta.url),
+  "utf8",
+);
 
 test("WP-2 account gate evidence is fixture-only and independently runnable", () => {
   assert.equal(
@@ -120,19 +136,105 @@ test("account gate report rejects signature verification primitives without matc
   }
 });
 
-test("account gate report makes both new absence fields hard requirements", () => {
+test("account gate report fails closed when a positive drain-signature verdict is constructible", () => {
+  assert.equal(
+    sourceAcceptsDrainProof(`
+      interface DrainProofSignaturePort {
+        checkDrainProofSignature(): Promise<{ readonly verified: true }>;
+      }
+    `),
+    true,
+  );
+  assert.equal(
+    sourceAcceptsDrainProof(`
+      async checkDrainProofSignature() {
+        return { verified: true };
+      }
+    `),
+    true,
+  );
+  assert.equal(sourceAcceptsDrainProof(drainPortSource), false);
+  assert.equal(sourceAcceptsDrainProof(drainVerificationSource), false);
+});
+
+test("account gate report requires an unsuccessable DrainProofSignaturePort return type", () => {
+  assert.equal(drainProofSignaturePortCannotSucceed(drainPortSource), true);
+  assert.equal(
+    drainProofSignaturePortCannotSucceed(`
+      interface DrainProofSignaturePort {
+        checkDrainProofSignature(): Promise<{
+          readonly verified: boolean;
+          readonly reason: "signature_verification_disabled";
+        }>;
+      }
+    `),
+    false,
+  );
+  assert.equal(
+    drainProofSignaturePortCannotSucceed("interface DrainProofSignaturePort {}"),
+    false,
+  );
+});
+
+test("account gate report requires checkDrainProofSignature naming", () => {
+  assert.equal(
+    drainProofSignatureCheckNamingCompliant(`${drainPortSource}\n${drainVerificationSource}`),
+    true,
+  );
+  assert.equal(
+    drainProofSignatureCheckNamingCompliant(`
+      interface DrainProofSignaturePort {
+        verifyDrainProofSignature(): Promise<{ readonly verified: false }>;
+      }
+    `),
+    false,
+  );
+  assert.equal(drainProofSignatureCheckNamingCompliant("const drain = true;"), false);
+});
+
+test("account gate report rejects direct lease release from acceptDrain", () => {
+  assert.equal(sourceAcceptDrainReleasesLease(devicesSource), false);
+  assert.equal(
+    sourceAcceptDrainReleasesLease(`
+      class Devices {
+        async acceptDrain() {
+          this.#leaseLifecycle.completeHandoff();
+        }
+
+        claimTakeover() {}
+      }
+    `),
+    true,
+  );
+  assert.equal(sourceAcceptDrainReleasesLease("class Devices {}"), true);
+});
+
+test("account gate report rejects production routes in drain modules", () => {
+  assert.equal(sourceRegistersProductionRoute(drainVerificationSource), false);
+  assert.equal(sourceRegistersProductionRoute('server.post("/drain", handler);'), true);
+});
+
+test("account gate report makes every fallback field a hard requirement", () => {
   const report = collectAccountGateReport();
   assert.equal(report.activeDeviceLeaseIssuanceAbsent, true);
   assert.equal(report.signatureVerificationAbsent, true);
+  assert.equal(report.drainProofAcceptanceAbsent, true);
+  assert.equal(report.drainProofSignatureSuccessUnrepresentable, true);
+  assert.equal(report.acceptDrainLeaseReleaseAbsent, true);
+  assert.equal(report.drainProductionRoutesAbsent, true);
+  assert.equal(report.drainProofSignatureCheckNamingCompliant, true);
   assert.equal(accountGateReportPassesPolicy(report), true);
-  assert.equal(
-    accountGateReportPassesPolicy({ ...report, activeDeviceLeaseIssuanceAbsent: false }),
-    false,
-  );
-  assert.equal(
-    accountGateReportPassesPolicy({ ...report, signatureVerificationAbsent: false }),
-    false,
-  );
+  for (const field of [
+    "activeDeviceLeaseIssuanceAbsent",
+    "signatureVerificationAbsent",
+    "drainProofAcceptanceAbsent",
+    "drainProofSignatureSuccessUnrepresentable",
+    "acceptDrainLeaseReleaseAbsent",
+    "drainProductionRoutesAbsent",
+    "drainProofSignatureCheckNamingCompliant",
+  ]) {
+    assert.equal(accountGateReportPassesPolicy({ ...report, [field]: false }), false, field);
+  }
 });
 
 test("account gate report requires an explicitly non-sellable fixture", () => {
