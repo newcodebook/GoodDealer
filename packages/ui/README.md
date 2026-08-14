@@ -38,9 +38,14 @@ time or runtime — nothing here does `import ... from "../../brand/..."`. Inste
 - `src/components/**` reimplements the eight components documented in
   `brand/components/{buttons,inputs,navigation}/*.jsx` (Button, IconButton, Input, Checkbox,
   Select, Switch, Tabs, StatusBar) as typed, statically-styled React components.
+- `src/assets/**` is a verbatim copy of `brand/assets/**` (logo, graphics, icons), exported
+  via the `./assets/*` subpath so apps can load them at runtime (see "Assets" below).
 
-When brand direction changes, edit `brand/` first (it stays the reference), then port the
-change here deliberately — this package does not auto-follow brand/ edits.
+This package is the **production source of truth**: apps consume tokens, components, and
+assets exclusively from `@gooddealer/ui` and never reach into `brand/`. When brand direction
+changes, edit `brand/` first (it stays the design reference), then port the change here
+deliberately — this package does not auto-follow brand/ edits, and a design change is not
+complete until its production counterpart (token, component, or asset) lands here.
 
 ## Token-only styling
 
@@ -138,6 +143,26 @@ it directly, instead of `Select` depending on `Input`'s stylesheet having alread
 All eight are re-exported from `src/index.ts`, the only supported import path
 (`import { Button } from "@gooddealer/ui"`) — do not deep-import
 `@gooddealer/ui/src/components/...` from outside this package.
+
+## Assets
+
+Brand SVG assets (copied verbatim from `brand/assets/`, which remains the design reference)
+are exported through the declared `./assets/*` subpath:
+
+```ts
+import markUrl from "@gooddealer/ui/assets/logo/mark.svg";
+```
+
+| Directory | Files | Use |
+|---|---|---|
+| `assets/logo/` | `mark.svg`, `mark-flat.svg`, `mark-16.svg`, `mark-ink.svg`, `app-icon.svg` | Coin Seal logo variants — size/background rules in `brand/guidelines/coin-seal-spec.html` |
+| `assets/graphics/` | `seal.svg`, `sand-flow.svg`, `ascent.svg` | Badge seal, splash/underlay texture, marketing/empty-state graphic |
+| `assets/icons/` | `keyhole.svg`, `active-lease.svg` | Brand scenario icons (security capability, Active/Standby lease) |
+
+This subpath is a declared export, not a deep import — it is the supported way for apps to
+load brand assets at runtime. Vite resolves the specifier through the package `exports` map
+and applies its normal asset pipeline (hashed URL, or inlining below the asset-inline
+threshold). Do not load these files from `brand/assets/` in app code.
 
 ## Testing approach
 

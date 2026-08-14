@@ -1,6 +1,6 @@
 # GoodDealer Design System
 
-> **边界声明**：`brand/` 目录是品牌与界面设计的事实源和参考实现，不属于产品代码，不参与任何构建。目录内的组件、UI kit 与样式仅供设计对照；生产组件的归属是 `packages/ui` 与各 App 的 `src/`，设计向产品目录的迁移是后续工作。
+> **边界声明**：`brand/` 目录是品牌与界面设计的事实源和参考实现，不属于产品代码，不参与任何构建，任何 App 不得 import 本目录。生产归属是 `packages/ui`（**生产真源**）：`tokens/` 已逐字移植为 `packages/ui/src/tokens/`、`assets/` 已复制为 `packages/ui/src/assets/`（经 `@gooddealer/ui/assets/*` 导出供 App 运行时使用）、`components/` 正按生产标准重写进 `packages/ui/src/components/`。设计演进的流程：先改 `brand/`（保持参考地位），再刻意移植到 `packages/ui`——移植落地前设计变更不算完成；`packages/ui` 不会自动跟随本目录的修改。
 
 GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面客户端（Tauri）：域名投资人在一个界面统一管理分散在多个注册商（Spaceship）、DNS（Cloudflare）和交易平台（Atom、Afternic、SellerHub）的资产——注册信息、DNS、价格、销售状态、所有权验证、批量操作。最多两台绑定设备，单活动设备持有执行权（Active 金实心点 / Standby 蓝空心点）；平台凭据永不上云。
 
@@ -123,7 +123,7 @@ repo 无任何字体文件。当前 CDN 替代：General Sans（Fontshare，bran
 
 - `styles.css` — 全局入口（@import tokens/*）
 - `tokens/` — colors / typography / spacing / fonts / base
-- `assets/` — logo（5 版本）、graphics（3）、icons（2）
+- `assets/` — logo（5 版本）、graphics（3）、icons（2）；运行时副本经 `@gooddealer/ui/assets/*` 导出，App 从那里引用
 - `guidelines/` — 规范 specimen 卡片
 - `components/` — 23 个组件：
   - buttons/: Button, IconButton
