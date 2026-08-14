@@ -99,7 +99,7 @@ describe("DevicesFixtureService", () => {
     );
   });
 
-  it("blocks execution until an Active device's offline window ends", () => {
+  it("accepts a forced switch during isolation but blocks claim_takeover until the offline window ends", () => {
     let now = new Date("2026-01-01T00:00:00Z");
     const service = new DevicesFixtureService({
       now: () => now,
@@ -115,16 +115,19 @@ describe("DevicesFixtureService", () => {
       },
     });
     service.removeDevice({ schemaVersion: 1, deviceId: "device-a", expectedCredentialEpoch: 1, expectedListRevision: 1, reauthProofId: "proof" });
-    expectRejection(
+    const waiting = deviceSwitchRequestViewSchema.parse(
       service.requestSwitch({ schemaVersion: 1, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", reauthProofId: "proof" }),
-      "EXCLUSIVE_EXECUTION_BLOCKED",
     );
+    expect(waiting).toMatchObject({
+      status: "waiting_expiry",
+      earliestTakeoverAt: "2026-01-01T01:00:00Z",
+    });
+    expectRejection(service.claimTakeover(waiting.requestId), "EXCLUSIVE_EXECUTION_BLOCKED");
     now = new Date("2026-01-01T01:00:01Z");
-    expect(
-      deviceSwitchRequestViewSchema.parse(
-        service.requestSwitch({ schemaVersion: 1, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", reauthProofId: "proof" }),
-      ).toDeviceId,
-    ).toBe("device-b");
+    expect(deviceSwitchRequestViewSchema.parse(service.claimTakeover(waiting.requestId))).toMatchObject({
+      toDeviceId: "device-b",
+      status: "bootstrapping",
+    });
   });
 
   it("returns the same switch request for an idempotency replay and rejects a competing request", () => {

@@ -32,7 +32,19 @@ export type BootstrapFixtureRejectionCode =
   | "STEP_REPLAY_CONFLICT"
   | "CHECKPOINT_MISMATCH"
   | "MUTATION_CURSOR_MISMATCH"
-  | "REBUILD_DIGEST_MISMATCH";
+  | "REBUILD_DIGEST_MISMATCH"
+  | "WORKFLOW_NOT_BOOTSTRAPPING"
+  | "WORKFLOW_CANCELLED"
+  | "WORKFLOW_FAILED"
+  | "CAPABILITY_INVALID"
+  | "CAPABILITY_EXPIRED"
+  | "CAPABILITY_CONSUMED"
+  | "CHECKPOINT_PIN_UNAVAILABLE"
+  | "PIN_EXPIRED"
+  | "TARGET_REVISION_MISMATCH"
+  | "WORKSPACE_SCHEMA_UNSUPPORTED"
+  | "DRAIN_PROOF_UNVERIFIED"
+  | "LEASE_ISSUANCE_DISABLED";
 
 export interface BootstrapFixtureRejection {
   readonly accepted: false;
@@ -46,7 +58,7 @@ interface AcceptedPresentation {
 }
 
 type ResultWithout<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
-type BootstrapResultDraft = ResultWithout<BootstrapStepResult, "workflowRevision" | "resultDigest">;
+type BootstrapResultDraft = ResultWithout<BootstrapStepResult, "workflowRevision" | "nextStepNonce" | "resultDigest">;
 type BootstrapResultWithoutDigest = ResultWithout<BootstrapStepResult, "resultDigest">;
 
 export interface BootstrapFixtureOptions {
@@ -58,11 +70,13 @@ export interface BootstrapFixtureOptions {
   readonly stepNonceFor: (stepNumber: number) => string;
   readonly now?: () => Date;
   readonly pinTtlSeconds?: number;
+  /** Seeds the strict-step CAS after control-plane mutations have already advanced it. */
+  readonly initialWorkflowRevision?: number;
 }
 
 /** Fixture-only strict-step state machine. It never signs or returns an ActiveDeviceLease. */
 export class BootstrapFixtureService {
-  #workflowRevision = 0;
+  #workflowRevision: number;
   #nextStepNumber = 1;
   #phase: "awaiting_pin" | "fetching" | "awaiting_digest" | "completed" = "awaiting_pin";
   #returnedThroughRevision: number;
@@ -85,6 +99,10 @@ export class BootstrapFixtureService {
     this.#stepNonceFor = options.stepNonceFor;
     this.#now = options.now ?? (() => new Date());
     this.#pinTtlSeconds = options.pinTtlSeconds ?? 600;
+    this.#workflowRevision = options.initialWorkflowRevision ?? 0;
+    if (!Number.isSafeInteger(this.#workflowRevision) || this.#workflowRevision < 0) {
+      throw new TypeError("initial workflow revision must be a safe unsigned integer");
+    }
     if (!Number.isSafeInteger(this.#pinTtlSeconds) || this.#pinTtlSeconds < 1 || this.#pinTtlSeconds > 3_600) {
       throw new TypeError("fixture pin TTL must be an integer from 1 through 3600 seconds");
     }
@@ -136,7 +154,13 @@ export class BootstrapFixtureService {
     if (isRejection(result)) return result;
     this.#workflowRevision += 1;
     this.#nextStepNumber += 1;
-    const finalized = withResultDigest({ ...result, workflowRevision: this.#workflowRevision });
+    const finalized = withResultDigest({
+      ...result,
+      workflowRevision: this.#workflowRevision,
+      nextStepNonce: result.stepKind === "submit_rebuild_digest"
+        ? null
+        : this.#stepNonceFor(this.#nextStepNumber),
+    });
     this.#accepted.set(request.stepNumber, {
       stepNonce: request.stepNonce,
       requestDigest: request.requestDigest,

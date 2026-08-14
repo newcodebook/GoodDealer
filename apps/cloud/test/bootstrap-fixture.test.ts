@@ -40,7 +40,10 @@ function mutation(serverRevision: number, mutationSequence: number): SyncMutatio
   };
 }
 
-function service(mutations: readonly SyncMutation[] = [mutation(5, 9), mutation(6, 10)]): BootstrapFixtureService {
+function service(
+  mutations: readonly SyncMutation[] = [mutation(5, 9), mutation(6, 10)],
+  initialWorkflowRevision = 0,
+): BootstrapFixtureService {
   return new BootstrapFixtureService({
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
@@ -49,6 +52,7 @@ function service(mutations: readonly SyncMutation[] = [mutation(5, 9), mutation(
     expectedEntityDigests: [{ entityType: "domain_asset", partitionId: null, digest: ENTITY_DIGEST }],
     stepNonceFor: (stepNumber) => `nonce-${stepNumber}`,
     now: () => new Date("2026-08-14T08:00:00Z"),
+    initialWorkflowRevision,
   });
 }
 
@@ -62,7 +66,7 @@ function signedRequest(value: Omit<BootstrapStepRequest, "requestDigest">): Boot
 
 function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest">> = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 1,
@@ -86,7 +90,7 @@ function fetchRequest(
   pageLimit = 1,
 ): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber,
@@ -107,7 +111,7 @@ function fetchRequest(
 
 function submitRequest(digest = ENTITY_DIGEST): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 4,
@@ -132,6 +136,7 @@ describe("BootstrapFixtureService", () => {
     const fixture = service();
     const pin = fixture.execute(pinRequest());
     expect("stepKind" in pin && pin.stepKind).toBe("pin_checkpoint");
+    expect("nextStepNonce" in pin && pin.nextStepNonce).toBe("nonce-2");
     expect(JSON.stringify(fixture.execute(pinRequest()))).toBe(JSON.stringify(pin));
 
     const firstPage = fixture.execute(fetchRequest(2, 1, 4, null));
@@ -144,6 +149,7 @@ describe("BootstrapFixtureService", () => {
 
     const completed = fixture.execute(submitRequest());
     expect("stepKind" in completed && completed.stepKind).toBe("submit_rebuild_digest");
+    expect("nextStepNonce" in completed && completed.nextStepNonce).toBeNull();
     expect(JSON.stringify(fixture.execute(submitRequest()))).toBe(JSON.stringify(completed));
     expect(JSON.stringify(completed)).not.toContain("activeDeviceLease");
   });
@@ -189,5 +195,15 @@ describe("BootstrapFixtureService", () => {
           { ...mutation(6, 10), workspaceId: "workspace-b" },
         ]),
     ).toThrow("contiguous checkpoint-bound workspace chain");
+  });
+
+  it("P16-INV-2 seeds the strict-step CAS from the control-plane workflow revision", () => {
+    const fixture = service([mutation(5, 9), mutation(6, 10)], 4);
+    const result = fixture.execute(pinRequest({ expectedWorkflowRevision: 4 }));
+    expect(result).toMatchObject({
+      workflowRevision: 5,
+      acceptedStepNumber: 1,
+      nextStepNonce: "nonce-2",
+    });
   });
 });
