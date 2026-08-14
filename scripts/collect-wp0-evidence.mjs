@@ -16,7 +16,7 @@ import { platformCommand } from "./platform-command.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const supportedProfiles = new Set(["local", "native", "quality"]);
-const supportedSlices = new Set(["sqlcipher", "sqlcipher-bundle"]);
+const supportedSlices = new Set(["account-gate", "sqlcipher", "sqlcipher-bundle"]);
 const portableCrates = [
   "-p",
   "gooddealer-secure-host-core",
@@ -59,6 +59,16 @@ const keyInputPaths = [
   ".github/workflows/native.yml",
   ".github/workflows/wp5-sqlcipher.yml",
   ".github/workflows/wp5-sqlcipher-bundle.yml",
+];
+const accountGateKeyInputPaths = [
+  "scripts/collect-account-gate-report.mjs",
+  "packages/client-core/test/runtime-mode.test.ts",
+  "packages/protocol/src/account/index.ts",
+  "packages/protocol/src/devices/index.ts",
+  "apps/cloud/src/modules/identity/index.ts",
+  "apps/cloud/src/modules/licensing/index.ts",
+  "apps/cloud/src/modules/devices/index.ts",
+  ".github/workflows/wp2-account-gate.yml",
 ];
 
 const sqlcipherRequiredChecks = [
@@ -301,6 +311,25 @@ function sliceEvidenceValid(sliceEvidence) {
     return true;
   }
   const report = sliceEvidence.report;
+  if (sliceEvidence.slice === "account-gate") {
+    return Boolean(
+      sliceEvidence.present &&
+        report?.schemaVersion === 1 &&
+        report.fixtureOnly === true &&
+        report.productionRoutesRegistered === false &&
+        report.rawCredentialFieldsAbsent === true &&
+        report.internalAccountSellable === false &&
+        report.requiredInputsPresent === true &&
+        report.accountVectors?.valid > 0 &&
+        report.accountVectors?.invalid > 0 &&
+        report.deviceVectors?.valid > 0 &&
+        report.deviceVectors?.invalid > 0 &&
+        Array.isArray(report.inputs) &&
+        report.inputs.every(
+          (input) => input.bytes > 0 && /^[0-9a-f]{64}$/.test(input.sha256),
+        )
+    );
+  }
   if (sliceEvidence.slice === "sqlcipher-bundle") {
     return Boolean(
       sliceEvidence.present &&
@@ -372,8 +401,12 @@ function readExecutionContext() {
   };
 }
 
-function hashKeyInputs() {
-  return keyInputPaths.map((path) => {
+function hashKeyInputs(slice) {
+  const paths = [
+    ...keyInputPaths,
+    ...(slice === "account-gate" ? accountGateKeyInputPaths : []),
+  ];
+  return paths.map((path) => {
     const absolutePath = resolve(root, path);
     if (!existsSync(absolutePath)) {
       return { path, present: false, sha256: null };
@@ -448,6 +481,50 @@ function profileDefinition(profile, slice, reportPath) {
       args: ["test", "--workspace", "--all-targets"],
     },
   ];
+
+  if (slice === "account-gate") {
+    return {
+      resolvedProfile: "wp2-account-gate-cloud-fixture",
+      applicability:
+        "Portable account/device contract and Cloud fixture evidence; no production routes, raw credentials, sellable accounts, native secret storage, or external network.",
+      commands: [
+        {
+          id: "protocol-typecheck",
+          ...pnpm(["--filter", "@gooddealer/protocol", "typecheck"]),
+        },
+        {
+          id: "protocol-contract-tests",
+          ...pnpm(["--filter", "@gooddealer/protocol", "test"]),
+        },
+        {
+          id: "cloud-fixture-typecheck",
+          ...pnpm(["--filter", "@gooddealer/cloud", "typecheck"]),
+        },
+        {
+          id: "cloud-fixture-tests",
+          ...pnpm(["--filter", "@gooddealer/cloud", "test"]),
+        },
+        {
+          id: "client-core-typecheck",
+          ...pnpm(["--filter", "@gooddealer/client-core", "typecheck"]),
+        },
+        {
+          id: "client-core-tests",
+          ...pnpm(["--filter", "@gooddealer/client-core", "test"]),
+        },
+        {
+          id: "dependency-boundary-check",
+          binary: "node",
+          args: ["scripts/check-boundaries.mjs"],
+        },
+        {
+          id: "account-gate-fixture-report",
+          binary: "node",
+          args: ["scripts/collect-account-gate-report.mjs", reportPath],
+        },
+      ],
+    };
+  }
 
   if (slice === "sqlcipher") {
     if (profile === "quality") {
@@ -756,7 +833,12 @@ try {
   options = { prepareOnly: true, profile: "local", slice: null };
 }
 
-const workPackage = options.slice?.startsWith("sqlcipher") ? "wp5" : "wp0";
+const workPackage =
+  options.slice === "account-gate"
+    ? "wp2"
+    : options.slice?.startsWith("sqlcipher")
+      ? "wp5"
+      : "wp0";
 const outputDirectory = resolve(
   root,
   options.slice === null
@@ -767,9 +849,11 @@ const logDirectory = resolve(outputDirectory, "logs");
 const manifestPath = resolve(outputDirectory, "evidence.json");
 const sliceReportPath = resolve(
   outputDirectory,
-  options.slice === "sqlcipher-bundle"
-    ? "sqlcipher-bundle-report.json"
-    : "sqlcipher-report.json",
+  options.slice === "account-gate"
+    ? "account-gate-report.json"
+    : options.slice === "sqlcipher-bundle"
+      ? "sqlcipher-bundle-report.json"
+      : "sqlcipher-report.json",
 );
 const definition = profileDefinition(options.profile, options.slice, sliceReportPath);
 const pnpmProbe = platformCommand("pnpm", ["--version"]);
@@ -793,6 +877,13 @@ const manifest = {
     applicationArtifact: options.slice === "sqlcipher-bundle",
     releaseModeFixtureValidation: options.slice === "sqlcipher",
     temporarySqlcipherFixture: options.slice?.startsWith("sqlcipher") ?? false,
+    ...(options.slice === "account-gate"
+      ? {
+          accountGateFixture: true,
+          productionAccountRoute: false,
+          rawCredentials: false,
+        }
+      : {}),
     productionStorage: false,
     userData: false,
   },
@@ -811,16 +902,23 @@ const manifest = {
   },
   ci: await resolveCiEvidence(),
   responsibility: {
-    ownerRole: evidenceEnvironment("OWNER_ROLE") ?? "Release Engineering Lead",
+    ownerRole:
+      evidenceEnvironment("OWNER_ROLE") ??
+      (options.slice === "account-gate"
+        ? "Account Access and Cloud Devices Lead"
+        : "Release Engineering Lead"),
     owningModules: commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES").length
       ? commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES")
       : commaSeparatedEnvironment("WP0_OWNING_MODULES").length
         ? commaSeparatedEnvironment("WP0_OWNING_MODULES")
-        : options.slice?.startsWith("sqlcipher")
+        : options.slice === "account-gate"
+          ? ["protocol-account", "protocol-devices", "cloud-account-fixtures", "client-core"]
+          : options.slice?.startsWith("sqlcipher")
           ? ["local-storage", "recovery", "release-engineering"]
           : ["engineering-baseline", "release-engineering"],
     requiredReviewerRole:
-      evidenceEnvironment("REQUIRED_REVIEWER_ROLE") ?? "Architecture Reviewer",
+      evidenceEnvironment("REQUIRED_REVIEWER_ROLE") ??
+      (options.slice === "account-gate" ? "Security Reviewer" : "Architecture Reviewer"),
     approverRole: evidenceEnvironment("APPROVER_ROLE") ?? "Phase 0 Gate Approver",
     evidenceProducerRef: process.env.GITHUB_ACTOR_ID
       ? `github-user-id:${process.env.GITHUB_ACTOR_ID}`
@@ -880,7 +978,7 @@ const manifest = {
     initial: readRepositoryState(),
     final: null,
   },
-  keyInputs: hashKeyInputs(),
+  keyInputs: hashKeyInputs(options.slice),
   sliceEvidence: readSliceEvidence(options.slice, sliceReportPath),
   validations: [],
   result: options.prepareOnly ? "not-run" : "pending",

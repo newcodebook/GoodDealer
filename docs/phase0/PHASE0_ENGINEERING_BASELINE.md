@@ -53,6 +53,7 @@ Windows ARM64、macOS 14 及更低版本、Linux、iOS 和 Android 不属于首�
 ```text
 pnpm install --frozen-lockfile
 pnpm evidence:wp0
+pnpm evidence:wp2
 pnpm evidence:wp5 --slice sqlcipher
 pnpm evidence:wp5:bundle
 ```
@@ -60,6 +61,8 @@ pnpm evidence:wp5:bundle
 `pnpm check:platform-neutral` 只编排生成物、TypeScript/Cloud/Package 测试与结构门禁；根 `pnpm check` 在其完整语义之外继续显式编排 Rust Workspace 测试。Evidence Profile 使用前者再按平台添加 Portable 或 Native Rust 门禁，避免 Ubuntu 意外承担桌面 Workspace 编译，也避免 Native 重复运行 Rust 测试。`pnpm evidence:wp0` 默认使用 `local` Profile：macOS/Windows 执行 Desktop Build 与完整 Rust Workspace Gate；Linux 不属于受支持桌面目标，因此只执行平台无关检查和 `gooddealer-secure-host-core`、`gooddealer-local-storage` 两个可移植 Crate 的 Clippy/Test。需要复现 CI 语义时可直接执行 `node scripts/collect-wp0-evidence.mjs --profile quality` 或 `--profile native`。Evidence Manifest 写入 `.artifacts/wp0/evidence.json`，记录责任角色、Evidence Producer、命令证据和精确仓库输入摘要。dirty 本地运行可保留诊断结果但 `technicalEligibility.eligible=false`；CI 还要求前后 clean、输入摘要一致、Runner 平台匹配且精确 CI Job URL 可解析，否则整体失败。技术 `passed` 或 `technicalEligibility.eligible=true` 不能替代独立 GateClosureAttestation；每份 Attestation 只绑定一个 `gate_id`，以结构化 owner/reviews[]/approval 覆盖该 Gate-specific 全部角色，并用 `evidence_sets[]` 为每个必需 Job 分别引用最终 Manifest SHA-256、CI Artifact ID/digest/run/job URL 和逐字节相同证据包的长期不可变归档。多 Gate 必须分别生成 Attestation。Workflow 90 天 Artifact 仅用于传输，不能充当项目审计期归档。
 
 Evidence Collector 在 Windows 通过 `cmd.exe /d /s /c` 启动 pnpm shim，并在 Desktop Build 成功产出 `frontendDist` 后才执行完整 Rust Workspace Gate。dirty 判定直接取自 staged/unstaged 原始 diff 与 untracked 路径集合，任一材料无法采集时状态为 unknown 并失败关闭；对应内容 Hash 继续作为完整输入稳定性证据。生成注册表由 `.gitattributes` 强制 LF，保证 Windows/macOS 逐字节检查一致。Tauri 按 Windows 宿主派生的 `windows-schema.json` 不属于仓库输入；Capability 的可移植契约以受版本控制的 `desktop-schema.json`、Capability JSON、Permission TOML 和结构门禁为准。
+
+`pnpm evidence:wp2` 复用同一 provenance、仓库稳定性和精确 CI Job URL 语义，写入 `.artifacts/wp2/account-gate`。它只验证 account/device 协议正负 Corpus、Cloud `identity/licensing/devices` 内部不可售 Fixture、client-core RuntimeMode 只读投影和依赖边界，并记录关键输入 SHA-256；报告还失败关闭地检查责任模块未注册生产 Route、未声明 raw credential 字段且 Fixture 账号不可售。该切片不接密码输入、Keychain、生产 Route、外部网络、真实凭据或用户数据，也不证明 Cloud 事务并发、Windows/macOS 原生行为或 R0-06/R0-16 Gate 关闭。
 
 `pnpm evidence:wp5 --slice sqlcipher` 复用同一 provenance、仓库稳定性和 GateClosureAttestation 语义，但写入 `.artifacts/wp5/sqlcipher`，且只以 release 模式编译/运行 `gooddealer-local-storage` 的测试专用 SQLCipher Fixture。报告固定核对 SQLCipher 4.17.0 community 与 SQLite 3.53.3，记录每个扫描文件的大小和 SHA-256，扫描数据库、WAL、rollback journal、崩溃恢复文件及故障副本，并验证错误 Key、截断、篡改、崩溃重开和未知临时文件路径。`wp5-sqlcipher` Workflow 在 Windows Server 2025 x64、macOS 15 arm64 和 macOS 15 x64 生成独立 90 天传输 Artifact。该切片显式声明不是 Tauri release build/bundle、签名应用、生产存储或用户数据；通过它不能替代安装包、长期归档、独立审查或 R0-08/R0-16 Attestation。
 

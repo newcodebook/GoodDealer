@@ -1,7 +1,7 @@
 # GoodDealer Phase 0 执行计划
 
 状态：Active / Gate-driven Delivery
-更新日期：2026-08-06
+更新日期：2026-08-14
 
 ## 1. 执行规则
 
@@ -67,7 +67,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-12 | Cloudflare DNS 最小读写 | J-03 | R0-02/R0-13/R0-14 | Connector Operations | FP/TP | RRset Contract、前后证据、清理回执 | Fake Provider/Read-only |
 | P0-13 | Atom Token 脱敏 | J-01/J-02/J-03 | R0-02/R0-03 | Secure Host/Connector | FP/W/MA/MI | Canary Secret 与 Query/URL/日志扫描 | Query Token Endpoint 禁用 |
 | P0-14 | Afternic CSV Golden File | J-02/J-03 | R0-01/R0-14 | Connector Operations | P/FP | Connector Test Kit Golden File、公式注入 Corpus | 只生成本地人工文件 |
-| P0-15 | 账号门禁、Auth/Entitlement 与设备原型 | J-01/J-05/J-06 | R0-06/R0-16 | Account Access/Devices | P/C/W/MA/MI | 待建 `evidence:wp2 --slice account-gate` | 账号入口保持 Fixture |
+| P0-15 | 账号门禁、Auth/Entitlement 与设备原型 | J-01/J-05/J-06 | R0-06/R0-16 | Account Access/Devices | P/C/W/MA/MI | 现有 `pnpm evidence:wp2`（`account-gate` Portable/Cloud Fixture）与协议正负 Corpus；native/生产证据仍待建 | 账号入口保持 Fixture |
 | P0-16 | DeviceSwitch、Bootstrap、Lease 与 Key 生命周期 | J-01/J-05/J-07 | R0-05/R0-06/R0-16 | Cloud Devices | P/C | Bootstrap/Recovery strict-step Corpus、并发事务包 | 不签发 Lease |
 | P0-17 | Draining、正常/强制切换、24h 窗口 | J-05/J-07 | R0-05/R0-16 | Device Sync/Runtime Security | P/C | Three-stream Drain Golden Corpus 与事务故障注入 | 禁止正常 handoff |
 | P0-18 | Standby Read-only、Reader Cursor、越权拒绝 | J-05 | R0-04/R0-06/R0-16 | Workspace/Devices | P/C | Active/Standby Query Contract、Mutation 拒绝包 | 只保留无写实现的 View |
@@ -93,6 +93,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 ```text
 pnpm check
 pnpm evidence:wp0
+pnpm evidence:wp2
 pnpm evidence:wp5 --slice sqlcipher
 pnpm evidence:wp5:bundle
 node scripts/collect-wp0-evidence.mjs --profile quality
@@ -100,6 +101,8 @@ node scripts/collect-wp0-evidence.mjs --profile native
 ```
 
 P0-05 的 Portable 实现已经完成：`client-core Port DTO -> Desktop Tauri Adapter -> Rust Command Handler` 最小链不含秘密和外部副作用，TypeScript/Rust 共享 Corpus、`AppManifest::commands`/`generate_handler!`/`#[tauri::command]`/逐命令 Permission/Adapter 同集、未声明命令拒绝和显式 Local WebView Capability 均进入根门禁。该切片只为 R0-01/R0-10/R0-15/R0-16 形成证据，不启用账号、平台或生产网络能力。
+
+P0-15 已建立 `pnpm evidence:wp2`：它在 Ubuntu Portable/Cloud Fixture 环境运行 account/device 协议类型检查和全部正负向量、Cloud `identity/licensing/devices` Fixture、client-core RuntimeMode 只读投影及依赖边界检查，并生成关键输入 SHA-256 报告。报告失败关闭地确认这些模块没有注册生产 Route、没有 raw credential 字段且内部账号不可售。该入口不证明原生密码输入、OS Keychain、生产网络/Route、Cloud 事务并发完整性或 Windows/macOS 行为，也不关闭 R0-06/R0-16；账号入口、真实凭据和外部副作用继续保持 Fixture/禁用。
 
 P0-06 的 compile-check 技术集合已在提交 `901dfd44a1bb8c9d007bb16a1d9f3c143d70188a` 完成：Quality Run `31079370330` 与 Native Run `31079370262` 的 Linux x64、Windows Server 2025 x64、macOS 15 arm64/x64 四份 Manifest 均为 `passed` 且 `technicalEligibility.eligible=true`，绑定干净稳定的同一提交和精确 Job URL。该集合不包含 Windows 11 24H2 真机打包、签名、公证、长期不可变归档或独立 Attestation，因此 R0-11 与 P0-06 仍保持 In Progress，不能声称可发布。
 

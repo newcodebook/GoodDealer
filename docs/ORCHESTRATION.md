@@ -59,7 +59,8 @@ specability delegate --stdin --json     # 一次性完成 assignment + ready rev
 
 - P0-05（Port DTO → Tauri Adapter → Rust Handler 最小纵切）已完成并进根门禁。
 - P0-06 compile-check 集合已完成；R0-11 仍 In Progress（缺真机打包/签名/归档/Attestation）。
-- P0-07（SQLCipher）待三平台 bundle Workflow 干净证据 + 人类收口动作；**收口前不进入 P0-08**。
+- P0-07（SQLCipher）Hosted 三平台 bundle 技术证据已完成，仍缺 Windows 11 24H2 真机、签名/公证、长期归档、独立 Security Review 与 Attestation；**收口前不进入 P0-08**。
+- WS-A、WS-B、WS-C 的首批实现/审计均已完成；`pnpm evidence:wp2` 已建立 account-gate Portable/Cloud Fixture 证据生产器，但不解除任何 Fallback。
 - Gate 台账无 Closed 项；生产能力全部处于 Fallback。
 
 ### 5.2 工作流（Workstream）划分
@@ -68,11 +69,11 @@ specability delegate --stdin --json     # 一次性完成 assignment + ready rev
 
 | WS | 内容 | Gate 依赖 | 编排形态 |
 | --- | --- | --- | --- |
-| WS-A | 设计系统迁移：按 `brand/` 事实源在 `packages/ui` 建立生产组件与 token 接线，替换占位实现 | 无 | Builder + Evaluator（+ux 评审 advisory）；纯前端基础，立即可启动 |
-| WS-B | P0-15/P0-19 账号门禁与 Auth 纵切：①Architect 冻结 `protocol/account`、`protocol/devices` 契约与 Auth DTO；②Builder×2 并行（cloud `identity/licensing/devices` Fixture 实现；client-core `runtime-mode` 消费端）；③待建 `evidence:wp2 --slice account-gate` 生产器 | R0-06/R0-16（Fallback 内实现，不解除） | Architect → 双 Builder 并行 → Evaluator；security advisor 强制 |
-| WS-C | P0-07 收尾审计：核对 `wp5-sqlcipher-bundle` 三平台 Artifact 与 Manifest 资格，输出人类动作清单 | R0-08/R0-16 | 单个只读 Evaluator 代理；产出升级清单，不改代码 |
+| WS-A（已完成） | 设计系统迁移：按 `brand/` 事实源在 `packages/ui` 建立生产组件与 token 接线，替换占位实现 | 无 | 生产组件、token 与测试已进入根门禁 |
+| WS-B（已完成首纵切） | P0-15/P0-19 账号门禁与 Auth 纵切：冻结 `protocol/account`、`protocol/devices` 契约与 Auth DTO；建立 cloud `identity/licensing/devices` Fixture、client-core `runtime-mode` 只读消费端及 `pnpm evidence:wp2` | R0-06/R0-16（Fallback 内实现，不解除） | 仅 Portable/Cloud Fixture；不含密码输入、Keychain、生产 Route 或真实凭据 |
+| WS-C（已完成审计） | P0-07 收尾审计：三平台 Artifact 与 Manifest 技术资格已核对，剩余人类动作已列明 | R0-08/R0-16 | Hosted 技术证据不替代真机、签名/公证、长期归档、独立审查或 Attestation |
 
-并行规则：WS-A 与 WS-B 无共享契约，可同时启动；WS-B 内部 Builder 等待契约冻结；WS-C 只读随时可跑。
+上述首批工作流已经收口；下一波仍按“无共享契约可并行、契约先行、不得越 Gate”执行。
 
 ### 5.3 每个切片的固定节奏
 
@@ -91,4 +92,4 @@ specability delegate --stdin --json     # 一次性完成 assignment + ready rev
 
 ### 5.5 后续波次
 
-WS-A/B 收口后按 [PHASE0_EXECUTION_PLAN.md §2](phase0/PHASE0_EXECUTION_PLAN.md) 推进：W2（Bootstrap/设备/同步/Query/Cloud Boundary）→ W3（Backup/Recovery、Tenant Job）→ W4（双引擎 Browser/Consent/Ticket）→ W5（Connector 与受控真实写入，内部顺序固定）。每个波次开工前由 Master 重新对照 Gate 台账确认前置未被越过。
+当前按 [PHASE0_EXECUTION_PLAN.md §2](phase0/PHASE0_EXECUTION_PLAN.md) 进入 W2：先做 P0-16 的 Bootstrap、DeviceSwitch、Lease 与 Key lifecycle Fixture/contract 纵切，再推进设备同步、Query 与 Cloud Boundary。其后依次为 W3（Backup/Recovery、Tenant Job）→ W4（双引擎 Browser/Consent/Ticket）→ W5（Connector 与受控真实写入，内部顺序固定）。每个波次开工前由 Master 重新对照 Gate 台账确认前置未被越过。
