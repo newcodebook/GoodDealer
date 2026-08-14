@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "deviceSwitchRequestId": "switch-1",
   "capabilityJti": "bootstrap-jti-1",
   "stepNumber": 2,

@@ -2,7 +2,6 @@
   "schemaVersion": 2,
   "workflowRevision": 1,
   "acceptedStepNumber": 1,
-  "nextStepNonce": "bm9uY2UtMg",
   "stepKind": "pin_checkpoint",
   "resultPayload": {
     "checkpointId": "checkpoint-4",

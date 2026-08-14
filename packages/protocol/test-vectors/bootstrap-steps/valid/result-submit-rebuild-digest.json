@@ -1,7 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workflowRevision": 3,
   "acceptedStepNumber": 3,
+  "nextStepNonce": null,
   "stepKind": "submit_rebuild_digest",
   "resultPayload": {
     "verifiedRevision": 5,

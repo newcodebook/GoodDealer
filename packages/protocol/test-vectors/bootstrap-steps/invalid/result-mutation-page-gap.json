@@ -1,7 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workflowRevision": 2,
   "acceptedStepNumber": 2,
+  "nextStepNonce": "bm9uY2UtMw",
   "stepKind": "fetch_mutations",
   "resultPayload": {
     "mutationPage": {

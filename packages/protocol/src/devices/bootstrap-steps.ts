@@ -17,7 +17,7 @@ import {
   safeUnsignedInteger,
 } from "../wire/index";
 
-export const BOOTSTRAP_STEP_SCHEMA_VERSION = 1 as const;
+export const BOOTSTRAP_STEP_SCHEMA_VERSION = 2 as const;
 
 const requestFields = {
   schemaVersion: z.literal(BOOTSTRAP_STEP_SCHEMA_VERSION),
@@ -95,43 +95,55 @@ const resultFields = {
   schemaVersion: z.literal(BOOTSTRAP_STEP_SCHEMA_VERSION),
   workflowRevision: safePositiveInteger,
   acceptedStepNumber: safePositiveInteger,
+  nextStepNonce: base64Url.max(128).nullable(),
   resultDigest: sha256DigestSchema,
 } as const;
 
-export const bootstrapStepResultSchema = z.discriminatedUnion("stepKind", [
-  z
-    .object({
-      ...resultFields,
-      stepKind: z.literal("pin_checkpoint"),
-      resultPayload: z
-        .object({
-          ...checkpointBindingFields,
-          pinExpiresAt: canonicalUtcTimestamp,
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      ...resultFields,
-      stepKind: z.literal("fetch_mutations"),
-      resultPayload: z.object({ mutationPage: mutationPageSchema }).strict(),
-    })
-    .strict(),
-  z
-    .object({
-      ...resultFields,
-      stepKind: z.literal("submit_rebuild_digest"),
-      resultPayload: z
-        .object({
-          verifiedRevision: workspaceRevisionSchema,
-          verifiedDigest: sha256DigestSchema,
-          accepted: z.literal(true),
-        })
-        .strict(),
-    })
-    .strict(),
-]);
+export const bootstrapStepResultSchema = z
+  .discriminatedUnion("stepKind", [
+    z
+      .object({
+        ...resultFields,
+        stepKind: z.literal("pin_checkpoint"),
+        resultPayload: z
+          .object({
+            ...checkpointBindingFields,
+            pinExpiresAt: canonicalUtcTimestamp,
+          })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        ...resultFields,
+        stepKind: z.literal("fetch_mutations"),
+        resultPayload: z.object({ mutationPage: mutationPageSchema }).strict(),
+      })
+      .strict(),
+    z
+      .object({
+        ...resultFields,
+        stepKind: z.literal("submit_rebuild_digest"),
+        resultPayload: z
+          .object({
+            verifiedRevision: workspaceRevisionSchema,
+            verifiedDigest: sha256DigestSchema,
+            accepted: z.literal(true),
+          })
+          .strict(),
+      })
+      .strict(),
+  ])
+  .superRefine((result, context) => {
+    const isTerminal = result.stepKind === "submit_rebuild_digest";
+    if (isTerminal !== (result.nextStepNonce === null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["nextStepNonce"],
+        message: "next step nonce must be null exactly when the bootstrap step is terminal",
+      });
+    }
+  });
 
 export function encodeBootstrapStepRequestDigestInput(value: unknown): Uint8Array {
   const parsed = bootstrapStepRequestSchema.parse(value);

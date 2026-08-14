@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  BOOTSTRAP_STEP_SCHEMA_VERSION,
   bootstrapStepRequestSchema,
   bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
@@ -18,6 +19,10 @@ function vector(path: string): unknown {
 }
 
 describe("bootstrap strict-step golden corpus", () => {
+  it("freezes the amended bootstrap step schema version", () => {
+    expect(BOOTSTRAP_STEP_SCHEMA_VERSION).toBe(2);
+  });
+
   for (const path of [
     "request-pin-checkpoint.json",
     "request-fetch-mutations.json",
@@ -57,6 +62,10 @@ describe("bootstrap strict-step golden corpus", () => {
     "result-unknown-field.json",
     "result-payload-kind-mismatch.json",
     "result-mutation-page-gap.json",
+    "result-missing-next-step-nonce.json",
+    "result-nonterminal-null-next-step-nonce.json",
+    "result-terminal-nonnull-next-step-nonce.json",
+    "result-invalid-next-step-nonce-encoding.json",
   ] as const) {
     it(`rejects invalid/${path}`, () => {
       expect(bootstrapStepResultSchema.safeParse(vector(`invalid/${path}`)).success).toBe(false);
@@ -67,9 +76,9 @@ describe("bootstrap strict-step golden corpus", () => {
     const digest = (value: Uint8Array) => createHash("sha256").update(value).digest("base64url");
     expect(
       digest(encodeBootstrapStepRequestDigestInput(vector("valid/request-pin-checkpoint.json"))),
-    ).toMatchInlineSnapshot(`"pa7S442NWGEhfjVds_P7M3rxfOIZZPKtz7IqF4uYtyo"`);
+    ).toMatchInlineSnapshot(`"V-cW12Ult7-RIRDTTu7eMeU3s5lQSNJFhXJL-1pTKEI"`);
     expect(
       digest(encodeBootstrapStepResultDigestInput(vector("valid/result-pin-checkpoint.json"))),
-    ).toMatchInlineSnapshot(`"pAs7TEzquUvggIEUFBeScBXGM6Q3r0S9WWpKhdL1WXk"`);
+    ).toMatchInlineSnapshot(`"vfJqIXA8Ya_SVko_6HLyRZ-Xe8m1UZkrMwpDJ5UriH0"`);
   });
 });
