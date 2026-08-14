@@ -3,14 +3,29 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  accountGateReportPassesPolicy,
+  collectAccountGateReport,
   identityFixtureIsNonSellable,
   sourceDeclaresRawCredentialField,
+  sourceIssuesActiveDeviceLease,
   sourceRegistersProductionRoute,
+  sourceVerifiesSignature,
 } from "./collect-account-gate-report.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 const collector = readFileSync(new URL("./collect-wp0-evidence.mjs", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/wp2-account-gate.yml", import.meta.url), "utf8");
+const c0RuntimeSources = [
+  "bootstrap-fixture.ts",
+  "bootstrap-workflow.ts",
+  "index.ts",
+  "lease-lifecycle.ts",
+  "ports.ts",
+  "switch-workflow.ts",
+].map((file) => [
+  file,
+  readFileSync(new URL(`../apps/cloud/src/modules/devices/${file}`, import.meta.url), "utf8"),
+]);
 
 test("WP-2 account gate evidence is fixture-only and independently runnable", () => {
   assert.equal(
@@ -39,6 +54,85 @@ test("account gate report rejects raw credential fields but accepts expiry metad
   assert.equal(sourceDeclaresRawCredentialField("'refreshToken': string;"), true);
   assert.equal(sourceDeclaresRawCredentialField("accessTokenExpiresAt: string;"), false);
   assert.equal(sourceDeclaresRawCredentialField('method: z.enum(["password", "passkey"]);'), false);
+});
+
+test("account gate raw credential policy does not misclassify committed C0 identifiers", () => {
+  for (const [file, source] of c0RuntimeSources) {
+    assert.equal(sourceDeclaresRawCredentialField(source), false, file);
+  }
+  assert.equal(
+    sourceDeclaresRawCredentialField(
+      "credentialEpoch: number; boundAccountSecurityEpoch: number; expectedCredentialEpoch?: number;",
+    ),
+    false,
+  );
+});
+
+test("account gate report rejects ActiveDeviceLease issuance but accepts unsigned denied claims", () => {
+  assert.equal(
+    sourceIssuesActiveDeviceLease(`
+      const envelope = {
+        typ: "gd.active-device-lease.v1",
+        aud: "gooddealer-desktop/active-device-lease",
+        kid: signingKeyId,
+        signature,
+        payload: { leaseEpoch: 4 },
+      };
+    `),
+    true,
+  );
+  assert.equal(
+    sourceIssuesActiveDeviceLease(`
+      async signActiveDeviceLease(claims) {
+        return { issued: true, envelope: await sign(claims) };
+      }
+    `),
+    true,
+  );
+  assert.equal(
+    sourceIssuesActiveDeviceLease(`
+      const claims = {
+        typ: "gd.active-device-lease.v1",
+        aud: "gooddealer-desktop/active-device-lease",
+        payload: { leaseEpoch: pendingEpoch },
+      };
+      return { issued: false, reason: "lease_issuance_disabled", claims };
+    `),
+    false,
+  );
+  for (const [file, source] of c0RuntimeSources) {
+    assert.equal(sourceIssuesActiveDeviceLease(source), false, file);
+  }
+});
+
+test("account gate report rejects signature verification primitives without matching binding checks", () => {
+  assert.equal(
+    sourceVerifiesSignature('import { verify } from "node:crypto"; verify(null, bytes, key, signature);'),
+    true,
+  );
+  assert.equal(sourceVerifiesSignature("await globalThis.crypto.subtle.verify(algorithm, key, signature, bytes);"), true);
+  assert.equal(
+    sourceVerifiesSignature("await capabilityVerifier.verifyBootstrapCapability(presented, expected);"),
+    false,
+  );
+  for (const [file, source] of c0RuntimeSources) {
+    assert.equal(sourceVerifiesSignature(source), false, file);
+  }
+});
+
+test("account gate report makes both new absence fields hard requirements", () => {
+  const report = collectAccountGateReport();
+  assert.equal(report.activeDeviceLeaseIssuanceAbsent, true);
+  assert.equal(report.signatureVerificationAbsent, true);
+  assert.equal(accountGateReportPassesPolicy(report), true);
+  assert.equal(
+    accountGateReportPassesPolicy({ ...report, activeDeviceLeaseIssuanceAbsent: false }),
+    false,
+  );
+  assert.equal(
+    accountGateReportPassesPolicy({ ...report, signatureVerificationAbsent: false }),
+    false,
+  );
 });
 
 test("account gate report requires an explicitly non-sellable fixture", () => {

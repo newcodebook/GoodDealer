@@ -18,6 +18,10 @@ const requiredInputs = [
   "apps/cloud/src/modules/licensing/index.ts",
   "apps/cloud/src/modules/devices/index.ts",
   "apps/cloud/src/modules/devices/bootstrap-fixture.ts",
+  "apps/cloud/src/modules/devices/bootstrap-workflow.ts",
+  "apps/cloud/src/modules/devices/lease-lifecycle.ts",
+  "apps/cloud/src/modules/devices/ports.ts",
+  "apps/cloud/src/modules/devices/switch-workflow.ts",
   "packages/protocol/test/account-auth.test.ts",
   "packages/protocol/test/account-gate.test.ts",
   "packages/protocol/test/device-management.test.ts",
@@ -28,6 +32,9 @@ const requiredInputs = [
   "apps/cloud/test/licensing-fixture.test.ts",
   "apps/cloud/test/devices-fixture.test.ts",
   "apps/cloud/test/bootstrap-fixture.test.ts",
+  "apps/cloud/test/bootstrap-workflow.test.ts",
+  "apps/cloud/test/lease-lifecycle.test.ts",
+  "apps/cloud/test/switch-workflow.test.ts",
 ];
 
 function sha256(content) {
@@ -67,6 +74,38 @@ export function sourceDeclaresRawCredentialField(source) {
   );
 }
 
+export function sourceIssuesActiveDeviceLease(source) {
+  const constructsWithEnvelopeSchema =
+    /\bactiveDeviceLeaseEnvelopeSchema\s*\.\s*parse\s*\(\s*{/.test(source);
+  const declaresActiveLeaseType =
+    /(?:\btyp\b|["']typ["'])\s*:\s*["']gd\.active-device-lease\.v1["']/.test(source);
+  const declaresActiveLeaseAudience =
+    /(?:\baud\b|["']aud["'])\s*:\s*["']gooddealer-desktop\/active-device-lease["']/.test(source);
+  const declaresKeyId = /(?:\bkid\b|["']kid["'])\s*(?::|,|})/.test(source);
+  const declaresSignature = /(?:\bsignature\b|["']signature["'])\s*(?::|,|})/.test(source);
+  const signerStart = source.search(/\bsignActiveDeviceLease\s*\(/);
+  const successfulSigner =
+    signerStart >= 0 && /(?:\bissued\b|["']issued["'])\s*:\s*true\b/.test(source.slice(signerStart));
+
+  return (
+    constructsWithEnvelopeSchema ||
+    successfulSigner ||
+    (declaresActiveLeaseType && declaresActiveLeaseAudience && declaresKeyId && declaresSignature)
+  );
+}
+
+export function sourceVerifiesSignature(source) {
+  const importsNodeVerify =
+    /\bimport\s*{[^}]*\b(?:createVerify|verify)\b[^}]*}\s*from\s*["'](?:node:)?crypto["']/.test(source);
+  const requiresNodeVerify =
+    /\b(?:createVerify|verify)\b\s*}\s*=\s*require\s*\(\s*["'](?:node:)?crypto["']\s*\)/.test(source);
+  const invokesVerificationPrimitive =
+    /\bcreateVerify\s*\(|\b(?:globalThis\s*\.\s*)?crypto\s*\.\s*subtle\s*\.\s*verify\s*\(|\bsubtle\s*\.\s*verify\s*\(|\bnacl\s*\.\s*sign\s*\.\s*detached\s*\.\s*verify\s*\(|\bcrypto_sign_verify_detached\s*\(|\.\s*verify\s*\(/.test(
+      source,
+    );
+  return importsNodeVerify || requiresNodeVerify || invokesVerificationPrimitive;
+}
+
 export function identityFixtureIsNonSellable(source) {
   return /\breadonly\s+sellable\s*=\s*false(?:\s+as\s+const)?\s*;/.test(source);
 }
@@ -76,10 +115,11 @@ export function collectAccountGateReport() {
     const content = readFileSync(resolve(root, path));
     return { path, bytes: content.length, sha256: sha256(content) };
   });
-  const runtimeSource = requiredInputs
+  const runtimeSources = requiredInputs
     .filter((path) => path.includes("/src/"))
-    .map((path) => readFileSync(resolve(root, path), "utf8"))
-    .join("\n");
+    .map((path) => ({ path, source: readFileSync(resolve(root, path), "utf8") }));
+  const runtimeSource = runtimeSources.map(({ source }) => source).join("\n");
+  const cloudRuntimeSources = runtimeSources.filter(({ path }) => path.startsWith("apps/cloud/src/"));
   const identitySource = readFileSync(resolve(root, "apps/cloud/src/modules/identity/index.ts"), "utf8");
 
   return {
@@ -89,6 +129,12 @@ export function collectAccountGateReport() {
     fixtureOnly: true,
     productionRoutesRegistered: sourceRegistersProductionRoute(runtimeSource),
     rawCredentialFieldsAbsent: !sourceDeclaresRawCredentialField(runtimeSource),
+    activeDeviceLeaseIssuanceAbsent: cloudRuntimeSources.every(
+      ({ source }) => !sourceIssuesActiveDeviceLease(source),
+    ),
+    signatureVerificationAbsent: cloudRuntimeSources.every(
+      ({ source }) => !sourceVerifiesSignature(source),
+    ),
     internalAccountSellable: !identityFixtureIsNonSellable(identitySource),
     requiredInputsPresent: inputs.length === requiredInputs.length,
     accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
@@ -99,14 +145,12 @@ export function collectAccountGateReport() {
   };
 }
 
-function main() {
-  const report = collectAccountGateReport();
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
-
-  const valid =
+export function accountGateReportPassesPolicy(report) {
+  return (
     report.productionRoutesRegistered === false &&
     report.rawCredentialFieldsAbsent &&
+    report.activeDeviceLeaseIssuanceAbsent &&
+    report.signatureVerificationAbsent &&
     report.internalAccountSellable === false &&
     report.requiredInputsPresent &&
     report.accountVectors.valid > 0 &&
@@ -117,10 +161,17 @@ function main() {
     report.bootstrapVectors.invalid > 0 &&
     report.workspaceVectors.valid > 0 &&
     report.workspaceVectors.invalid > 0 &&
-    report.inputs.every((input) => statSync(resolve(root, input.path)).isFile());
+    report.inputs.every((input) => statSync(resolve(root, input.path)).isFile())
+  );
+}
+
+function main() {
+  const report = collectAccountGateReport();
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 
   console.log(JSON.stringify(report, null, 2));
-  process.exitCode = valid ? 0 : 1;
+  process.exitCode = accountGateReportPassesPolicy(report) ? 0 : 1;
 }
 
 if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
