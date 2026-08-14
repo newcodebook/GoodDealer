@@ -1,7 +1,7 @@
 # GoodDealer 账号、设备与云同步
 
 状态：Accepted Design / Evidence Pending
-更新日期：2026-08-05
+更新日期：2026-08-15
 
 ## 1. 设计结论
 
@@ -151,11 +151,11 @@ ActiveDeviceLease
 
 ### 3.2 Workspace Bootstrap 与两阶段激活
 
-账号首次创建 Workspace、首设备绑定、正常设备切换和恢复激活共用账号级唯一的 `BootstrapWorkflow`，但以 `purpose: first_device | device_switch | recovery` 域分离。流程固定为：
+账号首次创建 Workspace、首设备绑定、正常设备切换和恢复激活共用账号级唯一的 `BootstrapWorkflow`，但以 `purpose: first_device | device_switch | recovery_activation` 域分离。这里的 `recovery_activation` 是设备丢失后从 Cloud Checkpoint 重建并重新激活的 Bootstrap 流程，不是以 `RecoveryCapability(purpose=local_recovery)` 打开备份 Staging 的本机恢复流程。流程固定为：
 
 1. 在重新认证的账号 Session 下，以幂等键创建或返回同一 BootstrapWorkflow；Cloud 原子固定账号、Workspace、目标设备、目标 Epoch、Schema、Checkpoint 和 Purpose。
 2. 设备完成一次性 DeviceBindingChallenge/PoP 后只获得短期、目的限定的只读 Bootstrap Capability。该 Capability 只允许下载绑定 Checkpoint、执行迁移、分页重建、提交摘要和推进当前 Step，不授予 Mutation、平台访问、批准、凭据健康检查或 Worker Scope。
-3. 每个 strict step request/result 实际携带所需 Payload，并绑定 Workflow ID、step number、step nonce、前一步摘要和目标设备；同一 canonical request 逐字节幂等返回，同 Step 不同内容、跳步、跨 Purpose/设备/Workspace/Epoch 重放全部拒绝。
+3. 每个 strict step request/result 实际携带所需 Payload，并绑定 Workflow ID、step number、step nonce 和目标设备；`requestDigest` 绑定本步 canonical request，`expectedWorkflowRevision` 与服务端 step ledger 共同绑定前序状态。DTO 不携带 `previousResultDigest` 或其他“前一步摘要”字段；同一 canonical request 逐字节幂等返回，同 Step 不同内容、跳步、跨 Purpose/设备/Workspace/Epoch 重放全部拒绝。
 4. 设备在隔离 Activating/Staging 中验证完整性并提交最终 Workspace digest。Cloud 以事务 CAS 验证 Workflow/Checkpoint/设备/目标 Epoch 仍匹配后，才消费 Bootstrap Capability、签发递增 Epoch 的 ActiveDeviceLease 并开放 Active Scope。
 5. 任一步失败或崩溃只恢复同一 Workflow；取消、过期或不一致必须清理临时 Pin/Capability，不得留下幽灵 Active、并发 Lease 或可复用执行授权。账号级互斥保证同一时刻只有一个未完成 Bootstrap/DeviceSwitch。
 
@@ -175,15 +175,15 @@ ActiveDeviceLease
 
 Bootstrap Capability 是绑定整个激活流程的短期 workflow Capability，而不是首次请求即消费的一次性 Token。下载固定 Checkpoint、拉取后续 Mutation、提交摘要分别使用该 Capability 作用域内的独立 step request 和单调 `step_number + step_nonce`；服务端对每一步做状态 CAS，相同步骤/相同规范请求幂等返回原结果，相同步骤不同 Payload、越序、并发竞争、完成/放弃/到期后重放均拒绝。ActiveDeviceLease 成功签发、流程放弃或超时后才原子消费 Capability 并释放 pin。
 
-签名 Bootstrap Capability 的 Payload 只绑定 `device_switch_request_id`（Wire `deviceSwitchRequestId`）；step 字段不塞入或修改该 strict Payload。`BootstrapStepRequest` 是 strict lowerCamelCase 判别联合，共同字段固定 `schemaVersion=1/deviceSwitchRequestId/capabilityJti/stepNumber/stepNonce/expectedWorkflowRevision/stepKind/stepPayload/requestDigest`。`stepKind + stepPayload` 只能是：
+签名 Bootstrap Capability 的 Payload 只绑定 `device_switch_request_id`（Wire `deviceSwitchRequestId`）；step 字段不塞入或修改该 strict Payload。`BootstrapStepRequest` 是 strict lowerCamelCase 判别联合，共同字段固定 `schemaVersion=2/deviceSwitchRequestId/capabilityJti/stepNumber/stepNonce/expectedWorkflowRevision/stepKind/stepPayload/requestDigest`。`stepKind + stepPayload` 只能是：
 
 - `pin_checkpoint`：`checkpointId/checkpointRevision/checkpointDigest`，选择一个已发布且摘要有效的 Checkpoint。
 - `fetch_mutations`：`pinnedCheckpointId/pinnedCheckpointRevision/pinnedCheckpointDigest/fromRevisionExclusive/throughRevisionInclusive/cursor/pageLimit`；大链可用连续递增的 step number 分页，下一页必须携带上一页响应给出的 cursor，不能在同一步换 cursor。
 - `submit_rebuild_digest`：`targetRevision/workspaceSchemaVersion/entityDigests[]`；每个元素是 strict、稳定排序的 `entityType/partitionId?/digest`，用于验证完整本地重建结果。
 
-`requestDigest` 使用版本化、长度定界编码覆盖除 `stepNonce` 与 `requestDigest` 自身外的完整 canonical request，包括全部 `stepPayload`；nonce 仍由服务端工作流状态独立绑定和单次判定，不能用“摘要相同”绕过 nonce/step CAS。响应 `BootstrapStepResult` 也是 strict 判别联合，共同字段为 `schemaVersion=1/workflowRevision/acceptedStepNumber/stepKind/resultPayload/resultDigest`：`pin_checkpoint` 返回固定的 Checkpoint ID/Revision/Digest 与 pin deadline，`fetch_mutations` 返回 strict Mutation 页、页摘要、已返回 Revision 与 next cursor，`submit_rebuild_digest` 返回核验 Revision、核验摘要和 accepted 状态。`resultDigest` 覆盖除自身外的完整 canonical response；同一步相同规范请求重试必须逐字节返回同一结果。
+`requestDigest` 使用版本化、长度定界编码覆盖除 `stepNonce` 与 `requestDigest` 自身外的完整 canonical request，包括全部 `stepPayload`；nonce 仍由服务端工作流状态独立绑定和单次判定，不能用“摘要相同”绕过 nonce/step CAS。响应 `BootstrapStepResult` 也是 strict 判别联合，共同字段为 `schemaVersion=2/workflowRevision/acceptedStepNumber/stepKind/resultPayload/nextStepNonce/resultDigest`：`pin_checkpoint` 返回固定的 Checkpoint ID/Revision/Digest 与 pin deadline，`fetch_mutations` 返回 strict Mutation 页、页摘要、已返回 Revision 与 next cursor，`submit_rebuild_digest` 返回核验 Revision、核验摘要和 accepted 状态；`nextStepNonce` 由推进 Workflow 的同一响应交付，非终止步骤必须为 base64url nonce，终止步骤必须为 `null`。`resultDigest` 覆盖除自身外的完整 canonical response；同一步相同规范请求重试必须逐字节返回同一结果。
 
-当前 `protocol/devices` 已交付上述 strict step DTO、域分离长度定界摘要 Transcript 和 TS 正负 Corpus；`protocol/workspace` 已交付 Bootstrap 所需的最小 strict Mutation 页；Cloud `devices` 只交付 Fixture-only 的 Checkpoint pin、分页、step nonce/number + Revision CAS、相同呈交幂等和重建摘要校验。Fixture 不注册生产 Route、不验证真实签名 Capability、不持久化 Repository，也不签发 ActiveDeviceLease。生产事务、Rust/客户端重建和跨语言 Corpus 完成前，P0-16/R0-06/R0-16 仍不能关闭。
+当前 `protocol/devices` 已交付 schema v2 strict step DTO、域分离长度定界摘要 Transcript 和 TS 正负 Corpus，`secure-host-core` 已用同一 Corpus 提供 Rust fail-closed 镜像；`protocol/workspace` 已交付 Bootstrap 所需的最小 strict Mutation 页。Cloud `devices` 已交付账号级互斥的 DeviceSwitch/Bootstrap/Lease Fixture 编排、逐步 nonce/CAS/幂等、期限清理和 Cursor/Epoch 回归守护，`client-core` 已交付纯投影、step planner 与重建摘要累加器，`evidence:wp2` 已覆盖无 Lease 签发等负向边界。生产 Route、真实 Capability 验签、持久化 Cloud 事务和可成功签发 ActiveDeviceLease 的路径仍未交付；P0-16/R0-06/R0-16 保持 In Progress。
 
 ### 4.2 强制切换
 
@@ -306,7 +306,7 @@ SyncMutation
   source_device_id
   active_lease_epoch
   mutation_sequence
-  server_revision
+  server_revision              # 仅 Cloud 接收后富化的 SyncMutation 形态包含
 
 DeviceCursor
   workspace_id
@@ -413,6 +413,7 @@ ExecutionFact                 # 所有 Epoch 的既成执行事实
   plan_hash
   idempotency_key_hash
   source_device_id
+  workspace_id
   active_lease_epoch
   execution_sequence
   event_type
@@ -534,6 +535,8 @@ StaleChangeProposal           # 设备签名的旧 Epoch 可变修改提案
   signature_transcript_version
   device_signature
 ```
+
+设备提交 Mutation 时使用 `SubmittedSyncMutation` 形态：它包含上表除 `server_revision` 外的全部 Mutation 字段，Wire 中没有 `serverRevision`。Cloud 接收并分配 Revision 后才把同一记录富化为需要 `serverRevision` 的 `SyncMutation`；该服务端字段不属于设备提交的 canonical envelope，也不参与三流 Drain 摘要。两种形态共享其余字段、校验和回放语义，不能把 `serverRevision` 改成设备可填或可选的提交字段。
 
 公开 Workspace Wire V1 使用 strict lowerCamelCase，并把 `Revision` 限制在 `0..Number.MAX_SAFE_INTEGER`；服务端分配的 Mutation Revision、Lease Epoch 和设备 Mutation Sequence 必须为正数。`checkpointDigest`、Mutation 页摘要、实体摘要及 Bootstrap request/result 摘要统一使用 32 字节 SHA-256 的无填充 base64url 表达。
 

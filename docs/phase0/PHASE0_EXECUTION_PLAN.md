@@ -1,7 +1,7 @@
 # GoodDealer Phase 0 执行计划
 
 状态：Active / Gate-driven Delivery
-更新日期：2026-08-14
+更新日期：2026-08-15
 
 ## 1. 执行规则
 
@@ -54,7 +54,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | ID | Roadmap Requirement | Journey | Gate | Owner Role | 环境 | 证据命令/工件 | Fallback |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | P0-01 | Tauri/TS/Rust monorepo 与模块边界 | J-01/J-08 | R0-11/R0-15 | Engineering Baseline | P/W/MA/MI | 现有 `pnpm check`、`pnpm evidence:wp0`；native CI Manifest | 不创建业务 Command，保持骨架 |
-| P0-02 | Admin/Public Composition Root 与接口复用 | J-08/J-10 | R0-09/R0-15 | Cloud Platform | P/C | 待建 `evidence:wp4`：独立 runtime/route/auth 集成包 | Admin Route 不注册 |
+| P0-02 | Admin/Public Composition Root 与接口复用 | J-08/J-10 | R0-09/R0-15 | Cloud Platform | P/C | 现有 `evidence:wp4`：独立 runtime/route/auth 集成包 | Admin 业务 Route 不注册；仅保留无业务边界 Route |
 | P0-03 | protocol 子路径、TS/Rust 依赖边界 | J-01/J-03/J-05/J-08 | R0-10/R0-15 | Engineering Baseline | P | 现有根 `pnpm check` 编排 TS/Cloud/Rust Corpus 与 `test:structure` | 生产 Registry deny-all |
 | P0-04 | `protocol/admin` 信任域限制 | J-08 | R0-15 | Architecture Enforcement | P | 现有 boundary policy 正负 Fixture | Admin 协议只留骨架 |
 | P0-05 | Port DTO → Tauri Adapter → Rust Handler | J-01/J-05 | R0-01/R0-10/R0-15/R0-16 | Runtime Security | P/W/MA/MI | 现有根 `pnpm check`、RuntimeStatus 跨语言 Corpus、Command/Adapter 同集结构证据；native evidence 由 P0-06 的逐平台 `evidence:wp0 --profile native` 收集 | 只注册无参数、只读 `runtime_status`；其他业务 Command 不注册 |
@@ -74,7 +74,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-19 | 消费级登录、Refresh 轮换、会话/设备管理 | J-01/J-06 | R0-06/R0-16 | Account Access | P/C/W/MA/MI | Auth Corpus、JTI/重放/轮换/恢复事务包 | 仅内部不可售账号 Fixture |
 | P0-20 | Mutation/Revision/Cursor/重建/租户隔离 | J-01/J-02/J-05/J-07 | R0-04/R0-05 | Workspace/Recovery | P/C | Projection 属性测试、Checkpoint/Gap/Candidate CAS 包 | 只允许本地 Fixture |
 | P0-21 | Workspace 表/Repository/Migration 所有权 | J-01/J-05/J-08 | R0-04/R0-09/R0-15 | Workspace/Cloud Platform | P/C | Schema ownership、双租户同 ID、Migration 顺序包 | Cloud 业务 Route 不注册 |
-| P0-22 | Public/Admin Fastify 与 Jobs 分离 | J-08/J-09/J-10 | R0-09/R0-15 | Cloud Platform | P/C | `evidence:wp4` runtime isolation 与错误身份矩阵 | Admin/周期 Job 不注册 |
+| P0-22 | Public/Admin Fastify 与 Jobs 分离 | J-08/J-09/J-10 | R0-09/R0-15 | Cloud Platform | P/C | 现有 `evidence:wp4` runtime isolation、错误身份矩阵与边界规则 | Admin 业务 Route/周期 Job 不注册；仅保留无业务边界 Route |
 | P0-23 | Active/Standby Query Adapter 等价契约 | J-01/J-02/J-05 | R0-01/R0-04/R0-10/R0-16 | Client Query/Workspace | P/C | 待建共享 Query Contract Suite 与 digest Corpus | Standby 只展示固定 Fixture |
 | P0-24 | CredentialBinding/credentialRef 泄漏测试 | J-01/J-03/J-05 | R0-03/R0-12/R0-16 | Secure Host/Client Connections | P/W/MA/MI | Canary 扫描 DOM/Heap/IPC/DB/WAL/日志/Crash | 禁止真实凭据 |
 | P0-25 | 加密备份导出、校验、恢复 | J-07 | R0-08/R0-16 | Recovery | P/W/MA/MI | `evidence:wp5`、篡改/截断/换包/明文扫描 | 只开放 Cloud 重建 |
@@ -94,6 +94,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 pnpm check
 pnpm evidence:wp0
 pnpm evidence:wp2
+pnpm evidence:wp4
 pnpm evidence:wp5 --slice sqlcipher
 pnpm evidence:wp5:bundle
 node scripts/collect-wp0-evidence.mjs --profile quality
@@ -106,7 +107,11 @@ P0-15 已建立 `pnpm evidence:wp2`：它在 Ubuntu Portable/Cloud Fixture 环�
 
 P0-20 已开始交付 Bootstrap 前置的最小 Workspace V1 契约：`protocol/workspace` 当前冻结 safe Revision、Checkpoint Descriptor、`domain_asset` 四字段的封闭 SyncMutation、字段隐私/合并元数据、连续 Mutation Page，以及页/实体摘要的域分离长度定界 Transcript。TS Corpus 覆盖未知/DEVICE_SECRET 字段、排序、重复、Safe Integer、跨 Workspace 与 Revision Gap。该切片尚不包含完整业务实体、Projection Repository、Cursor 持久化、Checkpoint 发布/压缩、Candidate CAS 或生产 Route，因此 P0-20/R0-04/R0-05 保持 In Progress，Fallback 仍是本地 Fixture。
 
-P0-16 已在上述契约上交付 Bootstrap strict step DTO、request/result digest Transcript 与 Cloud Fixture-only 状态机，覆盖 Checkpoint pin、连续分页、服务端绑定 nonce、step number + workflow Revision CAS、相同呈交逐字节幂等、冲突重放拒绝和最终重建摘要校验。当前状态机明确不返回 ActiveDeviceLease且未注册生产 Route；真实 Capability 验签、持久化并发事务、取消/过期清理、Rust/客户端重建、Recovery 域和跨语言 Corpus 仍待完成，P0-16/R0-06/R0-16 保持 In Progress。
+P0-16 的 Bootstrap/DeviceSwitch/ActiveDeviceLease 编排设计已冻结，提交 `cc5401e`、`7923ca1`、`0a506a6`、`2c57116`、`77a87fc`、`52a70a8`、`26bc6f4` 已形成 C0～C2/D2 技术集合：账号/Lease 投影与 bootstrap-step DTO 具备 TS/Rust fail-closed 镜像，schema v2 通过 step result 交付 `nextStepNonce`；Cloud Fixture 已实现账号级互斥、strict-step nonce/CAS/逐字节幂等、期限清理、DeviceCursor 与烧毁 Epoch 守护，client-core 已实现纯投影、step planner 和重建摘要累加器，`evidence:wp2` 已覆盖无 Lease 签发等负向边界。生产 Route、真实 Capability 验签、持久化 Cloud 事务、Recovery 域和可成功签发 ActiveDeviceLease 的路径仍未交付；P0-16/R0-05/R0-06/R0-16 均保持 In Progress，Fallback 仍是不签发 Lease。
+
+P0-17 的三流 Draining/DrainProof/DrainManifest 设计已冻结，提交 `38a2dad`、`3dc5277`、`416a2ca` 已交付 S1～S5：协议层冻结 Mutation、ExecutionFact、Workspace DeviceAuditEvent 的独立序列域、canonical envelope、`sha256-chain-v1` 与 purpose 隔离；Cloud Fixture 已实现十三步验证顺序、逐流 Gap/水位/摘要、原子 Proof 消费与 Lease 释放事务、Late/quarantine/drain-seal 语义；client-core 已实现纯 Drain ledger、claims builder 和 readiness 投影。设备提交 Mutation 与 Cloud 富化后的 `serverRevision` 形态保持摘要不变。S6 evidence 扩展、S7 Rust Drain Envelope 镜像、真实签名验证与生产持久化仍未纳入本技术集合，签名端口仍不能表达成功；P0-17/R0-05/R0-16 均保持 In Progress，Fallback 仍是禁止正常 handoff。
+
+P0-22 的 Public/Admin/Jobs 入口设计已冻结，提交 `0bead14` 与 `e760025` 已交付 H0～H2：独立 Public/Admin Fastify Composition Root、品牌化 Surface/Route Adapter、无业务边界 Route、framework-independent Jobs 骨架、16 行错误身份矩阵、分离 OpenAPI 文档和 `pnpm evidence:wp4` 证据入口均已建立。rate-limit 探针只证明当前单进程 Fixture 上按 `gd_session` 身份分桶、429/`Retry-After` 配对、窗口重置和缺失身份 401 路径；它不证明 P0-19 的真实 Session 验证、各业务端点预算、IP/设备维度、跨实例一致性或生产容量。真实账号会话与生产限流仍由 P0-19 承接，Audit chain、TenantJobEnvelope、逐租户 Fan-out 和周期 Job 仍未交付；P0-22/R0-09/R0-15 均保持 In Progress，Admin 业务 Route 与周期 Job Fallback 继续生效。
 
 P0-06 的当前最终提交 compile-check 技术集合已在 `0253e71bd468c9fd1d8f99f735bea562eaac98d4` 完成：Quality Run `31781220581` 与 Native Run `31781220582` 均为 `success`。Native 三个 Manifest 均为 `passed`、`technicalEligibility.eligible=true`、`reasons=[]`，初末仓库状态都绑定同一干净稳定提交和精确 Job URL：Windows Server 2025 x64 Job `94708749801` / Artifact `9212269792` / digest `sha256:50ffdf3cc0ffb7dd22666e07d56e081bb2f9d59f673a15e087eb6bb16bcf446c`，macOS 15 arm64 Job `94708749799` / Artifact `9212359436` / digest `sha256:649b9e8018b5390e20e7273b93bec953f0d555a78339c098126ebc0fa93ad87d`，macOS 15 Intel Job `94708749738` / Artifact `9212429493` / digest `sha256:157ae5ad1a88b134447d770260fe603fa9f37a1b5f9cc29bf2058ec3dd6dda47`；当前 Artifact 约于 2026-11-12 到期。该集合不包含 Windows 11 24H2 真机打包、签名、公证、长期不可变归档或独立 Attestation，因此 R0-11 与 P0-06 仍保持 In Progress，不能声称可发布。
 

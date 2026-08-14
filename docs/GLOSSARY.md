@@ -1,7 +1,7 @@
 # GoodDealer 术语索引
 
 状态：Derived Navigation Index
-更新日期：2026-08-03
+更新日期：2026-08-15
 
 ## 使用规则
 
@@ -25,8 +25,9 @@
 | `ActiveDeviceLease` | 绑定账号、设备和单调 Epoch 的唯一执行权凭证 | [账号与同步](ACCOUNT_AND_SYNC.md) |
 | `DeviceBinding` | Cloud 权威维护的账号与设备绑定、签名公钥版本和撤销状态 | [ADR-0011](adr/0011-device-identity-lifecycle.md) |
 | `DeviceSwitchRequest` | 正常或强制设备切换的账号级互斥、幂等聚合 | [账号与同步](ACCOUNT_AND_SYNC.md) |
-| `Bootstrap Capability` | 绑定一次激活 Workflow 的短期单用途能力；strict step payload 携带 Checkpoint、Mutation 分页或重建摘要，以 nonce/number + CAS 推进，流程结束才整体消费，不授予 Active 权限；strict Wire 与 Fixture 状态机已交付，生产验签/持久化/Lease 签发仍未交付 | [账号与同步](ACCOUNT_AND_SYNC.md) |
+| `Bootstrap Capability` | 绑定一次激活 Workflow 的短期单用途能力；strict step payload 携带 Checkpoint、Mutation 分页或重建摘要，以 nonce/number + CAS 推进，流程结束才整体消费，不授予 Active 权限；strict Wire、Cloud Fixture 编排、client-core 消费与 Rust 镜像已交付，生产验签/持久化/Lease 签发仍未交付 | [账号与同步](ACCOUNT_AND_SYNC.md) |
 | `Recovery Capability` | `gd.recovery-capability.v1` 的同设备/Workspace/Epoch/备份 Manifest 恢复 Workflow 能力；与 Bootstrap 域分离，strict step payload 只允许基线、完整有界白名单 diff 和 Candidate 回执；Envelope/step Wire 尚未交付 | [账号与同步](ACCOUNT_AND_SYNC.md)、[数据生命周期](DATA_LIFECYCLE.md) |
+| `recovery_activation` / `local_recovery` | `recovery_activation` 是设备丢失后用 Bootstrap Capability 从 Cloud Checkpoint 重建并重新激活的 Bootstrap purpose；`local_recovery` 是用域分离 Recovery Capability 打开备份 Staging 的 purpose，二者不是同一流程且解析器互相拒绝 | [账号与同步](ACCOUNT_AND_SYNC.md) |
 | `lease_epoch` | 服务端单调推进的活动设备代次，用于拒绝旧设备的新副作用 | [账号与同步](ACCOUNT_AND_SYNC.md) |
 | `credential_epoch` | 设备凭证撤销和安全状态变化的服务端代次 | [ADR-0011](adr/0011-device-identity-lifecycle.md) |
 
