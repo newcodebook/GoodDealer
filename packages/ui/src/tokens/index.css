@@ -1,0 +1,11 @@
+/* GoodDealer — production token layer entry point. Import once at the host app root
+   (e.g. `import "@gooddealer/ui/tokens.css"` in main.tsx) before any component renders.
+   Mirrors the import order of brand/styles.css. See ../../README.md for the relationship
+   between this file and brand/tokens/*.css (the read-only design reference). */
+@import "./fonts.css";
+@import "./colors.css";
+@import "./typography.css";
+@import "./hierarchy.css";
+@import "./spacing.css";
+@import "./motion.css";
+@import "./base.css";

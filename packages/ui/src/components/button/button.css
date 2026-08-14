@@ -1,0 +1,115 @@
+/* Button — token-only. Ported from brand/components/buttons/Button.jsx; every literal color
+   in that reference (hover/active shades, #fff button label) has been replaced with a named
+   token — see packages/ui/README.md "Token-only styling". Danger disabled and gold hover/active
+   still use color-mix() against a token, but only mixed with `transparent` (a scalar opacity
+   change, not a hue/lightness blend) — those are position-exact and intentionally kept. */
+.gd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.gd-btn--block {
+  width: 100%;
+}
+.gd-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.gd-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+.gd-btn--primary[disabled] {
+  opacity: 1;
+  background: var(--gd-line);
+  border-color: var(--gd-line-strong);
+  color: var(--gd-text-faint);
+}
+.gd-btn--danger[disabled] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--gd-danger) 20%, transparent);
+  border-color: color-mix(in srgb, var(--gd-danger) 40%, transparent);
+  color: color-mix(in srgb, var(--gd-danger) 72%, transparent);
+}
+.gd-btn--sm {
+  height: var(--control-sm);
+  padding: 0 10px;
+  font-size: var(--text-xs);
+}
+.gd-btn--md {
+  height: var(--control-md);
+  padding: 0 12px;
+  font-size: var(--text-sm);
+}
+.gd-btn--lg {
+  height: var(--control-lg);
+  padding: 0 16px;
+  font-size: var(--text-md);
+}
+.gd-btn--primary {
+  background: var(--gd-blue);
+  color: var(--gd-on-accent);
+}
+.gd-btn--primary:hover {
+  background: var(--gd-blue-hover);
+}
+.gd-btn--primary:active {
+  background: var(--gd-blue-pressed);
+}
+.gd-btn--secondary {
+  background: var(--gd-panel-raised);
+  border-color: var(--gd-line-strong);
+  color: var(--gd-text);
+}
+.gd-btn--secondary:hover {
+  background: var(--gd-panel-hover);
+  border-color: var(--gd-line-hover);
+}
+.gd-btn--secondary:active {
+  background: var(--gd-panel);
+}
+.gd-btn--ghost {
+  background: transparent;
+  color: var(--gd-text-muted);
+}
+.gd-btn--ghost:hover {
+  background: var(--gd-panel-raised);
+  color: var(--gd-text);
+}
+.gd-btn--ghost:active {
+  background: var(--gd-panel);
+}
+.gd-btn--danger {
+  background: var(--gd-danger);
+  color: var(--gd-on-accent);
+}
+.gd-btn--danger:hover {
+  background: var(--gd-danger-hover);
+}
+.gd-btn--danger:active {
+  background: var(--gd-danger-active);
+}
+.gd-btn--gold {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--gd-gold) 50%, transparent);
+  color: var(--gd-gold);
+}
+.gd-btn--gold:hover {
+  background: var(--gd-gold-tint);
+  border-color: var(--gd-gold);
+}
+.gd-btn--gold:active {
+  background: color-mix(in srgb, var(--gd-gold) 16%, transparent);
+}

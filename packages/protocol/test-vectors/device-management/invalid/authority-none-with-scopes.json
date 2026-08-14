@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "role": "none",
+  "scopes": [
+    "workspace:read"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "deviceId": "device-2",
+  "expectedCredentialEpoch": 1,
+  "expectedListRevision": 4,
+  "reauthProofId": "proof-1"
+}

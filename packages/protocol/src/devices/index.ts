@@ -21,3 +21,32 @@ export {
   runtimeStatusSchema,
 } from "./runtime-status";
 export type { RuntimeStatus } from "./runtime-status";
+
+export {
+  DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  activeDeviceLeaseStatusSchema,
+  cloudScopeSchema,
+  deviceAuthorityProjectionSchema,
+  deviceBindingListSchema,
+  deviceBindingSummarySchema,
+  devicePlatformSchema,
+  deviceRemovalRequestSchema,
+  deviceRoleSchema,
+  deviceSwitchRequestSchema,
+  deviceSwitchRequestViewSchema,
+} from "./device-management";
+export type {
+  ActiveDeviceLeaseStatus,
+  CloudScope,
+  DeviceAuthorityProjection,
+  DeviceBindingList,
+  DeviceBindingSummary,
+  DevicePlatform,
+  DeviceRemovalRequest,
+  DeviceRole,
+  DeviceSwitchRequest,
+  DeviceSwitchRequestView,
+} from "./device-management";
+
+export { deviceOperationSchema } from "./operations";
+export type { DeviceOperation } from "./operations";

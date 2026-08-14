@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "role": "active",
+  "scopes": [
+    "workspace:read",
+    "account:manage"
+  ]
+}

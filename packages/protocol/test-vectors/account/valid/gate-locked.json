@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "outcome": "locked",
+  "lockReason": "device_removed",
+  "accountCheck": "pass",
+  "deviceBindingCheck": "fail",
+  "entitlementCheck": "pass",
+  "activeLeaseCheck": "fail",
+  "accountSecurityState": "normal",
+  "trustedTimeState": "trusted",
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

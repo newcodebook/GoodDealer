@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "requestId": "switch-1",
+  "mode": "forced",
+  "status": "waiting_expiry",
+  "fromDeviceId": "device-1",
+  "toDeviceId": "device-2",
+  "requestedAt": "2026-08-13T10:00:00Z",
+  "earliestTakeoverAt": null,
+  "bootstrapExpiresAt": null
+}

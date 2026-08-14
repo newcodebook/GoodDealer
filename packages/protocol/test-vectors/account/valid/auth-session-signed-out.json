@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "state": "signed_out",
+  "accountId": null,
+  "deviceId": null,
+  "accountSecurityEpoch": null,
+  "sessionId": null,
+  "accessTokenExpiresAt": null,
+  "refreshRotationGeneration": null,
+  "lastTrustedTimeAt": null,
+  "revocationReason": null
+}

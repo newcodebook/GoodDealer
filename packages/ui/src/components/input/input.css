@@ -1,0 +1,62 @@
+/* Input — token-only. Ported from brand/components/inputs/Input.jsx; the reference already
+   used tokens exclusively for color. Raw pixel font-sizes are replaced with the typography
+   scale tokens (tokens/typography.css) for consistency with the rest of the token layer.
+   The shared .gd-field / .gd-field-label wrapper classes live in ../shared/field.css. */
+.gd-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--gd-ink);
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 9px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.gd-input-wrap:focus-within {
+  border-color: var(--gd-blue);
+  box-shadow: var(--focus-ring);
+}
+.gd-input-wrap--error {
+  border-color: var(--gd-danger);
+}
+.gd-input-wrap--sm {
+  height: var(--control-sm);
+}
+.gd-input-wrap--md {
+  height: var(--control-md);
+}
+.gd-input-wrap--lg {
+  height: var(--control-lg);
+}
+.gd-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--gd-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+.gd-input--mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: var(--numeric);
+}
+.gd-input::placeholder {
+  color: var(--gd-text-faint);
+}
+.gd-input-affix {
+  display: flex;
+  align-items: center;
+  color: var(--gd-text-faint);
+  font-size: var(--text-xs);
+}
+.gd-field-hint {
+  font-size: var(--text-2xs);
+  color: var(--gd-text-faint);
+}
+.gd-field-hint--error {
+  color: var(--gd-danger);
+}

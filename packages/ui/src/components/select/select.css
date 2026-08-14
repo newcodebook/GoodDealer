@@ -1,0 +1,51 @@
+/* Select — token-only. Ported from brand/components/inputs/Select.jsx. Two literal colors in
+   the reference are normalized to tokens: the hover border uses the named token
+   --gd-line-hover (the same value the reference's Button.jsx secondary-hover border uses,
+   #343B4E — not the same value as checkbox's hover border, see checkbox.css), and the focus
+   ring reuses --focus-ring instead of a near-duplicate one-off rgba() at a different opacity. */
+.gd-select {
+  appearance: none;
+  background: var(--gd-ink);
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--gd-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: 0 26px 0 9px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.gd-select:focus-visible {
+  outline: none;
+  border-color: var(--gd-blue);
+  box-shadow: var(--focus-ring);
+}
+.gd-select:hover {
+  border-color: var(--gd-line-hover);
+}
+.gd-select--sm {
+  height: var(--control-sm);
+}
+.gd-select--md {
+  height: var(--control-md);
+}
+.gd-select--lg {
+  height: var(--control-lg);
+}
+.gd-select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.gd-select-wrap:after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  margin-top: -2px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--gd-text-muted);
+  border-bottom: 1.5px solid var(--gd-text-muted);
+  transform: rotate(45deg) translateY(-50%);
+  pointer-events: none;
+}

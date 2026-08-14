@@ -1,0 +1,94 @@
+/* GoodDealer — color tokens. Raw (--gd-*) → semantic aliases. 70 ink / 20 gold / 10 blue.
+   Ported verbatim from brand/tokens/colors.css (single production source of truth going
+   forward — brand/ remains the read-only design reference, see packages/ui/README.md).
+   Seven additions beyond the brand token set: --gd-on-accent and six hover/active
+   tokens (see bottom of file). */
+:root{
+/* Ink (70%) — stage */
+--gd-ink:#0A0B0F;
+--gd-panel:#10131A;
+--gd-panel-raised:#14171F;
+--gd-line:#1E2230;
+--gd-line-strong:#2A3040;
+--gd-chrome:#0D0F15; /* @kind color */ /* titlebar / toolbar / status bar — between ink and panel */
+/* Sand gold (20%) — the protagonist; ≤20% of any screen */
+--gd-gold-highlight:#F2D488;
+--gd-gold:#D4A437; /* the ONLY gold for UI text/icons/strokes */
+--gd-gold-deep:#8A671D; /* decoration only, never text */
+--gd-gold-gradient:linear-gradient(105deg,#F2D488 0%,#D4A437 46%,#8A671D 100%); /* @kind color */
+--gd-gold-tint:rgba(212,164,55,0.10);
+/* Tech blue (10%) — system language, always matte */
+--gd-blue:#4D8DFF;
+--gd-blue-pressed:#2F62D8;
+--gd-blue-tint:rgba(77,141,255,0.12);
+/* Text */
+--gd-text:#EAE8E1;
+--gd-text-muted:#8D93A3;
+--gd-text-faint:#5C6272;
+/* Semantic status extensions (not in brand/tokens; added for operation results — see readme "Intentional additions") */
+--gd-success:#5CAE7D;
+--gd-success-tint:rgba(92,174,125,0.12);
+--gd-danger:#E5735F;
+--gd-danger-tint:rgba(229,115,95,0.12);
+--gd-warning:#E08A48;
+--gd-warning-tint:rgba(224,138,72,0.12);
+/* Data visualization (concept C · Ascent) */
+--gd-viz-input:#4D8DFF; /* invested / in progress */
+--gd-viz-gain:#D4A437; /* appreciated / result */
+--gd-viz-drawdown:#6E7482;/* drawdown / neutral */
+/* Semantic aliases */
+--surface-app:var(--gd-ink);
+--surface-card:var(--gd-panel);
+--surface-raised:var(--gd-panel-raised);
+--surface-chrome:var(--gd-chrome); /* native window chrome */
+--surface-region:var(--gd-panel); /* framed content region (seamed, not floated) */
+--surface-overlay:rgba(10,11,15,0.72); /* modal scrim; blur allowed on shell only */
+--border-default:var(--gd-line);
+--border-strong:var(--gd-line-strong);
+--text-body:var(--gd-text);
+--text-muted:var(--gd-text-muted);
+--text-faint:var(--gd-text-faint);
+/* Information hierarchy — 4 explicit text levels (see guidelines/hierarchy). Components reference these, never ad-hoc grays. */
+--text-1:var(--gd-text); /* primary: values, titles, active rows */
+--text-2:var(--gd-text-muted); /* secondary: labels, meta, inactive nav */
+--text-3:var(--gd-text-faint); /* tertiary: timestamps, ids, hints, placeholders */
+--emphasis-value:var(--gd-gold); /* semantic emphasis — money / ownership */
+--emphasis-system:var(--gd-blue); /* semantic emphasis — interactive / sync */
+--text-value:var(--gd-gold); /* prices, valuations */
+--text-link:var(--gd-blue);
+--accent-system:var(--gd-blue);
+--accent-system-pressed:var(--gd-blue-pressed);
+--accent-brand:var(--gd-gold);
+--sync:var(--gd-blue);
+--lease-active:var(--gd-gold); /* executing device: solid dot */
+--lease-standby:var(--gd-blue); /* standby device: hollow dot */
+--focus-ring:0 0 0 2px rgba(77,141,255,0.35);
+/* Intentional addition (packages/ui production layer only — not in brand/tokens/colors.css):
+   content color drawn on top of a solid saturated accent fill (primary/danger button label,
+   checked checkbox tick, checked switch knob). brand/components used a raw #fff literal for
+   this in every reference component; naming it keeps component code token-only. Kept distinct
+   from --gd-text (#EAE8E1, warm off-white for body copy on dark surfaces) on purpose — this is
+   the near-white that reads correctly against a saturated fill, not against --gd-ink. */
+--gd-on-accent:#ffffff;
+/* Intentional additions (packages/ui production layer only — not in brand/tokens/colors.css):
+   hover/active shades for controls whose reference (brand/components) expressed these states
+   as one-off hex literals. Naming them keeps components token-only without collapsing distinct
+   reference values into a single lightened/darkened color-mix() formula (that formula produced
+   the wrong RGB for near-black surfaces — see review finding C1 — and, for --gd-check-hover-border
+   vs --gd-line-hover, silently merged two hover colors the reference kept genuinely different).
+   Button/Select hover-border and Checkbox hover-border differ in the reference on purpose
+   (#343B4E vs #3A4256); they get separate tokens rather than being forced to match. */
+--gd-blue-hover:#6098FF; /* primary button hover — literal match to brand/components/buttons/Button.jsx .gd-btn--primary:hover */
+--gd-panel-hover:#1A1E28; /* secondary button hover background — literal match to Button.jsx .gd-btn--secondary:hover */
+--gd-line-hover:#343B4E; /* secondary button hover border + select hover border — literal match to Button.jsx and inputs/Select.jsx */
+--gd-check-hover-border:#3A4256; /* checkbox hover border — literal match to inputs/Checkbox.jsx; deliberately not --gd-line-hover, see note above */
+/* Danger hover/active are NOT literal reference matches: brand/components/buttons/Button.jsx
+   computed its hover (#D65A45) and active (#B04533) off its own literal #C9503C base, which
+   packages/ui already rejected in favor of the canonical --gd-danger (#E5735F) — see README
+   "Token-only styling". Re-deriving off #C9503C would reintroduce the color this package
+   normalized away. Instead these are --gd-danger (H 9°, S 72%, L 63.5%) held at the same hue
+   and saturation with lightness stepped down — a restrained deepen, not a literal-matched value:
+   hover at L 55% (#DF523A), active at L 42% (#B8351E). */
+--gd-danger-hover:#DF523A;
+--gd-danger-active:#B8351E;
+}

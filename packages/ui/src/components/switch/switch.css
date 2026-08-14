@@ -1,0 +1,51 @@
+/* Switch — token-only. Ported from brand/components/inputs/Switch.jsx; the one literal color
+   (the checked-knob #fff) becomes --gd-on-accent, same rationale as button.css/checkbox.css. */
+.gd-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--gd-text);
+  user-select: none;
+}
+.gd-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.gd-switch-track {
+  width: 30px;
+  height: 17px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--gd-line-strong);
+  position: relative;
+  transition: background var(--dur-base) var(--ease-out);
+}
+.gd-switch-track:after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--gd-text);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.gd-switch input:checked + .gd-switch-track {
+  background: var(--gd-blue);
+}
+.gd-switch input:checked + .gd-switch-track:after {
+  transform: translateX(13px);
+  background: var(--gd-on-accent);
+}
+.gd-switch input:focus-visible + .gd-switch-track {
+  box-shadow: var(--focus-ring);
+}
+.gd-switch--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}

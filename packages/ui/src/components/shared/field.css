@@ -1,0 +1,17 @@
+/* Shared "labeled field" wrapper — the uppercase caps label + column layout used by both
+   Input and Select. Extracted so neither component depends on the other's stylesheet having
+   been imported first (the brand/ reference relied on Button.jsx's runtime style injection
+   running first, an ordering dependency production static CSS must not reproduce). */
+.gd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.gd-field-label {
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  font-weight: var(--weight-medium);
+  color: var(--gd-text-muted);
+}

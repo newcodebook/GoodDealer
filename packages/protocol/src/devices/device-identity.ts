@@ -1,18 +1,14 @@
 import { z } from "zod";
 
-export const DEVICE_IDENTITY_SCHEMA_VERSION = 1 as const;
+import {
+  base64Url,
+  canonicalUtcTimestamp,
+  identifier,
+  safePositiveInteger,
+  safeUnsignedInteger,
+} from "../wire/index";
 
-const identifier = z.string().min(1).max(160).regex(/^[\x21-\x7E]+$/);
-const base64Url = z.string().regex(/^[A-Za-z0-9_-]+$/);
-const safeUnsignedInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const safePositiveInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const canonicalUtcTimestamp = z
-  .string()
-  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$/)
-  .refine((value) => {
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) && new Date(parsed).toISOString() === value.replace(/Z$/, ".000Z");
-  }, "timestamp must be a real canonical UTC second");
+export const DEVICE_IDENTITY_SCHEMA_VERSION = 1 as const;
 
 function validateCredentialWindow(
   envelope: { issuedAt: string; expiresAt: string },

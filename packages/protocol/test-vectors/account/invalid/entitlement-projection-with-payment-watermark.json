@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "state": "active",
+  "licenseId": "license-2",
+  "plan": "pro",
+  "entitlementKind": "subscription",
+  "entitlementRevision": 3,
+  "commercialExpiresAt": "2026-08-20T00:00:00Z",
+  "offlineGraceUntil": "2026-08-21T00:00:00Z",
+  "credentialRefreshDueAt": "2026-08-14T00:00:00Z",
+  "deviceLimit": 2,
+  "activeDeviceLimit": 1,
+  "standbyCloudRead": true,
+  "featureEntitlements": [
+    "feature:a",
+    "feature:b"
+  ],
+  "allMajorVersions": false,
+  "evaluatedAt": "2026-08-13T11:00:00Z",
+  "paymentWatermark": "watermark"
+}

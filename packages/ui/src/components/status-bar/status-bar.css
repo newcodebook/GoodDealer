@@ -1,0 +1,33 @@
+/* StatusBar — token-only. Ported from brand/components/navigation/StatusBar.jsx unchanged;
+   the reference already used tokens exclusively for color. See brand/README.md
+   "NATIVE DESKTOP FORM" — the always-on mono ledger of sync state / revision / active device. */
+.gd-statusbar {
+  height: var(--statusbar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  background: var(--gd-chrome);
+  border-top: 1px solid var(--gd-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: var(--numeric);
+  color: var(--text-2);
+  user-select: none;
+}
+.gd-statusbar-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+.gd-statusbar-div {
+  width: 1px;
+  height: 12px;
+  background: var(--gd-line-strong);
+  flex: none;
+}
+.gd-statusbar-spacer {
+  flex: 1;
+}

@@ -1,0 +1,59 @@
+/* Checkbox — token-only. Ported from brand/components/inputs/Checkbox.jsx. The one literal
+   color in the reference (a slightly-lighter hover border, #3A4256) is replaced with the named
+   token --gd-check-hover-border (see tokens/colors.css — kept distinct from --gd-line-hover,
+   the button/select hover border, because the reference genuinely uses a different value here);
+   the tick/dash stroke color moves to an inline style on the <path> using --gd-on-accent (see
+   button.css for why that token exists). */
+.gd-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--gd-text);
+  user-select: none;
+}
+.gd-check input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.gd-check-box {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--gd-line-strong);
+  background: var(--gd-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.gd-check:hover .gd-check-box {
+  border-color: var(--gd-check-hover-border);
+}
+.gd-check input:focus-visible + .gd-check-box {
+  box-shadow: var(--focus-ring);
+}
+.gd-check input:checked + .gd-check-box,
+.gd-check-box--ind {
+  background: var(--gd-blue);
+  border-color: var(--gd-blue);
+}
+.gd-check svg {
+  display: none;
+}
+.gd-check input:checked + .gd-check-box svg.gd-check-tick {
+  display: block;
+}
+.gd-check-box--ind svg.gd-check-dash {
+  display: block;
+}
+.gd-check--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}

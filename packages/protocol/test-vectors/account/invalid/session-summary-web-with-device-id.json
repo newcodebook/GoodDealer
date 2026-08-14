@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "listRevision": 2,
+  "sessions": [
+    {
+      "schemaVersion": 1,
+      "sessionId": "session-1",
+      "clientKind": "desktop",
+      "deviceId": "device-1",
+      "displayName": "Sean's Mac",
+      "createdAt": "2026-08-01T10:00:00Z",
+      "lastSeenAt": "2026-08-13T11:00:00Z",
+      "currentSession": true,
+      "status": "active",
+      "revokedAt": null
+    },
+    {
+      "schemaVersion": 1,
+      "sessionId": "session-2",
+      "clientKind": "account_web",
+      "deviceId": "device-2",
+      "displayName": "Account Web",
+      "createdAt": "2026-08-10T10:00:00Z",
+      "lastSeenAt": "2026-08-13T10:00:00Z",
+      "currentSession": false,
+      "status": "active",
+      "revokedAt": null
+    }
+  ]
+}

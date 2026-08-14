@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "code": "DEVICE_REMOVED",
+  "retryable": false,
+  "retryAfterSeconds": 30,
+  "correlationId": "corr-2"
+}

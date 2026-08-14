@@ -44,6 +44,7 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [License 与商业授权](docs/LICENSING.md)
 - [账号、设备与云同步](docs/ACCOUNT_AND_SYNC.md)
 - [开发路线图](docs/ROADMAP.md)
+- [多代理开发工作流程规范](docs/ORCHESTRATION.md)
 - [已接受 D 系列产品决策归档](docs/OPEN_DECISIONS.md)（开放 JD 状态见用户旅程 §7）
 - [当前审查处理结论整合台账](docs/REVIEW_RESOLUTIONS.md)（日期标题是 Finding 批次，不是历史快照）
 - [开源实现参考登记表](docs/OPEN_SOURCE_REFERENCES.md)

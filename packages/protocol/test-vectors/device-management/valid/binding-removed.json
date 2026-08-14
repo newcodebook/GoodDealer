@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "deviceId": "device-3",
+  "platform": "ios",
+  "displayName": "Old Phone",
+  "status": "removed",
+  "role": "none",
+  "credentialEpoch": 3,
+  "signingKeyId": "key-3",
+  "signingKeyVersion": 2,
+  "signingKeyStatus": "revoked",
+  "boundAt": "2026-07-01T10:00:00Z",
+  "lastSeenAt": "2026-07-31T10:00:00Z",
+  "removedAt": "2026-08-01T10:00:00Z",
+  "currentDevice": false
+}

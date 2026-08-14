@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "role": "active",
+  "scopes": [
+    "account:manage",
+    "operation:approve",
+    "platform:read",
+    "platform:write",
+    "workspace:mutate",
+    "workspace:read"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "method": "password",
+  "deviceId": "device-1",
+  "rememberDevice": true
+}

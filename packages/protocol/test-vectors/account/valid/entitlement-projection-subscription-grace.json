@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "state": "grace",
+  "licenseId": "license-2",
+  "plan": "pro",
+  "entitlementKind": "subscription",
+  "entitlementRevision": 4,
+  "commercialExpiresAt": "2026-08-12T00:00:00Z",
+  "offlineGraceUntil": "2026-08-15T00:00:00Z",
+  "credentialRefreshDueAt": "2026-08-14T00:00:00Z",
+  "deviceLimit": 2,
+  "activeDeviceLimit": 1,
+  "standbyCloudRead": true,
+  "featureEntitlements": [
+    "feature:a"
+  ],
+  "allMajorVersions": false,
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

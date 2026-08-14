@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "role": "active",
+  "scopes": [
+    "account:manage",
+    "account:manage"
+  ]
+}

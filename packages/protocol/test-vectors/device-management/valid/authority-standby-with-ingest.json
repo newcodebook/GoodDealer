@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "role": "standby",
+  "scopes": [
+    "audit-events:ingest",
+    "execution-facts:ingest",
+    "recovery-proposals:ingest",
+    "workspace:read"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "code": "RATE_LIMITED",
+  "retryable": true,
+  "retryAfterSeconds": 30,
+  "correlationId": "corr-1"
+}

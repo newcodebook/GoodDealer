@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "role": "standby",
+  "scopes": [
+    "workspace:mutate"
+  ]
+}

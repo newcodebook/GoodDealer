@@ -1,0 +1,32 @@
+/* GoodDealer — spacing, radii, borders, elevation, motion. Layering = border color steps (Linear-style), not transparency stacks. */
+:root{
+--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;
+/* Radii — native desktop feel, small and consistent */
+--radius-xs:3px; /* checkboxes, tags */
+--radius-sm:5px; /* buttons, inputs, cells */
+--radius-md:7px; /* cards, panels */
+--radius-lg:10px; /* dialogs, command palette */
+--radius-full:999px;/* pills, dots */
+/* Table density (Carbon-style three steps) */
+--row-compact:32px;--row-regular:40px;--row-spacious:48px;
+--control-sm:24px;--control-md:28px;--control-lg:34px;
+/* Native window chrome heights */
+--titlebar-h:36px;--toolbar-h:44px;--statusbar-h:26px;
+/* Window sizing — native desktop app, deliberate tiers (see guidelines/window-sizing.html).
+   Min is honest (a dense terminal shouldn't pretend to work tiny); default is comfortable + shows all chrome. */
+--window-min-w:960px;--window-min-h:640px;--window-default-w:1280px;--window-default-h:832px;
+/* Breakpoints — judged on window/shell width (the 210px nav eats content; the rail gives it back).
+   compact <1080 → nav collapses to 56px icon rail, statusbar sheds to core segments, cmd → icon+⌘K.
+   regular 1080–1320 → full nav. wide ≥1320 → statusbar shows all environment segments. */
+--bp-compact:1080px;--bp-wide:1320px;
+--nav-rail-w:56px;--nav-full-w:210px;
+/* Elevation — shadows are quiet; hierarchy comes from --gd-line steps */
+--shadow-panel:0 1px 2px rgba(0,0,0,0.4);
+--shadow-raised:0 4px 16px rgba(0,0,0,0.45);
+--shadow-overlay:0 16px 48px rgba(0,0,0,0.6),0 0 0 1px var(--gd-line);
+/* Motion — restrained: fast fades and 2px slides; no bounces */
+--ease-out:cubic-bezier(0.2,0,0,1); /* @kind other */
+--dur-fast:120ms; /* @kind other */
+--dur-base:160ms; /* @kind other */
+--dur-slow:240ms; /* @kind other */
+}

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./wire": "./src/wire/index.ts",
     "./account": "./src/account/index.ts",
     "./devices": "./src/devices/index.ts",
     "./workspace": "./src/workspace/index.ts",

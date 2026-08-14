@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "held": false,
+  "deviceId": null,
+  "leaseEpoch": null,
+  "issuedAt": null,
+  "renewAfter": null,
+  "onlineExpiresAt": null,
+  "offlineExecuteUntil": null,
+  "renewalState": "expired",
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

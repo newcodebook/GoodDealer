@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "state": "authenticated",
+  "accountId": "acct-1",
+  "deviceId": "device-1",
+  "accountSecurityEpoch": 1,
+  "sessionId": "session-1",
+  "accessTokenExpiresAt": "2026-08-13T12:00:00Z",
+  "refreshRotationGeneration": 2,
+  "lastTrustedTimeAt": "2026-08-13T11:00:00Z",
+  "revocationReason": null
+}

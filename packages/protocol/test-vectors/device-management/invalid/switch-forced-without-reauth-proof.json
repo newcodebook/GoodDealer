@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "mode": "forced",
+  "toDeviceId": "device-2",
+  "idempotencyKey": "idem-2"
+}
