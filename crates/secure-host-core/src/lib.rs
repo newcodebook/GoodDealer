@@ -1,3 +1,5 @@
+mod account_status;
+mod active_device_lease_status;
 pub mod device_identity;
 pub mod endpoint_capability;
 mod generated;
@@ -6,6 +8,18 @@ mod http_executor;
 mod runtime_gate;
 pub mod secret;
 mod wire_envelope;
+mod wire_scalar;
+
+pub use account_status::{
+    AccountGateCheck, AccountGateOutcome, AccountGateStatus, AccountLockReason,
+    AccountSecurityState, AccountStatusValidationError, AuthRevocationReason, AuthSessionState,
+    AuthSessionStatus, TrustedTimeState, validate_account_gate_status_json,
+    validate_auth_session_status_json,
+};
+pub use active_device_lease_status::{
+    ActiveDeviceLeaseStatus, ActiveDeviceLeaseStatusValidationError, LeaseRenewalState,
+    validate_active_device_lease_status_json,
+};
 
 pub use runtime_gate::{
     RuntimeGate, RuntimeStatusSnapshot, RuntimeStatusValidationError, validate_runtime_status_json,
