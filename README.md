@@ -77,4 +77,4 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 
 当前执行状态以 [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01、R0-02、R0-03、R0-06、R0-10、R0-11、R0-12、R0-15 与 R0-16 正在补范围映射、实现或可重跑/平台级证据；其余 Gate 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
 
-当前登记的产品决策 JD-01～JD-11 已全部收口；D-016～D-021 固定首版无人值守边界、Lifetime 停服兑现、删除/保留、SLO、支付和 Cloud 区域策略。未来新增能力仍可触发新的决策。后续工作是把已接受设计转成实现与可重跑证据；决策关闭不自动关闭任何 R0 Gate。
+当前登记的产品决策 JD-01～JD-13 已全部收口；D-016～D-023 固定首版无人值守边界、Lifetime 停服兑现、删除/保留、SLO、支付、Cloud 区域、Desktop 密码输入与 Sunset 能力来源。未来新增能力仍可触发新的决策。后续工作是把已接受设计转成实现与可重跑证据；决策关闭不自动关闭任何 R0 Gate。

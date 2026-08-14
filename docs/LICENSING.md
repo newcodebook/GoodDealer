@@ -1,7 +1,7 @@
 # GoodDealer License 与商业授权
 
 状态：Accepted Product Baseline / Evidence Pending
-更新日期：2026-08-05
+更新日期：2026-08-14
 
 ## 1. 商业模式
 
@@ -62,7 +62,7 @@ signature
 
 Auth、Entitlement、OfflineDeviceLease、ActiveDeviceLease、Bootstrap Capability、`RecoveryCapability(purpose=local_recovery)` 和 Sunset 使用独立签名 Key，或不可混淆的 Key Purpose 做密码学域分离。Bootstrap 与 Recovery Capability 的 purpose、签名域和解析器互相拒绝，不能把激活只读能力兑换为恢复能力或反向复用。每个解析器先固定预期的 `typ + iss + aud + schema_version + key purpose`，再验签和解析 Payload；跨 Token 类型、未知字段、未知版本、非规范编码和未知或已撤销 Key 一律拒绝。账号在线凭证的 `jti` 必须在签发时全局唯一，服务端不得为两个不同凭证重复签发同一 JTI；一次性 Challenge 和轮换后的旧 Refresh Token 被消费后拒绝复用。Bootstrap/Recovery Capability 是 workflow-scoped 短期能力，不是首次呈交即失效：其每一步使用独立 step nonce/单调 step number 和服务端 CAS，只允许按冻结状态机重复呈交同一步的相同请求并返回同一结果，完成/放弃/到期后原子消费整个 Capability，跨步骤、并发不同 Payload 或完成后重放全部拒绝。Auth Session、Entitlement Token、OfflineDeviceLease 和 ActiveDeviceLease 是有效期内可重复验证的 Bearer Credential，正常重复呈交同一 JTI 不算重放，只按撤销、设备/Epoch、可信时间和风险状态判定。签名预映像使用版本化、长度定界的确定性编码，不直接签普通 JSON 字符串。设备绑定与密钥生命周期见 [ADR-0011](adr/0011-device-identity-lifecycle.md)。
 
-Desktop 的 cloud-client 不读取或持有这些 Token。它只构造不含原始 Token 的类型化账号/Cloud 请求，并通过 TypeScript Tauri Adapter 交给 Rust `secure-http`；Secure Host 校验 Endpoint Allowlist 后从内存 Session Store 注入短期 Access Token。登录、刷新、撤销和轮换属于 Host-owned Session Command：Rust 持久化轮换后的 Refresh Token，只把 Access Token 放入 Host 内存，并只向 TypeScript 返回脱敏 AuthSessionStatus。account-web 使用独立的同源 HttpOnly/SameSite Web Session，不复用 Desktop Token 存储。
+Desktop 的 cloud-client 不读取或持有这些 Token。它只构造不含原始 Token 的类型化账号/Cloud 请求，并通过 TypeScript Tauri Adapter 交给 Rust `secure-http`；Secure Host 校验 Endpoint Allowlist 后从内存 Session Store 注入短期 Access Token。登录、刷新、撤销和轮换属于 Host-owned Session Command：Rust 持久化轮换后的 Refresh Token，只把 Access Token 放入 Host 内存，并只向 TypeScript 返回脱敏 AuthSessionStatus。Desktop 账号密码由品牌化 Local App WebView 表单通过专用 write-only IPC 直接交给该 Rust Command，原始值不持久化、不记录；其请求 Schema 只属于 Cloud `identity` 内部，不进入 `packages/protocol`。Host-native 输入保留为发布前安全复核的加固选项。account-web 使用独立的同源 HttpOnly/SameSite Web Session，不复用 Desktop Token 存储。
 
 应用启动先进入 Account Gate。在线时以可刷新 Auth Session 校验账号，离线时以有效 Offline Device Lease 校验账号；同时要求设备绑定和 Entitlement 有效，随后 Standby 可以进入 Cloud Read-Only View。只有本机 ActiveDeviceLease 也有效时，Secure Host 才打开完整业务数据库及其中只承载 SyncMutation 的 MutationOutbox，并启用连接器和 Worker。ExecutionFact/DeviceAuditEvent 的原始签名 Envelope 先写入与业务库分库分钥的追加式 `evidence-spool`，不属于 Active Workspace 或 MutationOutbox；非 Active 状态只能通过状态机明示的窄读口访问该 Spool。普通 Access Token 到期只触发后台刷新，不单独导致 Locked。用户启用“记住此设备”后可静默恢复登录，不要求每次手输密码。
 
@@ -197,6 +197,7 @@ JF-11 只有在重复、乱序、延迟、退款后续费、人工调整，以�
 - Sunset Root/Signing Key 使用生产与 CI 均不可访问的离线硬件介质；恢复材料至少跨两个物理地点并采用 2-of-3 管理控制，首版不采购外部商业托管。
 - 每个正式版本都准备可验证的 LocalContinuation 制品、离线签发材料和恢复 Runbook，每年至少完成一次完全脱离生产服务的恢复、签发与导入演练。Lifetime SKU 只有在最近一次演练通过、材料可恢复且条款披露完成时才允许销售。
 - 最终版本支持 `LocalContinuation`，取消账号登录、Offline Device Lease、ActiveDeviceLease 和云同步依赖。
+- `LocalContinuation` 的能力集只从本机验证的 Sunset 授权材料派生，不读取、映射或复用日常账号/Cloud Scope。当前实现尚未交付该派生与 Host 消费链，故保持 fail-closed 只读；完整能力派生、跨 Cloud Scope 拒绝和负向证据是未来 Sunset 切片开放本地写入或平台能力前的强制设计前置项。
 - Sunset Credential 是通用账号在线凭证 Envelope 的明确例外：它使用独立 strict lowerCamelCase 永久离线 Envelope，固定 `typ=gd.sunset-credential.v1`、`iss=https://accounts.gooddealer.com`、`aud=gooddealer-local-continuation/sunset-credential`、`kid`、`keyPurpose=gooddealer.sunset.credential.v1`、`schemaVersion`、`sunsetCredentialId`、`eligibleEntitlementSnapshot`、`authorizedCapabilities`、`workspaceExportDigest`、`issuedAt`、`signature`，故意不含 `accountId/deviceId/accountSecurityEpoch/jti/expiresAt`，也不能被日常凭证解析器接受；领域层对应使用 snake_case 语义名。`sunsetCredentialId` 全局唯一并绑定其规范内容摘要。签名 Transcript 固定为 `GOODDEALER-SUNSET-CREDENTIAL-V1`，覆盖除 signature 外完整字段的版本化长度定界规范编码。永久性只适用于该离线 Credential，导入后派生的 Authorization/ApprovedOperation/Session Context/Ticket 仍必须短期到期。导入时由 Host 绑定新的 `sunset_installation_id + device_signing_key` 并建立不可回退的本地 credential generation/可信时间锚点。平台访问使用独立 `SunsetAuthorization`/`SunsetApprovedOperation`；浏览器路径再使用 `SunsetBrowserSessionAccessContext`/`SunsetAutomationExecutionTicket`。它们不能构造或复用日常 Lease/Epoch/Context/Ticket；平台凭据仍需在该设备重新录入或按封闭来源复验 HostCredentialBinding Profile/Slot/health generation 或 Browser Profile generation。登录/获取 Key/修复连接的窄 Authorization 不要求凭据已存在或健康，也不能用于业务提交。
 - 停服前提供云端业务数据全量下载，并通过多个静态渠道分发签名安装包和凭证。
 - 商业条款明确适用用户、触发条件和可继续使用的最后版本。

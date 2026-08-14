@@ -1,7 +1,7 @@
 # GoodDealer 安全模型
 
 状态：Accepted Security Baseline / Evidence Pending
-更新日期：2026-08-05
+更新日期：2026-08-14
 
 ## 1. 安全目标
 
@@ -81,7 +81,9 @@ GoodDealer Cloud 请求使用独立的认证注入通道：
 - Desktop 登录、刷新和撤销使用独立的 Host-owned Session Command。Rust 直接解析含 Token 的响应并保存，只向 TypeScript 返回脱敏会话状态；cloud-client 不解析 Token-bearing Response。
 - account-web 使用同源 HttpOnly、Secure、SameSite Cookie 或等效 Web 会话机制，不复用 Desktop Keychain Token 通道。
 
-平台 API Secret、OAuth Token、Recovery Material 等秘密只能通过 Rust Host 创建的原生秘密输入面进入。主应用 WebView 只能开始或取消 Capture Session，不能提交秘密值；成功后只取得 `credential_binding_id`、fingerprint、版本和脱敏状态，Keychain `credentialRef` 仍留在 Host 内。原生输入面不可用或 Keychain 写入失败时必须失败关闭，禁止降级到普通 WebView、剪贴板、配置、SQLite 或临时文件。
+Desktop 账号密码是该平台凭据 Capture 规则之外的窄化账号身份路径：用户在品牌化 Local App WebView 表单中输入后，由专用 write-only IPC 请求直接交给 Rust Host-owned Session Command。原始密码不得进入持久化前端状态、WebView Storage、IPC 历史、配置、SQLite、临时文件、日志或错误对象；含密码请求 Schema 只属于 Cloud `identity` 模块内部且不导出到 `packages/protocol`。Host-native 输入面保留为发布前安全复核可采用的加固选项。完整产品决定见 [D-022](OPEN_DECISIONS.md#d-022-desktop-账号密码输入边界)。
+
+平台 API Secret、OAuth Token、Recovery Material 和其他平台/恢复秘密只能通过 Rust Host 创建的原生秘密输入面进入。主应用 WebView 只能开始或取消这类 Capture Session，不能提交秘密值；成功后只取得 `credential_binding_id`、fingerprint、版本和脱敏状态，Keychain `credentialRef` 仍留在 Host 内。原生输入面不可用或 Keychain 写入失败时必须失败关闭，禁止降级到普通 WebView、剪贴板、配置、SQLite 或临时文件。
 
 含秘密的网络响应由 Manifest 标记为 `host_owned`，具体 typed extractor 只能由 Rust 私有编译期表按 Endpoint 绑定。Host 只接受 2xx 和封闭 typed contract，直接消费秘密 Body，并以 Device/Account 或 Provider Connection/Profile/来源 Endpoint 的完整作用域原子写入 Keychain；Store 的不透明回执只表达整批已提交，不返回数量、部分成功或 Ref，`Err` 必须表示零条目提交。3xx、其他非 2xx、超限、无效响应或 Store 失败都失败关闭，只允许返回专用脱敏状态。禁止把完整 Body、通用 JSON、Token、Secret Ref 或 Keychain Ref 返回 TypeScript。具体决策见 [ADR-0009](adr/0009-endpoint-capability-registry.md)、[ADR-0010](adr/0010-host-owned-secret-path.md) 和 [Phase 0 Secure Host 决策基线](phase0/PHASE0_SECURE_HOST_BASELINE.md)。
 

@@ -1,7 +1,7 @@
 # GoodDealer 用户旅程审理基线
 
 状态：Review Baseline / Evidence Findings
-更新日期：2026-08-05
+更新日期：2026-08-14
 
 ## 1. 目的与适用范围
 
@@ -305,6 +305,8 @@ prepared
 | JD-09 | 支付失败宽限、部分退款、升降级、拒付和 Lifetime 退款规则 | 7 天支付宽限、14 天默认退款窗口、升级立即/降级下周期、部分退款默认不改权益、拒付/欺诈立即暂停、Lifetime 全额退款撤销 | Product + Billing/Finance | Resolved by D-020 | — |
 | JD-10 | 首版 SupportCase 自建还是接入外部 Helpdesk | 首版接入外部 Helpdesk；内部只保留可信 SupportCaseReference、账号关联、外部 revision/同步水位、映射后的必要状态和审计，不复制完整消息或附件 | Product + Support/Security | Resolved by D-014 | — |
 | JD-11 | 首发 Cloud 区域、数据驻留、跨境传输、环境隔离和 IaC/KMS 责任如何确定 | AWS 新加坡主区、悉尼加密灾备区；环境/账号/KMS 分离，IaC 为事实源；不承诺中国大陆境内驻留，EU/EEA 进入前完成跨境复核 | Cloud Platform（执行 Owner）；Product + Privacy/Legal + Security（批准） | Resolved by D-021 | — |
+| JD-12 | Desktop 账号密码应通过 WebView 还是 Host-native 输入 | 品牌化 Local App WebView 输入，通过专用 write-only IPC 直接交给 Rust Host；原始密码不持久化、不记录，Schema 只留在 Cloud `identity` 内部；Host-native 输入保留为发布前加固选项 | Product + Account Access/Security | Resolved by D-022 | — |
+| JD-13 | LocalContinuation 的能力集从何处派生，当前未完成设计时开放哪些能力 | 只从本机 Sunset 授权派生，禁止复用 Cloud Scope；当前实现 fail-closed 只读，完整能力派生与 Host 复验是未来 Sunset 切片的强制前置项 | Product + Licensing/Architecture/Security | Resolved by D-023 | — |
 
 ## 8. 最小端到端验收矩阵
 

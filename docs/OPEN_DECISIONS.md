@@ -1,7 +1,7 @@
 # GoodDealer 产品决策记录
 
 状态：Closed D-series Archive
-更新日期：2026-08-05
+更新日期：2026-08-14
 
 以下 D 系列产品决策已由产品负责人确认，并已转入正式需求与专题设计。当前产品决策状态的唯一入口是 [USER_JOURNEYS.md §7](USER_JOURNEYS.md#7-产品决策状态)；Gate 的实现与证据状态仍以 [PHASE0_GATE_REGISTER.md](phase0/PHASE0_GATE_REGISTER.md) 为准。
 
@@ -183,5 +183,21 @@ Lifetime SKU 只有在最近一次演练通过、离线材料可恢复且商业�
 Development 只允许 Fixture 和纯员工合成数据。Development、Staging、Production 使用独立云账号、网络、数据库、对象存储、IAM、KMS Key 与密钥管理员；生产数据不得复制或恢复到更低信任环境。Cloudflare 等边缘层只用于 DNS、TLS、WAF 和无状态转发，不作为未披露的持久业务数据区。
 
 版本库中的 IaC 是基础设施唯一事实源。Cloud Platform 负责拓扑和可重跑证据，Security 审批 IAM/KMS，Privacy/Legal 审批驻留、跨境与子处理者，Product 批准市场范围。主库 Multi-AZ、PITR、备份、删除回执和 KMS 轮换 Runbook 在首份真实数据进入前启用；KMS 至少每年轮换一次并支持紧急轮换。
+
+状态：Closed / Accepted。
+
+## D-022 Desktop 账号密码输入边界
+
+决定：Desktop 账号密码由用户在品牌化 Local App WebView 登录表单中输入，并通过专用、写入式的 IPC 请求直接交给 Rust Host-owned Session Command。原始密码不得持久化到 WebView Storage、普通 TypeScript 状态、IPC 历史、配置、SQLite、临时文件或任何日志/错误对象；Rust Host 只在完成登录请求所需的短生命周期内持有并清理该值，Cloud `identity` 只保存安全密码哈希，不保存或记录原始密码。
+
+含账号密码的请求 Schema 只属于 Cloud `identity` 模块内部且不得导出，不进入 `packages/protocol`。Host-native 输入面保留为发布前安全复核可以采用的加固选项，但不是当前产品路径。
+
+状态：Closed / Accepted。
+
+## D-023 LocalContinuation 能力来源与当前准入
+
+决定：`LocalContinuation` 的能力集必须从本机验证的 Sunset 授权材料派生，不能读取、映射或复用日常账号/Cloud Scope、ActiveDeviceLease Scope 或其缓存投影。当前实现尚未交付该派生与消费链，因此故意保持 fail-closed 只读，不授予本地业务写入、平台读取/写入、批准或执行能力。
+
+未来 Sunset 切片必须先完成能力派生、Host 复验、跨日常 Cloud Scope 拒绝和相应负向证据，才能开放上述能力；这是该切片的强制设计前置项，不改变任何当前 Gate 状态。
 
 状态：Closed / Accepted。

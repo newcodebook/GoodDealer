@@ -1,7 +1,7 @@
 # GoodDealer 工程结构与模块边界
 
 状态：Accepted Design  
-更新日期：2026-08-03
+更新日期：2026-08-14
 
 ## 1. 目标
 
@@ -295,7 +295,8 @@ LocalContinuation             # 仅 Sunset 构建/凭证可进入
 
 - 只包含 DTO、Zod Schema、枚举、错误码、版本、兼容性转换，以及协议级确定性 Codec/Golden Vector；不包含带副作用的领域用例。
 - Workspace 字段元数据同时携带隐私分类（`PUBLIC_BUSINESS` 等）与合并等级 `mergeClass: auto | manual | safety_priority`；服务端设备↔云端合并与客户端平台对账消费同一份标注，禁止两端各自维护高风险字段清单。
-- `protocol/account` 对客户端公开的是登录命令、脱敏 AuthSessionStatus 和错误码，不定义会把原始 Access/Refresh Token 返回普通 TypeScript 的 DTO。
+- `protocol/account` 对客户端公开的是不含登录凭据的登录流程控制命令、脱敏 AuthSessionStatus 和错误码，不定义会把原始 Access/Refresh Token 返回普通 TypeScript 的 DTO。
+- 含账号密码等登录凭据的请求 Schema 不进入 `packages/protocol`；它们只归 Cloud `identity` 模块内部所有且不得导出。
 - `protocol/workspace` 拥有 Workspace Entity、SyncMutation、Revision、Cursor、Checkpoint 和确定性业务摘要；不拥有执行事实、Audit、Drain 或恢复 Candidate。
 - `protocol/execution-events` 拥有 ExecutionFact、`DeviceAuditEvent | UserAuditEvent | StaffAuditEvent | ServiceAuditEvent` 判别联合、DrainProof/DrainManifest、序列域、域分离签名 Transcript、canonical envelope 与滚动摘要 Golden Corpus。
 - `protocol/recovery` 拥有 StaleChangeProposal、Cloud 生成的 StaleDeviceCandidate/RestoreCandidate、字段级 CAS、BackupExportSchema、SynchronizedBackup/EmergencyLocalSnapshot Manifest、PendingSignedEvidenceArchive 和 InternalRecoveryPoint 的本机接口契约。

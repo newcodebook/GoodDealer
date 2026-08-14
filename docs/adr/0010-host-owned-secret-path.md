@@ -1,16 +1,16 @@
 # ADR-0010：秘密输入与秘密响应由 Host 全程拥有
 
-状态：Accepted
-
+状态：Accepted  
 日期：2026-08-01
+修订：2026-08-14（D-022 账号密码窄化身份路径豁免；平台/恢复秘密的 Capture 范围措辞澄清）
 
 ## 背景
 
-普通 React 输入框会让 API Key、OAuth Token 或恢复材料先进入 Local App WebView 的 DOM 和 JavaScript Heap；把完整平台响应返回 TypeScript 后再脱敏，也会让新 Token、Challenge 或 Secret 在清洗前越过最高信任边界。这两条路径都不满足“普通 TypeScript 只能获得脱敏数据”的安全目标。
+普通 React 输入框会让平台 API Key、OAuth Token 或恢复材料先进入 Local App WebView 的 DOM 和 JavaScript Heap；把完整平台响应返回 TypeScript 后再脱敏，也会让新 Token、Challenge 或 Secret 在清洗前越过最高信任边界。这两条路径都不满足“普通 TypeScript 只能获得脱敏平台/恢复秘密”的安全目标。Desktop 账号密码使用 [D-022](../OPEN_DECISIONS.md#d-022-desktop-账号密码输入边界) 的独立窄化身份路径，不属于本 ADR 的平台凭据 Capture Session。
 
 ## 决策
 
-Phase 0 使用由 Rust Host 创建并拥有的原生秘密输入面。主应用 WebView 只能发起带非秘密上下文的 `begin_secret_capture`，不能提交秘密值、读取输入控件或获得通用 Keychain API。原生输入面直接把秘密交给 Secure Host 的私有内存类型，批量写入 OS Keychain/Credential Manager，并只向普通 TypeScript 返回 `credential_binding_id`、fingerprint、版本和脱敏状态；Keychain `credentialRef` 不离开 Host。
+Phase 0 对平台 API Secret、OAuth Token、Recovery Material 和其他平台/恢复秘密使用由 Rust Host 创建并拥有的原生秘密输入面。主应用 WebView 只能发起带非秘密上下文的 `begin_secret_capture`，不能提交这类秘密值、读取输入控件或获得通用 Keychain API。原生输入面直接把秘密交给 Secure Host 的私有内存类型，批量写入 OS Keychain/Credential Manager，并只向普通 TypeScript 返回 `credential_binding_id`、fingerprint、版本和脱敏状态；Keychain `credentialRef` 不离开 Host。
 
 若某个平台响应包含 Auth Token、Refresh Token、Challenge 或其他 `DEVICE_SECRET`，Manifest 只能把该 Endpoint 标记为 `host_owned`；具体 Rust typed extractor 由 Host 私有编译期绑定表按 Endpoint ID 选择，Manifest、生成的 TypeScript、运行时配置和 Connector 代码都不能指定 extractor ID、函数、JSONPath 或脚本。Endpoint Registry 与私有绑定表必须在绑定元数据、DNS、秘密读取和 Transport 前做全表双向一致性校验：每个 `host_owned` Endpoint 恰有一个绑定，绑定不得指向公开 JSON、未知或重复 Endpoint。
 
@@ -22,12 +22,12 @@ Transport 接收的所有原始响应 Body 都使用不可 Clone、Debug 脱敏�
 
 ## 后果
 
-- Desktop UI 必须围绕 Host-owned Capture Session 设计，不能复用普通表单组件。
+- 平台/恢复秘密 UI 必须围绕 Host-owned Capture Session 设计，不能复用普通表单组件；Desktop 账号密码表单遵循 D-022 的独立约束。
 - 每种 Secret-bearing Response 都需要专用 Rust Contract 和私有编译期绑定，不能使用动态 JSONPath、Manifest extractor ID 或 Connector 自定义脚本提取。
 - R0-03 在 Windows 11 与 macOS 15 的原生输入面、Canary Secret 全链扫描和崩溃证据完成前保持 `In Progress`。
 
 ## 不采用的方案
 
-- 不使用普通 Local App WebView 或 Remote Browser WebView 输入平台 API Secret。
+- 不使用普通 Local App WebView 或 Remote Browser WebView 输入平台 API Secret 或恢复秘密。
 - 不提供通用 `store_secret(value)` Tauri Command，也不向普通 TypeScript 返回 Keychain Ref。
 - 不把 Stronghold Guest API、Keychain 读写或完整 Token Response 暴露给 TypeScript。

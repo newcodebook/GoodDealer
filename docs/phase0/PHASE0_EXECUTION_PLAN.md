@@ -102,7 +102,7 @@ node scripts/collect-wp0-evidence.mjs --profile native
 
 P0-05 的 Portable 实现已经完成：`client-core Port DTO -> Desktop Tauri Adapter -> Rust Command Handler` 最小链不含秘密和外部副作用，TypeScript/Rust 共享 Corpus、`AppManifest::commands`/`generate_handler!`/`#[tauri::command]`/逐命令 Permission/Adapter 同集、未声明命令拒绝和显式 Local WebView Capability 均进入根门禁。该切片只为 R0-01/R0-10/R0-15/R0-16 形成证据，不启用账号、平台或生产网络能力。
 
-P0-15 已建立 `pnpm evidence:wp2`：它在 Ubuntu Portable/Cloud Fixture 环境运行 account/device/bootstrap/workspace 协议类型检查和全部正负向量、Cloud `identity/licensing/devices` Fixture、client-core RuntimeMode 只读投影及依赖边界检查，并生成关键输入 SHA-256 报告。报告失败关闭地确认这些模块没有注册生产 Route、没有 Lease 签发或 raw credential 字段且内部账号不可售。该入口不证明原生密码输入、OS Keychain、生产网络/Route、持久化 Cloud 事务并发完整性或 Windows/macOS 行为，也不关闭 R0-06/R0-16；账号入口、真实凭据和外部副作用继续保持 Fixture/禁用。
+P0-15 已建立 `pnpm evidence:wp2`：它在 Ubuntu Portable/Cloud Fixture 环境运行 account/device/bootstrap/workspace 协议类型检查和全部正负向量、Cloud `identity/licensing/devices` Fixture、client-core RuntimeMode 只读投影及依赖边界检查，并生成关键输入 SHA-256 报告。报告失败关闭地确认这些模块没有注册生产 Route、没有 Lease 签发或 raw credential 字段且内部账号不可售。该入口不证明 D-022 的品牌化 WebView + write-only IPC 密码路径、其可选 Host-native 加固、OS Keychain、生产网络/Route、持久化 Cloud 事务并发完整性或 Windows/macOS 行为，也不关闭 R0-06/R0-16；账号入口、真实凭据和外部副作用继续保持 Fixture/禁用。
 
 P0-20 已开始交付 Bootstrap 前置的最小 Workspace V1 契约：`protocol/workspace` 当前冻结 safe Revision、Checkpoint Descriptor、`domain_asset` 四字段的封闭 SyncMutation、字段隐私/合并元数据、连续 Mutation Page，以及页/实体摘要的域分离长度定界 Transcript。TS Corpus 覆盖未知/DEVICE_SECRET 字段、排序、重复、Safe Integer、跨 Workspace 与 Revision Gap。该切片尚不包含完整业务实体、Projection Repository、Cursor 持久化、Checkpoint 发布/压缩、Candidate CAS 或生产 Route，因此 P0-20/R0-04/R0-05 保持 In Progress，Fallback 仍是本地 Fixture。
 

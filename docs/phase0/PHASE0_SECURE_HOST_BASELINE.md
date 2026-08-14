@@ -2,7 +2,7 @@
 
 状态：Active Baseline / Evidence Incomplete
 
-更新日期：2026-08-03
+更新日期：2026-08-14
 
 ## 1. 范围
 
@@ -24,7 +24,7 @@
 
 - TypeScript 不选择 Host、Origin、端口、凭据注入或 `credentialRef`，也不能获得通用 HTTP/Keychain/Shell。
 - Manifest 只能在构建期扩大；运行时配置和 Cloud 不能扩大网络权限。
-- Secret 不得进入普通 WebView/TS DTO；Host-owned Response 不得先返回完整 Body 再清洗。
+- 平台/恢复 Secret 不得进入普通 WebView/TS DTO；Desktop 账号密码只允许走 D-022 的品牌化 WebView + 专用 write-only IPC 窄路径。Host-owned Response 不得先返回完整 Body 再清洗。
 - 设备 Challenge、Nonce、Key Version、Credential Epoch 和 JTI 都由 Cloud 权威持久化；客户端自报不能替代服务端事实。
 - Contract/Golden 测试只证明格式与状态机边界，不能冒充平台秘密泄漏扫描、真实 DNS 防护或密码学实现审计。
 
