@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
 import {
+  cloudEntrypointSourceErrors,
   cloudManifestErrors,
   importBoundaryErrors,
   secureHostManifestErrors,
@@ -39,6 +40,9 @@ function withoutComments(source) {
 for (const file of walk(root).filter((path) => sourceExtensions.has(extname(path)))) {
   const localPath = relative(root, file).replaceAll("\\", "/");
   const source = withoutComments(readFileSync(file, "utf8"));
+  errors.push(
+    ...cloudEntrypointSourceErrors(localPath, source).map((error) => `${localPath}: ${error}`),
+  );
   const imports = importsOf(source);
   const dynamicImportCount = [...source.matchAll(/\bimport\s*\(/g)].length;
   const literalDynamicImportCount = [

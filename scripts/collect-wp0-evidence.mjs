@@ -13,10 +13,15 @@ import { relative, resolve } from "node:path";
 
 import { repositoryMaterialDirty } from "./git-dirty-state.mjs";
 import { platformCommand } from "./platform-command.mjs";
+import {
+  CLOUD_BOUNDARY_EVIDENCE_DEFAULTS,
+  CLOUD_BOUNDARY_REQUIRED_INPUTS,
+  cloudBoundaryReportPassesPolicy,
+} from "./collect-cloud-boundary-report.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const supportedProfiles = new Set(["local", "native", "quality"]);
-const supportedSlices = new Set(["account-gate", "sqlcipher", "sqlcipher-bundle"]);
+const supportedSlices = new Set(["account-gate", "cloud-boundary", "sqlcipher", "sqlcipher-bundle"]);
 const portableCrates = [
   "-p",
   "gooddealer-secure-host-core",
@@ -77,6 +82,7 @@ const accountGateKeyInputPaths = [
   "apps/cloud/test/bootstrap-fixture.test.ts",
   ".github/workflows/wp2-account-gate.yml",
 ];
+const cloudBoundaryKeyInputPaths = [...CLOUD_BOUNDARY_REQUIRED_INPUTS];
 
 const sqlcipherRequiredChecks = [
   "databaseAndWalEncrypted",
@@ -337,6 +343,9 @@ function sliceEvidenceValid(sliceEvidence) {
         )
     );
   }
+  if (sliceEvidence.slice === "cloud-boundary") {
+    return Boolean(sliceEvidence.present && cloudBoundaryReportPassesPolicy(report));
+  }
   if (sliceEvidence.slice === "sqlcipher-bundle") {
     return Boolean(
       sliceEvidence.present &&
@@ -412,6 +421,7 @@ function hashKeyInputs(slice) {
   const paths = [
     ...keyInputPaths,
     ...(slice === "account-gate" ? accountGateKeyInputPaths : []),
+    ...(slice === "cloud-boundary" ? cloudBoundaryKeyInputPaths : []),
   ];
   return paths.map((path) => {
     const absolutePath = resolve(root, path);
@@ -488,6 +498,51 @@ function profileDefinition(profile, slice, reportPath) {
       args: ["test", "--workspace", "--all-targets"],
     },
   ];
+
+  if (slice === "cloud-boundary") {
+    return {
+      resolvedProfile: "wp4-cloud-boundary",
+      applicability:
+        "Fixture-only Cloud entrypoint isolation, error identity, OpenAPI, boundary policy, and single-process rate-limit evidence; no business route, real credential, persistence, external network, AuditEvent chain, or job runtime.",
+      commands: [
+        {
+          id: "protocol-typecheck",
+          ...pnpm(["--filter", "@gooddealer/protocol", "typecheck"]),
+        },
+        {
+          id: "protocol-contract-tests",
+          ...pnpm(["--filter", "@gooddealer/protocol", "test"]),
+        },
+        {
+          id: "cloud-entrypoint-typecheck",
+          ...pnpm(["--filter", "@gooddealer/cloud", "typecheck"]),
+        },
+        {
+          id: "cloud-entrypoint-tests",
+          ...pnpm(["--filter", "@gooddealer/cloud", "test"]),
+        },
+        {
+          id: "cloud-boundary-policy-tests",
+          binary: "node",
+          args: [
+            "--test",
+            "scripts/cloud-boundary-evidence-policy.test.mjs",
+            "scripts/boundary-policy.test.mjs",
+          ],
+        },
+        {
+          id: "dependency-boundary-check",
+          binary: "node",
+          args: ["scripts/check-boundaries.mjs"],
+        },
+        {
+          id: "cloud-boundary-report",
+          binary: "node",
+          args: ["scripts/collect-cloud-boundary-report.mjs", reportPath],
+        },
+      ],
+    };
+  }
 
   if (slice === "account-gate") {
     return {
@@ -843,6 +898,8 @@ try {
 const workPackage =
   options.slice === "account-gate"
     ? "wp2"
+    : options.slice === "cloud-boundary"
+      ? "wp4"
     : options.slice?.startsWith("sqlcipher")
       ? "wp5"
       : "wp0";
@@ -858,6 +915,8 @@ const sliceReportPath = resolve(
   outputDirectory,
   options.slice === "account-gate"
     ? "account-gate-report.json"
+    : options.slice === "cloud-boundary"
+      ? "cloud-boundary-report.json"
     : options.slice === "sqlcipher-bundle"
       ? "sqlcipher-bundle-report.json"
       : "sqlcipher-report.json",
@@ -891,6 +950,16 @@ const manifest = {
           rawCredentials: false,
         }
       : {}),
+    ...(options.slice === "cloud-boundary"
+      ? {
+          cloudBoundaryFixture: true,
+          publicBusinessRoute: false,
+          adminBusinessRoute: false,
+          periodicJob: false,
+          auditEventChain: false,
+          jobRuntime: false,
+        }
+      : {}),
     productionStorage: false,
     userData: false,
   },
@@ -913,6 +982,8 @@ const manifest = {
       evidenceEnvironment("OWNER_ROLE") ??
       (options.slice === "account-gate"
         ? "Account Access and Cloud Devices Lead"
+        : options.slice === "cloud-boundary"
+          ? CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.ownerRole
         : "Release Engineering Lead"),
     owningModules: commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES").length
       ? commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES")
@@ -920,12 +991,16 @@ const manifest = {
         ? commaSeparatedEnvironment("WP0_OWNING_MODULES")
         : options.slice === "account-gate"
           ? ["protocol-account", "protocol-devices", "protocol-workspace", "cloud-account-device-bootstrap-fixtures", "client-core"]
+          : options.slice === "cloud-boundary"
+            ? [...CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.owningModules]
           : options.slice?.startsWith("sqlcipher")
           ? ["local-storage", "recovery", "release-engineering"]
           : ["engineering-baseline", "release-engineering"],
     requiredReviewerRole:
       evidenceEnvironment("REQUIRED_REVIEWER_ROLE") ??
-      (options.slice === "account-gate" ? "Security Reviewer" : "Architecture Reviewer"),
+      (options.slice === "account-gate" || options.slice === "cloud-boundary"
+        ? CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.requiredReviewerRole
+        : "Architecture Reviewer"),
     approverRole: evidenceEnvironment("APPROVER_ROLE") ?? "Phase 0 Gate Approver",
     evidenceProducerRef: process.env.GITHUB_ACTOR_ID
       ? `github-user-id:${process.env.GITHUB_ACTOR_ID}`
