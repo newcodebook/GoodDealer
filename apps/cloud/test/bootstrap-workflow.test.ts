@@ -166,6 +166,8 @@ function createHarness(input: {
   enterBootstrapping?: boolean;
   pinAvailable?: boolean;
   entitlementActive?: boolean;
+  fromDeviceId?: string | null;
+  burnEpochBeforeBootstrap?: boolean;
 } = {}) {
   let now = "2026-08-14T08:00:00Z";
   const trustedTime: TrustedTimePort = { now: () => now };
@@ -177,12 +179,17 @@ function createHarness(input: {
     trustedTime,
     signer: { signActiveDeviceLease },
   });
+  if (input.burnEpochBeforeBootstrap === true) {
+    lifecycle.beginBootstrap("account-1", "burned-switch", null);
+    lifecycle.discardPending("account-1", "burned-switch");
+  }
+  const fromDeviceId = input.fromDeviceId ?? null;
   const aggregate = new DeviceSwitchWorkflow({
     workflowId: "switch-1",
     accountId: "account-1",
     workspaceId: "workspace-1",
     mode: "normal",
-    fromDeviceId: null,
+    fromDeviceId,
     toDeviceId: "device-b",
     idempotencyKey: "idempotency-1",
     requestedAt: now,
@@ -195,7 +202,7 @@ function createHarness(input: {
   });
   if (input.enterBootstrapping !== false) {
     aggregate.enterBootstrapping({
-      pendingLeaseEpoch: lifecycle.beginBootstrap("account-1", "switch-1", null),
+      pendingLeaseEpoch: lifecycle.beginBootstrap("account-1", "switch-1", fromDeviceId),
       capabilityJti: "capability-1",
       now,
     });
@@ -462,6 +469,39 @@ describe("BootstrapWorkflow", () => {
     });
     expect(harness.retireCursor).not.toHaveBeenCalled();
     expect(harness.activateCursor).not.toHaveBeenCalled();
+  });
+
+  it("activation completion retires the predecessor cursor before activating the replacement cursor", async () => {
+    const harness = createHarness({ fromDeviceId: "device-a" });
+    await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
+    await harness.orchestration.executeStep(harness.presentedCapability, fetchRequest());
+    await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
+    vi.spyOn(harness.lifecycle, "attemptIssue").mockResolvedValue({ issued: true } as never);
+
+    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in P0-16");
+    expect(harness.retireCursor).toHaveBeenCalledOnce();
+    expect(harness.retireCursor).toHaveBeenCalledWith("workspace-1", "device-a", "replaced");
+    expect(harness.activateCursor).toHaveBeenCalledOnce();
+    expect(harness.activateCursor).toHaveBeenCalledWith("workspace-1", "device-b", 6);
+    expect(harness.retireCursor.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.activateCursor.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("activation accepts the highest allocated epoch after an earlier allocation was burned", async () => {
+    const harness = createHarness({ burnEpochBeforeBootstrap: true });
+    expect(harness.lifecycle.currentLeaseEpoch("account-1")).toBe(0);
+    expect(harness.lifecycle.highestAllocatedEpoch("account-1")).toBe(2);
+    expect(harness.aggregate.pendingLeaseEpoch).toBe(2);
+    await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
+    await harness.orchestration.executeStep(harness.presentedCapability, fetchRequest());
+    await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
+
+    expect(await harness.orchestration.activate()).toEqual({ activated: false, code: "LEASE_ISSUANCE_DISABLED" });
+    expect(harness.signActiveDeviceLease).toHaveBeenCalledOnce();
+    expect(harness.signActiveDeviceLease).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ leaseEpoch: 2 }),
+    }));
   });
 
   it("separates inactive entitlement from a consulted signer refusal", async () => {
