@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "code": "SCHEMA_INVALID",
+  "correlationId": "correlation-2",
+  "message": "must stay private"
+}
