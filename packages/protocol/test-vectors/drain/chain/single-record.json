@@ -1,0 +1,12 @@
+{
+  "kind": "ordered",
+  "steps": [
+    {
+      "sequence": 1,
+      "previousDigest": "58It6o62GZGmXgy6-ER1rezwYX-LCZVJzlZuZOGcWUs",
+      "envelopeBase64url": "cmVjb3JkLW9uZQ",
+      "expectedDigest": "Qh9qaElqm0zROhCDDysvxnxV3sp92isl8xBEqLkMmaU"
+    }
+  ],
+  "expectedDigest": "Qh9qaElqm0zROhCDDysvxnxV3sp92isl8xBEqLkMmaU"
+}

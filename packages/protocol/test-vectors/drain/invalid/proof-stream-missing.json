@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.drain-proof.v1",
+  "aud": "gooddealer-cloud/drain-verification",
+  "proofId": "proof-handoff-1",
+  "purpose": "handoff",
+  "workspaceId": "workspace-a",
+  "sourceDeviceId": "device-a",
+  "activeLeaseEpoch": 2,
+  "deviceSwitchRequestId": "switch-request-1",
+  "streams": [
+    {
+      "stream": "mutation",
+      "lastAssignedSequence": 2,
+      "contiguousReceivedThrough": 2,
+      "pendingCount": 0,
+      "rollingDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "stream": "execution_fact",
+      "lastAssignedSequence": 1,
+      "contiguousReceivedThrough": 1,
+      "pendingCount": 0,
+      "rollingDigest": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  ],
+  "canonicalCodecVersion": 1,
+  "digestAlgorithm": "sha256-chain-v1",
+  "issuedAt": "2026-08-14T18:00:00Z",
+  "expiresAt": "2026-08-14T18:10:00Z",
+  "signingKeyId": "device-key-1",
+  "signingKeyVersion": 1,
+  "signatureTranscriptVersion": 1,
+  "deviceSignature": "c2lnbmF0dXJl"
+}

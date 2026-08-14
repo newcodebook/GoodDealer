@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "executionFactId": "execution-fact-1",
+  "operationId": "operation-1",
+  "operationItemId": "item-1",
+  "workflowNodeId": "node-1",
+  "attemptId": "attempt-1",
+  "attemptNo": 1,
+  "approvedOperationId": "approved-operation-1",
+  "planHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "idempotencyKeyHash": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "sourceDeviceId": "device-a",
+  "workspaceId": "workspace-a",
+  "activeLeaseEpoch": 2,
+  "executionSequence": 1,
+  "eventType": "operation_succeeded",
+  "evidenceLevel": "provider_confirmed",
+  "occurredAt": "2026-08-14T17:59:00Z",
+  "signingKeyId": "device-key-1",
+  "signingKeyVersion": 1,
+  "credentialEpoch": 3,
+  "trustedTimeAnchorId": "time-anchor-1",
+  "monotonicDeltaMs": 1234,
+  "requestStartBoundary": "2026-08-14T17:58:00Z",
+  "authorizationHash": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+  "executionAuthorizationEvidence": {
+    "approvedOperationDigest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "approvedOperationEnvelope": "QXBwcm92ZWQtT3BlcmF0aW9u",
+    "signingKeyId": "device-key-1",
+    "signingKeyVersion": 1,
+    "credentialEpoch": 3,
+    "signatureTranscriptVersion": 1
+  },
+  "signatureTranscriptVersion": 1,
+  "payloadRedacted": {
+    "status": "succeeded",
+    "remoteRef": "remote-1"
+  },
+  "auditEventRef": "audit-event-1",
+  "auditEventHash": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+  "deviceSignature": "ZXhlY3V0aW9uLWZhY3Qtc2lnbmF0dXJl"
+}

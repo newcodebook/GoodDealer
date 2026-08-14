@@ -96,21 +96,25 @@ export const workspaceFieldMetadata = {
   "domain_asset.targetPrice": { privacyClass: "PUBLIC_BUSINESS", mergeClass: "manual" },
 } as const;
 
-export const syncMutationSchema = z
-  .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
-    mutationId: identifier,
-    workspaceId: identifier,
-    workspaceSchemaVersion: safePositiveInteger,
-    entityType: z.literal("domain_asset"),
-    entityId: identifier,
-    baseRevision: workspaceRevisionSchema,
-    changedFields: changedFieldsSchema,
-    sourceDeviceId: identifier,
-    activeLeaseEpoch: safePositiveInteger,
-    mutationSequence: safePositiveInteger,
-    serverRevision: safePositiveInteger,
-  })
+const submittedSyncMutationFields = {
+  schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+  mutationId: identifier,
+  workspaceId: identifier,
+  workspaceSchemaVersion: safePositiveInteger,
+  entityType: z.literal("domain_asset"),
+  entityId: identifier,
+  baseRevision: workspaceRevisionSchema,
+  changedFields: changedFieldsSchema,
+  sourceDeviceId: identifier,
+  activeLeaseEpoch: safePositiveInteger,
+  mutationSequence: safePositiveInteger,
+} as const;
+
+/** The device-committed mutation before Cloud assigns its server revision. */
+export const submittedSyncMutationSchema = z.object(submittedSyncMutationFields).strict();
+
+export const syncMutationSchema = submittedSyncMutationSchema
+  .extend({ serverRevision: safePositiveInteger })
   .strict()
   .superRefine((mutation, context) => {
     if (mutation.baseRevision >= mutation.serverRevision) {
@@ -248,6 +252,7 @@ export function encodeWorkspaceEntityDigestsInput(value: unknown): Uint8Array {
 }
 
 export type WorkspaceRevision = z.infer<typeof workspaceRevisionSchema>;
+export type SubmittedSyncMutation = z.infer<typeof submittedSyncMutationSchema>;
 export type SyncMutation = z.infer<typeof syncMutationSchema>;
 export type CheckpointDescriptor = z.infer<typeof checkpointDescriptorSchema>;
 export type MutationPage = z.infer<typeof mutationPageSchema>;

@@ -1,0 +1,24 @@
+{
+  "kind": "ordered",
+  "steps": [
+    {
+      "sequence": 1,
+      "previousDigest": "58It6o62GZGmXgy6-ER1rezwYX-LCZVJzlZuZOGcWUs",
+      "envelopeBase64url": "cmVjb3JkLW9uZQ",
+      "expectedDigest": "Qh9qaElqm0zROhCDDysvxnxV3sp92isl8xBEqLkMmaU"
+    },
+    {
+      "sequence": 2,
+      "previousDigest": "Qh9qaElqm0zROhCDDysvxnxV3sp92isl8xBEqLkMmaU",
+      "envelopeBase64url": "cmVjb3JkLXR3bw",
+      "expectedDigest": "IP57KAV7VADrssTFMkkdu1Qk55lWzgdniA8RFP9jzDk"
+    },
+    {
+      "sequence": 3,
+      "previousDigest": "IP57KAV7VADrssTFMkkdu1Qk55lWzgdniA8RFP9jzDk",
+      "envelopeBase64url": "cmVjb3JkLXRocmVl",
+      "expectedDigest": "ufWnRSF8jxLBGeqZJe6b4wz9m-R1ZSFNi1wvpggytKw"
+    }
+  ],
+  "expectedDigest": "ufWnRSF8jxLBGeqZJe6b4wz9m-R1ZSFNi1wvpggytKw"
+}

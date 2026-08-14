@@ -10,6 +10,7 @@ export {
   mutationCursorSchema,
   mutationPageSchema,
   sha256DigestSchema,
+  submittedSyncMutationSchema,
   syncMutationSchema,
   workspaceFieldMetadata,
   workspaceEntityDigestSchema,
@@ -19,6 +20,7 @@ export {
 export type {
   CheckpointDescriptor,
   MutationPage,
+  SubmittedSyncMutation,
   SyncMutation,
   WorkspaceEntityDigest,
   WorkspaceRevision,

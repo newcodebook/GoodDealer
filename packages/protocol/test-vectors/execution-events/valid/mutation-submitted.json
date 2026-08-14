@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "mutationId": "mutation-5",
+  "workspaceId": "workspace-a",
+  "workspaceSchemaVersion": 1,
+  "entityType": "domain_asset",
+  "entityId": "domain-example-com",
+  "baseRevision": 4,
+  "changedFields": [
+    {
+      "fieldPath": "note",
+      "value": "Priority portfolio"
+    },
+    {
+      "fieldPath": "portfolioId",
+      "value": "portfolio-primary"
+    },
+    {
+      "fieldPath": "tags",
+      "value": [
+        "brandable",
+        "premium"
+      ]
+    },
+    {
+      "fieldPath": "targetPrice",
+      "value": {
+        "currency": "USD",
+        "amount": "2500"
+      }
+    }
+  ],
+  "sourceDeviceId": "device-a",
+  "activeLeaseEpoch": 2,
+  "mutationSequence": 9
+}

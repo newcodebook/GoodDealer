@@ -1,0 +1,18 @@
+{
+  "kind": "arrival",
+  "records": [
+    {
+      "sequence": 1,
+      "envelopeBase64url": "cmVjb3JkLW9uZQ"
+    },
+    {
+      "sequence": 3,
+      "envelopeBase64url": "cmVjb3JkLXRocmVl"
+    },
+    {
+      "sequence": 2,
+      "envelopeBase64url": "cmVjb3JkLXR3bw"
+    }
+  ],
+  "expectedDigest": "ufWnRSF8jxLBGeqZJe6b4wz9m-R1ZSFNi1wvpggytKw"
+}

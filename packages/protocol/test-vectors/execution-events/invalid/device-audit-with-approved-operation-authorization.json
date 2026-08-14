@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "auditEventId": "audit-event-1",
+  "auditEventKind": "device",
+  "eventType": "device_binding_lifecycle",
+  "accountId": "account-a",
+  "actorKind": "user",
+  "authorizationSource": "approved_operation",
+  "targetType": "device_binding",
+  "targetRef": "device-a",
+  "sourceDeviceId": "device-a",
+  "credentialEpoch": 3,
+  "chainId": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+  "auditSequence": 1,
+  "previousHash": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+  "eventHash": "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH",
+  "occurredAt": "2026-08-14T17:59:00Z",
+  "signingKeyId": "device-key-1",
+  "signingKeyVersion": 1,
+  "signingKeyPurpose": "device_identity_audit",
+  "trustedTimeAnchorId": "time-anchor-1",
+  "monotonicDeltaMs": 1234,
+  "authorizationContextHash": "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+  "signatureTranscriptVersion": 1,
+  "payloadRedacted": {
+    "action": "binding_checked"
+  },
+  "deviceSignature": "YXVkaXQtZXZlbnQtc2lnbmF0dXJl",
+  "scopeKind": "account"
+}
