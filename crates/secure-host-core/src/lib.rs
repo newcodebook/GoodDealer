@@ -1,5 +1,6 @@
 mod account_status;
 mod active_device_lease_status;
+mod bootstrap_steps;
 pub mod device_identity;
 pub mod endpoint_capability;
 mod generated;
@@ -19,6 +20,11 @@ pub use account_status::{
 pub use active_device_lease_status::{
     ActiveDeviceLeaseStatus, ActiveDeviceLeaseStatusValidationError, LeaseRenewalState,
     validate_active_device_lease_status_json,
+};
+pub use bootstrap_steps::{
+    BOOTSTRAP_STEP_SCHEMA_VERSION, BootstrapStepKind, BootstrapStepRequest, BootstrapStepResult,
+    BootstrapStepValidationError, validate_bootstrap_step_request_json,
+    validate_bootstrap_step_result_json,
 };
 
 pub use runtime_gate::{

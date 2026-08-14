@@ -1,9 +1,9 @@
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub(crate) const MAX_JAVASCRIPT_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_JAVASCRIPT_SAFE_NUMBER: f64 = 9_007_199_254_740_991.0;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub(crate) struct SafeUnsignedInteger(u64);
 
 impl SafeUnsignedInteger {
