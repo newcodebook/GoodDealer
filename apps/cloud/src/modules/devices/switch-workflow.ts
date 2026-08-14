@@ -202,6 +202,35 @@ export class DeviceSwitchWorkflow {
     return this.project();
   }
 
+  /** Transaction participant used by the in-memory lease-release analogue. */
+  enterBootstrappingTransaction(input: {
+    readonly pendingLeaseEpoch: number;
+    readonly capabilityJti: string;
+    readonly now: string;
+    readonly expectedWorkflowRevision?: number;
+  }): { readonly view: DeviceSwitchRequestView; rollback(): void } {
+    const before = {
+      status: this.#status,
+      workflowRevision: this.#workflowRevision,
+      pendingLeaseEpoch: this.#pendingLeaseEpoch,
+      capability: this.#capability === null ? null : { ...this.#capability },
+      bootstrapExpiresAt: this.#bootstrapExpiresAt,
+      stateDeadline: this.#stateDeadline,
+    };
+    const view = this.enterBootstrapping(input);
+    return {
+      view,
+      rollback: () => {
+        this.#status = before.status;
+        this.#workflowRevision = before.workflowRevision;
+        this.#pendingLeaseEpoch = before.pendingLeaseEpoch;
+        this.#capability = before.capability;
+        this.#bootstrapExpiresAt = before.bootstrapExpiresAt;
+        this.#stateDeadline = before.stateDeadline;
+      },
+    };
+  }
+
   recordPin(pin: CheckpointPinRecord, targetRevision: number, targetSchemaVersion: number): void {
     if (this.#status !== "bootstrapping") throw new WorkflowTransitionError("WORKFLOW_NOT_BOOTSTRAPPING");
     if (this.#pin !== null || this.#targetRevision !== null) throw new WorkflowTransitionError("STEP_REPLAY_CONFLICT");

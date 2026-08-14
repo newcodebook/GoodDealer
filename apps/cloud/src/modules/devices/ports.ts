@@ -1,4 +1,8 @@
 import { bootstrapCapabilityEnvelopeSchema } from "@gooddealer/protocol/devices";
+import {
+  DRAIN_STREAM_GENESIS_DIGEST,
+  type DrainStream,
+} from "@gooddealer/protocol/execution-events";
 import type { CheckpointDescriptor, MutationPage } from "@gooddealer/protocol/workspace";
 
 import type { ActiveDeviceLeaseClaims } from "./lease-lifecycle";
@@ -31,16 +35,124 @@ export interface DeviceCursorPort {
   activateCursor(workspaceId: string, deviceId: string, atRevision: number): Promise<void>;
 }
 
+export type DrainRejectionReason =
+  | "DRAIN_PROOF_MALFORMED"
+  | "DRAIN_PROOF_PURPOSE_MISMATCH"
+  | "DRAIN_PROOF_BINDING_MISMATCH"
+  | "DRAIN_LEASE_NOT_HELD"
+  | "DRAIN_PROOF_EXPIRED"
+  | "DRAIN_PROOF_TTL_EXCESSIVE"
+  | "DRAIN_PROOF_ID_CONFLICT"
+  | "DRAIN_PROOF_CONSUMED"
+  | "DRAIN_STREAM_GAP"
+  | "DRAIN_STREAM_WATERMARK_SHORT"
+  | "DRAIN_STREAM_DIGEST_MISMATCH"
+  | "DRAIN_AUDIT_CHAIN_FORKED"
+  | "DRAIN_SIGNATURE_UNVERIFIED";
+
+export interface DrainStreamGapReport {
+  readonly stream: DrainStream;
+  readonly claimedLastAssignedSequence: number;
+  readonly cloudContiguousReceivedThrough: number;
+  readonly cloudHighestReceivedSequence: number;
+  readonly missingRanges: readonly {
+    readonly fromSequence: number;
+    readonly toSequence: number;
+  }[];
+  readonly digestMatches: boolean;
+}
+
+export interface DrainRejection {
+  readonly code: "DRAIN_PROOF_UNVERIFIED";
+  readonly reason: DrainRejectionReason;
+  readonly streams: readonly DrainStreamGapReport[];
+}
+
 export interface DrainVerificationPort {
   verifyHandoff(input: {
     readonly workflowId: string;
+    readonly accountId: string;
+    readonly workspaceId: string;
     readonly fromDeviceId: string;
     readonly leaseEpoch: number;
+    readonly evaluatedAt: string;
     readonly manifest: unknown;
   }): Promise<
-    | { readonly accepted: true }
-    | { readonly accepted: false; readonly reason: "unimplemented" | "gap" | "digest" | "binding" }
+    | { readonly accepted: true; readonly proofId: string; readonly proofDigest: string }
+    | {
+      readonly accepted: false;
+      readonly reason: DrainRejectionReason;
+      readonly streams: readonly DrainStreamGapReport[];
+    }
   >;
+}
+
+export interface DrainStreamWatermarkPort {
+  readWatermark(domain: {
+    readonly workspaceId: string;
+    readonly sourceDeviceId: string;
+    readonly activeLeaseEpoch: number;
+    readonly stream: DrainStream;
+  }): Promise<{
+    readonly contiguousReceivedThrough: number;
+    readonly highestReceivedSequence: number;
+    readonly missingRanges: readonly {
+      readonly fromSequence: number;
+      readonly toSequence: number;
+    }[];
+    readonly rollingDigest: string;
+  }>;
+}
+
+export interface AuditChainRegistryPort {
+  readChainRegistration(input: {
+    readonly workspaceId: string;
+    readonly sourceDeviceId: string;
+    readonly activeLeaseEpoch: number;
+  }): Promise<{
+    readonly chainId: string;
+    readonly headSequence: number;
+    readonly headHash: string;
+    readonly forked: boolean;
+  } | null>;
+}
+
+export interface DrainProofSignaturePort {
+  /** P0-17 Fallback: this return type deliberately cannot express success. */
+  checkDrainProofSignature(input: {
+    readonly transcript: Uint8Array;
+    readonly signature: string;
+    readonly signingKeyId: string;
+    readonly signingKeyVersion: number;
+    readonly sourceDeviceId: string;
+  }): Promise<{
+    readonly verified: false;
+    readonly reason: "signature_verification_disabled";
+  }>;
+}
+
+export interface DrainLeaseStatePort {
+  readHeldLease(accountId: string): {
+    readonly deviceId: string;
+    readonly leaseEpoch: number;
+    readonly releasedAt: string | null;
+  } | null;
+}
+
+export interface DrainProofConsumptionPort {
+  inspectProof(proofId: string, proofDigest: string):
+    | { readonly status: "unseen" }
+    | { readonly status: "seen"; readonly consumed: false }
+    | { readonly status: "consumed"; readonly accepted: boolean }
+    | { readonly status: "conflict" };
+  rememberProof(proofId: string, proofDigest: string): void;
+  consumeProof(input: {
+    readonly proofId: string;
+    readonly proofDigest: string;
+    readonly consumedAt: string;
+    readonly acceptedAt: string;
+    readonly purpose: "handoff";
+  }): { rollback(): void };
 }
 
 export type CapabilityRejectionReason =
@@ -99,10 +211,51 @@ export interface EntitlementDeadlinePort {
   }>;
 }
 
-/** Fixture seam for P0-17: normal handoff remains unavailable. */
+/** Explicit blunt-refusal seam; the default composition uses the real verifier. */
 export class DenyingDrainVerifier implements DrainVerificationPort {
-  async verifyHandoff(): Promise<{ readonly accepted: false; readonly reason: "unimplemented" }> {
-    return { accepted: false, reason: "unimplemented" };
+  async verifyHandoff(): Promise<{
+    readonly accepted: false;
+    readonly reason: "DRAIN_SIGNATURE_UNVERIFIED";
+    readonly streams: readonly [];
+  }> {
+    return { accepted: false, reason: "DRAIN_SIGNATURE_UNVERIFIED", streams: [] };
+  }
+}
+
+export class RefusingDrainProofSignature implements DrainProofSignaturePort {
+  async checkDrainProofSignature(): Promise<{
+    readonly verified: false;
+    readonly reason: "signature_verification_disabled";
+  }> {
+    return { verified: false, reason: "signature_verification_disabled" };
+  }
+}
+
+export class FailClosedDrainStreamWatermarks implements DrainStreamWatermarkPort {
+  async readWatermark(): Promise<{
+    readonly contiguousReceivedThrough: 0;
+    readonly highestReceivedSequence: 0;
+    readonly missingRanges: readonly [{ readonly fromSequence: 1; readonly toSequence: 1 }];
+    readonly rollingDigest: typeof DRAIN_STREAM_GENESIS_DIGEST;
+  }> {
+    return {
+      contiguousReceivedThrough: 0,
+      highestReceivedSequence: 0,
+      missingRanges: [{ fromSequence: 1, toSequence: 1 }],
+      rollingDigest: DRAIN_STREAM_GENESIS_DIGEST,
+    };
+  }
+}
+
+export class FailClosedAuditChainRegistry implements AuditChainRegistryPort {
+  async readChainRegistration(): Promise<null> {
+    return null;
+  }
+}
+
+export class FailClosedDrainLeaseState implements DrainLeaseStatePort {
+  readHeldLease(): null {
+    return null;
   }
 }
 

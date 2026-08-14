@@ -7,6 +7,7 @@ import {
 import {
   DenyingLeaseSigner,
   SystemTrustedTime,
+  type DrainProofConsumptionPort,
   type EntitlementDeadlinePort,
   type LeaseSignerPort,
   type TrustedTimePort,
@@ -54,11 +55,28 @@ interface AccountLeaseState {
 export interface LeaseLifecycleOptions {
   readonly signer?: LeaseSignerPort;
   readonly trustedTime?: TrustedTimePort;
+  readonly proofRegistry?: DrainProofConsumptionPort;
+  readonly drainTransactionFault?: (point: DrainTransactionFaultPoint) => void;
   readonly seed?: Readonly<Record<string, {
     readonly currentLeaseEpoch: number;
     readonly highestAllocatedEpoch?: number;
     readonly held?: HeldLeaseRecord | null;
   }>>;
+}
+
+export type DrainTransactionFaultPoint =
+  | "after_proof_consumption"
+  | "after_lease_release"
+  | "after_epoch_allocation"
+  | "after_bootstrap_transition";
+
+export interface BeginBootstrapTransaction {
+  readonly predecessorLeaseEpoch?: number;
+  readonly consumedProof?: {
+    readonly proofId: string;
+    readonly proofDigest: string;
+  };
+  readonly transition?: (pendingLeaseEpoch: number) => { rollback(): void };
 }
 
 export type LeaseAttemptResult = {
@@ -71,11 +89,15 @@ export type LeaseAttemptResult = {
 export class ActiveDeviceLeaseLifecycle {
   readonly #signer: LeaseSignerPort;
   readonly #trustedTime: TrustedTimePort;
+  readonly #proofRegistry: DrainProofConsumptionPort | undefined;
+  readonly #drainTransactionFault: ((point: DrainTransactionFaultPoint) => void) | undefined;
   readonly #accounts = new Map<string, AccountLeaseState>();
 
   constructor(options: LeaseLifecycleOptions = {}) {
     this.#signer = options.signer ?? new DenyingLeaseSigner();
     this.#trustedTime = options.trustedTime ?? new SystemTrustedTime();
+    this.#proofRegistry = options.proofRegistry;
+    this.#drainTransactionFault = options.drainTransactionFault;
     for (const [accountId, seed] of Object.entries(options.seed ?? {})) {
       const highestAllocatedEpoch = seed.highestAllocatedEpoch ?? seed.currentLeaseEpoch;
       if (highestAllocatedEpoch < seed.currentLeaseEpoch) {
@@ -90,19 +112,76 @@ export class ActiveDeviceLeaseLifecycle {
     }
   }
 
-  /** Atomic fixture analogue of predecessor release plus monotone pending-epoch allocation. */
-  beginBootstrap(accountId: string, workflowId: string, predecessorDeviceId: string | null): number {
+  /**
+   * Atomic fixture analogue of proof consumption, predecessor release, pending-epoch allocation,
+   * and the workflow transition. Any injected failure restores every participant.
+   */
+  beginBootstrap(
+    accountId: string,
+    workflowId: string,
+    predecessorDeviceId: string | null,
+    transaction: BeginBootstrapTransaction = {},
+  ): number {
     const state = this.#state(accountId);
     const existing = state.pendingByWorkflow.get(workflowId);
     if (existing !== undefined) return existing;
 
-    state.highestAllocatedEpoch += 1;
-    const pendingEpoch = state.highestAllocatedEpoch;
-    state.pendingByWorkflow.set(workflowId, pendingEpoch);
-    if (predecessorDeviceId !== null && state.held?.deviceId === predecessorDeviceId) {
-      state.held = { ...state.held, releasedAt: this.#trustedTime.now() };
+    const previous = cloneAccountLeaseState(state);
+    let proofRollback: { rollback(): void } | undefined;
+    let transitionRollback: { rollback(): void } | undefined;
+    try {
+      if (transaction.consumedProof !== undefined) {
+        if (this.#proofRegistry === undefined) {
+          throw new TypeError("drain proof consumption is unavailable");
+        }
+        const acceptedAt = this.#trustedTime.now();
+        proofRollback = this.#proofRegistry.consumeProof({
+          ...transaction.consumedProof,
+          acceptedAt,
+          consumedAt: acceptedAt,
+          purpose: "handoff",
+        });
+        this.#drainTransactionFault?.("after_proof_consumption");
+      }
+
+      if (predecessorDeviceId !== null) {
+        const heldMatches = state.held !== null &&
+          state.held.releasedAt === null &&
+          state.held.deviceId === predecessorDeviceId &&
+          (transaction.predecessorLeaseEpoch === undefined ||
+            state.held.leaseEpoch === transaction.predecessorLeaseEpoch);
+        if (transaction.consumedProof !== undefined || transaction.predecessorLeaseEpoch !== undefined) {
+          if (!heldMatches) throw new TypeError("predecessor does not hold the expected lease epoch");
+        }
+        if (heldMatches && state.held !== null) {
+          state.held = { ...state.held, releasedAt: this.#trustedTime.now() };
+        }
+      }
+      if (transaction.consumedProof !== undefined) {
+        this.#drainTransactionFault?.("after_lease_release");
+      }
+
+      state.highestAllocatedEpoch += 1;
+      const pendingEpoch = state.highestAllocatedEpoch;
+      state.pendingByWorkflow.set(workflowId, pendingEpoch);
+      if (transaction.consumedProof !== undefined) {
+        this.#drainTransactionFault?.("after_epoch_allocation");
+      }
+
+      transitionRollback = transaction.transition?.(pendingEpoch);
+      if (transaction.consumedProof !== undefined) {
+        this.#drainTransactionFault?.("after_bootstrap_transition");
+      }
+      return pendingEpoch;
+    } catch (error) {
+      transitionRollback?.rollback();
+      proofRollback?.rollback();
+      state.currentLeaseEpoch = previous.currentLeaseEpoch;
+      state.highestAllocatedEpoch = previous.highestAllocatedEpoch;
+      state.held = previous.held;
+      state.pendingByWorkflow = previous.pendingByWorkflow;
+      throw error;
     }
-    return pendingEpoch;
   }
 
   /** Cancelling burns the allocation: highestAllocatedEpoch deliberately does not decrease. */
@@ -120,6 +199,11 @@ export class ActiveDeviceLeaseLifecycle {
 
   highestAllocatedEpoch(accountId: string): number {
     return this.#state(accountId).highestAllocatedEpoch;
+  }
+
+  readHeldLease(accountId: string): HeldLeaseRecord | null {
+    const held = this.#state(accountId).held;
+    return held === null ? null : { ...held };
   }
 
   computeClaims(input: {
@@ -289,6 +373,15 @@ export class ActiveDeviceLeaseLifecycle {
     }
     return state;
   }
+}
+
+function cloneAccountLeaseState(state: AccountLeaseState): AccountLeaseState {
+  return {
+    currentLeaseEpoch: state.currentLeaseEpoch,
+    highestAllocatedEpoch: state.highestAllocatedEpoch,
+    held: state.held === null ? null : { ...state.held },
+    pendingByWorkflow: new Map(state.pendingByWorkflow),
+  };
 }
 
 function addSeconds(timestamp: string, seconds: number): string {

@@ -20,8 +20,22 @@ import {
   type DeviceSwitchRequestView,
 } from "@gooddealer/protocol/devices";
 
-import { ActiveDeviceLeaseLifecycle } from "./lease-lifecycle";
-import { DenyingDrainVerifier, type DrainVerificationPort } from "./ports";
+import {
+  DrainVerifier,
+  InMemoryDrainProofRegistry,
+} from "./drain-verification";
+import {
+  ActiveDeviceLeaseLifecycle,
+  type DrainTransactionFaultPoint,
+} from "./lease-lifecycle";
+import {
+  RefusingDrainProofSignature,
+  type AuditChainRegistryPort,
+  type DrainProofSignaturePort,
+  type DrainRejection,
+  type DrainStreamWatermarkPort,
+  type DrainVerificationPort,
+} from "./ports";
 import { DeviceSwitchWorkflow, isTerminal } from "./switch-workflow";
 
 export { BootstrapFixtureService } from "./bootstrap-fixture";
@@ -44,10 +58,18 @@ export {
 } from "./lease-lifecycle";
 export type {
   ActiveDeviceLeaseClaims,
+  BeginBootstrapTransaction,
+  DrainTransactionFaultPoint,
   HeldLeaseRecord,
   LeaseAttemptResult,
   LeaseLifecycleOptions,
 } from "./lease-lifecycle";
+export {
+  DRAIN_PROOF_MAX_TTL_SECONDS,
+  DrainVerifier,
+  InMemoryDrainProofRegistry,
+} from "./drain-verification";
+export type { DrainVerifierOptions } from "./drain-verification";
 export * from "./ports";
 export {
   BOOTSTRAP_CAPABILITY_TTL_SECONDS,
@@ -95,6 +117,12 @@ export interface DeviceFixtureOptions {
   readonly accountSecurityState?: "normal" | "recovery_pending";
   readonly entitlementActive?: boolean;
   readonly drainVerifier?: DrainVerificationPort;
+  readonly drainSignature?: DrainProofSignaturePort;
+  readonly mutationWatermarks?: DrainStreamWatermarkPort;
+  readonly executionFactWatermarks?: DrainStreamWatermarkPort;
+  readonly deviceAuditWatermarks?: DrainStreamWatermarkPort;
+  readonly auditChainRegistry?: AuditChainRegistryPort;
+  readonly drainTransactionFault?: (point: DrainTransactionFaultPoint) => void;
 }
 
 export class DevicesFixtureService {
@@ -128,15 +156,28 @@ export class DevicesFixtureService {
     this.#callerAccountSecurityEpoch = options.callerAccountSecurityEpoch ?? this.#accountSecurityEpoch;
     this.#accountSecurityState = options.accountSecurityState ?? "normal";
     this.#entitlementActive = options.entitlementActive ?? true;
-    this.#drainVerifier = options.drainVerifier ?? new DenyingDrainVerifier();
+    const proofRegistry = new InMemoryDrainProofRegistry();
     this.#leaseLifecycle = new ActiveDeviceLeaseLifecycle({
       trustedTime: { now: () => this.#timestamp() },
+      proofRegistry,
+      ...(options.drainTransactionFault === undefined ? {} : {
+        drainTransactionFault: options.drainTransactionFault,
+      }),
       ...(options.activeLease === undefined || options.activeLease === null ? {} : { seed: {
         [this.#accountId]: {
           currentLeaseEpoch: options.activeLease.leaseEpoch,
           held: { ...options.activeLease, releasedAt: null },
         },
       } }),
+    });
+    this.#drainVerifier = options.drainVerifier ?? new DrainVerifier({
+      drainSignature: options.drainSignature ?? new RefusingDrainProofSignature(),
+      ...(options.mutationWatermarks === undefined ? {} : { mutationWatermarks: options.mutationWatermarks }),
+      ...(options.executionFactWatermarks === undefined ? {} : { executionFactWatermarks: options.executionFactWatermarks }),
+      ...(options.deviceAuditWatermarks === undefined ? {} : { deviceAuditWatermarks: options.deviceAuditWatermarks }),
+      ...(options.auditChainRegistry === undefined ? {} : { auditChainRegistry: options.auditChainRegistry }),
+      leaseState: this.#leaseLifecycle,
+      proofRegistry,
     });
     for (const binding of options.seedBindings ?? []) {
       this.#bindings.set(binding.deviceId, deviceBindingSummarySchema.parse(binding));
@@ -318,20 +359,37 @@ export class DevicesFixtureService {
     return this.#enterBootstrapping(workflow);
   }
 
-  async acceptDrain(requestId: string, manifest: unknown): Promise<DeviceSwitchRequestView | AccountRejection | { readonly code: "DRAIN_PROOF_UNVERIFIED" }> {
+  async acceptDrain(
+    requestId: string,
+    manifest: unknown,
+  ): Promise<DeviceSwitchRequestView | AccountRejection | DrainRejection> {
     const workflow = this.#workflowFor(requestId);
     if (workflow === null || workflow.status !== "draining" || workflow.fromDeviceId === null) {
       return this.#reject("ACTIVE_DEVICE_CONFLICT");
     }
-    const leaseEpoch = this.#activeLease?.leaseEpoch ?? this.#leaseLifecycle.currentLeaseEpoch(this.#accountId);
+    const heldLease = this.#leaseLifecycle.readHeldLease(this.#accountId);
+    const claimedEpoch = isRecord(manifest) &&
+      typeof manifest.activeLeaseEpoch === "number" &&
+      Number.isSafeInteger(manifest.activeLeaseEpoch)
+      ? manifest.activeLeaseEpoch
+      : 0;
+    const leaseEpoch = heldLease?.leaseEpoch ?? claimedEpoch;
     const verification = await this.#drainVerifier.verifyHandoff({
       workflowId: workflow.workflowId,
+      accountId: this.#accountId,
+      workspaceId: this.#workspaceId,
       fromDeviceId: workflow.fromDeviceId,
       leaseEpoch,
+      evaluatedAt: this.#timestamp(),
       manifest,
     });
-    if (!verification.accepted) return { code: "DRAIN_PROOF_UNVERIFIED" };
-    return this.#enterBootstrapping(workflow);
+    if (!verification.accepted) {
+      return { code: "DRAIN_PROOF_UNVERIFIED", reason: verification.reason, streams: verification.streams };
+    }
+    return this.#enterBootstrapping(workflow, {
+      proofId: verification.proofId,
+      proofDigest: verification.proofDigest,
+    });
   }
 
   claimTakeover(requestId: string): DeviceSwitchRequestView | AccountRejection {
@@ -422,7 +480,10 @@ export class DevicesFixtureService {
     return workflow?.workflowId === requestId ? workflow : null;
   }
 
-  #enterBootstrapping(workflow: DeviceSwitchWorkflow): DeviceSwitchRequestView | AccountRejection {
+  #enterBootstrapping(
+    workflow: DeviceSwitchWorkflow,
+    consumedProof?: { readonly proofId: string; readonly proofDigest: string },
+  ): DeviceSwitchRequestView | AccountRejection {
     const target = this.#bindings.get(workflow.toDeviceId);
     if (this.#accountSecurityState !== "normal") return this.#reject("ACCOUNT_RECOVERY_PENDING");
     if (this.#callerAccountSecurityEpoch !== this.#accountSecurityEpoch) {
@@ -439,18 +500,41 @@ export class DevicesFixtureService {
       workflow.fail(this.#timestamp(), "binding_rotated");
       return this.#reject("ACTIVE_DEVICE_CONFLICT");
     }
-    const pendingLeaseEpoch = this.#leaseLifecycle.beginBootstrap(
+    const capabilityJti = `fixture-bootstrap-${this.#nextCapability}`;
+    const predecessorLeaseEpoch = this.#leaseLifecycle.readHeldLease(this.#accountId)?.leaseEpoch;
+    let transitionView: DeviceSwitchRequestView | undefined;
+    this.#leaseLifecycle.beginBootstrap(
       this.#accountId,
       workflow.workflowId,
       workflow.fromDeviceId,
+      {
+        ...(consumedProof === undefined ? {} : {
+          consumedProof,
+          ...(predecessorLeaseEpoch === undefined ? {} : { predecessorLeaseEpoch }),
+        }),
+        transition: (pendingLeaseEpoch) => {
+          const previousActiveLease = this.#activeLease;
+          const transition = workflow.enterBootstrappingTransaction({
+            pendingLeaseEpoch,
+            capabilityJti,
+            now: this.#timestamp(),
+            expectedWorkflowRevision: workflow.workflowRevision,
+          });
+          transitionView = transition.view;
+          this.#activeLease = null;
+          return {
+            rollback: () => {
+              this.#activeLease = previousActiveLease;
+              transition.rollback();
+              transitionView = undefined;
+            },
+          };
+        },
+      },
     );
-    this.#activeLease = null;
-    return workflow.enterBootstrapping({
-      pendingLeaseEpoch,
-      capabilityJti: `fixture-bootstrap-${this.#nextCapability++}`,
-      now: this.#timestamp(),
-      expectedWorkflowRevision: workflow.workflowRevision,
-    });
+    this.#nextCapability += 1;
+    if (transitionView === undefined) throw new TypeError("bootstrap transaction omitted its workflow transition");
+    return transitionView;
   }
 
   #failOutstandingForDevice(deviceId: string, reason: string): void {
@@ -487,4 +571,8 @@ export class DevicesFixtureService {
   #timestamp(): string {
     return this.#now().toISOString().replace(/\.\d{3}Z$/, "Z");
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

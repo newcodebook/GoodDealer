@@ -433,7 +433,11 @@ describe("DevicesFixtureService control-plane guards", () => {
     });
     const view = deviceSwitchRequestViewSchema.parse(service.requestSwitch(request));
     expect(view.status).toBe("draining");
-    expect(await service.acceptDrain(view.requestId, {})).toEqual({ code: "DRAIN_PROOF_UNVERIFIED" });
+    expect(await service.acceptDrain(view.requestId, {})).toEqual({
+      code: "DRAIN_PROOF_UNVERIFIED",
+      reason: "DRAIN_PROOF_MALFORMED",
+      streams: [],
+    });
     expect(service.getSwitchStatus(view.requestId)?.status).toBe("draining");
   });
 
