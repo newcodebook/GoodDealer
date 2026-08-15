@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "attestation_id": "REPLACE_WITH_URN_UUID",
+  "gate_id": "R0-11",
+  "subject_commit": "REPLACE_WITH_40_CHAR_COMMIT",
+  "implementation_refs": ["REPLACE_WITH_STABLE_IDENTITY_REF"],
+  "evidence_sets": [
+    {
+      "profile": "quality",
+      "platform": "linux",
+      "architecture": "x64",
+      "job_name": "quality",
+      "manifest_sha256": "REPLACE_WITH_MANIFEST_SHA256",
+      "artifact": {
+        "artifact_id": "REPLACE_WITH_ARTIFACT_ID",
+        "artifact_digest": "REPLACE_WITH_ARTIFACT_SHA256",
+        "run_url": "REPLACE_WITH_RUN_URL",
+        "job_url": "REPLACE_WITH_JOB_URL"
+      },
+      "archive": {
+        "archive_ref": "REPLACE_WITH_IMMUTABLE_ARCHIVE_URI",
+        "archive_sha256": "REPLACE_WITH_ARCHIVE_SHA256",
+        "verified_at": "REPLACE_WITH_UTC_TIMESTAMP",
+        "verified_by_ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+        "retention_policy": {
+          "mode": "content-addressed-worm",
+          "policy_ref": "REPLACE_WITH_RETENTION_POLICY_URI",
+          "retain_until": "REPLACE_WITH_UTC_TIMESTAMP"
+        }
+      }
+    },
+    {
+      "profile": "native",
+      "platform": "win32",
+      "architecture": "x64",
+      "job_name": "windows-server-2025-x64-compile",
+      "manifest_sha256": "REPLACE_WITH_MANIFEST_SHA256",
+      "artifact": {
+        "artifact_id": "REPLACE_WITH_ARTIFACT_ID",
+        "artifact_digest": "REPLACE_WITH_ARTIFACT_SHA256",
+        "run_url": "REPLACE_WITH_RUN_URL",
+        "job_url": "REPLACE_WITH_JOB_URL"
+      },
+      "archive": {
+        "archive_ref": "REPLACE_WITH_IMMUTABLE_ARCHIVE_URI",
+        "archive_sha256": "REPLACE_WITH_ARCHIVE_SHA256",
+        "verified_at": "REPLACE_WITH_UTC_TIMESTAMP",
+        "verified_by_ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+        "retention_policy": {
+          "mode": "content-addressed-worm",
+          "policy_ref": "REPLACE_WITH_RETENTION_POLICY_URI",
+          "retain_until": "REPLACE_WITH_UTC_TIMESTAMP"
+        }
+      }
+    },
+    {
+      "profile": "native",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "job_name": "macos-15-arm64",
+      "manifest_sha256": "REPLACE_WITH_MANIFEST_SHA256",
+      "artifact": {
+        "artifact_id": "REPLACE_WITH_ARTIFACT_ID",
+        "artifact_digest": "REPLACE_WITH_ARTIFACT_SHA256",
+        "run_url": "REPLACE_WITH_RUN_URL",
+        "job_url": "REPLACE_WITH_JOB_URL"
+      },
+      "archive": {
+        "archive_ref": "REPLACE_WITH_IMMUTABLE_ARCHIVE_URI",
+        "archive_sha256": "REPLACE_WITH_ARCHIVE_SHA256",
+        "verified_at": "REPLACE_WITH_UTC_TIMESTAMP",
+        "verified_by_ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+        "retention_policy": {
+          "mode": "content-addressed-worm",
+          "policy_ref": "REPLACE_WITH_RETENTION_POLICY_URI",
+          "retain_until": "REPLACE_WITH_UTC_TIMESTAMP"
+        }
+      }
+    },
+    {
+      "profile": "native",
+      "platform": "darwin",
+      "architecture": "x64",
+      "job_name": "macos-15-intel",
+      "manifest_sha256": "REPLACE_WITH_MANIFEST_SHA256",
+      "artifact": {
+        "artifact_id": "REPLACE_WITH_ARTIFACT_ID",
+        "artifact_digest": "REPLACE_WITH_ARTIFACT_SHA256",
+        "run_url": "REPLACE_WITH_RUN_URL",
+        "job_url": "REPLACE_WITH_JOB_URL"
+      },
+      "archive": {
+        "archive_ref": "REPLACE_WITH_IMMUTABLE_ARCHIVE_URI",
+        "archive_sha256": "REPLACE_WITH_ARCHIVE_SHA256",
+        "verified_at": "REPLACE_WITH_UTC_TIMESTAMP",
+        "verified_by_ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+        "retention_policy": {
+          "mode": "content-addressed-worm",
+          "policy_ref": "REPLACE_WITH_RETENTION_POLICY_URI",
+          "retain_until": "REPLACE_WITH_UTC_TIMESTAMP"
+        }
+      }
+    },
+    {
+      "profile": "real-device",
+      "platform": "win32",
+      "architecture": "x64",
+      "job_name": "windows-11-24h2-real-install",
+      "manifest_sha256": "REPLACE_WITH_MANIFEST_SHA256",
+      "artifact": {
+        "artifact_id": "REPLACE_WITH_ARTIFACT_ID",
+        "artifact_digest": "REPLACE_WITH_ARTIFACT_SHA256",
+        "run_url": "REPLACE_WITH_RUN_URL",
+        "job_url": "REPLACE_WITH_JOB_URL"
+      },
+      "archive": {
+        "archive_ref": "REPLACE_WITH_IMMUTABLE_ARCHIVE_URI",
+        "archive_sha256": "REPLACE_WITH_ARCHIVE_SHA256",
+        "verified_at": "REPLACE_WITH_UTC_TIMESTAMP",
+        "verified_by_ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+        "retention_policy": {
+          "mode": "content-addressed-worm",
+          "policy_ref": "REPLACE_WITH_RETENTION_POLICY_URI",
+          "retain_until": "REPLACE_WITH_UTC_TIMESTAMP"
+        }
+      }
+    }
+  ],
+  "owner": {
+    "role": "Release Engineering Lead",
+    "ref": "REPLACE_WITH_STABLE_IDENTITY_REF"
+  },
+  "reviews": [
+    {
+      "role": "Architecture Reviewer",
+      "ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+      "reviewed_at": "REPLACE_WITH_UTC_TIMESTAMP",
+      "independence_assertion": {
+        "implementation_refs": ["REPLACE_WITH_EVERY_IMPLEMENTER_REF"],
+        "independently_verified": true
+      }
+    }
+  ],
+  "approval": {
+    "role": "Phase 0 Gate Approver",
+    "ref": "REPLACE_WITH_STABLE_IDENTITY_REF",
+    "approved_at": "REPLACE_WITH_UTC_TIMESTAMP"
+  }
+}

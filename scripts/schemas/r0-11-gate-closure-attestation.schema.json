@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gooddealer.example/schemas/r0-11-gate-closure-attestation.schema.json",
+  "title": "GoodDealer R0-11 GateClosureAttestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attestation_id", "gate_id", "subject_commit", "implementation_refs", "evidence_sets", "owner", "reviews", "approval"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "attestation_id": { "type": "string", "pattern": "^urn:gooddealer:gate-attestation:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "gate_id": { "const": "R0-11" },
+    "subject_commit": { "$ref": "#/$defs/sha1" },
+    "implementation_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableIdentityRef" } },
+    "evidence_sets": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/$defs/evidenceSet" } },
+    "owner": { "$ref": "#/$defs/actor" },
+    "reviews": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/review" } },
+    "approval": { "$ref": "#/$defs/approval" }
+  },
+  "$defs": {
+    "sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,3})?Z$" },
+    "stableIdentityRef": { "type": "string", "pattern": "^(?:github-user-id:[1-9][0-9]*|urn:[a-z0-9][a-z0-9-]{0,31}:[^\\s]+)$" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "ref"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "ref": { "$ref": "#/$defs/stableIdentityRef" }
+      }
+    },
+    "evidenceSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "platform", "architecture", "job_name", "manifest_sha256", "artifact", "archive"],
+      "properties": {
+        "profile": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "platform": { "enum": ["linux", "win32", "darwin"] },
+        "architecture": { "enum": ["x64", "arm64"] },
+        "job_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_id", "artifact_digest", "run_url", "job_url"],
+          "properties": {
+            "artifact_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+            "artifact_digest": { "$ref": "#/$defs/sha256" },
+            "run_url": { "type": "string", "pattern": "^https://github\\.com/newcodebook/GoodDealer/actions/runs/[1-9][0-9]*$" },
+            "job_url": { "type": "string", "pattern": "^https://github\\.com/newcodebook/GoodDealer/actions/runs/[1-9][0-9]*/job/[1-9][0-9]*$" }
+          }
+        },
+        "archive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["archive_ref", "archive_sha256", "verified_at", "verified_by_ref", "retention_policy"],
+          "properties": {
+            "archive_ref": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*:[^\\s]+$" },
+            "archive_sha256": { "$ref": "#/$defs/sha256" },
+            "verified_at": { "$ref": "#/$defs/timestamp" },
+            "verified_by_ref": { "$ref": "#/$defs/stableIdentityRef" },
+            "retention_policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "policy_ref", "retain_until"],
+              "properties": {
+                "mode": { "enum": ["compliance-lock", "legal-hold", "content-addressed-worm"] },
+                "policy_ref": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*:[^\\s]+$" },
+                "retain_until": { "$ref": "#/$defs/timestamp" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "ref", "reviewed_at", "independence_assertion"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "ref": { "$ref": "#/$defs/stableIdentityRef" },
+        "reviewed_at": { "$ref": "#/$defs/timestamp" },
+        "independence_assertion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["implementation_refs", "independently_verified"],
+          "properties": {
+            "implementation_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/stableIdentityRef" } },
+            "independently_verified": { "const": true }
+          }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "ref", "approved_at"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "ref": { "$ref": "#/$defs/stableIdentityRef" },
+        "approved_at": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  }
+}

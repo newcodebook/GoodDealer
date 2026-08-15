@@ -1016,6 +1016,8 @@ const manifest = {
       "schema_version",
       "attestation_id",
       "gate_id",
+      "subject_commit",
+      "implementation_refs",
       "evidence_sets",
       "owner",
       "reviews",
@@ -1024,6 +1026,7 @@ const manifest = {
     evidenceSetRequiredFields: [
       "profile",
       "platform",
+      "architecture",
       "job_name",
       "manifest_sha256",
       "artifact",
@@ -1038,6 +1041,8 @@ const manifest = {
     evidenceArchiveRequiredFields: [
       "archive_ref",
       "archive_sha256",
+      "verified_at",
+      "verified_by_ref",
       "retention_policy",
     ],
     ownerRequiredFields: ["role", "ref"],
