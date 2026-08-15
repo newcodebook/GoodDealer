@@ -9,6 +9,7 @@ pub mod endpoint_capability;
 mod generated;
 #[cfg(test)]
 mod http_executor;
+mod keychain;
 mod runtime_gate;
 pub mod secret;
 mod session_store;
@@ -40,6 +41,10 @@ pub use drain::{
     encode_execution_fact_drain_envelope_json, encode_mutation_drain_envelope_json,
     encode_workspace_device_audit_chain_domain, validate_drain_manifest_json,
     validate_drain_proof_json,
+};
+pub use keychain::{
+    DefaultKeychainPort, DenyingKeychainError, DenyingKeychainPort, KeychainNamespaceClass,
+    OsKeychainAdapter, OsKeychainError,
 };
 
 pub use runtime_gate::{
