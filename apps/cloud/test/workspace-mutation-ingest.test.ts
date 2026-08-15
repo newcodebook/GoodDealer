@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { DRAIN_STREAM_GENESIS_DIGEST, encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
-import type { SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
+import {
+  computeDomainAssetEntityDigests,
+  type SubmittedSyncMutation,
+} from "@gooddealer/protocol/workspace";
 import { describe, expect, it } from "vitest";
 
 import { InMemoryCheckpointCatalog } from "../src/modules/workspace/checkpoints/index";
@@ -99,6 +102,31 @@ function harness(fault?: (point: MutationCommitFaultPoint) => void) {
 }
 
 describe("workspace SubmittedSyncMutation ingest", () => {
+  it("P23-INV-11/15 consumes the shared encoder and orders entities by UTF-8 bytes", async () => {
+    const portfolio = new InMemoryDomainAssetPortfolio();
+    portfolio.seedDomainAsset(scopeA, {
+      entityId: "a-asset",
+      portfolioId: "portfolio-1",
+    });
+    portfolio.seedDomainAsset(scopeA, {
+      entityId: "Z-asset",
+      note: "Uppercase sorts first by UTF-8 bytes",
+      tags: ["ASCII", "ascii"],
+      targetPrice: { currency: "USD", amount: "1200" },
+    });
+
+    const snapshot = portfolio.snapshot(scopeA);
+    expect(snapshot.map(({ entityId }) => entityId)).toEqual(["Z-asset", "a-asset"]);
+    const canonicalRows = snapshot.map(({ lastModifiedRevision: _revision, ...row }) => row);
+    const sharedDigests = await computeDomainAssetEntityDigests(canonicalRows, sha256.digest);
+    expect(await portfolio.readEntityDigestsAt(scopeA, 0, sha256.digest)).toEqual(sharedDigests);
+    expect(await portfolio.computeBusinessDigest(scopeA, sha256.digest)).toBe(sharedDigests[0]!.digest);
+
+    const source = readFileSync(new URL("../src/modules/workspace/state/portfolio/index.ts", import.meta.url), "utf8");
+    expect(source).toContain("computeDomainAssetEntityDigests");
+    expect(source).not.toMatch(/localeCompare|GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1|encodeDomainSeparatedWireValue/);
+  });
+
   it("P20-INV-13/14 enriches with one spread and appends the parsed submitted envelope", async () => {
     const subject = harness();
     subject.bind(scopeA);

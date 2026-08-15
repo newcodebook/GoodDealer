@@ -1,5 +1,10 @@
-import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
-import type { SubmittedSyncMutation, WorkspaceEntityDigest } from "@gooddealer/protocol/workspace";
+import {
+  compareUtf8,
+  computeDomainAssetEntityDigests,
+  type DomainAssetProjectionRow,
+  type SubmittedSyncMutation,
+  type WorkspaceEntityDigest,
+} from "@gooddealer/protocol/workspace";
 
 import type { WorkspaceTenantScope } from "../../tenant-scope";
 import { workspaceTenantKey } from "../../tenant-scope";
@@ -28,12 +33,7 @@ interface StoredDomainAsset {
   readonly targetPrice: StoredField<{ readonly currency: string; readonly amount: string } | null>;
 }
 
-export interface DomainAssetProjection {
-  readonly entityId: string;
-  readonly note: string | null;
-  readonly portfolioId: string | null;
-  readonly tags: readonly string[];
-  readonly targetPrice: { readonly currency: string; readonly amount: string } | null;
+export interface DomainAssetProjection extends DomainAssetProjectionRow {
   readonly lastModifiedRevision: Readonly<Record<DomainAssetFieldPath, number>>;
 }
 
@@ -103,7 +103,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
 
   snapshot(scope: WorkspaceTenantScope): readonly DomainAssetProjection[] {
     return [...(this.#rows.get(workspaceTenantKey(scope))?.values() ?? [])]
-      .sort((left, right) => left.entityId.localeCompare(right.entityId))
+      .sort((left, right) => compareUtf8(left.entityId, right.entityId))
       .map(projectRow);
   }
 
@@ -113,7 +113,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     }
     const rows = this.#history.get(workspaceTenantKey(scope))?.get(throughRevision);
     if (rows === undefined) throw new TypeError("workspace snapshot revision is unavailable");
-    return [...rows.values()].sort((left, right) => left.entityId.localeCompare(right.entityId)).map(projectRow);
+    return [...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)).map(projectRow);
   }
 
   async computeBusinessDigest(
@@ -121,8 +121,9 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     digest: (bytes: Uint8Array) => Promise<Uint8Array>,
   ): Promise<string> {
     const canonicalRows = this.snapshot(scope).map(({ lastModifiedRevision: _revision, ...row }) => row);
-    const bytes = encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", canonicalRows);
-    return Buffer.from(await digest(bytes)).toString("base64url");
+    const [entityDigest] = await computeDomainAssetEntityDigests(canonicalRows, digest);
+    if (entityDigest === undefined) throw new TypeError("domain asset digest encoder returned no digest");
+    return entityDigest.digest;
   }
 
   async readEntityDigestsAt(
@@ -132,12 +133,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   ): Promise<readonly WorkspaceEntityDigest[]> {
     const canonicalRows = this.snapshotAtRevision(scope, throughRevision)
       .map(({ lastModifiedRevision: _revision, ...row }) => row);
-    const bytes = encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", canonicalRows);
-    return [{
-      entityType: "domain_asset",
-      partitionId: null,
-      digest: Buffer.from(await digest(bytes)).toString("base64url"),
-    }];
+    return computeDomainAssetEntityDigests(canonicalRows, digest);
   }
 
   #workspaceRows(scope: WorkspaceTenantScope): Map<string, StoredDomainAsset> {

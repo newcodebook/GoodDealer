@@ -4,8 +4,14 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
+import { encodeDomainSeparatedWireValue } from "../src/wire/index";
+
 import {
   checkpointDescriptorSchema,
+  compareUtf8,
+  computeDomainAssetEntityDigests,
+  domainAssetProjectionSchema,
+  encodeDomainAssetProjectionDigestInput,
   encodeMutationPageDigestInput,
   mutationPageSchema,
   syncMutationSchema,
@@ -13,9 +19,21 @@ import {
 } from "../src/workspace/index";
 
 const vectors = resolve(import.meta.dirname, "../test-vectors/workspace-sync");
+const projectionVectors = resolve(import.meta.dirname, "../test-vectors/domain-asset-projection");
 
 function vector(path: string): unknown {
   return JSON.parse(readFileSync(resolve(vectors, path), "utf8"));
+}
+
+function projectionVector(): { readonly rows: unknown; readonly digest: string } {
+  const value = JSON.parse(
+    readFileSync(resolve(projectionVectors, "valid/utf8-order.json"), "utf8"),
+  ) as unknown;
+  if (typeof value !== "object" || value === null || !("rows" in value) || !("digest" in value)) {
+    throw new TypeError("domain asset projection vector must carry rows and digest");
+  }
+  if (typeof value.digest !== "string") throw new TypeError("domain asset projection digest must be a string");
+  return { rows: value.rows, digest: value.digest };
 }
 
 describe("workspace sync golden corpus", () => {
@@ -68,5 +86,57 @@ describe("workspace sync golden corpus", () => {
       .update(encodeMutationPageDigestInput(vector("valid/mutation-page.json")))
       .digest("base64url");
     expect(digest).toMatchInlineSnapshot(`"OUmtP4KHs4AT8qfiBmAN-qc1bRO3sjd2vaocM3vh4fg"`);
+  });
+
+  it("orders domain asset projections by UTF-8 bytes where locale collation diverges", () => {
+    const parsed = domainAssetProjectionSchema.parse(projectionVector().rows);
+    const entityIds = parsed.map(({ entityId }) => entityId);
+
+    expect(entityIds).toEqual(["Z-asset", "a-asset"]);
+    expect([...entityIds].sort(compareUtf8)).toEqual(entityIds);
+    expect([...entityIds].sort((left, right) => left.localeCompare(right))).toEqual(["a-asset", "Z-asset"]);
+    expect(domainAssetProjectionSchema.safeParse(
+      JSON.parse(readFileSync(resolve(projectionVectors, "invalid/locale-order.json"), "utf8")),
+    ).success).toBe(false);
+  });
+
+  it("freezes the shared domain asset digest encoder and injected SHA-256 helper", async () => {
+    const golden = projectionVector();
+    const rows = domainAssetProjectionSchema.parse(golden.rows);
+    const digest = createHash("sha256")
+      .update(encodeDomainAssetProjectionDigestInput(rows))
+      .digest("base64url");
+
+    expect(digest).toBe(golden.digest);
+    await expect(computeDomainAssetEntityDigests(
+      rows,
+      async (bytes) => createHash("sha256").update(bytes).digest(),
+    )).resolves.toEqual([{ entityType: "domain_asset", partitionId: null, digest: golden.digest }]);
+    await expect(computeDomainAssetEntityDigests(rows, async () => new Uint8Array(31)))
+      .rejects.toThrow("SHA-256 digest must be exactly 32 bytes");
+  });
+
+  it("preserves the pre-lift domain and canonical row layout for locale-equal inputs", () => {
+    const rows = domainAssetProjectionSchema.parse([{
+      entityId: "asset-1",
+      note: null,
+      portfolioId: "portfolio-1",
+      tags: ["brandable", "premium"],
+      targetPrice: { currency: "USD", amount: "1200" },
+    }]);
+
+    expect(encodeDomainAssetProjectionDigestInput(rows)).toEqual(
+      encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", rows),
+    );
+  });
+
+  it("rejects storage metadata and secret fields from domain asset digest rows", () => {
+    for (const path of [
+      "revision-metadata.json",
+      "secret-field.json",
+    ] as const) {
+      const input = JSON.parse(readFileSync(resolve(projectionVectors, `invalid/${path}`), "utf8"));
+      expect(domainAssetProjectionSchema.safeParse(input).success).toBe(false);
+    }
   });
 });

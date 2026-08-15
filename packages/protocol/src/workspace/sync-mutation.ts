@@ -6,6 +6,11 @@ import {
   safePositiveInteger,
   safeUnsignedInteger,
 } from "../wire/index";
+import {
+  canonicalMoneySchema,
+  domainAssetNoteSchema,
+  domainAssetTagsSchema,
+} from "./domain-asset-fields";
 
 export const WORKSPACE_SYNC_SCHEMA_VERSION = 1 as const;
 export const MAX_MUTATIONS_PER_PAGE = 256 as const;
@@ -15,60 +20,15 @@ export const sha256DigestSchema = z.string().length(43).regex(/^[A-Za-z0-9_-]{43
 
 export const workspaceRevisionSchema = safeUnsignedInteger;
 
-const tagSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "tags reject control characters")
-  .refine((value) => value.trim() === value, "tags reject leading or trailing whitespace");
-
-function compareUtf8(left: string, right: string): number {
-  const leftBytes = new TextEncoder().encode(left);
-  const rightBytes = new TextEncoder().encode(right);
-  const sharedLength = Math.min(leftBytes.byteLength, rightBytes.byteLength);
-  for (let index = 0; index < sharedLength; index += 1) {
-    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index]! - rightBytes[index]!;
-  }
-  return leftBytes.byteLength - rightBytes.byteLength;
-}
-
-const canonicalMoneySchema = z
-  .object({
-    currency: z.string().regex(/^[A-Z]{3}$/),
-    amount: z.string().regex(/^(0|[1-9]\d{0,15})(\.\d{0,7}[1-9])?$/),
-  })
-  .strict();
-
 const domainAssetChangedFieldSchema = z.discriminatedUnion("fieldPath", [
   z
     .object({
       fieldPath: z.literal("note"),
-      value: z
-        .string()
-        .max(10_000)
-        .refine(
-          (value) => !/[\p{Cf}\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(value),
-          "notes reject format and non-text control characters",
-        )
-        .nullable(),
+      value: domainAssetNoteSchema.nullable(),
     })
     .strict(),
   z.object({ fieldPath: z.literal("portfolioId"), value: identifier.nullable() }).strict(),
-  z
-    .object({ fieldPath: z.literal("tags"), value: z.array(tagSchema).max(128) })
-    .strict()
-    .superRefine((field, context) => {
-      for (let index = 1; index < field.value.length; index += 1) {
-        if (compareUtf8(field.value[index - 1]!, field.value[index]!) >= 0) {
-          context.addIssue({
-            code: "custom",
-            path: ["value"],
-            message: "tags must be unique and strictly ascending",
-          });
-          break;
-        }
-      }
-    }),
+  z.object({ fieldPath: z.literal("tags"), value: domainAssetTagsSchema }).strict(),
   z.object({ fieldPath: z.literal("targetPrice"), value: canonicalMoneySchema.nullable() }).strict(),
 ]);
 

@@ -1,0 +1,19 @@
+{
+  "rows": [
+    {
+      "entityId": "Z-asset",
+      "note": "Uppercase sorts first by UTF-8 bytes",
+      "portfolioId": null,
+      "tags": ["ASCII", "ascii"],
+      "targetPrice": { "currency": "USD", "amount": "1200" }
+    },
+    {
+      "entityId": "a-asset",
+      "note": null,
+      "portfolioId": "portfolio-1",
+      "tags": [],
+      "targetPrice": null
+    }
+  ],
+  "digest": "LyGVi5f_pBnJuFGChsHamp85QC9E8anYBUyttauegkA"
+}

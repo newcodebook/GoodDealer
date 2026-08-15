@@ -1,0 +1,16 @@
+[
+  {
+    "entityId": "a-asset",
+    "note": null,
+    "portfolioId": "portfolio-1",
+    "tags": [],
+    "targetPrice": null
+  },
+  {
+    "entityId": "Z-asset",
+    "note": "Locale collation places this after a-asset",
+    "portfolioId": null,
+    "tags": ["ASCII", "ascii"],
+    "targetPrice": { "currency": "USD", "amount": "1200" }
+  }
+]
