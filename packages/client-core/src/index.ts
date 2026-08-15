@@ -1,13 +1,23 @@
-export { projectAccountSurface, projectSwitchProgress } from "./runtime-mode/index";
+export {
+  projectAccountSurface,
+  projectAuthSurface,
+  projectSessionInventory,
+  projectSwitchProgress,
+} from "./runtime-mode/index";
 export type {
   AccountGatePort,
   AccountSurface,
   AccountSurfaceView,
+  AuthSessionPort,
+  AuthSurfaceView,
   DeviceDirectoryPort,
   DeviceSwitchPort,
   EntitlementPort,
   RuntimeMode,
   RuntimeStatusPort,
+  SessionInventoryItemView,
+  SessionInventoryStatus,
+  SessionInventoryView,
   SwitchProgress,
 } from "./runtime-mode/index";
 

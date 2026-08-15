@@ -3,10 +3,18 @@ import { resolve } from "node:path";
 
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { accountGateStatusSchema, accountRejectionSchema } from "@gooddealer/protocol/account";
+import {
+  accountGateStatusSchema,
+  accountRejectionSchema,
+  accountSessionListSchema,
+  authSessionStatusSchema,
+} from "@gooddealer/protocol/account";
 import type {
   AccountGateStatus,
   AccountRejection,
+  AccountSessionList,
+  AuthSessionState,
+  AuthSessionStatus,
   EntitlementProjection,
 } from "@gooddealer/protocol/account";
 import {
@@ -27,13 +35,19 @@ import type {
 
 import {
   projectAccountSurface,
+  projectAuthSurface,
+  projectSessionInventory,
   type AccountGatePort,
   type AccountSurface,
   type AccountSurfaceView,
+  type AuthSessionPort,
+  type AuthSurfaceView,
   type DeviceDirectoryPort,
   type DeviceSwitchPort,
   type EntitlementPort,
   type RuntimeMode,
+  type SessionInventoryStatus,
+  type SessionInventoryView,
   type SwitchProgress,
   projectSwitchProgress,
 } from "../src/index";
@@ -50,6 +64,14 @@ const runtimeModes = [
 ] as const satisfies readonly RuntimeMode[];
 
 const gateOutcomes = ["locked", "standby_eligible", "active_eligible"] as const;
+
+const authStates = [
+  "signed_out",
+  "authenticated",
+  "refresh_required",
+  "reauth_required",
+  "revoked",
+] as const satisfies readonly AuthSessionState[];
 
 function runtime(mode: RuntimeMode): RuntimeStatus {
   return {
@@ -100,6 +122,37 @@ function lease(held: boolean): ActiveDeviceLeaseStatus {
         renewalState: "expired",
         evaluatedAt: timestamp,
       };
+}
+
+function authStatus(state: AuthSessionState): AuthSessionStatus {
+  if (state === "signed_out") {
+    return authSessionStatusSchema.parse({
+      schemaVersion: 1,
+      state,
+      accountId: null,
+      deviceId: null,
+      accountSecurityEpoch: null,
+      sessionId: null,
+      accessTokenExpiresAt: null,
+      refreshRotationGeneration: null,
+      lastTrustedTimeAt: null,
+      revocationReason: null,
+    });
+  }
+
+  return authSessionStatusSchema.parse({
+    schemaVersion: 1,
+    state,
+    accountId: "account-a",
+    deviceId: "device-a",
+    accountSecurityEpoch: 3,
+    sessionId: "session-a",
+    accessTokenExpiresAt:
+      state === "authenticated" || state === "refresh_required" ? "2026-08-13T12:30:00Z" : null,
+    refreshRotationGeneration: 2,
+    lastTrustedTimeAt: timestamp,
+    revocationReason: state === "revoked" ? "remote_sign_out" : null,
+  });
 }
 
 function activeAuthority(scopes: readonly CloudScope[]): DeviceAuthorityProjection {
@@ -177,6 +230,10 @@ describe("runtime-mode read-only ports", () => {
 
     expectTypeOf<keyof EntitlementPort>().toEqualTypeOf<"getEntitlement">();
     expectTypeOf<EntitlementPort["getEntitlement"]>().returns.resolves.toEqualTypeOf<EntitlementProjection>();
+
+    expectTypeOf<keyof AuthSessionPort>().toEqualTypeOf<"getAuthStatus" | "listSessions">();
+    expectTypeOf<AuthSessionPort["getAuthStatus"]>().returns.resolves.toEqualTypeOf<AuthSessionStatus>();
+    expectTypeOf<AuthSessionPort["listSessions"]>().returns.resolves.toEqualTypeOf<AccountSessionList>();
   });
 
   it("surfaces Cloud-adjudicated switch rejections and takeover timestamps unchanged", async () => {
@@ -209,6 +266,13 @@ describe("runtime-mode read-only ports", () => {
     expectTypeOf<AccountSurface>().toEqualTypeOf<
       "locked" | "standby_read_only" | "activating" | "active" | "local_continuation"
     >();
+  });
+
+  it("keeps auth and inventory states closed to the frozen protocol members", () => {
+    expectTypeOf<AuthSurfaceView["authState"]>().toEqualTypeOf<
+      "signed_out" | "authenticated" | "refresh_required" | "reauth_required" | "revoked"
+    >();
+    expectTypeOf<SessionInventoryStatus>().toEqualTypeOf<"active" | "revoked">();
   });
 });
 
@@ -346,6 +410,187 @@ describe("projectAccountSurface", () => {
 
     expect(source).not.toMatch(/\bDate\b|evaluatedAt|issuedAt|renewAfter|onlineExpiresAt|offlineExecuteUntil/);
     expect(source).not.toMatch(/from\s+["'](?:@tauri-apps|apps\/cloud)|\b(?:set|update|remove|transition|mutate)\w*\s*\(|\bswitch[A-Z]\w*\s*\(/i);
+  });
+});
+
+function expectedAuthSurface(
+  accountSurface: AccountSurface,
+  outcome: (typeof gateOutcomes)[number],
+  state: AuthSessionState,
+): AccountSurface {
+  if (state === "signed_out" || state === "revoked" || outcome === "locked") return "locked";
+  if (
+    (state === "refresh_required" || state === "reauth_required") &&
+    (accountSurface === "active" || accountSurface === "activating")
+  ) {
+    return "standby_read_only";
+  }
+  return accountSurface;
+}
+
+describe("projectAuthSurface", () => {
+  for (const state of authStates) {
+    for (const outcome of gateOutcomes) {
+      for (const held of [false, true] as const) {
+        it(`projects ${state} / ${outcome} / lease ${held ? "held" : "not held"} restrictively`, () => {
+          const projectedGate = gate(outcome);
+          const account = projectAccountSurface(
+            runtime("active"),
+            projectedGate,
+            lease(held),
+            projectedActiveAuthority,
+          );
+          const auth = authStatus(state);
+          const result = projectAuthSurface(account, projectedGate, auth);
+          const expected = expectedAuthSurface(account.surface, outcome, state);
+
+          expect(result.surface).toBe(expected);
+          expect(result.authState).toBe(state);
+          expect(result.accountId).toBe(auth.accountId);
+          expect(result.sessionId).toBe(auth.sessionId);
+          expect(result.revocationReason).toBe(auth.revocationReason);
+
+          if (state === "signed_out" || state === "revoked") {
+            expect(result.capabilities).toEqual([]);
+          } else if (expected === "active") {
+            expect(result.capabilities).toEqual(fullActiveScopes);
+          } else {
+            expect(result.capabilities).toEqual(["account:manage", "workspace:read"]);
+          }
+        });
+      }
+    }
+  }
+
+  it("does not turn access expiry into a locked surface", () => {
+    const projectedGate = gate("active_eligible");
+    const account = projectAccountSurface(
+      runtime("active"),
+      projectedGate,
+      lease(true),
+      projectedActiveAuthority,
+    );
+
+    expect(projectAuthSurface(account, projectedGate, authStatus("refresh_required"))).toMatchObject({
+      surface: "standby_read_only",
+      authState: "refresh_required",
+    });
+  });
+
+  it("does not inspect clocks or expiry metadata", () => {
+    const now = vi.spyOn(Date, "now").mockImplementation(() => {
+      throw new Error("projectAuthSurface must not read the wall clock");
+    });
+    const projectedGate = gate("active_eligible");
+    const account = projectAccountSurface(
+      runtime("active"),
+      projectedGate,
+      lease(true),
+      projectedActiveAuthority,
+    );
+    const before = authStatus("authenticated");
+    const after = {
+      ...before,
+      accessTokenExpiresAt: "2099-12-31T23:59:59Z",
+      refreshRotationGeneration: 999,
+      lastTrustedTimeAt: "1900-01-01T00:00:00Z",
+    } satisfies AuthSessionStatus;
+
+    expect(projectAuthSurface(account, projectedGate, after)).toEqual(
+      projectAuthSurface(account, projectedGate, before),
+    );
+    expect(now).not.toHaveBeenCalled();
+  });
+
+  it("contains no clock, credential, lease, or authority inspection", () => {
+    const source = readFileSync(resolve(import.meta.dirname, "../src/runtime-mode/index.ts"), "utf8");
+    const projection = source.match(
+      /export function projectAuthSurface[\s\S]*?(?=\/\*\* Copies the frozen wire DTO)/,
+    )?.[0];
+
+    expect(projection).toBeDefined();
+    expect(projection).not.toMatch(/\bDate\b|Date\.now|Date\.parse|getTime|performance\.now/);
+    expect(projection).not.toMatch(/accessToken|refreshToken|password|passphrase|secret|credential|\bjti\b/i);
+    expect(projection).not.toMatch(/\.role\b|\.scopes\b|\blease\b/);
+    expect(projection).not.toMatch(/(?:accessTokenExpiresAt|lastTrustedTimeAt|createdAt|lastSeenAt)\s*[<>]=?/);
+  });
+});
+
+describe("projectSessionInventory", () => {
+  const inventory = accountSessionListSchema.parse({
+    schemaVersion: 1,
+    listRevision: 7,
+    sessions: [
+      {
+        schemaVersion: 1,
+        sessionId: "desktop-session",
+        clientKind: "desktop",
+        deviceId: "device-a",
+        displayName: "Main Mac",
+        createdAt: "2026-08-12T12:00:00Z",
+        lastSeenAt: "2026-08-13T12:00:00Z",
+        currentSession: true,
+        status: "active",
+        revokedAt: null,
+      },
+      {
+        schemaVersion: 1,
+        sessionId: "web-session",
+        clientKind: "account_web",
+        deviceId: null,
+        displayName: "Chrome on macOS",
+        createdAt: "2026-08-10T12:00:00Z",
+        lastSeenAt: "2026-08-11T12:00:00Z",
+        currentSession: false,
+        status: "revoked",
+        revokedAt: "2026-08-12T12:00:00Z",
+      },
+    ],
+  });
+
+  it("copies the redacted inventory into a client-owned display view", () => {
+    const result = projectSessionInventory(inventory);
+
+    expect(result).toEqual({
+      listRevision: 7,
+      sessions: inventory.sessions.map(({ schemaVersion: _schemaVersion, ...session }) => session),
+    });
+    expect(result.sessions).not.toBe(inventory.sessions);
+    expect(result.sessions[0]).not.toBe(inventory.sessions[0]);
+    expectTypeOf(result).toEqualTypeOf<SessionInventoryView>();
+  });
+
+  it("passes timestamps through without clock arithmetic", () => {
+    const now = vi.spyOn(Date, "now").mockImplementation(() => {
+      throw new Error("projectSessionInventory must not read the wall clock");
+    });
+    const earlier = projectSessionInventory(inventory);
+    const later = projectSessionInventory({
+      ...inventory,
+      sessions: inventory.sessions.map((session) => ({
+        ...session,
+        createdAt: "2099-12-31T23:59:57Z",
+        lastSeenAt: "2099-12-31T23:59:58Z",
+        revokedAt: session.revokedAt === null ? null : "2099-12-31T23:59:59Z",
+      })),
+    });
+
+    expect(earlier.sessions[0]?.createdAt).toBe("2026-08-12T12:00:00Z");
+    expect(later.sessions[0]?.createdAt).toBe("2099-12-31T23:59:57Z");
+    expect(now).not.toHaveBeenCalled();
+  });
+
+  it("contains no clock, credential, lease, or authority inspection", () => {
+    const source = readFileSync(resolve(import.meta.dirname, "../src/runtime-mode/index.ts"), "utf8");
+    const projection = source.match(
+      /export function projectSessionInventory[\s\S]*?(?=export type SwitchProgress)/,
+    )?.[0];
+
+    expect(projection).toBeDefined();
+    expect(projection).not.toMatch(/\bDate\b|Date\.now|Date\.parse|getTime|performance\.now/);
+    expect(projection).not.toMatch(/accessToken|refreshToken|password|passphrase|secret|credential|\bjti\b/i);
+    expect(projection).not.toMatch(/\.role\b|\.scopes\b|\blease\b|\.outcome\b/);
+    expect(projection).not.toMatch(/(?:createdAt|lastSeenAt|revokedAt)\s*[<>]=?/);
   });
 });
 
