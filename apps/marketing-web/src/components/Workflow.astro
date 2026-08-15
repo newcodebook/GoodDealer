@@ -1,0 +1,101 @@
+---
+// 核心流程 / Workflow — the core loop (筛选 → 预览改动 → 确认执行 → 同步/撤回) as a horizontal stepper that
+// auto-advances a highlight (dynamic walkthrough). A gold progress rail fills to the active step; steps are
+// clickable. Reduced-motion / hover pauses the auto-cycle. Layout differs from every other section.
+// The reference kit drove this with React state; here the same state machine runs as a vanilla script —
+// timings (2400ms cycle), transitions, and active/idle styles are identical.
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const steps = data.workflow;
+const U = data.ui.workflow;
+---
+
+<div data-mk-workflow>
+  <div class="mk-sec">
+    <div style="max-width:640px;display:flex;flex-direction:column;gap:14px;margin-bottom:34px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2">{U.h2}</h2>
+      <p class="mk-lead">{U.lead}</p>
+    </div>
+    <!-- progress rail -->
+    <div style="height:2px;background:var(--gd-line);border-radius:2px;overflow:hidden;margin-bottom:26px">
+      <div
+        data-wf-rail
+        style={`height:100%;width:${(1 / steps.length) * 100}%;background:var(--gd-gold);border-radius:2px;transition:width .6s cubic-bezier(.16,.84,.44,1)`}
+      >
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:20px">
+      {
+        steps.map((s, i) => {
+          const on = i === 0;
+          return (
+            <button
+              data-wf-step
+              style={`text-align:left;background:none;border:none;cursor:pointer;padding:0;font:inherit;opacity:${on ? 1 : 0.45};transition:opacity .4s ease`}
+            >
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+                <span data-wf-k style={`font-family:var(--font-mono);font-size:19px;color:${on ? "var(--gd-gold)" : "var(--text-3)"};transition:color .4s ease`}>
+                  {s.k}
+                </span>
+                <span data-wf-line style={`flex:1;height:1px;background:${on ? "var(--gd-gold)" : "var(--gd-line)"};transition:background .4s ease`} />
+              </div>
+              <div style="font-size:15.5px;font-weight:600;color:var(--text-1)">{s.title}</div>
+              <p style="font-size:12.5px;color:var(--text-2);line-height:1.6;margin:7px 0 0">{s.desc}</p>
+            </button>
+          );
+        })
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-mk-workflow]").forEach((root) => {
+    const steps = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-wf-step]"));
+    const rail = root.querySelector<HTMLElement>("[data-wf-rail]");
+    const sec = root.querySelector<HTMLElement>(".mk-sec");
+    if (!rail || !sec || steps.length === 0) return;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+    let active = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const render = () => {
+      rail.style.width = ((active + 1) / steps.length) * 100 + "%";
+      steps.forEach((b, i) => {
+        const on = i === active;
+        b.style.opacity = on ? "1" : "0.45";
+        const k = b.querySelector<HTMLElement>("[data-wf-k]");
+        const line = b.querySelector<HTMLElement>("[data-wf-line]");
+        if (k) k.style.color = on ? "var(--gd-gold)" : "var(--text-3)";
+        if (line) line.style.background = on ? "var(--gd-gold)" : "var(--gd-line)";
+      });
+    };
+    const arm = () => {
+      if (reduce || timer) return;
+      timer = setInterval(() => {
+        active = (active + 1) % steps.length;
+        render();
+      }, 2400);
+    };
+    const disarm = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    sec.addEventListener("mouseenter", disarm);
+    sec.addEventListener("mouseleave", arm);
+    steps.forEach((b, i) =>
+      b.addEventListener("click", () => {
+        active = i;
+        render();
+      }),
+    );
+    arm();
+  });
+</script>

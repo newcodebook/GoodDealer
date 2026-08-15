@@ -1,0 +1,139 @@
+---
+// 2 · 批量上架 — JS-driven with a PREFATORY CONFIRM DIALOG: a "提交批量上架任务" dialog pops up (task summary +
+// 确认提交 press) → dismisses → THEN the matrix cells flip — → 在售 ✓ platform by platform. Sales platforms
+// (Atom / SellerHub / Afternic). Makes the operation self-explanatory. Reduced-motion → static listed matrix.
+// The reference kit ran this as a React state machine (phase dialog|exec|done, listed 0..12); the <script>
+// below drives the same loop with identical timings. The static render is the RESOLVED frame (all listed,
+// dialog hidden) — the reference's reduced-motion state — and the script rewinds to the dialog phase when
+// motion is allowed.
+import Win from "./Win.astro";
+import type { MkData } from "../../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const U = data.ui.showcase;
+const G = "var(--gd-gold)";
+const L = "var(--gd-line)";
+const LS = "var(--gd-line-strong)";
+const T1 = "var(--text-1)";
+const T2 = "var(--text-2)";
+const T3 = "var(--text-3)";
+const TF = "var(--gd-text-faint)";
+const mono = "font-family:var(--font-mono)";
+const doms = ["market.com", "flip.io", "hodl.xyz", "get.dev"];
+const plats = ["Atom", "SellerHub", "Afternic"];
+const colX = [212, 300, 384];
+const rowY = [70, 98, 126, 154];
+---
+
+<Win title={U.listWin}>
+  <div style="padding:6px 10px 2px;position:relative" data-mk-list>
+    <svg viewBox="0 0 440 190" width="100%" style="display:block" aria-hidden="true">
+      {plats.map((p, c) => <text x={colX[c]} y="34" text-anchor="middle" fill={T3} font-size="10.5" style={mono}>{p}</text>)}
+      <text x="16" y="34" fill={T3} font-size="10.5" style={mono}>{U.aggDomain}</text>
+      <line x1="12" y1="44" x2="428" y2="44" stroke={LS}></line>
+      {
+        doms.map((d, r) => (
+          <g>
+            <text x="16" y={rowY[r]! + 4} fill={T1} font-size="11.5" style={mono}>
+              {d}
+            </text>
+            {r < 3 && <line x1="12" y1={rowY[r]! + 16} x2="428" y2={rowY[r]! + 16} stroke={L} opacity="0.5" />}
+            {plats.map((_, c) => (
+              <g>
+                <text data-lst-on={r * 3 + c} x={colX[c]} y={rowY[r]! + 4} text-anchor="middle" fill={G} font-size="10.5" style={mono}>
+                  {U.listListed}
+                </text>
+                <text
+                  data-lst-off={r * 3 + c}
+                  x={colX[c]}
+                  y={rowY[r]! + 4}
+                  text-anchor="middle"
+                  fill={TF}
+                  font-size="11"
+                  style={mono}
+                  visibility="hidden"
+                >
+                  —
+                </text>
+              </g>
+            ))}
+          </g>
+        ))
+      }
+      <text data-lst-done x="428" y="184" text-anchor="end" fill={G} font-size="10.5" style={mono}>{U.listDone}</text>
+    </svg>
+    <!-- prefatory confirm dialog -->
+    <div
+      data-lst-overlay
+      style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,7,11,0.62);border-radius:9px;opacity:0;pointer-events:none;transition:opacity .32s ease"
+    >
+      <div
+        data-lst-dialog
+        style="width:242px;background:var(--gd-panel-raised);border:1px solid var(--gd-line-strong);border-radius:9px;padding:14px 16px;transform:scale(.94);transition:transform .32s cubic-bezier(.16,.84,.44,1);box-shadow:0 22px 50px -20px rgba(0,0,0,.85)"
+      >
+        <div style={`font-size:12.5px;font-weight:600;color:${T1}`}>提交批量上架任务</div>
+        <div style={`font-size:11.5px;color:${T2};margin-top:8px;line-height:1.65`}>
+          {U.listBody[0]}<b style={`color:${G};font-family:var(--font-mono)`}>{U.listBody[1]}</b>{U.listBody[2]}<b
+            style={`color:${G};font-family:var(--font-mono)`}>{U.listBody[3]}</b
+          >{U.listBody[4]}
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:14px">
+          <span style={`font-size:11px;color:${T3}`}>取消</span>
+          <span
+            data-lst-chip
+            style={`display:inline-flex;align-items:center;gap:7px;height:27px;padding:0 13px;border-radius:6px;border:1px solid ${G};color:${G};font-size:12px;font-family:var(--font-sans);background:transparent;transform:scale(1);transition:all .12s ease`}
+            ><span style={`width:7px;height:7px;background:${G}`}></span>{U.listConfirm}</span
+          >
+        </div>
+      </div>
+    </div>
+    <div style="font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);padding:4px 4px 2px">{U.listNote}</div>
+  </div>
+</Win>
+
+<script>
+  // Same phase machine and timings as the reference ListAnim (Showcase.jsx):
+  // dialog (1150ms → press, 1800ms → dismiss) → exec (12 cells × 150ms) → done (hold 2200ms) → loop.
+  document.querySelectorAll<HTMLElement>("[data-mk-list]").forEach((root) => {
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+    if (reduce) return; // stay on the resolved frame (all listed, dialog hidden)
+    const on = Array.from(root.querySelectorAll<SVGTextElement>("[data-lst-on]"));
+    const off = Array.from(root.querySelectorAll<SVGTextElement>("[data-lst-off]"));
+    const done = root.querySelector<SVGTextElement>("[data-lst-done]");
+    const overlay = root.querySelector<HTMLElement>("[data-lst-overlay]");
+    const dialog = root.querySelector<HTMLElement>("[data-lst-dialog]");
+    const chip = root.querySelector<HTMLElement>("[data-lst-chip]");
+    if (!done || !overlay || !dialog || !chip) return;
+    const setListed = (k: number) => {
+      on.forEach((t) => t.setAttribute("visibility", Number(t.dataset.lstOn) < k ? "visible" : "hidden"));
+      off.forEach((t) => t.setAttribute("visibility", Number(t.dataset.lstOff) < k ? "hidden" : "visible"));
+    };
+    const setPhase = (phase: "dialog" | "exec" | "done") => {
+      overlay.style.opacity = phase === "dialog" ? "1" : "0";
+      dialog.style.transform = phase === "dialog" ? "scale(1)" : "scale(.94)";
+      done.setAttribute("visibility", phase === "done" ? "visible" : "hidden");
+    };
+    const setPressed = (p: boolean) => {
+      chip.style.background = p ? "var(--gd-gold-tint)" : "transparent";
+      chip.style.transform = p ? "scale(.95)" : "scale(1)";
+    };
+    const wait = (ms: number, fn: () => void) => setTimeout(fn, ms);
+    function loop() {
+      setPhase("dialog");
+      setPressed(false);
+      setListed(0);
+      wait(1150, () => setPressed(true)); // confirm 提交 pressed
+      wait(1800, () => {
+        setPressed(false);
+        setPhase("exec"); // dialog dismisses → execution starts
+        for (let k = 1; k <= 12; k++) wait(k * 150, () => setListed(k)); // cells flip to 在售 one by one
+        wait(12 * 150 + 400, () => setPhase("done"));
+        wait(12 * 150 + 2200, loop); // hold, then loop
+      });
+    }
+    wait(500, loop);
+  });
+</script>

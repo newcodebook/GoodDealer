@@ -1,37 +1,13 @@
-<!-- @dsCard group="Marketing Web" viewport="1280x900" name="GoodDealer Marketing (EN)" subtitle="Public landing page (top of funnel) · single long-scroll: Hero → Benefits → Pillars → Workflow → Platforms → Demo → Security → Pricing → FAQ → Download. The only surface using the brand-expressive layer (Coin Seal / gold gradient / display); CTAs hand off to account-web. Honest about v1 scope." -->
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GoodDealer — Domain Bulk Management Software | Multi-Registrar, Multi-Platform Control</title>
-<meta name="description" content="Manage domains from Spaceship, Namecheap, Dynadot, and more in one place. Bulk-list on Atom, Afternic, and other sales platforms. Auto-verify ownership. Sync prices in one click. Platform passwords always stay on your computer. Desktop software for macOS and Windows.">
-<!-- Open Graph -->
-<meta property="og:type" content="website">
-<meta property="og:locale" content="en_US">
-<meta property="og:title" content="GoodDealer — Domain Bulk Management Software">
-<meta property="og:description" content="Multi-registrar domain management, bulk listing, auto-verification, price sync. Platform passwords always stay on your computer.">
-<meta property="og:site_name" content="GoodDealer">
-<!-- og:url and og:image: set when the production domain is decided -->
-<!-- Twitter Card -->
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="GoodDealer — Domain Bulk Management Software">
-<meta name="twitter:description" content="Multi-registrar domain management, bulk listing, auto-verification, price sync. Passwords never leave your device.">
-<!-- JSON-LD structured data -->
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"GoodDealer","applicationCategory":"BusinessApplication","operatingSystem":"macOS, Windows","description":"Desktop software for bulk domain management. Unify domains from multiple registrars, bulk-list on sales platforms, auto-verify ownership, and sync prices. Platform passwords always stay local.","offers":[{"@type":"Offer","price":"9.80","priceCurrency":"USD","name":"Monthly"},{"@type":"Offer","price":"98.00","priceCurrency":"USD","name":"Annual"},{"@type":"Offer","price":"498.00","priceCurrency":"USD","name":"Lifetime"}]}
-</script>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does it automatically monitor sales and delist domains?","acceptedAnswer":{"@type":"Answer","text":"No. The first version does not run in the background automatically. When you refresh, or when a sale is detected during another operation, the software generates a cross-platform delist checklist for you to confirm and execute."}},{"@type":"Question","name":"Are platform passwords and API keys uploaded?","acceptedAnswer":{"@type":"Answer","text":"No. Passwords and login details always stay on your computer. GoodDealer's cloud and operations backend cannot read them. API keys are entered in a secure input field within the software; the cloud only syncs domain names, prices, and other business data."}},{"@type":"Question","name":"How many devices can I link?","acceptedAnswer":{"@type":"Answer","text":"Up to two computers. Only one can execute operations at a time; the other can only view. Adding a third requires unlinking an existing one first."}},{"@type":"Question","name":"Which registrars and platforms are supported?","acceptedAnswer":{"@type":"Answer","text":"Registrars start with Spaceship, Namecheap, Dynadot, and Alibaba Cloud. DNS supports Cloudflare and registrar-native DNS. Sales platforms cover Atom (Dan.com), Afternic, and SellerHub. Registrars not yet integrated can be supplemented via file import."}},{"@type":"Question","name":"Is there a purely local, offline mode?","acceptedAnswer":{"@type":"Answer","text":"No. Cloud sync is a core feature for keeping data consistent between your two computers. Platform passwords still only exist locally."}},{"@type":"Question","name":"Will I be charged again after the lifetime purchase?","acceptedAnswer":{"@type":"Answer","text":"No. The lifetime purchase is a one-time payment with no recurring charges. It includes all future major version updates. Monthly and annual plans can be cancelled anytime and stop billing at the end of the period."}}]}
-</script>
-<link rel="icon" href="../../assets/logo/mark-16.svg">
-<link rel="stylesheet" href="../../styles.css">
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script src="../../_ds_bundle.js"></script>
-<script src="./data.en.js"></script>
-<style>
+/* marketing-web global stylesheet. The token layer imports first so the mk-* rules below
+   override base element styles in the same order as the reference kit (brand/styles.css
+   then the page <style> block). The mk-* block is a verbatim port of the <style> in
+   brand/ui_kits/marketing-web/index.html; the only removal is the kit's `#root` rule
+   (React mount point — Astro renders .mk directly into <body>). */
+@import "@gooddealer/ui/tokens.css";
+
 html{scroll-behavior:smooth}
 html,body{height:100%}
 body{margin:0;background:var(--gd-ink);color:var(--text-1);font-family:var(--font-sans);font-size:14px}
-#root{min-height:100vh}
 /* ——— marketing-web shell — the ONLY surface that uses the brand-expressive layer (gold gradient / Coin Seal / display) ——— */
 /* overflow-x must be clip, not hidden — hidden makes .mk the sticky containing scrollport and the top bar stops sticking */
 .mk{min-height:100vh;display:flex;flex-direction:column;overflow-x:clip}
@@ -216,47 +192,3 @@ body{margin:0;background:var(--gd-ink);color:var(--text-1);font-family:var(--fon
 }
 @media (min-width:880px){.mk-top-nav{display:flex}}
 @media (max-width:880px){.mk-sec{padding:64px 18px}.mk-foot-inner{gap:28px}}
-</style>
-</head>
-<body><div id="root"></div>
-<script type="text/babel" src="./SiteShell.jsx"></script>
-<script type="text/babel" src="./Seal.jsx"></script>
-<script type="text/babel" src="./Hero.jsx"></script>
-<script type="text/babel" src="./Benefits.jsx"></script>
-<script type="text/babel" src="./Pillars.jsx"></script>
-<script type="text/babel" src="./Workflow.jsx"></script>
-<script type="text/babel" src="./Showcase.jsx"></script>
-<script type="text/babel" src="./Platforms.jsx"></script>
-<script type="text/babel" src="./Security.jsx"></script>
-<script type="text/babel" src="./Pricing.jsx"></script>
-<script type="text/babel" src="./Faq.jsx"></script>
-<script type="text/babel" src="./DownloadCTA.jsx"></script>
-<script type="text/babel">
-function App(){
-  return <window.MKShell>
-    <window.MKHero/>
-    <section id="features"><window.MKBenefits/></section>
-    <section><window.MKPillars/></section>
-    <section><window.MKWorkflow/></section>
-    <section id="platforms"><window.MKPlatforms/></section>
-    <section id="demo"><window.MKShowcase/></section>
-    <section id="security"><window.MKSecurity/></section>
-    <section id="pricing"><window.MKPricing/></section>
-    <section id="faq"><window.MKFaq/></section>
-    <section id="download"><window.MKDownload/></section>
-  </window.MKShell>;
-}
-(function boot(){
-  if(window.MKShell&&window.MKSeal&&window.MKHero&&window.MKBenefits&&window.MKPillars&&window.MKWorkflow&&window.MKShowcase&&window.MKPlatforms&&window.MKSecurity&&window.MKPricing&&window.MKFaq&&window.MKDownload&&window.MK_DATA){
-    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-    reveal();
-  }else{setTimeout(boot,20);}
-})();
-// scroll reveal — sections fade up as they enter. JS-gated so nothing is hidden if this never runs.
-function reveal(){
-  if(window.matchMedia&&window.matchMedia("(prefers-reduced-motion:reduce)").matches) return;
-  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add("mk-in");io.unobserve(e.target);}});},{threshold:0.12,rootMargin:"0px 0px -8% 0px"});
-  (function arm(){var secs=document.querySelectorAll("#root main > section");if(!secs.length){return void setTimeout(arm,40);}
-    secs.forEach(function(s){s.classList.add("js-reveal");io.observe(s);});})();
-}
-</script></body></html>

@@ -1,0 +1,58 @@
+---
+// Security — the differentiator, where "密码不上云" is EXPLAINED, not sloganized. A small diagram shows the
+// split: the device (gold) holds passwords/login info and never syncs them; the Cloud (blue) holds only
+// business data (no passwords) for the second device to view. Then the four model points. Gold=asset/local,
+// blue=system/cloud, per the brand's data-viz semantics.
+import SecurityNode from "./SecurityNode.astro";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const S = data.security;
+const U = data.ui.security;
+---
+
+<div>
+  <div class="mk-sec">
+    <div style="max-width:660px;margin-bottom:32px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2" style="margin-top:10px">{S.title}</h2>
+      <p class="mk-lead" style="margin-top:12px">{S.sub}</p>
+    </div>
+
+    <!-- local vs cloud diagram -->
+    <div style="display:flex;align-items:stretch;gap:14px;flex-wrap:wrap;margin-bottom:36px">
+      <SecurityNode node={U.localNode} tone="gold" seal neverLeaves={U.neverLeaves} />
+      <div style="flex:0 0 auto;align-self:center;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:120px;padding:0 4px">
+        <span style="font-size:11px;color:var(--text-3)">{U.arrow.label}</span>
+        <svg width="88" height="16" viewBox="0 0 88 16" fill="none"
+          ><path d="M2 8h74M70 3l7 5-7 5" stroke="var(--gd-blue)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg
+        >
+        <span style="font-size:11px;color:var(--text-3);font-family:var(--font-mono)">{U.arrow.sub}</span>
+      </div>
+      <SecurityNode node={U.cloudNode} tone="blue" />
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      {
+        S.points.map((p) => {
+          const c = p.tone === "gold" ? "var(--gd-gold)" : "var(--gd-blue)";
+          return (
+            <div class="mk-card" style="padding:18px 20px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span
+                  style={`width:7px;height:7px;border-radius:50%;background:${p.tone === "gold" ? c : "transparent"};border:${p.tone === "gold" ? "none" : "1.5px solid " + c}`}
+                />
+                <span style="font-size:14.5px;font-weight:600;color:var(--text-1)">{p.t}</span>
+              </div>
+              <p style="font-size:13px;color:var(--text-2);line-height:1.65;margin:9px 0 0">{p.d}</p>
+            </div>
+          );
+        })
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

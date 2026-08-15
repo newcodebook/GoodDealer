@@ -1,0 +1,66 @@
+---
+// 4 · 价格同步 — DISTINCT: hub-and-spoke fan-OUT (opposite of aggregate's fan-in). Central BIN price changes,
+// then a pulse travels OUT along each spoke to the sales platforms + 2nd device, which light SYNCED.
+// Pure CSS loop (mk-pold2 / mk-pnew2 / mk-spoke / mk-synced2 keyframes in marketing.css) — no client JS.
+import Win from "./Win.astro";
+import type { MkData } from "../../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const U = data.ui.showcase;
+const G = "var(--gd-gold)";
+const L = "var(--gd-line)";
+const LS = "var(--gd-line-strong)";
+const P = "var(--gd-panel)";
+const T1 = "var(--text-1)";
+const T3 = "var(--text-3)";
+const BL = "var(--gd-blue)";
+const SU = "var(--gd-success)";
+const mono = "font-family:var(--font-mono)";
+const nodes: [string, number, string][] = [
+  ["Atom", 40, SU],
+  ["Afternic", 84, SU],
+  ["SellerHub", 128, SU],
+  ["设备 2", 172, BL],
+];
+const HX = 118;
+const HY = 104; // hub exit point
+---
+
+<Win title={U.syncWin}>
+  <div style="padding:6px 10px 2px">
+    <svg viewBox="0 0 440 200" width="100%" style="display:block" aria-hidden="true">
+      <!-- spokes -->
+      {nodes.map(([, y]) => <line x1={HX} y1={HY} x2="292" y2={y} stroke={G} stroke-width="1" opacity="0.13" />)}
+      <!-- central price hub — the domain whose price is being changed -->
+      <rect x="10" y="64" width="110" height="78" rx="9" fill={P} stroke={LS}></rect>
+      <text x="65" y="83" text-anchor="middle" fill={T1} font-size="11" style={mono}>example.com</text>
+      <text x="65" y="97" text-anchor="middle" fill={T3} font-size="8.5" style={mono}>BIN 一口价</text>
+      <text class="mk-pold2" x="65" y="127" text-anchor="middle" fill={T3} font-size="18" style={mono}>$9,000</text>
+      <text class="mk-pnew2" x="65" y="127" text-anchor="middle" fill={G} font-size="18" style={mono}>$7,500</text>
+      <!-- pulses traveling out + nodes -->
+      {
+        nodes.map(([n, y, col], i) => {
+          const dl = `animation-delay:${i * 0.12}s`;
+          return (
+            <g>
+              <circle class="mk-spoke" cx={HX} cy={HY} r="3.5" fill={G} style={`--dx:${292 - HX}px;--dy:${y - HY}px;${dl}`} />
+              <rect x="292" y={y - 13} width="132" height="26" rx="6" fill={P} stroke={L} />
+              <text x="302" y={y + 4} fill={T1} font-size="11" style={mono}>
+                {n}
+              </text>
+              <g class="mk-synced2" style={dl}>
+                <text x="416" y={y + 4} text-anchor="end" fill={col} font-size="8.5" letter-spacing="0.5" style={mono}>
+                  SYNCED ✓
+                </text>
+              </g>
+            </g>
+          );
+        })
+      }
+    </svg>
+    <div style="font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);padding:4px 4px 2px">{U.syncNote}</div>
+  </div>
+</Win>

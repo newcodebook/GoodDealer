@@ -1,0 +1,83 @@
+---
+// 3 · 自动执行平台验证 — DISTINCT: emphasises AUTOMATION + BATCH (not the ownership CONCEPT). The software
+// AUTOMATICALLY runs each platform's verification for a whole BATCH of domains — TXT + polling + confirm —
+// cascading down the list on its own (no manual clicks). A pulsing live dot + 自动执行中 marks it automatic.
+// Pure CSS loop (mk-vwait2 / mk-ving2 / mk-vok2 keyframes in marketing.css) — no client JS.
+import Win from "./Win.astro";
+import type { MkData } from "../../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const U = data.ui.showcase;
+const G = "var(--gd-gold)";
+const L = "var(--gd-line)";
+const LS = "var(--gd-line-strong)";
+const T1 = "var(--text-1)";
+const T2 = "var(--text-2)";
+const T3 = "var(--text-3)";
+const W = "var(--gd-warning)";
+const mono = "font-family:var(--font-mono)";
+const items: [string, string][] = [
+  ["example.com", "Atom"],
+  ["deal.io", "Afternic"],
+  ["vault.co", "SellerHub"],
+  ["coin.xyz", "Atom"],
+];
+const rowY = [82, 110, 138, 166];
+---
+
+<Win title={U.verifyWin}>
+  <div style="padding:6px 10px 2px">
+    <svg viewBox="0 0 440 200" width="100%" style="display:block" aria-hidden="true">
+      <!-- operation preface — a pulsing live dot (not a spinner) marks it running automatically, for a batch -->
+      <circle class="mk-dotpulse" cx="20" cy="17" r="4" fill={G}></circle>
+      <text x="32" y="22" fill={G} font-size="11.5" style={mono}>自动执行中</text>
+      <text x="108" y="22" fill={T3} font-size="10.5" style={mono}>{U.verifyHead}</text>
+      <!-- header -->
+      <text x="16" y="52" fill={T3} font-size="10" style={mono}>{U.verifyDomain}</text>
+      <text x="196" y="52" fill={T3} font-size="10" style={mono}>{U.verifyPlatform}</text>
+      <text x="358" y="52" fill={T3} font-size="10" style={mono}>{U.verifyStatus}</text>
+      <line x1="12" y1="60" x2="428" y2="60" stroke={LS}></line>
+      {
+        items.map(([d, plat], r) => {
+          const dl = `animation-delay:${r * 0.55}s`;
+          const y = rowY[r]!;
+          return (
+            <g>
+              <text x="16" y={y + 4} fill={T1} font-size="11.5" style={mono}>
+                {d}
+              </text>
+              <text x="196" y={y + 4} fill={T3} font-size="10.5" style={mono}>
+                {plat}
+              </text>
+              {r < 3 && <line x1="12" y1={y + 16} x2="428" y2={y + 16} stroke={L} opacity="0.5" />}
+              <g class="mk-vwait2" style={dl}>
+                <circle cx="360" cy={y - 1} r="3" fill={W} />
+                <text x="370" y={y + 4} fill={W} font-size="10.5" style={mono}>
+                  {U.verifyWait}
+                </text>
+              </g>
+              <g class="mk-ving2" style={dl}>
+                <text x="356" y={y + 4} fill={T2} font-size="10" style={mono}>
+                  {U.verifyIng}
+                </text>
+                {[0, 1, 2].map((j) => (
+                  <circle class="mk-dotpulse" cx={422 + j * 5} cy={y - 1} r="1.6" fill={T3} style={`animation-delay:${j * 0.16}s`} />
+                ))}
+              </g>
+              <g class="mk-vok2" style={dl}>
+                <path d={`M356 ${y} l4 4 l8 -9`} stroke={G} stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                <text x="372" y={y + 4} fill={G} font-size="10.5" style={mono}>
+                  {U.verifyOk}
+                </text>
+              </g>
+            </g>
+          );
+        })
+      }
+    </svg>
+    <div style="font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);padding:4px 4px 2px">{U.verifyNote}</div>
+  </div>
+</Win>

@@ -1,0 +1,57 @@
+---
+// marketing-web shell — public site chrome: sticky top nav (brand + section anchors + 登录 / 下载 CTA) and a
+// multi-column footer. CTAs hand off to account-web (登录/注册 → Auth, 管理订阅 → Subscription). This is the
+// brand-expressive surface, but the voice stays Mercury-restrained: no exclamation, no emoji.
+import markFlat from "@gooddealer/ui/assets/logo/mark-flat.svg?url";
+import { ACCOUNT_WEB_URL } from "../config";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data: D } = Astro.props;
+const U = D.ui.shell;
+---
+
+<div class="mk">
+  <header class="mk-top">
+    <a href="#top" class="mk-brand"><img src={markFlat} width="20" height="20" alt="" />GoodDealer</a>
+    <nav class="mk-top-nav">
+      {D.nav.map(([id, label]) => <a href={"#" + id}>{label}</a>)}
+    </nav>
+    <div class="mk-top-right">
+      <a href={ACCOUNT_WEB_URL}>{U.login}</a>
+      <a href="#download" class="mk-stamp" style="height:34px;padding:0 14px;font-size:13px"><i></i>{U.download}</a>
+    </div>
+  </header>
+  <main class="mk-main" id="top"><slot /></main>
+  <footer class="mk-foot">
+    <div class="mk-foot-inner">
+      <div style="flex:1 1 240px;min-width:0">
+        <div style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600">
+          <img src={markFlat} width="18" height="18" alt="" />GoodDealer
+        </div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:8px;font-family:var(--font-mono)">{D.footer.tagline}</div>
+      </div>
+      {
+        D.footer.cols.map(([title, links]) => (
+          <div style="flex:0 0 auto">
+            <div style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-3);margin-bottom:10px">{title}</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              {links.map((l) => (
+                <a href="#" style="font-size:13px;color:var(--text-2);text-decoration:none">
+                  {l}
+                </a>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+    <div
+      style="max-width:1120px;margin:28px auto 0;padding-top:16px;border-top:1px solid var(--gd-line);display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text-3)"
+    >
+      <span>© 2026 GoodDealer</span><span>·</span><span>{U.footerLegal}</span><span>·</span><span>{U.footerLang}</span>
+    </div>
+  </footer>
+</div>

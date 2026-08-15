@@ -1,0 +1,33 @@
+---
+// English landing page (site root). Section order and anchor ids match the reference kit's
+// App composition: Hero → Benefits(#features) → Pillars → Workflow → Platforms(#platforms) →
+// Showcase(#demo) → Security(#security) → Pricing(#pricing) → FAQ(#faq) → Download(#download).
+import Layout from "../layouts/Layout.astro";
+import SiteShell from "../components/SiteShell.astro";
+import Hero from "../components/Hero.astro";
+import Benefits from "../components/Benefits.astro";
+import Pillars from "../components/Pillars.astro";
+import Workflow from "../components/Workflow.astro";
+import Platforms from "../components/Platforms.astro";
+import Showcase from "../components/Showcase.astro";
+import Security from "../components/Security.astro";
+import Pricing from "../components/Pricing.astro";
+import Faq from "../components/Faq.astro";
+import DownloadCTA from "../components/DownloadCTA.astro";
+import { data, meta } from "../data/en";
+---
+
+<Layout meta={meta}>
+  <SiteShell data={data}>
+    <Hero data={data} />
+    <section id="features"><Benefits data={data} /></section>
+    <section><Pillars data={data} /></section>
+    <section><Workflow data={data} /></section>
+    <section id="platforms"><Platforms data={data} /></section>
+    <section id="demo"><Showcase data={data} /></section>
+    <section id="security"><Security data={data} /></section>
+    <section id="pricing"><Pricing data={data} /></section>
+    <section id="faq"><Faq data={data} /></section>
+    <section id="download"><DownloadCTA data={data} /></section>
+  </SiteShell>
+</Layout>

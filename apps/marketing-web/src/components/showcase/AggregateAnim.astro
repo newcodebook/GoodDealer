@@ -1,0 +1,195 @@
+---
+// 1 · 统一归集 — JS-driven BATCH import. Domain assets come ONLY from REGISTRARS (Spaceship / Namecheap /
+// Dynadot / 阿里云). Connecting a registrar pulls a WHOLE BATCH (a random-sized group) of domains: a visible
+// batch PACKET (registrar · count · sample domains) flies as ONE unit along the line to the library, then its
+// N rows insert at the BOTTOM together and the table steps up N rows. Rhythmic, batch by batch — not one-by-one,
+// not a marquee. Reduced-motion → static filled table (the server-rendered BASE rows, script never starts).
+// The reference kit ran this as a React state machine; the <script> below is the same beat loop driving the
+// same SVG structure directly (identical timings: 600ms lead-in, 1200ms flight, 720ms step, 1620ms rest).
+import Win from "./Win.astro";
+import type { MkData } from "../../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const U = data.ui.showcase;
+const G = "var(--gd-gold)";
+const L = "var(--gd-line)";
+const LS = "var(--gd-line-strong)";
+const P = "var(--gd-panel)";
+const T1 = "var(--text-1)";
+const T3 = "var(--text-3)";
+const mono = "font-family:var(--font-mono)";
+const srcs: [string, number][] = [
+  ["Spaceship", 34],
+  ["Namecheap", 82],
+  ["Dynadot", 130],
+  ["阿里云", 178],
+];
+const paths = srcs.map(([, y]) => `M116,${y} L226,206`); // straight lines to the BOTTOM entry (match packet flight)
+const BASE = [
+  ["nova.xyz", "Dynadot", "28-04"],
+  ["deal.io", "Namecheap", "27-03"],
+  ["vault.co", "Dynadot", "26-09"],
+  ["coin.xyz", "Spaceship", "28-01"],
+  ["market.dev", "Spaceship", "26-10"],
+  ["get.app", "阿里云", "27-02"],
+];
+const RH = 30;
+const top = 58;
+const VIS = 6;
+---
+
+<Win title={U.aggWin}>
+  <div style="padding:6px 10px 2px">
+    <svg viewBox="0 0 440 236" width="100%" style="display:block" aria-hidden="true" data-mk-agg>
+      <defs><clipPath id="libclip"><rect x="232" y="46" width="198" height="168"></rect></clipPath></defs>
+      {paths.map((p) => <path data-agg-path d={p} stroke={G} stroke-width="1" opacity="0.1" fill="none" />)}
+      {
+        srcs.map(([name, y]) => (
+          <g>
+            <rect data-agg-srcbox x="10" y={y - 16} width="104" height="32" rx="6" fill={P} stroke={L} />
+            <circle data-agg-srcdot cx="26" cy={y} r="3.5" fill={G} opacity="0.5" />
+            <text x="38" y={y + 4} fill={T3} font-size="11.5" style={mono}>
+              {name}
+            </text>
+          </g>
+        ))
+      }
+      <text x="10" y="222" fill={T3} font-size="10" style={mono}>{U.aggSrc}</text>
+      <rect x="232" y="14" width="198" height="206" rx="8" fill={P} stroke={L}></rect>
+      <text x="242" y="32" fill={T3} font-size="10.5" style={mono}>{U.aggDomain}</text>
+      <text x="330" y="32" fill={T3} font-size="10.5" style={mono}>{U.aggRegistrar}</text>
+      <text x="424" y="32" fill={T3} font-size="10.5" text-anchor="end" style={mono}>到期</text>
+      <line x1="232" y1="44" x2="430" y2="44" stroke={LS}></line>
+      <g clip-path="url(#libclip)">
+        <g data-agg-rows>
+          {
+            BASE.map(([d, reg, exp], i) => (
+              <g>
+                <text x="242" y={top + i * RH} fill={T1} font-size="11.5" style={mono}>
+                  {d}
+                </text>
+                <text x="330" y={top + i * RH} fill={T3} font-size="10.5" style={mono}>
+                  {reg}
+                </text>
+                <text x="424" y={top + i * RH} fill={T3} font-size="10.5" text-anchor="end" style={mono}>
+                  {exp}
+                </text>
+                {i < VIS - 1 && <line x1="240" y1={top + i * RH + 10} x2="422" y2={top + i * RH + 10} stroke={L} opacity="0.6" />}
+              </g>
+            ))
+          }
+        </g>
+      </g>
+      <!-- flying BATCH PACKET slot — one visible unit carrying a whole registrar's batch (rebuilt per beat so
+           the mk-pktfly CSS animation replays on mount, like the reference's key={pkt.k} remount) -->
+      <g data-agg-pkt></g>
+    </svg>
+    <div style="font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);padding:6px 4px 2px">{U.aggNote}</div>
+  </div>
+</Win>
+
+<script>
+  // Same constants and beat loop as the reference AggregateAnim (Showcase.jsx).
+  type Row = { d: string; reg: string; exp: string };
+  const SRC_Y = [34, 82, 130, 178];
+  const BATCHES: { s: number; reg: string; ds: [string, string][] }[] = [
+    { s: 0, reg: "Spaceship", ds: [["example.com", "26-11"], ["coin.xyz", "28-01"], ["market.dev", "26-10"], ["nova.xyz", "28-04"]] },
+    { s: 1, reg: "Namecheap", ds: [["deal.io", "27-03"], ["flip.io", "26-12"]] },
+    { s: 2, reg: "Dynadot", ds: [["vault.co", "26-09"], ["hodl.co", "27-06"], ["get.app", "27-02"]] },
+    { s: 3, reg: "阿里云", ds: [["alpha.io", "27-08"], ["beta.co", "28-02"]] },
+  ];
+  const BASE: Row[] = [
+    ["nova.xyz", "Dynadot", "28-04"],
+    ["deal.io", "Namecheap", "27-03"],
+    ["vault.co", "Dynadot", "26-09"],
+    ["coin.xyz", "Spaceship", "28-01"],
+    ["market.dev", "Spaceship", "26-10"],
+    ["get.app", "阿里云", "27-02"],
+  ].map((r) => ({ d: r[0]!, reg: r[1]!, exp: r[2]! }));
+  const RH = 30;
+  const TOP = 58;
+  const VIS = 6;
+  const MONO = 'font-family:var(--font-mono)';
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  document.querySelectorAll<SVGSVGElement>("[data-mk-agg]").forEach((svg) => {
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+    if (reduce) return; // static filled table — matches the reference's reduced-motion state
+    const rowsG = svg.querySelector<SVGGElement>("[data-agg-rows]");
+    const pktG = svg.querySelector<SVGGElement>("[data-agg-pkt]");
+    const pathEls = Array.from(svg.querySelectorAll<SVGPathElement>("[data-agg-path]"));
+    const boxEls = Array.from(svg.querySelectorAll<SVGRectElement>("[data-agg-srcbox]"));
+    const dotEls = Array.from(svg.querySelectorAll<SVGCircleElement>("[data-agg-srcdot]"));
+    if (!rowsG || !pktG) return;
+
+    let rows: Row[] = BASE.slice();
+    let extra: Row[] | null = null;
+    const cell = (r: Row, i: number) =>
+      `<g>` +
+      `<text x="242" y="${TOP + i * RH}" fill="var(--text-1)" font-size="11.5" style="${MONO}">${esc(r.d)}</text>` +
+      `<text x="330" y="${TOP + i * RH}" fill="var(--text-3)" font-size="10.5" style="${MONO}">${esc(r.reg)}</text>` +
+      `<text x="424" y="${TOP + i * RH}" fill="var(--text-3)" font-size="10.5" text-anchor="end" style="${MONO}">${esc(r.exp)}</text>` +
+      (i < VIS - 1 ? `<line x1="240" y1="${TOP + i * RH + 10}" x2="422" y2="${TOP + i * RH + 10}" stroke="var(--gd-line)" opacity="0.6"></line>` : "") +
+      `</g>`;
+    const renderRows = (shift: number, trans: boolean) => {
+      const disp = extra ? rows.concat(extra) : rows;
+      rowsG.innerHTML = disp.map(cell).join("");
+      rowsG.style.transition = trans ? "transform .64s cubic-bezier(.16,.84,.44,1)" : "none";
+      rowsG.style.transform = `translateY(${-shift}px)`;
+    };
+    const setSource = (s: number | null) => {
+      pathEls.forEach((p, i) => p.setAttribute("opacity", s === i ? "0.32" : "0.1"));
+      boxEls.forEach((b, i) => b.setAttribute("stroke", s === i ? "var(--gd-gold)" : "var(--gd-line)"));
+      dotEls.forEach((d, i) => d.setAttribute("opacity", s === i ? "1" : "0.5"));
+    };
+    const renderPkt = (b: (typeof BATCHES)[number] | null) => {
+      if (!b) {
+        pktG.innerHTML = "";
+        return;
+      }
+      const sy = SRC_Y[b.s];
+      pktG.innerHTML =
+        `<g class="mk-pktfly" style="--sx:116px;--sy:${sy}px;--ex:226px;--ey:206px">` +
+        `<rect x="-52" y="-25" width="104" height="50" rx="7" fill="var(--gd-panel-raised)" stroke="var(--gd-gold)"></rect>` +
+        `<rect x="-52" y="-25" width="104" height="50" rx="7" fill="var(--gd-gold-tint)"></rect>` +
+        `<text x="-44" y="-11" fill="var(--gd-gold)" font-size="10" style="${MONO}">${esc(b.reg)} · ${b.ds.length}</text>` +
+        `<line x1="-44" y1="-6" x2="44" y2="-6" stroke="var(--gd-gold)" opacity="0.4"></line>` +
+        b.ds
+          .slice(0, 2)
+          .map((d, j) => `<text x="-44" y="${7 + j * 11}" fill="var(--text-1)" font-size="9.5" style="${MONO}">${esc(d[0]!)}</text>`)
+          .join("") +
+        (b.ds.length > 2 ? `<text x="44" y="18" text-anchor="end" fill="var(--text-3)" font-size="9" style="${MONO}">+${b.ds.length - 2}</text>` : "") +
+        `</g>`;
+    };
+
+    let idx = 0;
+    const wait = (ms: number, fn: () => void) => setTimeout(fn, ms);
+    function beat() {
+      const b = BATCHES[idx % BATCHES.length]!;
+      renderPkt(b); // batch packet departs registrar
+      setSource(b.s);
+      wait(1200, () => {
+        // arrival at library bottom
+        renderPkt(null);
+        setSource(null);
+        const nr: Row[] = b.ds.map((d) => ({ d: d[0], reg: b.reg, exp: d[1] }));
+        const N = nr.length;
+        extra = nr; // render VIS+N rows (N below the fold)
+        renderRows(0, false);
+        wait(40, () => renderRows(N * RH, true)); // step up by N rows (animated)
+        wait(720, () => {
+          // commit (seamless)
+          rows = rows.concat(nr).slice(N);
+          extra = null;
+          renderRows(0, false);
+        });
+        idx++;
+        wait(1620, beat); // pause, then next registrar batch
+      });
+    }
+    wait(600, beat);
+  });
+</script>

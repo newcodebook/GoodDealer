@@ -1,0 +1,56 @@
+---
+// Seal — the engraved medallion. Replaces the generic soft glow with security-printing craft: crisp concentric
+// hairlines + coin reeding + a low-opacity guilloché rosette + the 外圆内方 square echo, with the real Coin Seal
+// minted at center. Gold appears only as hairline engraving (per the brand's gold discipline: no fills/glows).
+// Geometry is computed at build time — the SVG ships fully static; all motion is CSS (marketing.css .mk-seal rules).
+import mark from "@gooddealer/ui/assets/logo/mark.svg?url";
+
+interface Props {
+  size?: number;
+}
+const { size = 248 } = Astro.props;
+const c = size / 2;
+const R = size / 2;
+const g = "var(--gd-gold)";
+// coin reeding — fine radial ticks around the rim
+const N = 84;
+const reed = [...Array(N)].map((_, i) => {
+  const a = (i * Math.PI * 2) / N;
+  const r1 = R * 0.86;
+  const r2 = R * 0.92;
+  return { x1: c + Math.cos(a) * r1, y1: c + Math.sin(a) * r1, x2: c + Math.cos(a) * r2, y2: c + Math.sin(a) * r2 };
+});
+// guilloché rosette — overlapping thin circles on a ring, forms an engraved interference pattern
+const M = 44;
+const d = R * 0.3;
+const rr = R * 0.34;
+const rosette = [...Array(M)].map((_, i) => {
+  const a = (i * Math.PI * 2) / M;
+  return { cx: c + Math.cos(a) * d, cy: c + Math.sin(a) * d, r: rr };
+});
+const sq = R * 0.3; // 外圆内方 echo
+---
+
+<svg class="mk-seal" width={size} height={size} viewBox={`0 0 ${size} ${size}`} fill="none" aria-hidden="true" style="display:block;overflow:visible">
+  <!-- guilloché rosette (subtle texture) — counter-rotates by default -->
+  <g class="mk-rose" stroke={g} stroke-width="0.55" opacity="0.07">{rosette.map((o) => <circle cx={o.cx} cy={o.cy} r={o.r} />)}</g>
+  <!-- concentric hairline rings -->
+  <circle cx={c} cy={c} r={R * 0.94} stroke={g} stroke-width="0.75" opacity="0.42"></circle>
+  <circle cx={c} cy={c} r={R * 0.84} stroke={g} stroke-width="0.6" opacity="0.24"></circle>
+  <circle cx={c} cy={c} r={R * 0.6} stroke={g} stroke-width="0.6" opacity="0.5"></circle>
+  <!-- coin reeding -->
+  <g class="mk-reed" stroke={g} stroke-width="0.8" opacity="0.3">{reed.map((o) => <line x1={o.x1} y1={o.y1} x2={o.x2} y2={o.y2} />)}</g>
+  <!-- 外圆内方 — two rotated squares echoing the Coin Seal; on hover they counter-rotate (法阵 effect) -->
+  <rect class="mk-sq mk-sq-1" x={c - sq} y={c - sq} width={sq * 2} height={sq * 2} stroke={g} stroke-width="0.7" opacity="0.16" fill="none"></rect>
+  <!-- sq-2: 45° base rotation via CSS (not SVG attr) so CSS animation can compose cleanly -->
+  <rect class="mk-sq mk-sq-2" x={c - sq} y={c - sq} width={sq * 2} height={sq * 2} stroke={g} stroke-width="0.7" opacity="0.16" fill="none"></rect>
+  <!-- ripple — hover only; ORIGINATES at the mark (center Coin Seal, r≈R*0.33) and expands outward BEYOND the
+       outer ring. non-scaling-stroke keeps the ring hairline while it scales up. Modeled on the brand 圜纹. -->
+  <g stroke={g} stroke-width="1" fill="none">
+    <circle class="mk-ripple mk-ripple-1" cx={c} cy={c} r={R * 0.33} vector-effect="non-scaling-stroke" opacity="0"></circle>
+    <circle class="mk-ripple mk-ripple-2" cx={c} cy={c} r={R * 0.33} vector-effect="non-scaling-stroke" opacity="0"></circle>
+    <circle class="mk-ripple mk-ripple-3" cx={c} cy={c} r={R * 0.33} vector-effect="non-scaling-stroke" opacity="0"></circle>
+  </g>
+  <!-- minted Coin Seal at center -->
+  <image href={mark} x={c - R * 0.34} y={c - R * 0.34} width={R * 0.68} height={R * 0.68}></image>
+</svg>

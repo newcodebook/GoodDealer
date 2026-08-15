@@ -1,0 +1,43 @@
+---
+// One node of the Security local-vs-cloud diagram (the reference kit's inline `Node`
+// component). Gold = local/asset, blue = cloud/system, per the brand's data-viz semantics.
+import keyhole from "@gooddealer/ui/assets/icons/keyhole.svg?url";
+import type { SecurityNodeUi } from "../data/types";
+
+interface Props {
+  node: SecurityNodeUi;
+  tone: "gold" | "blue";
+  seal?: boolean;
+  neverLeaves?: string;
+}
+const { node, tone, seal = false, neverLeaves } = Astro.props;
+const c = tone === "gold" ? "var(--gd-gold)" : "var(--gd-blue)";
+---
+
+<div style={`flex:1 1 240px;border:1px solid ${c};border-radius:10px;padding:16px 18px;background:var(--gd-panel)`}>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span
+      style={`width:8px;height:8px;border-radius:50%;background:${tone === "gold" ? c : "transparent"};border:${tone === "gold" ? "none" : "1.5px solid " + c}`}
+    ></span>
+    <span style="font-size:14px;font-weight:600;color:var(--text-1)">{node.title}</span>
+  </div>
+  <div style="font-size:11px;color:var(--text-3);margin-top:3px">{node.sub}</div>
+  <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+    {
+      node.items.map((it) => (
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;font-family:var(--font-mono);color:var(--text-2)">
+          <span style={`font-size:11px;color:${c}`}>{seal ? "◆" : "○"}</span>
+          {it}
+        </div>
+      ))
+    }
+  </div>
+  {
+    seal && (
+      <div style="margin-top:12px;font-size:11px;color:var(--gd-gold);display:flex;align-items:center;gap:6px">
+        <img src={keyhole} width="12" height="12" alt="" />
+        {neverLeaves}
+      </div>
+    )
+  }
+</div>

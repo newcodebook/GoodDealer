@@ -1,0 +1,59 @@
+---
+// Page shell: per-locale meta/SEO/JSON-LD (the only part that differed between the
+// reference kit's en/zh HTML shells) + the shared scroll-reveal script.
+import "../styles/marketing.css";
+import favicon from "@gooddealer/ui/assets/logo/mark-16.svg?url";
+import type { PageMeta } from "../data/types";
+
+interface Props {
+  meta: PageMeta;
+}
+const { meta } = Astro.props;
+---
+
+<!doctype html>
+<html lang={meta.lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{meta.title}</title>
+    <meta name="description" content={meta.description} />
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content={meta.ogLocale} />
+    <meta property="og:title" content={meta.ogTitle} />
+    <meta property="og:description" content={meta.ogDescription} />
+    <meta property="og:site_name" content="GoodDealer" />
+    <!-- og:url and og:image: set when the production domain is decided -->
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={meta.twitterTitle} />
+    <meta name="twitter:description" content={meta.twitterDescription} />
+    {meta.jsonLd.map((obj) => <script is:inline type="application/ld+json" set:html={JSON.stringify(obj)} />)}
+    <link rel="icon" href={favicon} />
+  </head>
+  <body>
+    <slot />
+    <script>
+      // scroll reveal — sections fade up as they enter. JS-gated (.js-reveal only added
+      // here), so nothing is hidden if this never runs.
+      if (!(window.matchMedia && window.matchMedia("(prefers-reduced-motion:reduce)").matches)) {
+        const io = new IntersectionObserver(
+          (es) => {
+            es.forEach((e) => {
+              if (e.isIntersecting) {
+                e.target.classList.add("mk-in");
+                io.unobserve(e.target);
+              }
+            });
+          },
+          { threshold: 0.12, rootMargin: "0px 0px -8% 0px" },
+        );
+        document.querySelectorAll("main > section").forEach((s) => {
+          s.classList.add("js-reveal");
+          io.observe(s);
+        });
+      }
+    </script>
+  </body>
+</html>

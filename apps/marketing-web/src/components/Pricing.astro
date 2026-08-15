@@ -1,0 +1,69 @@
+---
+// Pricing — the term plans with the price as a large GOLD tabular numeral, tying pricing to the brand's core
+// "valuation number" identity. Restrained mono tags (no colored fills), stamp CTAs, certificate hairline
+// framing; the recommended plan carries a 骑缝 ticket-perforation. License = term, not a feature tier.
+import { ACCOUNT_WEB_URL } from "../config";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data: D } = Astro.props;
+const U = D.ui.pricing;
+---
+
+<div>
+  <div class="mk-sec">
+    <div style="max-width:640px;display:flex;flex-direction:column;gap:14px;margin-bottom:40px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2">{U.h2}</h2>
+      <p class="mk-lead">{D.planNote}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;max-width:920px">
+      {
+        D.plans.map((p) => (
+          <div
+            style={`position:relative;border:1px solid ${p.gold ? "var(--gd-gold)" : "var(--gd-line)"};border-radius:9px;padding:26px 22px 22px;display:flex;flex-direction:column;gap:16px;background:var(--gd-panel)`}
+          >
+            {p.popular && <div class="mk-seam" style="position:absolute;top:0;left:14px;right:14px;width:auto" />}
+            <div style="display:flex;align-items:center;gap:10px;min-height:20px">
+              <span style="font-family:var(--font-mono);font-size:12px;letter-spacing:0.04em;color:var(--text-2)">{p.name}</span>
+              {p.popular && <span class="mk-tag">{U.popular}</span>}
+              {p.gold && <span class="mk-tag mk-tag--gold">{U.oneTime}</span>}
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:5px">
+                <span style={`font-size:22px;color:${p.gold ? "var(--gd-gold)" : "var(--text-2)"};font-family:var(--font-mono)`}>$</span>
+                <span
+                  style={`font-size:44px;font-weight:600;font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:-0.02em;color:${p.gold ? "var(--gd-gold)" : "var(--text-1)"};line-height:1`}
+                >
+                  {p.price}
+                </span>
+                <span style="font-size:13px;color:var(--text-3)">{p.unit}</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-3);margin-top:7px;min-height:15px">{p.sub}</div>
+            </div>
+            <div style="border-top:1px solid var(--gd-line);padding-top:16px;display:flex;flex-direction:column;gap:11px">
+              <a href={ACCOUNT_WEB_URL} class="mk-stamp" style="height:42px;justify-content:center">
+                <i />
+                {p.cta}
+              </a>
+              <div style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);text-align:center">{p.period}</div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+    <div style="display:flex;gap:10px 24px;flex-wrap:wrap;margin-top:30px;font-size:12.5px;color:var(--text-2)">
+      {
+        D.planFeatures.map((f) => (
+          <span style="display:flex;align-items:center;gap:8px">
+            <span style="width:5px;height:5px;background:var(--gd-gold);flex:none" />
+            {f}
+          </span>
+        ))
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

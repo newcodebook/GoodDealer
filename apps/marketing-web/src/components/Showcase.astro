@@ -1,0 +1,46 @@
+---
+// 功能动效 / Feature demos — each window panel LOOPS a demonstration of a real feature (not a static shot):
+// 统一归集 / 批量上架 / 所有权验证 / 价格同步. Motion carries the meaning. Honesty: listing shows a user
+// 确认执行 beat (not unattended); verify polling & sync propagation are automatic. Alternating image/text rows.
+import AggregateAnim from "./showcase/AggregateAnim.astro";
+import ListAnim from "./showcase/ListAnim.astro";
+import VerifyAnim from "./showcase/VerifyAnim.astro";
+import SyncAnim from "./showcase/SyncAnim.astro";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const U = data.ui.showcase;
+const D = data.showcase;
+---
+
+<div>
+  <div class="mk-sec">
+    <div style="max-width:640px;display:flex;flex-direction:column;gap:14px;margin-bottom:44px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2">{U.h2}</h2>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:56px">
+      {
+        D.map((s) => (
+          <div style={`display:flex;gap:48px;align-items:center;flex-wrap:wrap;flex-direction:${s.side === "right" ? "row-reverse" : "row"}`}>
+            <div style="flex:1 1 400px;min-width:300px">
+              {s.anim === "aggregate" && <AggregateAnim data={data} />}
+              {s.anim === "list" && <ListAnim data={data} />}
+              {s.anim === "verify" && <VerifyAnim data={data} />}
+              {s.anim === "sync" && <SyncAnim data={data} />}
+            </div>
+            <div style="flex:1 1 300px;min-width:260px;display:flex;flex-direction:column;gap:12px">
+              <span class="mk-tag mk-tag--gold" style="align-self:flex-start">{s.tag}</span>
+              <h3 style="font-size:21px;font-weight:600;letter-spacing:-0.015em;margin:0;color:var(--text-1)">{s.title}</h3>
+              <p style="font-size:14px;color:var(--text-2);line-height:1.65;margin:0">{s.desc}</p>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

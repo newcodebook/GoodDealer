@@ -1,0 +1,86 @@
+---
+// FAQ — honest answers that hold the first-version line: no background polling / unattended auto-delist, no
+// local-only mode, credentials never uploaded, 2 devices / single Active. Expandable list; first item open.
+// The reference kit conditionally rendered the open answer via React state; here every answer is in the DOM
+// (display:none when closed — better for crawlers) and a vanilla script drives the same one-open accordion.
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const items = data.faq;
+const U = data.ui.faq;
+---
+
+<div>
+  <div class="mk-sec" style="max-width:820px" data-mk-faq>
+    <div style="margin-bottom:32px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2" style="margin-top:10px">{U.h2}</h2>
+    </div>
+    <div style="border:1px solid var(--gd-line);border-radius:10px;overflow:hidden">
+      {
+        items.map((it, i) => {
+          const isOpen = i === 0;
+          return (
+            <div style={i ? "border-top:1px solid var(--gd-line)" : ""}>
+              <button
+                data-faq-btn
+                aria-expanded={isOpen ? "true" : "false"}
+                style={`width:100%;display:flex;align-items:center;gap:12px;padding:16px 20px;background:${isOpen ? "var(--gd-panel-raised)" : "var(--gd-panel)"};border:none;cursor:pointer;text-align:left;font:inherit`}
+              >
+                <span style="flex:1;font-size:14.5px;font-weight:500;color:var(--text-1)">{it.q}</span>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--text-3)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  style={`flex:none;transform:${isOpen ? "rotate(180deg)" : "none"};transition:transform 140ms`}
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div
+                data-faq-a
+                style={`padding:0 20px 18px;font-size:13.5px;color:var(--text-2);line-height:1.7;max-width:680px${isOpen ? "" : ";display:none"}`}
+              >
+                {it.a}
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-mk-faq]").forEach((root) => {
+    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-faq-btn]"));
+    const answers = Array.from(root.querySelectorAll<HTMLElement>("[data-faq-a]"));
+    let open = 0;
+    const render = () => {
+      btns.forEach((b, i) => {
+        const isOpen = i === open;
+        b.style.background = isOpen ? "var(--gd-panel-raised)" : "var(--gd-panel)";
+        b.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        const svg = b.querySelector<SVGElement>("svg");
+        if (svg) svg.style.transform = isOpen ? "rotate(180deg)" : "none";
+        const a = answers[i];
+        if (a) a.style.display = isOpen ? "" : "none";
+      });
+    };
+    btns.forEach((b, i) =>
+      b.addEventListener("click", () => {
+        open = open === i ? -1 : i;
+        render();
+      }),
+    );
+  });
+</script>

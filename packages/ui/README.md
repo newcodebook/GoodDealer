@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Production component library for GoodDealer's three web/desktop surfaces (`apps/desktop`,
-`apps/account-web`, `apps/admin-web`). Host-independent, presentational-only: no Tauri
-imports, no network calls, no business state — every component is a pure function of its
-props.
+Production component library for GoodDealer's web/desktop surfaces (`apps/desktop`,
+`apps/account-web`, `apps/admin-web`; `apps/marketing-web` consumes only the token layer
+and assets). Host-independent, presentational-only: no Tauri imports, no network calls,
+no business state — every component is a pure function of its props.
 
 ## Principles
 

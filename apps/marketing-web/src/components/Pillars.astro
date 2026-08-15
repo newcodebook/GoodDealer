@@ -1,0 +1,46 @@
+---
+// Pillars — the four value pillars (PRD §3) as a LEDGER, not a card grid: hairline-ruled rows, a gold mono
+// index per row, title + body, and the two concrete capabilities set right like a statement's detail column.
+// Kraken density + certificate ruling. Registration eyebrow + closing 骑缝 seam.
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data: D } = Astro.props;
+const U = D.ui.pillars;
+---
+
+<div>
+  <div class="mk-sec" style="padding-bottom:40px">
+    <div style="max-width:620px;display:flex;flex-direction:column;gap:14px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2">{U.h2}</h2>
+      <p class="mk-lead">{U.lead}</p>
+    </div>
+    <div style="margin-top:40px;border-top:1px solid var(--gd-line-strong)">
+      {
+        D.pillars.map((p, i) => (
+          <div style="display:flex;gap:28px;padding:26px 0;border-bottom:1px solid var(--gd-line);flex-wrap:wrap">
+            <div style="flex:0 0 auto;width:52px;font-family:var(--font-mono);font-size:22px;color:var(--gd-gold);font-variant-numeric:tabular-nums;line-height:1">
+              {String(i + 1).padStart(2, "0")}
+            </div>
+            <div style="flex:1 1 340px;min-width:260px">
+              <div style="font-size:18px;font-weight:600;color:var(--text-1);letter-spacing:-0.01em">{p.title}</div>
+              <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;margin:8px 0 0;max-width:460px">{p.body}</p>
+            </div>
+            <div style="flex:1 1 240px;min-width:200px;display:flex;flex-direction:column;gap:9px;padding-top:2px">
+              {p.items.map((it) => (
+                <div style="display:flex;gap:10px;font-size:12.5px;color:var(--text-2);line-height:1.5">
+                  <span style="width:5px;height:5px;background:var(--gd-gold);flex:none;transform:translateY(6px)" />
+                  {it}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

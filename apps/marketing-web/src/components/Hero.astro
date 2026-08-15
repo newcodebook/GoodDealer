@@ -1,0 +1,59 @@
+---
+// Hero — editorial, asymmetric, private-bank instrument. Left column: a registration eyebrow (mono, ruled),
+// a left-aligned display statement, positioning, and a refined CTA row (primary = minted seal-square, NOT a
+// gold fill). Right column: the engraved Seal medallion (security-printing craft, not a soft glow). Closes on
+// a 骑缝 seam. The credential-local promise is stated once here; the Security section explains it.
+import Seal from "./Seal.astro";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data: D } = Astro.props;
+const H = D.hero;
+const U = D.ui.hero;
+const titleLines = U.titleBefore.split("\n");
+---
+
+<div style="position:relative">
+  <div class="mk-sec" style="display:flex;align-items:center;gap:56px;flex-wrap:wrap;padding-top:84px;padding-bottom:64px">
+    <!-- left — editorial content -->
+    <div class="mk-rise" style="flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:22px">
+      <div style="display:flex;align-items:center;gap:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.14em;text-transform:uppercase">
+        <span style="color:var(--gd-gold)">GoodDealer</span>
+        <span class="mk-rule"></span>
+        <span style="color:var(--text-3)">{U.eyebrowSub}</span>
+      </div>
+      <h1 style="font-size:clamp(30px,4.2vw,46px);font-weight:600;letter-spacing:-0.025em;line-height:1.12;margin:0;color:var(--text-1);max-width:560px">
+        {
+          titleLines.map((ln, i) => (
+            <Fragment>
+              {ln}
+              {i < titleLines.length - 1 && <br />}
+            </Fragment>
+          ))
+        }<span style="color:var(--gd-gold)">{U.titleGold}</span>
+      </h1>
+      <p style="font-size:15.5px;color:var(--text-2);line-height:1.65;margin:0;max-width:500px">{H.sub}</p>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:2px">
+        <a href="#download" class="mk-stamp"><i></i>{H.ctaPrimary}</a>
+        <a href="#pricing" class="mk-quiet"
+          >{H.ctaSecondary}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+            ><path d="M5 12h14M13 6l6 6-6 6"></path></svg
+          ></a
+        >
+      </div>
+      <div
+        style="display:flex;align-items:baseline;gap:9px;font-size:12.5px;color:var(--text-3);margin-top:8px;padding-top:16px;border-top:1px solid var(--gd-line);max-width:500px;line-height:1.6"
+      >
+        <span style="width:6px;height:6px;background:var(--gd-gold);flex:none;transform:translateY(1px)"></span>{H.trust}
+      </div>
+    </div>
+    <!-- right — engraved seal medallion -->
+    <div class="mk-seal-anim" style="flex:0 0 auto;margin:0 auto;animation-delay:0.12s">
+      <Seal size={272} />
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

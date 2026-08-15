@@ -1,0 +1,15 @@
+---
+// Window chrome framing one feature-demo panel (the reference kit's inline `Win` component).
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<div class="mk-win">
+  <div class="mk-win-bar">
+    <span class="mk-win-dots"><span></span><span></span><span></span></span>
+    <span class="mk-win-title">{title}</span>
+  </div>
+  <div class="mk-win-body"><slot /></div>
+</div>

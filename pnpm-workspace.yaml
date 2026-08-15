@@ -3,5 +3,8 @@ packages:
   - packages/*
   - packages/connectors/*
 
+allowBuilds:
+  esbuild: true
+
 overrides:
   nanoid@<3.3.18: 3.3.18

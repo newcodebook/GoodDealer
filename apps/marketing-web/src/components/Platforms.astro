@@ -1,0 +1,51 @@
+---
+// Platforms — SEO-critical section: every platform name is a long-tail keyword anchor (e.g. "Afternic 批量上架",
+// "Spaceship 域名管理"). Three groups: registrars (gold), sales platforms (gold), DNS (blue). v1 items show a
+// gold marker; later targets show a subtle future-target tag. Layout: eyebrow + h2 + three category rows.
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const P = data.platforms;
+const U = data.ui.platforms;
+const cats = [P.registrars, P.sales, P.dns];
+---
+
+<div>
+  <div class="mk-sec">
+    <div style="max-width:660px;display:flex;flex-direction:column;gap:14px;margin-bottom:36px">
+      <div class="mk-eyebrow2"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+      <h2 class="mk-h2">{U.h2}</h2>
+      <p class="mk-lead">{U.lead}</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:32px">
+      {
+        cats.map((cat) => (
+          <div>
+            <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:6px">
+              <span style="font-size:16px;font-weight:600;color:var(--text-1)">{cat.title}</span>
+              <span style="font-size:12px;color:var(--text-3)">{cat.sub}</span>
+            </div>
+            <div style="border-top:1px solid var(--gd-line-strong);padding-top:16px;display:flex;flex-wrap:wrap;gap:10px">
+              {cat.items.map((p) => (
+                <span
+                  style={`display:inline-flex;align-items:center;gap:7px;font-size:13px;font-family:var(--font-mono);padding:6px 14px;border-radius:6px;border:1px solid ${p.releaseTarget ? "var(--gd-gold)" : "var(--gd-line)"};color:${p.releaseTarget ? "var(--text-1)" : "var(--text-3)"};background:transparent`}
+                >
+                  {p.releaseTarget && <span style="width:5px;height:5px;background:var(--gd-gold);flex:none" />}
+                  {p.name}
+                  {!p.releaseTarget && <span style="font-size:10px;color:var(--text-3);margin-left:2px">{U.soon}</span>}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+    <div style="margin-top:28px;font-size:12px;color:var(--text-3);font-family:var(--font-mono)">
+      {U.footerNote}
+    </div>
+  </div>
+  <div class="mk-sec" style="padding-top:0;padding-bottom:0"><div class="mk-seam"></div></div>
+</div>

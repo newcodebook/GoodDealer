@@ -1,0 +1,41 @@
+---
+// Download — the closing band, sealed like the foot of a certificate: the engraved Seal medallion (not a soft
+// glow), a quiet statement, stamp/quiet CTAs. Honest note that login + device binding + auth checks precede
+// the main interface (cloud sync is baseline).
+import Seal from "./Seal.astro";
+import type { MkData } from "../data/types";
+
+interface Props {
+  data: MkData;
+}
+const { data } = Astro.props;
+const D = data.download;
+const U = data.ui.download;
+---
+
+<div class="mk-sec" style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:20px;padding-top:72px;padding-bottom:80px">
+  <Seal size={132} />
+  <div class="mk-eyebrow2" style="justify-content:center"><b>{U.tag}</b><span class="mk-rule"></span><span>{U.tagSub}</span></div>
+  <h2 style="font-size:clamp(26px,3.4vw,34px);font-weight:600;letter-spacing:-0.02em;margin:0;color:var(--text-1)">{D.title}</h2>
+  <p style="font-size:15px;color:var(--text-2);line-height:1.6;margin:0;max-width:520px">{D.sub}</p>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:4px">
+    {
+      D.platforms.map(([, label], i) =>
+        i === 0 ? (
+          <a href="#" class="mk-stamp">
+            <i />
+            {label}
+          </a>
+        ) : (
+          <a href="#" class="mk-quiet">
+            {label}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </a>
+        ),
+      )
+    }
+  </div>
+  <div style="font-size:11.5px;color:var(--text-3);max-width:500px;line-height:1.6;margin-top:6px">{D.note}</div>
+</div>
