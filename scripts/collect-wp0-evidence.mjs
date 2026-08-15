@@ -18,10 +18,20 @@ import {
   CLOUD_BOUNDARY_REQUIRED_INPUTS,
   cloudBoundaryReportPassesPolicy,
 } from "./collect-cloud-boundary-report.mjs";
+import {
+  keychainCanaryReportIsHonestIgnore,
+  keychainCanaryReportPassesPolicy,
+} from "./collect-keychain-canary-report.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const supportedProfiles = new Set(["local", "native", "quality"]);
-const supportedSlices = new Set(["account-gate", "cloud-boundary", "sqlcipher", "sqlcipher-bundle"]);
+const supportedSlices = new Set([
+  "account-gate",
+  "cloud-boundary",
+  "keychain",
+  "sqlcipher",
+  "sqlcipher-bundle",
+]);
 const portableCrates = [
   "-p",
   "gooddealer-secure-host-core",
@@ -43,6 +53,8 @@ const keyInputPaths = [
   "crates/local-storage/src/sqlcipher_fixture.rs",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
+  "scripts/collect-keychain-canary-report.mjs",
+  "scripts/keychain-canary-evidence-policy.test.mjs",
   "scripts/collect-sqlcipher-bundle-report.mjs",
   "scripts/git-dirty-state.mjs",
   "scripts/git-dirty-state.test.mjs",
@@ -62,8 +74,13 @@ const keyInputPaths = [
   ".github/dependabot.yml",
   ".github/workflows/quality.yml",
   ".github/workflows/native.yml",
+  ".github/workflows/wp1-keychain.yml",
   ".github/workflows/wp5-sqlcipher.yml",
   ".github/workflows/wp5-sqlcipher-bundle.yml",
+  "crates/secure-host-core/Cargo.toml",
+  "crates/secure-host-core/src/keychain/mod.rs",
+  "crates/secure-host-core/src/keychain/macos.rs",
+  "crates/secure-host-core/src/keychain/windows.rs",
 ];
 const accountGateKeyInputPaths = [
   "scripts/collect-account-gate-report.mjs",
@@ -312,6 +329,9 @@ function technicalEligibility(manifest) {
   if (!sliceEvidenceValid(manifest.sliceEvidence)) {
     reasons.push("slice-evidence-invalid");
   }
+  if (sliceEvidenceIgnored(manifest.sliceEvidence)) {
+    reasons.push("keychain-probe-ignored");
+  }
   return {
     eligible: reasons.length === 0,
     reasons,
@@ -345,6 +365,13 @@ function sliceEvidenceValid(sliceEvidence) {
   }
   if (sliceEvidence.slice === "cloud-boundary") {
     return Boolean(sliceEvidence.present && cloudBoundaryReportPassesPolicy(report));
+  }
+  if (sliceEvidence.slice === "keychain") {
+    return Boolean(
+      sliceEvidence.present &&
+        (keychainCanaryReportPassesPolicy(report) ||
+          keychainCanaryReportIsHonestIgnore(report)),
+    );
   }
   if (sliceEvidence.slice === "sqlcipher-bundle") {
     return Boolean(
@@ -384,6 +411,14 @@ function sliceEvidenceValid(sliceEvidence) {
           scan.canaryAbsent === true &&
           scan.sqliteHeaderAbsent === true,
       ),
+  );
+}
+
+function sliceEvidenceIgnored(sliceEvidence) {
+  return Boolean(
+    sliceEvidence?.slice === "keychain" &&
+      sliceEvidence.present &&
+      keychainCanaryReportIsHonestIgnore(sliceEvidence.report),
   );
 }
 
@@ -583,6 +618,29 @@ function profileDefinition(profile, slice, reportPath) {
           id: "account-gate-fixture-report",
           binary: "node",
           args: ["scripts/collect-account-gate-report.mjs", reportPath],
+        },
+      ],
+    };
+  }
+
+  if (slice === "keychain") {
+    if (profile === "quality" || platform() === "linux") {
+      throw new Error("The keychain slice requires a native or local macOS/Windows profile.");
+    }
+    return {
+      resolvedProfile: profile === "native" ? "wp1-keychain-native" : "wp1-keychain-local",
+      applicability:
+        "Disposable OS keychain Canary probe only; no production credential, composition-root wiring, signed-build claim, IPC, network, or user data. Unsupported disposable-keychain hosts are recorded as ignored, never as an absence pass.",
+      commands: [
+        {
+          id: "keychain-canary-policy-tests",
+          binary: "node",
+          args: ["--test", "scripts/keychain-canary-evidence-policy.test.mjs"],
+        },
+        {
+          id: "keychain-canary-native-probe",
+          binary: "node",
+          args: ["scripts/collect-keychain-canary-report.mjs", reportPath],
         },
       ],
     };
@@ -900,6 +958,8 @@ const workPackage =
     ? "wp2"
     : options.slice === "cloud-boundary"
       ? "wp4"
+      : options.slice === "keychain"
+        ? "wp1"
     : options.slice?.startsWith("sqlcipher")
       ? "wp5"
       : "wp0";
@@ -917,6 +977,8 @@ const sliceReportPath = resolve(
     ? "account-gate-report.json"
     : options.slice === "cloud-boundary"
       ? "cloud-boundary-report.json"
+    : options.slice === "keychain"
+      ? "keychain-canary-report.json"
     : options.slice === "sqlcipher-bundle"
       ? "sqlcipher-bundle-report.json"
       : "sqlcipher-report.json",
@@ -941,6 +1003,8 @@ const manifest = {
     bundle: options.slice === "sqlcipher-bundle",
     signedApplication: false,
     applicationArtifact: options.slice === "sqlcipher-bundle",
+    disposableNativeKeychainProbe: options.slice === "keychain",
+    signedKeychainEvidence: false,
     releaseModeFixtureValidation: options.slice === "sqlcipher",
     temporarySqlcipherFixture: options.slice?.startsWith("sqlcipher") ?? false,
     ...(options.slice === "account-gate"
@@ -984,6 +1048,8 @@ const manifest = {
         ? "Account Access and Cloud Devices Lead"
         : options.slice === "cloud-boundary"
           ? CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.ownerRole
+        : options.slice === "keychain"
+          ? "Secure Host Lead"
         : "Release Engineering Lead"),
     owningModules: commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES").length
       ? commaSeparatedEnvironment("EVIDENCE_OWNING_MODULES")
@@ -993,6 +1059,8 @@ const manifest = {
           ? ["protocol-account", "protocol-devices", "protocol-workspace", "cloud-account-device-bootstrap-fixtures", "client-core"]
           : options.slice === "cloud-boundary"
             ? [...CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.owningModules]
+          : options.slice === "keychain"
+            ? ["secure-host-core", "release-engineering"]
           : options.slice?.startsWith("sqlcipher")
           ? ["local-storage", "recovery", "release-engineering"]
           : ["engineering-baseline", "release-engineering"],
@@ -1110,21 +1178,21 @@ if (!options.prepareOnly && process.exitCode !== 2) {
     (validation) => validation.exitCode === 0,
   );
   const sliceEvidencePassed = sliceEvidenceValid(manifest.sliceEvidence);
+  const sliceIgnored = sliceEvidenceIgnored(manifest.sliceEvidence);
   const ciRepositoryValid =
     manifest.ci === null ||
     (!manifest.repository.initial.dirty &&
       !manifest.repository.final.dirty &&
       repositoryInputStable(manifest.repository.initial, manifest.repository.final) &&
       Boolean(manifest.ci.jobUrl));
-  manifest.result =
+  const runPassed =
     validationsPassed &&
     sliceEvidencePassed &&
     ciRepositoryValid &&
-    manifest.executionContext.valid
-      ? "passed"
-      : "failed";
+    manifest.executionContext.valid;
+  manifest.result = runPassed ? (sliceIgnored ? "ignored" : "passed") : "failed";
   writeManifest();
-  process.exitCode = manifest.result === "passed" ? 0 : 1;
+  process.exitCode = manifest.result === "failed" ? 1 : 0;
 }
 
 console.log(JSON.stringify(manifest, null, 2));
