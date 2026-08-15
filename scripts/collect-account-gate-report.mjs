@@ -58,6 +58,141 @@ const requiredInputs = [
   "apps/cloud/test/workspace-checkpoint-cursor.test.ts",
 ];
 
+const identityPasswordPathInputs = [
+  "apps/cloud/src/modules/identity/login-command.ts",
+  "apps/cloud/src/modules/identity/password-hash-port.ts",
+];
+
+const authNegativeMatrixSpecifications = [
+  {
+    id: "current-jti-rotation-cas",
+    category: "rotation",
+    source: "apps/cloud/test/session-families.test.ts",
+    testName: "lets exactly one prepared concurrent rotation win the current-JTI CAS",
+    evidence: [
+      { id: "rotation-advances", literal: 'status: "rotated", rotationGeneration: 1' },
+      { id: "loser-conflicts", literal: 'status: "refresh_rotation_conflict"' },
+      { id: "loser-does-not-register-jti", literal: 'credentialState("refresh-a2")).toBeNull()' },
+      { id: "winner-remains-current", literal: 'currentRefreshJti("family-a")).toBe("refresh-a1")' },
+    ],
+  },
+  {
+    id: "retired-jti-reuse",
+    category: "reuse",
+    source: "apps/cloud/test/identity-fixture.test.ts",
+    testName: "rotates by JTI, detects retired-JTI reuse, revokes only that family, and preserves the security epoch",
+    evidence: [
+      { id: "reuse-rejected", literal: '"REFRESH_REUSE_DETECTED"' },
+      { id: "epoch-unchanged", literal: "readAccountSecurityEpoch()).toBe(epochBeforeReuse)" },
+      { id: "other-family-remains-active", literal: "listSessions(other.sessionId!)" },
+      { id: "revoked-family-cannot-refresh", literal: '"SESSION_REVOKED"' },
+    ],
+  },
+  {
+    id: "unknown-and-cross-family-jti",
+    category: "reuse",
+    source: "apps/cloud/test/identity-fixture.test.ts",
+    testName: "fails closed for unknown and cross-family JTIs and unbound devices",
+    evidence: [
+      { id: "unknown-jti-presented", literal: 'presentedRefreshJti: "unknown-refresh-jti"' },
+      { id: "cross-family-jti-presented", literal: "currentRefreshJti(service, other.sessionId!)" },
+      { id: "both-fail-invalid-credentials", literal: '"INVALID_CREDENTIALS"', minimumOccurrences: 2 },
+    ],
+  },
+  {
+    id: "family-wide-jti-revocation-isolated",
+    category: "family-revocation",
+    source: "apps/cloud/test/session-families.test.ts",
+    testName: "revokes every JTI in a family without touching another family",
+    evidence: [
+      { id: "family-revoked", literal: 'revokeFamily("family-a")).toBe(true)' },
+      { id: "refresh-jti-revoked", literal: 'credentialState("refresh-a")).toBe("revoked")' },
+      { id: "access-jti-revoked", literal: 'credentialState("access-a")).toBe("revoked")' },
+      { id: "other-refresh-current", literal: 'credentialState("refresh-b")).toBe("current")' },
+      { id: "other-access-current", literal: 'credentialState("access-b")).toBe("current")' },
+    ],
+  },
+  {
+    id: "global-jti-uniqueness-no-partial-write",
+    category: "jti-uniqueness",
+    source: "apps/cloud/test/session-families.test.ts",
+    testName: "registers credential JTIs globally and aborts duplicate issuance without partial writes",
+    evidence: [
+      { id: "duplicate-jti-conflicts", literal: 'reason: "credential_jti_conflict"' },
+      { id: "family-not-created", literal: 'hasFamily("family-b")).toBe(false)' },
+      { id: "other-jti-not-written", literal: 'credentialState("refresh-b")).toBeNull()' },
+    ],
+  },
+  {
+    id: "stale-list-revision-and-missing-reauth",
+    category: "reauth",
+    source: "apps/cloud/test/identity-fixture.test.ts",
+    testName: "rejects stale session-list CAS and requires reauth for all-other revocation",
+    evidence: [
+      { id: "stale-list-rejected", literal: '"LIST_REVISION_STALE"' },
+      { id: "session-remains-active", literal: 'status: "active"' },
+      { id: "missing-reauth-rejected", literal: '"REAUTHENTICATION_REQUIRED"' },
+    ],
+  },
+  {
+    id: "expired-and-epoch-stale-reauth",
+    category: "reauth",
+    source: "apps/cloud/test/identity-fixture.test.ts",
+    testName: "expires reauth proofs and invalidates them when the account security epoch advances",
+    evidence: [
+      { id: "expired-proof-rejected", literal: '"REAUTH_PROOF_EXPIRED"', minimumOccurrences: 2 },
+      { id: "epoch-stale-proof-rejected", literal: '"ACCOUNT_SECURITY_EPOCH_STALE"', minimumOccurrences: 2 },
+    ],
+  },
+];
+
+const rawPasswordSurfaceSpecifications = [
+  {
+    id: "dom-persistent-state",
+    surface: "DOM persistent state",
+    pattern: /\b(?:localStorage|sessionStorage|indexedDB|caches)\b|\bdocument\s*\.\s*cookie\b|\b(?:useState|useReducer|createContext)\s*\(/g,
+  },
+  {
+    id: "ipc-history",
+    surface: "IPC history or retry storage",
+    pattern: /\b(?:invoke|emit|listen)\s*\(|@tauri-apps\/api|\b(?:ipcHistory|retryQueue|memoize)\b/g,
+  },
+  {
+    id: "logs",
+    surface: "logs and tracing",
+    pattern: /\bconsole\s*\.|\b(?:logger|telemetry|tracer)\s*\.|\b(?:log|trace|debug|info|warn|error)\s*\(/g,
+  },
+  {
+    id: "errors",
+    surface: "error capture or reflection",
+    pattern: /\bthrow\b|\bnew\s+Error\s*\(|\bJSON\s*\.\s*stringify\s*\(\s*(?:input|command|candidate|secret)\b|\b(?:message|detail|cause)\s*:\s*(?:input|command|candidate|secret)\b|\$\{\s*(?:input|command|candidate|secret)\b/g,
+  },
+  {
+    id: "sqlite",
+    surface: "SQLite or database persistence",
+    pattern: /\b(?:sqlite|better-sqlite3|PrismaClient|drizzle)\b|\b(?:INSERT|UPDATE|UPSERT)\s+INTO\b/g,
+  },
+  {
+    id: "temp-files",
+    surface: "temporary files or clipboard",
+    pattern: /\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdtemp|tmpdir)\s*\(|\b(?:navigator\s*\.\s*clipboard|clipboard\s*\.)|\bfrom\s+["']node:fs["']/g,
+  },
+];
+
+const deferredProbeAnchor = {
+  criterionId: "crit_e26e01ef006a",
+  decisionTraceId: "trace_2b4364324c868154",
+  method: "GET",
+  path: "/v1/account/session",
+  readinessGate: "R1-R10",
+  readinessCriteria: ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"],
+  gateDisposition: "cross_gate_future_work",
+  state: "designed_gated_not_executed",
+  criterionStatus: "skipped",
+  probeVerdict: "not_executed",
+  passClaimed: false,
+};
+
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -237,6 +372,182 @@ export function passwordHashCheckNamingCompliant(source) {
   );
 }
 
+function normalizedSource(source) {
+  return source.replace(/\s+/g, " ").trim();
+}
+
+function namedTestSource(source, testName) {
+  const marker = `it(${JSON.stringify(testName)},`;
+  const start = source.indexOf(marker);
+  if (start < 0) return null;
+  const followingTest = source.slice(start + marker.length).search(/\n\s{2}it\s*\(/);
+  const end = followingTest < 0 ? source.length : start + marker.length + followingTest;
+  return source.slice(start, end);
+}
+
+function occurrences(source, literal) {
+  let count = 0;
+  let cursor = 0;
+  while ((cursor = source.indexOf(literal, cursor)) >= 0) {
+    count += 1;
+    cursor += literal.length;
+  }
+  return count;
+}
+
+function collectAuthNegativeMatrix(sourcesByPath) {
+  const assertions = authNegativeMatrixSpecifications.map((specification) => {
+    const source = sourcesByPath.get(specification.source);
+    const testSource = source === undefined ? null : namedTestSource(source, specification.testName);
+    const normalizedTestSource = testSource === null ? "" : normalizedSource(testSource);
+    const evidenceChecks = specification.evidence.map(({ id, literal, minimumOccurrences = 1 }) => ({
+      id,
+      present: occurrences(normalizedTestSource, normalizedSource(literal)) >= minimumOccurrences,
+    }));
+    const testPresent = testSource !== null;
+    return {
+      id: specification.id,
+      category: specification.category,
+      source: specification.source,
+      testName: specification.testName,
+      testPresent,
+      evidenceChecks,
+      present: testPresent && evidenceChecks.every(({ present }) => present),
+    };
+  });
+  return {
+    present: assertions.every(({ present }) => present),
+    assertions,
+  };
+}
+
+function authNegativeMatrixPassesPolicy(matrix) {
+  if (matrix?.present !== true || !Array.isArray(matrix.assertions)) return false;
+  return authNegativeMatrixSpecifications.every((specification, index) => {
+    const assertion = matrix.assertions[index];
+    return (
+      assertion?.id === specification.id &&
+      assertion.category === specification.category &&
+      assertion.source === specification.source &&
+      assertion.testName === specification.testName &&
+      assertion.testPresent === true &&
+      assertion.present === true &&
+      Array.isArray(assertion.evidenceChecks) &&
+      assertion.evidenceChecks.length === specification.evidence.length &&
+      specification.evidence.every(
+        ({ id }, evidenceIndex) =>
+          assertion.evidenceChecks[evidenceIndex]?.id === id &&
+          assertion.evidenceChecks[evidenceIndex]?.present === true,
+      )
+    );
+  }) && matrix.assertions.length === authNegativeMatrixSpecifications.length;
+}
+
+export function rawPasswordForbiddenSurfaceProof(sources) {
+  const combinedSource = sources.map(({ source }) => source).join("\n");
+  const surfaces = rawPasswordSurfaceSpecifications.map(({ id, surface, pattern }) => {
+    pattern.lastIndex = 0;
+    const matchCount = [...combinedSource.matchAll(pattern)].length;
+    return { id, surface, matchCount, absent: matchCount === 0 };
+  });
+  return {
+    scope: "identity-real-password-path",
+    scannedSources: sources.map(({ path }) => path),
+    surfaces,
+  };
+}
+
+function rawPasswordForbiddenSurfaceProofPassesPolicy(proof) {
+  if (
+    proof?.scope !== "identity-real-password-path" ||
+    !Array.isArray(proof.scannedSources) ||
+    proof.scannedSources.length !== identityPasswordPathInputs.length ||
+    !identityPasswordPathInputs.every((path, index) => proof.scannedSources[index] === path) ||
+    !Array.isArray(proof.surfaces) ||
+    proof.surfaces.length !== rawPasswordSurfaceSpecifications.length
+  ) {
+    return false;
+  }
+  return rawPasswordSurfaceSpecifications.every(
+    ({ id, surface }, index) =>
+      proof.surfaces[index]?.id === id &&
+      proof.surfaces[index]?.surface === surface &&
+      proof.surfaces[index]?.matchCount === 0 &&
+      proof.surfaces[index]?.absent === true,
+  );
+}
+
+function denyingPasswordHashPortStructuralAssertion(portSource, loginCommandSource, fallbackTestSource) {
+  const denyingClassStart = portSource.search(/\bclass\s+DenyingPasswordHashPort\b/);
+  const denyingClassSource = denyingClassStart < 0 ? "" : portSource.slice(denyingClassStart);
+  const checks = {
+    interfaceReturnTypeCannotExpressSuccess: passwordHashPortCannotSucceed(portSource),
+    denyingImplementationPresent:
+      /\bclass\s+DenyingPasswordHashPort\s+implements\s+PasswordHashPort\b/.test(portSource),
+    denyingImplementationReturnsDisabled:
+      /\breadonly\s+verified\s*:\s*false\b/.test(denyingClassSource) &&
+      /\breturn\s*{\s*verified\s*:\s*false\s*,\s*reason\s*:\s*["']password_verification_disabled["']\s*}\s*;/.test(
+        denyingClassSource,
+      ),
+    defaultCompositionUsesDenyingPort:
+      /passwordHash\s*:\s*PasswordHashPort\s*=\s*new\s+DenyingPasswordHashPort\s*\(\s*\)/.test(
+        loginCommandSource,
+      ),
+    typeLevelNegativeAssertionPresent:
+      /Extract\s*<\s*PasswordHashResult\s*,\s*{\s*readonly\s+verified\s*:\s*true\s*}\s*>\s+extends\s+never/.test(
+        fallbackTestSource,
+      ) &&
+      /passwordSuccessIsUnrepresentable\s*:\s*PasswordSuccessIsUnrepresentable\s*=\s*true/.test(
+        fallbackTestSource,
+      ),
+  };
+  return {
+    source: "apps/cloud/src/modules/identity/password-hash-port.ts",
+    checks,
+    present: Object.values(checks).every(Boolean),
+  };
+}
+
+function denyingPasswordHashPortStructuralAssertionPassesPolicy(assertion) {
+  const expectedChecks = [
+    "interfaceReturnTypeCannotExpressSuccess",
+    "denyingImplementationPresent",
+    "denyingImplementationReturnsDisabled",
+    "defaultCompositionUsesDenyingPort",
+    "typeLevelNegativeAssertionPresent",
+  ];
+  return (
+    assertion?.source === "apps/cloud/src/modules/identity/password-hash-port.ts" &&
+    assertion.present === true &&
+    assertion.checks !== null &&
+    typeof assertion.checks === "object" &&
+    Object.keys(assertion.checks).length === expectedChecks.length &&
+    expectedChecks.every((field) => assertion.checks[field] === true)
+  );
+}
+
+function deferredProbeAnchorPassesPolicy(report) {
+  const anchor = report.probeAnchor;
+  return (
+    report.probeExecuted === false &&
+    anchor?.criterionId === deferredProbeAnchor.criterionId &&
+    anchor.decisionTraceId === deferredProbeAnchor.decisionTraceId &&
+    anchor.method === deferredProbeAnchor.method &&
+    anchor.path === deferredProbeAnchor.path &&
+    anchor.readinessGate === deferredProbeAnchor.readinessGate &&
+    Array.isArray(anchor.readinessCriteria) &&
+    anchor.readinessCriteria.length === deferredProbeAnchor.readinessCriteria.length &&
+    deferredProbeAnchor.readinessCriteria.every(
+      (criterion, index) => anchor.readinessCriteria[index] === criterion,
+    ) &&
+    anchor.gateDisposition === deferredProbeAnchor.gateDisposition &&
+    anchor.state === deferredProbeAnchor.state &&
+    anchor.criterionStatus === deferredProbeAnchor.criterionStatus &&
+    anchor.probeVerdict === deferredProbeAnchor.probeVerdict &&
+    anchor.passClaimed === false
+  );
+}
+
 export function sourceAcceptDrainReleasesLease(source) {
   const acceptDrainStart = source.search(/\basync\s+acceptDrain\s*\(/);
   if (acceptDrainStart < 0) return true;
@@ -278,10 +589,30 @@ export function collectAccountGateReport() {
     resolve(root, "apps/cloud/src/modules/identity/password-hash-port.ts"),
     "utf8",
   );
-  const identityNegativeMatrixSource = [
+  const loginCommandSource = readFileSync(
+    resolve(root, "apps/cloud/src/modules/identity/login-command.ts"),
+    "utf8",
+  );
+  const passwordHashFallbackTestSource = readFileSync(
+    resolve(root, "apps/cloud/test/password-hash-fallback.test.ts"),
+    "utf8",
+  );
+  const authNegativeMatrixSources = new Map([
     "apps/cloud/test/identity-fixture.test.ts",
     "apps/cloud/test/session-families.test.ts",
-  ].map((path) => readFileSync(resolve(root, path), "utf8")).join("\n");
+  ].map((path) => [path, readFileSync(resolve(root, path), "utf8")]));
+  const authNegativeMatrix = collectAuthNegativeMatrix(authNegativeMatrixSources);
+  const rawPasswordForbiddenSurfaceProofReport = rawPasswordForbiddenSurfaceProof(
+    identityPasswordPathInputs.map((path) => ({
+      path,
+      source: readFileSync(resolve(root, path), "utf8"),
+    })),
+  );
+  const denyingPasswordHashPortAssertion = denyingPasswordHashPortStructuralAssertion(
+    passwordHashPortSource,
+    loginCommandSource,
+    passwordHashFallbackTestSource,
+  );
   const drainRuntimeSource = drainRuntimeSources.map(({ source }) => source).join("\n");
 
   return {
@@ -303,16 +634,17 @@ export function collectAccountGateReport() {
       ({ source }) => !sourceAcceptsDrainProof(source),
     ),
     drainProofSignatureSuccessUnrepresentable: drainProofSignaturePortCannotSucceed(drainPortSource),
-    passwordVerificationSuccessUnrepresentable: passwordHashPortCannotSucceed(passwordHashPortSource),
+    passwordVerificationSuccessUnrepresentable: denyingPasswordHashPortAssertion.present,
+    denyingPasswordHashPortStructuralAssertion: denyingPasswordHashPortAssertion,
     passwordHashCheckNamingCompliant: passwordHashCheckNamingCompliant(passwordHashPortSource),
-    rotationFamilyNegativeMatrixPresent: [
-      "retired-JTI reuse",
-      "unknown and cross-family JTIs",
-      "prepared concurrent rotation",
-      "duplicate issuance",
-      "LIST_REVISION_STALE",
-      "REAUTH_PROOF_EXPIRED",
-    ].every((scenario) => identityNegativeMatrixSource.includes(scenario)),
+    authNegativeMatrix,
+    rotationFamilyNegativeMatrixPresent: authNegativeMatrix.present,
+    rawPasswordForbiddenSurfaceProof: rawPasswordForbiddenSurfaceProofReport,
+    rawPasswordSurfacesAbsent: rawPasswordForbiddenSurfaceProofReport.surfaces.every(
+      ({ absent }) => absent,
+    ),
+    probeExecuted: false,
+    probeAnchor: deferredProbeAnchor,
     acceptDrainLeaseReleaseAbsent: !sourceAcceptDrainReleasesLease(devicesSource),
     drainProductionRoutesAbsent: drainRuntimeSources.every(
       ({ source }) => !sourceRegistersProductionRoute(source),
@@ -343,8 +675,15 @@ export function accountGateReportPassesPolicy(report) {
     report.drainProofAcceptanceAbsent &&
     report.drainProofSignatureSuccessUnrepresentable &&
     report.passwordVerificationSuccessUnrepresentable &&
+    denyingPasswordHashPortStructuralAssertionPassesPolicy(
+      report.denyingPasswordHashPortStructuralAssertion,
+    ) &&
     report.passwordHashCheckNamingCompliant &&
     report.rotationFamilyNegativeMatrixPresent &&
+    authNegativeMatrixPassesPolicy(report.authNegativeMatrix) &&
+    report.rawPasswordSurfacesAbsent &&
+    rawPasswordForbiddenSurfaceProofPassesPolicy(report.rawPasswordForbiddenSurfaceProof) &&
+    deferredProbeAnchorPassesPolicy(report) &&
     report.acceptDrainLeaseReleaseAbsent &&
     report.drainProductionRoutesAbsent &&
     report.drainProofSignatureCheckNamingCompliant &&

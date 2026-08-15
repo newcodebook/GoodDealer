@@ -10,6 +10,7 @@ import {
   identityFixtureIsNonSellable,
   passwordHashCheckNamingCompliant,
   passwordHashPortCannotSucceed,
+  rawPasswordForbiddenSurfaceProof,
   sourceAcceptDrainReleasesLease,
   sourceAcceptsDrainProof,
   sourceDeclaresRawCredentialField,
@@ -232,6 +233,187 @@ test("account gate report requires an unsuccessable checkPasswordHash port", () 
         verifyPasswordHash(): Promise<{ readonly verified: false }>;
       }
     `),
+    false,
+  );
+});
+
+test("account gate report records a structured auth negative matrix and fails closed per assertion", () => {
+  const report = collectAccountGateReport();
+  const matrix = report.authNegativeMatrix;
+  assert.equal(matrix.present, true);
+  assert.deepEqual(
+    [...new Set(matrix.assertions.map(({ category }) => category))].sort(),
+    ["family-revocation", "jti-uniqueness", "reauth", "reuse", "rotation"],
+  );
+  assert.deepEqual(
+    matrix.assertions.map(({ id }) => id),
+    [
+      "current-jti-rotation-cas",
+      "retired-jti-reuse",
+      "unknown-and-cross-family-jti",
+      "family-wide-jti-revocation-isolated",
+      "global-jti-uniqueness-no-partial-write",
+      "stale-list-revision-and-missing-reauth",
+      "expired-and-epoch-stale-reauth",
+    ],
+  );
+  for (const assertion of matrix.assertions) {
+    assert.equal(assertion.present, true, assertion.id);
+    assert.ok(assertion.evidenceChecks.length > 0, assertion.id);
+    assert.equal(assertion.evidenceChecks.every(({ present }) => present), true, assertion.id);
+    const mutated = {
+      ...report,
+      authNegativeMatrix: {
+        ...matrix,
+        assertions: matrix.assertions.map((candidate) =>
+          candidate.id === assertion.id ? { ...candidate, present: false } : candidate
+        ),
+      },
+    };
+    assert.equal(accountGateReportPassesPolicy(mutated), false, assertion.id);
+    assert.equal(
+      accountGateReportPassesPolicy({
+        ...report,
+        authNegativeMatrix: {
+          ...matrix,
+          assertions: matrix.assertions.map((candidate) =>
+            candidate.id === assertion.id
+              ? {
+                  ...candidate,
+                  evidenceChecks: candidate.evidenceChecks.map((check, index) =>
+                    index === 0 ? { ...check, present: false } : check
+                  ),
+                }
+              : candidate
+          ),
+        },
+      }),
+      false,
+      `${assertion.id}:evidence-check`,
+    );
+  }
+  assert.equal(
+    accountGateReportPassesPolicy({
+      ...report,
+      authNegativeMatrix: { ...matrix, assertions: matrix.assertions.slice(1) },
+    }),
+    false,
+  );
+});
+
+test("account gate report proves all six raw-password forbidden surfaces absent and fails closed per surface", () => {
+  const report = collectAccountGateReport();
+  const proof = report.rawPasswordForbiddenSurfaceProof;
+  assert.equal(report.rawPasswordSurfacesAbsent, true);
+  assert.equal(proof.scope, "identity-real-password-path");
+  assert.deepEqual(proof.scannedSources, [
+    "apps/cloud/src/modules/identity/login-command.ts",
+    "apps/cloud/src/modules/identity/password-hash-port.ts",
+  ]);
+  assert.deepEqual(
+    proof.surfaces.map(({ id }) => id),
+    ["dom-persistent-state", "ipc-history", "logs", "errors", "sqlite", "temp-files"],
+  );
+  for (const surface of proof.surfaces) {
+    assert.equal(surface.absent, true, surface.id);
+    const mutated = {
+      ...report,
+      rawPasswordForbiddenSurfaceProof: {
+        ...proof,
+        surfaces: proof.surfaces.map((candidate) =>
+          candidate.id === surface.id ? { ...candidate, absent: false } : candidate
+        ),
+      },
+    };
+    assert.equal(accountGateReportPassesPolicy(mutated), false, surface.id);
+  }
+
+  const forbiddenSamples = new Map([
+    ["dom-persistent-state", 'localStorage.setItem("password", candidate);'],
+    ["ipc-history", "invoke(ACCOUNT_LOGIN_COMMAND, { secret });"],
+    ["logs", "console.log(candidate);"],
+    ["errors", "throw new Error(secret);"],
+    ["sqlite", 'sqlite.prepare("INSERT INTO credentials VALUES (?)");'],
+    ["temp-files", 'writeFile(tmpdir(), candidate);'],
+  ]);
+  for (const [surfaceId, source] of forbiddenSamples) {
+    const injected = rawPasswordForbiddenSurfaceProof([
+      { path: "apps/cloud/src/modules/identity/login-command.ts", source },
+      {
+        path: "apps/cloud/src/modules/identity/password-hash-port.ts",
+        source: "const port = true;",
+      },
+    ]);
+    assert.equal(injected.surfaces.find(({ id }) => id === surfaceId)?.absent, false, surfaceId);
+    assert.equal(
+      accountGateReportPassesPolicy({
+        ...report,
+        rawPasswordSurfacesAbsent: false,
+        rawPasswordForbiddenSurfaceProof: injected,
+      }),
+      false,
+      surfaceId,
+    );
+  }
+});
+
+test("account gate report carries the DenyingPasswordHashPort structural assertion", () => {
+  const report = collectAccountGateReport();
+  const assertion = report.denyingPasswordHashPortStructuralAssertion;
+  assert.equal(assertion.present, true);
+  assert.equal(assertion.source, "apps/cloud/src/modules/identity/password-hash-port.ts");
+  assert.deepEqual(Object.keys(assertion.checks), [
+    "interfaceReturnTypeCannotExpressSuccess",
+    "denyingImplementationPresent",
+    "denyingImplementationReturnsDisabled",
+    "defaultCompositionUsesDenyingPort",
+    "typeLevelNegativeAssertionPresent",
+  ]);
+  for (const field of Object.keys(assertion.checks)) {
+    assert.equal(assertion.checks[field], true, field);
+    assert.equal(
+      accountGateReportPassesPolicy({
+        ...report,
+        denyingPasswordHashPortStructuralAssertion: {
+          ...assertion,
+          checks: { ...assertion.checks, [field]: false },
+        },
+      }),
+      false,
+      field,
+    );
+  }
+});
+
+test("account gate report honestly records the designed probe anchor as R1-R10 gated and not executed", () => {
+  const report = collectAccountGateReport();
+  assert.equal(report.probeExecuted, false);
+  assert.deepEqual(report.probeAnchor, {
+    criterionId: "crit_e26e01ef006a",
+    decisionTraceId: "trace_2b4364324c868154",
+    method: "GET",
+    path: "/v1/account/session",
+    readinessGate: "R1-R10",
+    readinessCriteria: ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"],
+    gateDisposition: "cross_gate_future_work",
+    state: "designed_gated_not_executed",
+    criterionStatus: "skipped",
+    probeVerdict: "not_executed",
+    passClaimed: false,
+  });
+  assert.equal(accountGateReportPassesPolicy({ ...report, probeExecuted: true }), false);
+  assert.equal(
+    accountGateReportPassesPolicy({
+      ...report,
+      probeAnchor: { ...report.probeAnchor, passClaimed: true, probeVerdict: "pass" },
+    }),
+    false,
+  );
+  assert.equal(
+    accountGateReportPassesPolicy({
+      ...report,
+      probeAnchor: { ...report.probeAnchor, readinessCriteria: report.probeAnchor.readinessCriteria.slice(1) },
+    }),
     false,
   );
 });
