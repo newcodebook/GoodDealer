@@ -12,8 +12,12 @@ serde_json.workspace = true
 [features]
 keychain-canary-spike = []
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "warn"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "=3.7.0", default-features = false }
