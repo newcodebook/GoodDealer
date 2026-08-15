@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod account_status;
 mod active_device_lease_status;
 mod bootstrap_steps;
@@ -9,6 +11,7 @@ mod generated;
 mod http_executor;
 mod runtime_gate;
 pub mod secret;
+mod session_store;
 mod wire_envelope;
 mod wire_scalar;
 
@@ -41,6 +44,12 @@ pub use drain::{
 
 pub use runtime_gate::{
     RuntimeGate, RuntimeStatusSnapshot, RuntimeStatusValidationError, validate_runtime_status_json,
+};
+pub use session_store::{
+    AccountSessionKeychainScope, AuthEnvelopeValidationError, HostSessionStore, KeychainPort,
+    KeychainWriteReceipt, RefreshTokenMaterial, SessionStoreError, SilentRecoveryRejection,
+    StartupRefreshCredential, validate_auth_access_envelope_json,
+    validate_auth_refresh_envelope_json,
 };
 pub use wire_envelope::{WireValidationError, validate_wire_envelope_json};
 

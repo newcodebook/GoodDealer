@@ -143,6 +143,50 @@ impl<'de> Deserialize<'de> for AuthSessionStatus {
 }
 
 impl AuthSessionStatus {
+    pub(crate) const fn signed_out() -> Self {
+        Self {
+            schema_version: AUTH_SESSION_SCHEMA_VERSION,
+            state: AuthSessionState::SignedOut,
+            account_id: None,
+            device_id: None,
+            account_security_epoch: None,
+            session_id: None,
+            access_token_expires_at: None,
+            refresh_rotation_generation: None,
+            last_trusted_time_at: None,
+            revocation_reason: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_host_session(
+        account_id: &str,
+        device_id: &str,
+        account_security_epoch: u64,
+        session_id: &str,
+        access_token_expires_at: &str,
+        refresh_rotation_generation: u64,
+        last_trusted_time_at: &str,
+        access_token_available: bool,
+    ) -> Self {
+        Self {
+            schema_version: AUTH_SESSION_SCHEMA_VERSION,
+            state: if access_token_available {
+                AuthSessionState::Authenticated
+            } else {
+                AuthSessionState::RefreshRequired
+            },
+            account_id: Some(account_id.to_owned()),
+            device_id: Some(device_id.to_owned()),
+            account_security_epoch: Some(account_security_epoch),
+            session_id: Some(session_id.to_owned()),
+            access_token_expires_at: Some(access_token_expires_at.to_owned()),
+            refresh_rotation_generation: Some(refresh_rotation_generation),
+            last_trusted_time_at: Some(last_trusted_time_at.to_owned()),
+            revocation_reason: None,
+        }
+    }
+
     #[must_use]
     pub const fn state(&self) -> AuthSessionState {
         self.state
