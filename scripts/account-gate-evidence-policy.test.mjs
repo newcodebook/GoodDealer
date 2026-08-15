@@ -17,6 +17,7 @@ import {
   sourceRegistersProductionRoute,
   sourceVerifiesSignature,
   sourceVerifiesSignatureInScope,
+  workspaceSourceRequiresTenantScope,
 } from "./collect-account-gate-report.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
@@ -59,6 +60,7 @@ test("WP-2 account gate evidence is fixture-only and independently runnable", ()
   assert.match(collector, /id: "account-gate-fixture-report"/);
   assert.match(workflow, /--profile quality --slice account-gate/);
   assert.match(workflow, /\.artifacts\/wp2\/account-gate/);
+  assert.match(workflow, /EVIDENCE_OWNING_MODULES: .*protocol-workspace.*cloud-account-device-bootstrap-fixtures/);
   assert.doesNotMatch(workflow, /windows-2025|macos-15/);
 });
 
@@ -256,6 +258,20 @@ test("account gate report rejects production routes in drain modules", () => {
   assert.equal(sourceRegistersProductionRoute('server.post("/drain", handler);'), true);
 });
 
+test("account gate report requires tenant scope on exported workspace data-plane methods", () => {
+  assert.equal(workspaceSourceRequiresTenantScope(`
+    export class Reader {
+      async readPage(scope: WorkspaceTenantScope, request: unknown): Promise<void> {}
+      snapshot(scope: WorkspaceTenantScope): readonly unknown[] { return []; }
+    }
+  `), true);
+  assert.equal(workspaceSourceRequiresTenantScope(`
+    export class Reader {
+      async readPage(request: unknown): Promise<void> {}
+    }
+  `), false);
+});
+
 test("account gate report makes every fallback field a hard requirement", () => {
   const report = collectAccountGateReport();
   assert.equal(report.activeDeviceLeaseIssuanceAbsent, true);
@@ -268,6 +284,8 @@ test("account gate report makes every fallback field a hard requirement", () => 
   assert.equal(report.acceptDrainLeaseReleaseAbsent, true);
   assert.equal(report.drainProductionRoutesAbsent, true);
   assert.equal(report.drainProofSignatureCheckNamingCompliant, true);
+  assert.equal(report.workspaceIngestProductionRoutesAbsent, true);
+  assert.equal(report.workspaceTenantScopeRequired, true);
   assert.equal(accountGateReportPassesPolicy(report), true);
   for (const field of [
     "activeDeviceLeaseIssuanceAbsent",
@@ -280,6 +298,8 @@ test("account gate report makes every fallback field a hard requirement", () => 
     "acceptDrainLeaseReleaseAbsent",
     "drainProductionRoutesAbsent",
     "drainProofSignatureCheckNamingCompliant",
+    "workspaceIngestProductionRoutesAbsent",
+    "workspaceTenantScopeRequired",
   ]) {
     assert.equal(accountGateReportPassesPolicy({ ...report, [field]: false }), false, field);
   }

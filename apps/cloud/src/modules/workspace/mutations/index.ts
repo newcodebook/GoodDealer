@@ -261,6 +261,12 @@ export interface WorkspaceMutationQueryPort {
     fromRevisionExclusive: number,
     throughRevisionInclusive: number,
   ): readonly SyncMutation[];
+  hasCompleteRange(
+    scope: WorkspaceTenantScope,
+    fromRevisionExclusive: number,
+    throughRevisionInclusive: number,
+  ): boolean;
+  compactPrefix(scope: WorkspaceTenantScope, throughRevisionInclusive: number): { rollback(): void };
 }
 
 interface WorkspaceRevisionCommitPort {
@@ -489,6 +495,45 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
       if (mutation !== undefined) output.push(structuredClone(mutation));
     }
     return output;
+  }
+
+  hasCompleteRange(
+    scope: WorkspaceTenantScope,
+    fromRevisionExclusive: number,
+    throughRevisionInclusive: number,
+  ): boolean {
+    if (
+      !Number.isSafeInteger(fromRevisionExclusive) ||
+      !Number.isSafeInteger(throughRevisionInclusive) ||
+      fromRevisionExclusive < 0 ||
+      throughRevisionInclusive < fromRevisionExclusive
+    ) return false;
+    return this.readCommitted(scope, fromRevisionExclusive, throughRevisionInclusive).length ===
+      throughRevisionInclusive - fromRevisionExclusive;
+  }
+
+  compactPrefix(
+    scope: WorkspaceTenantScope,
+    throughRevisionInclusive: number,
+  ): { rollback(): void } {
+    if (!Number.isSafeInteger(throughRevisionInclusive) || throughRevisionInclusive < 0) {
+      throw new TypeError("mutation compaction watermark must be unsigned");
+    }
+    const key = workspaceTenantKey(scope);
+    const records = this.#recordsByRevision.get(key);
+    if (records === undefined) return { rollback: () => undefined };
+    const removed = new Map<number, SyncMutation>();
+    for (const [revision, mutation] of records) {
+      if (revision <= throughRevisionInclusive) {
+        removed.set(revision, mutation);
+        records.delete(revision);
+      }
+    }
+    return {
+      rollback: () => {
+        for (const [revision, mutation] of removed) records.set(revision, mutation);
+      },
+    };
   }
 
   findByMutationId(scope: WorkspaceTenantScope, mutationId: string): SyncMutation | null {

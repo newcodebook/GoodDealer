@@ -26,7 +26,13 @@ const requiredInputs = [
   "apps/cloud/src/modules/devices/lease-lifecycle.ts",
   "apps/cloud/src/modules/devices/ports.ts",
   "apps/cloud/src/modules/devices/switch-workflow.ts",
+  "apps/cloud/src/modules/workspace/tenant-scope.ts",
+  "apps/cloud/src/modules/workspace/revisions/index.ts",
   "apps/cloud/src/modules/workspace/mutations/index.ts",
+  "apps/cloud/src/modules/workspace/state/portfolio/index.ts",
+  "apps/cloud/src/modules/workspace/read/index.ts",
+  "apps/cloud/src/modules/workspace/cursors/index.ts",
+  "apps/cloud/src/modules/workspace/checkpoints/index.ts",
   "apps/cloud/src/modules/execution-ledger/index.ts",
   "apps/cloud/src/modules/audit/index.ts",
   "packages/protocol/test/account-auth.test.ts",
@@ -48,6 +54,8 @@ const requiredInputs = [
   "apps/cloud/test/drain-verification.test.ts",
   "apps/cloud/test/lease-lifecycle.test.ts",
   "apps/cloud/test/switch-workflow.test.ts",
+  "apps/cloud/test/workspace-mutation-ingest.test.ts",
+  "apps/cloud/test/workspace-checkpoint-cursor.test.ts",
 ];
 
 function sha256(content) {
@@ -79,6 +87,47 @@ export function sourceRegistersProductionRoute(source) {
       source,
     );
   return importsProductionServer || invokesNetworkPrimitive || registersRoute;
+}
+
+export function workspaceSourceRequiresTenantScope(source) {
+  const contextFreePortMethods = new Set(["digest", "now"]);
+  const lines = source.split("\n");
+  const containers = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const declaration = /^(\s*)export\s+(?:abstract\s+)?(?:class|interface)\b/.exec(lines[index]);
+    if (declaration === null) continue;
+    const indentation = declaration[1].length;
+    const collected = [];
+    let depth = 0;
+    let opened = false;
+    for (; index < lines.length; index += 1) {
+      const line = lines[index];
+      collected.push(line.slice(Math.min(indentation, line.length)));
+      const delta = braceDelta(line);
+      if (delta.open > 0) opened = true;
+      depth += delta.open - delta.close;
+      if (opened && depth === 0) break;
+    }
+    containers.push(collected.join("\n"));
+  }
+  return containers.every((container) => {
+    const methods = [...container.matchAll(
+      /^[ \t]{2}(?:async[ \t]+)?([A-Za-z][A-Za-z0-9]*)[ \t]*\([ \t\r\n]*([\s\S]*?)\)[ \t]*(?::[^;{\n]+)?[;{]/gm,
+    )].filter(([, name]) => name !== "constructor" && !contextFreePortMethods.has(name));
+    return methods.every(([, , parameters]) =>
+      /^scope[ \t\r\n]*:[ \t\r\n]*WorkspaceTenantScope\b/.test(parameters)
+    );
+  });
+}
+
+function braceDelta(line) {
+  const structural = line
+    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g, "")
+    .replace(/\/\/.*$/, "");
+  return {
+    open: (structural.match(/{/g) ?? []).length,
+    close: (structural.match(/}/g) ?? []).length,
+  };
 }
 
 export function sourceDeclaresRawCredentialField(source, path) {
@@ -218,6 +267,9 @@ export function collectAccountGateReport() {
     .map((path) => ({ path, source: readFileSync(resolve(root, path), "utf8") }));
   const runtimeSource = runtimeSources.map(({ source }) => source).join("\n");
   const cloudRuntimeSources = runtimeSources.filter(({ path }) => path.startsWith("apps/cloud/src/"));
+  const workspaceRuntimeSources = cloudRuntimeSources.filter(({ path }) =>
+    path.startsWith("apps/cloud/src/modules/workspace/")
+  );
   const drainRuntimeSources = cloudRuntimeSources.filter(({ path }) => signatureVerificationBannedInputs.has(path));
   const identitySource = readFileSync(resolve(root, "apps/cloud/src/modules/identity/index.ts"), "utf8");
   const devicesSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/index.ts"), "utf8");
@@ -266,6 +318,12 @@ export function collectAccountGateReport() {
       ({ source }) => !sourceRegistersProductionRoute(source),
     ),
     drainProofSignatureCheckNamingCompliant: drainProofSignatureCheckNamingCompliant(drainRuntimeSource),
+    workspaceIngestProductionRoutesAbsent: workspaceRuntimeSources.every(
+      ({ source }) => !sourceRegistersProductionRoute(source),
+    ),
+    workspaceTenantScopeRequired: workspaceRuntimeSources.every(
+      ({ source }) => workspaceSourceRequiresTenantScope(source),
+    ),
     internalAccountSellable: !identityFixtureIsNonSellable(identitySource),
     requiredInputsPresent: inputs.length === requiredInputs.length,
     accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
@@ -290,6 +348,8 @@ export function accountGateReportPassesPolicy(report) {
     report.acceptDrainLeaseReleaseAbsent &&
     report.drainProductionRoutesAbsent &&
     report.drainProofSignatureCheckNamingCompliant &&
+    report.workspaceIngestProductionRoutesAbsent &&
+    report.workspaceTenantScopeRequired &&
     report.internalAccountSellable === false &&
     report.requiredInputsPresent &&
     report.accountVectors.valid > 0 &&

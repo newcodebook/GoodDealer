@@ -84,7 +84,27 @@ export class InMemoryWorkspaceRevisions implements WorkspaceBindingPort {
 
   assignedRevisions(scope: WorkspaceTenantScope): readonly number[] {
     const head = this.#requiredHead(scope);
-    return Array.from({ length: head.serverRevision }, (_, index) => index + 1);
+    return Array.from(
+      { length: head.serverRevision - head.compactionWatermark },
+      (_, index) => head.compactionWatermark + index + 1,
+    );
+  }
+
+  advanceCompactionWatermark(
+    scope: WorkspaceTenantScope,
+    throughRevision: number,
+  ): { rollback(): void } {
+    const head = this.#requiredHead(scope);
+    if (
+      !Number.isSafeInteger(throughRevision) ||
+      throughRevision < head.compactionWatermark ||
+      throughRevision > head.serverRevision
+    ) {
+      throw new TypeError("workspace compaction watermark is invalid");
+    }
+    const previous = head.compactionWatermark;
+    head.compactionWatermark = throughRevision;
+    return { rollback: () => { head.compactionWatermark = previous; } };
   }
 
   #requiredHead(scope: WorkspaceTenantScope): WorkspaceRevisionHead {

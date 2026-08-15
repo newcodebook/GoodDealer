@@ -20,18 +20,20 @@ export interface MutationPageRequest {
   readonly pageLimit: number;
 }
 
-export type MutationPageReadResult =
-  | { readonly accepted: true; readonly page: MutationPage }
-  | {
-    readonly accepted: false;
-    readonly code:
-      | "WORKSPACE_TENANT_UNRESOLVED"
-      | "MUTATION_PAGE_RANGE_INVALID"
-      | "MUTATION_CURSOR_MISMATCH"
-      | "MUTATION_PAGE_COMPACTED";
-  };
+export type MutationPageRejectionCode =
+  | "WORKSPACE_TENANT_UNRESOLVED"
+  | "MUTATION_PAGE_RANGE_INVALID"
+  | "MUTATION_CURSOR_MISMATCH"
+  | "MUTATION_PAGE_COMPACTED";
 
-/** Fixture-only immutable mutation paging; cursor tokens bind the resolved account and workspace. */
+export class MutationPageReadError extends Error {
+  constructor(readonly code: MutationPageRejectionCode) {
+    super(code);
+    this.name = "MutationPageReadError";
+  }
+}
+
+/** Fixture-only immutable mutation paging implementing the exact Bootstrap MutationPagePort. */
 export class InMemoryWorkspaceMutationReader {
   readonly #bindings: WorkspaceBindingPort;
   readonly #mutations: WorkspaceMutationQueryPort;
@@ -47,9 +49,9 @@ export class InMemoryWorkspaceMutationReader {
     this.#sha256 = options.sha256;
   }
 
-  async readPage(scope: WorkspaceTenantScope, request: MutationPageRequest): Promise<MutationPageReadResult> {
+  async readPage(scope: WorkspaceTenantScope, request: MutationPageRequest): Promise<MutationPage> {
     const binding = this.#bindings.resolveWorkspace(scope);
-    if (!binding.bound) return { accepted: false, code: "WORKSPACE_TENANT_UNRESOLVED" };
+    if (!binding.bound) throw new MutationPageReadError("WORKSPACE_TENANT_UNRESOLVED");
     if (
       !Number.isSafeInteger(request.fromRevisionExclusive) ||
       !Number.isSafeInteger(request.throughRevisionInclusive) ||
@@ -58,14 +60,14 @@ export class InMemoryWorkspaceMutationReader {
       request.throughRevisionInclusive < request.fromRevisionExclusive ||
       request.pageLimit < 1 ||
       request.pageLimit > 256
-    ) return { accepted: false, code: "MUTATION_PAGE_RANGE_INVALID" };
+    ) throw new MutationPageReadError("MUTATION_PAGE_RANGE_INVALID");
     if (request.fromRevisionExclusive < binding.compactionWatermark) {
-      return { accepted: false, code: "MUTATION_PAGE_COMPACTED" };
+      throw new MutationPageReadError("MUTATION_PAGE_COMPACTED");
     }
     if (
       request.cursor !== null &&
       request.cursor !== encodeCursor(scope, request.throughRevisionInclusive, request.fromRevisionExclusive)
-    ) return { accepted: false, code: "MUTATION_CURSOR_MISMATCH" };
+    ) throw new MutationPageReadError("MUTATION_CURSOR_MISMATCH");
 
     const returnedThroughRevision = Math.min(
       request.throughRevisionInclusive,
@@ -77,7 +79,7 @@ export class InMemoryWorkspaceMutationReader {
       returnedThroughRevision,
     );
     if (mutations.length !== returnedThroughRevision - request.fromRevisionExclusive) {
-      return { accepted: false, code: "MUTATION_PAGE_RANGE_INVALID" };
+      throw new MutationPageReadError("MUTATION_PAGE_RANGE_INVALID");
     }
     const nextCursor = returnedThroughRevision === request.throughRevisionInclusive
       ? null
@@ -95,7 +97,9 @@ export class InMemoryWorkspaceMutationReader {
       ...draft,
       pageDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     }))).toString("base64url");
-    return { accepted: true, page: mutationPageSchema.parse({ ...draft, pageDigest }) };
+
+    // Zod parsing fixes field order as well as shape; Bootstrap compares this object byte-for-byte.
+    return mutationPageSchema.parse({ ...draft, pageDigest });
   }
 }
 

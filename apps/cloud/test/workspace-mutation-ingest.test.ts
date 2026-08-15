@@ -6,7 +6,7 @@ import type { SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
 import { describe, expect, it } from "vitest";
 
 import { InMemoryCheckpointCatalog } from "../src/modules/workspace/checkpoints/index";
-import { InMemoryReaderCursors } from "../src/modules/workspace/cursors/index";
+import { InMemoryDeviceCursors, InMemoryReaderCursors } from "../src/modules/workspace/cursors/index";
 import {
   InMemoryMutationDrainWatermarks,
   InMemoryWorkspaceLeaseRegistry,
@@ -76,15 +76,26 @@ function harness(fault?: (point: MutationCommitFaultPoint) => void) {
     ...(fault === undefined ? {} : { fault }),
   });
   const reader = new InMemoryWorkspaceMutationReader({ bindings: revisions, mutations: ingest, sha256 });
-  const checkpoints = new InMemoryCheckpointCatalog(revisions);
-  const cursors = new InMemoryReaderCursors({ bindings: revisions, pages: reader });
+  const time = { now: () => "2026-08-15T08:00:00Z" };
+  const deviceCursors = new InMemoryDeviceCursors(time);
+  const cursors = new InMemoryReaderCursors({ bindings: revisions, heads: revisions, pages: reader, time });
+  const checkpoints = new InMemoryCheckpointCatalog({
+    bindings: revisions,
+    revisions,
+    state: portfolio,
+    mutations: ingest,
+    deviceCursors,
+    readerCursors: cursors,
+    sha256,
+    time,
+  });
   const bind = (scope: WorkspaceTenantScope) => {
     revisions.bindWorkspace(scope, 1);
     portfolio.seedDomainAsset(scope, { entityId: "shared-entity" });
     leases.bindDevice(scope, "shared-device", "active", 7);
     leases.bindDevice(scope, "standby-device", "standby", 7);
   };
-  return { revisions, portfolio, leases, ledger, ingest, reader, checkpoints, cursors, bind };
+  return { revisions, portfolio, leases, ledger, ingest, reader, checkpoints, cursors, deviceCursors, bind };
 }
 
 describe("workspace SubmittedSyncMutation ingest", () => {
@@ -192,13 +203,14 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     const second = mutation({ sequence: 2, mutationId: "a-second", baseRevision: 1, fieldPath: "note" });
     expect(await subject.ingest.ingest(scopeA, request([first]))).toMatchObject({ accepted: true, headRevision: 1 });
     expect(await subject.ingest.ingest(scopeA, request([second]))).toMatchObject({ accepted: true, headRevision: 2 });
-    subject.checkpoints.publishFixtureCheckpoint(scopeA, {
-      schemaVersion: 1,
-      checkpointId: "shared-checkpoint",
-      workspaceId: "shared-workspace",
-      workspaceSchemaVersion: 1,
-      throughRevision: 2,
-      checkpointDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    expect(await subject.checkpoints.buildCheckpoint(scopeA, "shared-checkpoint", 2)).toMatchObject({
+      accepted: true,
+      checkpoint: { status: "building", throughRevision: 2 },
+    });
+    expect(await subject.checkpoints.verifyCheckpoint(scopeA, "shared-checkpoint")).toMatchObject({ accepted: true });
+    expect(await subject.checkpoints.publishCheckpoint(scopeA, "shared-checkpoint")).toMatchObject({
+      accepted: true,
+      checkpoint: { status: "available" },
     });
     const firstPage = await subject.reader.readPage(scopeA, {
       fromRevisionExclusive: 0,
@@ -206,8 +218,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       cursor: null,
       pageLimit: 1,
     });
-    expect(firstPage).toMatchObject({ accepted: true });
-    if (!firstPage.accepted) throw new TypeError("A tenant page unexpectedly rejected");
+    expect(firstPage.mutations).toHaveLength(1);
 
     // N1, N5, N8: absent, foreign, and structurally forged contexts fail before data access.
     expect(await subject.ingest.ingest(scopeB, request([first]))).toEqual({
@@ -264,12 +275,12 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     expect(subject.ingest.findByMutationId(scopeB, "shared-mutation")).toEqual({ ...bFirst, serverRevision: 1 });
 
     // N4: A's opaque continuation is bound to accountId and rejected under B.
-    expect(await subject.reader.readPage(scopeB, {
+    await expect(subject.reader.readPage(scopeB, {
       fromRevisionExclusive: 1,
       throughRevisionInclusive: 2,
-      cursor: firstPage.page.nextCursor,
+      cursor: firstPage.nextCursor,
       pageLimit: 1,
-    })).toEqual({ accepted: false, code: "MUTATION_CURSOR_MISMATCH" });
+    })).rejects.toMatchObject({ code: "MUTATION_CURSOR_MISMATCH" });
 
     // N6: an identical checkpoint literal under B is neither selectable nor pinnable.
     expect(await subject.checkpoints.selectPublishedCheckpoint(scopeB, "shared-checkpoint")).toBeNull();
@@ -308,7 +319,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       code: "MUTATION_DEVICE_NOT_ACTIVE",
     });
     expect(await subject.cursors.openReaderCursor(scopeA, "standby-device", 0)).toMatchObject({ accepted: true });
-    expect(await subject.cursors.readAfter(scopeA, "standby-device", 0, 1)).toMatchObject({ accepted: true });
+    expect(await subject.cursors.readAfter(scopeA, "standby-device", 1)).toMatchObject({ accepted: true });
     expect(await subject.cursors.renewReaderCursor(scopeA, "standby-device")).toMatchObject({ accepted: true });
     await subject.cursors.retireReaderCursor(scopeA, "standby-device", "device_removed");
     expect(subject.cursors.snapshot(scopeA)).toMatchObject([{ status: "retired", retiredReason: "device_removed" }]);

@@ -1,5 +1,5 @@
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
-import type { SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
+import type { SubmittedSyncMutation, WorkspaceEntityDigest } from "@gooddealer/protocol/workspace";
 
 import type { WorkspaceTenantScope } from "../../tenant-scope";
 import { workspaceTenantKey } from "../../tenant-scope";
@@ -49,6 +49,7 @@ export interface PortfolioMutationPort {
 /** In-memory V1 domain_asset projection; revision metadata never enters business digests. */
 export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   readonly #rows = new Map<string, Map<string, StoredDomainAsset>>();
+  readonly #history = new Map<string, Map<number, Map<string, StoredDomainAsset>>>();
 
   seedDomainAsset(scope: WorkspaceTenantScope, seed: DomainAssetSeed): void {
     const rows = this.#workspaceRows(scope);
@@ -60,6 +61,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       tags: { value: [...(seed.tags ?? [])], lastModifiedRevision: 0 },
       targetPrice: { value: seed.targetPrice === undefined ? null : cloneMoney(seed.targetPrice), lastModifiedRevision: 0 },
     });
+    this.#recordSnapshot(scope, 0, rows);
   }
 
   hasDomainAsset(scope: WorkspaceTenantScope, entityId: string): boolean {
@@ -77,12 +79,21 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   ): { rollback(): void } {
     const rows = this.#workspaceRows(scope);
     const previous = cloneRows(rows);
+    const key = workspaceTenantKey(scope);
+    const previousHistory = cloneHistory(this.#history.get(key));
     for (const { mutation, serverRevision } of mutations) {
       const row = rows.get(mutation.entityId);
       if (row === undefined) throw new TypeError("accepted mutation names an unknown domain asset");
       for (const field of mutation.changedFields) applyField(row, field, serverRevision);
+      this.#recordSnapshot(scope, serverRevision, rows);
     }
-    return { rollback: () => this.#rows.set(workspaceTenantKey(scope), previous) };
+    return {
+      rollback: () => {
+        this.#rows.set(key, previous);
+        if (previousHistory === undefined) this.#history.delete(key);
+        else this.#history.set(key, previousHistory);
+      },
+    };
   }
 
   inspectDomainAsset(scope: WorkspaceTenantScope, entityId: string): DomainAssetProjection | null {
@@ -96,6 +107,15 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       .map(projectRow);
   }
 
+  snapshotAtRevision(scope: WorkspaceTenantScope, throughRevision: number): readonly DomainAssetProjection[] {
+    if (!Number.isSafeInteger(throughRevision) || throughRevision < 0) {
+      throw new TypeError("workspace snapshot revision must be unsigned");
+    }
+    const rows = this.#history.get(workspaceTenantKey(scope))?.get(throughRevision);
+    if (rows === undefined) throw new TypeError("workspace snapshot revision is unavailable");
+    return [...rows.values()].sort((left, right) => left.entityId.localeCompare(right.entityId)).map(projectRow);
+  }
+
   async computeBusinessDigest(
     scope: WorkspaceTenantScope,
     digest: (bytes: Uint8Array) => Promise<Uint8Array>,
@@ -103,6 +123,21 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     const canonicalRows = this.snapshot(scope).map(({ lastModifiedRevision: _revision, ...row }) => row);
     const bytes = encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", canonicalRows);
     return Buffer.from(await digest(bytes)).toString("base64url");
+  }
+
+  async readEntityDigestsAt(
+    scope: WorkspaceTenantScope,
+    throughRevision: number,
+    digest: (bytes: Uint8Array) => Promise<Uint8Array>,
+  ): Promise<readonly WorkspaceEntityDigest[]> {
+    const canonicalRows = this.snapshotAtRevision(scope, throughRevision)
+      .map(({ lastModifiedRevision: _revision, ...row }) => row);
+    const bytes = encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", canonicalRows);
+    return [{
+      entityType: "domain_asset",
+      partitionId: null,
+      digest: Buffer.from(await digest(bytes)).toString("base64url"),
+    }];
   }
 
   #workspaceRows(scope: WorkspaceTenantScope): Map<string, StoredDomainAsset> {
@@ -113,6 +148,13 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       this.#rows.set(key, rows);
     }
     return rows;
+  }
+
+  #recordSnapshot(scope: WorkspaceTenantScope, revision: number, rows: Map<string, StoredDomainAsset>): void {
+    const key = workspaceTenantKey(scope);
+    const history = this.#history.get(key) ?? new Map<number, Map<string, StoredDomainAsset>>();
+    history.set(revision, cloneRows(rows));
+    this.#history.set(key, history);
   }
 }
 
@@ -161,6 +203,14 @@ function cloneRows(rows: Map<string, StoredDomainAsset>): Map<string, StoredDoma
     tags: { value: [...row.tags.value], lastModifiedRevision: row.tags.lastModifiedRevision },
     targetPrice: { value: cloneMoney(row.targetPrice.value), lastModifiedRevision: row.targetPrice.lastModifiedRevision },
   }]));
+}
+
+function cloneHistory(
+  history: Map<number, Map<string, StoredDomainAsset>> | undefined,
+): Map<number, Map<string, StoredDomainAsset>> | undefined {
+  return history === undefined
+    ? undefined
+    : new Map([...history].map(([revision, rows]) => [revision, cloneRows(rows)]));
 }
 
 function cloneMoney<Value extends { readonly currency: string; readonly amount: string } | null>(value: Value): Value {
