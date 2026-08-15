@@ -9,6 +9,7 @@ import {
   type AccountRejection,
   type AccountRejectionCode,
   type AccountSessionList,
+  type AccountSessionClientKind,
   type AccountSessionRevokeRequest,
   type AuthLoginRequest,
   type AuthRevocationReason,
@@ -26,10 +27,12 @@ type AuthMethod = AuthLoginRequest["method"];
 
 interface SessionRecord {
   readonly sessionId: string;
-  readonly deviceId: string;
+  readonly clientKind: AccountSessionClientKind;
+  readonly deviceId: string | null;
   readonly method: AuthMethod;
   readonly createdAt: string;
   readonly rememberDevice: boolean;
+  readonly expiresAt: string | null;
   displayName: string;
   lastSeenAt: string;
   rotationGeneration: number;
@@ -52,6 +55,23 @@ export interface RefreshFixtureContext {
 export interface IdentityFixtureOptions {
   readonly now?: () => Date;
   readonly boundDeviceIds?: readonly string[];
+  readonly accountWebSessions?: readonly AccountWebSessionFixture[];
+}
+
+export interface AccountWebSessionFixture {
+  readonly sessionId: string;
+  readonly displayName: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+}
+
+export interface IdentitySessionVerificationSnapshot {
+  readonly accountId: string;
+  readonly clientKind: AccountSessionClientKind;
+  readonly expiresAt: string | null;
+  readonly sessionAccountSecurityEpoch: number;
+  readonly currentAccountSecurityEpoch: number;
+  readonly familyState: "active" | "revoked" | null;
 }
 
 export class IdentityFixtureService {
@@ -74,6 +94,35 @@ export class IdentityFixtureService {
   constructor(options: IdentityFixtureOptions = {}) {
     this.#now = options.now ?? (() => new Date());
     this.#boundDeviceIds = new Set(options.boundDeviceIds ?? ["fixture-device-active", "fixture-device-standby"]);
+    for (const fixture of options.accountWebSessions ?? []) {
+      const createdAt = canonicalTimestamp(fixture.createdAt);
+      const expiresAt = canonicalTimestamp(fixture.expiresAt);
+      if (createdAt >= expiresAt || this.#sessions.has(fixture.sessionId)) {
+        throw new Error("invalid account-web session fixture");
+      }
+      const issued = this.#families.createFamily({
+        familyId: fixture.sessionId,
+        refreshJti: this.#newCredentialJti("refresh"),
+        accessJti: this.#newCredentialJti("access"),
+      });
+      if (!issued.created) throw new Error("fixture credential JTI allocation failed closed");
+      this.#sessions.set(fixture.sessionId, {
+        sessionId: fixture.sessionId,
+        clientKind: "account_web",
+        deviceId: null,
+        method: "password",
+        createdAt,
+        rememberDevice: false,
+        expiresAt,
+        displayName: fixture.displayName,
+        lastSeenAt: createdAt,
+        rotationGeneration: 0,
+        accountSecurityEpoch: this.#accountSecurityEpoch,
+        revokedAt: null,
+        revocationReason: null,
+      });
+      this.#listRevision += 1;
+    }
   }
 
   login(request: AuthLoginRequest): AuthSessionStatus | AccountRejection {
@@ -89,10 +138,12 @@ export class IdentityFixtureService {
     }
     const session: SessionRecord = {
       sessionId: `fixture-session-${this.#nextSession++}`,
+      clientKind: "desktop",
       deviceId: request.deviceId,
       method: request.method,
       createdAt: now,
       rememberDevice: request.rememberDevice,
+      expiresAt: null,
       displayName: request.deviceId,
       lastSeenAt: now,
       rotationGeneration: 0,
@@ -166,6 +217,19 @@ export class IdentityFixtureService {
     return this.#accountSecurityEpoch;
   }
 
+  readSessionVerification(sessionId: string): IdentitySessionVerificationSnapshot | null {
+    const session = this.#sessions.get(sessionId);
+    if (session === undefined) return null;
+    return {
+      accountId: this.accountId,
+      clientKind: session.clientKind,
+      expiresAt: session.expiresAt,
+      sessionAccountSecurityEpoch: session.accountSecurityEpoch,
+      currentAccountSecurityEpoch: this.#accountSecurityEpoch,
+      familyState: this.#families.familyState(sessionId),
+    };
+  }
+
   signOut(request: AuthSignOutRequest, currentSessionId: string): AuthSessionStatus | AccountRejection {
     const current = this.#sessions.get(currentSessionId);
     if (current === undefined || current.revokedAt !== null) {
@@ -194,7 +258,7 @@ export class IdentityFixtureService {
       sessions: [...this.#sessions.values()].map((session) => ({
         schemaVersion: ACCOUNT_SESSION_SCHEMA_VERSION,
         sessionId: session.sessionId,
-        clientKind: "desktop",
+        clientKind: session.clientKind,
         deviceId: session.deviceId,
         displayName: session.displayName,
         createdAt: session.createdAt,

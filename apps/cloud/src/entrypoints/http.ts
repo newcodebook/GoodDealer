@@ -2,6 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 
 import type { AccountRejection } from "@gooddealer/protocol/account";
 
+import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/session-verifier";
 import { assignCorrelationId, correlationIdFor } from "./adapter/correlation";
 import {
   rateLimitedRejection,
@@ -19,6 +20,7 @@ import {
 import { attachOpenApiDocument, buildOpenApiDocument } from "./adapter/schema";
 import { registerPublicRoutes, setRoutePrincipal } from "./adapter/surface";
 import {
+  CloudPublicSessionVerifier,
   PUBLIC_SESSION_COOKIE,
   type PublicSessionVerifierPort,
 } from "./ports/public-session";
@@ -38,8 +40,21 @@ export interface PublicHttpDependencies {
   readonly ports: PublicApplicationPorts;
 }
 
+export interface CloudPublicHttpDependencies extends Omit<PublicHttpDependencies, "sessions"> {
+  readonly identity: IdentitySessionVerificationReader;
+}
+
 export const PUBLIC_BODY_LIMIT_BYTES = 256;
 export const PUBLIC_MAX_URL_LENGTH = 2_048;
+
+/** Production composition always resolves the public seam from live identity state. */
+export function createCloudPublicHttp(deps: CloudPublicHttpDependencies): FastifyInstance {
+  const { identity, ...http } = deps;
+  return createPublicHttp({
+    ...http,
+    sessions: new CloudPublicSessionVerifier(new IdentityAccountSessionVerifier(identity)),
+  });
+}
 
 export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance {
   const app = Fastify({

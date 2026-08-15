@@ -14,6 +14,8 @@ interface RotationFamilyRecord {
   state: "active" | "revoked";
 }
 
+export type SessionFamilyState = RotationFamilyRecord["state"];
+
 export interface PreparedRefreshRotation {
   readonly familyId: string;
   readonly presentedRefreshJti: string;
@@ -154,6 +156,10 @@ export class SessionFamilyStore {
 
   rotationGeneration(familyId: string): number | null {
     return this.#families.get(familyId)?.rotationGeneration ?? null;
+  }
+
+  familyState(familyId: string): SessionFamilyState | null {
+    return this.#families.get(familyId)?.state ?? null;
   }
 
   credentialState(jti: string): CredentialJtiState | null {

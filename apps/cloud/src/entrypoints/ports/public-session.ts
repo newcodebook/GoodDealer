@@ -15,6 +15,31 @@ export interface PublicSessionVerifierPort {
   verify(sessionId: string | null, now: Date): Promise<PublicPrincipal | null>;
 }
 
+export interface AccountSessionVerifierPort {
+  /** Owned by Cloud identity; every non-live session has the same null identity. */
+  verifyWebSession(sessionId: string, now: Date): Promise<{ accountId: string } | null>;
+}
+
+export class CloudPublicSessionVerifier implements PublicSessionVerifierPort {
+  readonly cookieName = PUBLIC_SESSION_COOKIE;
+  readonly #identity: AccountSessionVerifierPort;
+
+  constructor(identity: AccountSessionVerifierPort) {
+    this.#identity = identity;
+  }
+
+  async verify(sessionId: string | null, now: Date): Promise<PublicPrincipal | null> {
+    if (sessionId === null) return null;
+    const session = await this.#identity.verifyWebSession(sessionId, now);
+    if (session === null) return null;
+    return {
+      [publicPrincipalBrand]: true,
+      accountId: session.accountId,
+      sessionId,
+    };
+  }
+}
+
 export interface StaticPublicSession {
   readonly sessionId: string;
   readonly accountId: string;
