@@ -73,8 +73,8 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 
 ## 当前状态
 
-项目处于 `Phase 0 Validation / Conditional Go`。Monorepo、Tauri/Rust/TypeScript 工程骨架、共享 Wire Envelope Corpus、Connector 注册边和测试专用 Secure Host Fixture 已建立；真实 typed IPC/Auth DTO 与 Adapter/Handler 尚未接线，生产 Endpoint Registry 仍为 deny-all，不具备真实平台发网、真实凭据写入或生产外部副作用能力。
+项目处于 `Phase 0 Validation / Conditional Go`。Monorepo、Tauri/Rust/TypeScript 工程骨架、共享 Wire Envelope Corpus、Connector 注册边、只读 `runtime_status` typed IPC 纵切和测试专用 Secure Host/Cloud Fixture 已建立；账号会话、Workspace Mutation/Checkpoint/ReaderCursor 与 Public/Admin 边界仍只形成 Portable/Cloud Fixture 证据，真实 Auth/业务 IPC、OS Keychain、生产 Cloud 事务和平台 Transport 尚未接线。生产 Endpoint Registry 仍为 deny-all，不具备真实平台发网、真实凭据写入或生产外部副作用能力。
 
-当前执行状态以 [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01、R0-02、R0-03、R0-06、R0-10、R0-11、R0-12、R0-15 与 R0-16 正在补范围映射、实现或可重跑/平台级证据；其余 Gate 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
+当前执行状态以 [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01～R0-06、R0-08～R0-12、R0-15 与 R0-16 正在补实现或可重跑/平台级证据；R0-07、R0-13 与 R0-14 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、持久化 Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
 
 当前登记的产品决策 JD-01～JD-13 已全部收口；D-016～D-023 固定首版无人值守边界、Lifetime 停服兑现、删除/保留、SLO、支付、Cloud 区域、Desktop 密码输入与 Sunset 能力来源。未来新增能力仍可触发新的决策。后续工作是把已接受设计转成实现与可重跑证据；决策关闭不自动关闭任何 R0 Gate。

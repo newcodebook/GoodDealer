@@ -707,7 +707,8 @@ mod tests {
 
     #[test]
     fn refresh_token_debug_output_is_always_redacted() {
-        let material = super::super::secret::SecretMaterial::new(b"super-secret-token-value".to_vec());
+        let material =
+            super::super::secret::SecretMaterial::new(b"super-secret-token-value".to_vec());
         let token = RefreshTokenMaterial::from_validated_secret(material);
         let rendered = format!("{token:?}");
         assert_eq!(rendered, "RefreshTokenMaterial([REDACTED])");

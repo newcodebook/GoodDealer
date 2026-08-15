@@ -72,6 +72,8 @@ Secure Host 必须在写入 `MutationOutbox` 前移除 `DEVICE_SECRET` 和未授
 
 Refresh Token、EntitlementToken、OfflineDeviceLease 和 ActiveDeviceLease 都只持久化于 OS Keychain/Credential Manager；Desktop Access Token 只驻 Rust Secure Host 内存 Session Store，启动时由 Host 使用 Refresh Token 换取。普通 TypeScript、配置、日志和业务数据库不保存原值。各类凭证的签发、重放与刷新语义以 [LICENSING.md](LICENSING.md) 为准。
 
+当前 P0-19 Portable Fixture 已冻结 Auth Access/Refresh Envelope、类型/受众/Key Purpose 隔离、Refresh Family/JTI 轮换与撤销语义；Cloud `identity` 内部密码命令只允许调用不能表达验证成功的 `DenyingPasswordHashPort`，Rust `secure-host-core/session-store` 只通过 Port 模拟内存 Access Token 与 Refresh Credential Store 生命周期。该切片不包含真实密码验证、品牌化 WebView→write-only IPC、OS Keychain、生产 Route/网络或持久化 Cloud 事务，不能解释为账号生产入口已可用。
+
 数据模型：
 
 ```text
@@ -540,7 +542,7 @@ StaleChangeProposal           # 设备签名的旧 Epoch 可变修改提案
 
 公开 Workspace Wire V1 使用 strict lowerCamelCase，并把 `Revision` 限制在 `0..Number.MAX_SAFE_INTEGER`；服务端分配的 Mutation Revision、Lease Epoch 和设备 Mutation Sequence 必须为正数。`checkpointDigest`、Mutation 页摘要、实体摘要及 Bootstrap request/result 摘要统一使用 32 字节 SHA-256 的无填充 base64url 表达。
 
-当前 P0-20 最小回放切片只冻结 `entityType=domain_asset`，`changedFields` 是按 `fieldPath` 严格升序、不得重复的封闭判别联合：`note`、`portfolioId`、`tags`、`targetPrice`。`tags` 自身必须按 UTF-8 字节序去重并稳定排序；价格使用去前导零、去无意义尾随零的规范十进制字符串和三位大写币种码，不使用浮点 JSON Number。字段隐私与合并等级由 `protocol/workspace` 的同一注册表拥有；未知字段、`credentialRef` 等 DEVICE_SECRET、任意 JSON、跨 Workspace Mutation、Revision Gap 和非规范排序全部失败关闭。该切片用于先冻结 Bootstrap 可消费的最小契约，不宣称已经覆盖完整 Portfolio/Listing/DNS 领域；后续实体和字段必须随 Workspace Schema 显式扩展注册表、回放器和正负 Corpus，不能把 V1 放宽为开放对象。
+当前 P0-20 最小回放切片只冻结 `entityType=domain_asset`，`changedFields` 是按 `fieldPath` 严格升序、不得重复的封闭判别联合：`note`、`portfolioId`、`tags`、`targetPrice`。`tags` 自身必须按 UTF-8 字节序去重并稳定排序；价格使用去前导零、去无意义尾随零的规范十进制字符串和三位大写币种码，不使用浮点 JSON Number。字段隐私与合并等级由 `protocol/workspace` 的同一注册表拥有；未知字段、`credentialRef` 等 DEVICE_SECRET、任意 JSON、跨 Workspace Mutation、Revision Gap 和非规范排序全部失败关闭。Cloud 内存 Fixture 已实现租户作用域 Mutation Ingest、连续 Revision、Checkpoint build→verify→publish/前缀压缩和 ReaderCursor 生命周期；仍不包含持久化 Repository/native DB、Candidate CAS、生产 Route 或完整 Portfolio/Listing/DNS 领域。后续实体和字段必须随 Workspace Schema 显式扩展注册表、回放器和正负 Corpus，不能把 V1 放宽为开放对象。
 
 `DeviceCredentialCandidateStatus` 不证明凭据存在、有效或可用，也不是 `DeviceCredentialBindingStatus` 的降级副本。新设备首次看到 ProviderConnection 时初始化为 `never_configured`；Secure Host 成功提交完整凭据写事务后置为 `configured_candidate`；用户显式删除该设备凭据后置回 `never_configured`；旧版本迁移缺字段、状态文件损坏、重装后无法证明历史或 Host 检测到状态与秘密存储不一致时置为 `unknown`。状态更新只接受上述 Host/迁移来源并单调推进 `state_version`，不得通过读取 Keychain、Browser Profile、凭据值或执行健康检查来渲染 Standby 页面。切回 Active 后仍必须以 HostCredentialBinding 的权威 health/generation 完成健康检查。
 

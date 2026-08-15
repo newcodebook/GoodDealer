@@ -70,7 +70,7 @@ specability delegate --stdin --json     # 一次性完成 assignment + ready rev
 | WS | 内容 | Gate 依赖 | 编排形态 |
 | --- | --- | --- | --- |
 | WS-A（已完成） | 设计系统迁移：按 `brand/` 事实源在 `packages/ui` 建立生产组件与 token 接线，替换占位实现 | 无 | 生产组件、token 与测试已进入根门禁 |
-| WS-B（已完成首纵切） | P0-15/P0-19 账号门禁与 Auth 纵切：冻结 `protocol/account`、`protocol/devices` 契约与 Auth DTO；建立 cloud `identity/licensing/devices` Fixture、client-core `runtime-mode` 只读消费端及 `pnpm evidence:wp2` | R0-06/R0-16（Fallback 内实现，不解除） | 仅 Portable/Cloud Fixture；不含密码输入、Keychain、生产 Route 或真实凭据 |
+| WS-B（已完成首纵切） | P0-15/P0-19 账号门禁与 Auth 纵切：冻结 `protocol/account`、`protocol/devices` 契约与 Auth DTO；建立 cloud `identity/licensing/devices` Fixture、不能表达成功的内部密码 Port、Secure Host Session Store Port、client-core `runtime-mode` 只读消费端及 `pnpm evidence:wp2` | R0-06/R0-16（Fallback 内实现，不解除） | 仅 Portable/Cloud Fixture；含失败关闭的内部密码输入边界，但不含真实密码验证、WebView→IPC、Keychain、生产 Route 或真实凭据 |
 | WS-C（已完成审计） | P0-07 收尾审计：三平台 Artifact 与 Manifest 技术资格已核对，剩余人类动作已列明 | R0-08/R0-16 | Hosted 技术证据不替代真机、签名/公证、长期归档、独立审查或 Attestation |
 
 上述首批工作流已经收口；下一波仍按“无共享契约可并行、契约先行、不得越 Gate”执行。
