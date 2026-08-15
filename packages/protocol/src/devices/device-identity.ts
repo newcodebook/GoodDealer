@@ -3,12 +3,15 @@ import { z } from "zod";
 import {
   base64Url,
   canonicalUtcTimestamp,
+  encodeDomainSeparatedWireValue,
   identifier,
   safePositiveInteger,
   safeUnsignedInteger,
 } from "../wire/index";
 
 export const DEVICE_IDENTITY_SCHEMA_VERSION = 1 as const;
+export const AUTH_ACCESS_SIGNATURE_DOMAIN = "GOODDEALER-AUTH-ACCESS-V1" as const;
+export const AUTH_REFRESH_SIGNATURE_DOMAIN = "GOODDEALER-AUTH-REFRESH-V1" as const;
 
 function validateCredentialWindow(
   envelope: { issuedAt: string; expiresAt: string },
@@ -188,13 +191,58 @@ export const bootstrapCapabilityEnvelopeSchema = z
   .strict()
   .superRefine(validateCredentialWindow);
 
+export const authAccessEnvelopeSchema = z
+  .object({
+    ...commonCredentialFields,
+    typ: z.literal("gd.auth-access.v1"),
+    aud: z.literal("gooddealer-cloud/account-api"),
+    keyPurpose: z.literal("gooddealer.identity.auth-access.v1"),
+    payload: z.object({ sessionId: identifier }).strict(),
+  })
+  .strict()
+  .superRefine(validateCredentialWindow);
+
+export const authRefreshEnvelopeSchema = z
+  .object({
+    ...commonCredentialFields,
+    typ: z.literal("gd.auth-refresh.v1"),
+    aud: z.literal("gooddealer-accounts/session-refresh"),
+    keyPurpose: z.literal("gooddealer.identity.auth-refresh.v1"),
+    payload: z
+      .object({
+        sessionId: identifier,
+        familyId: identifier,
+        rotationGeneration: safeUnsignedInteger,
+        rememberDevice: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine(validateCredentialWindow);
+
 export const signedCredentialEnvelopeSchema = z.discriminatedUnion("typ", [
   activeDeviceLeaseEnvelopeSchema,
   offlineDeviceLeaseEnvelopeSchema,
   entitlementEnvelopeSchema,
   bootstrapCapabilityEnvelopeSchema,
+  authAccessEnvelopeSchema,
+  authRefreshEnvelopeSchema,
 ]);
+
+export function encodeAuthAccessSignatureTranscript(value: unknown): Uint8Array {
+  const parsed = authAccessEnvelopeSchema.parse(value);
+  const { signature: _signature, ...envelopeWithoutSignature } = parsed;
+  return encodeDomainSeparatedWireValue(AUTH_ACCESS_SIGNATURE_DOMAIN, envelopeWithoutSignature);
+}
+
+export function encodeAuthRefreshSignatureTranscript(value: unknown): Uint8Array {
+  const parsed = authRefreshEnvelopeSchema.parse(value);
+  const { signature: _signature, ...envelopeWithoutSignature } = parsed;
+  return encodeDomainSeparatedWireValue(AUTH_REFRESH_SIGNATURE_DOMAIN, envelopeWithoutSignature);
+}
 
 export type DeviceBindingChallenge = z.infer<typeof deviceBindingChallengeSchema>;
 export type DeviceProof = z.infer<typeof deviceProofSchema>;
+export type AuthAccessEnvelope = z.infer<typeof authAccessEnvelopeSchema>;
+export type AuthRefreshEnvelope = z.infer<typeof authRefreshEnvelopeSchema>;
 export type SignedCredentialEnvelope = z.infer<typeof signedCredentialEnvelopeSchema>;

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.auth-access.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-cloud/account-api",
+  "kid": "auth-access-key-2026-01",
+  "keyPurpose": "gooddealer.identity.auth-access.v1",
+  "accountId": "account-01",
+  "deviceId": "device-01",
+  "accountSecurityEpoch": 3,
+  "jti": "auth-access-jti-platform",
+  "issuedAt": "2026-08-15T04:00:00Z",
+  "expiresAt": "2026-08-15T04:15:00Z",
+  "payload": {
+    "sessionId": "session-01",
+    "scopes": ["platform:read"]
+  },
+  "signature": "QXV0aEFjY2Vzc1NpZ25hdHVyZQ"
+}

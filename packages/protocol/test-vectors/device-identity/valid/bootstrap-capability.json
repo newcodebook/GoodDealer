@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.bootstrap-capability.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-desktop/bootstrap",
+  "kid": "bootstrap-key-2026-01",
+  "accountId": "account-01",
+  "deviceId": "device-02",
+  "accountSecurityEpoch": 3,
+  "jti": "bootstrap-jti-01",
+  "issuedAt": "2026-08-15T04:00:00Z",
+  "expiresAt": "2026-08-15T04:10:00Z",
+  "payload": {
+    "deviceSwitchRequestId": "switch-request-01"
+  },
+  "signature": "Qm9vdHN0cmFwU2lnbmF0dXJl"
+}

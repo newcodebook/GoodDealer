@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "typ": "gd.auth-refresh.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-accounts/session-refresh",
+  "kid": "auth-refresh-key-2026-01",
+  "key_purpose": "gooddealer.identity.auth-refresh.v1",
+  "account_id": "account-01",
+  "device_id": "device-01",
+  "account_security_epoch": 3,
+  "jti": "auth-refresh-jti-snake-case",
+  "issued_at": "2026-08-15T04:00:00Z",
+  "expires_at": "2026-09-14T04:00:00Z",
+  "payload": {
+    "session_id": "session-01",
+    "family_id": "family-01",
+    "rotation_generation": 0,
+    "remember_device": true
+  },
+  "signature": "QXV0aFJlZnJlc2hTaWduYXR1cmU"
+}

@@ -1,16 +1,24 @@
 export const DEVICES_PROTOCOL_VERSION = 1 as const;
 
 export {
+  AUTH_ACCESS_SIGNATURE_DOMAIN,
+  AUTH_REFRESH_SIGNATURE_DOMAIN,
   DEVICE_IDENTITY_SCHEMA_VERSION,
   activeDeviceLeaseEnvelopeSchema,
+  authAccessEnvelopeSchema,
+  authRefreshEnvelopeSchema,
   bootstrapCapabilityEnvelopeSchema,
   deviceBindingChallengeSchema,
   deviceProofSchema,
+  encodeAuthAccessSignatureTranscript,
+  encodeAuthRefreshSignatureTranscript,
   entitlementEnvelopeSchema,
   offlineDeviceLeaseEnvelopeSchema,
   signedCredentialEnvelopeSchema,
 } from "./device-identity";
 export type {
+  AuthAccessEnvelope,
+  AuthRefreshEnvelope,
   DeviceBindingChallenge,
   DeviceProof,
   SignedCredentialEnvelope,
