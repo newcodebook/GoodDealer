@@ -1,0 +1,29 @@
+{
+  "limits": {
+    "maximumDepth": 32,
+    "maximumNodes": 4096,
+    "maximumArrayLength": 256,
+    "maximumStringLength": 16384
+  },
+  "generation": {
+    "nestedArray": "Wrap null in exactly size one-element arrays.",
+    "objectWithNullFields": "Create one object with exactly size fields named k0 through k(size-1), each containing null.",
+    "arrayWithNullItems": "Create one array with exactly size null items.",
+    "repeatedString": "Repeat the Unicode scalar in value exactly size times; length is measured in UTF-16 code units."
+  },
+  "cases": [
+    { "name": "maximum-depth", "valid": true, "shape": "nestedArray", "size": 32, "expectedCanonicalSha256": "uiXZA_sSLCZ1c6-KpnF2bW4FL1lEhZ29P0pFz1Eyc7E" },
+    { "name": "above-maximum-depth", "valid": false, "shape": "nestedArray", "size": 33 },
+    { "name": "maximum-node-count", "valid": true, "shape": "objectWithNullFields", "size": 4095, "expectedCanonicalSha256": "KFymj6Rocthvxl2M6jNDPQsL0tImsgRL4hYuexOsrV8" },
+    { "name": "above-maximum-node-count", "valid": false, "shape": "objectWithNullFields", "size": 4096 },
+    { "name": "maximum-array-length", "valid": true, "shape": "arrayWithNullItems", "size": 256, "expectedCanonicalSha256": "TTiJNg6eLjOqlme-1OPbHaRtVM8dmHDRB8olpII-Emc" },
+    { "name": "above-maximum-array-length", "valid": false, "shape": "arrayWithNullItems", "size": 257 },
+    { "name": "maximum-utf16-string-length", "valid": true, "shape": "repeatedString", "size": 8192, "value": "😀", "expectedCanonicalSha256": "8bbMqN1uzbI3_eUyoZt3U3am5Pmec9Xo2BeKoNwwMuc" },
+    { "name": "above-maximum-utf16-string-length", "valid": false, "shape": "repeatedString", "size": 8193, "value": "😀" },
+    { "name": "integer-written-with-decimal", "valid": true, "shape": "literal", "value": 1.0, "expectedCanonicalSha256": "5LZwcfQ5uItrXamtxzSWIZsBZ7izNYQedqC4-0Cf-7k" },
+    { "name": "negative-zero-written-with-decimal", "valid": true, "shape": "literal", "value": -0.0, "expectedCanonicalSha256": "naB458_eYc1wm0p1n2mOyDIbM1YoBCMk7mKZXCyjP0w" },
+    { "name": "negative-number", "valid": false, "shape": "literal", "value": -1 },
+    { "name": "fractional-number", "valid": false, "shape": "literal", "value": 1.5 },
+    { "name": "invalid-object-key", "valid": false, "shape": "literal", "value": { "not allowed": null } }
+  ]
+}

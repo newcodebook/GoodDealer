@@ -34,6 +34,16 @@ export {
 export type { ExecutionAuthorizationEvidence, ExecutionFact } from "./execution-fact";
 
 export {
+  REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH,
+  REDACTED_WIRE_VALUE_MAXIMUM_DEPTH,
+  REDACTED_WIRE_VALUE_MAXIMUM_NODES,
+  REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH,
+  isRedactedWireValue,
+  redactedWireValueSchema,
+} from "./redacted-wire-value";
+export type { RedactedWireValue } from "./redacted-wire-value";
+
+export {
   DRAIN_CHAIN_GENESIS_INPUT,
   DRAIN_STREAMS,
   DRAIN_STREAM_GENESIS_DIGEST,

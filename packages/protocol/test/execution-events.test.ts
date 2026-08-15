@@ -10,6 +10,10 @@ import {
   DRAIN_PROOF_SIGNATURE_DOMAIN,
   DRAIN_STREAMS,
   DRAIN_STREAM_GENESIS_DIGEST,
+  REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH,
+  REDACTED_WIRE_VALUE_MAXIMUM_DEPTH,
+  REDACTED_WIRE_VALUE_MAXIMUM_NODES,
+  REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH,
   deviceAuditEventSchema,
   drainProofSchema,
   encodeAccountDeviceAuditChainDomain,
@@ -22,6 +26,7 @@ import {
   encodeExecutionFactSignatureTranscript,
   encodeWorkspaceDeviceAuditChainDomain,
   executionFactSchema,
+  redactedWireValueSchema,
 } from "../src/execution-events/index";
 import {
   checkpointDescriptorSchema,
@@ -29,7 +34,7 @@ import {
   submittedSyncMutationSchema,
   syncMutationSchema,
 } from "../src/workspace/index";
-import { encodeDomainSeparatedWireValue } from "../src/wire/index";
+import { encodeCanonicalWireValue, encodeDomainSeparatedWireValue } from "../src/wire/index";
 
 const vectors = resolve(import.meta.dirname, "../test-vectors");
 const encoder = new TextEncoder();
@@ -45,6 +50,45 @@ function digest(input: Uint8Array): string {
 
 function decodeBase64Url(value: string): Uint8Array {
   return new Uint8Array(Buffer.from(value, "base64url"));
+}
+
+type RedactedWireValueCorpus = Readonly<{
+  limits: {
+    maximumDepth: number;
+    maximumNodes: number;
+    maximumArrayLength: number;
+    maximumStringLength: number;
+  };
+  cases: readonly RedactedWireValueCase[];
+}>;
+
+type RedactedWireValueCase = Readonly<{
+  name: string;
+  valid: boolean;
+  shape: "nestedArray" | "objectWithNullFields" | "arrayWithNullItems" | "repeatedString" | "literal";
+  size?: number;
+  value?: unknown;
+  expectedCanonicalSha256?: string;
+}>;
+
+function materializeRedactedWireValue(testCase: RedactedWireValueCase): unknown {
+  switch (testCase.shape) {
+    case "nestedArray": {
+      let value: unknown = null;
+      for (let depth = 0; depth < (testCase.size ?? 0); depth += 1) value = [value];
+      return value;
+    }
+    case "objectWithNullFields":
+      return Object.fromEntries(
+        Array.from({ length: testCase.size ?? 0 }, (_, index) => [`k${index}`, null]),
+      );
+    case "arrayWithNullItems":
+      return Array.from({ length: testCase.size ?? 0 }, () => null);
+    case "repeatedString":
+      return String(testCase.value).repeat(testCase.size ?? 0);
+    case "literal":
+      return testCase.value;
+  }
 }
 
 const validDrainVectors = [
@@ -163,6 +207,86 @@ describe("P17 execution-event golden corpus", () => {
         vector("execution-events/invalid/execution-fact-evidence-oversize.json"),
       ).success,
     ).toBe(false);
+  });
+});
+
+describe("P17 bounded redacted wire-value corpus", () => {
+  const corpus = vector(
+    "execution-events/redacted-wire-value-budget.json",
+  ) as RedactedWireValueCorpus;
+  const fact = vector("execution-events/valid/execution-fact.json") as Record<string, unknown>;
+  const audit = vector("execution-events/valid/device-audit-account.json") as Record<string, unknown>;
+
+  it("freezes the public limits consumed by both event types", () => {
+    expect(corpus.limits).toEqual({
+      maximumDepth: REDACTED_WIRE_VALUE_MAXIMUM_DEPTH,
+      maximumNodes: REDACTED_WIRE_VALUE_MAXIMUM_NODES,
+      maximumArrayLength: REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH,
+      maximumStringLength: REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH,
+    });
+  });
+
+  for (const testCase of corpus.cases) {
+    it(`${testCase.valid ? "accepts" : "rejects"} ${testCase.name} without throwing`, () => {
+      const payloadRedacted = materializeRedactedWireValue(testCase);
+      const parsePayload = () => redactedWireValueSchema.safeParse(payloadRedacted);
+      const parseFact = () => executionFactSchema.safeParse({ ...fact, payloadRedacted });
+      const parseAudit = () => deviceAuditEventSchema.safeParse({ ...audit, payloadRedacted });
+
+      expect(parsePayload).not.toThrow();
+      expect(parseFact).not.toThrow();
+      expect(parseAudit).not.toThrow();
+      expect(parsePayload().success).toBe(testCase.valid);
+      expect(parseFact().success).toBe(testCase.valid);
+      expect(parseAudit().success).toBe(testCase.valid);
+
+      if (testCase.expectedCanonicalSha256 !== undefined) {
+        expect(digest(encodeCanonicalWireValue(payloadRedacted))).toBe(
+          testCase.expectedCanonicalSha256,
+        );
+      }
+    });
+  }
+
+  it("rejects non-wire JavaScript values, cycles, and hostile property access without throwing", () => {
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    const sparse = Array.from({ length: 2 }, () => null);
+    delete sparse[0];
+    const extraArrayProperty = [null] as Array<unknown> & { extra?: unknown };
+    extraArrayProperty.extra = null;
+    const nonEnumerable = Object.defineProperty({}, "hidden", { value: null });
+    const accessor = Object.defineProperty({}, "value", { enumerable: true, get: () => null });
+    const hostile = new Proxy({}, { ownKeys: () => { throw new TypeError("hostile proxy"); } });
+    for (const value of [
+      undefined,
+      -1,
+      1.5,
+      Number.NaN,
+      1n,
+      Symbol("wire"),
+      cyclic,
+      sparse,
+      extraArrayProperty,
+      nonEnumerable,
+      accessor,
+      hostile,
+    ]) {
+      expect(() => redactedWireValueSchema.safeParse(value)).not.toThrow();
+      expect(redactedWireValueSchema.safeParse(value).success).toBe(false);
+    }
+  });
+
+  it("rejects a pathologically deep payload at both event boundaries without a stack exception", () => {
+    let payloadRedacted: unknown = null;
+    for (let depth = 0; depth < 20_000; depth += 1) payloadRedacted = [payloadRedacted];
+
+    const parseFact = () => executionFactSchema.safeParse({ ...fact, payloadRedacted });
+    const parseAudit = () => deviceAuditEventSchema.safeParse({ ...audit, payloadRedacted });
+    expect(parseFact).not.toThrow();
+    expect(parseAudit).not.toThrow();
+    expect(parseFact().success).toBe(false);
+    expect(parseAudit().success).toBe(false);
   });
 });
 

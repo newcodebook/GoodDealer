@@ -16,6 +16,10 @@ const EXECUTION_FACT_DOMAIN: &str = "GOODDEALER-EXECUTION-FACT-V1";
 const DEVICE_AUDIT_EVENT_DOMAIN: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-V1";
 const DRAIN_PROOF_SIGNATURE_DOMAIN: &str = "GOODDEALER-DRAIN-PROOF-SIGNATURE-V1";
 const DRAIN_PROOF_DIGEST_DOMAIN: &str = "GOODDEALER-DRAIN-PROOF-V1";
+const REDACTED_WIRE_VALUE_MAXIMUM_DEPTH: usize = 32;
+const REDACTED_WIRE_VALUE_MAXIMUM_NODES: usize = 4096;
+const REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH: usize = 256;
+const REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH: usize = 16_384;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1016,7 +1020,11 @@ fn encode_canonical_wire_value(value: &Value) -> Vec<u8> {
                 b"b1:0".to_vec()
             }
         }
-        Value::Number(value) => frame(b'n', value.to_string().as_bytes()),
+        Value::Number(value) => {
+            let canonical = safe_unsigned_wire_number(value)
+                .map_or_else(|| value.to_string(), |value| value.to_string());
+            frame(b'n', canonical.as_bytes())
+        }
         Value::String(value) => frame(b's', value.as_bytes()),
         Value::Array(values) => {
             let payload = values.iter().fold(Vec::new(), |mut output, value| {
@@ -1081,6 +1089,23 @@ fn is_bounded_base64_url(value: &str, maximum: usize) -> bool {
     value.len() <= maximum && is_base64_url(value)
 }
 
+fn safe_unsigned_wire_number(number: &serde_json::Number) -> Option<u64> {
+    if let Some(value) = number.as_u64() {
+        return (value <= crate::wire_scalar::MAX_JAVASCRIPT_SAFE_INTEGER).then_some(value);
+    }
+    let value = number.as_f64().filter(|value| {
+        value.is_finite()
+            && *value >= 0.0
+            && value.fract() == 0.0
+            && *value <= 9_007_199_254_740_991.0
+    })?;
+    if value == 0.0 {
+        Some(0)
+    } else {
+        format!("{value:.0}").parse().ok()
+    }
+}
+
 fn is_valid_note(value: &str) -> bool {
     value.encode_utf16().count() <= 10_000
         && value.chars().all(|character| {
@@ -1139,18 +1164,47 @@ fn is_canonical_amount(value: &str) -> bool {
 }
 
 fn is_redacted_wire_value(value: &Value) -> bool {
-    match value {
-        Value::Null | Value::Bool(_) => true,
-        Value::Number(number) => number
-            .as_u64()
-            .is_some_and(|value| value <= crate::wire_scalar::MAX_JAVASCRIPT_SAFE_INTEGER),
-        Value::String(value) => value.encode_utf16().count() <= 16_384,
-        Value::Array(values) => values.len() <= 256 && values.iter().all(is_redacted_wire_value),
-        Value::Object(object) => {
-            object.keys().all(|key| is_identifier(key))
-                && object.values().all(is_redacted_wire_value)
+    let mut pending = vec![(value, 0_usize)];
+    let mut nodes = 0_usize;
+
+    while let Some((current, depth)) = pending.pop() {
+        if depth > REDACTED_WIRE_VALUE_MAXIMUM_DEPTH {
+            return false;
+        }
+
+        nodes += 1;
+        if nodes > REDACTED_WIRE_VALUE_MAXIMUM_NODES {
+            return false;
+        }
+
+        match current {
+            Value::Null | Value::Bool(_) => {}
+            Value::Number(number) => {
+                if safe_unsigned_wire_number(number).is_none() {
+                    return false;
+                }
+            }
+            Value::String(value) => {
+                if value.encode_utf16().count() > REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH {
+                    return false;
+                }
+            }
+            Value::Array(values) => {
+                if values.len() > REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH {
+                    return false;
+                }
+                pending.extend(values.iter().rev().map(|value| (value, depth + 1)));
+            }
+            Value::Object(object) => {
+                if !object.keys().all(|key| is_identifier(key)) {
+                    return false;
+                }
+                pending.extend(object.values().rev().map(|value| (value, depth + 1)));
+            }
         }
     }
+
+    true
 }
 
 // This implementation is local to the mirror so adding chain parity does not mutate the
@@ -1309,13 +1363,92 @@ mod tests {
 
     use super::{
         DRAIN_STREAM_GENESIS_DIGEST, DRAIN_STREAM_GENESIS_DOMAIN, DrainProof, DrainSequenceDomain,
-        DrainStream, advance_drain_chain_digest, encode_account_device_audit_chain_domain,
-        encode_device_audit_drain_envelope_json, encode_drain_proof_digest_input,
-        encode_drain_proof_signature_transcript, encode_drain_sequence_domain,
-        encode_execution_fact_drain_envelope_json, encode_mutation_drain_envelope_json,
-        encode_workspace_device_audit_chain_domain, sha256, validate_drain_manifest_json,
-        validate_drain_proof_json,
+        DrainStream, REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH, REDACTED_WIRE_VALUE_MAXIMUM_DEPTH,
+        REDACTED_WIRE_VALUE_MAXIMUM_NODES, REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH,
+        advance_drain_chain_digest, encode_account_device_audit_chain_domain,
+        encode_canonical_wire_value, encode_device_audit_drain_envelope_json,
+        encode_drain_proof_digest_input, encode_drain_proof_signature_transcript,
+        encode_drain_sequence_domain, encode_execution_fact_drain_envelope_json,
+        encode_mutation_drain_envelope_json, encode_workspace_device_audit_chain_domain,
+        is_redacted_wire_value, sha256, validate_drain_manifest_json, validate_drain_proof_json,
     };
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RedactedWireValueCorpus {
+        limits: RedactedWireValueLimits,
+        cases: Vec<RedactedWireValueCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct RedactedWireValueLimits {
+        #[serde(rename = "maximumDepth")]
+        depth: usize,
+        #[serde(rename = "maximumNodes")]
+        nodes: usize,
+        #[serde(rename = "maximumArrayLength")]
+        array_length: usize,
+        #[serde(rename = "maximumStringLength")]
+        string_length: usize,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RedactedWireValueCase {
+        name: String,
+        valid: bool,
+        shape: RedactedWireValueShape,
+        size: Option<usize>,
+        value: Option<serde_json::Value>,
+        expected_canonical_sha256: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    enum RedactedWireValueShape {
+        #[serde(rename = "nestedArray")]
+        NestedArray,
+        #[serde(rename = "objectWithNullFields")]
+        ObjectWithNullFields,
+        #[serde(rename = "arrayWithNullItems")]
+        ArrayWithNullItems,
+        #[serde(rename = "repeatedString")]
+        RepeatedString,
+        #[serde(rename = "literal")]
+        Literal,
+    }
+
+    fn materialize_redacted_wire_value(test_case: &RedactedWireValueCase) -> serde_json::Value {
+        match test_case.shape {
+            RedactedWireValueShape::NestedArray => {
+                let mut value = serde_json::Value::Null;
+                for _ in 0..test_case.size.unwrap_or_default() {
+                    value = serde_json::Value::Array(vec![value]);
+                }
+                value
+            }
+            RedactedWireValueShape::ObjectWithNullFields => {
+                let object = (0..test_case.size.unwrap_or_default())
+                    .map(|index| (format!("k{index}"), serde_json::Value::Null))
+                    .collect();
+                serde_json::Value::Object(object)
+            }
+            RedactedWireValueShape::ArrayWithNullItems => serde_json::Value::Array(vec![
+                serde_json::Value::Null;
+                test_case.size.unwrap_or_default()
+            ]),
+            RedactedWireValueShape::RepeatedString => {
+                let scalar = test_case
+                    .value
+                    .as_ref()
+                    .and_then(serde_json::Value::as_str)
+                    .expect("repeatedString requires a string value");
+                serde_json::Value::String(scalar.repeat(test_case.size.unwrap_or_default()))
+            }
+            RedactedWireValueShape::Literal => {
+                test_case.value.clone().expect("literal requires a value")
+            }
+        }
+    }
 
     const VALID_PROOFS: [(&str, &str); 4] = [
         (
@@ -1619,6 +1752,87 @@ mod tests {
                 base,
                 "the TypeScript encoder strips server enrichment in {name}"
             );
+        }
+    }
+
+    #[test]
+    fn mirrors_the_shared_redacted_wire_value_budget_corpus() {
+        let corpus: RedactedWireValueCorpus = serde_json::from_str(include_str!(
+            "../../../packages/protocol/test-vectors/execution-events/redacted-wire-value-budget.json"
+        ))
+        .expect("shared redacted wire value corpus");
+        assert_eq!(corpus.limits.depth, REDACTED_WIRE_VALUE_MAXIMUM_DEPTH);
+        assert_eq!(corpus.limits.nodes, REDACTED_WIRE_VALUE_MAXIMUM_NODES);
+        assert_eq!(
+            corpus.limits.array_length,
+            REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH
+        );
+        assert_eq!(
+            corpus.limits.string_length,
+            REDACTED_WIRE_VALUE_MAXIMUM_STRING_LENGTH
+        );
+
+        let fact_source = include_str!(
+            "../../../packages/protocol/test-vectors/execution-events/valid/execution-fact.json"
+        );
+        let audit_source = include_str!(
+            "../../../packages/protocol/test-vectors/execution-events/valid/device-audit-account.json"
+        );
+        for test_case in corpus.cases {
+            let payload = materialize_redacted_wire_value(&test_case);
+            assert_eq!(
+                is_redacted_wire_value(&payload),
+                test_case.valid,
+                "payload verdict for {}",
+                test_case.name
+            );
+
+            let fact = mutate_json(fact_source, |value| {
+                value["payloadRedacted"] = payload.clone();
+            });
+            assert_eq!(
+                encode_execution_fact_drain_envelope_json(&fact).is_ok(),
+                test_case.valid,
+                "execution fact verdict for {}",
+                test_case.name
+            );
+
+            let audit = mutate_json(audit_source, |value| {
+                value["payloadRedacted"] = payload.clone();
+            });
+            assert_eq!(
+                encode_device_audit_drain_envelope_json(&audit).is_ok(),
+                test_case.valid,
+                "device audit verdict for {}",
+                test_case.name
+            );
+
+            if let Some(expected) = test_case.expected_canonical_sha256.as_deref() {
+                assert_digest(&encode_canonical_wire_value(&payload), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_pathological_depth_at_both_json_entries_without_panicking() {
+        let nested = format!("{}null{}", "[".repeat(20_000), "]".repeat(20_000));
+        for source in [
+            include_str!(
+                "../../../packages/protocol/test-vectors/execution-events/valid/execution-fact.json"
+            ),
+            include_str!(
+                "../../../packages/protocol/test-vectors/execution-events/valid/device-audit-account.json"
+            ),
+        ] {
+            let marked = mutate_json(source, |value| {
+                value["payloadRedacted"] = "__deep_payload__".into();
+            });
+            let pathological = marked.replace("\"__deep_payload__\"", &nested);
+            if source.contains("executionFactId") {
+                assert!(encode_execution_fact_drain_envelope_json(&pathological).is_err());
+            } else {
+                assert!(encode_device_audit_drain_envelope_json(&pathological).is_err());
+            }
         }
     }
 

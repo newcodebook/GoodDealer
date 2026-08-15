@@ -9,19 +9,9 @@ import {
   safePositiveInteger,
   safeUnsignedInteger,
 } from "../wire/index";
+import { redactedWireValueSchema } from "./redacted-wire-value";
 
 export const EXECUTION_FACT_SCHEMA_VERSION = 1 as const;
-
-const redactedWireValueSchema: z.ZodType<unknown> = z.lazy(() =>
-  z.union([
-    z.null(),
-    z.boolean(),
-    safeUnsignedInteger,
-    z.string().max(16_384),
-    z.array(redactedWireValueSchema).max(256),
-    z.record(identifier, redactedWireValueSchema),
-  ]),
-);
 
 export const executionAuthorizationEvidenceSchema = z
   .object({
