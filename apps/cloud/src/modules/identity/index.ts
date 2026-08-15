@@ -11,11 +11,14 @@ import {
   type AccountSessionList,
   type AccountSessionRevokeRequest,
   type AuthLoginRequest,
+  type AuthRevocationReason,
   type AuthRefreshRequest,
   type AuthSessionStatus,
   type AuthSignOutRequest,
   type ReauthProofRef,
 } from "@gooddealer/protocol/account";
+
+import { SessionFamilyStore } from "./session-families";
 
 export const FIXTURE_ACCOUNT_ID = "internal-fixture-account" as const;
 
@@ -26,6 +29,7 @@ interface SessionRecord {
   readonly deviceId: string;
   readonly method: AuthMethod;
   readonly createdAt: string;
+  readonly rememberDevice: boolean;
   displayName: string;
   lastSeenAt: string;
   rotationGeneration: number;
@@ -41,8 +45,8 @@ interface ReauthRecord {
 
 export interface RefreshFixtureContext {
   readonly sessionId: string;
-  /** Server-side metadata obtained after the Host presents its Keychain credential. */
-  readonly presentedRotationGeneration: number;
+  /** Credential identity obtained from the presented refresh envelope. */
+  readonly presentedRefreshJti: string;
 }
 
 export interface IdentityFixtureOptions {
@@ -57,10 +61,14 @@ export class IdentityFixtureService {
   #accountSecurityEpoch = 1;
   #listRevision = 1;
   #nextSession = 1;
+  #nextJti = 1;
   #nextProof = 1;
+  #accountSecurityState: "normal" | "recovery_pending" = "normal";
   readonly #now: () => Date;
   readonly #boundDeviceIds: Set<string>;
+  readonly #removedDeviceIds = new Set<string>();
   readonly #sessions = new Map<string, SessionRecord>();
+  readonly #families = new SessionFamilyStore();
   readonly #reauthProofs = new Map<string, ReauthRecord>();
 
   constructor(options: IdentityFixtureOptions = {}) {
@@ -84,6 +92,7 @@ export class IdentityFixtureService {
       deviceId: request.deviceId,
       method: request.method,
       createdAt: now,
+      rememberDevice: request.rememberDevice,
       displayName: request.deviceId,
       lastSeenAt: now,
       rotationGeneration: 0,
@@ -91,37 +100,70 @@ export class IdentityFixtureService {
       revokedAt: null,
       revocationReason: null,
     };
+    const issued = this.#families.createFamily({
+      familyId: session.sessionId,
+      refreshJti: this.#newCredentialJti("refresh"),
+      accessJti: this.#newCredentialJti("access"),
+    });
+    if (!issued.created) throw new Error("fixture credential JTI allocation failed closed");
     this.#sessions.set(session.sessionId, session);
     this.#listRevision += 1;
     return this.#status(session, "authenticated");
   }
 
   refresh(request: AuthRefreshRequest, context: RefreshFixtureContext): AuthSessionStatus | AccountRejection {
+    const inspection = this.#families.inspectRotation(context.sessionId, context.presentedRefreshJti);
+    if (inspection.status === "invalid_credentials") return this.#reject("INVALID_CREDENTIALS");
     const session = this.#sessions.get(context.sessionId);
     if (session === undefined) {
-      return this.#reject("SESSION_REVOKED");
+      return this.#reject("INVALID_CREDENTIALS");
     }
-    if (session.deviceId !== request.deviceId || !this.#boundDeviceIds.has(request.deviceId)) {
+    if (session.deviceId !== request.deviceId) {
       return this.#reject("DEVICE_NOT_BOUND");
     }
+    if (this.#removedDeviceIds.has(request.deviceId)) {
+      if (request.reason === "startup") return this.#signedOutStatus();
+      return this.#reject("DEVICE_REMOVED");
+    }
+    if (!this.#boundDeviceIds.has(request.deviceId)) return this.#reject("DEVICE_NOT_BOUND");
     if (session.accountSecurityEpoch !== this.#accountSecurityEpoch) {
+      if (request.reason === "startup") return this.#signedOutStatus();
       return this.#reject("ACCOUNT_SECURITY_EPOCH_STALE");
     }
-    if (session.revokedAt !== null) {
+    if (this.#accountSecurityState === "recovery_pending") {
+      if (request.reason === "startup") return this.#signedOutStatus();
+      return this.#reject("ACCOUNT_RECOVERY_PENDING");
+    }
+    if (session.revokedAt !== null || inspection.status === "session_revoked") {
+      if (request.reason === "startup") return this.#signedOutStatus();
       return this.#reject("SESSION_REVOKED");
     }
-    if (context.presentedRotationGeneration < session.rotationGeneration) {
+    if (request.reason === "startup" && !session.rememberDevice) return this.#signedOutStatus();
+    if (inspection.status === "refresh_reuse_detected") {
       const now = this.#timestamp();
       this.#revoke(session, now, "refresh_reuse_detected");
       return this.#reject("REFRESH_REUSE_DETECTED");
     }
-    if (context.presentedRotationGeneration > session.rotationGeneration) {
-      return this.#reject("REFRESH_ROTATION_CONFLICT");
-    }
 
-    session.rotationGeneration += 1;
+    const committed = this.#families.commitRotation(inspection.preparation, {
+      refreshJti: this.#newCredentialJti("refresh"),
+      accessJti: this.#newCredentialJti("access"),
+    });
+    if (committed.status === "refresh_rotation_conflict") return this.#reject("REFRESH_ROTATION_CONFLICT");
+    if (committed.status === "session_revoked") return this.#reject("SESSION_REVOKED");
+    if (committed.status === "credential_jti_conflict") return this.#reject("INVALID_CREDENTIALS");
+
+    session.rotationGeneration = committed.rotationGeneration;
     session.lastSeenAt = this.#timestamp();
     return this.#status(session, "authenticated");
+  }
+
+  readCurrentRefreshJti(sessionId: string): string | null {
+    return this.#families.currentRefreshJti(sessionId);
+  }
+
+  readAccountSecurityEpoch(): number {
+    return this.#accountSecurityEpoch;
   }
 
   signOut(request: AuthSignOutRequest, currentSessionId: string): AuthSessionStatus | AccountRejection {
@@ -177,7 +219,7 @@ export class IdentityFixtureService {
     if (request.scope === "session") {
       const target = this.#sessions.get(request.sessionId);
       if (target === undefined || target.revokedAt !== null) return this.#reject("SESSION_REVOKED");
-      this.#revoke(target, now, "remote_sign_out");
+      this.#revoke(target, now, target.sessionId === currentSessionId ? "user_signed_out" : "remote_sign_out");
     } else {
       for (const session of this.#sessions.values()) {
         if (session.sessionId !== currentSessionId && session.revokedAt === null) {
@@ -214,6 +256,27 @@ export class IdentityFixtureService {
     return this.listSessions("");
   }
 
+  enterAccountRecoveryPending(): AccountSessionList {
+    this.#accountSecurityState = "recovery_pending";
+    const now = this.#timestamp();
+    for (const session of this.#sessions.values()) {
+      if (session.revokedAt === null) this.#revoke(session, now, "account_recovery_pending");
+    }
+    return this.listSessions("");
+  }
+
+  removeDeviceBinding(deviceId: string): AccountSessionList {
+    this.#boundDeviceIds.delete(deviceId);
+    this.#removedDeviceIds.add(deviceId);
+    const now = this.#timestamp();
+    for (const session of this.#sessions.values()) {
+      if (session.deviceId === deviceId && session.revokedAt === null) {
+        this.#revoke(session, now, "device_removed");
+      }
+    }
+    return this.listSessions("");
+  }
+
   #checkReauth(reauthProofId: string): AccountRejection | null {
     const record = this.#reauthProofs.get(reauthProofId);
     if (record === undefined) return this.#reject("REAUTHENTICATION_REQUIRED");
@@ -224,7 +287,9 @@ export class IdentityFixtureService {
     return null;
   }
 
-  #revoke(session: SessionRecord, at: string, reason: NonNullable<AuthSessionStatus["revocationReason"]>): void {
+  #revoke(session: SessionRecord, at: string, reason: AuthRevocationReason): void {
+    if (session.revokedAt !== null) return;
+    this.#families.revokeFamily(session.sessionId);
     session.revokedAt = at;
     session.revocationReason = reason;
     this.#listRevision += 1;
@@ -275,6 +340,10 @@ export class IdentityFixtureService {
 
   #timestamp(): string {
     return canonicalTimestamp(this.#now());
+  }
+
+  #newCredentialJti(kind: "access" | "refresh"): string {
+    return `fixture-${kind}-jti-${this.#nextJti++}`;
   }
 }
 

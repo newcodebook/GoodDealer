@@ -15,6 +15,9 @@ const requiredInputs = [
   "packages/protocol/src/workspace/sync-mutation.ts",
   "packages/client-core/src/runtime-mode/index.ts",
   "apps/cloud/src/modules/identity/index.ts",
+  "apps/cloud/src/modules/identity/login-command.ts",
+  "apps/cloud/src/modules/identity/password-hash-port.ts",
+  "apps/cloud/src/modules/identity/session-families.ts",
   "apps/cloud/src/modules/licensing/index.ts",
   "apps/cloud/src/modules/devices/index.ts",
   "apps/cloud/src/modules/devices/bootstrap-fixture.ts",
@@ -33,6 +36,8 @@ const requiredInputs = [
   "packages/protocol/test/workspace-sync.test.ts",
   "packages/client-core/test/runtime-mode.test.ts",
   "apps/cloud/test/identity-fixture.test.ts",
+  "apps/cloud/test/password-hash-fallback.test.ts",
+  "apps/cloud/test/session-families.test.ts",
   "apps/cloud/test/licensing-fixture.test.ts",
   "apps/cloud/test/devices-fixture.test.ts",
   "apps/cloud/test/bootstrap-fixture.test.ts",
@@ -76,10 +81,14 @@ export function sourceRegistersProductionRoute(source) {
   return importsProductionServer || invokesNetworkPrimitive || registersRoute;
 }
 
-export function sourceDeclaresRawCredentialField(source) {
-  return /(?:\b(?:accessToken|apiKey|clientSecret|credential|password|refreshToken)\b|["'](?:accessToken|apiKey|clientSecret|credential|password|refreshToken)["'])\s*[?!]?\s*:/.test(
+export function sourceDeclaresRawCredentialField(source, path) {
+  const declaresCloudCredential = /(?:\b(?:accessToken|apiKey|clientSecret|credentialRef|refreshToken)\b|["'](?:accessToken|apiKey|clientSecret|credentialRef|refreshToken)["'])\s*[?!]?\s*:/.test(
     source,
   );
+  const declaresSharedPassword =
+    path.startsWith("packages/protocol/") &&
+    /(?:\bpassword\b|["']password["'])\s*[?!]?\s*:/.test(source);
+  return declaresCloudCredential || declaresSharedPassword;
 }
 
 export function sourceIssuesActiveDeviceLease(source) {
@@ -114,6 +123,19 @@ export function sourceVerifiesSignature(source) {
   return importsNodeVerify || requiresNodeVerify || invokesVerificationPrimitive;
 }
 
+const signatureVerificationBannedInputs = new Set([
+  "apps/cloud/src/modules/devices/index.ts",
+  "apps/cloud/src/modules/devices/ports.ts",
+  "apps/cloud/src/modules/devices/drain-verification.ts",
+  "apps/cloud/src/modules/workspace/mutations/index.ts",
+  "apps/cloud/src/modules/execution-ledger/index.ts",
+  "apps/cloud/src/modules/audit/index.ts",
+]);
+
+export function sourceVerifiesSignatureInScope(path, source) {
+  return signatureVerificationBannedInputs.has(path) && sourceVerifiesSignature(source);
+}
+
 function drainSignatureWindows(source) {
   return [...source.matchAll(/\bcheckDrainProofSignature\b/g)].map(({ index = 0 }) =>
     source.slice(index, index + 600)
@@ -142,6 +164,28 @@ export function drainProofSignatureCheckNamingCompliant(source) {
     source,
   );
   return declaresCanonicalPortMethod && !usesForbiddenSignatureMethod;
+}
+
+function passwordHashWindows(source) {
+  return [...source.matchAll(/\bcheckPasswordHash\b/g)].map(({ index = 0 }) => source.slice(index, index + 500));
+}
+
+export function passwordHashPortCannotSucceed(source) {
+  const refusingReturn = /\binterface\s+PasswordHashPort\b[\s\S]*?\bcheckPasswordHash\s*\([\s\S]*?\)\s*:\s*Promise\s*<\s*{\s*readonly\s+verified\s*:\s*false\s*;\s*readonly\s+reason\s*:\s*["']password_verification_disabled["']\s*;?\s*}\s*>\s*;/.test(
+    source,
+  );
+  const successConstructible = passwordHashWindows(source).some((window) =>
+    /\bverified\b\s*(?:\?|readonly\s+)?\s*:\s*(?:boolean|true)\b/.test(window) ||
+    /\breturn\s*{[^}]*\bverified\s*:\s*true\b/s.test(window)
+  );
+  return refusingReturn && !successConstructible;
+}
+
+export function passwordHashCheckNamingCompliant(source) {
+  return (
+    /\binterface\s+PasswordHashPort\b[\s\S]*?\bcheckPasswordHash\s*\(/.test(source) &&
+    !/\b(?:verifyPassword|verifyPasswordHash)\s*\(/.test(source)
+  );
 }
 
 export function sourceAcceptDrainReleasesLease(source) {
@@ -174,36 +218,49 @@ export function collectAccountGateReport() {
     .map((path) => ({ path, source: readFileSync(resolve(root, path), "utf8") }));
   const runtimeSource = runtimeSources.map(({ source }) => source).join("\n");
   const cloudRuntimeSources = runtimeSources.filter(({ path }) => path.startsWith("apps/cloud/src/"));
-  const drainRuntimeSources = cloudRuntimeSources.filter(({ path }) =>
-    path === "apps/cloud/src/modules/devices/index.ts" ||
-    path === "apps/cloud/src/modules/devices/ports.ts" ||
-    path === "apps/cloud/src/modules/devices/drain-verification.ts" ||
-    path === "apps/cloud/src/modules/workspace/mutations/index.ts" ||
-    path === "apps/cloud/src/modules/execution-ledger/index.ts" ||
-    path === "apps/cloud/src/modules/audit/index.ts"
-  );
+  const drainRuntimeSources = cloudRuntimeSources.filter(({ path }) => signatureVerificationBannedInputs.has(path));
   const identitySource = readFileSync(resolve(root, "apps/cloud/src/modules/identity/index.ts"), "utf8");
   const devicesSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/index.ts"), "utf8");
   const drainPortSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/ports.ts"), "utf8");
+  const passwordHashPortSource = readFileSync(
+    resolve(root, "apps/cloud/src/modules/identity/password-hash-port.ts"),
+    "utf8",
+  );
+  const identityNegativeMatrixSource = [
+    "apps/cloud/test/identity-fixture.test.ts",
+    "apps/cloud/test/session-families.test.ts",
+  ].map((path) => readFileSync(resolve(root, path), "utf8")).join("\n");
   const drainRuntimeSource = drainRuntimeSources.map(({ source }) => source).join("\n");
 
   return {
     schemaVersion: 1,
     scope:
-      "Internal non-sellable account/device/bootstrap/workspace Cloud fixtures and read-only client projection only; no production route, lease signing, raw credential, native keychain, external network, or user data.",
+      "Internal non-sellable Cloud fixtures with a structurally denying password path; no production route, lease signing, shared-protocol password field, token-bearing Cloud field, native keychain, external network, or user data.",
     fixtureOnly: true,
     productionRoutesRegistered: sourceRegistersProductionRoute(runtimeSource),
-    rawCredentialFieldsAbsent: !sourceDeclaresRawCredentialField(runtimeSource),
+    rawCredentialFieldsAbsent: runtimeSources.every(
+      ({ path, source }) => !sourceDeclaresRawCredentialField(source, path),
+    ),
     activeDeviceLeaseIssuanceAbsent: cloudRuntimeSources.every(
       ({ source }) => !sourceIssuesActiveDeviceLease(source),
     ),
-    signatureVerificationAbsent: cloudRuntimeSources.every(
-      ({ source }) => !sourceVerifiesSignature(source),
+    signatureVerificationAbsent: runtimeSources.every(
+      ({ path, source }) => !sourceVerifiesSignatureInScope(path, source),
     ),
     drainProofAcceptanceAbsent: cloudRuntimeSources.every(
       ({ source }) => !sourceAcceptsDrainProof(source),
     ),
     drainProofSignatureSuccessUnrepresentable: drainProofSignaturePortCannotSucceed(drainPortSource),
+    passwordVerificationSuccessUnrepresentable: passwordHashPortCannotSucceed(passwordHashPortSource),
+    passwordHashCheckNamingCompliant: passwordHashCheckNamingCompliant(passwordHashPortSource),
+    rotationFamilyNegativeMatrixPresent: [
+      "retired-JTI reuse",
+      "unknown and cross-family JTIs",
+      "prepared concurrent rotation",
+      "duplicate issuance",
+      "LIST_REVISION_STALE",
+      "REAUTH_PROOF_EXPIRED",
+    ].every((scenario) => identityNegativeMatrixSource.includes(scenario)),
     acceptDrainLeaseReleaseAbsent: !sourceAcceptDrainReleasesLease(devicesSource),
     drainProductionRoutesAbsent: drainRuntimeSources.every(
       ({ source }) => !sourceRegistersProductionRoute(source),
@@ -227,6 +284,9 @@ export function accountGateReportPassesPolicy(report) {
     report.signatureVerificationAbsent &&
     report.drainProofAcceptanceAbsent &&
     report.drainProofSignatureSuccessUnrepresentable &&
+    report.passwordVerificationSuccessUnrepresentable &&
+    report.passwordHashCheckNamingCompliant &&
+    report.rotationFamilyNegativeMatrixPresent &&
     report.acceptDrainLeaseReleaseAbsent &&
     report.drainProductionRoutesAbsent &&
     report.drainProofSignatureCheckNamingCompliant &&

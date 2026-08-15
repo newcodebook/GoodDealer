@@ -8,12 +8,15 @@ import {
   drainProofSignatureCheckNamingCompliant,
   drainProofSignaturePortCannotSucceed,
   identityFixtureIsNonSellable,
+  passwordHashCheckNamingCompliant,
+  passwordHashPortCannotSucceed,
   sourceAcceptDrainReleasesLease,
   sourceAcceptsDrainProof,
   sourceDeclaresRawCredentialField,
   sourceIssuesActiveDeviceLease,
   sourceRegistersProductionRoute,
   sourceVerifiesSignature,
+  sourceVerifiesSignatureInScope,
 } from "./collect-account-gate-report.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
@@ -42,6 +45,10 @@ const drainVerificationSource = readFileSync(
   new URL("../apps/cloud/src/modules/devices/drain-verification.ts", import.meta.url),
   "utf8",
 );
+const passwordHashPortSource = readFileSync(
+  new URL("../apps/cloud/src/modules/identity/password-hash-port.ts", import.meta.url),
+  "utf8",
+);
 
 test("WP-2 account gate evidence is fixture-only and independently runnable", () => {
   assert.equal(
@@ -65,20 +72,25 @@ test("account gate report rejects production route registration without confusin
   assert.equal(sourceRegistersProductionRoute("const session = sessions.get(sessionId);"), false);
 });
 
-test("account gate report rejects raw credential fields but accepts expiry metadata and auth methods", () => {
-  assert.equal(sourceDeclaresRawCredentialField("password?: string;"), true);
-  assert.equal(sourceDeclaresRawCredentialField("'refreshToken': string;"), true);
-  assert.equal(sourceDeclaresRawCredentialField("accessTokenExpiresAt: string;"), false);
-  assert.equal(sourceDeclaresRawCredentialField('method: z.enum(["password", "passkey"]);'), false);
+test("account gate report bans password fields only in shared protocol and token fields Cloud-wide", () => {
+  assert.equal(sourceDeclaresRawCredentialField("password?: string;", "packages/protocol/src/account/login.ts"), true);
+  assert.equal(sourceDeclaresRawCredentialField("password?: string;", "apps/cloud/src/modules/identity/login.ts"), false);
+  assert.equal(sourceDeclaresRawCredentialField("'refreshToken': string;", "apps/cloud/src/modules/identity/login.ts"), true);
+  assert.equal(sourceDeclaresRawCredentialField("accessTokenExpiresAt: string;", "apps/cloud/src/modules/identity/login.ts"), false);
+  assert.equal(
+    sourceDeclaresRawCredentialField('method: z.enum(["password", "passkey"]);', "packages/protocol/src/account/auth.ts"),
+    false,
+  );
 });
 
 test("account gate raw credential policy does not misclassify committed C0 identifiers", () => {
   for (const [file, source] of c0RuntimeSources) {
-    assert.equal(sourceDeclaresRawCredentialField(source), false, file);
+    assert.equal(sourceDeclaresRawCredentialField(source, `apps/cloud/src/modules/devices/${file}`), false, file);
   }
   assert.equal(
     sourceDeclaresRawCredentialField(
       "credentialEpoch: number; boundAccountSecurityEpoch: number; expectedCredentialEpoch?: number;",
+      "apps/cloud/src/modules/devices/index.ts",
     ),
     false,
   );
@@ -134,6 +146,12 @@ test("account gate report rejects signature verification primitives without matc
   for (const [file, source] of c0RuntimeSources) {
     assert.equal(sourceVerifiesSignature(source), false, file);
   }
+});
+
+test("signature verification ban is scoped to devices and drain sources", () => {
+  const source = "await crypto.subtle.verify(algorithm, key, signature, bytes);";
+  assert.equal(sourceVerifiesSignatureInScope("apps/cloud/src/modules/devices/drain-verification.ts", source), true);
+  assert.equal(sourceVerifiesSignatureInScope("apps/cloud/src/modules/identity/login-command.ts", source), false);
 });
 
 test("account gate report fails closed when a positive drain-signature verdict is constructible", () => {
@@ -192,6 +210,30 @@ test("account gate report requires checkDrainProofSignature naming", () => {
   assert.equal(drainProofSignatureCheckNamingCompliant("const drain = true;"), false);
 });
 
+test("account gate report requires an unsuccessable checkPasswordHash port", () => {
+  assert.equal(passwordHashPortCannotSucceed(passwordHashPortSource), true);
+  assert.equal(passwordHashCheckNamingCompliant(passwordHashPortSource), true);
+  assert.equal(
+    passwordHashPortCannotSucceed(`
+      interface PasswordHashPort {
+        checkPasswordHash(): Promise<{
+          readonly verified: boolean;
+          readonly reason: "password_verification_disabled";
+        }>;
+      }
+    `),
+    false,
+  );
+  assert.equal(
+    passwordHashCheckNamingCompliant(`
+      interface PasswordHashPort {
+        verifyPasswordHash(): Promise<{ readonly verified: false }>;
+      }
+    `),
+    false,
+  );
+});
+
 test("account gate report rejects direct lease release from acceptDrain", () => {
   assert.equal(sourceAcceptDrainReleasesLease(devicesSource), false);
   assert.equal(
@@ -220,6 +262,9 @@ test("account gate report makes every fallback field a hard requirement", () => 
   assert.equal(report.signatureVerificationAbsent, true);
   assert.equal(report.drainProofAcceptanceAbsent, true);
   assert.equal(report.drainProofSignatureSuccessUnrepresentable, true);
+  assert.equal(report.passwordVerificationSuccessUnrepresentable, true);
+  assert.equal(report.passwordHashCheckNamingCompliant, true);
+  assert.equal(report.rotationFamilyNegativeMatrixPresent, true);
   assert.equal(report.acceptDrainLeaseReleaseAbsent, true);
   assert.equal(report.drainProductionRoutesAbsent, true);
   assert.equal(report.drainProofSignatureCheckNamingCompliant, true);
@@ -229,6 +274,9 @@ test("account gate report makes every fallback field a hard requirement", () => 
     "signatureVerificationAbsent",
     "drainProofAcceptanceAbsent",
     "drainProofSignatureSuccessUnrepresentable",
+    "passwordVerificationSuccessUnrepresentable",
+    "passwordHashCheckNamingCompliant",
+    "rotationFamilyNegativeMatrixPresent",
     "acceptDrainLeaseReleaseAbsent",
     "drainProductionRoutesAbsent",
     "drainProofSignatureCheckNamingCompliant",
