@@ -165,13 +165,13 @@ export class ActiveDeviceLeaseLifecycle {
         });
         this.#drainTransactionFault?.("after_proof_consumption");
         const claims = transaction.acceptedDrain.sealClaims;
+        const scope = { accountId, workspaceId: claims.workspaceId };
         const domain = {
-          workspaceId: claims.workspaceId,
           sourceDeviceId: claims.sourceDeviceId,
           activeLeaseEpoch: claims.activeLeaseEpoch,
         };
         if (this.#drainSeals.mutation === undefined) throw new TypeError("mutation drain seal participant is unavailable");
-        sealRollbacks.push(this.#drainSeals.mutation.installAcceptedDrainSeal({
+        sealRollbacks.push(this.#drainSeals.mutation.installAcceptedDrainSeal(scope, {
           ...domain,
           stream: "mutation",
           lastAssignedSequence: claims.lastAssignedSequence.mutation,
@@ -180,7 +180,7 @@ export class ActiveDeviceLeaseLifecycle {
         if (this.#drainSeals.execution_fact === undefined) {
           throw new TypeError("execution_fact drain seal participant is unavailable");
         }
-        sealRollbacks.push(this.#drainSeals.execution_fact.installAcceptedDrainSeal({
+        sealRollbacks.push(this.#drainSeals.execution_fact.installAcceptedDrainSeal(scope, {
           ...domain,
           stream: "execution_fact",
           lastAssignedSequence: claims.lastAssignedSequence.execution_fact,
@@ -189,7 +189,7 @@ export class ActiveDeviceLeaseLifecycle {
         if (this.#drainSeals.device_audit === undefined) {
           throw new TypeError("device_audit drain seal participant is unavailable");
         }
-        sealRollbacks.push(this.#drainSeals.device_audit.installAcceptedDrainSeal({
+        sealRollbacks.push(this.#drainSeals.device_audit.installAcceptedDrainSeal(scope, {
           ...domain,
           stream: "device_audit",
           lastAssignedSequence: claims.lastAssignedSequence.device_audit,

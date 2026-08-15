@@ -132,7 +132,7 @@ function submitRequest(input: { targetRevision?: number; schemaVersion?: number;
   });
 }
 
-function buildPage(request: Parameters<MutationPagePort["readPage"]>[0], chain = mutations): MutationPage {
+function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain = mutations): MutationPage {
   const offset = request.fromRevisionExclusive - checkpoint.throughRevision;
   const selected = chain.slice(offset, offset + request.pageLimit);
   const returnedThroughRevision = selected.length === 0
@@ -216,7 +216,7 @@ function createHarness(input: {
     releasePin,
   };
   const mutationPages: MutationPagePort = {
-    readPage: async (request) => buildPage(request, [...chain]),
+    readPage: async (_scope, request) => buildPage(request, [...chain]),
   };
   const retireCursor = vi.fn(async () => undefined);
   const activateCursor = vi.fn(async () => undefined);
@@ -480,9 +480,17 @@ describe("BootstrapWorkflow", () => {
 
     await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in P0-16");
     expect(harness.retireCursor).toHaveBeenCalledOnce();
-    expect(harness.retireCursor).toHaveBeenCalledWith("workspace-1", "device-a", "replaced");
+    expect(harness.retireCursor).toHaveBeenCalledWith(
+      { accountId: "account-1", workspaceId: "workspace-1" },
+      "device-a",
+      "replaced",
+    );
     expect(harness.activateCursor).toHaveBeenCalledOnce();
-    expect(harness.activateCursor).toHaveBeenCalledWith("workspace-1", "device-b", 6);
+    expect(harness.activateCursor).toHaveBeenCalledWith(
+      { accountId: "account-1", workspaceId: "workspace-1" },
+      "device-b",
+      6,
+    );
     expect(harness.retireCursor.mock.invocationCallOrder[0]).toBeLessThan(
       harness.activateCursor.mock.invocationCallOrder[0]!,
     );

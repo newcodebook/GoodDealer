@@ -9,9 +9,10 @@ import {
 } from "@gooddealer/protocol/execution-events";
 
 import type { AuditChainRegistryPort, DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
+import type { WorkspaceTenantScope } from "../workspace/tenant-scope";
+import { workspaceTenantKey } from "../workspace/tenant-scope";
 
 interface WorkspaceAuditDomain {
-  readonly workspaceId: string;
   readonly sourceDeviceId: string;
   readonly activeLeaseEpoch: number;
 }
@@ -36,21 +37,24 @@ export class InMemoryDeviceAuditLedger implements
   readonly #workspaceRecords = new Map<string, Map<number, WorkspaceAuditRecord>>();
   readonly #chains = new Map<string, ChainRegistration>();
   readonly #seals = new Map<string, number>();
-  readonly #quarantined: {
+  readonly #quarantined = new Map<string, {
     readonly event: DeviceAuditEvent;
     readonly reason: "sequence_replay" | "drain_seal_violation";
-  }[] = [];
-  #accountBacklog = 0;
+  }[]>();
+  readonly #accountBacklog = new Map<string, number>();
 
-  appendAdjudicatedEvent(value: unknown):
+  appendAdjudicatedEvent(scope: WorkspaceTenantScope, value: unknown):
     | { readonly outcome: "accepted"; readonly duplicate: boolean }
     | { readonly outcome: "quarantined"; readonly reason: "sequence_replay" | "drain_seal_violation" } {
     const event = deviceAuditEventSchema.parse(value);
+    if (event.accountId !== scope.accountId || (event.scopeKind === "workspace" && event.workspaceId !== scope.workspaceId)) {
+      throw new TypeError("device audit event tenant scope is unresolved");
+    }
     if (event.scopeKind === "account") {
-      this.#accountBacklog += 1;
+      this.#accountBacklog.set(scope.accountId, (this.#accountBacklog.get(scope.accountId) ?? 0) + 1);
       return { outcome: "accepted", duplicate: false };
     }
-    const key = domainKey(event);
+    const key = domainKey(scope, event);
     const records = this.#workspaceRecords.get(key);
     const sealedThrough = this.#seals.get(key);
     const existing = records?.get(event.auditSequence);
@@ -59,11 +63,11 @@ export class InMemoryDeviceAuditLedger implements
       if (Buffer.from(existing.canonicalEnvelope).equals(Buffer.from(canonicalEnvelope))) {
         return { outcome: "accepted", duplicate: true };
       }
-      this.#quarantined.push({ event, reason: "sequence_replay" });
+      this.#recordQuarantine(scope, event, "sequence_replay");
       return { outcome: "quarantined", reason: "sequence_replay" };
     }
     if (sealedThrough !== undefined) {
-      this.#quarantined.push({ event, reason: "drain_seal_violation" });
+      this.#recordQuarantine(scope, event, "drain_seal_violation");
       return { outcome: "quarantined", reason: "drain_seal_violation" };
     }
 
@@ -88,7 +92,7 @@ export class InMemoryDeviceAuditLedger implements
     return { outcome: "accepted", duplicate: false };
   }
 
-  installAcceptedDrainSeal(input: WorkspaceAuditDomain & {
+  installAcceptedDrainSeal(scope: WorkspaceTenantScope, input: WorkspaceAuditDomain & {
     readonly stream: "device_audit";
     readonly lastAssignedSequence: number;
   }): { rollback(): void } {
@@ -96,7 +100,7 @@ export class InMemoryDeviceAuditLedger implements
     if (!Number.isSafeInteger(input.lastAssignedSequence) || input.lastAssignedSequence < 0) {
       throw new TypeError("accepted drain seal sequence must be unsigned");
     }
-    const key = domainKey(input);
+    const key = domainKey(scope, input);
     const existing = this.#seals.get(key);
     if (existing !== undefined && existing !== input.lastAssignedSequence) {
       throw new TypeError("an accepted handoff proof is immutable");
@@ -105,31 +109,50 @@ export class InMemoryDeviceAuditLedger implements
     return { rollback: () => { if (existing === undefined) this.#seals.delete(key); } };
   }
 
-  recordAcceptedDrainSeal(domain: WorkspaceAuditDomain, lastAssignedSequence: number): { rollback(): void } {
-    return this.installAcceptedDrainSeal({ ...domain, stream: "device_audit", lastAssignedSequence });
+  recordAcceptedDrainSeal(
+    scope: WorkspaceTenantScope,
+    domain: WorkspaceAuditDomain,
+    lastAssignedSequence: number,
+  ): { rollback(): void } {
+    return this.installAcceptedDrainSeal(scope, { ...domain, stream: "device_audit", lastAssignedSequence });
   }
 
-  accountBacklog(): number {
-    return this.#accountBacklog;
+  accountBacklog(scope: WorkspaceTenantScope): number {
+    workspaceTenantKey(scope);
+    return this.#accountBacklog.get(scope.accountId) ?? 0;
   }
 
-  quarantined() {
-    return [...this.#quarantined];
+  quarantined(scope: WorkspaceTenantScope) {
+    return [...(this.#quarantined.get(workspaceTenantKey(scope)) ?? [])].map((record) => ({ ...record }));
   }
 
-  async readWatermark(domain: WorkspaceAuditDomain & { readonly stream: "device_audit" }) {
+  async readWatermark(
+    scope: WorkspaceTenantScope,
+    domain: WorkspaceAuditDomain & { readonly stream: "device_audit" },
+  ) {
     if (domain.stream !== "device_audit") throw new TypeError("audit ledger serves only device audit");
-    return projectWatermark(this.#workspaceRecords.get(domainKey(domain)));
+    return projectWatermark(this.#workspaceRecords.get(domainKey(scope, domain)));
   }
 
-  async readChainRegistration(domain: WorkspaceAuditDomain) {
-    const registration = this.#chains.get(domainKey(domain));
+  async readChainRegistration(scope: WorkspaceTenantScope, domain: WorkspaceAuditDomain) {
+    const registration = this.#chains.get(domainKey(scope, domain));
     return registration === undefined ? null : { ...registration };
+  }
+
+  #recordQuarantine(
+    scope: WorkspaceTenantScope,
+    event: DeviceAuditEvent,
+    reason: "sequence_replay" | "drain_seal_violation",
+  ): void {
+    const key = workspaceTenantKey(scope);
+    const records = this.#quarantined.get(key) ?? [];
+    records.push({ event, reason });
+    this.#quarantined.set(key, records);
   }
 }
 
-function domainKey(domain: WorkspaceAuditDomain): string {
-  return `${domain.workspaceId}\u0000${domain.sourceDeviceId}\u0000${domain.activeLeaseEpoch}`;
+function domainKey(scope: WorkspaceTenantScope, domain: WorkspaceAuditDomain): string {
+  return `${workspaceTenantKey(scope)}\u0000${domain.sourceDeviceId}\u0000${domain.activeLeaseEpoch}`;
 }
 
 function projectWatermark(records: Map<number, WorkspaceAuditRecord> | undefined) {

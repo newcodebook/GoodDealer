@@ -6,23 +6,23 @@ import {
 import type { CheckpointDescriptor, MutationPage } from "@gooddealer/protocol/workspace";
 
 import type { ActiveDeviceLeaseClaims } from "./lease-lifecycle";
+import type { WorkspaceTenantScope } from "../workspace/tenant-scope";
 
 export interface CheckpointCatalogPort {
-  selectPublishedCheckpoint(workspaceId: string, checkpointId: string): Promise<CheckpointDescriptor | null>;
-  pinCheckpoint(workspaceId: string, checkpointId: string, until: string): Promise<boolean>;
-  releasePin(workspaceId: string, checkpointId: string, workflowId: string): Promise<void>;
+  selectPublishedCheckpoint(scope: WorkspaceTenantScope, checkpointId: string): Promise<CheckpointDescriptor | null>;
+  pinCheckpoint(scope: WorkspaceTenantScope, checkpointId: string, until: string): Promise<boolean>;
+  releasePin(scope: WorkspaceTenantScope, checkpointId: string, workflowId: string): Promise<void>;
 }
 
 export interface WorkspaceRevisionPort {
-  readHead(workspaceId: string): Promise<{
+  readHead(scope: WorkspaceTenantScope): Promise<{
     readonly serverRevision: number;
     readonly workspaceSchemaVersion: number;
   }>;
 }
 
 export interface MutationPagePort {
-  readPage(request: {
-    readonly workspaceId: string;
+  readPage(scope: WorkspaceTenantScope, request: {
     readonly fromRevisionExclusive: number;
     readonly throughRevisionInclusive: number;
     readonly cursor: string | null;
@@ -31,8 +31,8 @@ export interface MutationPagePort {
 }
 
 export interface DeviceCursorPort {
-  retireCursor(workspaceId: string, deviceId: string, reason: "replaced" | "device_removed"): Promise<void>;
-  activateCursor(workspaceId: string, deviceId: string, atRevision: number): Promise<void>;
+  retireCursor(scope: WorkspaceTenantScope, deviceId: string, reason: "replaced" | "device_removed"): Promise<void>;
+  activateCursor(scope: WorkspaceTenantScope, deviceId: string, atRevision: number): Promise<void>;
 }
 
 export type DrainRejectionReason =
@@ -105,8 +105,7 @@ export interface VerifiedDrainSealClaims {
  * the compensating action used by the fixture transaction.
  */
 export interface DrainSealParticipantPort<Stream extends DrainStream = DrainStream> {
-  installAcceptedDrainSeal(input: {
-    readonly workspaceId: string;
+  installAcceptedDrainSeal(scope: WorkspaceTenantScope, input: {
     readonly sourceDeviceId: string;
     readonly activeLeaseEpoch: number;
     readonly stream: Stream;
@@ -115,8 +114,7 @@ export interface DrainSealParticipantPort<Stream extends DrainStream = DrainStre
 }
 
 export interface DrainStreamWatermarkPort {
-  readWatermark(domain: {
-    readonly workspaceId: string;
+  readWatermark(scope: WorkspaceTenantScope, domain: {
     readonly sourceDeviceId: string;
     readonly activeLeaseEpoch: number;
     readonly stream: DrainStream;
@@ -132,8 +130,7 @@ export interface DrainStreamWatermarkPort {
 }
 
 export interface AuditChainRegistryPort {
-  readChainRegistration(input: {
-    readonly workspaceId: string;
+  readChainRegistration(scope: WorkspaceTenantScope, input: {
     readonly sourceDeviceId: string;
     readonly activeLeaseEpoch: number;
   }): Promise<{

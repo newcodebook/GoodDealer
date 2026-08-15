@@ -9,14 +9,14 @@ import {
 } from "@gooddealer/protocol/execution-events";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { InMemoryDeviceAuditLedger } from "../src/modules/audit/index";
+import { InMemoryDeviceAuditLedger as TenantDeviceAuditLedger } from "../src/modules/audit/index";
 import {
-  InMemoryExecutionLedger,
+  InMemoryExecutionLedger as TenantExecutionLedger,
   RefusingExecutionFactIngestVerification,
   type ExecutionFactIngestVerification,
   type ExecutionFactIngestVerificationPort,
 } from "../src/modules/execution-ledger/index";
-import { InMemoryMutationDrainWatermarks } from "../src/modules/workspace/mutations/index";
+import { InMemoryMutationDrainWatermarks as TenantMutationDrainWatermarks } from "../src/modules/workspace/mutations/index";
 
 const executionFact = executionFactSchema.parse(JSON.parse(readFileSync(
   new URL("../../../packages/protocol/test-vectors/execution-events/valid/execution-fact.json", import.meta.url),
@@ -32,6 +32,93 @@ const accountAudit = JSON.parse(readFileSync(
 )) as Record<string, unknown>;
 
 const domain = { workspaceId: "workspace-a", sourceDeviceId: "device-a", activeLeaseEpoch: 2 } as const;
+const scope = { accountId: "account-a", workspaceId: domain.workspaceId } as const;
+
+// These adapters keep the pre-P0-20 assertions unchanged while making the newly mandatory
+// TenantContext explicit at the test boundary.
+class InMemoryMutationDrainWatermarks {
+  readonly #delegate = new TenantMutationDrainWatermarks();
+
+  recordLandedEnvelope(
+    input: typeof domain,
+    sequence: number,
+    envelope: Uint8Array,
+  ) {
+    return this.#delegate.recordLandedEnvelope(scope, input, sequence, envelope);
+  }
+
+  installAcceptedDrainSeal(input: typeof domain & { readonly stream: "mutation"; readonly lastAssignedSequence: number }) {
+    return this.#delegate.installAcceptedDrainSeal(scope, input);
+  }
+
+  readWatermark(input: typeof domain & { readonly stream: "mutation" }) {
+    return this.#delegate.readWatermark(scope, input);
+  }
+}
+
+class InMemoryDeviceAuditLedger {
+  readonly #delegate = new TenantDeviceAuditLedger();
+
+  appendAdjudicatedEvent(value: unknown) {
+    return this.#delegate.appendAdjudicatedEvent(scope, value);
+  }
+
+  installAcceptedDrainSeal(input: typeof domain & { readonly stream: "device_audit"; readonly lastAssignedSequence: number }) {
+    return this.#delegate.installAcceptedDrainSeal(scope, input);
+  }
+
+  recordAcceptedDrainSeal(input: typeof domain, lastAssignedSequence: number) {
+    return this.#delegate.recordAcceptedDrainSeal(scope, input, lastAssignedSequence);
+  }
+
+  accountBacklog() {
+    return this.#delegate.accountBacklog(scope);
+  }
+
+  quarantined() {
+    return this.#delegate.quarantined(scope);
+  }
+
+  readWatermark(input: typeof domain & { readonly stream: "device_audit" }) {
+    return this.#delegate.readWatermark(scope, input);
+  }
+
+  readChainRegistration(input: typeof domain) {
+    return this.#delegate.readChainRegistration(scope, input);
+  }
+}
+
+class InMemoryExecutionLedger {
+  readonly #delegate: TenantExecutionLedger;
+
+  constructor(options: ConstructorParameters<typeof TenantExecutionLedger>[0] = {}) {
+    this.#delegate = new TenantExecutionLedger(options);
+  }
+
+  installAcceptedDrainSeal(input: typeof domain & { readonly stream: "execution_fact"; readonly lastAssignedSequence: number }) {
+    return this.#delegate.installAcceptedDrainSeal(scope, input);
+  }
+
+  recordAcceptedDrainSeal(input: typeof domain, lastAssignedSequence: number) {
+    return this.#delegate.recordAcceptedDrainSeal(scope, input, lastAssignedSequence);
+  }
+
+  appendAdjudicatedFact(input: Parameters<TenantExecutionLedger["appendAdjudicatedFact"]>[1]) {
+    return this.#delegate.appendAdjudicatedFact(scope, input);
+  }
+
+  quarantined() {
+    return this.#delegate.quarantined(scope);
+  }
+
+  accepted() {
+    return this.#delegate.accepted(scope);
+  }
+
+  readWatermark(input: typeof domain & { readonly stream: "execution_fact" }) {
+    return this.#delegate.readWatermark(scope, input);
+  }
+}
 
 function fact(sequence: number, overrides: Partial<ExecutionFact> = {}) {
   return executionFactSchema.parse({

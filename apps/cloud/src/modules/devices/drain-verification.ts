@@ -218,7 +218,11 @@ export class DrainVerifier implements DrainVerificationPort {
     for (const stream of DRAIN_STREAMS) {
       const claim = claimsByStream.get(stream);
       if (claim === undefined) return rejection("DRAIN_PROOF_MALFORMED");
-      const cloud = await this.#readWatermarkFailClosed(stream, proof);
+      const cloud = await this.#readWatermarkFailClosed(
+        { accountId: input.accountId, workspaceId: input.workspaceId },
+        stream,
+        proof,
+      );
       const gap = cloud.missingRanges.length > 0;
       const short = cloud.contiguousReceivedThrough !== claim.contiguousReceivedThrough ||
         claim.contiguousReceivedThrough !== claim.lastAssignedSequence;
@@ -237,7 +241,10 @@ export class DrainVerifier implements DrainVerificationPort {
     }
 
     const deviceAuditClaim = claimsByStream.get("device_audit");
-    const auditRegistration = await this.#readAuditRegistrationFailClosed(proof);
+    const auditRegistration = await this.#readAuditRegistrationFailClosed(
+      { accountId: input.accountId, workspaceId: input.workspaceId },
+      proof,
+    );
     const auditForked = deviceAuditClaim === undefined || auditRegistration === null ||
       auditRegistration.forked || auditRegistration.headSequence !== deviceAuditClaim.lastAssignedSequence;
     const failingReports = reports.filter((report) =>
@@ -262,10 +269,13 @@ export class DrainVerifier implements DrainVerificationPort {
     return rejection("DRAIN_SIGNATURE_UNVERIFIED");
   }
 
-  async #readWatermarkFailClosed(stream: DrainStream, proof: DrainManifest) {
+  async #readWatermarkFailClosed(
+    scope: { readonly accountId: string; readonly workspaceId: string },
+    stream: DrainStream,
+    proof: DrainManifest,
+  ) {
     try {
-      return await this.#watermarks[stream].readWatermark({
-        workspaceId: proof.workspaceId,
+      return await this.#watermarks[stream].readWatermark(scope, {
         sourceDeviceId: proof.sourceDeviceId,
         activeLeaseEpoch: proof.activeLeaseEpoch,
         stream,
@@ -280,10 +290,12 @@ export class DrainVerifier implements DrainVerificationPort {
     }
   }
 
-  async #readAuditRegistrationFailClosed(proof: DrainManifest) {
+  async #readAuditRegistrationFailClosed(
+    scope: { readonly accountId: string; readonly workspaceId: string },
+    proof: DrainManifest,
+  ) {
     try {
-      return await this.#auditChainRegistry.readChainRegistration({
-        workspaceId: proof.workspaceId,
+      return await this.#auditChainRegistry.readChainRegistration(scope, {
         sourceDeviceId: proof.sourceDeviceId,
         activeLeaseEpoch: proof.activeLeaseEpoch,
       });

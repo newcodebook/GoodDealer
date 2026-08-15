@@ -76,7 +76,7 @@ const activeLease = {
 function watermarks(gapStream?: DrainStream): DrainStreamWatermarkPort {
   const claims = new Map(manifest.streams.map((claim) => [claim.stream, claim] as const));
   return {
-    readWatermark: async ({ stream }) => {
+    readWatermark: async (_scope, { stream }) => {
       const claim = claims.get(stream);
       if (claim === undefined) throw new TypeError("unknown stream");
       if (stream === gapStream) {
@@ -171,21 +171,21 @@ describe("acceptDrain orchestration", () => {
     });
     expect(service.getLeaseStatus()).toMatchObject({ held: false });
     const sealDomain = {
-      workspaceId: manifest.workspaceId,
       sourceDeviceId: manifest.sourceDeviceId,
       activeLeaseEpoch: manifest.activeLeaseEpoch,
     };
-    expect(() => ledgers.mutation.installAcceptedDrainSeal({
+    const sealScope = { accountId: "account-a", workspaceId: manifest.workspaceId };
+    expect(() => ledgers.mutation.installAcceptedDrainSeal(sealScope, {
       ...sealDomain,
       stream: "mutation",
       lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.mutation + 1,
     })).toThrowError("an accepted handoff proof is immutable");
-    expect(() => ledgers.executionFact.installAcceptedDrainSeal({
+    expect(() => ledgers.executionFact.installAcceptedDrainSeal(sealScope, {
       ...sealDomain,
       stream: "execution_fact",
       lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.execution_fact + 1,
     })).toThrowError("an accepted handoff proof is immutable");
-    expect(() => ledgers.deviceAudit.installAcceptedDrainSeal({
+    expect(() => ledgers.deviceAudit.installAcceptedDrainSeal(sealScope, {
       ...sealDomain,
       stream: "device_audit",
       lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.device_audit + 1,

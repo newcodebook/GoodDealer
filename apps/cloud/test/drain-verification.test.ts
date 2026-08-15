@@ -40,10 +40,12 @@ function proof(overrides: Partial<DrainManifest> = {}): DrainManifest {
 function cleanWatermarks(overrides: Partial<Record<DrainStream, Partial<Awaited<ReturnType<DrainStreamWatermarkPort["readWatermark"]>>>>> = {}) {
   const claims = new Map(validProof.streams.map((claim) => [claim.stream, claim] as const));
   const calls: DrainStream[] = [];
-  const domains: Parameters<DrainStreamWatermarkPort["readWatermark"]>[0][] = [];
+  const scopes: Parameters<DrainStreamWatermarkPort["readWatermark"]>[0][] = [];
+  const domains: Parameters<DrainStreamWatermarkPort["readWatermark"]>[1][] = [];
   const port: DrainStreamWatermarkPort = {
-    readWatermark: async (domain) => {
+    readWatermark: async (scope, domain) => {
       calls.push(domain.stream);
+      scopes.push(scope);
       domains.push(domain);
       const claim = claims.get(domain.stream);
       if (claim === undefined) throw new TypeError("unknown stream");
@@ -56,7 +58,7 @@ function cleanWatermarks(overrides: Partial<Record<DrainStream, Partial<Awaited<
       };
     },
   };
-  return { port, calls, domains };
+  return { port, calls, scopes, domains };
 }
 
 function cleanAudit(overrides: Partial<NonNullable<Awaited<ReturnType<AuditChainRegistryPort["readChainRegistration"]>>>> = {}) {
@@ -289,10 +291,15 @@ describe("DrainVerifier frozen guard order", () => {
     const result = await harness.subject.verifyHandoff({ ...expected, manifest: proof() });
     expect(result).toEqual({ accepted: false, reason: "DRAIN_SIGNATURE_UNVERIFIED", streams: [] });
     expect(harness.watermarks.calls).toEqual(["mutation", "execution_fact", "device_audit"]);
+    expect(harness.watermarks.scopes).toEqual([
+      { accountId: "account-a", workspaceId: "workspace-a" },
+      { accountId: "account-a", workspaceId: "workspace-a" },
+      { accountId: "account-a", workspaceId: "workspace-a" },
+    ]);
     expect(harness.watermarks.domains).toEqual([
-      { workspaceId: "workspace-a", sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "mutation" },
-      { workspaceId: "workspace-a", sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "execution_fact" },
-      { workspaceId: "workspace-a", sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "device_audit" },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "mutation" },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "execution_fact" },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "device_audit" },
     ]);
     expect(harness.audit.readChainRegistration).toHaveBeenCalledOnce();
     expect(harness.check).toHaveBeenCalledOnce();

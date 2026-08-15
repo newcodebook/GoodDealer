@@ -31,11 +31,12 @@ function sealParticipant<Stream extends "mutation" | "execution_fact" | "device_
   stream: Stream,
   fault: boolean,
 ) {
-  let installed: Parameters<DrainSealParticipantPort<Stream>["installAcceptedDrainSeal"]>[0] | null = null;
+  let installed: (Parameters<DrainSealParticipantPort<Stream>["installAcceptedDrainSeal"]>[0] &
+    Parameters<DrainSealParticipantPort<Stream>["installAcceptedDrainSeal"]>[1]) | null = null;
   const participant: DrainSealParticipantPort<Stream> = {
-    installAcceptedDrainSeal: (claim) => {
+    installAcceptedDrainSeal: (scope, claim) => {
       if (fault) throw new Error(`fault:participant:${stream}`);
-      installed = claim;
+      installed = { ...scope, ...claim };
       return { rollback: () => { installed = null; } };
     },
   };
@@ -160,9 +161,9 @@ describe("P17-INV-26/27 handoff release transaction", () => {
     expect(subject.pendingEpoch("account-a", "switch-a")).toBe(8);
     expect(subject.highestAllocatedEpoch("account-a")).toBe(8);
     expect(workflowStatus).toBe("bootstrapping");
-    expect(mutation.installed()).toEqual({ ...sealClaims, stream: "mutation", lastAssignedSequence: 3 });
-    expect(executionFact.installed()).toEqual({ ...sealClaims, stream: "execution_fact", lastAssignedSequence: 4 });
-    expect(deviceAudit.installed()).toEqual({ ...sealClaims, stream: "device_audit", lastAssignedSequence: 5 });
+    expect(mutation.installed()).toEqual({ accountId: "account-a", ...sealClaims, stream: "mutation", lastAssignedSequence: 3 });
+    expect(executionFact.installed()).toEqual({ accountId: "account-a", ...sealClaims, stream: "execution_fact", lastAssignedSequence: 4 });
+    expect(deviceAudit.installed()).toEqual({ accountId: "account-a", ...sealClaims, stream: "device_audit", lastAssignedSequence: 5 });
     expect(subject.beginBootstrap("account-a", "switch-a", "device-a")).toBe(8);
     expect(subject.highestAllocatedEpoch("account-a")).toBe(8);
   });

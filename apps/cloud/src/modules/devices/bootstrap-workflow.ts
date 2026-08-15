@@ -158,8 +158,9 @@ export class BootstrapWorkflow {
     let targetRevision: number | null = null;
     let targetSchemaVersion: number | null = null;
     if (request.stepKind === "pin_checkpoint") {
+      const scope = { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId };
       const selected = await this.#checkpointCatalog.selectPublishedCheckpoint(
-        this.#workflow.workspaceId,
+        scope,
         request.stepPayload.checkpointId,
       );
       if (
@@ -171,10 +172,10 @@ export class BootstrapWorkflow {
       ) {
         return reject("CHECKPOINT_MISMATCH");
       }
-      const head = await this.#workspaceRevision.readHead(this.#workflow.workspaceId);
+      const head = await this.#workspaceRevision.readHead(scope);
       const pinExpiresAt = minimumTimestamp([addSeconds(now, PIN_TTL_SECONDS), capability.expiresAt]);
       if (!await this.#checkpointCatalog.pinCheckpoint(
-        this.#workflow.workspaceId,
+        scope,
         selected.checkpointId,
         pinExpiresAt,
       )) {
@@ -204,7 +205,9 @@ export class BootstrapWorkflow {
     if (request.stepKind === "fetch_mutations") {
       try {
         expectedMutationPage = await this.#mutationPages.readPage({
+          accountId: this.#workflow.accountId,
           workspaceId: this.#workflow.workspaceId,
+        }, {
           fromRevisionExclusive: request.stepPayload.fromRevisionExclusive,
           throughRevisionInclusive: request.stepPayload.throughRevisionInclusive,
           cursor: request.stepPayload.cursor,
@@ -219,7 +222,7 @@ export class BootstrapWorkflow {
     if (isRejection(result)) {
       if (pendingPin !== null) {
         await this.#checkpointCatalog.releasePin(
-          this.#workflow.workspaceId,
+          { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId },
           pendingPin.checkpointId,
           this.#workflow.workflowId,
         );
@@ -293,16 +296,28 @@ export class BootstrapWorkflow {
     // refusal. Keeping the cursor transfer behind the consumed signer result makes both the
     // transaction shape and the Fallback's negative assertions discriminating.
     if (snapshot.fromDeviceId !== null) {
-      await this.#deviceCursor.retireCursor(snapshot.workspaceId, snapshot.fromDeviceId, "replaced");
+      await this.#deviceCursor.retireCursor(
+        { accountId: snapshot.accountId, workspaceId: snapshot.workspaceId },
+        snapshot.fromDeviceId,
+        "replaced",
+      );
     }
-    await this.#deviceCursor.activateCursor(snapshot.workspaceId, snapshot.toDeviceId, snapshot.targetRevision);
+    await this.#deviceCursor.activateCursor(
+      { accountId: snapshot.accountId, workspaceId: snapshot.workspaceId },
+      snapshot.toDeviceId,
+      snapshot.targetRevision,
+    );
     throw new TypeError("lease issuance success is disabled in P0-16");
   }
 
   async cancel(): Promise<void> {
     const pin = this.#workflow.pin;
     if (pin !== null) {
-      await this.#checkpointCatalog.releasePin(this.#workflow.workspaceId, pin.checkpointId, this.#workflow.workflowId);
+      await this.#checkpointCatalog.releasePin(
+        { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId },
+        pin.checkpointId,
+        this.#workflow.workflowId,
+      );
     }
     this.#leaseLifecycle.discardPending(this.#workflow.accountId, this.#workflow.workflowId);
     this.#workflow.cancel(this.#trustedTime.now());
@@ -313,7 +328,11 @@ export class BootstrapWorkflow {
     if (this.#workflow.stateDeadline === null || now < this.#workflow.stateDeadline) return false;
     const pin = this.#workflow.pin;
     if (pin !== null) {
-      await this.#checkpointCatalog.releasePin(this.#workflow.workspaceId, pin.checkpointId, this.#workflow.workflowId);
+      await this.#checkpointCatalog.releasePin(
+        { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId },
+        pin.checkpointId,
+        this.#workflow.workflowId,
+      );
     }
     this.#leaseLifecycle.discardPending(this.#workflow.accountId, this.#workflow.workflowId);
     return this.#workflow.expire(now) !== null;
@@ -322,7 +341,11 @@ export class BootstrapWorkflow {
   async #failAndRelease(reason: string): Promise<void> {
     const pin = this.#workflow.pin;
     if (pin !== null) {
-      await this.#checkpointCatalog.releasePin(this.#workflow.workspaceId, pin.checkpointId, this.#workflow.workflowId);
+      await this.#checkpointCatalog.releasePin(
+        { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId },
+        pin.checkpointId,
+        this.#workflow.workflowId,
+      );
     }
     this.#leaseLifecycle.discardPending(this.#workflow.accountId, this.#workflow.workflowId);
     if (!["completed", "cancelled", "failed"].includes(this.#workflow.status)) {
