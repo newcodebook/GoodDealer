@@ -18,7 +18,7 @@ function normalize(rawBody: string): string {
   return rawBody.replace(JSON.stringify(body.correlationId), JSON.stringify("<correlation>"));
 }
 
-describe("the gd_session-bucketed rate-limit boundary", () => {
+describe("the pre-auth address-bucketed rate-limit boundary", () => {
   const apps: FastifyInstance[] = [];
 
   afterEach(async () => {
@@ -40,33 +40,45 @@ describe("the gd_session-bucketed rate-limit boundary", () => {
     return app;
   }
 
-  it("scopes buckets by gd_session, emits matching Retry-After, and resets on wall clock", async () => {
-    const app = publicApp(40, 1);
+  it("does not let rotating unverified cookies escape the source-address bucket", async () => {
+    const app = publicApp(60_000, 1);
     const firstA = await app.inject({
       method: "GET",
       url: "/v1/boundary/identity",
       headers: { cookie: "gd_session=session-a" },
     });
-    const limitedA = await app.inject({
-      method: "GET",
-      url: "/v1/boundary/identity",
-      headers: { cookie: "gd_session=session-a" },
-    });
-    const firstB = await app.inject({
+    const limitedAfterCookieRotation = await app.inject({
       method: "GET",
       url: "/v1/boundary/identity",
       headers: { cookie: "gd_session=session-b" },
     });
 
     expect(firstA.statusCode).toBe(200);
-    expect(firstB.statusCode).toBe(200);
-    expect(limitedA.statusCode).toBe(429);
-    const limitedBody = limitedA.json<Record<string, unknown>>();
+    expect(limitedAfterCookieRotation.statusCode).toBe(429);
+    const limitedBody = limitedAfterCookieRotation.json<Record<string, unknown>>();
     expect(limitedBody.code).toBe("RATE_LIMITED");
     expect(limitedBody.retryable).toBe(true);
-    expect(limitedA.headers["retry-after"]).toBe(String(limitedBody.retryAfterSeconds));
+    expect(limitedAfterCookieRotation.headers["retry-after"]).toBe(
+      String(limitedBody.retryAfterSeconds),
+    );
+  });
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
+  it("resets an exhausted bucket using the real wall clock", async () => {
+    const app = publicApp(2_000, 1);
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      headers: { cookie: "gd_session=session-a" },
+    });
+    const limited = await app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      headers: { cookie: "gd_session=session-a" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(limited.statusCode).toBe(429);
+
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
     const resetA = await app.inject({
       method: "GET",
       url: "/v1/boundary/identity",

@@ -61,7 +61,7 @@ describe("the observed 16-row error identity matrix", () => {
         { sessionId: "pub-session", accountId: "account-a" },
         { sessionId: "pub-rate-session", accountId: "account-rate" },
       ]),
-      rateLimit: rateLimitPolicy(60_000, 10),
+      rateLimit: rateLimitPolicy(60_000, 9),
       now: () => new Date("2026-08-15T00:00:00.000Z"),
       correlationIds: ids("public-correlation"),
       ports: [],
@@ -92,12 +92,6 @@ describe("the observed 16-row error identity matrix", () => {
       adminApp.listen({ host: "127.0.0.1", port: 0 }),
     ]);
 
-    for (let request = 0; request < 10; request += 1) {
-      const response = await fetch(`${publicUrl}/v1/boundary/identity`, {
-        headers: { cookie: "gd_session=pub-rate-session" },
-      });
-      expect(response.status).toBe(200);
-    }
   });
 
   afterAll(async () => {
@@ -211,19 +205,6 @@ describe("the observed 16-row error identity matrix", () => {
       body: JSON.stringify({ count: "x" }),
       expectedStatus: 400,
       expectedBody: { schemaVersion: 1, code: "SCHEMA_INVALID" },
-      audit: "none",
-    },
-    {
-      id: "M13",
-      surface: "public",
-      path: "/v1/boundary/identity",
-      cookie: "gd_session=pub-rate-session",
-      expectedStatus: 429,
-      expectedBody: {
-        schemaVersion: 1,
-        code: "RATE_LIMITED",
-        retryable: true,
-      },
       audit: "none",
     },
     {
@@ -433,5 +414,22 @@ describe("the observed 16-row error identity matrix", () => {
     } finally {
       await parameterApp.close();
     }
+  });
+
+  it("observes M13 after the shared source-address bucket is exhausted", async () => {
+    const response = await fetch(`${publicUrl}/v1/boundary/identity`, {
+      headers: { cookie: "gd_session=pub-rate-session" },
+    });
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(429);
+    expect(body).toEqual({
+      schemaVersion: 1,
+      code: "RATE_LIMITED",
+      correlationId: expect.any(String),
+      retryable: true,
+      retryAfterSeconds: expect.any(Number),
+    });
+    expect(response.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
   });
 });

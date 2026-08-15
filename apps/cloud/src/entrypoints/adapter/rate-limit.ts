@@ -1,12 +1,10 @@
-import { identifier } from "@gooddealer/protocol/wire";
-
 export interface RateLimitPolicy {
   readonly windowMs: number;
   readonly burst: number;
   readonly identityHeaderNames: readonly [];
 }
 
-export type RateLimitIdentity = `account:${string}` | `session:${string}` | `addr:${string}`;
+export type RateLimitIdentity = `addr:${string}`;
 
 export interface RateLimitIdentityResolver<TRequest> {
   resolve(request: TRequest): RateLimitIdentity;
@@ -67,10 +65,7 @@ export class InMemoryFixedWindowRateLimiter {
   }
 }
 
-export function sessionRateLimitIdentity(sessionId: string | null, clientAddress: string): RateLimitIdentity {
-  if (sessionId !== null && identifier.safeParse(sessionId).success) {
-    return `session:${sessionId}`;
-  }
+export function preAuthRateLimitIdentity(clientAddress: string): RateLimitIdentity {
   return `addr:${clientAddress}`;
 }
 

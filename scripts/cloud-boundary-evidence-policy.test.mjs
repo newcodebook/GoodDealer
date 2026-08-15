@@ -15,7 +15,7 @@ import {
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
   sourceSchedulesPeriodicJob,
-  sourceSelectsRateLimitBucketFromHeader,
+  sourceUsesAddressOnlyPreAuthRateLimitBucket,
 } from "./collect-cloud-boundary-report.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
@@ -94,16 +94,31 @@ test("hand-written JSON Schema policy distinguishes Zod conversion from object s
   );
 });
 
-test("rate-limit identity policy permits the session cookie and rejects header-selected buckets", () => {
+test("pre-auth rate-limit policy requires the request address and rejects client credentials", () => {
   assert.equal(
-    sourceSelectsRateLimitBucketFromHeader("const sessionId = cookieValue(request.headers.cookie, PUBLIC_SESSION_COOKIE);"),
+    sourceUsesAddressOnlyPreAuthRateLimitBucket(
+      "const decision = limiter.consume(preAuthRateLimitIdentity(request.ip));",
+    ),
+    true,
+  );
+  assert.equal(
+    sourceUsesAddressOnlyPreAuthRateLimitBucket(
+      "const decision = limiter.consume(sessionRateLimitIdentity(cookieValue(request.headers.cookie, 'gd_session'), request.ip));",
+    ),
     false,
   );
   assert.equal(
-    sourceSelectsRateLimitBucketFromHeader("const bucketIdentity = request.headers['x-rate-limit-key'];"),
-    true,
+    sourceUsesAddressOnlyPreAuthRateLimitBucket(
+      "const decision = limiter.consume(preAuthRateLimitIdentity(request.headers['x-forwarded-for']));",
+    ),
+    false,
   );
-  assert.equal(sourceSelectsRateLimitBucketFromHeader("identityHeaderNames: ['x-account-id']"), true);
+  assert.equal(
+    sourceUsesAddressOnlyPreAuthRateLimitBucket(
+      "identityHeaderNames: ['x-account-id']; limiter.consume(preAuthRateLimitIdentity(request.ip));",
+    ),
+    false,
+  );
 });
 
 test("module route policy rejects framework, route, and network primitives", () => {
@@ -153,13 +168,15 @@ test("cloud boundary report observes real roots and fails closed on policy mutat
       { ...report, jobsImportGraphReachesHttpFramework: true },
       { ...report, handWrittenJsonSchemaAbsent: false },
       { ...report, moduleSourceRegistersRoute: true },
-      { ...report, clientSelectableRateLimitBucketAbsent: false },
+      { ...report, preAuthRateLimitBucketSource: "unverified" },
       { ...report, cookieNamesDisjoint: false },
       { ...report, runtimeIsolation: { ...report.runtimeIsolation, distinctInstances: false } },
       { ...report, errorIdentityMatrix: { ...report.errorIdentityMatrix, allMatched: false } },
       { ...report, routeTables: { ...report.routeTables, admin: [...report.routeTables.admin, "GET /admin/v1/accounts"] } },
       { ...report, openapi: { ...report.openapi, pathSetsDisjoint: false } },
       { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, probeVerdict: "fail" } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, rotatingCookiesShareAddressBucketObserved: false } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, productionStrategyDeferredTo: null } },
       { ...report, requirementMapping: { ...report.requirementMapping, closesGate: true } },
       { ...report, requiredInputsPresent: false },
     ];

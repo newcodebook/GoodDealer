@@ -31,7 +31,7 @@ export const CLOUD_BOUNDARY_EVIDENCE_DEFAULTS = Object.freeze({
 });
 
 export const CLOUD_BOUNDARY_SCOPE =
-  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, and fixture session verifiers. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime.";
+  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, fixture session verifiers, and a single-process pre-auth request.ip rate-limit bucket. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no device/account bucket, and no cross-instance rate-limit consistency.";
 
 const publicRouteTable = [
   "GET /v1/boundary/identity",
@@ -166,14 +166,12 @@ export function sourceDeclaresHandWrittenJsonSchema(source) {
   );
 }
 
-export function sourceSelectsRateLimitBucketFromHeader(source) {
+export function sourceUsesAddressOnlyPreAuthRateLimitBucket(source) {
   const cleanSource = withoutComments(source);
-  const nonEmptyIdentityHeaderTuple =
-    /identityHeaderNames\s*:\s*\[\s*[^\]\s]/.test(cleanSource);
-  const headerSelectedIdentity =
-    /(?:rateLimit|bucket|identity)[\s\S]{0,220}?(?:headers\s*\[|headers\.(?!cookie\b))/i.test(cleanSource)
-    || /(?:headers\s*\[|headers\.(?!cookie\b))[\s\S]{0,220}?(?:rateLimit|bucket|identity)/i.test(cleanSource);
-  return nonEmptyIdentityHeaderTuple || headerSelectedIdentity;
+  const consumeCalls = [...cleanSource.matchAll(/\blimiter\s*\.\s*consume\s*\(/g)];
+  return consumeCalls.length === 1
+    && /\blimiter\s*\.\s*consume\s*\(\s*preAuthRateLimitIdentity\s*\(\s*request\.ip\s*\)\s*\)/.test(cleanSource)
+    && !/identityHeaderNames\s*:\s*\[\s*[^\]\s]/.test(cleanSource);
 }
 
 export function sourceRegistersModuleRoute(source) {
@@ -407,26 +405,26 @@ async function observeRateLimit(publicUrl) {
       && response.headers.get("retry-after") === String(body.retryAfterSeconds),
     );
   }
-  const alternate = await request("probe-session-b");
+  const rotatedCookie = await request("probe-session-b");
   const missing = await request(null);
-  await Promise.all([alternate.body?.cancel(), missing.body?.cancel()]);
+  await Promise.all([rotatedCookie.body?.cancel(), missing.body?.cancel()]);
   await delay(1_500);
   const reset = await request("probe-session-a");
   await reset.body?.cancel();
   return {
     allowedStatuses: allowed,
     limitedStatuses: limited,
-    perIdentityScopingObserved: alternate.status === 200,
+    rotatingCookiesShareAddressBucketObserved: rotatedCookie.status === 429,
     resetObserved: reset.status === 200,
     limitedStatus: limited.every((status) => status === 429) ? 429 : limited[0] ?? null,
-    missingKeyStatus: missing.status,
+    absentCookieAfterExhaustionStatus: missing.status,
     retryAfterPairingObserved: retryPairings.every(Boolean),
     probeVerdict:
       allowed.every((status) => status === 200)
       && limited.every((status) => status === 429)
       && retryPairings.every(Boolean)
-      && alternate.status === 200
-      && missing.status === 401
+      && rotatedCookie.status === 429
+      && missing.status === 429
       && reset.status === 200
         ? "pass"
         : "fail",
@@ -476,9 +474,10 @@ function staticBoundaryEvidence(runtime) {
       ({ source }) => !sourceDeclaresHandWrittenJsonSchema(source),
     ),
     moduleSourceRegistersRoute: moduleSources.some(({ source }) => sourceRegistersModuleRoute(source)),
-    clientSelectableRateLimitBucketAbsent: entrypointSources.every(
-      ({ source }) => !sourceSelectsRateLimitBucketFromHeader(source),
-    ),
+    preAuthRateLimitBucketSource:
+      publicRoot !== undefined && sourceUsesAddressOnlyPreAuthRateLimitBucket(publicRoot.source)
+        ? "request.ip"
+        : "unverified",
     cookieNamesDisjoint:
       runtime.PUBLIC_SESSION_COOKIE === "gd_session"
       && runtime.STAFF_SESSION_COOKIE === "gd_staff_session"
@@ -530,7 +529,7 @@ export async function collectCloudBoundaryReport(options = {}) {
   ].map((sessionId, index) => ({ sessionId, accountId: `fixture-account-${index + 1}` }));
   const publicApp = runtime.createPublicHttp({
     sessions: new runtime.StaticPublicSessionVerifier(publicSessions),
-    rateLimit: runtime.rateLimitPolicy(1_000, 3),
+    rateLimit: runtime.rateLimitPolicy(1_000, 8),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("public-evidence-correlation"),
     ports: [],
@@ -546,26 +545,40 @@ export async function collectCloudBoundaryReport(options = {}) {
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("admin-evidence-correlation"),
   });
+  const rateLimitApp = runtime.createPublicHttp({
+    sessions: new runtime.StaticPublicSessionVerifier([
+      { sessionId: "probe-session-a", accountId: "fixture-probe-account-a" },
+      { sessionId: "probe-session-b", accountId: "fixture-probe-account-b" },
+    ]),
+    rateLimit: runtime.rateLimitPolicy(1_000, 3),
+    now: () => new Date("2026-08-15T00:00:00.000Z"),
+    correlationIds: ids("rate-limit-evidence-correlation"),
+    ports: [],
+  });
 
   let publicUrl;
   let adminUrl;
+  let rateLimitUrl;
   try {
-    [publicUrl, adminUrl] = await Promise.all([
+    [publicUrl, adminUrl, rateLimitUrl] = await Promise.all([
       publicApp.listen({ host: "127.0.0.1", port: 0 }),
       adminApp.listen({ host: "127.0.0.1", port: 0 }),
+      rateLimitApp.listen({ host: "127.0.0.1", port: 0 }),
     ]);
-    for (let request = 0; request < 3; request += 1) {
-      const warmup = await fetch(`${publicUrl}/v1/boundary/identity`, {
-        headers: { cookie: "gd_session=matrix-rate-session" },
-      });
-      await warmup.body?.cancel();
-    }
-
     const observedCases = [];
     const context = { publicUrl, adminUrl, audit };
-    for (const matrixCase of matrixCases) {
+    const executionOrder = [
+      ...matrixCases.filter(({ id }) => id !== "M13"),
+      matrixCases.find(({ id }) => id === "M13"),
+    ];
+    for (const matrixCase of executionOrder) {
+      if (matrixCase === undefined) throw new Error("M13 matrix case is required");
       observedCases.push(await requestMatrixCase(matrixCase, context));
     }
+    observedCases.sort(
+      (left, right) => matrixCases.findIndex(({ id }) => id === left.id)
+        - matrixCases.findIndex(({ id }) => id === right.id),
+    );
     const normalizedAdminPreAuth = observedCases
       .filter(({ id }) => ["M6", "M7", "M9", "M11", "M15"].includes(id))
       .map(({ rawBody }) => normalizeCorrelation(rawBody));
@@ -580,7 +593,7 @@ export async function collectCloudBoundaryReport(options = {}) {
     const publicOpenApiPaths = Object.keys(publicOpenApi.paths);
     const adminOpenApiPaths = Object.keys(adminOpenApi.paths);
     const sharedOpenApiPaths = publicOpenApiPaths.filter((path) => adminOpenApiPaths.includes(path));
-    const rateLimitObservation = await observeRateLimit(publicUrl);
+    const rateLimitObservation = await observeRateLimit(rateLimitUrl);
     const inputs = inputEvidence();
     const staticEvidence = staticBoundaryEvidence(runtime);
 
@@ -620,14 +633,14 @@ export async function collectCloudBoundaryReport(options = {}) {
         allowedCount: 3,
         overLimitCount: 2,
         ...rateLimitObservation,
-        probeCriterion: "crit_e26e01ef006a",
+        productionStrategyDeferredTo: "P0-19",
       },
       requirementMapping: requirementMapping(),
       requiredInputsPresent: inputs.length === CLOUD_BOUNDARY_REQUIRED_INPUTS.length,
       inputs,
     };
   } finally {
-    await Promise.allSettled([publicApp.close(), adminApp.close()]);
+    await Promise.allSettled([publicApp.close(), adminApp.close(), rateLimitApp.close()]);
   }
 }
 
@@ -646,7 +659,7 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.jobsImportGraphReachesHttpFramework === false
     && report.handWrittenJsonSchemaAbsent === true
     && report.moduleSourceRegistersRoute === false
-    && report.clientSelectableRateLimitBucketAbsent === true
+    && report.preAuthRateLimitBucketSource === "request.ip"
     && report.cookieNamesDisjoint === true
     && report.runtimeIsolation?.publicPort === "ephemeral"
     && report.runtimeIsolation?.adminPort === "ephemeral"
@@ -670,12 +683,12 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.rateLimitBoundary?.burst === 3
     && report.rateLimitBoundary?.allowedCount === 3
     && report.rateLimitBoundary?.overLimitCount === 2
-    && report.rateLimitBoundary?.perIdentityScopingObserved === true
+    && report.rateLimitBoundary?.rotatingCookiesShareAddressBucketObserved === true
     && report.rateLimitBoundary?.resetObserved === true
     && report.rateLimitBoundary?.limitedStatus === 429
-    && report.rateLimitBoundary?.missingKeyStatus === 401
+    && report.rateLimitBoundary?.absentCookieAfterExhaustionStatus === 429
     && report.rateLimitBoundary?.retryAfterPairingObserved === true
-    && report.rateLimitBoundary?.probeCriterion === "crit_e26e01ef006a"
+    && report.rateLimitBoundary?.productionStrategyDeferredTo === "P0-19"
     && report.rateLimitBoundary?.probeVerdict === "pass"
     && report.requirementMapping?.closesGate === false
     && report.requirementMapping?.r0_09?.length === 6

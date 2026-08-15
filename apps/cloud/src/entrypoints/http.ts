@@ -12,7 +12,7 @@ import {
 import {
   InMemoryFixedWindowRateLimiter,
   cookieValue,
-  sessionRateLimitIdentity,
+  preAuthRateLimitIdentity,
   type RateLimitPolicy,
 } from "./adapter/rate-limit";
 import { attachOpenApiDocument, buildOpenApiDocument } from "./adapter/schema";
@@ -59,8 +59,8 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
   });
 
   app.addHook("onRequest", async (request, reply) => {
-    const sessionId = cookieValue(request.headers.cookie, PUBLIC_SESSION_COOKIE);
-    const decision = limiter.consume(sessionRateLimitIdentity(sessionId, request.ip));
+    // A cookie is unverified at this stage and therefore cannot choose a pre-auth bucket.
+    const decision = limiter.consume(preAuthRateLimitIdentity(request.ip));
     if (!decision.allowed) {
       const rejection: AccountRejection = rateLimitedRejection(
         correlationIdFor(request),
