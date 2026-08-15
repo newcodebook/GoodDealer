@@ -8,6 +8,7 @@ import {
   secureHostManifestErrors,
 } from "./boundary-policy.mjs";
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
+import { repositoryUnsafeCodeBoundaryErrors } from "./unsafe-boundary-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
@@ -115,10 +116,11 @@ errors.push(...cloudManifestErrors(cloudManifest));
 
 const secureHostManifest = readFileSync(resolve(root, "crates/secure-host-core/Cargo.toml"), "utf8");
 errors.push(...secureHostManifestErrors(secureHostManifest));
+errors.push(...repositoryUnsafeCodeBoundaryErrors(root));
 
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 
-console.log("import and dependency boundary checks passed");
+console.log("import, dependency, and unsafe-code boundary checks passed");
