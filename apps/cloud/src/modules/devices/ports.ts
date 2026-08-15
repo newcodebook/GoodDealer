@@ -78,13 +78,40 @@ export interface DrainVerificationPort {
     readonly evaluatedAt: string;
     readonly manifest: unknown;
   }): Promise<
-    | { readonly accepted: true; readonly proofId: string; readonly proofDigest: string }
+    | {
+      readonly accepted: true;
+      readonly proofId: string;
+      readonly proofDigest: string;
+      readonly sealClaims: VerifiedDrainSealClaims;
+    }
     | {
       readonly accepted: false;
       readonly reason: DrainRejectionReason;
       readonly streams: readonly DrainStreamGapReport[];
     }
   >;
+}
+
+export interface VerifiedDrainSealClaims {
+  readonly workspaceId: string;
+  readonly sourceDeviceId: string;
+  readonly activeLeaseEpoch: number;
+  readonly lastAssignedSequence: Readonly<Record<DrainStream, number>>;
+}
+
+/**
+ * Transaction participant owned by one drain ledger; claims are supplied only by verification.
+ * A thrown installation must leave the participant unchanged; a successful installation returns
+ * the compensating action used by the fixture transaction.
+ */
+export interface DrainSealParticipantPort<Stream extends DrainStream = DrainStream> {
+  installAcceptedDrainSeal(input: {
+    readonly workspaceId: string;
+    readonly sourceDeviceId: string;
+    readonly activeLeaseEpoch: number;
+    readonly stream: Stream;
+    readonly lastAssignedSequence: number;
+  }): { rollback(): void };
 }
 
 export interface DrainStreamWatermarkPort {

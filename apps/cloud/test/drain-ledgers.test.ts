@@ -104,6 +104,32 @@ describe("per-module drain watermark ledgers", () => {
     );
   });
 
+  it("treats mutation retries as duplicates only when the landed envelope bytes are identical before and after sealing", () => {
+    const ledger = new InMemoryMutationDrainWatermarks();
+    const original = new TextEncoder().encode("mutation-original");
+    const conflict = new TextEncoder().encode("mutation-conflict");
+    expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: false });
+    expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: true });
+    expect(() => ledger.recordLandedEnvelope(domain, 1, conflict)).toThrowError(
+      "a landed mutation sequence cannot be rewritten",
+    );
+
+    ledger.installAcceptedDrainSeal({ ...domain, stream: "mutation", lastAssignedSequence: 1 });
+    expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: true });
+    expect(() => ledger.recordLandedEnvelope(domain, 1, conflict)).toThrowError(
+      "a landed mutation sequence cannot be rewritten",
+    );
+    expect(ledger.recordLandedEnvelope(domain, 2, new TextEncoder().encode("after-seal"))).toEqual({
+      outcome: "quarantined",
+      reason: "drain_seal_violation",
+    });
+    expect(() => ledger.installAcceptedDrainSeal({
+      ...domain,
+      stream: "mutation",
+      lastAssignedSequence: 2,
+    })).toThrowError("an accepted handoff proof is immutable");
+  });
+
   it("P17-INV-24 excludes account-scope audit backlog from the workspace stream and chain guard", async () => {
     const ledger = new InMemoryDeviceAuditLedger();
     expect(ledger.appendAdjudicatedEvent(accountAudit)).toEqual({ outcome: "accepted", duplicate: false });
@@ -175,6 +201,36 @@ describe("LateExecutionEvent classification and drain seals", () => {
     expect(() => ledger.recordAcceptedDrainSeal(domain, 2)).toThrowError("an accepted handoff proof is immutable");
   });
 
+  it("treats execution fact retries as duplicates only for an identical canonical envelope before and after sealing", async () => {
+    const ledger = executionLedger();
+    const original = fact(1);
+    const conflict = fact(1, { executionFactId: "execution-fact-conflict" });
+    expect(await ledger.appendAdjudicatedFact(adjudicationInput(original))).toMatchObject({
+      outcome: "accepted",
+      duplicate: false,
+    });
+    expect(await ledger.appendAdjudicatedFact(adjudicationInput(original))).toMatchObject({
+      outcome: "accepted",
+      duplicate: true,
+    });
+    expect(await ledger.appendAdjudicatedFact(adjudicationInput(conflict))).toEqual({
+      outcome: "quarantined",
+      reason: "sequence_replay",
+    });
+
+    ledger.recordAcceptedDrainSeal(domain, 1);
+    expect(await ledger.appendAdjudicatedFact(adjudicationInput(original))).toMatchObject({
+      outcome: "accepted",
+      duplicate: true,
+    });
+    expect(await ledger.appendAdjudicatedFact(adjudicationInput(conflict))).toEqual({
+      outcome: "quarantined",
+      reason: "sequence_replay",
+    });
+    expect(() => ledger.recordAcceptedDrainSeal(domain, 2)).toThrowError("an accepted handoff proof is immutable");
+    expect(ledger.accepted()).toHaveLength(1);
+  });
+
   it("P17-INV-32 keeps late facts evidence-only and exercises fail-closed quarantine reasons", async () => {
     expect(await executionLedger({ boundCredentialEpoch: null }).appendAdjudicatedFact(adjudicationInput(fact(1)))).toEqual({
       outcome: "quarantined",
@@ -194,8 +250,9 @@ describe("LateExecutionEvent classification and drain seals", () => {
       classification: "late",
     });
     expect(await ledger.appendAdjudicatedFact(adjudicationInput(fact(1), 3))).toEqual({
-      outcome: "quarantined",
-      reason: "sequence_replay",
+      outcome: "accepted",
+      classification: "late",
+      duplicate: true,
     });
     expect(await executionLedger({ removalBoundary: "passed" }).appendAdjudicatedFact(adjudicationInput(fact(2)))).toEqual({
       outcome: "quarantined",
@@ -239,5 +296,20 @@ describe("LateExecutionEvent classification and drain seals", () => {
     });
     expect(JSON.stringify(ledger.quarantined())).not.toMatch(/classification|LateExecutionEvent/);
     expect(() => ledger.recordAcceptedDrainSeal(domain, 2)).toThrowError("an accepted handoff proof is immutable");
+  });
+
+  it("treats workspace audit retries as duplicates only for an identical canonical envelope before and after sealing", () => {
+    const ledger = new InMemoryDeviceAuditLedger();
+    const original = { ...workspaceAudit, auditEventId: "audit-workspace-1", auditSequence: 1 };
+    const conflict = { ...original, auditEventId: "audit-workspace-conflict" };
+    expect(ledger.appendAdjudicatedEvent(original)).toEqual({ outcome: "accepted", duplicate: false });
+    expect(ledger.appendAdjudicatedEvent(original)).toEqual({ outcome: "accepted", duplicate: true });
+    expect(ledger.appendAdjudicatedEvent(conflict)).toEqual({ outcome: "quarantined", reason: "sequence_replay" });
+
+    ledger.recordAcceptedDrainSeal(domain, 1);
+    expect(ledger.appendAdjudicatedEvent(original)).toEqual({ outcome: "accepted", duplicate: true });
+    expect(ledger.appendAdjudicatedEvent(conflict)).toEqual({ outcome: "quarantined", reason: "sequence_replay" });
+    expect(() => ledger.recordAcceptedDrainSeal(domain, 2)).toThrowError("an accepted handoff proof is immutable");
+    expect(ledger.quarantined()).toHaveLength(2);
   });
 });

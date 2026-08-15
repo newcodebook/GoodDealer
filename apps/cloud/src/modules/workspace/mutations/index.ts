@@ -5,7 +5,7 @@ import {
   encodeDrainChainStepInput,
 } from "@gooddealer/protocol/execution-events";
 
-import type { DrainStreamWatermarkPort } from "../../devices/ports";
+import type { DrainSealParticipantPort, DrainStreamWatermarkPort } from "../../devices/ports";
 
 interface MutationDrainDomain {
   readonly workspaceId: string;
@@ -17,11 +17,51 @@ interface MutationDrainDomain {
  * Read-side fixture ledger only. Recording a landed canonical envelope does not accept a
  * SyncMutation, assign a server revision, publish a checkpoint, or persist a cursor.
  */
-export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort {
+export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort, DrainSealParticipantPort<"mutation"> {
   readonly #records = new Map<string, Map<number, Uint8Array>>();
+  readonly #seals = new Map<string, number>();
+  readonly #quarantined: { readonly sequence: number; readonly reason: "drain_seal_violation" }[] = [];
 
-  recordLandedEnvelope(domain: MutationDrainDomain, sequence: number, envelope: Uint8Array): void {
-    recordEnvelope(this.#records, domainKey(domain), sequence, envelope);
+  recordLandedEnvelope(domain: MutationDrainDomain, sequence: number, envelope: Uint8Array):
+    | { readonly outcome: "accepted"; readonly duplicate: boolean }
+    | { readonly outcome: "quarantined"; readonly reason: "drain_seal_violation" } {
+    if (!Number.isSafeInteger(sequence) || sequence < 1) throw new TypeError("mutation sequence must be positive");
+    const key = domainKey(domain);
+    const records = this.#records.get(key);
+    const previous = records?.get(sequence);
+    if (previous !== undefined) {
+      if (!Buffer.from(previous).equals(Buffer.from(envelope))) {
+        throw new TypeError("a landed mutation sequence cannot be rewritten");
+      }
+      return { outcome: "accepted", duplicate: true };
+    }
+    if (this.#seals.has(key)) {
+      this.#quarantined.push({ sequence, reason: "drain_seal_violation" });
+      return { outcome: "quarantined", reason: "drain_seal_violation" };
+    }
+    recordEnvelope(this.#records, key, sequence, envelope);
+    return { outcome: "accepted", duplicate: false };
+  }
+
+  installAcceptedDrainSeal(input: MutationDrainDomain & {
+    readonly stream: "mutation";
+    readonly lastAssignedSequence: number;
+  }): { rollback(): void } {
+    if (input.stream !== "mutation") throw new TypeError("mutation ledger serves only the mutation stream");
+    if (!Number.isSafeInteger(input.lastAssignedSequence) || input.lastAssignedSequence < 0) {
+      throw new TypeError("accepted drain seal sequence must be unsigned");
+    }
+    const key = domainKey(input);
+    const existing = this.#seals.get(key);
+    if (existing !== undefined && existing !== input.lastAssignedSequence) {
+      throw new TypeError("an accepted handoff proof is immutable");
+    }
+    this.#seals.set(key, input.lastAssignedSequence);
+    return { rollback: () => { if (existing === undefined) this.#seals.delete(key); } };
+  }
+
+  quarantined() {
+    return [...this.#quarantined];
   }
 
   async readWatermark(domain: MutationDrainDomain & { readonly stream: "mutation" }) {

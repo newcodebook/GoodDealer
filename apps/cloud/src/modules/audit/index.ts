@@ -8,7 +8,7 @@ import {
   type DeviceAuditEvent,
 } from "@gooddealer/protocol/execution-events";
 
-import type { AuditChainRegistryPort, DrainStreamWatermarkPort } from "../devices/ports";
+import type { AuditChainRegistryPort, DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
 
 interface WorkspaceAuditDomain {
   readonly workspaceId: string;
@@ -18,6 +18,7 @@ interface WorkspaceAuditDomain {
 
 interface WorkspaceAuditRecord {
   readonly event: DeviceAuditEvent & { readonly scopeKind: "workspace" };
+  readonly canonicalEnvelope: Uint8Array;
 }
 
 interface ChainRegistration {
@@ -28,16 +29,22 @@ interface ChainRegistration {
 }
 
 /** Workspace drain ledger and unique chain registry; account-scope backlog is diagnostic only. */
-export class InMemoryDeviceAuditLedger implements DrainStreamWatermarkPort, AuditChainRegistryPort {
+export class InMemoryDeviceAuditLedger implements
+  DrainStreamWatermarkPort,
+  AuditChainRegistryPort,
+  DrainSealParticipantPort<"device_audit"> {
   readonly #workspaceRecords = new Map<string, Map<number, WorkspaceAuditRecord>>();
   readonly #chains = new Map<string, ChainRegistration>();
   readonly #seals = new Map<string, number>();
-  readonly #quarantined: { readonly event: DeviceAuditEvent; readonly reason: "drain_seal_violation" }[] = [];
+  readonly #quarantined: {
+    readonly event: DeviceAuditEvent;
+    readonly reason: "sequence_replay" | "drain_seal_violation";
+  }[] = [];
   #accountBacklog = 0;
 
   appendAdjudicatedEvent(value: unknown):
     | { readonly outcome: "accepted"; readonly duplicate: boolean }
-    | { readonly outcome: "quarantined"; readonly reason: "drain_seal_violation" } {
+    | { readonly outcome: "quarantined"; readonly reason: "sequence_replay" | "drain_seal_violation" } {
     const event = deviceAuditEventSchema.parse(value);
     if (event.scopeKind === "account") {
       this.#accountBacklog += 1;
@@ -46,17 +53,22 @@ export class InMemoryDeviceAuditLedger implements DrainStreamWatermarkPort, Audi
     const key = domainKey(event);
     const records = this.#workspaceRecords.get(key);
     const sealedThrough = this.#seals.get(key);
-    if (sealedThrough !== undefined && event.auditSequence > sealedThrough) {
+    const existing = records?.get(event.auditSequence);
+    const canonicalEnvelope = encodeDrainStreamEnvelope("device_audit", event);
+    if (existing !== undefined) {
+      if (Buffer.from(existing.canonicalEnvelope).equals(Buffer.from(canonicalEnvelope))) {
+        return { outcome: "accepted", duplicate: true };
+      }
+      this.#quarantined.push({ event, reason: "sequence_replay" });
+      return { outcome: "quarantined", reason: "sequence_replay" };
+    }
+    if (sealedThrough !== undefined) {
       this.#quarantined.push({ event, reason: "drain_seal_violation" });
       return { outcome: "quarantined", reason: "drain_seal_violation" };
     }
-    if (records?.has(event.auditSequence) === true ||
-      (sealedThrough !== undefined && event.auditSequence <= sealedThrough)) {
-      return { outcome: "accepted", duplicate: true };
-    }
 
     const target = records ?? new Map<number, WorkspaceAuditRecord>();
-    target.set(event.auditSequence, { event });
+    target.set(event.auditSequence, { event, canonicalEnvelope });
     this.#workspaceRecords.set(key, target);
     const registration = this.#chains.get(key);
     if (registration === undefined) {
@@ -76,13 +88,25 @@ export class InMemoryDeviceAuditLedger implements DrainStreamWatermarkPort, Audi
     return { outcome: "accepted", duplicate: false };
   }
 
-  recordAcceptedDrainSeal(domain: WorkspaceAuditDomain, lastAssignedSequence: number): void {
-    const key = domainKey(domain);
+  installAcceptedDrainSeal(input: WorkspaceAuditDomain & {
+    readonly stream: "device_audit";
+    readonly lastAssignedSequence: number;
+  }): { rollback(): void } {
+    if (input.stream !== "device_audit") throw new TypeError("audit ledger serves only device audit");
+    if (!Number.isSafeInteger(input.lastAssignedSequence) || input.lastAssignedSequence < 0) {
+      throw new TypeError("accepted drain seal sequence must be unsigned");
+    }
+    const key = domainKey(input);
     const existing = this.#seals.get(key);
-    if (existing !== undefined && existing !== lastAssignedSequence) {
+    if (existing !== undefined && existing !== input.lastAssignedSequence) {
       throw new TypeError("an accepted handoff proof is immutable");
     }
-    this.#seals.set(key, lastAssignedSequence);
+    this.#seals.set(key, input.lastAssignedSequence);
+    return { rollback: () => { if (existing === undefined) this.#seals.delete(key); } };
+  }
+
+  recordAcceptedDrainSeal(domain: WorkspaceAuditDomain, lastAssignedSequence: number): { rollback(): void } {
+    return this.installAcceptedDrainSeal({ ...domain, stream: "device_audit", lastAssignedSequence });
   }
 
   accountBacklog(): number {
@@ -117,8 +141,7 @@ function projectWatermark(records: Map<number, WorkspaceAuditRecord> | undefined
   for (let sequence = 1; sequence <= contiguousReceivedThrough; sequence += 1) {
     const record = records?.get(sequence);
     if (record === undefined) throw new TypeError("contiguous audit event disappeared");
-    const envelope = encodeDrainStreamEnvelope("device_audit", record.event);
-    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, envelope)).digest();
+    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, record.canonicalEnvelope)).digest();
   }
   return { contiguousReceivedThrough, highestReceivedSequence, missingRanges, rollingDigest: digest.toString("base64url") };
 }

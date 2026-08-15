@@ -205,6 +205,31 @@ describe("DrainVerifier frozen guard order", () => {
     expect(harness.check).not.toHaveBeenCalled();
   });
 
+  it("guard 8 derives all seal input from the validated manifest on an accepted replay", async () => {
+    const consumed: DrainProofConsumptionPort = {
+      inspectProof: () => ({ status: "consumed", accepted: true }),
+      rememberProof: () => {},
+      consumeProof: () => ({ rollback() {} }),
+    };
+    const harness = verifier({ proofRegistry: consumed });
+    const result = await harness.subject.verifyHandoff({ ...expected, manifest: proof() });
+    expect(result).toEqual({
+      accepted: true,
+      proofId: validProof.proofId,
+      proofDigest: expect.any(String),
+      sealClaims: {
+        workspaceId: validProof.workspaceId,
+        sourceDeviceId: validProof.sourceDeviceId,
+        activeLeaseEpoch: validProof.activeLeaseEpoch,
+        lastAssignedSequence: Object.fromEntries(
+          validProof.streams.map((claim) => [claim.stream, claim.lastAssignedSequence]),
+        ),
+      },
+    });
+    expect(harness.watermarks.calls).toEqual([]);
+    expect(harness.check).not.toHaveBeenCalled();
+  });
+
   it("P17-INV-20/23 guards 9-12 collect all streams and exact DRAIN_STREAM_GAP diagnostics", async () => {
     const watermarks = cleanWatermarks({
       execution_fact: {

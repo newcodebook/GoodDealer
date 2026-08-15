@@ -8,7 +8,7 @@ import {
   type ExecutionFact,
 } from "@gooddealer/protocol/execution-events";
 
-import type { DrainStreamWatermarkPort } from "../devices/ports";
+import type { DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
 
 export type ExecutionFactQuarantineReason =
   | "signature"
@@ -66,6 +66,7 @@ export class RefusingExecutionFactIngestVerification implements ExecutionFactIng
 
 interface AcceptedFactRecord {
   readonly fact: ExecutionFact;
+  readonly canonicalEnvelope: Uint8Array;
   readonly receivedAt: string;
   readonly classification: "current" | "late";
 }
@@ -75,7 +76,7 @@ interface AcceptedFactRecord {
  * evidence ledger and cannot produce mutations, candidates, Desired/Observed changes, or platform
  * side effects. A later seal violation is quarantined and never invalidates an accepted handoff.
  */
-export class InMemoryExecutionLedger implements DrainStreamWatermarkPort {
+export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainSealParticipantPort<"execution_fact"> {
   readonly #ingestVerification: ExecutionFactIngestVerificationPort;
   readonly #records = new Map<string, Map<number, AcceptedFactRecord>>();
   readonly #seals = new Map<string, number>();
@@ -87,16 +88,26 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort {
     this.#ingestVerification = options.ingestVerification ?? new RefusingExecutionFactIngestVerification();
   }
 
-  recordAcceptedDrainSeal(domain: ExecutionDomain, lastAssignedSequence: number): void {
+  installAcceptedDrainSeal(input: ExecutionDomain & {
+    readonly stream: "execution_fact";
+    readonly lastAssignedSequence: number;
+  }): { rollback(): void } {
+    if (input.stream !== "execution_fact") throw new TypeError("execution ledger serves only execution facts");
+    const { lastAssignedSequence } = input;
     if (!Number.isSafeInteger(lastAssignedSequence) || lastAssignedSequence < 0) {
       throw new TypeError("accepted drain seal sequence must be unsigned");
     }
-    const key = domainKey(domain);
+    const key = domainKey(input);
     const existing = this.#seals.get(key);
     if (existing !== undefined && existing !== lastAssignedSequence) {
       throw new TypeError("an accepted handoff proof is immutable");
     }
     this.#seals.set(key, lastAssignedSequence);
+    return { rollback: () => { if (existing === undefined) this.#seals.delete(key); } };
+  }
+
+  recordAcceptedDrainSeal(domain: ExecutionDomain, lastAssignedSequence: number): { rollback(): void } {
+    return this.installAcceptedDrainSeal({ ...domain, stream: "execution_fact", lastAssignedSequence });
   }
 
   /**
@@ -136,23 +147,20 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort {
     const sealedThrough = this.#seals.get(key);
     const records = this.#records.get(key);
     const existing = records?.get(fact.executionSequence);
-    if (sealedThrough !== undefined) {
-      if (fact.executionSequence > sealedThrough) {
-        return this.#quarantineFact(fact, "drain_seal_violation");
+    const canonicalEnvelope = encodeDrainStreamEnvelope("execution_fact", fact);
+    if (existing !== undefined) {
+      if (Buffer.from(existing.canonicalEnvelope).equals(Buffer.from(canonicalEnvelope))) {
+        return { outcome: "accepted", classification: existing.classification, duplicate: true };
       }
-      if (existing !== undefined || fact.executionSequence <= sealedThrough) {
-        return {
-          outcome: "accepted",
-          classification: existing?.classification ?? (fact.activeLeaseEpoch < input.currentLeaseEpoch ? "late" : "current"),
-          duplicate: true,
-        };
-      }
+      return this.#quarantineFact(fact, "sequence_replay");
     }
-    if (existing !== undefined) return this.#quarantineFact(fact, "sequence_replay");
+    if (sealedThrough !== undefined) {
+      return this.#quarantineFact(fact, "drain_seal_violation");
+    }
 
     const classification = fact.activeLeaseEpoch < input.currentLeaseEpoch ? "late" : "current";
     const target = records ?? new Map<number, AcceptedFactRecord>();
-    target.set(fact.executionSequence, { fact, receivedAt: input.receivedAt, classification });
+    target.set(fact.executionSequence, { fact, canonicalEnvelope, receivedAt: input.receivedAt, classification });
     this.#records.set(key, target);
     return { outcome: "accepted", classification, duplicate: false };
   }
@@ -190,8 +198,7 @@ function projectWatermark(records: Map<number, AcceptedFactRecord> | undefined) 
   for (let sequence = 1; sequence <= contiguousReceivedThrough; sequence += 1) {
     const record = records?.get(sequence);
     if (record === undefined) throw new TypeError("contiguous execution fact disappeared");
-    const envelope = encodeDrainStreamEnvelope("execution_fact", record.fact);
-    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, envelope)).digest();
+    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, record.canonicalEnvelope)).digest();
   }
   return { contiguousReceivedThrough, highestReceivedSequence, missingRanges, rollingDigest: digest.toString("base64url") };
 }

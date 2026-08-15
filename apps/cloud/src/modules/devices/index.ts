@@ -33,8 +33,10 @@ import {
   type AuditChainRegistryPort,
   type DrainProofSignaturePort,
   type DrainRejection,
+  type DrainSealParticipantPort,
   type DrainStreamWatermarkPort,
   type DrainVerificationPort,
+  type VerifiedDrainSealClaims,
 } from "./ports";
 import { DeviceSwitchWorkflow, isTerminal } from "./switch-workflow";
 
@@ -122,6 +124,9 @@ export interface DeviceFixtureOptions {
   readonly executionFactWatermarks?: DrainStreamWatermarkPort;
   readonly deviceAuditWatermarks?: DrainStreamWatermarkPort;
   readonly auditChainRegistry?: AuditChainRegistryPort;
+  readonly mutationDrainSeals?: DrainSealParticipantPort<"mutation">;
+  readonly executionFactDrainSeals?: DrainSealParticipantPort<"execution_fact">;
+  readonly deviceAuditDrainSeals?: DrainSealParticipantPort<"device_audit">;
   readonly drainTransactionFault?: (point: DrainTransactionFaultPoint) => void;
 }
 
@@ -160,6 +165,9 @@ export class DevicesFixtureService {
     this.#leaseLifecycle = new ActiveDeviceLeaseLifecycle({
       trustedTime: { now: () => this.#timestamp() },
       proofRegistry,
+      ...(options.mutationDrainSeals === undefined ? {} : { mutationDrainSeals: options.mutationDrainSeals }),
+      ...(options.executionFactDrainSeals === undefined ? {} : { executionFactDrainSeals: options.executionFactDrainSeals }),
+      ...(options.deviceAuditDrainSeals === undefined ? {} : { deviceAuditDrainSeals: options.deviceAuditDrainSeals }),
       ...(options.drainTransactionFault === undefined ? {} : {
         drainTransactionFault: options.drainTransactionFault,
       }),
@@ -386,9 +394,27 @@ export class DevicesFixtureService {
     if (!verification.accepted) {
       return { code: "DRAIN_PROOF_UNVERIFIED", reason: verification.reason, streams: verification.streams };
     }
+    const sealClaims = verification.sealClaims;
+    if (
+      sealClaims.workspaceId !== this.#workspaceId ||
+      sealClaims.sourceDeviceId !== workflow.fromDeviceId ||
+      sealClaims.activeLeaseEpoch !== leaseEpoch
+    ) {
+      return { code: "DRAIN_PROOF_UNVERIFIED", reason: "DRAIN_PROOF_BINDING_MISMATCH", streams: [] };
+    }
+    if ([
+      sealClaims.lastAssignedSequence.mutation,
+      sealClaims.lastAssignedSequence.execution_fact,
+      sealClaims.lastAssignedSequence.device_audit,
+    ].some(
+      (sequence) => !Number.isSafeInteger(sequence) || sequence < 0,
+    )) {
+      return { code: "DRAIN_PROOF_UNVERIFIED", reason: "DRAIN_PROOF_MALFORMED", streams: [] };
+    }
     return this.#enterBootstrapping(workflow, {
       proofId: verification.proofId,
       proofDigest: verification.proofDigest,
+      sealClaims,
     });
   }
 
@@ -482,7 +508,11 @@ export class DevicesFixtureService {
 
   #enterBootstrapping(
     workflow: DeviceSwitchWorkflow,
-    consumedProof?: { readonly proofId: string; readonly proofDigest: string },
+    acceptedDrain?: {
+      readonly proofId: string;
+      readonly proofDigest: string;
+      readonly sealClaims: VerifiedDrainSealClaims;
+    },
   ): DeviceSwitchRequestView | AccountRejection {
     const target = this.#bindings.get(workflow.toDeviceId);
     if (this.#accountSecurityState !== "normal") return this.#reject("ACCOUNT_RECOVERY_PENDING");
@@ -508,8 +538,8 @@ export class DevicesFixtureService {
       workflow.workflowId,
       workflow.fromDeviceId,
       {
-        ...(consumedProof === undefined ? {} : {
-          consumedProof,
+        ...(acceptedDrain === undefined ? {} : {
+          acceptedDrain,
           ...(predecessorLeaseEpoch === undefined ? {} : { predecessorLeaseEpoch }),
         }),
         transition: (pendingLeaseEpoch) => {

@@ -8,9 +8,11 @@ import {
   DenyingLeaseSigner,
   SystemTrustedTime,
   type DrainProofConsumptionPort,
+  type DrainSealParticipantPort,
   type EntitlementDeadlinePort,
   type LeaseSignerPort,
   type TrustedTimePort,
+  type VerifiedDrainSealClaims,
 } from "./ports";
 
 export const LEASE_RENEW_AFTER_SECONDS = 5 * 60;
@@ -56,6 +58,9 @@ export interface LeaseLifecycleOptions {
   readonly signer?: LeaseSignerPort;
   readonly trustedTime?: TrustedTimePort;
   readonly proofRegistry?: DrainProofConsumptionPort;
+  readonly mutationDrainSeals?: DrainSealParticipantPort<"mutation">;
+  readonly executionFactDrainSeals?: DrainSealParticipantPort<"execution_fact">;
+  readonly deviceAuditDrainSeals?: DrainSealParticipantPort<"device_audit">;
   readonly drainTransactionFault?: (point: DrainTransactionFaultPoint) => void;
   readonly seed?: Readonly<Record<string, {
     readonly currentLeaseEpoch: number;
@@ -66,15 +71,19 @@ export interface LeaseLifecycleOptions {
 
 export type DrainTransactionFaultPoint =
   | "after_proof_consumption"
+  | "after_mutation_seal"
+  | "after_execution_fact_seal"
+  | "after_device_audit_seal"
   | "after_lease_release"
   | "after_epoch_allocation"
   | "after_bootstrap_transition";
 
 export interface BeginBootstrapTransaction {
   readonly predecessorLeaseEpoch?: number;
-  readonly consumedProof?: {
+  readonly acceptedDrain?: {
     readonly proofId: string;
     readonly proofDigest: string;
+    readonly sealClaims: VerifiedDrainSealClaims;
   };
   readonly transition?: (pendingLeaseEpoch: number) => { rollback(): void };
 }
@@ -90,6 +99,11 @@ export class ActiveDeviceLeaseLifecycle {
   readonly #signer: LeaseSignerPort;
   readonly #trustedTime: TrustedTimePort;
   readonly #proofRegistry: DrainProofConsumptionPort | undefined;
+  readonly #drainSeals: {
+    readonly mutation: DrainSealParticipantPort<"mutation"> | undefined;
+    readonly execution_fact: DrainSealParticipantPort<"execution_fact"> | undefined;
+    readonly device_audit: DrainSealParticipantPort<"device_audit"> | undefined;
+  };
   readonly #drainTransactionFault: ((point: DrainTransactionFaultPoint) => void) | undefined;
   readonly #accounts = new Map<string, AccountLeaseState>();
 
@@ -97,6 +111,11 @@ export class ActiveDeviceLeaseLifecycle {
     this.#signer = options.signer ?? new DenyingLeaseSigner();
     this.#trustedTime = options.trustedTime ?? new SystemTrustedTime();
     this.#proofRegistry = options.proofRegistry;
+    this.#drainSeals = {
+      mutation: options.mutationDrainSeals,
+      execution_fact: options.executionFactDrainSeals,
+      device_audit: options.deviceAuditDrainSeals,
+    };
     this.#drainTransactionFault = options.drainTransactionFault;
     for (const [accountId, seed] of Object.entries(options.seed ?? {})) {
       const highestAllocatedEpoch = seed.highestAllocatedEpoch ?? seed.currentLeaseEpoch;
@@ -113,8 +132,9 @@ export class ActiveDeviceLeaseLifecycle {
   }
 
   /**
-   * Atomic fixture analogue of proof consumption, predecessor release, pending-epoch allocation,
-   * and the workflow transition. Any injected failure restores every participant.
+   * Atomic fixture analogue of proof consumption, three stream seals, predecessor release,
+   * pending-epoch allocation, and the workflow transition. Any injected failure restores every
+   * participant.
    */
   beginBootstrap(
     accountId: string,
@@ -128,20 +148,53 @@ export class ActiveDeviceLeaseLifecycle {
 
     const previous = cloneAccountLeaseState(state);
     let proofRollback: { rollback(): void } | undefined;
+    const sealRollbacks: { rollback(): void }[] = [];
     let transitionRollback: { rollback(): void } | undefined;
     try {
-      if (transaction.consumedProof !== undefined) {
+      if (transaction.acceptedDrain !== undefined) {
         if (this.#proofRegistry === undefined) {
           throw new TypeError("drain proof consumption is unavailable");
         }
         const acceptedAt = this.#trustedTime.now();
         proofRollback = this.#proofRegistry.consumeProof({
-          ...transaction.consumedProof,
+          proofId: transaction.acceptedDrain.proofId,
+          proofDigest: transaction.acceptedDrain.proofDigest,
           acceptedAt,
           consumedAt: acceptedAt,
           purpose: "handoff",
         });
         this.#drainTransactionFault?.("after_proof_consumption");
+        const claims = transaction.acceptedDrain.sealClaims;
+        const domain = {
+          workspaceId: claims.workspaceId,
+          sourceDeviceId: claims.sourceDeviceId,
+          activeLeaseEpoch: claims.activeLeaseEpoch,
+        };
+        if (this.#drainSeals.mutation === undefined) throw new TypeError("mutation drain seal participant is unavailable");
+        sealRollbacks.push(this.#drainSeals.mutation.installAcceptedDrainSeal({
+          ...domain,
+          stream: "mutation",
+          lastAssignedSequence: claims.lastAssignedSequence.mutation,
+        }));
+        this.#drainTransactionFault?.("after_mutation_seal");
+        if (this.#drainSeals.execution_fact === undefined) {
+          throw new TypeError("execution_fact drain seal participant is unavailable");
+        }
+        sealRollbacks.push(this.#drainSeals.execution_fact.installAcceptedDrainSeal({
+          ...domain,
+          stream: "execution_fact",
+          lastAssignedSequence: claims.lastAssignedSequence.execution_fact,
+        }));
+        this.#drainTransactionFault?.("after_execution_fact_seal");
+        if (this.#drainSeals.device_audit === undefined) {
+          throw new TypeError("device_audit drain seal participant is unavailable");
+        }
+        sealRollbacks.push(this.#drainSeals.device_audit.installAcceptedDrainSeal({
+          ...domain,
+          stream: "device_audit",
+          lastAssignedSequence: claims.lastAssignedSequence.device_audit,
+        }));
+        this.#drainTransactionFault?.("after_device_audit_seal");
       }
 
       if (predecessorDeviceId !== null) {
@@ -150,31 +203,32 @@ export class ActiveDeviceLeaseLifecycle {
           state.held.deviceId === predecessorDeviceId &&
           (transaction.predecessorLeaseEpoch === undefined ||
             state.held.leaseEpoch === transaction.predecessorLeaseEpoch);
-        if (transaction.consumedProof !== undefined || transaction.predecessorLeaseEpoch !== undefined) {
+        if (transaction.acceptedDrain !== undefined || transaction.predecessorLeaseEpoch !== undefined) {
           if (!heldMatches) throw new TypeError("predecessor does not hold the expected lease epoch");
         }
         if (heldMatches && state.held !== null) {
           state.held = { ...state.held, releasedAt: this.#trustedTime.now() };
         }
       }
-      if (transaction.consumedProof !== undefined) {
+      if (transaction.acceptedDrain !== undefined) {
         this.#drainTransactionFault?.("after_lease_release");
       }
 
       state.highestAllocatedEpoch += 1;
       const pendingEpoch = state.highestAllocatedEpoch;
       state.pendingByWorkflow.set(workflowId, pendingEpoch);
-      if (transaction.consumedProof !== undefined) {
+      if (transaction.acceptedDrain !== undefined) {
         this.#drainTransactionFault?.("after_epoch_allocation");
       }
 
       transitionRollback = transaction.transition?.(pendingEpoch);
-      if (transaction.consumedProof !== undefined) {
+      if (transaction.acceptedDrain !== undefined) {
         this.#drainTransactionFault?.("after_bootstrap_transition");
       }
       return pendingEpoch;
     } catch (error) {
       transitionRollback?.rollback();
+      for (const rollback of sealRollbacks.reverse()) rollback.rollback();
       proofRollback?.rollback();
       state.currentLeaseEpoch = previous.currentLeaseEpoch;
       state.highestAllocatedEpoch = previous.highestAllocatedEpoch;

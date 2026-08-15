@@ -11,11 +11,39 @@ import {
   type DrainStreamWatermarkPort,
   type DrainVerificationPort,
 } from "../src/modules/devices/index";
+import { InMemoryDeviceAuditLedger } from "../src/modules/audit/index";
+import { InMemoryExecutionLedger } from "../src/modules/execution-ledger/index";
+import { InMemoryMutationDrainWatermarks } from "../src/modules/workspace/mutations/index";
 
 const manifest = drainProofSchema.parse(JSON.parse(readFileSync(
   new URL("../../../packages/protocol/test-vectors/drain/valid/proof-handoff-three-streams.json", import.meta.url),
   "utf8",
 ))) as DrainManifest;
+
+const verifiedSealClaims = {
+  workspaceId: manifest.workspaceId,
+  sourceDeviceId: manifest.sourceDeviceId,
+  activeLeaseEpoch: manifest.activeLeaseEpoch,
+  lastAssignedSequence: Object.fromEntries(
+    manifest.streams.map((claim) => [claim.stream, claim.lastAssignedSequence]),
+  ) as Record<DrainStream, number>,
+} as const;
+
+function sealLedgers() {
+  const mutation = new InMemoryMutationDrainWatermarks();
+  const executionFact = new InMemoryExecutionLedger();
+  const deviceAudit = new InMemoryDeviceAuditLedger();
+  return {
+    mutation,
+    executionFact,
+    deviceAudit,
+    options: {
+      mutationDrainSeals: mutation,
+      executionFactDrainSeals: executionFact,
+      deviceAuditDrainSeals: deviceAudit,
+    },
+  };
+}
 
 function binding(deviceId: string, role: "active" | "standby"): DeviceBindingSummary {
   return {
@@ -119,10 +147,16 @@ describe("acceptDrain orchestration", () => {
     const accepting: DrainVerificationPort = {
       verifyHandoff: async (input) => {
         calls.push(input);
-        return { accepted: true, proofId: "proof-accepted", proofDigest: "digest-accepted" };
+        return {
+          accepted: true,
+          proofId: "proof-accepted",
+          proofDigest: "digest-accepted",
+          sealClaims: verifiedSealClaims,
+        };
       },
     };
-    const service = new DevicesFixtureService({ ...serviceOptions(), drainVerifier: accepting });
+    const ledgers = sealLedgers();
+    const service = new DevicesFixtureService({ ...serviceOptions(), ...ledgers.options, drainVerifier: accepting });
     const view = deviceSwitchRequestViewSchema.parse(service.requestSwitch(switchRequest));
     const result = deviceSwitchRequestViewSchema.parse(await service.acceptDrain(view.requestId, manifest));
     expect(result.status).toBe("bootstrapping");
@@ -136,6 +170,26 @@ describe("acceptDrain orchestration", () => {
       evaluatedAt: "2026-08-14T18:05:00Z",
     });
     expect(service.getLeaseStatus()).toMatchObject({ held: false });
+    const sealDomain = {
+      workspaceId: manifest.workspaceId,
+      sourceDeviceId: manifest.sourceDeviceId,
+      activeLeaseEpoch: manifest.activeLeaseEpoch,
+    };
+    expect(() => ledgers.mutation.installAcceptedDrainSeal({
+      ...sealDomain,
+      stream: "mutation",
+      lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.mutation + 1,
+    })).toThrowError("an accepted handoff proof is immutable");
+    expect(() => ledgers.executionFact.installAcceptedDrainSeal({
+      ...sealDomain,
+      stream: "execution_fact",
+      lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.execution_fact + 1,
+    })).toThrowError("an accepted handoff proof is immutable");
+    expect(() => ledgers.deviceAudit.installAcceptedDrainSeal({
+      ...sealDomain,
+      stream: "device_audit",
+      lastAssignedSequence: verifiedSealClaims.lastAssignedSequence.device_audit + 1,
+    })).toThrowError("an accepted handoff proof is immutable");
   });
 
   it("C0 item 4 rejects DRAIN_LEASE_NOT_HELD and never substitutes a synthetic account epoch", async () => {
@@ -158,6 +212,30 @@ describe("acceptDrain orchestration", () => {
       streams: [],
     });
     expect(service.getSwitchStatus(view.requestId)?.status).toBe("draining");
+  });
+
+  it("fails closed when an accepting verifier returns seal claims outside the verified workflow binding", async () => {
+    const ledgers = sealLedgers();
+    const service = new DevicesFixtureService({
+      ...serviceOptions(),
+      ...ledgers.options,
+      drainVerifier: {
+        verifyHandoff: async () => ({
+          accepted: true,
+          proofId: "proof-wrong-binding",
+          proofDigest: "digest-wrong-binding",
+          sealClaims: { ...verifiedSealClaims, workspaceId: "workspace-other" },
+        }),
+      },
+    });
+    const view = deviceSwitchRequestViewSchema.parse(service.requestSwitch(switchRequest));
+    expect(await service.acceptDrain(view.requestId, manifest)).toEqual({
+      code: "DRAIN_PROOF_UNVERIFIED",
+      reason: "DRAIN_PROOF_BINDING_MISMATCH",
+      streams: [],
+    });
+    expect(service.getSwitchStatus(view.requestId)?.status).toBe("draining");
+    expect(service.getLeaseStatus()).toMatchObject({ held: true, leaseEpoch: 2 });
   });
 
   it("P17-INV-42 lease renewal cannot move the independently-owned draining deadline", async () => {
@@ -200,10 +278,17 @@ describe("acceptDrain orchestration", () => {
 
   it("P17-INV-43 normal handoff does not wait for offlineExecuteUntil", async () => {
     const accepting: DrainVerificationPort = {
-      verifyHandoff: async () => ({ accepted: true, proofId: "proof-expired-offline", proofDigest: "digest-expired-offline" }),
+      verifyHandoff: async () => ({
+        accepted: true,
+        proofId: "proof-expired-offline",
+        proofDigest: "digest-expired-offline",
+        sealClaims: verifiedSealClaims,
+      }),
     };
+    const ledgers = sealLedgers();
     const service = new DevicesFixtureService({
       ...serviceOptions(),
+      ...ledgers.options,
       activeLease: { ...activeLease, offlineExecuteUntil: "2026-08-14T18:00:00Z" },
       drainVerifier: accepting,
     });

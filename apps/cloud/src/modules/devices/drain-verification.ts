@@ -22,6 +22,7 @@ import {
   type DrainStreamGapReport,
   type DrainStreamWatermarkPort,
   type DrainVerificationPort,
+  type VerifiedDrainSealClaims,
 } from "./ports";
 
 export const DRAIN_PROOF_MAX_TTL_SECONDS = 600;
@@ -199,7 +200,12 @@ export class DrainVerifier implements DrainVerificationPort {
     // Guard 8: an idempotent replay of a stored accepted verdict does not re-read stream state.
     if (identity.status === "consumed") {
       return identity.accepted
-        ? { accepted: true, proofId: proof.proofId, proofDigest }
+        ? {
+          accepted: true,
+          proofId: proof.proofId,
+          proofDigest,
+          sealClaims: sealClaimsFrom(proof),
+        }
         : rejection("DRAIN_PROOF_CONSUMED");
     }
 
@@ -285,6 +291,26 @@ export class DrainVerifier implements DrainVerificationPort {
       return null;
     }
   }
+}
+
+function sealClaimsFrom(proof: DrainManifest): VerifiedDrainSealClaims {
+  const claims = new Map(proof.streams.map((claim) => [claim.stream, claim.lastAssignedSequence] as const));
+  const mutation = claims.get("mutation");
+  const executionFact = claims.get("execution_fact");
+  const deviceAudit = claims.get("device_audit");
+  if (mutation === undefined || executionFact === undefined || deviceAudit === undefined) {
+    throw new TypeError("verified drain manifest omitted a stream claim");
+  }
+  return {
+    workspaceId: proof.workspaceId,
+    sourceDeviceId: proof.sourceDeviceId,
+    activeLeaseEpoch: proof.activeLeaseEpoch,
+    lastAssignedSequence: {
+      mutation,
+      execution_fact: executionFact,
+      device_audit: deviceAudit,
+    },
+  };
 }
 
 function rejection(
