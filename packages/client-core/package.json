@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gooddealer/connector-sdk": "workspace:*",
-    "@gooddealer/protocol": "workspace:*"
+    "@gooddealer/protocol": "workspace:*",
+    "zod": "4.4.3"
   }
 }

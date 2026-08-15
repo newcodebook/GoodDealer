@@ -13,7 +13,10 @@ const requiredInputs = [
   "packages/protocol/src/devices/bootstrap-steps.ts",
   "packages/protocol/src/wire/canonical-codec.ts",
   "packages/protocol/src/workspace/sync-mutation.ts",
+  "packages/protocol/src/workspace/domain-asset-fields.ts",
+  "packages/protocol/src/workspace/domain-asset-projection.ts",
   "packages/client-core/src/runtime-mode/index.ts",
+  "packages/client-core/src/portfolio/index.ts",
   "apps/cloud/src/modules/identity/index.ts",
   "apps/cloud/src/modules/identity/login-command.ts",
   "apps/cloud/src/modules/identity/password-hash-port.ts",
@@ -41,6 +44,11 @@ const requiredInputs = [
   "packages/protocol/test/bootstrap-steps.test.ts",
   "packages/protocol/test/workspace-sync.test.ts",
   "packages/client-core/test/runtime-mode.test.ts",
+  "packages/client-core/test/portfolio-query.test.ts",
+  "packages/protocol/test-vectors/domain-asset-projection/valid/utf8-order.json",
+  "packages/protocol/test-vectors/domain-asset-projection/invalid/locale-order.json",
+  "packages/protocol/test-vectors/domain-asset-projection/invalid/revision-metadata.json",
+  "packages/protocol/test-vectors/domain-asset-projection/invalid/secret-field.json",
   "apps/cloud/test/identity-fixture.test.ts",
   "apps/cloud/test/password-hash-fallback.test.ts",
   "apps/cloud/test/session-families.test.ts",
@@ -568,6 +576,19 @@ export function identityFixtureIsNonSellable(source) {
   return /\breadonly\s+sellable\s*=\s*false(?:\s+as\s+const)?\s*;/.test(source);
 }
 
+export function portfolioQueryContractIsPortable(source, testSource) {
+  const readOnlyPort = /interface\s+PortfolioQueryPort\s*{\s*listDomains\(\):\s*Promise<PortfolioQueryResult>;\s*}/s.test(source);
+  const bothAdapters = /class\s+ActiveLocalPortfolioAdapter\b/.test(source) &&
+    /class\s+StandbyCloudPortfolioAdapter\b/.test(source);
+  const provenanceInvariant = /active_local/.test(source) && /standby_cloud/.test(source) &&
+    /freshness\.canEdit\s*!==\s*expectedCanEdit/.test(source);
+  const productionWiringAbsent = !/\bfrom\s+["'](?:@tauri-apps|@gooddealer\/cloud-client|gooddealer-local-storage|apps\/cloud)/.test(source);
+  const contractEvidence = testSource.includes("exposes one read-only port shape") &&
+    testSource.includes("produces byte-identical business digests through Active and Standby") &&
+    testSource.includes("rejects unknown fields, unsafe revisions, and non-canonical entity order");
+  return readOnlyPort && bothAdapters && provenanceInvariant && productionWiringAbsent && contractEvidence;
+}
+
 export function collectAccountGateReport() {
   const inputs = requiredInputs.filter((path) => existsSync(resolve(root, path))).map((path) => {
     const content = readFileSync(resolve(root, path));
@@ -614,6 +635,8 @@ export function collectAccountGateReport() {
     passwordHashFallbackTestSource,
   );
   const drainRuntimeSource = drainRuntimeSources.map(({ source }) => source).join("\n");
+  const portfolioQuerySource = readFileSync(resolve(root, "packages/client-core/src/portfolio/index.ts"), "utf8");
+  const portfolioQueryTestSource = readFileSync(resolve(root, "packages/client-core/test/portfolio-query.test.ts"), "utf8");
 
   return {
     schemaVersion: 1,
@@ -656,12 +679,20 @@ export function collectAccountGateReport() {
     workspaceTenantScopeRequired: workspaceRuntimeSources.every(
       ({ source }) => workspaceSourceRequiresTenantScope(source),
     ),
+    portfolioQueryContractPortable: portfolioQueryContractIsPortable(
+      portfolioQuerySource,
+      portfolioQueryTestSource,
+    ),
+    portfolioQueryProductionWiringAbsent: !/\bfrom\s+["'](?:@tauri-apps|@gooddealer\/cloud-client|gooddealer-local-storage|apps\/cloud)/.test(
+      portfolioQuerySource,
+    ),
     internalAccountSellable: !identityFixtureIsNonSellable(identitySource),
     requiredInputsPresent: inputs.length === requiredInputs.length,
     accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
     deviceVectors: vectorCounts("packages/protocol/test-vectors/device-management"),
     bootstrapVectors: vectorCounts("packages/protocol/test-vectors/bootstrap-steps"),
     workspaceVectors: vectorCounts("packages/protocol/test-vectors/workspace-sync"),
+    domainAssetProjectionVectors: vectorCounts("packages/protocol/test-vectors/domain-asset-projection"),
     inputs,
   };
 }
@@ -689,6 +720,8 @@ export function accountGateReportPassesPolicy(report) {
     report.drainProofSignatureCheckNamingCompliant &&
     report.workspaceIngestProductionRoutesAbsent &&
     report.workspaceTenantScopeRequired &&
+    report.portfolioQueryContractPortable &&
+    report.portfolioQueryProductionWiringAbsent &&
     report.internalAccountSellable === false &&
     report.requiredInputsPresent &&
     report.accountVectors.valid > 0 &&
@@ -699,6 +732,8 @@ export function accountGateReportPassesPolicy(report) {
     report.bootstrapVectors.invalid > 0 &&
     report.workspaceVectors.valid > 0 &&
     report.workspaceVectors.invalid > 0 &&
+    report.domainAssetProjectionVectors.valid > 0 &&
+    report.domainAssetProjectionVectors.invalid > 0 &&
     report.inputs.every((input) => statSync(resolve(root, input.path)).isFile())
   );
 }

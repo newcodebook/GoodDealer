@@ -28,6 +28,21 @@ export {
   buildDrainProofClaims,
   projectDrainReadiness,
 } from "./sync/index";
+
+export {
+  ActiveLocalPortfolioAdapter,
+  StandbyCloudPortfolioAdapter,
+  dataFreshnessSchema,
+  portfolioQueryResultSchema,
+  portfolioQuerySourceSchema,
+} from "./portfolio/index";
+export type {
+  DataFreshness,
+  PortfolioQueryBoundary,
+  PortfolioQueryPort,
+  PortfolioQueryResult,
+  PortfolioQuerySource,
+} from "./portfolio/index";
 export type {
   BootstrapRebuildAccumulatorOptions,
   BootstrapRebuildDigestSet,

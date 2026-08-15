@@ -10,6 +10,7 @@ import {
   identityFixtureIsNonSellable,
   passwordHashCheckNamingCompliant,
   passwordHashPortCannotSucceed,
+  portfolioQueryContractIsPortable,
   rawPasswordForbiddenSurfaceProof,
   sourceAcceptDrainReleasesLease,
   sourceAcceptsDrainProof,
@@ -51,6 +52,14 @@ const passwordHashPortSource = readFileSync(
   new URL("../apps/cloud/src/modules/identity/password-hash-port.ts", import.meta.url),
   "utf8",
 );
+const portfolioQuerySource = readFileSync(
+  new URL("../packages/client-core/src/portfolio/index.ts", import.meta.url),
+  "utf8",
+);
+const portfolioQueryTestSource = readFileSync(
+  new URL("../packages/client-core/test/portfolio-query.test.ts", import.meta.url),
+  "utf8",
+);
 
 test("WP-2 account gate evidence is fixture-only and independently runnable", () => {
   assert.equal(
@@ -67,6 +76,24 @@ test("WP-2 account gate evidence is fixture-only and independently runnable", ()
 
 test("WP-2 workflow pins the evidence upload action", () => {
   assert.match(workflow, /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7\.0\.1/);
+});
+
+test("account gate report carries the portable P0-23 query contract and fails closed on wiring drift", () => {
+  assert.equal(portfolioQueryContractIsPortable(portfolioQuerySource, portfolioQueryTestSource), true);
+  assert.equal(
+    portfolioQueryContractIsPortable(
+      `${portfolioQuerySource}\nimport { CloudTransport } from "@gooddealer/cloud-client";`,
+      portfolioQueryTestSource,
+    ),
+    false,
+  );
+  assert.equal(
+    portfolioQueryContractIsPortable(
+      portfolioQuerySource.replace("listDomains(): Promise<PortfolioQueryResult>;", "mutate(): Promise<void>;"),
+      portfolioQueryTestSource,
+    ),
+    false,
+  );
 });
 
 test("account gate report rejects production route registration without confusing Map access", () => {
@@ -468,6 +495,8 @@ test("account gate report makes every fallback field a hard requirement", () => 
   assert.equal(report.drainProofSignatureCheckNamingCompliant, true);
   assert.equal(report.workspaceIngestProductionRoutesAbsent, true);
   assert.equal(report.workspaceTenantScopeRequired, true);
+  assert.equal(report.portfolioQueryContractPortable, true);
+  assert.equal(report.portfolioQueryProductionWiringAbsent, true);
   assert.equal(accountGateReportPassesPolicy(report), true);
   for (const field of [
     "activeDeviceLeaseIssuanceAbsent",
@@ -482,6 +511,8 @@ test("account gate report makes every fallback field a hard requirement", () => 
     "drainProofSignatureCheckNamingCompliant",
     "workspaceIngestProductionRoutesAbsent",
     "workspaceTenantScopeRequired",
+    "portfolioQueryContractPortable",
+    "portfolioQueryProductionWiringAbsent",
   ]) {
     assert.equal(accountGateReportPassesPolicy({ ...report, [field]: false }), false, field);
   }

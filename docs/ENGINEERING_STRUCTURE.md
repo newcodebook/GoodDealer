@@ -378,7 +378,7 @@ interface PortfolioQueryPort {
 - Active 使用 `ActiveLocalPortfolioAdapter -> Tauri IPC -> local-storage`。
 - Standby 使用 `StandbyCloudPortfolioAdapter -> cloud-client -> workspace/read`。
 - Desktop Composition Root 按 RuntimeMode 注入实现；UI 不自行选择数据源。
-- `DataFreshness` 必须包含来源、Server Revision、最后云同步时间、最后平台读取时间和 `can_edit`，避免把 Cloud 缓存误认为平台实时状态。
+- `DataFreshness` 必须包含来源、Server Revision、最后云同步时间、最后平台读取时间和 `canEdit`，避免把 Cloud 缓存误认为平台实时状态。
 - 共享 Query Port 只能返回允许同步的非秘密业务投影。DeviceCredentialBindingStatus、Browser automation 非秘密编排状态和本地 Artifact 使用模式限定的专用 Query Port；Browser Profile 原件、Ref、health、generation、sequence、Keychain 状态与 HostCredentialBinding 永不通过普通 Query Port 暴露。不得为了表面统一而在共享 DTO 中加入秘密字段或大量语义不明的可空字段。
 
 只读 Query Port 可以按 Portfolio、DNS、Marketplace、Operations 等能力复用，但底层 Local/Cloud Adapter 保持独立。

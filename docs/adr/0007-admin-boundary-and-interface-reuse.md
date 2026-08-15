@@ -54,7 +54,7 @@ Hono 暂不采用。只有明确出现 Cloudflare Workers 等边缘运行时、W
 - Schema Version、兼容转换、确定性序列化 Codec 和 Anti-Entropy Golden Test Vector。
 - 经证明在两端语义完全相同的纯函数；必须放入命名具体的能力模块，不创建 shared/common/utils 杂物包。
 
-client-core 定义宿主无关的只读 Query Port。Active 使用 Local Query Adapter，Standby 使用 Cloud Query Adapter；Desktop Composition Root 按 RuntimeMode 注入。查询结果必须携带数据来源、Server Revision、最后云同步时间、最后平台读取时间和 `can_edit`。共享 Query Port 只返回可同步的非秘密业务投影；DeviceCredentialBindingStatus、Browser automation 非秘密编排状态和本地 Artifact 使用模式限定的专用 Port，DeviceCredentialCandidateStatus 使用独立本机 Standby-safe Port 且仅返回三态提示。Browser Profile 原件、Ref、health、generation、sequence、Keychain 状态与 HostCredentialBinding 只在 Host 内消费，不进入任何普通 Query Port。
+client-core 定义宿主无关的只读 Query Port。Active 使用 Local Query Adapter，Standby 使用 Cloud Query Adapter；Desktop Composition Root 按 RuntimeMode 注入。查询结果必须携带数据来源、Server Revision、最后云同步时间、最后平台读取时间和 `canEdit`。共享 Query Port 只返回可同步的非秘密业务投影；DeviceCredentialBindingStatus、Browser automation 非秘密编排状态和本地 Artifact 使用模式限定的专用 Port，DeviceCredentialCandidateStatus 使用独立本机 Standby-safe Port 且仅返回三态提示。Browser Profile 原件、Ref、health、generation、sequence、Keychain 状态与 HostCredentialBinding 只在 Host 内消费，不进入任何普通 Query Port。
 
 禁止共享：
 
