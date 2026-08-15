@@ -38,24 +38,17 @@ reference.
 
 ## Deployment
 
-Cloudflare Pages via its GitHub integration: the Pages project is connected to
-`newcodebook/GoodDealer` and Cloudflare builds and deploys on every push to `main`
-(production) and to other branches (preview deployments). No GitHub Actions workflow and
-no wrangler involved. Project settings that make the pnpm monorepo build work:
+Cloudflare Pages **Direct Upload** project `gooddealer-marketing` (no Git integration —
+Cloudflare never builds the repo), deployed by `.github/workflows/marketing-web.yml`:
+PRs touching the site run a build/typecheck `check` job; pushes to `main` additionally
+build `dist/` and upload it with the app's own `wrangler` devDependency
+(`pnpm exec wrangler pages deploy`, run from this directory — `cloudflare/wrangler-action`
+is avoided because it self-installs at the pnpm workspace root and fails). The Pages
+project is created idempotently on first deploy (`wrangler pages project create … || true`).
 
-| Setting | Value |
-| --- | --- |
-| Production branch | `main` |
-| Root directory | `apps/marketing-web` |
-| Build command | `pnpm build` |
-| Build output directory | `dist` |
-| Env var `NODE_VERSION` | `24.18.1` (matches `.node-version`; the repo-root file is outside the root directory, so Cloudflare needs the env var) |
-| Env var `PNPM_VERSION` | `11.18.0` (matches the pinned pnpm / lockfile format) |
-| Build watch paths (include) | `apps/marketing-web/*`, `packages/ui/*`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` |
-
-`pnpm install` run inside `apps/marketing-web` resolves the workspace root above it, so
-`@gooddealer/ui` (tokens/assets) installs normally. The build watch paths keep pushes
-that don't touch the site or its inputs from triggering a Pages build.
+The workflow needs two repository secrets: `CLOUDFLARE_API_TOKEN` (Pages:Edit) and
+`CLOUDFLARE_ACCOUNT_ID`. Until the token is set, the deploy step fails visibly — an
+accepted bootstrap state.
 
 ## Commands
 
