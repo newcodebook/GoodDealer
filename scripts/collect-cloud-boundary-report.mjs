@@ -31,7 +31,7 @@ export const CLOUD_BOUNDARY_EVIDENCE_DEFAULTS = Object.freeze({
 });
 
 export const CLOUD_BOUNDARY_SCOPE =
-  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, fixture session verifiers, and a single-process pre-auth request.ip rate-limit bucket. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no device/account bucket, and no cross-instance rate-limit consistency.";
+  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, fixture session verifiers, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no production per-IP/device/account budgets, and no cross-instance rate-limit consistency.";
 
 const publicRouteTable = [
   "GET /v1/boundary/identity",
@@ -166,11 +166,12 @@ export function sourceDeclaresHandWrittenJsonSchema(source) {
   );
 }
 
-export function sourceUsesAddressOnlyPreAuthRateLimitBucket(source) {
+export function sourceUsesLayeredPublicRateLimitBuckets(source) {
   const cleanSource = withoutComments(source);
-  const consumeCalls = [...cleanSource.matchAll(/\blimiter\s*\.\s*consume\s*\(/g)];
-  return consumeCalls.length === 1
-    && /\blimiter\s*\.\s*consume\s*\(\s*preAuthRateLimitIdentity\s*\(\s*request\.ip\s*\)\s*\)/.test(cleanSource)
+  const consumeCalls = [...cleanSource.matchAll(/\b(?:preAuthLimiter|sessionLimiter)\s*\.\s*consume\s*\(/g)];
+  return consumeCalls.length === 2
+    && /\bpreAuthLimiter\s*\.\s*consume\s*\(\s*preAuthRateLimitIdentity\s*\(\s*request\.ip\s*\)\s*\)/.test(cleanSource)
+    && /\bsessionLimiter\s*\.\s*consume\s*\(\s*sessionRateLimitIdentity\s*\(\s*principal\.sessionId\s*\)\s*\)/.test(cleanSource)
     && !/identityHeaderNames\s*:\s*\[\s*[^\]\s]/.test(cleanSource);
 }
 
@@ -353,8 +354,11 @@ async function requestMatrixCase(matrixCase, context) {
   const headers = {};
   if (matrixCase.cookie !== undefined) headers.cookie = matrixCase.cookie;
   if (matrixCase.body !== undefined) headers["content-type"] = "application/json";
+  const baseUrl = matrixCase.id === "M13"
+    ? context.matrixRateLimitUrl
+    : matrixCase.surface === "public" ? context.publicUrl : context.adminUrl;
   const response = await fetch(
-    `${matrixCase.surface === "public" ? context.publicUrl : context.adminUrl}${matrixCase.path}`,
+    `${baseUrl}${matrixCase.path}`,
     {
       method: matrixCase.method ?? "GET",
       headers,
@@ -387,8 +391,21 @@ async function requestMatrixCase(matrixCase, context) {
   };
 }
 
-async function observeRateLimit(publicUrl) {
-  const request = (key) => fetch(`${publicUrl}/v1/boundary/identity`, {
+async function observeLayeredRateLimit(addressUrl, sessionUrl) {
+  const addressRequest = (headers = {}) => fetch(`${addressUrl}/v1/boundary/identity`, { headers });
+  const preAuthAllowedStatuses = [];
+  for (const headers of [
+    {},
+    { cookie: "gd_session=unknown-a" },
+    { cookie: "gd_session=unknown-b" },
+  ]) {
+    preAuthAllowedStatuses.push((await addressRequest(headers)).status);
+  }
+  const addressLimited = await addressRequest({ cookie: "gd_session=unknown-c" });
+  const missingAfterAddressExhaustion = await addressRequest();
+  await Promise.all([addressLimited.body?.cancel(), missingAfterAddressExhaustion.body?.cancel()]);
+
+  const request = (key) => fetch(`${sessionUrl}/v1/boundary/identity`, {
     headers: key === null ? {} : { cookie: `gd_session=${key}` },
   });
   const allowed = [];
@@ -405,26 +422,30 @@ async function observeRateLimit(publicUrl) {
       && response.headers.get("retry-after") === String(body.retryAfterSeconds),
     );
   }
-  const rotatedCookie = await request("probe-session-b");
-  const missing = await request(null);
-  await Promise.all([rotatedCookie.body?.cancel(), missing.body?.cancel()]);
+  const alternate = await request("probe-session-b");
+  await alternate.body?.cancel();
   await delay(1_500);
   const reset = await request("probe-session-a");
   await reset.body?.cancel();
   return {
+    preAuthAllowedStatuses,
     allowedStatuses: allowed,
     limitedStatuses: limited,
-    rotatingCookiesShareAddressBucketObserved: rotatedCookie.status === 429,
+    rotatingUnverifiedCookiesShareAddressBucketObserved: addressLimited.status === 429,
+    perIdentityScopingObserved: alternate.status === 200,
     resetObserved: reset.status === 200,
     limitedStatus: limited.every((status) => status === 429) ? 429 : limited[0] ?? null,
-    absentCookieAfterExhaustionStatus: missing.status,
+    missingKeyStatus: preAuthAllowedStatuses.every((status) => status === 401) ? 401 : preAuthAllowedStatuses[0] ?? null,
+    absentCookieAfterExhaustionStatus: missingAfterAddressExhaustion.status,
     retryAfterPairingObserved: retryPairings.every(Boolean),
-    probeVerdict:
-      allowed.every((status) => status === 200)
+    observationVerdict:
+      preAuthAllowedStatuses.every((status) => status === 401)
+      && allowed.every((status) => status === 200)
       && limited.every((status) => status === 429)
       && retryPairings.every(Boolean)
-      && rotatedCookie.status === 429
-      && missing.status === 429
+      && addressLimited.status === 429
+      && missingAfterAddressExhaustion.status === 429
+      && alternate.status === 200
       && reset.status === 200
         ? "pass"
         : "fail",
@@ -475,8 +496,12 @@ function staticBoundaryEvidence(runtime) {
     ),
     moduleSourceRegistersRoute: moduleSources.some(({ source }) => sourceRegistersModuleRoute(source)),
     preAuthRateLimitBucketSource:
-      publicRoot !== undefined && sourceUsesAddressOnlyPreAuthRateLimitBucket(publicRoot.source)
+      publicRoot !== undefined && sourceUsesLayeredPublicRateLimitBuckets(publicRoot.source)
         ? "request.ip"
+        : "unverified",
+    authenticatedRateLimitBucketSource:
+      publicRoot !== undefined && sourceUsesLayeredPublicRateLimitBuckets(publicRoot.source)
+        ? "verified-gd_session"
         : "unverified",
     cookieNamesDisjoint:
       runtime.PUBLIC_SESSION_COOKIE === "gd_session"
@@ -529,7 +554,8 @@ export async function collectCloudBoundaryReport(options = {}) {
   ].map((sessionId, index) => ({ sessionId, accountId: `fixture-account-${index + 1}` }));
   const publicApp = runtime.createPublicHttp({
     sessions: new runtime.StaticPublicSessionVerifier(publicSessions),
-    rateLimit: runtime.rateLimitPolicy(1_000, 8),
+    preAuthRateLimit: runtime.rateLimitPolicy(1_000, 100),
+    sessionRateLimit: runtime.rateLimitPolicy(1_000, 100),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("public-evidence-correlation"),
     ports: [],
@@ -545,12 +571,31 @@ export async function collectCloudBoundaryReport(options = {}) {
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("admin-evidence-correlation"),
   });
-  const rateLimitApp = runtime.createPublicHttp({
+  const matrixRateLimitApp = runtime.createPublicHttp({
+    sessions: new runtime.StaticPublicSessionVerifier([
+      { sessionId: "matrix-rate-session", accountId: "fixture-matrix-rate-account" },
+    ]),
+    preAuthRateLimit: runtime.rateLimitPolicy(60_000, 3),
+    sessionRateLimit: runtime.rateLimitPolicy(60_000, 100),
+    now: () => new Date("2026-08-15T00:00:00.000Z"),
+    correlationIds: ids("matrix-rate-limit-evidence-correlation"),
+    ports: [],
+  });
+  const addressRateLimitApp = runtime.createPublicHttp({
+    sessions: new runtime.StaticPublicSessionVerifier([]),
+    preAuthRateLimit: runtime.rateLimitPolicy(1_000, 3),
+    sessionRateLimit: runtime.rateLimitPolicy(1_000, 100),
+    now: () => new Date("2026-08-15T00:00:00.000Z"),
+    correlationIds: ids("address-rate-limit-evidence-correlation"),
+    ports: [],
+  });
+  const sessionRateLimitApp = runtime.createPublicHttp({
     sessions: new runtime.StaticPublicSessionVerifier([
       { sessionId: "probe-session-a", accountId: "fixture-probe-account-a" },
       { sessionId: "probe-session-b", accountId: "fixture-probe-account-b" },
     ]),
-    rateLimit: runtime.rateLimitPolicy(1_000, 3),
+    preAuthRateLimit: runtime.rateLimitPolicy(1_000, 100),
+    sessionRateLimit: runtime.rateLimitPolicy(1_000, 3),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("rate-limit-evidence-correlation"),
     ports: [],
@@ -558,27 +603,26 @@ export async function collectCloudBoundaryReport(options = {}) {
 
   let publicUrl;
   let adminUrl;
-  let rateLimitUrl;
+  let matrixRateLimitUrl;
+  let addressRateLimitUrl;
+  let sessionRateLimitUrl;
   try {
-    [publicUrl, adminUrl, rateLimitUrl] = await Promise.all([
+    [publicUrl, adminUrl, matrixRateLimitUrl, addressRateLimitUrl, sessionRateLimitUrl] = await Promise.all([
       publicApp.listen({ host: "127.0.0.1", port: 0 }),
       adminApp.listen({ host: "127.0.0.1", port: 0 }),
-      rateLimitApp.listen({ host: "127.0.0.1", port: 0 }),
+      matrixRateLimitApp.listen({ host: "127.0.0.1", port: 0 }),
+      addressRateLimitApp.listen({ host: "127.0.0.1", port: 0 }),
+      sessionRateLimitApp.listen({ host: "127.0.0.1", port: 0 }),
     ]);
+    for (let request = 0; request < 3; request += 1) {
+      const warmup = await fetch(`${matrixRateLimitUrl}/v1/boundary/identity`);
+      await warmup.body?.cancel();
+    }
     const observedCases = [];
-    const context = { publicUrl, adminUrl, audit };
-    const executionOrder = [
-      ...matrixCases.filter(({ id }) => id !== "M13"),
-      matrixCases.find(({ id }) => id === "M13"),
-    ];
-    for (const matrixCase of executionOrder) {
-      if (matrixCase === undefined) throw new Error("M13 matrix case is required");
+    const context = { publicUrl, adminUrl, matrixRateLimitUrl, audit };
+    for (const matrixCase of matrixCases) {
       observedCases.push(await requestMatrixCase(matrixCase, context));
     }
-    observedCases.sort(
-      (left, right) => matrixCases.findIndex(({ id }) => id === left.id)
-        - matrixCases.findIndex(({ id }) => id === right.id),
-    );
     const normalizedAdminPreAuth = observedCases
       .filter(({ id }) => ["M6", "M7", "M9", "M11", "M15"].includes(id))
       .map(({ rawBody }) => normalizeCorrelation(rawBody));
@@ -593,7 +637,7 @@ export async function collectCloudBoundaryReport(options = {}) {
     const publicOpenApiPaths = Object.keys(publicOpenApi.paths);
     const adminOpenApiPaths = Object.keys(adminOpenApi.paths);
     const sharedOpenApiPaths = publicOpenApiPaths.filter((path) => adminOpenApiPaths.includes(path));
-    const rateLimitObservation = await observeRateLimit(rateLimitUrl);
+    const rateLimitObservation = await observeLayeredRateLimit(addressRateLimitUrl, sessionRateLimitUrl);
     const inputs = inputEvidence();
     const staticEvidence = staticBoundaryEvidence(runtime);
 
@@ -629,10 +673,12 @@ export async function collectCloudBoundaryReport(options = {}) {
       },
       rateLimitBoundary: {
         windowMs: 1_000,
-        burst: 3,
+        preAuthBurst: 3,
+        sessionBurst: 3,
         allowedCount: 3,
         overLimitCount: 2,
         ...rateLimitObservation,
+        probeCriterion: "crit_e26e01ef006a",
         productionStrategyDeferredTo: "P0-19",
       },
       requirementMapping: requirementMapping(),
@@ -640,7 +686,13 @@ export async function collectCloudBoundaryReport(options = {}) {
       inputs,
     };
   } finally {
-    await Promise.allSettled([publicApp.close(), adminApp.close(), rateLimitApp.close()]);
+    await Promise.allSettled([
+      publicApp.close(),
+      adminApp.close(),
+      matrixRateLimitApp.close(),
+      addressRateLimitApp.close(),
+      sessionRateLimitApp.close(),
+    ]);
   }
 }
 
@@ -660,6 +712,7 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.handWrittenJsonSchemaAbsent === true
     && report.moduleSourceRegistersRoute === false
     && report.preAuthRateLimitBucketSource === "request.ip"
+    && report.authenticatedRateLimitBucketSource === "verified-gd_session"
     && report.cookieNamesDisjoint === true
     && report.runtimeIsolation?.publicPort === "ephemeral"
     && report.runtimeIsolation?.adminPort === "ephemeral"
@@ -680,16 +733,20 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.openapi?.pathSetsDisjoint === true
     && report.openapi?.routePathSetsMatch === true
     && report.rateLimitBoundary?.windowMs === 1_000
-    && report.rateLimitBoundary?.burst === 3
+    && report.rateLimitBoundary?.preAuthBurst === 3
+    && report.rateLimitBoundary?.sessionBurst === 3
     && report.rateLimitBoundary?.allowedCount === 3
     && report.rateLimitBoundary?.overLimitCount === 2
-    && report.rateLimitBoundary?.rotatingCookiesShareAddressBucketObserved === true
+    && report.rateLimitBoundary?.rotatingUnverifiedCookiesShareAddressBucketObserved === true
+    && report.rateLimitBoundary?.perIdentityScopingObserved === true
     && report.rateLimitBoundary?.resetObserved === true
     && report.rateLimitBoundary?.limitedStatus === 429
+    && report.rateLimitBoundary?.missingKeyStatus === 401
     && report.rateLimitBoundary?.absentCookieAfterExhaustionStatus === 429
     && report.rateLimitBoundary?.retryAfterPairingObserved === true
+    && report.rateLimitBoundary?.probeCriterion === "crit_e26e01ef006a"
     && report.rateLimitBoundary?.productionStrategyDeferredTo === "P0-19"
-    && report.rateLimitBoundary?.probeVerdict === "pass"
+    && report.rateLimitBoundary?.observationVerdict === "pass"
     && report.requirementMapping?.closesGate === false
     && report.requirementMapping?.r0_09?.length === 6
     && report.requirementMapping?.r0_15?.length === 3
@@ -713,7 +770,8 @@ export async function startCloudBoundaryProbeServer() {
       { sessionId: primaryKey, accountId: "fixture-account-a" },
       { sessionId: alternateKey, accountId: "fixture-account-b" },
     ]),
-    rateLimit: runtime.rateLimitPolicy(1_000, 3),
+    preAuthRateLimit: runtime.rateLimitPolicy(1_000, 100),
+    sessionRateLimit: runtime.rateLimitPolicy(1_000, 3),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("privileged-probe-correlation"),
     ports: [],

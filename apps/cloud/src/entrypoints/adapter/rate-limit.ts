@@ -4,7 +4,7 @@ export interface RateLimitPolicy {
   readonly identityHeaderNames: readonly [];
 }
 
-export type RateLimitIdentity = `addr:${string}`;
+export type RateLimitIdentity = `session:${string}` | `addr:${string}`;
 
 export interface RateLimitIdentityResolver<TRequest> {
   resolve(request: TRequest): RateLimitIdentity;
@@ -67,6 +67,10 @@ export class InMemoryFixedWindowRateLimiter {
 
 export function preAuthRateLimitIdentity(clientAddress: string): RateLimitIdentity {
   return `addr:${clientAddress}`;
+}
+
+export function sessionRateLimitIdentity(verifiedSessionId: string): RateLimitIdentity {
+  return `session:${verifiedSessionId}`;
 }
 
 export function adminRateLimitIdentity(clientAddress: string): RateLimitIdentity {

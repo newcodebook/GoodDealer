@@ -61,7 +61,8 @@ describe("the observed 16-row error identity matrix", () => {
         { sessionId: "pub-session", accountId: "account-a" },
         { sessionId: "pub-rate-session", accountId: "account-rate" },
       ]),
-      rateLimit: rateLimitPolicy(60_000, 9),
+      preAuthRateLimit: rateLimitPolicy(60_000, 100),
+      sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => new Date("2026-08-15T00:00:00.000Z"),
       correlationIds: ids("public-correlation"),
       ports: [],
@@ -264,18 +265,7 @@ describe("the observed 16-row error identity matrix", () => {
     }
     if (matrixCase.expectedStatus >= 400) {
       expect(response.headers.get("x-gd-correlation-id")).toBe(body.correlationId);
-      if (matrixCase.id === "M13") {
-        expect(Object.keys(body).sort()).toEqual([
-          "code",
-          "correlationId",
-          "retryAfterSeconds",
-          "retryable",
-          "schemaVersion",
-        ]);
-        expect(response.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
-      } else {
-        expect(Object.keys(body)).toEqual(["schemaVersion", "code", "correlationId"]);
-      }
+      expect(Object.keys(body)).toEqual(["schemaVersion", "code", "correlationId"]);
     }
 
     const addedRecords = audit.records().slice(before);
@@ -416,20 +406,38 @@ describe("the observed 16-row error identity matrix", () => {
     }
   });
 
-  it("observes M13 after the shared source-address bucket is exhausted", async () => {
-    const response = await fetch(`${publicUrl}/v1/boundary/identity`, {
-      headers: { cookie: "gd_session=pub-rate-session" },
+  it("observes M13 on an independently exhausted source-address bucket", async () => {
+    const rateLimitApp = createPublicHttp({
+      sessions: new StaticPublicSessionVerifier([
+        { sessionId: "pub-rate-session", accountId: "account-rate" },
+      ]),
+      preAuthRateLimit: rateLimitPolicy(60_000, 3),
+      sessionRateLimit: rateLimitPolicy(60_000, 100),
+      now: () => new Date("2026-08-15T00:00:00.000Z"),
+      correlationIds: ids("matrix-rate-correlation"),
+      ports: [],
     });
-    const body = await response.json() as Record<string, unknown>;
+    const rateLimitUrl = await rateLimitApp.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      for (let request = 0; request < 3; request += 1) {
+        expect((await fetch(`${rateLimitUrl}/v1/boundary/identity`)).status).toBe(401);
+      }
+      const response = await fetch(`${rateLimitUrl}/v1/boundary/identity`, {
+        headers: { cookie: "gd_session=pub-rate-session" },
+      });
+      const body = await response.json() as Record<string, unknown>;
 
-    expect(response.status).toBe(429);
-    expect(body).toEqual({
-      schemaVersion: 1,
-      code: "RATE_LIMITED",
-      correlationId: expect.any(String),
-      retryable: true,
-      retryAfterSeconds: expect.any(Number),
-    });
-    expect(response.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
+      expect(response.status).toBe(429);
+      expect(body).toEqual({
+        schemaVersion: 1,
+        code: "RATE_LIMITED",
+        correlationId: expect.any(String),
+        retryable: true,
+        retryAfterSeconds: expect.any(Number),
+      });
+      expect(response.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
+    } finally {
+      await rateLimitApp.close();
+    }
   });
 });

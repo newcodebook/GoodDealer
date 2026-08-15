@@ -99,9 +99,10 @@ describe("per-module drain watermark ledgers", () => {
     });
     ledger.recordLandedEnvelope(domain, 2, second);
     expect(await ledger.readWatermark({ ...domain, stream: "mutation" })).toEqual(afterFill);
-    expect(() => ledger.recordLandedEnvelope(domain, 2, new TextEncoder().encode("rewrite"))).toThrowError(
-      "a landed mutation sequence cannot be rewritten",
-    );
+    expect(ledger.recordLandedEnvelope(domain, 2, new TextEncoder().encode("rewrite"))).toEqual({
+      outcome: "quarantined",
+      reason: "sequence_replay",
+    });
   });
 
   it("treats mutation retries as duplicates only when the landed envelope bytes are identical before and after sealing", () => {
@@ -110,15 +111,17 @@ describe("per-module drain watermark ledgers", () => {
     const conflict = new TextEncoder().encode("mutation-conflict");
     expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: false });
     expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: true });
-    expect(() => ledger.recordLandedEnvelope(domain, 1, conflict)).toThrowError(
-      "a landed mutation sequence cannot be rewritten",
-    );
+    expect(ledger.recordLandedEnvelope(domain, 1, conflict)).toEqual({
+      outcome: "quarantined",
+      reason: "sequence_replay",
+    });
 
     ledger.installAcceptedDrainSeal({ ...domain, stream: "mutation", lastAssignedSequence: 1 });
     expect(ledger.recordLandedEnvelope(domain, 1, original)).toEqual({ outcome: "accepted", duplicate: true });
-    expect(() => ledger.recordLandedEnvelope(domain, 1, conflict)).toThrowError(
-      "a landed mutation sequence cannot be rewritten",
-    );
+    expect(ledger.recordLandedEnvelope(domain, 1, conflict)).toEqual({
+      outcome: "quarantined",
+      reason: "sequence_replay",
+    });
     expect(ledger.recordLandedEnvelope(domain, 2, new TextEncoder().encode("after-seal"))).toEqual({
       outcome: "quarantined",
       reason: "drain_seal_violation",
@@ -250,9 +253,8 @@ describe("LateExecutionEvent classification and drain seals", () => {
       classification: "late",
     });
     expect(await ledger.appendAdjudicatedFact(adjudicationInput(fact(1), 3))).toEqual({
-      outcome: "accepted",
-      classification: "late",
-      duplicate: true,
+      outcome: "quarantined",
+      reason: "sequence_replay",
     });
     expect(await executionLedger({ removalBoundary: "passed" }).appendAdjudicatedFact(adjudicationInput(fact(2)))).toEqual({
       outcome: "quarantined",

@@ -15,7 +15,7 @@ import {
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
   sourceSchedulesPeriodicJob,
-  sourceUsesAddressOnlyPreAuthRateLimitBucket,
+  sourceUsesLayeredPublicRateLimitBuckets,
 } from "./collect-cloud-boundary-report.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
@@ -94,28 +94,30 @@ test("hand-written JSON Schema policy distinguishes Zod conversion from object s
   );
 });
 
-test("pre-auth rate-limit policy requires the request address and rejects client credentials", () => {
+test("public rate-limit policy layers the request address with the verified session", () => {
+  const verifiedSessionCall =
+    "const sessionDecision = sessionLimiter.consume(sessionRateLimitIdentity(principal.sessionId));";
   assert.equal(
-    sourceUsesAddressOnlyPreAuthRateLimitBucket(
-      "const decision = limiter.consume(preAuthRateLimitIdentity(request.ip));",
+    sourceUsesLayeredPublicRateLimitBuckets(
+      `const addressDecision = preAuthLimiter.consume(preAuthRateLimitIdentity(request.ip)); ${verifiedSessionCall}`,
     ),
     true,
   );
   assert.equal(
-    sourceUsesAddressOnlyPreAuthRateLimitBucket(
-      "const decision = limiter.consume(sessionRateLimitIdentity(cookieValue(request.headers.cookie, 'gd_session'), request.ip));",
+    sourceUsesLayeredPublicRateLimitBuckets(
+      "const addressDecision = preAuthLimiter.consume(preAuthRateLimitIdentity(request.ip)); const sessionDecision = sessionLimiter.consume(sessionRateLimitIdentity(cookieValue(request.headers.cookie, 'gd_session')));",
     ),
     false,
   );
   assert.equal(
-    sourceUsesAddressOnlyPreAuthRateLimitBucket(
-      "const decision = limiter.consume(preAuthRateLimitIdentity(request.headers['x-forwarded-for']));",
+    sourceUsesLayeredPublicRateLimitBuckets(
+      `const addressDecision = preAuthLimiter.consume(preAuthRateLimitIdentity(request.headers['x-forwarded-for'])); ${verifiedSessionCall}`,
     ),
     false,
   );
   assert.equal(
-    sourceUsesAddressOnlyPreAuthRateLimitBucket(
-      "identityHeaderNames: ['x-account-id']; limiter.consume(preAuthRateLimitIdentity(request.ip));",
+    sourceUsesLayeredPublicRateLimitBuckets(
+      `identityHeaderNames: ['x-account-id']; const addressDecision = preAuthLimiter.consume(preAuthRateLimitIdentity(request.ip)); ${verifiedSessionCall}`,
     ),
     false,
   );
@@ -169,13 +171,16 @@ test("cloud boundary report observes real roots and fails closed on policy mutat
       { ...report, handWrittenJsonSchemaAbsent: false },
       { ...report, moduleSourceRegistersRoute: true },
       { ...report, preAuthRateLimitBucketSource: "unverified" },
+      { ...report, authenticatedRateLimitBucketSource: "unverified" },
       { ...report, cookieNamesDisjoint: false },
       { ...report, runtimeIsolation: { ...report.runtimeIsolation, distinctInstances: false } },
       { ...report, errorIdentityMatrix: { ...report.errorIdentityMatrix, allMatched: false } },
       { ...report, routeTables: { ...report.routeTables, admin: [...report.routeTables.admin, "GET /admin/v1/accounts"] } },
       { ...report, openapi: { ...report.openapi, pathSetsDisjoint: false } },
-      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, probeVerdict: "fail" } },
-      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, rotatingCookiesShareAddressBucketObserved: false } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, observationVerdict: "fail" } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, rotatingUnverifiedCookiesShareAddressBucketObserved: false } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, perIdentityScopingObserved: false } },
+      { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, probeCriterion: null } },
       { ...report, rateLimitBoundary: { ...report.rateLimitBoundary, productionStrategyDeferredTo: null } },
       { ...report, requirementMapping: { ...report.requirementMapping, closesGate: true } },
       { ...report, requiredInputsPresent: false },

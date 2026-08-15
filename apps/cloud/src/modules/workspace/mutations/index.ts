@@ -20,18 +20,22 @@ interface MutationDrainDomain {
 export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort, DrainSealParticipantPort<"mutation"> {
   readonly #records = new Map<string, Map<number, Uint8Array>>();
   readonly #seals = new Map<string, number>();
-  readonly #quarantined: { readonly sequence: number; readonly reason: "drain_seal_violation" }[] = [];
+  readonly #quarantined: {
+    readonly sequence: number;
+    readonly reason: "sequence_replay" | "drain_seal_violation";
+  }[] = [];
 
   recordLandedEnvelope(domain: MutationDrainDomain, sequence: number, envelope: Uint8Array):
     | { readonly outcome: "accepted"; readonly duplicate: boolean }
-    | { readonly outcome: "quarantined"; readonly reason: "drain_seal_violation" } {
+    | { readonly outcome: "quarantined"; readonly reason: "sequence_replay" | "drain_seal_violation" } {
     if (!Number.isSafeInteger(sequence) || sequence < 1) throw new TypeError("mutation sequence must be positive");
     const key = domainKey(domain);
     const records = this.#records.get(key);
     const previous = records?.get(sequence);
     if (previous !== undefined) {
       if (!Buffer.from(previous).equals(Buffer.from(envelope))) {
-        throw new TypeError("a landed mutation sequence cannot be rewritten");
+        this.#quarantined.push({ sequence, reason: "sequence_replay" });
+        return { outcome: "quarantined", reason: "sequence_replay" };
       }
       return { outcome: "accepted", duplicate: true };
     }
@@ -85,13 +89,6 @@ function recordEnvelope(
   if (records === undefined) {
     records = new Map();
     store.set(key, records);
-  }
-  const previous = records.get(sequence);
-  if (previous !== undefined) {
-    if (!Buffer.from(previous).equals(Buffer.from(envelope))) {
-      throw new TypeError("a landed mutation sequence cannot be rewritten");
-    }
-    return;
   }
   records.set(sequence, Uint8Array.from(envelope));
 }

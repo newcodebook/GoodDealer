@@ -13,6 +13,7 @@ import {
   InMemoryFixedWindowRateLimiter,
   cookieValue,
   preAuthRateLimitIdentity,
+  sessionRateLimitIdentity,
   type RateLimitPolicy,
 } from "./adapter/rate-limit";
 import { attachOpenApiDocument, buildOpenApiDocument } from "./adapter/schema";
@@ -30,7 +31,8 @@ export type PublicApplicationPorts = readonly [];
 
 export interface PublicHttpDependencies {
   readonly sessions: PublicSessionVerifierPort;
-  readonly rateLimit: RateLimitPolicy;
+  readonly preAuthRateLimit: RateLimitPolicy;
+  readonly sessionRateLimit: RateLimitPolicy;
   readonly now: () => Date;
   readonly correlationIds: () => string;
   readonly ports: PublicApplicationPorts;
@@ -45,7 +47,8 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
     bodyLimit: PUBLIC_BODY_LIMIT_BYTES,
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
-  const limiter = new InMemoryFixedWindowRateLimiter(deps.rateLimit);
+  const preAuthLimiter = new InMemoryFixedWindowRateLimiter(deps.preAuthRateLimit);
+  const sessionLimiter = new InMemoryFixedWindowRateLimiter(deps.sessionRateLimit);
   const routes = [...publicBoundaryRoutes, ...publicBusinessRoutes] as const;
 
   app.addHook("onRequest", async (request, reply) => {
@@ -60,7 +63,7 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
 
   app.addHook("onRequest", async (request, reply) => {
     // A cookie is unverified at this stage and therefore cannot choose a pre-auth bucket.
-    const decision = limiter.consume(preAuthRateLimitIdentity(request.ip));
+    const decision = preAuthLimiter.consume(preAuthRateLimitIdentity(request.ip));
     if (!decision.allowed) {
       const rejection: AccountRejection = rateLimitedRejection(
         correlationIdFor(request),
@@ -76,6 +79,15 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
     const principal = await deps.sessions.verify(sessionId, deps.now());
     if (principal === null) {
       return sendTransportRejection(request, reply, 401, "UNAUTHENTICATED");
+    }
+    // Only the verified principal may select this layer; the raw cookie remains address-bucketed.
+    const decision = sessionLimiter.consume(sessionRateLimitIdentity(principal.sessionId));
+    if (!decision.allowed) {
+      const rejection: AccountRejection = rateLimitedRejection(
+        correlationIdFor(request),
+        decision.retryAfterSeconds ?? 1,
+      );
+      return sendAccountRejection(reply, rejection);
     }
     setRoutePrincipal(request, principal);
   });

@@ -25,13 +25,18 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
     await Promise.all(apps.splice(0).map(async (app) => app.close()));
   });
 
-  function publicApp(windowMs: number, burst: number): FastifyInstance {
+  function publicApp(
+    windowMs: number,
+    preAuthBurst: number,
+    sessionBurst = preAuthBurst,
+  ): FastifyInstance {
     const app = createPublicHttp({
       sessions: new StaticPublicSessionVerifier([
         { sessionId: "session-a", accountId: "account-a" },
         { sessionId: "session-b", accountId: "account-b" },
       ]),
-      rateLimit: rateLimitPolicy(windowMs, burst),
+      preAuthRateLimit: rateLimitPolicy(windowMs, preAuthBurst),
+      sessionRateLimit: rateLimitPolicy(windowMs, sessionBurst),
       now: () => new Date("2020-01-01T00:00:00.000Z"),
       correlationIds: ids("rate-correlation"),
       ports: [],
@@ -45,15 +50,15 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
     const firstA = await app.inject({
       method: "GET",
       url: "/v1/boundary/identity",
-      headers: { cookie: "gd_session=session-a" },
+      headers: { cookie: "gd_session=unknown-a" },
     });
     const limitedAfterCookieRotation = await app.inject({
       method: "GET",
       url: "/v1/boundary/identity",
-      headers: { cookie: "gd_session=session-b" },
+      headers: { cookie: "gd_session=unknown-b" },
     });
 
-    expect(firstA.statusCode).toBe(200);
+    expect(firstA.statusCode).toBe(401);
     expect(limitedAfterCookieRotation.statusCode).toBe(429);
     const limitedBody = limitedAfterCookieRotation.json<Record<string, unknown>>();
     expect(limitedBody.code).toBe("RATE_LIMITED");
@@ -61,6 +66,25 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
     expect(limitedAfterCookieRotation.headers["retry-after"]).toBe(
       String(limitedBody.retryAfterSeconds),
     );
+  });
+
+  it("applies a verified gd_session bucket in addition to the source-address bucket", async () => {
+    const app = publicApp(60_000, 100, 1);
+    expect((await app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      headers: { cookie: "gd_session=session-a" },
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      headers: { cookie: "gd_session=session-a" },
+    })).statusCode).toBe(429);
+    expect((await app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      headers: { cookie: "gd_session=session-b" },
+    })).statusCode).toBe(200);
   });
 
   it("resets an exhausted bucket using the real wall clock", async () => {
@@ -101,6 +125,29 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
     });
     expect(first.statusCode).toBe(401);
     expect(second.statusCode).toBe(429);
+  });
+
+  it("keeps nine spoofed client-identity inputs in the exhausted socket-address bucket", async () => {
+    const app = publicApp(60_000, 2, 100);
+    const url = await app.listen({ host: "127.0.0.1", port: 0 });
+    const vectors: readonly Record<string, string>[] = [
+      {},
+      { "x-forwarded-for": "203.0.113.1" },
+      { "x-forwarded-for": "203.0.113.2, 198.51.100.7" },
+      { "x-real-ip": "203.0.113.3" },
+      { forwarded: "for=203.0.113.4" },
+      { "x-client-ip": "203.0.113.5" },
+      { "true-client-ip": "203.0.113.6" },
+      { "cf-connecting-ip": "203.0.113.7" },
+      { cookie: "gd_session=rotate-1" },
+      { cookie: "gd_session=rotate-2", "x-forwarded-for": "203.0.113.8" },
+      { "x-rate-limit-key": "chosen" },
+    ];
+    const statuses: number[] = [];
+    for (const headers of vectors) {
+      statuses.push((await fetch(`${url}/v1/boundary/identity`, { headers })).status);
+    }
+    expect(statuses).toEqual([401, 401, 429, 429, 429, 429, 429, 429, 429, 429, 429]);
   });
 
   it("authenticates before JSON Schema validation and leaks no validation details", async () => {

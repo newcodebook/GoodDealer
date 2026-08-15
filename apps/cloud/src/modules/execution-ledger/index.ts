@@ -150,6 +150,9 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainS
     const canonicalEnvelope = encodeDrainStreamEnvelope("execution_fact", fact);
     if (existing !== undefined) {
       if (Buffer.from(existing.canonicalEnvelope).equals(Buffer.from(canonicalEnvelope))) {
+        if (existing.classification === "late" && sealedThrough === undefined) {
+          return this.#quarantineFact(fact, "sequence_replay");
+        }
         return { outcome: "accepted", classification: existing.classification, duplicate: true };
       }
       return this.#quarantineFact(fact, "sequence_replay");
