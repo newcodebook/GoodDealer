@@ -66,6 +66,7 @@ GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资
 - [ADR-0009：EndpointManifest 单向生成 Secure HTTP Capability](docs/adr/0009-endpoint-capability-registry.md)
 - [ADR-0010：秘密输入与秘密响应由 Host 全程拥有](docs/adr/0010-host-owned-secret-path.md)
 - [ADR-0011：设备身份、轮换与撤销生命周期](docs/adr/0011-device-identity-lifecycle.md)
+- [ADR-0012：Windows Credential Manager FFI 的模块级受审 unsafe 例外](docs/adr/0012-windows-credential-manager-ffi-exception.md)
 
 历史 ADR：
 

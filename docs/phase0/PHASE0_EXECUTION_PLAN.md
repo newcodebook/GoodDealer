@@ -60,7 +60,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-05 | Port DTO → Tauri Adapter → Rust Handler | J-01/J-05 | R0-01/R0-10/R0-15/R0-16 | Runtime Security | P/W/MA/MI | 现有根 `pnpm check`、RuntimeStatus 跨语言 Corpus、Command/Adapter 同集结构证据；native evidence 由 P0-06 的逐平台 `evidence:wp0 --profile native` 收集 | 只注册无参数、只读 `runtime_status`；其他业务 Command 不注册 |
 | P0-06 | Windows/macOS 构建、签名流水线试验 | J-01/J-07 | R0-11 | Release Engineering | W/MA/MI | `evidence:wp0 --profile native`、签名/公证制品清单 | 标记单平台、不可发布 |
 | P0-07 | SQLCipher 跨平台打包 | J-01/J-07 | R0-08/R0-16 | Local Storage/Recovery | W/MA/MI | `pnpm evidence:wp5 --slice sqlcipher` 的结构化明文/故障扫描包；`pnpm evidence:wp5:bundle` 的 opt-in Tauri `.app`/`.msi` Spike 与包内运行探针；两组三平台 Workflow | 只用临时 Fixture DB；默认桌面不链接 SQLCipher |
-| P0-08 | OS Keychain/Credential Manager | J-01/J-05/J-07 | R0-03/R0-06/R0-12 | Secure Host | W/MA/MI | 待建 `evidence:wp1 --slice keychain`、Canary 扫描 | 禁止真实凭据流程 |
+| P0-08 | OS Keychain/Credential Manager | J-01/J-05/J-07 | R0-03/R0-06/R0-12 | Secure Host | W/MA/MI | 已建 `evidence:wp1 --slice keychain` 七面 Canary 扫描证据与 macOS/Windows 适配器（模块级受审 unsafe，[ADR-0012](../adr/0012-windows-credential-manager-ffi-exception.md)）；生产默认 `DenyingKeychainPort`，未接线 | 禁止真实凭据流程 |
 | P0-09 | Cloud Token Host-owned 注入与命名空间隔离 | J-01/J-05 | R0-03/R0-16 | Secure Host/Account Access | P/W/MA/MI | 待建 `evidence:wp1 --slice cloud-session` | 账号入口保持 Fixture |
 | P0-10 | Secure HTTP Gateway | J-01/J-02/J-03 | R0-02/R0-03/R0-16 | Secure Host | P/W/MA/MI/FP | Endpoint Registry Corpus + 待建 native Transport 证据 | 生产 Registry deny-all |
 | P0-11 | Spaceship 认证、分页、异步操作 | J-01/J-02 | R0-02/R0-13/R0-14 | Connector Operations | FP/TP | Connector Contract 包；TP Safety Envelope | Read-only/Fake/Manual |
