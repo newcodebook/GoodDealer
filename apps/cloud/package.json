@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@gooddealer/protocol": "workspace:*",
-    "fastify": "5.11.0"
+    "fastify": "5.12.0"
   }
 }
