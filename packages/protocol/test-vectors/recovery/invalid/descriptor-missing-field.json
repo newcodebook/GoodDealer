@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "backupClass": "synchronized",
+  "backupId": "backup-001",
+  "workspaceId": "workspace-001",
+  "sourceDeviceId": "device-001",
+  "activeLeaseEpoch": 1,
+  "throughRevision": 42,
+  "proofId": "proof-001"
+}

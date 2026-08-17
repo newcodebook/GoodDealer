@@ -27,6 +27,7 @@ const root = resolve(import.meta.dirname, "..");
 const supportedProfiles = new Set(["local", "native", "quality"]);
 const supportedSlices = new Set([
   "account-gate",
+  "backup",
   "cloud-boundary",
   "keychain",
   "sqlcipher",
@@ -373,6 +374,33 @@ function sliceEvidenceValid(sliceEvidence) {
           keychainCanaryReportIsHonestIgnore(report)),
     );
   }
+  if (sliceEvidence.slice === "backup") {
+    return Boolean(
+      sliceEvidence.present &&
+        report?.schemaVersion === 1 &&
+        report.aeadCrate === "chacha20poly1305" &&
+        report.aeadCrateVersion === "0.11.0" &&
+        report.exportProducesSealedEnvelope === true &&
+        report.noPlaintextInEnvelope === true &&
+        report.noCanaryInEnvelope === true &&
+        report.noSqliteHeaderInEnvelope === true &&
+        report.manifestDigestRecomputePasses === true &&
+        report.aeadRoundtripSucceeds === true &&
+        report.tamperedCiphertextRejected === true &&
+        report.truncatedEnvelopeRejected === true &&
+        report.swappedPackageRejected === true &&
+        report.restoredSizeMatchesOriginal === true &&
+        Array.isArray(report.scans) &&
+        report.scans.length >= 2 &&
+        report.scans.every(
+          (scan) =>
+            scan.bytes > 0 &&
+            /^[0-9a-f]{64}$/.test(scan.sha256) &&
+            scan.canaryAbsent === true &&
+            scan.sqliteHeaderAbsent === true,
+        ),
+    );
+  }
   if (sliceEvidence.slice === "sqlcipher-bundle") {
     return Boolean(
       sliceEvidence.present &&
@@ -641,6 +669,54 @@ function profileDefinition(profile, slice, reportPath) {
           id: "keychain-canary-native-probe",
           binary: "node",
           args: ["scripts/collect-keychain-canary-report.mjs", reportPath],
+        },
+      ],
+    };
+  }
+
+  if (slice === "backup") {
+    if (profile === "quality") {
+      throw new Error("The backup slice requires a native or local profile.");
+    }
+    return {
+      resolvedProfile: profile === "native" ? "wp5-backup-native" : "wp5-backup-local",
+      applicability:
+        "Test-only AEAD backup fixture; no production storage, keychain wiring, or user data.",
+      commands: [
+        { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
+        {
+          id: "backup-fixture-lint",
+          binary: "cargo",
+          args: [
+            "clippy",
+            "--locked",
+            "-p",
+            "gooddealer-local-storage",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+          ],
+        },
+        {
+          id: "backup-fixture-tests",
+          binary: "cargo",
+          args: ["test", "--locked", "-p", "gooddealer-local-storage", "--all-targets"],
+        },
+        {
+          id: "backup-seal-and-verify-evidence",
+          binary: "cargo",
+          args: [
+            "run",
+            "--locked",
+            "--release",
+            "-p",
+            "gooddealer-local-storage",
+            "--example",
+            "backup_evidence",
+            "--",
+            reportPath,
+          ],
         },
       ],
     };
@@ -960,7 +1036,7 @@ const workPackage =
       ? "wp4"
       : options.slice === "keychain"
         ? "wp1"
-    : options.slice?.startsWith("sqlcipher")
+    : options.slice === "backup" || options.slice?.startsWith("sqlcipher")
       ? "wp5"
       : "wp0";
 const outputDirectory = resolve(
@@ -975,6 +1051,8 @@ const sliceReportPath = resolve(
   outputDirectory,
   options.slice === "account-gate"
     ? "account-gate-report.json"
+    : options.slice === "backup"
+      ? "backup-report.json"
     : options.slice === "cloud-boundary"
       ? "cloud-boundary-report.json"
     : options.slice === "keychain"

@@ -9,6 +9,12 @@ pub use sqlcipher_bundle_spike::write_sqlcipher_bundle_spike_report;
 #[cfg(test)]
 mod sqlcipher_fixture;
 
+#[cfg(test)]
+mod recovery;
+
+#[cfg(test)]
+mod recovery_fixture;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageKind {
     StandbyCache,

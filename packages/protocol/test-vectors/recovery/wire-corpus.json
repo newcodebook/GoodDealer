@@ -1,0 +1,24 @@
+{
+  "description": "Shared Wire Corpus: TS and Rust reject the identical vectors. File order is stable; filenames are the test vector ID.",
+  "valid": [
+    { "file": "valid/backup-export-descriptor.json", "schema": "backupExportDescriptor" },
+    { "file": "valid/sealed-backup-envelope.json", "schema": "sealedBackupEnvelope" },
+    { "file": "valid/encrypted-backup-manifest.json", "schema": "encryptedBackupManifest" },
+    { "file": "valid/restore-candidate-rebase.json", "schema": "restoreCandidate" },
+    { "file": "valid/restore-candidate-blocked.json", "schema": "restoreCandidate" }
+  ],
+  "invalid": [
+    { "file": "invalid/descriptor-unknown-field.json", "schema": "backupExportDescriptor", "reason": "unknown field on strict object" },
+    { "file": "invalid/descriptor-missing-field.json", "schema": "backupExportDescriptor", "reason": "missing required field" },
+    { "file": "invalid/descriptor-unknown-backup-class.json", "schema": "backupExportDescriptor", "reason": "unknown backupClass enum variant" },
+    { "file": "invalid/envelope-unknown-field.json", "schema": "sealedBackupEnvelope", "reason": "unknown field on strict object" },
+    { "file": "invalid/envelope-unknown-crypto-profile.json", "schema": "sealedBackupEnvelope", "reason": "unknown cryptoProfile enum variant" },
+    { "file": "invalid/manifest-unknown-field.json", "schema": "encryptedBackupManifest", "reason": "unknown field on strict object" },
+    { "file": "invalid/manifest-missing-field.json", "schema": "encryptedBackupManifest", "reason": "missing required field" },
+    { "file": "invalid/manifest-tampered-digest.json", "schema": "encryptedBackupManifest", "reason": "manifestDigest does not match recomputed digest" },
+    { "file": "invalid/candidate-unknown-status.json", "schema": "restoreCandidate", "reason": "unknown status (apply_allowed not in union)" },
+    { "file": "invalid/candidate-unknown-reason.json", "schema": "restoreCandidate", "reason": "unknown reason enum variant" },
+    { "file": "invalid/candidate-unknown-field.json", "schema": "restoreCandidate", "reason": "unknown field on strict object" },
+    { "file": "invalid/candidate-missing-field.json", "schema": "restoreCandidate", "reason": "missing required field (manifestDigest)" }
+  ]
+}

@@ -77,7 +77,7 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-22 | Public/Admin Fastify 与 Jobs 分离 | J-08/J-09/J-10 | R0-09/R0-15 | Cloud Platform | P/C | 现有 `evidence:wp4` runtime isolation、错误身份矩阵与边界规则 | Admin 业务 Route/周期 Job 不注册；仅保留无业务边界 Route |
 | P0-23 | Active/Standby Query Adapter 等价契约 | J-01/J-02/J-05 | R0-01/R0-04/R0-10/R0-16 | Client Query/Workspace | P/C | 现有 `evidence:wp2` Portable Query Contract、DataFreshness 负向矩阵与共享 digest Corpus；生产 Tauri/local-storage、cloud-client/workspace-read 和 Composition Root 待建 | Standby 只展示固定 Fixture |
 | P0-24 | CredentialBinding/credentialRef 泄漏测试 | J-01/J-03/J-05 | R0-03/R0-12/R0-16 | Secure Host/Client Connections | P/W/MA/MI | Canary 扫描 DOM/Heap/IPC/DB/WAL/日志/Crash | 禁止真实凭据 |
-| P0-25 | 加密备份导出、校验、恢复 | J-07 | R0-08/R0-16 | Recovery | P/W/MA/MI | `evidence:wp5`、篡改/截断/换包/明文扫描 | 只开放 Cloud 重建 |
+| P0-25 | 加密备份导出、校验、恢复 | J-07 | R0-08/R0-16 | Recovery | P/W/MA/MI | `evidence:wp5:backup`、TS/Rust 协议契约与 Wire Corpus、AEAD 封包/校验/篡改/截断/换包/明文扫描 | 只开放 Cloud 重建 |
 | P0-26 | Local/Remote WebView Capability 隔离 | J-01/J-03 | R0-07/R0-15/R0-16 | Browser Security | W/MA/MI | 待建 `evidence:wp3 --slice webview-isolation`：明确且不重叠的 WebView label、同 Window 禁止窗口级 Local Capability、Remote 主页面/iframe/弹窗/导航后全 Command 零权限负向矩阵 | 系统浏览器/Manual |
 | P0-27 | 登录、暂停/接管、一次性授权原型 | J-01/J-03/J-04 | R0-07/R0-12 | Browser Host/Connections | W/MA/MI | 无副作用页面 Fixture、Consent/健康状态机包 | Manual 登录 |
 | P0-28 | WebView2/WKWebView Profile/弹窗/下载/上传 | J-01/J-03 | R0-07/R0-11 | Browser Host/Release | W/MA/MI | 双引擎制品、Profile/导航/文件策略矩阵 | 未通过引擎保持 Disabled |
