@@ -29,6 +29,7 @@ const supportedSlices = new Set([
   "account-gate",
   "backup",
   "cloud-boundary",
+  "jobs",
   "keychain",
   "sqlcipher",
   "sqlcipher-bundle",
@@ -401,6 +402,21 @@ function sliceEvidenceValid(sliceEvidence) {
         ),
     );
   }
+  if (sliceEvidence.slice === "jobs") {
+    return Boolean(
+      sliceEvidence.present &&
+        report?.schemaVersion === 1 &&
+        report.periodicJobsRegistered === false &&
+        report.crossTenant?.passed === true &&
+        report.replay?.passed === true &&
+        report.idempotency?.passed === true &&
+        report.leaseContention?.passed === true &&
+        report.crossTenant?.count > 0 &&
+        report.replay?.count > 0 &&
+        report.idempotency?.count > 0 &&
+        report.leaseContention?.count > 0,
+    );
+  }
   if (sliceEvidence.slice === "sqlcipher-bundle") {
     return Boolean(
       sliceEvidence.present &&
@@ -602,6 +618,42 @@ function profileDefinition(profile, slice, reportPath) {
           id: "cloud-boundary-report",
           binary: "node",
           args: ["scripts/collect-cloud-boundary-report.mjs", reportPath],
+        },
+      ],
+    };
+  }
+
+  if (slice === "jobs") {
+    return {
+      resolvedProfile: "wp4-jobs",
+      applicability:
+        "Fixture-only TenantJobEnvelope, Lease, Idempotency and Quarantine evidence; no periodic Job, real credential, scheduler, network, or production Route.",
+      commands: [
+        {
+          id: "protocol-typecheck",
+          ...pnpm(["--filter", "@gooddealer/protocol", "typecheck"]),
+        },
+        {
+          id: "protocol-contract-tests",
+          ...pnpm(["--filter", "@gooddealer/protocol", "test"]),
+        },
+        {
+          id: "cloud-fixture-typecheck",
+          ...pnpm(["--filter", "@gooddealer/cloud", "typecheck"]),
+        },
+        {
+          id: "cloud-fixture-tests",
+          ...pnpm(["--filter", "@gooddealer/cloud", "test"]),
+        },
+        {
+          id: "jobs-evidence-policy-tests",
+          binary: "node",
+          args: ["--test", "scripts/jobs-evidence-policy.test.mjs"],
+        },
+        {
+          id: "jobs-report",
+          binary: "node",
+          args: ["scripts/collect-jobs-report.mjs", reportPath],
         },
       ],
     };
@@ -1032,7 +1084,7 @@ try {
 const workPackage =
   options.slice === "account-gate"
     ? "wp2"
-    : options.slice === "cloud-boundary"
+    : options.slice === "cloud-boundary" || options.slice === "jobs"
       ? "wp4"
       : options.slice === "keychain"
         ? "wp1"
@@ -1055,6 +1107,8 @@ const sliceReportPath = resolve(
       ? "backup-report.json"
     : options.slice === "cloud-boundary"
       ? "cloud-boundary-report.json"
+    : options.slice === "jobs"
+      ? "jobs-report.json"
     : options.slice === "keychain"
       ? "keychain-canary-report.json"
     : options.slice === "sqlcipher-bundle"
@@ -1102,6 +1156,14 @@ const manifest = {
           jobRuntime: false,
         }
       : {}),
+    ...(options.slice === "jobs"
+      ? {
+          jobRuntimeFixture: true,
+          periodicJob: false,
+          schedulerWiring: false,
+          productionRoute: false,
+        }
+      : {}),
     productionStorage: false,
     userData: false,
   },
@@ -1124,7 +1186,7 @@ const manifest = {
       evidenceEnvironment("OWNER_ROLE") ??
       (options.slice === "account-gate"
         ? "Account Access and Cloud Devices Lead"
-        : options.slice === "cloud-boundary"
+        : options.slice === "cloud-boundary" || options.slice === "jobs"
           ? CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.ownerRole
         : options.slice === "keychain"
           ? "Secure Host Lead"
@@ -1137,6 +1199,8 @@ const manifest = {
           ? ["protocol-account", "protocol-devices", "protocol-workspace", "cloud-account-device-bootstrap-fixtures", "client-core"]
           : options.slice === "cloud-boundary"
             ? [...CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.owningModules]
+          : options.slice === "jobs"
+            ? ["protocol-jobs", "cloud-job-runtime"]
           : options.slice === "keychain"
             ? ["secure-host-core", "release-engineering"]
           : options.slice?.startsWith("sqlcipher")
@@ -1144,7 +1208,7 @@ const manifest = {
           : ["engineering-baseline", "release-engineering"],
     requiredReviewerRole:
       evidenceEnvironment("REQUIRED_REVIEWER_ROLE") ??
-      (options.slice === "account-gate" || options.slice === "cloud-boundary"
+      (options.slice === "account-gate" || options.slice === "cloud-boundary" || options.slice === "jobs"
         ? CLOUD_BOUNDARY_EVIDENCE_DEFAULTS.requiredReviewerRole
         : "Architecture Reviewer"),
     approverRole: evidenceEnvironment("APPROVER_ROLE") ?? "Phase 0 Gate Approver",
