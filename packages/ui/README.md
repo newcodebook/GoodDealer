@@ -155,7 +155,7 @@ import markUrl from "@gooddealer/ui/assets/logo/mark.svg";
 
 | Directory | Files | Use |
 |---|---|---|
-| `assets/logo/` | `mark.svg`, `mark-flat.svg`, `mark-16.svg`, `mark-ink.svg`, `app-icon.svg` | Coin Seal logo variants — size/background rules in `brand/guidelines/coin-seal-spec.html` |
+| `assets/logo/` | `mark.svg`, `mark-flat.svg`, `mark-16.svg`, `mark-ink.svg`, `app-icon-tile.svg` | Coin Seal logo variants — size/background rules in `brand/guidelines/coin-seal-spec.html` |
 | `assets/graphics/` | `seal.svg`, `sand-flow.svg`, `ascent.svg` | Badge seal, splash/underlay texture, marketing/empty-state graphic |
 | `assets/icons/` | `keyhole.svg`, `active-lease.svg` | Brand scenario icons (security capability, Active/Standby lease) |
 
@@ -163,6 +163,11 @@ This subpath is a declared export, not a deep import — it is the supported way
 load brand assets at runtime. Vite resolves the specifier through the package `exports` map
 and applies its normal asset pipeline (hashed URL, or inlining below the asset-inline
 threshold). Do not load these files from `brand/assets/` in app code.
+
+`src/assets/logo/mark.svg` is also the production source for the generated Tauri platform
+icons. Regenerate `apps/desktop/src-tauri/icons/**` with
+`pnpm --filter @gooddealer/desktop icon:generate` after changing that asset; desktop packaging
+cannot consume the SVG package export directly.
 
 ## Testing approach
 

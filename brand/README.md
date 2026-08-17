@@ -103,7 +103,7 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **品牌场景图标**（随库提供，`assets/icons/`）：`keyhole.svg`（安全能力：外圆内方金库 + 核心锁孔；本地密钥、设备门禁）、`active-lease.svg`（骑缝双持：金实心 = 执行设备，蓝空心 = Standby）。徽章体系 `assets/graphics/seal.svg`（铸缘金印：铣边铸币 + 外圆内方 + 骑缝；认证/会员/成交凭证）；辅助图形 `sand-flow.svg`（圩纹：同心钱波 + 内方节点，开屏/底纹）、`ascent.svg`（涨值：投入蓝→增值金的递增钱，营销/空状态）。
 - **功能图标**：代码库无图标集。**替代：Lucide（CDN）**，1.5px 描边与几何无衬线气质匹配；尺寸 14/16px，颜色随文本层级（`--text-muted` 默认，激活为 `--gd-text` 或语义色）。金色图标仅用于价值时刻。需要品牌定制图标集时替换。
 - **无 emoji、无 Unicode 字符图标**。状态用色点（StatusDot）与徽章（Badge）。
-- Logo 使用规矩（见 `guidelines/coin-seal-spec.html`）：≥48px 用渐变 `mark.svg`；24–48px 强制单色 `mark-flat.svg`；≤20px 用无缝版 `mark-16.svg`；金/浅底用 `mark-ink.svg`；禁旋转/拉伸/改色/辉光/描边/圆角方孔/填实方孔；内方永远直角正交、骑缝永远垂直居中；安全区 = 内方 □（Ø⅓，30U）。
+- Logo 使用规矩（见 `guidelines/coin-seal-spec.html`）：≥48px 用渐变 `mark.svg`；24–48px 强制单色 `mark-flat.svg`；≤20px 用无缝版 `mark-16.svg`；金/浅底用 `mark-ink.svg`；Tauri 的 ICO/ICNS/平台 PNG 直接由生产资产 `packages/ui/src/assets/logo/mark.svg` 生成，`app-icon-tile.svg` 只承载带底展示稿；禁旋转/拉伸/改色/辉光/描边/圆角方孔/填实方孔；内方永远直角正交、骑缝永远垂直居中；安全区 = 内方 □（Ø⅓，30U）。
 
 ## Intentional additions
 
