@@ -1233,6 +1233,8 @@ name = "gooddealer-automation-host"
 version = "0.0.0"
 dependencies = [
  "gooddealer-secure-host-core",
+ "serde",
+ "serde_json",
  "wry",
 ]
 

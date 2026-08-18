@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "capabilities": ["local-app"]
+      "capabilities": ["local-app", "remote-browser"]
     }
   },
   "bundle": {

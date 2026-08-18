@@ -20,13 +20,11 @@
     "check": "pnpm check:platform-neutral && pnpm test:rust",
     "gate:validate": "node scripts/validate-gate-closure-attestation.mjs",
     "evidence:wp0": "node scripts/collect-wp0-evidence.mjs",
-    "evidence:wp1": "node scripts/collect-wp0-evidence.mjs --slice keychain",
     "evidence:wp2": "node scripts/collect-wp0-evidence.mjs --slice account-gate",
     "evidence:wp4": "node scripts/collect-wp0-evidence.mjs --slice cloud-boundary",
-    "evidence:wp4:jobs": "node scripts/collect-wp0-evidence.mjs --slice jobs",
     "evidence:wp5": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher",
-    "evidence:wp5:backup": "node scripts/collect-wp0-evidence.mjs --slice backup",
-    "evidence:wp5:bundle": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher-bundle"
+    "evidence:wp5:bundle": "node scripts/collect-wp0-evidence.mjs --slice sqlcipher-bundle",
+    "evidence:wp3": "node scripts/collect-wp3-evidence.mjs"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
