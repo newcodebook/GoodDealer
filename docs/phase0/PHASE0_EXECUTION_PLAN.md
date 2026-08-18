@@ -1,7 +1,7 @@
 # GoodDealer Phase 0 执行计划
 
 状态：Active / Gate-driven Delivery
-更新日期：2026-08-15
+更新日期：2026-08-18
 
 ## 1. 执行规则
 
@@ -78,11 +78,11 @@ Owner 身份解析为 [GitHub `newcodebook`](https://github.com/newcodebook)，�
 | P0-23 | Active/Standby Query Adapter 等价契约 | J-01/J-02/J-05 | R0-01/R0-04/R0-10/R0-16 | Client Query/Workspace | P/C | 现有 `evidence:wp2` Portable Query Contract、DataFreshness 负向矩阵与共享 digest Corpus；生产 Tauri/local-storage、cloud-client/workspace-read 和 Composition Root 待建 | Standby 只展示固定 Fixture |
 | P0-24 | CredentialBinding/credentialRef 泄漏测试 | J-01/J-03/J-05 | R0-03/R0-12/R0-16 | Secure Host/Client Connections | P/W/MA/MI | Canary 扫描 DOM/Heap/IPC/DB/WAL/日志/Crash | 禁止真实凭据 |
 | P0-25 | 加密备份导出、校验、恢复 | J-07 | R0-08/R0-16 | Recovery | P/W/MA/MI | `evidence:wp5:backup`、TS/Rust 协议契约与 Wire Corpus、AEAD 封包/校验/篡改/截断/换包/明文扫描 | 只开放 Cloud 重建 |
-| P0-26 | Local/Remote WebView Capability 隔离 | J-01/J-03 | R0-07/R0-15/R0-16 | Browser Security | W/MA/MI | 待建 `evidence:wp3 --slice webview-isolation`：明确且不重叠的 WebView label、同 Window 禁止窗口级 Local Capability、Remote 主页面/iframe/弹窗/导航后全 Command 零权限负向矩阵 | 系统浏览器/Manual |
-| P0-27 | 登录、暂停/接管、一次性授权原型 | J-01/J-03/J-04 | R0-07/R0-12 | Browser Host/Connections | W/MA/MI | 无副作用页面 Fixture、Consent/健康状态机包 | Manual 登录 |
-| P0-28 | WebView2/WKWebView Profile/弹窗/下载/上传 | J-01/J-03 | R0-07/R0-11 | Browser Host/Release | W/MA/MI | 双引擎制品、Profile/导航/文件策略矩阵 | 未通过引擎保持 Disabled |
-| P0-29 | Rust automation-host 双引擎封装 | J-01/J-03/J-04 | R0-07/R0-15 | Browser Host | W/MA/MI | AST/Selector/导航/回调负向 Corpus | 不注入 Recipe |
-| P0-30 | Consent/Grant/Ticket 分层与防重放 | J-02/J-03/J-04 | R0-07/R0-16 | Browser Security/Secure Host | P/W/MA/MI | Ticket 根兑换、递增 Step、崩溃失效包 | Manual/System Browser |
+| P0-26 | Local/Remote WebView Capability 隔离 | J-01/J-03 | R0-07/R0-15/R0-16 | Browser Security | W/MA/MI | 已建 `remote-browser.json`（`permissions:[]`）与 `tauri.conf.json` 双 capability 注册；native 零权限负向矩阵待建 | 系统浏览器/Manual |
+| P0-27 | 登录、暂停/接管、一次性授权原型 | J-01/J-03/J-04 | R0-07/R0-12 | Browser Host/Connections | W/MA/MI | 已建 `session.rs` Active/Sunset `BrowserSessionAccessContext` 互斥契约与 INV-BSC-01 测试；Consent UI、健康状态机待建 | Manual 登录 |
+| P0-28 | WebView2/WKWebView Profile/弹窗/下载/上传 | J-01/J-03 | R0-07/R0-11 | Browser Host/Release | W/MA/MI | 已建 `profile.rs`/`navigation_policy.rs`/`download_policy.rs`/`upload_policy.rs` 策略契约；双引擎运行时待建 | 未通过引擎保持 Disabled |
+| P0-29 | Rust automation-host 双引擎封装 | J-01/J-03/J-04 | R0-07/R0-15 | Browser Host | W/MA/MI | 已建 `recipe_ast.rs` 封闭 RecipeStep AST（10+13）与 127 测试；运行时引擎绑定待建 | 不注入 Recipe |
+| P0-30 | Consent/Grant/Ticket 分层与防重放 | J-02/J-03/J-04 | R0-07/R0-16 | Browser Security/Secure Host | P/W/MA/MI | 已建 `ticket_consumer.rs` Active/Sunset 单次消费与 `operation_signing.rs` HMAC-SHA256 签名；根兑换、递增 Step、崩溃失效待建 | Manual/System Browser |
 | P0-31 | Tenant Job、Lease、幂等、Quarantine | J-06/J-08/J-09/J-10 | R0-09 | Cloud Platform | P/C | 现有 `pnpm evidence:wp4:jobs`（`--slice jobs`）：`protocol/jobs` 封闭 TenantJobEnvelope/JobLease/JobIdempotencyKey/QuarantineRecord 与 Cloud Fixture（JobLeaseRegistry/JobIdempotencyStore/JobQuarantineLedger/fanOutTenantJobs），N-01..N-14 四段跨租户/重放/幂等/lease-contention 矩阵，`periodicJobsRegistered === false` | 周期 Job 不注册 |
 | P0-32 | 平台 ToS/账户政策/自动化风险登记 | J-02/J-03/J-04/J-10 | R0-13 | Connector Operations/Product | P/TP | 每 Provider Policy Record、批准人和复核日期 | 未知 Manual，禁止则 Disabled |
 
@@ -100,6 +100,7 @@ pnpm evidence:wp5 --slice sqlcipher
 pnpm evidence:wp5:bundle
 node scripts/collect-wp0-evidence.mjs --profile quality
 node scripts/collect-wp0-evidence.mjs --profile native
+node scripts/collect-wp3-evidence.mjs
 ```
 
 P0-05 的 Portable 实现已经完成：`client-core Port DTO -> Desktop Tauri Adapter -> Rust Command Handler` 最小链不含秘密和外部副作用，TypeScript/Rust 共享 Corpus、`AppManifest::commands`/`generate_handler!`/`#[tauri::command]`/逐命令 Permission/Adapter 同集、未声明命令拒绝和显式 Local WebView Capability 均进入根门禁。该切片只为 R0-01/R0-10/R0-15/R0-16 形成证据，不启用账号、平台或生产网络能力。
@@ -123,5 +124,7 @@ P0-06 的当前最终提交 compile-check 技术集合已在 `0253e71bd468c9fd1d
 P0-07 已建立测试专用 SQLCipher 4.17.0/SQLite 3.53.3 Fixture 和 `evidence:wp5 --slice sqlcipher`。结构化报告失败关闭地验证 DB、WAL 与 rollback journal 无 Canary/SQLite 明文头，错误 Key、截断和篡改均拒绝，模拟进程在已提交 WAL 后退出可由正确 Key 恢复，并拒绝遗留未知临时文件。提交 `0f98a091a42fa9077c92414fc67756cadacbcc44` 的专用 Run `31088044992` 已取得 Windows Server 2025 x64 Artifact `8962898576`、macOS 15 Intel Artifact `8962521305`、macOS 15 arm64 Artifact `8962334154`；三份 Manifest 均为 `passed`、`technicalEligibility.eligible=true`，绑定干净稳定仓库、正确平台架构、精确 Job URL、固定运行时版本、七份文件 Hash/明文扫描和全部零退出码。
 
 SQLCipher 的默认 feature 为空；普通桌面构建仍不链接它。只有 `sqlcipher-bundle-spike` feature 与独立 `tauri.bundle-spike.conf.json` 会把它链接进明确命名的可丢弃 Tauri release bundle。`pnpm evidence:wp5:bundle` 已在本机 macOS arm64 生成 `.app` 并从包内执行 SQLCipher 探针，验证临时 DB 加密、正确/错误 Key 和清理，同时记录 release executable、bundled executable 与 bundle tree SHA-256；dirty 本地结果只作诊断，不具技术资格。`wp5-sqlcipher-bundle` 三平台 CI 已在提交 `51b68c7967e59d4328306737e0a82d93153e5ff2` 的 Run `31682478022`（2026-08-13 完成，conclusion `success`）取得干净证据：Windows Server 2025 x64 Artifact `9174755555`（`.msi`，MSI administrative extraction 执行包内程序）、macOS 15 arm64 Artifact `9175612139`（`.app`）、macOS 15 x64 Artifact `9174478411`（`.app`）。三份 Manifest 均为 `passed`、`technicalEligibility.eligible=true`（`reasons: []`），绑定干净稳定仓库、匹配平台架构、精确 Job URL、固定工具链（node v24.18.1、pnpm 11.18.0、rustc/cargo 1.97.1）与 SQLCipher 4.17.0/SQLite 3.53.3；三平台探针 `databaseEncrypted`/`correctKeyReadable`/`wrongKeyRejected`/`temporaryDatabaseRemoved` 均为真。macOS 两个平台 `bundledExecutableMatchesReleaseExecutable=true`；Windows 该字段为 `false`（release exe SHA-256 `f665f7b3…21a1268` 对比 MSI 提取 exe SHA-256 `69ddba41…78f2df`，字节大小同为 14,616,576，差异原因本次未证实），须由独立 Security Review 裁决该差异是否可作为 Windows 平台的可接受 Gate 证据。三份 Artifact 均为 90 天保留期（2026-08-13 创建，约 2026-11-11 到期），关闭前必须整体提升为长期不可变归档。
+
+P0-26~P0-30 已建立 W4 架构冻结契约（提交 `9a66be9`）。P0-26：`apps/desktop/src-tauri/capabilities/remote-browser.json` 定义零权限隔离 WebView capability（`permissions: []`、`webviews: ["remote-browser"]`），`tauri.conf.json` 注册 `["local-app", "remote-browser"]`。P0-27：`automation-host/session.rs` 定义 `BrowserSessionAccessContext` 与 `SunsetBrowserSessionAccessContext`，通过 `context_type` 判别器互斥反序列化；Active 不要求健康凭据（INV-BSC-01）。P0-28：`profile.rs`/`navigation_policy.rs`/`download_policy.rs`/`upload_policy.rs` 定义 Active/Sunset Profile 作用域、导航策略、下载策略（`Deny`|`ExportOnly`）与上传策略（`Deny`|`BusinessFieldOnly`），全部 `deny_unknown_fields`。P0-29：`recipe_ast.rs` 定义封闭 `RecipeStep` 枚举（10 允许 + 13 拒绝变体），`FillField` 仅接受 `BusinessField`；`injection.rs`/`callback_handler.rs`/`webview_manager.rs`/`evidence.rs` 定义注入上下文、回调验证、WebView 状态与证据类型。P0-30：`ticket_consumer.rs` 定义 `AutomationExecutionTicket` 与 `SunsetAutomationExecutionTicket` 单次消费类型；`secure-host-core/operation_signing.rs` 定义 `TicketSignature` 封闭签名算法（`HmacSha256`）与确定性 `encode_ticket_digest_input`。TS 层 `recipes/index.ts` 从 `blocked-by-r0-07` 更新为 `ast-defined`，镜像 `ALLOWED_STEP_TYPES`（10）、`REJECTED_STEP_TYPES`（13）、`ALLOWED_FIELD_CATEGORY`（`business_field`）。127 automation-host + 82 secure-host-core = 209 测试全通。已知差距：session/ticket/recipe/profile 类型的字段名与冻结设计制品（art_ab6229a29d83）的精确字段规范有偏差——结构不变量正确，生产接线前需对齐字段。该切片不含生产 WebView 运行时、真实浏览器引擎绑定、Consent/Grant 实际 UI 流程或跨设备能力；P0-26~P0-30/R0-07 保持 In Progress，Manual/System Browser Fallback 继续生效。
 
 上述三平台技术证据取得后，P0-07 的下一动作是完成剩余人工动作：Windows 11 24H2 真机安装/运行（当前 CI 只覆盖 Windows Server 2025，非真机）、release 制品签名/公证、在约 2026-11-11 保留期到期前把三份 Artifact 与 Manifest 提升为长期不可变归档、由未参与实现的 Security Reviewer 独立复核并裁决上述 Windows 可执行文件哈希差异、以及包含全部 `closureAttestationRequirements` 字段（含 `manifest_sha256`、`artifact_id`、`artifact_digest`、`run_url`、`job_url`、归档字段与 owner/review/approval 引用）的 GateClosureAttestation。Spike 不接 Keychain、真实数据、生产 Repository、业务 IPC 或网络，也不是签名/公证发布制品。完成这些条件前 P0-07、R0-08、R0-16 保持 In Progress，不进入 P0-08。
