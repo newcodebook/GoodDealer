@@ -4,7 +4,7 @@ import { parseWorkspaceTenantScope, workspaceTenantKey } from "../tenant-scope";
 export interface ResolvedWorkspaceBinding {
   readonly bound: true;
   readonly workspaceSchemaVersion: number;
-  readonly compactionWatermark: number;
+  readonly compactedThroughServerRevision: number;
 }
 
 export interface WorkspaceBindingPort {
@@ -14,7 +14,7 @@ export interface WorkspaceBindingPort {
 interface WorkspaceRevisionHead {
   serverRevision: number;
   readonly workspaceSchemaVersion: number;
-  compactionWatermark: number;
+  compactedThroughServerRevision: number;
 }
 
 /**
@@ -34,7 +34,7 @@ export class InMemoryWorkspaceRevisions implements WorkspaceBindingPort {
       throw new TypeError("workspace binding is immutable");
     }
     if (existing === undefined) {
-      this.#heads.set(key, { serverRevision: 0, workspaceSchemaVersion, compactionWatermark: 0 });
+      this.#heads.set(key, { serverRevision: 0, workspaceSchemaVersion, compactedThroughServerRevision: 0 });
     }
   }
 
@@ -46,7 +46,7 @@ export class InMemoryWorkspaceRevisions implements WorkspaceBindingPort {
     return {
       bound: true,
       workspaceSchemaVersion: head.workspaceSchemaVersion,
-      compactionWatermark: head.compactionWatermark,
+      compactedThroughServerRevision: head.compactedThroughServerRevision,
     };
   }
 
@@ -85,26 +85,26 @@ export class InMemoryWorkspaceRevisions implements WorkspaceBindingPort {
   assignedRevisions(scope: WorkspaceTenantScope): readonly number[] {
     const head = this.#requiredHead(scope);
     return Array.from(
-      { length: head.serverRevision - head.compactionWatermark },
-      (_, index) => head.compactionWatermark + index + 1,
+      { length: head.serverRevision - head.compactedThroughServerRevision },
+      (_, index) => head.compactedThroughServerRevision + index + 1,
     );
   }
 
   advanceCompactionWatermark(
     scope: WorkspaceTenantScope,
-    throughRevision: number,
+    throughServerRevision: number,
   ): { rollback(): void } {
     const head = this.#requiredHead(scope);
     if (
-      !Number.isSafeInteger(throughRevision) ||
-      throughRevision < head.compactionWatermark ||
-      throughRevision > head.serverRevision
+      !Number.isSafeInteger(throughServerRevision) ||
+      throughServerRevision < head.compactedThroughServerRevision ||
+      throughServerRevision > head.serverRevision
     ) {
       throw new TypeError("workspace compaction watermark is invalid");
     }
-    const previous = head.compactionWatermark;
-    head.compactionWatermark = throughRevision;
-    return { rollback: () => { head.compactionWatermark = previous; } };
+    const previous = head.compactedThroughServerRevision;
+    head.compactedThroughServerRevision = throughServerRevision;
+    return { rollback: () => { head.compactedThroughServerRevision = previous; } };
   }
 
   #requiredHead(scope: WorkspaceTenantScope): WorkspaceRevisionHead {
@@ -117,3 +117,9 @@ export class InMemoryWorkspaceRevisions implements WorkspaceBindingPort {
 }
 
 export type { WorkspaceTenantScope } from "../tenant-scope";
+export {
+  PostgresWorkspaceRevisionRepository,
+  type WorkspaceRevisionMutationPort,
+  type WorkspaceRevisionQueryPort,
+  type WorkspaceRevisionSnapshot,
+} from "./postgres-repository";

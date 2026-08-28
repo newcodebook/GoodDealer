@@ -1,0 +1,1 @@
+.gd-money{font-family:var(--font-mono);font-variant-numeric:tabular-nums}.gd-money--gold{color:var(--gd-gold)}.gd-money--body{color:var(--gd-text)}.gd-money--muted{color:var(--gd-text-muted)}.gd-money--success{color:var(--gd-success)}.gd-money--danger{color:var(--gd-danger)}.gd-money--empty,.gd-money-currency{color:var(--gd-text-faint)}.gd-money-currency{margin-right:5px}

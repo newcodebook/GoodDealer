@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "deviceSwitchRequestId": "switch-1",
   "capabilityJti": "bootstrap-jti-1",
   "stepNumber": 2,
@@ -8,10 +8,10 @@
   "stepKind": "fetch_mutations",
   "stepPayload": {
     "pinnedCheckpointId": "checkpoint-4",
-    "pinnedCheckpointRevision": 4,
+    "pinnedCheckpointThroughServerRevision": 4,
     "pinnedCheckpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "fromRevisionExclusive": 3,
-    "throughRevisionInclusive": 5,
+    "fromServerRevisionExclusive": 3,
+    "throughServerRevisionInclusive": 5,
     "cursor": null,
     "pageLimit": 100
   },

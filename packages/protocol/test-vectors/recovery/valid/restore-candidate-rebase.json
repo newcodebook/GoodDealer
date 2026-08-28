@@ -1,9 +1,0 @@
-{
-  "status": "rebase_required",
-  "candidateId": "candidate-001",
-  "backupId": "backup-001",
-  "workspaceId": "workspace-001",
-  "compareRevision": 100,
-  "manifestDigest": "k14SrYjax6vC8tvPWAhAnsaTZGykiIeTms6uJxqK-dE",
-  "cloudDerivedAt": 1700000000000
-}

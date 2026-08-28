@@ -6,4 +6,11 @@ import { defineConfig } from "astro/config";
 // ported 1:1 from the brand/ui_kits/marketing-web reference (see that kit's README).
 export default defineConfig({
   output: "static",
+  vite: {
+    build: {
+      // Keep imported logos and the favicon as emitted local assets. Data URLs obscure
+      // the static asset graph and make origin/asset-closure checks less meaningful.
+      assetsInlineLimit: 0,
+    },
+  },
 });

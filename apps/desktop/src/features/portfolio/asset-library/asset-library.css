@@ -1,0 +1,6 @@
+.asset-library { display: flex; flex: 1; min-height: 0; height: 100%; flex-direction: column; background: var(--gd-ink, #0c1018); color: var(--text-1, #edf2f8); }
+.asset-library-table { position: relative; display: flex; flex: 1; min-height: 0; }
+.asset-library-table > .gd-table-shell { flex: 1; border: 0; border-radius: 0; }
+.asset-library code { color: var(--text-1, #edf2f8); font-family: var(--font-mono, ui-monospace); font-size: 12px; }
+.portfolio-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.portfolio-row-facts { display: inline-flex; flex-wrap: wrap; gap: 5px; }

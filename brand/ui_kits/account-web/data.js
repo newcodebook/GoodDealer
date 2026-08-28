@@ -1,26 +1,56 @@
-// account-web mock data. License is sold by TERM (monthly / annual / lifetime), not feature tiers —
-// every plan carries the full product; term only changes price & commercial validity.
-window.AW_DATA={
-  plans:[
-    {key:"monthly",name:"月付",price:9.8,unit:"/月",period:"按月续费 · 随时取消",cta:"选择月付"},
-    {key:"annual",name:"年付",price:98,unit:"/年",sub:"≈ $8.2/月 · 省 17%",period:"按年续费 · 随时取消",cta:"选择年付",popular:true},
-    {key:"lifetime",name:"终身",price:498,unit:"一次性",sub:"含所有未来大版本",period:"永久授权 · 无周期扣费",cta:"选择终身",gold:true},
+// account-web mock data — the cloud/account side (local execution stays in the desktop client).
+window.GD_ACCOUNT={
+  profile:{name:"陈立行",email:"li@quanta.trade",workspace:"个人 Workspace",memberSince:"2024-03-11",locale:"中文（zh-CN）",timezone:"Asia/Shanghai (UTC+8)"},
+  plan:{name:"年付 License",tier:"Professional",price:299,cycle:"年",seats:1,renews:"2026-12-31",started:"2024-12-31",autoRenew:true,domainsIncluded:"无限",devicesIncluded:2,method:"Visa · 4242"},
+  usage:{domains:1024,valuation:284120,platforms:4,accounts:3,devicesBound:2,storageMB:38},
+  devices:[
+    {id:"mac",name:"MacBook Pro",os:"macOS 15.2 · Apple Silicon",self:true,state:"active",epoch:41,last:"现在",location:"上海",added:"2024-12-31"},
+    {id:"iph",name:"iPhone 17 Pro",os:"iOS 19.1",self:false,state:"standby",last:"今日 08:30",location:"上海",added:"2025-06-02"},
+    {id:"air",name:"MacBook Air (2019)",os:"macOS 13 · Intel",self:false,state:"sunset",last:"06-12",location:"—",added:"2024-03-11"},
   ],
-  // shared across all plans (license = term, not feature tier)
-  features:[
-    "统一资产库 · 万级域名流畅筛选排序",
-    "多平台销售管理（Atom · Afternic · SellerHub）",
-    "DNS 与所有权验证 · 防覆盖现有解析",
-    "批量改价 / 上下架 / 验证 · 逐项差异预览",
-    "双设备云同步 · 单活动设备执行权",
-    "凭据本地加密 · 永不上云",
-    "简体中文 · English",
-  ],
-  lifetimeExtra:"含所有未来大版本升级",
-  // current account (authed, for 订阅管理)
-  account:{email:"investor@domain.com",plan:"annual",state:"active",price:98,renews:"2026-12-31",method:"Visa · 6411",since:"2025-12-31"},
   invoices:[
-    {id:"INV-2025-12",date:"2025-12-31",desc:"年付 License · 续费",amount:98,status:"paid"},
-    {id:"INV-2024-12",date:"2024-12-31",desc:"年付 License",amount:98,status:"paid"},
+    {id:"INV-2026-0012",date:"2025-12-31",desc:"年付 License · Professional · 2026",amount:299,status:"paid",method:"Visa · 4242"},
+    {id:"INV-2025-0009",date:"2024-12-31",desc:"年付 License · Professional · 2025",amount:299,status:"paid",method:"Visa · 4242"},
+    {id:"INV-2025-0021",date:"2025-06-02",desc:"追加绑定设备额度",amount:0,status:"paid",method:"—"},
+    {id:"INV-2024-0004",date:"2024-03-11",desc:"月付 License · Professional · 试用转正",amount:29,status:"paid",method:"Visa · 4242"},
+  ],
+  sessions:[
+    {id:1,device:"MacBook Pro · 桌面客户端",kind:"desktop",ip:"116.226.xx.xx",location:"上海 · 中国",last:"现在",current:true},
+    {id:2,device:"Chrome 129 · macOS",kind:"web",ip:"116.226.xx.xx",location:"上海 · 中国",last:"12 分钟前",current:false},
+    {id:3,device:"iPhone 17 Pro · 桌面客户端",kind:"mobile",ip:"223.104.xx.xx",location:"上海 · 中国",last:"今日 08:30",current:false},
+    {id:4,device:"Safari · macOS",kind:"web",ip:"45.32.xx.xx",location:"东京 · 日本",last:"07-28",current:false,flag:true},
+  ],
+  ledger:[
+    {rev:8241,op:"批量改价 BIN −8%",platform:"Atom / Afternic",source:"MacBook Pro",items:823,status:"applied",time:"14:02"},
+    {rev:8240,op:"新增 TXT 验证记录",platform:"Cloudflare",source:"MacBook Pro",items:17,status:"applied",time:"13:44"},
+    {rev:8239,op:"变更 Nameserver → Cloudflare",platform:"注册商",source:"MacBook Pro",items:3,status:"applied",time:"13:31",risk:true},
+    {rev:8238,op:"成交与交割 vault.io",platform:"Atom",source:"MacBook Pro",items:1,status:"applied",time:"11:20",value:12800},
+    {rev:8237,op:"批量改价 BIN −12%",platform:"Atom",source:"MacBook Air",items:240,status:"rolledback",time:"昨日 09:12"},
+  ],
+  portfolio:[
+    {domain:"kanban.ai",registrar:"Namecheap",status:"synced",bin:45000,expiry:"2027-01-28"},
+    {domain:"marble.finance",registrar:"Spaceship",status:"synced",bin:15000,expiry:"2027-02-17"},
+    {domain:"vault.io",registrar:"Spaceship",status:"sold",bin:12800,expiry:"2027-03-14"},
+    {domain:"crest.capital",registrar:"Spaceship",status:"synced",bin:9800,expiry:"2027-11-30"},
+    {domain:"north.capital",registrar:"Spaceship",status:"synced",bin:8200,expiry:"2028-05-01"},
+    {domain:"quanta.trade",registrar:"Spaceship",status:"synced",bin:6600,expiry:"2027-06-11"},
+    {domain:"oxide.dev",registrar:"Namecheap",status:"pending",bin:5200,expiry:"2026-10-05"},
+    {domain:"lantern.app",registrar:"Spaceship",status:"synced",bin:3900,expiry:"2027-07-22"},
+    {domain:"goldrail.com",registrar:"Spaceship",status:"synced",bin:3500,expiry:"2026-11-02"},
+    {domain:"driftline.com",registrar:"Spaceship",status:"pending",bin:2400,expiry:"2026-12-24"},
+    {domain:"helio.systems",registrar:"Dynadot",status:"synced",bin:1750,expiry:"2027-09-08"},
+    {domain:"lumen.dev",registrar:"Dynadot",status:"conflict",bin:980,expiry:"2026-09-19"},
+  ],
+  activity:[
+    {kind:"sync",text:"云端已接收 823 项修改",meta:"MacBook Pro · rev 8,241",time:"14:02"},
+    {kind:"sale",text:"vault.io 已成交并放款",meta:"Atom · 净收入入账",time:"11:20",value:12800},
+    {kind:"device",text:"iPhone 17 Pro 申请待命",meta:"Standby · 未持有执行权",time:"08:30"},
+    {kind:"billing",text:"发票 INV-2026-0012 已支付",meta:"Visa · 4242",time:"昨日"},
+    {kind:"security",text:"新的网页登录 · 东京",meta:"Safari · 45.32.xx.xx",time:"07-28",flag:true},
+  ],
+  releases:[
+    {os:"macOS",icon:"Apple",variant:"Apple Silicon · Intel 通用",size:"92 MB",ver:"0.9.0",note:"推荐 · 本机版本"},
+    {os:"Windows",icon:"Monitor",variant:"Windows 10/11 · x64",size:"104 MB",ver:"0.9.0",note:""},
+    {os:"Linux",icon:"HardDrive",variant:"AppImage · .deb",size:"98 MB",ver:"0.9.0",note:""},
   ],
 };

@@ -6,6 +6,7 @@
   "exports": {
     "./wire": "./src/wire/index.ts",
     "./account": "./src/account/index.ts",
+    "./audit": "./src/audit/index.ts",
     "./devices": "./src/devices/index.ts",
     "./workspace": "./src/workspace/index.ts",
     "./execution-events": "./src/execution-events/index.ts",

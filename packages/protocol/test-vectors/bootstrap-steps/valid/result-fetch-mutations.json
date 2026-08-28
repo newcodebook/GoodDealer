@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "workflowRevision": 2,
   "acceptedStepNumber": 2,
   "nextStepNonce": "bm9uY2UtMw",
@@ -8,8 +8,8 @@
     "mutationPage": {
       "schemaVersion": 1,
       "workspaceId": "workspace-a",
-      "fromRevisionExclusive": 4,
-      "throughRevisionInclusive": 5,
+      "fromServerRevisionExclusive": 4,
+      "throughServerRevisionInclusive": 5,
       "mutations": [
         {
           "schemaVersion": 1,
@@ -17,16 +17,16 @@
           "workspaceId": "workspace-a",
           "workspaceSchemaVersion": 1,
           "entityType": "domain_asset",
-          "entityId": "domain-example-com",
-          "baseRevision": 4,
+          "entityId": "example.com",
+          "baseServerRevision": 4,
           "changedFields": [{ "fieldPath": "tags", "value": ["premium"] }],
           "sourceDeviceId": "device-a",
           "activeLeaseEpoch": 2,
-          "mutationSequence": 9,
+          "deviceMutationSequence": 9,
           "serverRevision": 5
         }
       ],
-      "returnedThroughRevision": 5,
+      "returnedThroughServerRevision": 5,
       "nextCursor": null,
       "pageDigest": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
     }

@@ -1,218 +1,89 @@
-# GoodDealer 域名所有权验证工作流
+# GoodDealer 验证边界与 v1 验收
 
-状态：Draft
-更新日期：2026-08-03
+## 读法与证据分类
 
-## 1. 目标与边界
+本文件拥有 v1 的详细垂直验收定义，而 [路线图](ROADMAP.md) 只拥有简明能力地图和依赖。这里的
+每一项证据必须说明它能支持的精确声明；本地实现证据和外部资格不能互相替代。
 
-Verification 负责把“取得平台挑战 → 找到权威 DNS/注册商 → 安全写入 → 等待传播 → 触发平台验证 → 确认结果 → 保留或清理”编排为可恢复 Workflow。
+| 证据标签 | 观察对象 | 可以支持的声明 | 不能支持的声明 |
+| --- | --- | --- | --- |
+| **Decision constraint** | 已接受 ADR 与决策登记。 | 固定的范围、排除项和信任边界。 | 当前组合、部署、提供商可用性或发行。 |
+| **Current source state** | 本次检查的生产入口、注册表、合同和模块源码。 | 该源码当前包含/不包含什么。 | 设计目标已经交付，或未检查入口的不可达性。 |
+| **Local implementation evidence** | 可复现的模块、合同、垂直或边界测试。 | 被测试的本地行为和失败关闭边界。 | 部署、真实提供商、原生构件、客户可用性、发行或 Gate closure。 |
+| **External qualification evidence** | 真实环境、最终原生构件、受控提供商观察、独立审查或批准。 | 所列的部署、提供商、原生、发行或 Gate 事实。 | 未观察的其他环境或未来能力。 |
+| **Historical repository evidence** | 明确以审计/历史为目的的保留记录。 | 该历史时点的事实。 | 当前 readiness、可用性或 Gate closure。 |
 
-模块边界：
+本地 Desktop 与 Cloud API 工作可在已接受范围和本地合同下并行开始、继续和验收。通过本地测试只
+表示相应的本地实现证据；它绝不证明部署、托管数据库、真实 Cloudflare 行为、原生签名/公证、
+客户发行或 Gate。真实外部效果必须在其资格完成前失败关闭。
 
-- `client-core/verification` 拥有 VerificationAttempt、状态机、策略和 DAG 编排，不直接产生外部副作用。
-- `client-core/dns` 拥有 DnsAuthoritySnapshot、RRset 读取/写入计划和传播证据。
-- `client-core/registration` 独占 Nameserver Delegation 变更。
-- `client-core/operations` 拥有 Operation、Attempt、ApprovedOperation、资源锁和执行结果。
-- `client-core/browser-automation` 拥有 BrowserSessionConsent/Grant；automation-host 只凭 AutomationExecutionTicket 执行动作。
-- Connector 负责平台/DNS 能力适配和证据要求，不拥有工作流状态。
+## 当前源码状态和范围控制
 
-TXT Challenge 与 NS Delegation Challenge 不得共用写入实现。TXT 调用 DNS 能力；NS 调用 Registration 高风险流程，并与同域名 DNS 写入互斥。
+以下是本次源码快照，而不是能力可用性声明：
 
-## 2. VerificationAttempt
+| 区域 | Current source state | 声明限制 |
+| --- | --- | --- |
+| Desktop Host | Tauri 精确注册本地业务状态、Portfolio 读取和 DomainAsset 写入三个命令；Runtime 未获授权时锁定。 | 不证明账号授权注入、OS 密钥 custody 或客户发行已完成。 |
+| Desktop production graph | `apps/desktop/src/app.tsx` 只使用窄本地业务 adapter；不导入 `cloud-client`、Provider 或数据库实现。 | 本地纵向存在不等于真实登录、Provider 或发行可用。 |
+| Cloud public composition | `publicBusinessRoutes` 与 `periodicJobs` 目前都是空注册表。 | Cloud 模块、迁移和合同不等于客户可用 API。 |
+| Cloudflare Secure Host | `secure-host-core` 已实现私有 Zone/DNS 只读 Service、Credential Fence、固定 `api.cloudflare.com` 的加固 HTTPS Transport，以及自主维护的私有 endpoint/Provider wire。 | 本地实现未组合原生秘密录入、Tauri Command、Cloud API 或真实提供商资格，不能声明客户可用。 |
+| 已接受目标 | ADR-0013、连接器规范和 ADR-0017 固定个人默认工作区、Cloudflare API-only 只读观察和无浏览器。 | 决定约束不等于实际账户、资产读取或提供商观察。 |
 
-```text
-VerificationAttempt
-  attempt_id
-  domain_asset_id
-  marketplace_connection_id
-  method: txt | nameserver | manual
-  challenge_ref                 # 仅设备本地 opaque ref
-  challenge_fingerprint
-  dns_binding_id | registrar_binding_id
-  dns_authority_snapshot_id
-  required_evidence_level
-  retention_policy
-  operation_id
-  status
-  acquired_at
-  expires_at
-```
+Desktop production 图的范围控制由源码测试持续验证；后续组合任何 feature、Host 或 connector 时必须
+更新当前态并重新执行 production-entrypoint reachability 检查，不得恢复已删除的 connector 注册、
+兼容或过渡路径。
 
-权威状态：
+## 本地实现通用验收门槛
 
-```text
-acquiring_challenge
-  -> waiting_user_login
-  -> ready_to_plan
-  -> waiting_approval
-  -> writing_dns | changing_nameserver | manual_action_required
-  -> waiting_dns
-  -> ready_to_verify
-  -> verifying
-  -> waiting_remote
-  -> verified
+每个 v1 垂直路径在被称为“本地已验收”前都必须有以下证据：
 
-任意非终态 -> expired | cancelled | outcome_unknown | manual_action_required
-任意持有设备本地挑战引用的非终态 -> requires_challenge_reacquisition
-requires_challenge_reacquisition -> acquiring_challenge
-verified -> cleanup_pending | retained
-```
+1. 仅使用已声明的公开合同/端口；所有 wire 或不可信输入从 `unknown` 严格验证，未知字段和
+   不匹配响应失败关闭。
+2. 服务器端从认证主体和默认绑定导出租户范围；Desktop、Host、缓存和请求参数不能选择或扩大
+   `accountId`、`workspaceId`。
+3. 展示层没有秘密、直接持久化、直接网络/提供商权威或通过 callback/fixture 获得的结果。
+4. 对应的正向垂直测试和负向控制都已实际运行，并记录准确命令、退出状态和适用范围。
+5. 本地路径没有引入浏览器、写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 或任何
+   compatibility/transition/fallback 路径。
+6. 所有共享入口、公开导出、协议、迁移和当前文档由具名整合负责人重新检查。
 
-规则：
+## v1 详细垂直验收
 
-- 挑战过期后禁止继续触发平台验证；旧记录清理是新的、可预览 Operation。
-- 取消 `waiting_dns` 只停止后续节点，不自动删除已写记录。
-- `outcome_unknown` 只允许确认，不能重复最终提交。
-- 清理与验证不是同一个原子事务；平台要求长期保留时进入 `retained`。
+这是 [路线图](ROADMAP.md) 三项 v1 能力的详细验收表，不是第二份能力地图。每行都必须保持
+授权走 UI → Host → Cloud control plane；业务走 UI → Host → local SQLCipher，随后由 Outbox 异步
+复制到 Cloud。任一未组合层都不能由其他层的测试替代。
 
-## 3. 获取挑战与浏览器授权
+| v1 能力 | Desktop UI | Host 边界 | Cloud API | 持久化 | 本地正向证据 | 必须失败关闭的负向控制 | 后续外部资格及其唯一授权声明 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **账户激活与个人默认工作区** | 只收集协议定义的激活意图，呈现 pending/accepted/rejected；不选择账户或工作区。 | 只在必要时提供最小、已声明的 transport/wire 适配；没有通用 Tauri bridge、秘密、业务策略或租户选择。 | 已认证激活从服务器主体解析范围，并在同一业务流程中创建/解析默认所有者绑定。 | 单一服务器事务创建不可变 Account、不可变个人默认 Workspace 和唯一所有者绑定；失败不留下半成品路径。 | 严格请求/响应解析；Desktop→Host→Cloud 的本地合同集成；原子创建/回滚与重试语义；拥有模块的事务测试。 | 未认证调用、客户端指定/替换 `accountId` 或 `workspaceId`、未知 wire 字段、重复/部分激活、跨租户读取都被拒绝。 | 部署与受管数据库/运行证据只授权“已部署账户服务”声明；原生/发行资格只授权对应客户构件或发行声明。 |
+| **本地域名资产读写** | list/detail/edit 使用本地 Query/Command；显示本地提交和待同步状态。 | Host 拥有路径和密钥，只公开具名命令。 | Cloud 只接收字段白名单 Mutation 并返回 ACK/Cursor。 | 本地业务表与 Outbox 原子提交；Pull 经本地事务合并。 | Cloud transport 缺失仍可读写、原子回滚、空副本 no-op、Pull 不回声 Outbox。 | 未授权、路径/密钥/租户注入、秘密字段、Cloud 空副本删除和直接 Cloud Query 均失败关闭。 | Cloud 部署只授权同步服务主张；本地行为不依赖该资格。 |
+| **Cloudflare API-only Zone/DNS 只读观察** | 显示本地保存的连接状态和本地 Provider 观察。 | 本地 Host 独占第三方账号、Provider Account ID、别名、Token 和 HTTPS read。 | 无 Cloud Observation submit/read；Cloud 不调用 Provider。 | Provider 账号和密封凭据只写本地；允许的业务字段经 DomainAsset Outbox 同步。 | no-secret Mutation、无 Cloud connection persistence、Host read allowlist 和本地结果持久化测试。 | 账号 metadata/Token 泄漏、Cloud Provider 调用、DNS 写、浏览器 fallback 和任意网络均被拒绝。 | 条款、最小 Token、受控 Zone 和独立审查才授权真实 Provider 可用性。 |
 
-优先使用 Verification API。没有 API 时：
+## 跨越三条路径的负向边界
 
-1. 用户授予 BrowserSessionConsent，在隔离窗口自行登录；Consent 不需要 Operation Plan，也没有业务自动化权限。
-2. 首版软件只提供页面步骤提示并检查 Origin/登录状态；用户把页面显示的挑战复制到 Secure Host 输入通道。BrowserSessionConsent 不授权 Probe 读取挑战内容。
-3. 原始值写入 Rust Host-owned challenge vault/OS 安全存储并返回 `challenge_ref`；普通 TypeScript、Active Workspace 和 Cloud 只使用指纹/脱敏预览。原始值不得进入普通 verification 表、Mutation、ExecutionFact、Audit Payload、日志、Crash 或 BackupExportSchema。
-4. 触发 Verify 等业务动作必须在计划获批后另建 BrowserAutomationGrant，并由 Secure Host 签发 AutomationExecutionTicket。未来若自动读取挑战，也必须先形成绑定 VerificationAttempt、允许字段和 Recipe Hash 的可审阅动作计划，不得扩大 BrowserSessionConsent 权限。
+| 边界 | 必须验证的拒绝行为 |
+| --- | --- |
+| 授权与租户 | 客户端或缓存不能创建、选择、替换或扩大 Account/Workspace 范围；所有读取首先由服务器端绑定授权。 |
+| 协议 | 未知、缺失、类型错误或与请求不一致的 wire 数据从 `unknown` 拒绝，不能隐式 fallback。 |
+| 秘密与外部效果 | 秘密不进入普通应用状态、Cloud、日志、错误、审计或夹具；外部动作没有明确最小权限合同时不得发生。 |
+| v1 排除项 | 浏览器、提供商写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 和所有外部 mutation 没有可达产品路径。 |
+| 视觉与夹具 | `brand/`、视觉 fixture/gallery、样例数据和 disabled 控件只能用于展示 QA，不能证明状态、授权或外部结果。生产 UI 只消费 `@gooddealer/ui` public exports、声明的 tokens/assets 与 `@gooddealer/i18n` public exports。 |
+| 过渡面 | 不存在旧路由、双 data/session 路径、兼容 API、别名、临时 adapter、迁移桥或浏览器/提供商 fallback。 |
+| 当前 Desktop 图 | production 入口只允许具名本地业务 adapter；任何新增命令需同步 manifest、handler、capability、adapter 与策略测试。 |
 
-密码、2FA、CAPTCHA、Cookie、原始挑战值和 Browser Profile 永不上传 Cloud。
+## 外部资格不是本地完成门槛
 
-## 4. 权威 DNS 发现
+| 外部资格 | 所需证据 | 它限制的声明 | 它不限制的工作 |
+| --- | --- | --- | --- |
+| Cloud 部署与托管数据库 | 已批准环境、迁移应用、运行监控和运行时观察。 | 已部署服务、托管数据和客户可用 Cloud API。 | 已冻结合同下的本地身份、投影、API 和持久化实现。 |
+| Cloudflare 资格 | 条款、最小 Token 指南、受控 Zone 观察、限流/错误/移除验证和独立安全审查。 | 真实提供商观察或连接器可用性。 | API-only 只读合同、秘密隔离、脱敏投影和失败关闭的本地测试。 |
+| 原生资格 | 最终平台构件、签名/公证或 Windows/macOS 观察。 | 原生已签名/已公证或可交付客户端。 | Tauri/React/Host 的本地受限实现和测试。 |
+| 发行与 Gate | 干净构件、持久归档、独立审查和 ADR-0018 所需批准。 | `1.0.0` / `stable`、客户发行和 Gate closure。 | 已接受 v1 范围内的本地工作包和垂直验收。 |
 
-`client-core/dns` 创建：
+## 运行与报告规则
 
-```text
-DnsAuthoritySnapshot
-  snapshot_id
-  domain_asset_id
-  zone_apex
-  delegated_nameservers[]
-  dnssec_status
-  candidate_dns_bindings[]
-  selected_dns_binding_id
-  confidence: exact | inferred | ambiguous | none
-  evidence[]
-  observed_at
-```
+完整仓库变更运行根 `pnpm check`；每个变更还运行其拥有模块的测试、必要的协议/边界检查、当前
+源码检查、内部链接验证、受影响术语扫描和 `git diff --check`。报告只记录本次实际命令与输出。
 
-发现流程：
-
-1. 查询父区当前 NS 委派和 DNSSEC 状态。
-2. 计算 Zone Apex，匹配已连接 ProviderConnection 中实际可见的 Zone。
-3. 保存匹配证据、时间和置信度。
-4. `exact` 才可自动进入计划；`ambiguous/none` 必须由用户选择正确连接、建立新连接或转人工。
-
-副作用前重新读取委派。委派、Zone、ProviderConnection 或 DNSSEC 前置条件变化时只使受影响域名 `needs_replan`，不作废无关计划项。
-
-## 5. TXT/RRset 安全写入
-
-Connector 必须声明：
-
-```text
-DnsWriteSemantics
-  granularity: record | rrset
-  supports_conditional_write
-  remote_version_kind: etag | revision | hash | none
-```
-
-Planner 保存：
-
-```text
-RecordSetPrecondition
-  fqdn
-  type
-  normalized_values[]
-  normalized_rrset_hash
-  remote_version
-  ttl
-  observed_at
-```
-
-执行规则：
-
-- 写入前重新读取目标 RRset；Hash/远端版本不一致则进入冲突并重新规划。
-- `record` API 只新增目标值；`rrset` API 必须把现有值与目标值合并后整体提交。
-- 不允许覆盖或删除同名 SPF、DKIM、DMARC 或其他 TXT 值。
-- 写入后重新读取，必须确认目标值存在且原有值没有丢失。
-- Connector 无条件写且无法安全表达并发前置条件时，降低为人工流程或要求最终前再次确认。
-
-## 6. DNS 传播证据
-
-```text
-PropagationEvidence
-  attempt_id
-  authoritative_results[]
-  recursive_results[]
-  queried_at
-  ttl
-  negative_ttl
-  dnssec_result
-  quorum_policy
-  status
-```
-
-- 先查询当前权威 NS，再查询产品约定的多个递归解析器；单个本机缓存命中不算传播完成。
-- 权威结果已更新而递归仍旧时保持 `waiting_dns`，按 TTL/负缓存退避。
-- `NXDOMAIN`、`NODATA`、`SERVFAIL`、DNSSEC 验证失败和挑战过期是不同状态，不能统一成“未传播”。
-- 传播完成条件由连接器策略声明，并在 UI 显示各来源证据和读取时间。
-
-## 7. 验证结果与证据等级
-
-```text
-VerificationEvidence
-  evidence_id
-  verification_attempt_id
-  workflow_node_id
-  source: api | authoritative_dns | recursive_dns | page | artifact | user
-  evidence_level
-  observed_at
-  remote_ref
-  artifact_ref
-  payload_redacted
-```
-
-- automation-host 的 Observation 不能直接把 Attempt 标为 `verified`。
-- API、官方结果报告或重新加载后的官方结果页达到 Connector 声明的证据等级后，才可完成。
-- 无机器通道时允许 USER_CONFIRMED，但审计和 UI 必须明确其证据等级。
-- Cloud 只同步脱敏证据摘要、等级、时间和远端引用；完整允许证据保留本地。
-
-## 8. 秘密 Sync Projection
-
-原始 Challenge 使用 opaque `challenge_ref`，不得进入通用 Workspace Entity DTO、Active Workspace 业务列或备份投影；只有 Rust Host-owned vault 可以解析该引用。
-
-Cloud `workspace/state/verification` 与 DNS 投影只能包含：
-
-- 域名、记录名称/类型、脱敏预览、稳定 fingerprint。
-- VerificationAttempt 的非秘密状态、时间和证据等级。
-- DnsAuthoritySnapshot 的非秘密委派/Binding 摘要。
-- Operation 的脱敏状态与 ExecutionFact；旧 Epoch 事实通过服务端裁决后显示 LateExecutionEvent 分类。
-
-Outbox 必须通过显式 Sync Projection Schema 构造，禁止先序列化本地实体再“清洗”。通用 DNS 读取重新读到挑战值时，仍按 Verification 关联执行字段级秘密分类。
-
-## 9. 设备切换与恢复
-
-- Grant、AutomationExecutionTicket、Browser Session、Cookie 和原始挑战不迁移。
-- 新 Active 没有 `challenge_ref` 时，Attempt 进入 `requires_challenge_reacquisition`，不得恢复旧执行队列。
-- 重新取得挑战后比较 fingerprint；一致仍需重新检查委派/RRset 并生成新计划，不一致则旧 Attempt 过期。
-- 旧 Epoch 已发生的 DNS/平台执行结果始终走 ExecutionFact Ingest，服务端验证通过后增加 LateExecutionEvent 分类；旧批准、Ticket 和未开始动作不可复用。
-
-## 10. 验收要求
-
-- Cloudflare TXT Happy Path 保留同名 TXT，并以权威+递归证据完成 Atom/Afternic 验证。
-- 委派 NS 与已连接 Zone 不一致或无法唯一匹配时零写入。
-- 写入前 RRset 外部变化时进入 `needs_replan`，不覆盖远端。
-- 敏感挑战值不出现在 Mutation、Cloud DB、日志、Crash Report 或 Staff 诊断包。
-- NS Challenge 使用 Registration 高风险批准和资源锁，不复用普通 TXT 路径。
-- 挑战传播期间过期时不触发 Verify；旧记录清理另建 Operation。
-- 设备切换后旧 Grant、批准、Ticket、Profile 和挑战引用不可复用。
-- 页面最终点击后崩溃只进入确认路径，不重复提交。
-
-## 11. 开源 DNS 验证参考
-
-完整来源和许可证见 [OPEN_SOURCE_REFERENCES.md](OPEN_SOURCE_REFERENCES.md)。
-
-- [go-acme/lego](https://github.com/go-acme/lego) 的 Spaceship DNS Provider 可迁移 Zone 发现、TXT Present/Cleanup、传播超时与 Fixture；必须改为 GoodDealer Secure Host 凭据路径，并保留同名 TXT。
-- [libdns](https://github.com/libdns/libdns) 的增量 Record Port 比整区同步更接近本文件 RRset 安全模型，可作为 DnsReader/DnsWriter 接口参考。
-- [ExternalDNS](https://github.com/kubernetes-sigs/external-dns) 可借鉴 Desired → Plan → Provider、dry-run、所有权标记和 Fake Provider 测试；不得为借用其模型而擅自写入额外所有权 TXT。
-- [DNSControl](https://github.com/DNSControl/dnscontrol) 只借鉴 IR、Preview 和 Provider 测试矩阵。其整区声明可能删除未声明记录，禁止直接用于验证 TXT 写入。
-
-上述项目都不提供 GoodDealer 的 DnsAuthoritySnapshot、RRset Hash、委派匹配、VerificationAttempt、秘密 Projection、ApprovedOperation 或证据等级。上游 `Present/Cleanup` 成功只能证明请求执行，不能把 Attempt 标记为 `verified`。
+任何“通过”都必须使用限定语：`本地实现证据通过`、`当前源码状态已检查` 或明确的 `外部资格
+已取得`。不得把本地或历史仓库证据称为部署、提供商、原生、发行或 Gate 通过。

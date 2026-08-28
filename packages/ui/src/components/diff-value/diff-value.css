@@ -1,0 +1,1 @@
+.gd-diff{display:inline-flex;align-items:center;gap:7px}.gd-diff--mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}.gd-diff-old{color:var(--gd-text-faint);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--gd-text-faint) 60%,transparent)}.gd-diff svg{flex:none;color:var(--gd-text-muted)}.gd-diff-new{color:var(--gd-text)}

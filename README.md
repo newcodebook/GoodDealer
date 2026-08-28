@@ -1,81 +1,121 @@
 # GoodDealer
 
-GoodDealer 是面向域名投资人的“本地执行、云端同步”域名资产管理客户端，用于统一管理分散在不同注册商、DNS 服务商和销售平台上的域名。
+## Purpose
 
-首发平台为 Windows 与 macOS，技术框架为 Tauri 2 + TypeScript；后续在相同核心模块基础上支持 iOS 与 Android。
+GoodDealer is a local-first Desktop domain-asset product. Cloud owns account, subscription,
+entitlement, device, and lease authorization; local SQLCipher owns all Desktop business data and
+transactions. Cloud business persistence is a sanitized sync/recovery replica, never the normal
+Desktop Repository. The repository is not yet a deployed product, qualified provider integration,
+signed native release, or closed Gate.
 
-## 产品原则
+The concise capability map and dependencies live in the [roadmap](docs/ROADMAP.md); detailed local
+acceptance and external-evidence rules live in [verification](docs/VERIFICATION.md). Those documents
+are linked rather than duplicated here.
 
-- 域名资产、价格、状态和已脱敏业务记录强制同步到 GoodDealer 服务端，不提供永久关闭或纯本地模式。
-- 平台 API 密钥、OAuth Token、Cookie、密码、2FA、Auth Code 和数据库密钥只保存在用户设备。
-- GoodDealer 不是代管平台操作凭据或代表用户执行域名操作的 SaaS 服务。
-- 日常账号/Cloud 路径要求用户先登录并通过 License/设备门禁；所有平台合计最多绑定两台设备，任意时刻只有一台 Active 设备拥有业务修改和平台执行权。正式停服后的 LocalContinuation 只使用独立 Sunset 凭证和本地授权，不属于该双设备路径。
-- Standby 可以查看 GoodDealer Cloud 已有资产、状态、告警和任务进度，但不能产生 Mutation、读取外部平台、批准或执行任务。
-- 服务端承担账号、License、设备绑定、ActiveDeviceLease、业务数据同步和未来用户主动发布的资产展示。
-- GoodDealer 内部运营使用独立 Admin Web 与 Staff Admin API；管理员不持有平台秘密、不能直接修改用户业务状态或代表用户访问域名平台。
-- 平台连接器可插拔，核心领域逻辑不依赖 Spaceship、Afternic、Atom 或 Cloudflare。
-- 支持用户登录授权后的隔离浏览器自动化，为无 API 或 API 不完整的平台提供本地执行能力。
-- 所有批量变更都必须可预览、可审计，并允许部分成功与安全重试。
+## Principles
 
-## 首批连接器
+- MUST: Keep each business capability in its owning runtime and trust domain, and compose it at an explicit application boundary only after its **local implementation gates** are met.
+- MUST: Validate untrusted data from `unknown`, derive tenant scope server-side, keep secrets out of ordinary application state, and fail closed at every authorization and external-effect boundary.
+- MUST: Treat source, contracts, tests, configuration, and current documentation as one repository truth; fixtures, visual material, local reports, and tests do not establish external facts.
+- MUST: Commit business rows and secret-free Sync Outbox entries atomically in local SQLCipher; Cloud availability and ACK cannot decide local business commits.
+- MUST NOT: Sync third-party account identity, Provider Account ID, account labels, credential bindings, API keys, tokens, cookies, passwords, 2FA, or browser profiles.
+- MUST NOT: Add browser, writes, marketplace/registrar behavior, team/multi-workspace behavior, credential migration, CSV import, external mutations, or any compatibility/transition/fallback route to v1.
 
-| 平台 | 首版职责 | 接入形式 |
+## Boundaries
+
+- Does NOT handle: Hosted PostgreSQL operation, production KMS/HSM signer custody, deployment, real Cloudflare execution, native signing/notarization, durable archival, independent review, release issuance, or Gate closure. (see: docs/VERIFICATION.md)
+- Does NOT handle: Treating local source, fixtures, tests, visual evidence, generated reports, or a decision document as proof of an external qualification. (see: docs/VERIFICATION.md)
+- Does NOT handle: Treating uncomposed feature or visual-fixture source as a supported product path. (see: docs/ENGINEERING_STRUCTURE.md)
+
+## Adversarial Surfaces
+
+- **Authority laundering**: A visual state, fixture, local callback, static report, or source-only contract cannot grant access, choose tenant scope, perform an external effect, or replace an owning trust-domain decision. Verified by: `scripts/check-boundaries.mjs`.
+- **Qualification promotion**: Repository checks and local reports cannot be promoted to deployed, provider, native, release, or Gate evidence. Verified by: `scripts/gate-closure-policy.test.mjs`.
+
+## Open Questions
+
+- [ ] Which environment-specific provider, KMS/HSM, native-artifact, and release-record details will the accountable external owners record when qualification begins? (open since: 2026-08)
+
+## Local implementation versus external qualification
+
+Local Desktop and Cloud API work may proceed in parallel when the accepted scope, owning module,
+strict public contract, server-side authorization/scope, negative controls, and named shared-surface
+integrator are present. This permission does not authorize real external effects.
+
+| Evidence class | What it permits | What it never proves |
 | --- | --- | --- |
-| Spaceship | 注册商、DNS、SellerHub | API，同步及异步任务 |
-| Cloudflare | DNS Zone 与解析记录 | API |
-| Atom | 销售列表、价格、状态、分析 | Seller API |
-| Afternic | 销售列表和所有权验证 | CSV、状态导入、人工辅助 |
+| Local implementation evidence | The specifically tested Desktop, Host, Cloud API, persistence, protocol, or UI boundary. | Deployment, hosted database operation, real provider behavior, native qualification, release, or Gate closure. |
+| External qualification evidence | Only the observed environment, provider, final native artifact, release, or approval fact. | A different environment, unobserved provider behavior, or a broader future capability. |
 
-## 文档
+Hosted PostgreSQL, production signer custody, KMS/HSM, deployment, real Cloudflare execution,
+native signing/notarization, archival, independent review, release issuance, and Gate closure remain
+external qualifications. They constrain only their matching external claims, not local implementation
+within the accepted scope. See [verification](docs/VERIFICATION.md) for the exact evidence taxonomy.
 
-- [产品需求](docs/PRODUCT_REQUIREMENTS.md)
-- [系统架构](docs/ARCHITECTURE.md)
-- [工程结构与模块边界](docs/ENGINEERING_STRUCTURE.md)
-- [用户旅程审理基线](docs/USER_JOURNEYS.md)
-- [安全模型](docs/SECURITY.md)
-- [连接器规范](docs/CONNECTORS.md)
-- [浏览器自动化](docs/BROWSER_AUTOMATION.md)
-- [域名所有权验证工作流](docs/VERIFICATION.md)
-- [同步与冲突语义](docs/SYNC_SEMANTICS.md)
-- [操作编排与任务语义](docs/OPERATIONS.md)
-- [数据生命周期与恢复](docs/DATA_LIFECYCLE.md)
-- [核心 UX 流程](docs/UX_FLOWS.md)
-- [品牌视觉规范](brand/README.md)
-- [License 与商业授权](docs/LICENSING.md)
-- [账号、设备与云同步](docs/ACCOUNT_AND_SYNC.md)
-- [开发路线图](docs/ROADMAP.md)
-- [多代理开发工作流程规范](docs/ORCHESTRATION.md)
-- [已接受 D 系列产品决策归档](docs/OPEN_DECISIONS.md)（开放 JD 状态见用户旅程 §7）
-- [当前审查处理结论整合台账](docs/REVIEW_RESOLUTIONS.md)（日期标题是 Finding 批次，不是历史快照）
-- [开源实现参考登记表](docs/OPEN_SOURCE_REFERENCES.md)
-- [Tauri 架构对照验证（2026-08-06）](docs/reviews/TAURI_ARCHITECTURE_VALIDATION_2026-08-06.md)
-- [术语索引](docs/GLOSSARY.md)
-- [数据关系与所有权地图](docs/DATA_MODEL_MAP.md)
-- [Phase 0 编码前全面审查（2026-08-01）](docs/reviews/PHASE0_READINESS_REVIEW_2026-08-01.md)
-- [Phase 0 工程基线](docs/phase0/PHASE0_ENGINEERING_BASELINE.md)
-- [Phase 0 Secure Host 决策基线](docs/phase0/PHASE0_SECURE_HOST_BASELINE.md)
-- [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md)
-- [Phase 0 Gate 驱动执行计划](docs/phase0/PHASE0_EXECUTION_PLAN.md)
-- [ADR-0001：采用本地执行的 Tauri 客户端](docs/adr/0001-local-first-tauri.md)（已由 ADR-0004、ADR-0005 修订）
-- [ADR-0002：隔离且由用户授权的浏览器自动化](docs/adr/0002-isolated-browser-automation.md)
-- [ADR-0004：服务端同步域名业务数据，凭据保持设备本地](docs/adr/0004-cloud-business-data-sync.md)
-- [ADR-0005：最多两台绑定且仅一台执行](docs/adr/0005-single-active-device-and-continuity.md)
-- [ADR-0006：按运行时与安全边界组织工程结构](docs/adr/0006-runtime-and-security-boundaries.md)
-- [ADR-0007：管理员安全边界、Fastify 与本地/云端接口复用](docs/adr/0007-admin-boundary-and-interface-reuse.md)
-- [ADR-0008：Phase 0 工具链、支持矩阵与工程基线](docs/adr/0008-phase-0-engineering-baseline.md)
-- [ADR-0009：EndpointManifest 单向生成 Secure HTTP Capability](docs/adr/0009-endpoint-capability-registry.md)
-- [ADR-0010：秘密输入与秘密响应由 Host 全程拥有](docs/adr/0010-host-owned-secret-path.md)
-- [ADR-0011：设备身份、轮换与撤销生命周期](docs/adr/0011-device-identity-lifecycle.md)
-- [ADR-0012：Windows Credential Manager FFI 的模块级受审 unsafe 例外](docs/adr/0012-windows-credential-manager-ffi-exception.md)
+## Current repository state
 
-历史 ADR：
+The current source does **not** support a customer-readiness claim:
 
-- [ADR-0003：账号门禁、授权与 WebDAV 备份](docs/adr/0003-account-license-and-webdav.md)（Superseded by ADR-0004/0005）
+- Desktop Tauri exposes exactly three narrow local-business commands: authorization-aware status,
+  local Portfolio read, and local DomainAsset upsert. Renderer supplies no database path, key,
+  workspace selector, Provider account, or Cloud Repository.
+- `local-storage` owns the production SQLCipher active workspace, local business transaction,
+  Provider-connection local-only storage, and secret-free Sync Outbox.
+- `secure-host-core` contains a private Cloudflare Zone/DNS read Service with a credential fence,
+  hardened fixed-authority transport, and GoodDealer-owned endpoint/wire definitions. It
+  has no native secret provisioning, Tauri command, Cloud route, or customer-reachable composition.
+- Cloud owns the literal M001–M014 migration catalog, including account/default-workspace and
+  domain-asset sync-replica foundations. The connection-keyed Cloudflare observation migration was
+  removed because third-party account bindings are local-only. Modules, contracts, UI primitives, i18n
+  copy, migrations, and local tests do not by themselves establish a customer-operable API or
+  provider observation.
 
-## 当前状态
+Any future production composition must add an explicit capability allowlist and fresh reachability
+evidence. Existing local modules and tests remain implementation evidence, not customer readiness.
 
-项目处于 `Phase 0 Validation / Conditional Go`。Monorepo、Tauri/Rust/TypeScript 工程骨架、共享 Wire Envelope Corpus、Connector 注册边、只读 `runtime_status` typed IPC 纵切和测试专用 Secure Host/Cloud Fixture 已建立；账号会话、Workspace Mutation/Checkpoint/ReaderCursor、Active/Standby Query Contract 与 Public/Admin 边界仍只形成 Portable/Cloud Fixture 证据，真实 Auth/业务 IPC、Query Boundary/Composition Root、OS Keychain、生产 Cloud 事务和平台 Transport 尚未接线。生产 Endpoint Registry 仍为 deny-all，不具备真实平台发网、真实凭据写入或生产外部副作用能力。
+## Runtime and design boundaries
 
-当前执行状态以 [Phase 0 Gate 台账](docs/phase0/PHASE0_GATE_REGISTER.md) 为准：目前没有 Gate 可标记为 Closed。R0-01～R0-06、R0-08～R0-12、R0-15 与 R0-16 正在补实现或可重跑/平台级证据；R0-07、R0-13 与 R0-14 保持 Open 并继续执行各自 Fallback。设计落档、Fixture 和 Contract Test 不代表真实 Keychain、平台 Transport、持久化 Cloud 事务、签名验证、完整信任域边界或真实外部写入已经通过。
+- `brand/` is a visual reference only. It has no runtime, product, authorization, or external-result
+  authority.
+- Production shared UI consumes only public `@gooddealer/ui` exports, declared tokens/assets, and
+  public `@gooddealer/i18n` exports. There is no `@gooddealer/ui-brand`, runtime `brand/` import,
+  deep-import exception, alias, or fixture dependency path.
+- A component, copy string, sample datum, visual fixture, disabled control, or callback cannot grant
+  permission, choose tenant scope, prove an operation, or invent visual design authority.
 
-当前登记的产品决策 JD-01～JD-13 已全部收口；D-016～D-023 固定首版无人值守边界、Lifetime 停服兑现、删除/保留、SLO、支付、Cloud 区域、Desktop 密码输入与 Sunset 能力来源。未来新增能力仍可触发新的决策。后续工作是把已接受设计转成实现与可重跑证据；决策关闭不自动关闭任何 R0 Gate。
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Engineering structure](docs/ENGINEERING_STRUCTURE.md)
+- [Orchestration](docs/ORCHESTRATION.md)
+- [Verification](docs/VERIFICATION.md)
+- [Sync semantics](docs/SYNC_SEMANTICS.md)
+- [Database design](docs/DATABASE_SCHEMA.md)
+- [Database naming conventions](docs/DATABASE_NAMING_CONVENTIONS.md)
+- [Product requirements](docs/PRODUCT_REQUIREMENTS.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Decision register](docs/OPEN_DECISIONS.md)
+- [Production operations](docs/PRODUCTION_OPERATIONS.md)
+- [Local development environment](docs/LOCAL_ENVIRONMENT.md)
+- [Security model](docs/SECURITY.md)
+- [Release identity](release/README.md)
+
+## Repository checks
+
+Run the root check after dependencies and disk space are available:
+
+```sh
+pnpm check
+```
+
+PostgreSQL integration tests use the repository-root `.env.local` contract described in
+[local development environment](docs/LOCAL_ENVIRONMENT.md):
+
+```sh
+pnpm test:postgres
+```
+
+For a documentation or bounded-module change, also run the relevant module checks, validate links and
+affected terminology/current-source assertions, and finish with `git diff --check`. Passing local
+checks demonstrates only the checked repository properties; it does not promote any external
+qualification to a completed state.

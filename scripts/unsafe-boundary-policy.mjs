@@ -1,9 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
-export const unsafeCodeAllowlist = Object.freeze([
-  "crates/secure-host-core/src/keychain/windows.rs",
-]);
+export const unsafeCodeAllowlist = Object.freeze([]);
 
 const unsafeOverridePattern = /\b(allow|expect)\s*\(([^()]*)\)/gu;
 const unsafeLintPattern = /(?:^|,)\s*unsafe_code\s*(?=,|$)/u;
@@ -22,7 +20,7 @@ export function unsafeCodeBoundaryErrors(sources, allowlist = unsafeCodeAllowlis
 
       errors.push(
         `${path}:${lineNumberAt(source, match.index)}: ${match[1]}(unsafe_code) is forbidden; `
-          + `the ADR-0012 allowlist contains only ${unsafeCodeAllowlist[0]}`,
+          + "the final allowlist is empty",
       );
     }
   }

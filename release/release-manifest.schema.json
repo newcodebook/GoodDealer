@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gooddealer.example/schemas/release-manifest.schema.json",
+  "title": "GoodDealer canonical release identity",
+  "description": "The only future release-identity record. It is generated after strict source and artifact verification and does not close a Gate.",
+  "$defs": {
+    "semanticVersion": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
+      "not": {
+        "pattern": "^0\\.0\\.0(?:[-+].*)?$"
+      }
+    },
+    "safeSlug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "gitObject": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40,64}$"
+    },
+    "productApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "decisionRef"],
+      "properties": {
+        "kind": { "const": "product-owner-decision" },
+        "decisionRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "architecture"],
+      "properties": {
+        "platform": { "$ref": "#/$defs/safeSlug" },
+        "architecture": { "$ref": "#/$defs/safeSlug" }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "inputDigests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pnpmLock", "cargoLock", "rustToolchain", "releaseRequest"],
+      "properties": {
+        "pnpmLock": {
+          "allOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "object", "properties": { "path": { "const": "pnpm-lock.yaml" } } }
+          ]
+        },
+        "cargoLock": {
+          "allOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "object", "properties": { "path": { "const": "Cargo.lock" } } }
+          ]
+        },
+        "rustToolchain": {
+          "allOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "object", "properties": { "path": { "const": "rust-toolchain.toml" } } }
+          ]
+        },
+        "releaseRequest": {
+          "allOf": [
+            { "$ref": "#/$defs/digest" },
+            { "type": "object", "properties": { "path": { "const": "release/release-request.json" } } }
+          ]
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pnpm", "rust", "cargoRust"],
+      "properties": {
+        "node": { "$ref": "#/$defs/semanticVersion" },
+        "pnpm": { "$ref": "#/$defs/semanticVersion" },
+        "rust": { "$ref": "#/$defs/semanticVersion" },
+        "cargoRust": { "$ref": "#/$defs/semanticVersion" }
+      }
+    },
+    "releaseSurfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootPackageVersion",
+        "desktopPackageVersion",
+        "cargoWorkspaceVersion",
+        "tauriVersion",
+        "runtimeAppVersion"
+      ],
+      "properties": {
+        "rootPackageVersion": { "$ref": "#/$defs/semanticVersion" },
+        "desktopPackageVersion": { "$ref": "#/$defs/semanticVersion" },
+        "cargoWorkspaceVersion": { "$ref": "#/$defs/semanticVersion" },
+        "tauriVersion": { "$ref": "#/$defs/semanticVersion" },
+        "runtimeAppVersion": { "$ref": "#/$defs/semanticVersion" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "pendingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "proof"],
+      "properties": {
+        "status": { "const": "pending" },
+        "proof": { "const": null }
+      }
+    },
+    "pendingSigningEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "proof", "issuer", "verification", "rotationOrRevocation"],
+      "properties": {
+        "status": { "const": "pending" },
+        "proof": { "const": null },
+        "issuer": { "const": null },
+        "verification": { "const": null },
+        "rotationOrRevocation": { "const": null }
+      }
+    },
+    "externalEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signing",
+        "notarization",
+        "wormArchive",
+        "independentReview",
+        "providerQualification",
+        "governance",
+        "gateClosure"
+      ],
+      "properties": {
+        "signing": { "$ref": "#/$defs/pendingSigningEvidence" },
+        "notarization": { "$ref": "#/$defs/pendingEvidence" },
+        "wormArchive": { "$ref": "#/$defs/pendingEvidence" },
+        "independentReview": { "$ref": "#/$defs/pendingEvidence" },
+        "providerQualification": { "$ref": "#/$defs/pendingEvidence" },
+        "governance": { "$ref": "#/$defs/pendingEvidence" },
+        "gateClosure": { "$ref": "#/$defs/pendingEvidence" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "identity",
+    "source",
+    "target",
+    "releaseSurfaces",
+    "artifacts",
+    "externalEvidence",
+    "eligible",
+    "closesGate"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "gooddealer.canonical-release-identity" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "channel", "productApproval"],
+      "properties": {
+        "version": { "$ref": "#/$defs/semanticVersion" },
+        "channel": { "$ref": "#/$defs/safeSlug" },
+        "productApproval": { "$ref": "#/$defs/productApproval" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree", "inputs", "toolchain"],
+      "properties": {
+        "commit": { "$ref": "#/$defs/gitObject" },
+        "tree": { "$ref": "#/$defs/gitObject" },
+        "inputs": { "$ref": "#/$defs/inputDigests" },
+        "toolchain": { "$ref": "#/$defs/toolchain" }
+      }
+    },
+    "target": { "$ref": "#/$defs/target" },
+    "releaseSurfaces": { "$ref": "#/$defs/releaseSurfaces" },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "externalEvidence": { "$ref": "#/$defs/externalEvidence" },
+    "eligible": { "const": false },
+    "closesGate": { "const": false }
+  }
+}

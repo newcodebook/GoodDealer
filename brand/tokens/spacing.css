@@ -12,14 +12,6 @@
 --control-sm:24px;--control-md:28px;--control-lg:34px;
 /* Native window chrome heights */
 --titlebar-h:36px;--toolbar-h:44px;--statusbar-h:26px;
-/* Window sizing — native desktop app, deliberate tiers (see guidelines/window-sizing.html).
-   Min is honest (a dense terminal shouldn't pretend to work tiny); default is comfortable + shows all chrome. */
---window-min-w:960px;--window-min-h:640px;--window-default-w:1280px;--window-default-h:832px;
-/* Breakpoints — judged on window/shell width (the 210px nav eats content; the rail gives it back).
-   compact <1080 → nav collapses to 56px icon rail, statusbar sheds to core segments, cmd → icon+⌘K.
-   regular 1080–1320 → full nav. wide ≥1320 → statusbar shows all environment segments. */
---bp-compact:1080px;--bp-wide:1320px;
---nav-rail-w:56px;--nav-full-w:210px;
 /* Elevation — shadows are quiet; hierarchy comes from --gd-line steps */
 --shadow-panel:0 1px 2px rgba(0,0,0,0.4);
 --shadow-raised:0 4px 16px rgba(0,0,0,0.45);

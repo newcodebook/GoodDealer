@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"GoodDealerDesignSystem_b5b0b6","components":[{"name":"Button","sourcePath":"components/buttons/Button.jsx"},{"name":"IconButton","sourcePath":"components/buttons/IconButton.jsx"},{"name":"Checkbox","sourcePath":"components/inputs/Checkbox.jsx"},{"name":"Input","sourcePath":"components/inputs/Input.jsx"},{"name":"Select","sourcePath":"components/inputs/Select.jsx"},{"name":"Switch","sourcePath":"components/inputs/Switch.jsx"},{"name":"StatusBar","sourcePath":"components/navigation/StatusBar.jsx"},{"name":"Tabs","sourcePath":"components/navigation/Tabs.jsx"},{"name":"Dialog","sourcePath":"components/overlay/Dialog.jsx"},{"name":"Tooltip","sourcePath":"components/overlay/Tooltip.jsx"},{"name":"Badge","sourcePath":"components/status/Badge.jsx"},{"name":"DiffValue","sourcePath":"components/status/DiffValue.jsx"},{"name":"Money","sourcePath":"components/status/Money.jsx"},{"name":"ProgressBar","sourcePath":"components/status/ProgressBar.jsx"},{"name":"StatusDot","sourcePath":"components/status/StatusDot.jsx"},{"name":"Tag","sourcePath":"components/status/Tag.jsx"},{"name":"KpiStat","sourcePath":"components/surfaces/KpiStat.jsx"},{"name":"Panel","sourcePath":"components/surfaces/Panel.jsx"},{"name":"Toolbar","sourcePath":"components/surfaces/Toolbar.jsx"},{"name":"WindowChrome","sourcePath":"components/surfaces/WindowChrome.jsx"},{"name":"BatchBar","sourcePath":"components/table/BatchBar.jsx"},{"name":"Pagination","sourcePath":"components/table/Pagination.jsx"},{"name":"Table","sourcePath":"components/table/Table.jsx"}],"sourceHashes":{"components/buttons/Button.jsx":"06f13793a4c3","components/buttons/IconButton.jsx":"5073d2ee2468","components/inputs/Checkbox.jsx":"eab26333fdff","components/inputs/Input.jsx":"28bc9a3cfb1e","components/inputs/Select.jsx":"13bef0c63f99","components/inputs/Switch.jsx":"e2b8bc78d246","components/navigation/StatusBar.jsx":"6b8a50890fd0","components/navigation/Tabs.jsx":"292f9554a615","components/overlay/Dialog.jsx":"76f86cbedce4","components/overlay/Tooltip.jsx":"0dc6e2c56a61","components/status/Badge.jsx":"c0d923706bbc","components/status/DiffValue.jsx":"1cb3d1ff1b04","components/status/Money.jsx":"265b084b3d35","components/status/ProgressBar.jsx":"1a02180b9287","components/status/StatusDot.jsx":"3e7a02a85357","components/status/Tag.jsx":"88ba07570965","components/surfaces/KpiStat.jsx":"a3935e7c2da7","components/surfaces/Panel.jsx":"7af100184d7e","components/surfaces/Toolbar.jsx":"be0f9dfc2c9b","components/surfaces/WindowChrome.jsx":"49f93dd09b9a","components/table/BatchBar.jsx":"399466fcca69","components/table/Pagination.jsx":"8fd31f35c36a","components/table/Table.jsx":"7964646bfb44","ui_kits/desktop/AssetLibrary.jsx":"0835b46ff655","ui_kits/desktop/BatchPreview.jsx":"f9080e120842","ui_kits/desktop/ConflictCenter.jsx":"0a733db80ba7","ui_kits/desktop/DnsVerify.jsx":"2f5b367690c0","ui_kits/desktop/DomainDetail.jsx":"341c32cc552e","ui_kits/desktop/HistoryLog.jsx":"e7b6f789fa65","ui_kits/desktop/Onboarding.jsx":"e3571551122f","ui_kits/desktop/RenewDesk.jsx":"01266ba2165a","ui_kits/desktop/SalesDesk.jsx":"39d28c2c4dee","ui_kits/desktop/SettingsPanel.jsx":"41e319230579","ui_kits/desktop/Shell.jsx":"c758843b23b7","ui_kits/desktop/SignIn.jsx":"4de44c94b53b","ui_kits/desktop/TaskInbox.jsx":"5bc32f07cd02","ui_kits/desktop/controls.jsx":"dcc2609626ba","ui_kits/desktop/data.js":"d24f606c3fc6","ui_kits/desktop/dialogs.jsx":"e2796821d7aa","ui_kits/desktop/icons.jsx":"c9a0fded6c44"},"inlinedExternals":[],"unexposedExports":[{"name":"ensureGdCss","sourcePath":"components/buttons/Button.jsx"}]} */
+/* @ds-bundle: {"format":4,"namespace":"GoodDealerDesignSystem_b5b0b6","components":[{"name":"Button","sourcePath":"components/buttons/Button.jsx"},{"name":"IconButton","sourcePath":"components/buttons/IconButton.jsx"},{"name":"Checkbox","sourcePath":"components/inputs/Checkbox.jsx"},{"name":"Input","sourcePath":"components/inputs/Input.jsx"},{"name":"Select","sourcePath":"components/inputs/Select.jsx"},{"name":"Switch","sourcePath":"components/inputs/Switch.jsx"},{"name":"StatusBar","sourcePath":"components/navigation/StatusBar.jsx"},{"name":"Tabs","sourcePath":"components/navigation/Tabs.jsx"},{"name":"Dialog","sourcePath":"components/overlay/Dialog.jsx"},{"name":"Tooltip","sourcePath":"components/overlay/Tooltip.jsx"},{"name":"Badge","sourcePath":"components/status/Badge.jsx"},{"name":"DiffValue","sourcePath":"components/status/DiffValue.jsx"},{"name":"Money","sourcePath":"components/status/Money.jsx"},{"name":"ProgressBar","sourcePath":"components/status/ProgressBar.jsx"},{"name":"StatusDot","sourcePath":"components/status/StatusDot.jsx"},{"name":"Tag","sourcePath":"components/status/Tag.jsx"},{"name":"KpiStat","sourcePath":"components/surfaces/KpiStat.jsx"},{"name":"Panel","sourcePath":"components/surfaces/Panel.jsx"},{"name":"Toolbar","sourcePath":"components/surfaces/Toolbar.jsx"},{"name":"WindowChrome","sourcePath":"components/surfaces/WindowChrome.jsx"},{"name":"BatchBar","sourcePath":"components/table/BatchBar.jsx"},{"name":"Pagination","sourcePath":"components/table/Pagination.jsx"},{"name":"Table","sourcePath":"components/table/Table.jsx"}],"sourceHashes":{"components/buttons/Button.jsx":"06f13793a4c3","components/buttons/IconButton.jsx":"5073d2ee2468","components/inputs/Checkbox.jsx":"eab26333fdff","components/inputs/Input.jsx":"28bc9a3cfb1e","components/inputs/Select.jsx":"13bef0c63f99","components/inputs/Switch.jsx":"e2b8bc78d246","components/navigation/StatusBar.jsx":"6b8a50890fd0","components/navigation/Tabs.jsx":"292f9554a615","components/overlay/Dialog.jsx":"76f86cbedce4","components/overlay/Tooltip.jsx":"0dc6e2c56a61","components/status/Badge.jsx":"c0d923706bbc","components/status/DiffValue.jsx":"1cb3d1ff1b04","components/status/Money.jsx":"265b084b3d35","components/status/ProgressBar.jsx":"1a02180b9287","components/status/StatusDot.jsx":"3e7a02a85357","components/status/Tag.jsx":"88ba07570965","components/surfaces/KpiStat.jsx":"a3935e7c2da7","components/surfaces/Panel.jsx":"7af100184d7e","components/surfaces/Toolbar.jsx":"be0f9dfc2c9b","components/surfaces/WindowChrome.jsx":"49f93dd09b9a","components/table/BatchBar.jsx":"399466fcca69","components/table/Pagination.jsx":"8fd31f35c36a","components/table/Table.jsx":"7964646bfb44","ui_kits/account-web/AccountDashboard.jsx":"b6aabad80309","ui_kits/account-web/AccountSettings.jsx":"4059e6c59bcf","ui_kits/account-web/AccountShell.jsx":"f5e3a1030316","ui_kits/account-web/Billing.jsx":"3ad918a111ce","ui_kits/account-web/CloudData.jsx":"94c4a81e043e","ui_kits/account-web/Devices.jsx":"a56fcee76cc0","ui_kits/account-web/Download.jsx":"50ca4f3cce83","ui_kits/account-web/License.jsx":"2bdb9db22a27","ui_kits/account-web/Security.jsx":"9f1a153c2612","ui_kits/account-web/controls.jsx":"dcc2609626ba","ui_kits/account-web/data.js":"86125729f9aa","ui_kits/account-web/icons.jsx":"6457ba54991e","ui_kits/admin-web/AdminDashboard.jsx":"0700eb9c4033","ui_kits/admin-web/AdminShell.jsx":"9856258bc87c","ui_kits/admin-web/Announcements.jsx":"0a40e7a4cedf","ui_kits/admin-web/Audit.jsx":"f781388e5c56","ui_kits/admin-web/Config.jsx":"fd5f3d5e1655","ui_kits/admin-web/Customers.jsx":"589923d0eff8","ui_kits/admin-web/Fleet.jsx":"14236042bdb1","ui_kits/admin-web/Licenses.jsx":"14689a96a0e2","ui_kits/admin-web/Revenue.jsx":"75364ad8d8c4","ui_kits/admin-web/Support.jsx":"b765ea0a376c","ui_kits/admin-web/SyncInfra.jsx":"297304c7faf5","ui_kits/admin-web/controls.jsx":"dcc2609626ba","ui_kits/admin-web/data.js":"68c6d465ae9f","ui_kits/admin-web/icons.jsx":"6457ba54991e","ui_kits/desktop/AssetLibrary.jsx":"0835b46ff655","ui_kits/desktop/BatchPreview.jsx":"f9080e120842","ui_kits/desktop/ConflictCenter.jsx":"0a733db80ba7","ui_kits/desktop/DnsVerify.jsx":"2f5b367690c0","ui_kits/desktop/DomainDetail.jsx":"341c32cc552e","ui_kits/desktop/HistoryLog.jsx":"e7b6f789fa65","ui_kits/desktop/Onboarding.jsx":"e9a5eab61bb6","ui_kits/desktop/RenewDesk.jsx":"01266ba2165a","ui_kits/desktop/SalesDesk.jsx":"39d28c2c4dee","ui_kits/desktop/SettingsPanel.jsx":"460596339be3","ui_kits/desktop/Shell.jsx":"c758843b23b7","ui_kits/desktop/SignIn.jsx":"4de44c94b53b","ui_kits/desktop/TaskInbox.jsx":"5bc32f07cd02","ui_kits/desktop/controls.jsx":"dcc2609626ba","ui_kits/desktop/data.js":"d24f606c3fc6","ui_kits/desktop/dialogs.jsx":"e2796821d7aa","ui_kits/desktop/icons.jsx":"c9a0fded6c44"},"inlinedExternals":[],"unexposedExports":[{"name":"ensureGdCss","sourcePath":"components/buttons/Button.jsx"}]} */
 
 (() => {
 
@@ -1183,6 +1183,10413 @@ function Table({
 }
 Object.assign(__ds_scope, { Table });
 })(); } catch (e) { __ds_ns.__errors.push({ path: "components/table/Table.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/AccountDashboard.jsx
+try { (() => {
+// 概览 Dashboard — account home: license period, device lease, cloud sync, activity, portfolio snapshot.
+const {
+  Panel,
+  Badge,
+  Button,
+  Money,
+  StatusDot,
+  ProgressBar,
+  Switch
+} = window.GoodDealerDesignSystem_b5b0b6;
+function ActivityRow({
+  a
+}) {
+  const I = window.GDI;
+  const map = {
+    sync: ["RefreshCw", "blue"],
+    sale: ["Coins", "gold"],
+    device: ["Monitor", "text-muted"],
+    billing: ["Receipt", "text-muted"],
+    security: ["ShieldCheck", a.flag ? "warning" : "success"]
+  };
+  const [ic, tone] = map[a.kind] || ["CircleAlert", "text-muted"];
+  const Ic = I[ic];
+  const col = tone.startsWith("text") ? `var(--${tone})` : `var(--gd-${tone})`;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 11,
+      padding: "11px 0",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 26,
+      height: 26,
+      flex: "none",
+      borderRadius: 6,
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: col
+    }
+  }, /*#__PURE__*/React.createElement(Ic, {
+    size: 14
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, a.text), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, a.meta)), a.value != null && /*#__PURE__*/React.createElement(Money, {
+    amount: a.value,
+    size: 12
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      flex: "none",
+      width: 44,
+      textAlign: "right"
+    }
+  }, a.time));
+}
+function DeviceMini({
+  d,
+  onManage
+}) {
+  const I = window.GDI;
+  const m = {
+    active: {
+      dot: "active",
+      badge: /*#__PURE__*/React.createElement(Badge, {
+        tone: "gold"
+      }, "ACTIVE"),
+      note: "持有执行权"
+    },
+    standby: {
+      dot: "standby",
+      badge: /*#__PURE__*/React.createElement(Badge, {
+        mono: false
+      }, "Standby"),
+      note: "待命"
+    },
+    sunset: {
+      dot: "neutral",
+      badge: /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          color: "var(--text-3)",
+          fontFamily: "var(--font-mono)",
+          border: "1px solid var(--gd-line-strong)",
+          borderRadius: 3,
+          padding: "0 5px",
+          lineHeight: "16px"
+        }
+      }, "RETAINED"),
+      note: "本地只读延续"
+    }
+  }[d.state];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 11,
+      padding: "10px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      opacity: d.state === "sunset" ? .6 : 1
+    }
+  }, /*#__PURE__*/React.createElement(I.Monitor, {
+    size: 16,
+    style: {
+      color: d.state === "active" ? "var(--gd-gold)" : "var(--gd-text-muted)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0,
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, d.name, d.self && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9.5,
+      color: "var(--text-3)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 3,
+      padding: "0 4px",
+      lineHeight: "14px"
+    }
+  }, "\u672C\u673A")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, d.os)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7
+    }
+  }, /*#__PURE__*/React.createElement(StatusDot, {
+    kind: m.dot
+  }), m.badge, d.state === "active" && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--gd-gold)"
+    }
+  }, "Epoch ", d.epoch)));
+}
+function Dashboard({
+  go
+}) {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const P = D.portfolio.slice(0, 6);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u6982\u89C8",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "组合估值",
+      value: "$284,120.00",
+      tone: "gold",
+      meta: "较上月 +2.1% · 云端截至 14:02"
+    }, {
+      label: "域名总数",
+      value: "1,024",
+      meta: "Spaceship 812 · 其他 212"
+    }, {
+      label: "已绑定设备",
+      value: "2 / 2",
+      meta: "MacBook Pro Active · iPhone Standby"
+    }, {
+      label: "License 剩余",
+      value: "136 天",
+      tone: "warning",
+      meta: "年付 · 至 2026-12-31",
+      onClick: () => go("license")
+    }, {
+      label: "云端同步",
+      value: "SYNCED",
+      tone: "success",
+      meta: "rev 8,241 · 无未同步项"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 340px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(Panel, {
+    title: "\u8BA2\u9605\u4E0E\u8BB8\u53EF",
+    actions: /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      onClick: () => go("license")
+    }, "\u7BA1\u7406\u8BA2\u9605")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/icons/keyhole.svg",
+    width: "34",
+    height: "34",
+    alt: "",
+    style: {
+      flex: "none",
+      marginTop: 2,
+      opacity: .92
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, "\u5E74\u4ED8 License"), /*#__PURE__*/React.createElement(Badge, {
+    tone: "gold"
+  }, "PROFESSIONAL"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      fontSize: 12,
+      color: "var(--text-2)",
+      whiteSpace: "nowrap"
+    }
+  }, "\u81EA\u52A8\u7EED\u8D39 ", /*#__PURE__*/React.createElement(Switch, {
+    checked: true,
+    onChange: () => {}
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginBottom: 6,
+      fontFamily: "var(--font-mono)"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "2025-12-31"), /*#__PURE__*/React.createElement("span", null, "\u672C\u671F\u5DF2\u7528 63% \xB7 \u5269\u4F59 136 \u5929"), /*#__PURE__*/React.createElement("span", null, "2026-12-31")), /*#__PURE__*/React.createElement(ProgressBar, {
+    value: 63,
+    height: 6
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "12px 24px",
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3,
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u5E74\u8D39"), /*#__PURE__*/React.createElement(Money, {
+    amount: 299,
+    size: 15
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3,
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u4E0B\u6B21\u6263\u6B3E"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 13,
+      color: "var(--text-1)"
+    }
+  }, "2026-12-31")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3,
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u652F\u4ED8\u65B9\u5F0F"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-1)"
+    }
+  }, "Visa \xB7 4242")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3,
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u8BBE\u5907\u989D\u5EA6"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-1)"
+    }
+  }, "2 \u53F0 \xB7 \u5355\u6D3B\u52A8")))))), /*#__PURE__*/React.createElement(Panel, {
+    flush: true,
+    title: "\u8BBE\u5907\u4E0E\u6267\u884C\u6743",
+    actions: /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      onClick: () => go("devices")
+    }, "\u7BA1\u7406\u8BBE\u5907")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "2px 16px 4px"
+    }
+  }, D.devices.map(d => /*#__PURE__*/React.createElement(DeviceMini, {
+    key: d.id,
+    d: d
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 9,
+      padding: "11px 16px",
+      background: "var(--gd-panel)",
+      borderTop: "1px solid var(--gd-line)",
+      fontSize: 11.5,
+      color: "var(--text-2)",
+      lineHeight: 1.55
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/icons/active-lease.svg",
+    width: "18",
+    height: "18",
+    alt: "",
+    style: {
+      flex: "none",
+      marginTop: 1
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "\u540C\u4E00\u65F6\u523B\u53EA\u6709\u4E00\u53F0\u8BBE\u5907\u6301\u6709\u6267\u884C\u6743\uFF08", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--gd-gold)",
+      fontWeight: 500
+    }
+  }, "\u91D1\u5B9E\u5FC3 = Active"), "\uFF0C\u84DD\u7A7A\u5FC3 = Standby\uFF09\u3002\u79FB\u4EA4\u5728\u684C\u9762\u5BA2\u6237\u7AEF\u5B8C\u6210\uFF0CEpoch \u9012\u589E\u3002")))), /*#__PURE__*/React.createElement(Panel, {
+    flush: true,
+    title: "\u8FD1\u671F\u52A8\u6001",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, "\u6570\u636E\u6765\u81EA GoodDealer Cloud")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "2px 16px 6px"
+    }
+  }, D.activity.map((a, i) => /*#__PURE__*/React.createElement(ActivityRow, {
+    key: i,
+    a: a
+  }))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => go("cloud"),
+    style: {
+      width: "100%",
+      padding: "11px 16px",
+      background: "transparent",
+      border: "none",
+      borderTop: "1px solid var(--gd-line)",
+      color: "var(--gd-blue)",
+      fontSize: 12,
+      cursor: "pointer",
+      fontFamily: "var(--font-sans)",
+      textAlign: "left",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, "\u67E5\u770B\u4E91\u7AEF\u64CD\u4F5C\u8D26\u672C ", /*#__PURE__*/React.createElement(I.ArrowRight, {
+    size: 13
+  })))), /*#__PURE__*/React.createElement(Panel, {
+    flush: true,
+    title: "\u4E91\u7AEF\u6570\u636E\u5FEB\u7167",
+    actions: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)",
+        marginRight: 10
+      }
+    }, "\u53EA\u8BFB\u955C\u50CF \xB7 \u622A\u81F3 14:02"), /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "ghost",
+      onClick: () => go("cloud")
+    }, "\u5168\u90E8 1,024 \u2192"))
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      textAlign: "left"
+    }
+  }, ["域名", "注册商", "状态", "估值 BIN", "到期"].map((h, i) => /*#__PURE__*/React.createElement("th", {
+    key: h,
+    style: {
+      padding: "9px 16px",
+      fontSize: 10,
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      color: "var(--text-3)",
+      fontWeight: 500,
+      borderBottom: "1px solid var(--gd-line)",
+      textAlign: i > 2 ? "right" : "left"
+    }
+  }, h)))), /*#__PURE__*/React.createElement("tbody", null, P.map((r, i) => /*#__PURE__*/React.createElement("tr", {
+    key: r.domain,
+    style: {
+      borderBottom: i < P.length - 1 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      fontFamily: "var(--font-mono)",
+      color: "var(--text-1)"
+    }
+  }, r.domain), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      color: "var(--text-2)"
+    }
+  }, r.registrar), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px"
+    }
+  }, r.status === "sold" ? /*#__PURE__*/React.createElement(Badge, {
+    tone: "gold"
+  }, "SOLD") : r.status === "conflict" ? /*#__PURE__*/React.createElement(Badge, {
+    tone: "danger",
+    mono: false
+  }, "\u51B2\u7A81") : r.status === "pending" ? /*#__PURE__*/React.createElement(Badge, {
+    tone: "warning",
+    mono: false
+  }, "\u7B49\u5F85\u5E73\u53F0") : /*#__PURE__*/React.createElement(Badge, {
+    tone: "sync"
+  }, "SYNCED")), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      textAlign: "right"
+    }
+  }, /*#__PURE__*/React.createElement(Money, {
+    amount: r.bin,
+    size: 12
+  })), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      textAlign: "right",
+      fontFamily: "var(--font-mono)",
+      color: r.expiry < "2026-10-01" ? "var(--gd-warning)" : "var(--text-2)"
+    }
+  }, r.expiry))))))));
+}
+window.GDDashboard = Dashboard;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/AccountDashboard.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/AccountSettings.jsx
+try { (() => {
+// 账户设置 AccountSettings — profile, preferences, notifications, danger zone.
+const {
+  Panel: APanel,
+  Badge: ABadge,
+  Button: ABtn,
+  Switch: ASwitch,
+  Select: ASel,
+  Input: AInput,
+  Dialog: ADlg
+} = window.GoodDealerDesignSystem_b5b0b6;
+function Row({
+  label,
+  hint,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      padding: "11px 0",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 150,
+      flex: "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, label), hint && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 2
+    }
+  }, hint)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      justifyContent: "flex-end"
+    }
+  }, children));
+}
+function AccountSettings() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const [notif, setNotif] = React.useState({
+    sale: true,
+    expiry: true,
+    security: true,
+    billing: true,
+    product: false
+  });
+  const [dlg, setDlg] = React.useState(null);
+  const [confirm, setConfirm] = React.useState("");
+  const tog = k => setNotif(n => ({
+    ...n,
+    [k]: !n[k]
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8D26\u6237\u8BBE\u7F6E",
+    style: {
+      padding: 18,
+      maxWidth: 820,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(APanel, {
+    title: "\u4E2A\u4EBA\u8D44\u6599",
+    actions: /*#__PURE__*/React.createElement(ABtn, {
+      size: "sm",
+      variant: "primary"
+    }, "\u4FDD\u5B58\u66F4\u6539")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 16,
+      marginBottom: 14,
+      paddingBottom: 14,
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 52,
+      height: 52,
+      flex: "none",
+      borderRadius: "50%",
+      background: "linear-gradient(135deg,var(--gd-panel-raised),var(--gd-line))",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "var(--font-mono)",
+      fontSize: 18,
+      color: "var(--gd-gold)"
+    }
+  }, "CL"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, "\u9648\u7ACB\u884C"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "\u4F1A\u5458\u81EA 2024-03-11")), /*#__PURE__*/React.createElement(ABtn, {
+    size: "sm",
+    variant: "ghost",
+    style: {
+      marginLeft: "auto"
+    }
+  }, "\u66F4\u6362\u5934\u50CF")), /*#__PURE__*/React.createElement(Row, {
+    label: "\u59D3\u540D"
+  }, /*#__PURE__*/React.createElement(AInput, {
+    value: "\u9648\u7ACB\u884C",
+    onChange: () => {},
+    style: {
+      width: 260
+    }
+  })), /*#__PURE__*/React.createElement(Row, {
+    label: "\u90AE\u7BB1",
+    hint: "\u7528\u4E8E\u767B\u5F55\u4E0E\u53D1\u7968"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(AInput, {
+    value: "li@quanta.trade",
+    onChange: () => {},
+    mono: true,
+    style: {
+      width: 260
+    }
+  }), /*#__PURE__*/React.createElement(ABadge, {
+    tone: "success",
+    dot: true
+  }, "\u5DF2\u9A8C\u8BC1"))), /*#__PURE__*/React.createElement(Row, {
+    label: "Workspace \u540D\u79F0"
+  }, /*#__PURE__*/React.createElement(AInput, {
+    value: "\u4E2A\u4EBA Workspace",
+    onChange: () => {},
+    style: {
+      width: 260
+    }
+  }))), /*#__PURE__*/React.createElement(APanel, {
+    title: "\u504F\u597D"
+  }, /*#__PURE__*/React.createElement(Row, {
+    label: "\u8BED\u8A00 / Locale"
+  }, /*#__PURE__*/React.createElement(ASel, {
+    size: "sm",
+    options: ["中文（zh-CN）", "English (en-US)"],
+    value: "\u4E2D\u6587\uFF08zh-CN\uFF09",
+    onChange: () => {}
+  })), /*#__PURE__*/React.createElement(Row, {
+    label: "\u65F6\u533A"
+  }, /*#__PURE__*/React.createElement(ASel, {
+    size: "sm",
+    options: ["Asia/Shanghai (UTC+8)", "UTC", "America/New_York (UTC-5)", "Europe/London (UTC+0)"],
+    value: "Asia/Shanghai (UTC+8)",
+    onChange: () => {}
+  })), /*#__PURE__*/React.createElement(Row, {
+    label: "\u8D27\u5E01\u663E\u793A",
+    hint: "\u4F30\u503C\u4E0E\u91D1\u989D"
+  }, /*#__PURE__*/React.createElement(ASel, {
+    size: "sm",
+    options: ["USD ($)", "CNY (¥)", "EUR (€)"],
+    value: "USD ($)",
+    onChange: () => {}
+  })), /*#__PURE__*/React.createElement(Row, {
+    label: "\u5916\u89C2",
+    hint: "GoodDealer \u4E3A\u6DF1\u8272\u7EC8\u7AEF\u754C\u9762"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-3)"
+    }
+  }, "\u6DF1\u8272 \xB7 Ink\uFF08\u56FA\u5B9A\uFF09"))), /*#__PURE__*/React.createElement(APanel, {
+    title: "\u901A\u77E5",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, "\u53D1\u9001\u81F3 li@quanta.trade")
+  }, [["sale", "成交与放款", "域名售出、托管交割状态变化"], ["expiry", "到期提醒", "域名续费到期前 60 / 30 / 7 天"], ["security", "安全提醒", "新设备登录、异常位置、改密"], ["billing", "账单", "扣款成功、发票、续费"], ["product", "产品更新", "新版本与功能公告"]].map(([k, t, h]) => /*#__PURE__*/React.createElement(Row, {
+    key: k,
+    label: t,
+    hint: h
+  }, /*#__PURE__*/React.createElement(ASwitch, {
+    checked: notif[k],
+    onChange: () => tog(k)
+  })))), /*#__PURE__*/React.createElement(APanel, {
+    title: "\u8D26\u6237\u6570\u636E\u4E0E\u6CE8\u9500"
+  }, /*#__PURE__*/React.createElement(Row, {
+    label: "\u5BFC\u51FA\u8D26\u6237\u6570\u636E",
+    hint: "\u8D44\u4EA7\u5FEB\u7167\u3001\u53D1\u7968\u3001\u64CD\u4F5C\u8D26\u672C (CSV / JSON)"
+  }, /*#__PURE__*/React.createElement(ABtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.Download, {
+      size: 13
+    })
+  }, "\u8BF7\u6C42\u5BFC\u51FA")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      padding: "13px 0 4px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 150,
+      flex: "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--gd-danger)"
+    }
+  }, "\u5220\u9664\u8D26\u6237"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 2
+    }
+  }, "\u6C38\u4E45\u5220\u9664\u4E91\u7AEF\u8D26\u6237\u4E0E\u6570\u636E")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      justifyContent: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(ABtn, {
+    size: "sm",
+    variant: "danger",
+    icon: /*#__PURE__*/React.createElement(I.Trash2, {
+      size: 13
+    }),
+    onClick: () => setDlg("del")
+  }, "\u5220\u9664\u8D26\u6237")))), /*#__PURE__*/React.createElement(ADlg, {
+    open: dlg === "del",
+    onClose: () => {
+      setDlg(null);
+      setConfirm("");
+    },
+    title: "\u5220\u9664\u8D26\u6237",
+    width: 460,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ABtn, {
+      onClick: () => {
+        setDlg(null);
+        setConfirm("");
+      }
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(ABtn, {
+      variant: "danger",
+      disabled: confirm !== "DELETE",
+      onClick: () => {
+        setDlg(null);
+        setConfirm("");
+      }
+    }, "\u6C38\u4E45\u5220\u9664\u8D26\u6237"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 7,
+      background: "var(--gd-panel)",
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 7,
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.55
+    }
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u540E\u679C"), "\uFF1A\u4E91\u7AEF\u8D26\u6237\u3001\u8BA2\u9605\u3001\u53D1\u7968\u8BB0\u5F55\u4E0E\u8D44\u4EA7\u5FEB\u7167\u5C06\u88AB\u6C38\u4E45\u5220\u9664\uFF0C\u65E0\u6CD5\u6062\u590D\u3002"), /*#__PURE__*/React.createElement("span", null, "\u5DF2\u7ED1\u5B9A\u8BBE\u5907\u5C06\u88AB\u5168\u90E8\u89E3\u7ED1\uFF1B\u672C\u5730\u7F13\u5B58\u6570\u636E\u4FDD\u7559\u53EA\u8BFB\uFF0C\u9700\u91CD\u65B0\u6CE8\u518C\u624D\u80FD\u7EE7\u7EED\u540C\u6B65\u3002"), /*#__PURE__*/React.createElement("span", null, "\u5982\u4EC5\u60F3\u505C\u6B62\u7EED\u8D39\uFF0C\u8BF7\u6539\u7528", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u53D6\u6D88\u7EED\u8BA2"), "\uFF08\u4FDD\u7559\u81F3\u5230\u671F\uFF09\u3002")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      marginBottom: 6
+    }
+  }, "\u8F93\u5165 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: "var(--gd-danger)"
+    }
+  }, "DELETE"), " \u4EE5\u786E\u8BA4"), /*#__PURE__*/React.createElement(AInput, {
+    value: confirm,
+    onChange: e => setConfirm(e.target.value),
+    mono: true,
+    placeholder: "DELETE"
+  })))));
+}
+window.GDAccountSettings = AccountSettings;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/AccountSettings.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/AccountShell.jsx
+try { (() => {
+// account-web Shell — web-native full-bleed: left sidebar + topbar + full-width terminal status bar.
+// No Tauri WindowChrome (this is a browser app), but the same ink/gold/blue terminal language.
+const {
+  StatusBar,
+  IconButton,
+  Badge
+} = window.GoodDealerDesignSystem_b5b0b6;
+const Dot = ({
+  tone,
+  hollow,
+  size = 7
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    width: size,
+    height: size,
+    borderRadius: "50%",
+    flex: "none",
+    display: "inline-block",
+    background: hollow ? "transparent" : `var(--gd-${tone})`,
+    border: hollow ? `1.5px solid var(--gd-${tone})` : "none"
+  }
+});
+const NAV = [{
+  sec: "账户",
+  items: [{
+    k: "dashboard",
+    label: "概览",
+    icon: "LayoutDashboard"
+  }, {
+    k: "license",
+    label: "订阅与许可",
+    icon: "KeyRound"
+  }, {
+    k: "devices",
+    label: "设备",
+    icon: "Monitor"
+  }, {
+    k: "billing",
+    label: "账单与发票",
+    icon: "Receipt"
+  }]
+}, {
+  sec: "安全与数据",
+  items: [{
+    k: "security",
+    label: "安全",
+    icon: "ShieldCheck"
+  }, {
+    k: "cloud",
+    label: "云端数据",
+    icon: "Database"
+  }]
+}];
+const FOOT = [{
+  k: "settings",
+  label: "账户设置",
+  icon: "Settings"
+}, {
+  k: "download",
+  label: "下载客户端",
+  icon: "Download"
+}];
+const sx = {
+  side: {
+    width: 220,
+    flex: "none",
+    background: "var(--gd-panel)",
+    borderRight: "1px solid var(--gd-line)",
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0
+  },
+  brand: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "15px 16px 14px",
+    borderBottom: "1px solid var(--gd-line)"
+  },
+  navSec: {
+    padding: "14px 16px 5px",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "var(--text-3)",
+    fontWeight: 500
+  },
+  item: on => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    margin: "1px 8px",
+    padding: "0 9px",
+    height: 30,
+    borderRadius: 5,
+    cursor: "pointer",
+    fontSize: 13,
+    color: on ? "var(--text-1)" : "var(--text-2)",
+    background: on ? "var(--gd-panel-raised)" : "transparent",
+    border: "none",
+    width: "calc(100% - 16px)",
+    fontFamily: "var(--font-sans)",
+    textAlign: "left",
+    transition: "background 120ms,color 120ms",
+    fontWeight: on ? 500 : 400,
+    position: "relative"
+  }),
+  bar: {
+    position: "absolute",
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 2,
+    borderRadius: 1,
+    background: "var(--gd-gold)"
+  },
+  topbar: {
+    height: 52,
+    flex: "none",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "0 18px",
+    borderBottom: "1px solid var(--gd-line)",
+    background: "var(--gd-chrome)"
+  },
+  cmd: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    height: 30,
+    padding: "0 8px 0 11px",
+    width: 280,
+    background: "var(--gd-ink)",
+    border: "1px solid var(--gd-line-strong)",
+    borderRadius: 5,
+    color: "var(--text-3)",
+    fontSize: 12,
+    cursor: "text"
+  },
+  kbd: {
+    marginLeft: "auto",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    color: "var(--text-3)",
+    border: "1px solid var(--gd-line-strong)",
+    borderRadius: 3,
+    padding: "0 4px",
+    lineHeight: "15px"
+  }
+};
+function NavItem({
+  item,
+  active,
+  onGo
+}) {
+  const on = active === item.k;
+  const Ic = window.GDI[item.icon];
+  return /*#__PURE__*/React.createElement("button", {
+    style: sx.item(on),
+    onClick: () => onGo(item.k),
+    onMouseEnter: e => {
+      if (!on) e.currentTarget.style.background = "var(--gd-panel-raised)";
+    },
+    onMouseLeave: e => {
+      if (!on) e.currentTarget.style.background = "transparent";
+    }
+  }, on && /*#__PURE__*/React.createElement("span", {
+    style: sx.bar
+  }), /*#__PURE__*/React.createElement(Ic, {
+    size: 16,
+    style: {
+      flex: "none",
+      opacity: on ? 1 : .72,
+      color: on ? "var(--text-1)" : undefined
+    }
+  }), item.label);
+}
+function Shell({
+  active,
+  onGo,
+  title,
+  crumb,
+  children,
+  syncing,
+  onSync,
+  unsynced = 0
+}) {
+  const I = window.GDI;
+  const footer = /*#__PURE__*/React.createElement(StatusBar, {
+    left: [/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Dot, {
+      tone: "blue"
+    }), syncing ? "SYNCING" : "SYNCED"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "\u4E91\u7AEF\u6570\u636E\u622A\u81F3 ", syncing ? "…" : "14:02"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "rev 8,241")],
+    right: [/*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "4 \u5E73\u53F0 \xB7 3 \u8D26\u6237"), /*#__PURE__*/React.createElement(React.Fragment, null, "MacBook Pro ", /*#__PURE__*/React.createElement(Dot, {
+      tone: "gold"
+    }), " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gd-gold)"
+      }
+    }, "Active")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "Epoch 41"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "\u5E74\u4ED8 License \xB7 \u81F3 2026-12-31")]
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: "100%",
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("aside", {
+    style: sx.side
+  }, /*#__PURE__*/React.createElement("div", {
+    style: sx.brand
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/logo/mark-flat.svg",
+    width: "22",
+    height: "22",
+    alt: ""
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: "var(--text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "GoodDealer"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      letterSpacing: "0.04em"
+    }
+  }, "\u4E91\u7AEF\u8D26\u6237 \xB7 Account"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflow: "auto",
+      minHeight: 0
+    }
+  }, NAV.map(g => /*#__PURE__*/React.createElement("div", {
+    key: g.sec
+  }, /*#__PURE__*/React.createElement("div", {
+    style: sx.navSec
+  }, g.sec), g.items.map(it => /*#__PURE__*/React.createElement(NavItem, {
+    key: it.k,
+    item: it,
+    active: active,
+    onGo: onGo
+  }))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--gd-line)",
+      paddingTop: 6
+    }
+  }, FOOT.map(it => /*#__PURE__*/React.createElement(NavItem, {
+    key: it.k,
+    item: it,
+    active: active,
+    onGo: onGo
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "11px 14px 12px",
+      margin: "6px 0 0",
+      borderTop: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 28,
+      height: 28,
+      flex: "none",
+      borderRadius: "50%",
+      background: "linear-gradient(135deg,var(--gd-panel-raised),var(--gd-line))",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--gd-gold)"
+    }
+  }, "CL"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 1,
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-1)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, "\u9648\u7ACB\u884C"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, "li@quanta.trade")), /*#__PURE__*/React.createElement(IconButton, {
+    size: "sm",
+    label: "\u9000\u51FA\u767B\u5F55"
+  }, /*#__PURE__*/React.createElement(I.LogOut, {
+    size: 14
+  }))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      minWidth: 0,
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: sx.topbar
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, title), crumb && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-3)"
+    }
+  }, crumb), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: sx.cmd
+  }, /*#__PURE__*/React.createElement(I.Search, {
+    size: 13
+  }), /*#__PURE__*/React.createElement("span", null, "\u641C\u7D22\u57DF\u540D\u3001\u53D1\u7968\u6216\u547D\u4EE4"), /*#__PURE__*/React.createElement("span", {
+    style: sx.kbd
+  }, "\u2318K")), /*#__PURE__*/React.createElement(IconButton, {
+    size: "sm",
+    label: "\u901A\u77E5"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "relative",
+      display: "inline-flex"
+    }
+  }, /*#__PURE__*/React.createElement(I.Bell, {
+    size: 15
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute",
+      top: -1,
+      right: -1,
+      width: 5,
+      height: 5,
+      borderRadius: "50%",
+      background: "var(--gd-gold)"
+    }
+  }))), /*#__PURE__*/React.createElement(IconButton, {
+    size: "sm",
+    label: "\u5237\u65B0\u4E91\u7AEF\u6570\u636E",
+    onClick: onSync
+  }, /*#__PURE__*/React.createElement(I.RefreshCw, {
+    size: 14,
+    style: syncing ? {
+      animation: "gd-spinner 1s linear infinite"
+    } : undefined
+  })))), /*#__PURE__*/React.createElement("main", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 0,
+      overflow: "auto",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, children))), footer);
+}
+window.GDShell = Shell;
+window.GDDot = Dot;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/AccountShell.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/Billing.jsx
+try { (() => {
+// 账单与发票 Billing — payment method, invoice ledger (real DS Table), download receipts.
+const {
+  Panel: BPanel,
+  Badge: BBadge,
+  Button: BBtn,
+  Money: BMoney,
+  Table: BTable,
+  Dialog: BDlg,
+  Input: BInput,
+  IconButton: BIcon
+} = window.GoodDealerDesignSystem_b5b0b6;
+function Billing() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [dlg, setDlg] = React.useState(null); // pay | invoice
+  const [inv, setInv] = React.useState(null);
+  const total = D.invoices.reduce((s, i) => s + i.amount, 0);
+  const thisYear = D.invoices.filter(i => i.date >= "2025-12-01").reduce((s, i) => s + i.amount, 0);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8D26\u5355\u4E0E\u53D1\u7968",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "本账期支出",
+      value: "$" + thisYear.toFixed(2),
+      tone: "gold",
+      meta: "2026 年付 License"
+    }, {
+      label: "累计支出",
+      value: "$" + total.toFixed(2),
+      tone: "gold",
+      meta: D.invoices.length + " 张发票"
+    }, {
+      label: "下次扣款",
+      value: "2026-12-31",
+      mono: true,
+      meta: "$299.00 · 自动续费"
+    }, {
+      label: "支付方式",
+      value: "Visa · 4242",
+      meta: "有效期 12/28"
+    }, {
+      label: "账单状态",
+      value: "正常",
+      tone: "success",
+      meta: "无欠费"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(BPanel, {
+    title: "\u652F\u4ED8\u65B9\u5F0F",
+    actions: /*#__PURE__*/React.createElement(BBtn, {
+      size: "sm",
+      onClick: () => setDlg("pay")
+    }, "\u66F4\u6362")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 56,
+      height: 36,
+      flex: "none",
+      borderRadius: 6,
+      background: "linear-gradient(135deg,var(--gd-panel-raised),var(--gd-ink))",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement(I.CreditCard, {
+    size: 20,
+    style: {
+      color: "var(--gd-gold)"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: 3
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 14,
+      color: "var(--text-1)",
+      letterSpacing: "0.06em"
+    }
+  }, "\xB7\xB7\xB7\xB7 \xB7\xB7\xB7\xB7 \xB7\xB7\xB7\xB7 4242"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "Visa \xB7 \u6709\u6548\u671F 12/28 \xB7 LI XINGHANG")), /*#__PURE__*/React.createElement(BBadge, {
+    tone: "success",
+    dot: true
+  }, "\u9ED8\u8BA4"))), /*#__PURE__*/React.createElement(BPanel, {
+    title: "\u8D26\u5355\u4FE1\u606F",
+    actions: /*#__PURE__*/React.createElement(BBtn, {
+      size: "sm",
+      variant: "ghost"
+    }, "\u7F16\u8F91")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, [["账单主体", "陈立行 · 个人"], ["国家 / 地区", "中国"], ["税号 / VAT", "—"], ["发票邮箱", "li@quanta.trade"]].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      padding: "7px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 96,
+      flex: "none",
+      color: "var(--text-3)"
+    }
+  }, k), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-1)"
+    }
+  }, v)))))), /*#__PURE__*/React.createElement(BPanel, {
+    flush: true,
+    title: "\u53D1\u7968",
+    actions: /*#__PURE__*/React.createElement(BBtn, {
+      size: "sm",
+      variant: "ghost",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 13
+      })
+    }, "\u5BFC\u51FA\u5168\u90E8")
+  }, /*#__PURE__*/React.createElement(BTable, {
+    density: "regular",
+    rowKey: "id",
+    onRowClick: r => {
+      setInv(r);
+      setDlg("invoice");
+    },
+    style: {
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "id",
+      label: "发票号",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, r.id)
+    }, {
+      key: "date",
+      label: "日期",
+      numeric: true,
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-2)"
+        }
+      }, r.date)
+    }, {
+      key: "desc",
+      label: "说明",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--text-1)"
+        }
+      }, r.desc)
+    }, {
+      key: "method",
+      label: "支付方式",
+      muted: true
+    }, {
+      key: "amount",
+      label: "金额",
+      numeric: true,
+      render: r => r.amount === 0 ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-3)"
+        }
+      }, "$0.00") : /*#__PURE__*/React.createElement(BMoney, {
+        amount: r.amount,
+        size: 12
+      })
+    }, {
+      key: "status",
+      label: "状态",
+      render: () => /*#__PURE__*/React.createElement(BBadge, {
+        tone: "success"
+      }, "PAID")
+    }, {
+      key: "act",
+      label: "",
+      align: "right",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          gap: 4
+        },
+        onClick: e => e.stopPropagation()
+      }, /*#__PURE__*/React.createElement(BIcon, {
+        size: "sm",
+        label: "\u4E0B\u8F7D PDF"
+      }, /*#__PURE__*/React.createElement(I.Download, {
+        size: 14
+      })), /*#__PURE__*/React.createElement(BIcon, {
+        size: "sm",
+        label: "\u67E5\u770B"
+      }, /*#__PURE__*/React.createElement(I.ExternalLink, {
+        size: 14
+      })))
+    }],
+    rows: D.invoices
+  }))), /*#__PURE__*/React.createElement(BDlg, {
+    open: dlg === "pay",
+    onClose: () => setDlg(null),
+    title: "\u66F4\u6362\u652F\u4ED8\u65B9\u5F0F",
+    width: 440,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BBtn, {
+      onClick: () => setDlg(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(BBtn, {
+      variant: "primary",
+      onClick: () => setDlg(null)
+    }, "\u4FDD\u5B58\u652F\u4ED8\u65B9\u5F0F"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(BInput, {
+    label: "\u5361\u53F7",
+    mono: true,
+    placeholder: "4242 4242 4242 4242"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(BInput, {
+    label: "\u6709\u6548\u671F",
+    mono: true,
+    placeholder: "12 / 28"
+  }), /*#__PURE__*/React.createElement(BInput, {
+    label: "CVC",
+    mono: true,
+    placeholder: "\xB7\xB7\xB7"
+  })), /*#__PURE__*/React.createElement(BInput, {
+    label: "\u6301\u5361\u4EBA",
+    placeholder: "LI XINGHANG"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u652F\u4ED8\u7531\u7B2C\u4E09\u65B9\u5904\u7406\uFF0CGoodDealer \u4E0D\u5B58\u50A8\u5B8C\u6574\u5361\u53F7\u3002"))), /*#__PURE__*/React.createElement(BDlg, {
+    open: dlg === "invoice",
+    onClose: () => setDlg(null),
+    title: inv ? inv.id : "",
+    width: 480,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BBtn, {
+      onClick: () => setDlg(null)
+    }, "\u5173\u95ED"), /*#__PURE__*/React.createElement(BBtn, {
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 13
+      }),
+      onClick: () => setDlg(null)
+    }, "\u4E0B\u8F7D PDF"))
+  }, inv && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      paddingBottom: 12,
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/logo/mark-flat.svg",
+    width: "24",
+    height: "24",
+    alt: ""
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, "GoodDealer"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u6536\u636E \xB7 Receipt")), /*#__PURE__*/React.createElement(BBadge, {
+    tone: "success",
+    style: {
+      marginLeft: "auto"
+    }
+  }, "PAID")), [["发票号", inv.id], ["开票日期", inv.date], ["说明", inv.desc], ["支付方式", inv.method || "—"]].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 88,
+      flex: "none",
+      color: "var(--text-3)"
+    }
+  }, k), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-1)",
+      fontFamily: k === "发票号" || k === "开票日期" ? "var(--font-mono)" : undefined
+    }
+  }, v))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 6,
+      paddingTop: 12,
+      borderTop: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-2)"
+    }
+  }, "\u5408\u8BA1"), /*#__PURE__*/React.createElement(BMoney, {
+    amount: inv.amount,
+    size: 18
+  })))));
+}
+window.GDBilling = Billing;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/Billing.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/CloudData.jsx
+try { (() => {
+// 云端数据 CloudData — read-only mirror of the portfolio + append-only revision ledger.
+// Editing/execution happen in the desktop client; this is the "数据来自 GoodDealer Cloud" view.
+const {
+  Panel: CPanel,
+  Badge: CBadge,
+  Money: CMoney,
+  Tabs: CTabs,
+  Input: CInput,
+  Select: CSel,
+  Table: CTable,
+  StatusDot: CDot,
+  Button: CBtn
+} = window.GoodDealerDesignSystem_b5b0b6;
+function CloudData() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const Pagination = window.GDPagination;
+  const [tab, setTab] = React.useState("assets");
+  const [q, setQ] = React.useState("");
+  const [reg, setReg] = React.useState("全部");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
+  React.useEffect(() => {
+    setPage(1);
+  }, [q, reg, pageSize, tab]);
+  const STB = {
+    synced: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "sync"
+    }, "SYNCED"),
+    sold: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "gold"
+    }, "SOLD"),
+    pending: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "warning",
+      mono: false
+    }, "\u7B49\u5F85\u5E73\u53F0"),
+    conflict: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "danger",
+      mono: false
+    }, "\u51B2\u7A81")
+  };
+  let rows = D.portfolio.filter(r => (reg === "全部" || r.registrar === reg) && (q === "" || r.domain.includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cur = Math.min(page, pages);
+  const pageRows = rows.slice((cur - 1) * pageSize, cur * pageSize);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u4E91\u7AEF\u6570\u636E",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "组合估值",
+      value: "$284,120.00",
+      tone: "gold",
+      meta: "云端快照 · 截至 14:02"
+    }, {
+      label: "域名总数",
+      value: "1,024",
+      meta: "只读镜像"
+    }, {
+      label: "当前 Revision",
+      value: "rev 8,241",
+      mono: true,
+      meta: "追加不可篡改"
+    }, {
+      label: "待裁决冲突",
+      value: "1",
+      tone: "danger",
+      meta: "在桌面客户端裁决"
+    }, {
+      label: "最后同步",
+      value: "14:02",
+      mono: true,
+      meta: "MacBook Pro · Active"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "0 18px",
+      borderBottom: "1px solid var(--gd-line)",
+      background: "var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement(CTabs, {
+    items: [{
+      key: "assets",
+      label: "资产快照",
+      count: 1024
+    }, {
+      key: "ledger",
+      label: "操作账本"
+    }],
+    active: tab,
+    onChange: setTab
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      fontSize: 11,
+      color: "var(--gd-blue)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Cloud, {
+    size: 13
+  }), "\u6570\u636E\u6765\u81EA GoodDealer Cloud \xB7 \u53EA\u8BFB")), tab === "assets" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 9,
+      padding: "10px 18px",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement(CInput, {
+    size: "sm",
+    prefix: /*#__PURE__*/React.createElement(I.Search, {
+      size: 13
+    }),
+    placeholder: "\u7B5B\u9009\u57DF\u540D\u2026",
+    value: q,
+    onChange: e => setQ(e.target.value),
+    style: {
+      width: 220
+    }
+  }), /*#__PURE__*/React.createElement(CSel, {
+    size: "sm",
+    options: ["全部", "Spaceship", "Namecheap", "Dynadot"],
+    value: reg,
+    onChange: e => setReg(e.target.value)
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u7F16\u8F91\u4E0E\u6267\u884C\u8BF7\u5728\u684C\u9762\u5BA2\u6237\u7AEF\u8FDB\u884C")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(CTable, {
+    density: "regular",
+    rowKey: "domain",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "domain",
+      label: "域名",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, r.domain)
+    }, {
+      key: "registrar",
+      label: "注册商",
+      muted: true
+    }, {
+      key: "status",
+      label: "状态",
+      render: r => STB[r.status]
+    }, {
+      key: "bin",
+      label: "估值 BIN",
+      numeric: true,
+      render: r => /*#__PURE__*/React.createElement(CMoney, {
+        amount: r.bin,
+        size: 12
+      })
+    }, {
+      key: "expiry",
+      label: "到期",
+      numeric: true,
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: r.expiry < "2026-10-01" ? "var(--gd-warning)" : "var(--text-2)"
+        }
+      }, r.expiry)
+    }],
+    rows: pageRows,
+    footer: /*#__PURE__*/React.createElement(Pagination, {
+      page: cur,
+      pageSize: pageSize,
+      total: rows.length,
+      onPage: setPage,
+      onPageSize: setPageSize,
+      note: /*#__PURE__*/React.createElement(React.Fragment, null, "\u7EC4\u5408\u4F30\u503C ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--gd-gold)"
+        }
+      }, "$284,120.00"))
+    })
+  }))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(CTable, {
+    density: "regular",
+    rowKey: "rev",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "rev",
+      label: "Revision",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--gd-gold)"
+        }
+      }, "rev ", r.rev)
+    }, {
+      key: "op",
+      label: "操作",
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          color: "var(--text-1)"
+        }
+      }, r.risk && /*#__PURE__*/React.createElement(I.AlertTriangle, {
+        size: 13,
+        style: {
+          color: "var(--gd-danger)"
+        }
+      }), r.op)
+    }, {
+      key: "platform",
+      label: "平台",
+      muted: true
+    }, {
+      key: "source",
+      label: "来源设备",
+      muted: true
+    }, {
+      key: "items",
+      label: "条目",
+      numeric: true,
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, r.items.toLocaleString())
+    }, {
+      key: "status",
+      label: "状态",
+      render: r => r.status === "rolledback" ? /*#__PURE__*/React.createElement(CBadge, {
+        tone: "neutral",
+        mono: false
+      }, "\u5DF2\u56DE\u6EDA") : /*#__PURE__*/React.createElement(CBadge, {
+        tone: "success"
+      }, "\u5DF2\u5E94\u7528")
+    }, {
+      key: "time",
+      label: "时间",
+      numeric: true,
+      render: r => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-3)"
+        }
+      }, r.time)
+    }],
+    rows: D.ledger,
+    footer: /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        width: "100%",
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, /*#__PURE__*/React.createElement("span", null, "\u8D26\u672C\u8FFD\u52A0\u4E0D\u53EF\u7BE1\u6539 \xB7 \u56DE\u6EDA\u4F1A\u751F\u6210\u65B0\u7684\u53CD\u5411 Revision"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "auto",
+        fontFamily: "var(--font-mono)"
+      }
+    }, "\u57FA\u7EBF rev 8,241"))
+  })));
+}
+window.GDCloudData = CloudData;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/CloudData.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/Devices.jsx
+try { (() => {
+// 设备管理 Devices — ActiveDeviceLease from the web side: view lease state + Epoch, rename,
+// remotely deauthorize a lost/standby device (danger ceremony), free a slot to bind a new device.
+// Handoff of执行权 itself happens on the desktop client (needs the device present) — shown as a hint.
+const {
+  Panel: DPanel,
+  Badge: DBadge,
+  Button: DBtn,
+  StatusDot: DDot,
+  Dialog: DDlg,
+  Checkbox: DCheck,
+  IconButton: DIcon
+} = window.GoodDealerDesignSystem_b5b0b6;
+function DeviceRow({
+  d,
+  onDeauth,
+  onRemove,
+  onRename
+}) {
+  const I = window.GDI;
+  const m = {
+    active: {
+      dot: "active",
+      badge: /*#__PURE__*/React.createElement(DBadge, {
+        tone: "gold"
+      }, "ACTIVE"),
+      meta: "持有 ActiveDeviceLease · 执行权在此设备"
+    },
+    standby: {
+      dot: "standby",
+      badge: /*#__PURE__*/React.createElement(DBadge, {
+        mono: false
+      }, "Standby"),
+      meta: "待命 · 可在桌面客户端申请移交执行权"
+    },
+    sunset: {
+      dot: "neutral",
+      badge: /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          color: "var(--text-3)",
+          fontFamily: "var(--font-mono)",
+          border: "1px solid var(--gd-line-strong)",
+          borderRadius: 3,
+          padding: "1px 6px"
+        }
+      }, "RETAINED"),
+      meta: "Sunset · LocalContinuation 本地只读延续 · 无执行权"
+    }
+  }[d.state];
+  const dim = d.state === "sunset";
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 13,
+      padding: "14px 16px",
+      borderBottom: "1px solid var(--gd-line)",
+      opacity: dim ? .6 : 1,
+      background: d.state === "active" ? "linear-gradient(90deg,rgba(212,164,55,0.05),transparent 42%)" : "transparent"
+    }
+  }, /*#__PURE__*/React.createElement(I.Monitor, {
+    size: 19,
+    style: {
+      color: d.state === "active" ? "var(--gd-gold)" : "var(--gd-text-muted)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 190,
+      flex: "none",
+      display: "flex",
+      flexDirection: "column",
+      gap: 4,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-1)",
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      whiteSpace: "nowrap"
+    }
+  }, d.name, d.self && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--text-3)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 3,
+      padding: "0 5px",
+      lineHeight: "15px",
+      flex: "none"
+    }
+  }, "\u672C\u673A \xB7 \u7F51\u9875")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7
+    }
+  }, /*#__PURE__*/React.createElement(DDot, {
+    kind: m.dot
+  }), m.badge, d.state === "active" && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--gd-gold)"
+    }
+  }, "Epoch ", d.epoch))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, m.meta), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, d.os, " \xB7 ", d.location, " \xB7 \u7ED1\u5B9A\u4E8E ", d.added)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--text-3)",
+      width: 64,
+      flex: "none",
+      textAlign: "right"
+    }
+  }, d.last), /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 150,
+      flex: "none",
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: 7
+    }
+  }, /*#__PURE__*/React.createElement(DBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => onRename(d)
+  }, "\u91CD\u547D\u540D"), d.state === "active" && /*#__PURE__*/React.createElement(DBtn, {
+    size: "sm",
+    variant: "ghost",
+    disabled: true,
+    title: "\u9700\u5728\u684C\u9762\u5BA2\u6237\u7AEF\u5148\u79FB\u4EA4\u6267\u884C\u6743"
+  }, "\u89E3\u7ED1"), d.state === "standby" && /*#__PURE__*/React.createElement(DBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => onDeauth(d)
+  }, "\u8FDC\u7A0B\u89E3\u7ED1"), d.state === "sunset" && /*#__PURE__*/React.createElement(DBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => onRemove(d)
+  }, "\u79FB\u9664")));
+}
+function Devices() {
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [devices, setDevices] = React.useState(() => window.GD_ACCOUNT.devices.map(d => ({
+    ...d
+  })));
+  const [deauth, setDeauth] = React.useState(null);
+  const [ack, setAck] = React.useState(false);
+  const bound = devices.filter(d => d.state === "active" || d.state === "standby").length;
+  const active = devices.find(d => d.state === "active");
+  const runDeauth = () => {
+    const t = deauth;
+    setDeauth(null);
+    setAck(false);
+    setDevices(ds => ds.filter(d => d.id !== t.id));
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8BBE\u5907\u7BA1\u7406",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "已绑定设备",
+      value: bound + " / 2",
+      meta: "单活动执行权"
+    }, {
+      label: "活动设备 Active",
+      value: active ? active.name : "—",
+      tone: "gold",
+      meta: active ? "持有执行权" : "无"
+    }, {
+      label: "当前 Epoch",
+      value: active ? "Epoch " + active.epoch : "—",
+      tone: "gold",
+      mono: true,
+      meta: "每次移交 +1"
+    }, {
+      label: "待命 Standby",
+      value: devices.some(d => d.state === "standby") ? "1 台" : "0 台",
+      meta: "蓝空心 · 无执行权"
+    }, {
+      label: "License 额度",
+      value: "2 台",
+      meta: "Professional"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      maxWidth: 1040
+    }
+  }, /*#__PURE__*/React.createElement(DPanel, {
+    flush: true,
+    title: "\u8BBE\u5907\u4E0E\u6267\u884C\u6743\uFF08ActiveDeviceLease\uFF09",
+    actions: active && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        color: "var(--gd-gold)"
+      }
+    }, "Epoch ", active.epoch)
+  }, devices.map(d => /*#__PURE__*/React.createElement(DeviceRow, {
+    key: d.id,
+    d: d,
+    onDeauth: setDeauth,
+    onRemove: rd => setDevices(ds => ds.filter(x => x.id !== rd.id)),
+    onRename: () => {}
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 13,
+      padding: "14px 16px",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 7,
+      background: "var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/icons/active-lease.svg",
+    width: "30",
+    height: "30",
+    alt: "",
+    style: {
+      flex: "none",
+      marginTop: 1
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, "\u540C\u4E00\u65F6\u523B\u53EA\u6709\u4E00\u53F0\u8BBE\u5907\u6301\u6709\u6267\u884C\u6743\uFF08", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--gd-gold)",
+      fontWeight: 500
+    }
+  }, "\u91D1\u5B9E\u5FC3 = Active"), "\uFF0C\u84DD\u7A7A\u5FC3 = Standby\uFF09\u3002", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u79FB\u4EA4\u6267\u884C\u6743\u5728\u684C\u9762\u5BA2\u6237\u7AEF\u5B8C\u6210"), "\u2014\u2014\u65E7\u8BBE\u5907\u6392\u7A7A\u672A\u540C\u6B65\u9879\u540E\u91CA\u653E\uFF0C\u65B0\u8BBE\u5907\u5B89\u5168\u6FC0\u6D3B\u5E76\u7531\u670D\u52A1\u7AEF\u7B7E\u53D1\u65B0 Lease\uFF0CEpoch \u9012\u589E\u3002\u7F51\u9875\u53EF\u67E5\u770B\u72B6\u6001\u3001\u91CD\u547D\u540D\u3001\u4EE5\u53CA\u8FDC\u7A0B\u89E3\u7ED1\u4E22\u5931\u7684\u8BBE\u5907\u3002")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 16px",
+      border: "1px dashed var(--gd-line-strong)",
+      borderRadius: 7,
+      background: "var(--gd-ink)",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      fontWeight: 500,
+      color: "var(--text-1)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Smartphone, {
+    size: 15
+  }), "\u7ED1\u5B9A\u65B0\u8BBE\u5907"), bound >= 2 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--gd-warning)"
+    }
+  }, "\u8BBE\u5907\u989D\u5EA6\u5DF2\u6EE1\uFF08", bound, "/2\uFF09\u3002\u7ED1\u5B9A\u65B0\u8BBE\u5907\u524D\uFF0C\u8BF7\u5148\u8FDC\u7A0B\u89E3\u7ED1\u4E00\u53F0 Standby \u8BBE\u5907\u3002"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      lineHeight: 1.5
+    }
+  }, "\u89E3\u7ED1\u4E0D\u4F1A\u5220\u9664\u8BE5\u8BBE\u5907\u7684\u672C\u5730\u6570\u636E\uFF1B\u91CD\u65B0\u7ED1\u5B9A\u9700\u5728\u8BBE\u5907\u4E0A\u5B8C\u6210\u95E8\u7981\u6821\u9A8C\u3002")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)"
+    }
+  }, "\u5728\u65B0\u8BBE\u5907\u7684\u684C\u9762\u5BA2\u6237\u7AEF\u9009\u62E9\u300C\u7ED1\u5B9A\u5230\u6B64\u8D26\u6237\u300D\uFF0C\u8F93\u5165\u4E0B\u65B9\u914D\u5BF9\u7801\uFF1A"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "9px 12px",
+      background: "var(--gd-panel)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 16,
+      letterSpacing: "0.18em",
+      color: "var(--gd-gold)"
+    }
+  }, "7F2A-C91D"), /*#__PURE__*/React.createElement(DBtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.Copy, {
+      size: 13
+    }),
+    style: {
+      marginLeft: "auto"
+    }
+  }, "\u590D\u5236"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "04:58 \u540E\u5931\u6548")))))), /*#__PURE__*/React.createElement(DDlg, {
+    open: !!deauth,
+    onClose: () => {
+      setDeauth(null);
+      setAck(false);
+    },
+    title: "\u8FDC\u7A0B\u89E3\u7ED1\u8BBE\u5907",
+    width: 480,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DBtn, {
+      onClick: () => {
+        setDeauth(null);
+        setAck(false);
+      }
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(DBtn, {
+      variant: "danger",
+      disabled: !ack,
+      onClick: runDeauth
+    }, "\u8FDC\u7A0B\u89E3\u7ED1 ", deauth && deauth.name))
+  }, deauth && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "\u5C06 ", /*#__PURE__*/React.createElement("b", null, deauth.name), " \u4ECE\u8D26\u6237\u4E2D\u79FB\u9664\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 7,
+      background: "var(--gd-panel)",
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.55
+    }
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u540E\u679C"), "\uFF1A\u8BE5\u8BBE\u5907\u5C06\u5931\u53BB\u4E91\u7AEF\u540C\u6B65\u4E0E\u6267\u884C\u6743\uFF0C\u4E0B\u6B21\u8054\u7F51\u65F6\u88AB\u5F3A\u5236\u767B\u51FA\uFF1B\u672C\u5730\u5DF2\u7F13\u5B58\u6570\u636E\u4FDD\u7559\u4E3A\u53EA\u8BFB\u3002"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u989D\u5EA6"), "\uFF1A\u89E3\u7ED1\u540E\u91CA\u653E\u4E00\u4E2A\u8BBE\u5907\u540D\u989D\uFF08", bound, "/2 \u2192 ", bound - 1, "/2\uFF09\uFF0C\u53EF\u7ED1\u5B9A\u65B0\u8BBE\u5907\u3002"), /*#__PURE__*/React.createElement("span", null, "\u6B64\u64CD\u4F5C\u4E0D\u5F71\u54CD\u5F53\u524D Active \u8BBE\u5907\u7684\u6267\u884C\u6743\u4E0E Epoch\u3002")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--gd-line)",
+      paddingTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(DCheck, {
+    checked: ack,
+    onChange: () => setAck(a => !a),
+    label: `我确认远程解绑 ${deauth.name}`
+  })))));
+}
+window.GDDevices = Devices;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/Devices.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/Download.jsx
+try { (() => {
+// 下载客户端 Download — get the Tauri desktop client; local execution + device gating live there.
+const {
+  Panel: DlPanel,
+  Badge: DlBadge,
+  Button: DlBtn
+} = window.GoodDealerDesignSystem_b5b0b6;
+function ReleaseCard({
+  r
+}) {
+  const I = window.GDI;
+  const Ic = I[r.icon];
+  const rec = r.note.indexOf("推荐") >= 0;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "18px 18px 16px",
+      border: rec ? "1px solid rgba(212,164,55,0.4)" : "1px solid var(--gd-line)",
+      borderRadius: 8,
+      background: "var(--gd-panel)",
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      position: "relative"
+    }
+  }, rec && /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute",
+      top: 14,
+      right: 14
+    }
+  }, /*#__PURE__*/React.createElement(DlBadge, {
+    tone: "gold"
+  }, "\u63A8\u8350")), /*#__PURE__*/React.createElement(Ic, {
+    size: 26,
+    style: {
+      color: rec ? "var(--gd-gold)" : "var(--text-2)"
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, r.os), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 3
+    }
+  }, r.variant)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      marginTop: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "v", r.ver), /*#__PURE__*/React.createElement("span", null, r.size)), /*#__PURE__*/React.createElement(DlBtn, {
+    size: "sm",
+    variant: rec ? "primary" : "secondary",
+    icon: /*#__PURE__*/React.createElement(I.Download, {
+      size: 13
+    }),
+    block: true
+  }, "\u4E0B\u8F7D ", r.os, " \u7248"));
+}
+function StepRow({
+  n,
+  t,
+  s
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 11
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 22,
+      height: 22,
+      flex: "none",
+      borderRadius: "50%",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--gd-gold)"
+    }
+  }, n), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, t), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 2
+    }
+  }, s)));
+}
+function Download() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const steps = [["1", "打开客户端，选择「绑定到此账户」并登录", "本机将作为一个绑定设备（最多 2 台）"], ["2", "完成设备门禁校验", "本机生成设备密钥，Cloud 签发 ActiveDeviceLease"], ["3", "连接注册商 / DNS / 交易平台", "账号身份与凭据加密保存在本地，永不上云"], ["4", "首次导入本地业务库", "数据先写本地 SQLCipher，允许字段随后异步复制"]];
+  const reqs = [["macOS", "13 Ventura 及以上 · Apple Silicon / Intel"], ["Windows", "10 / 11 · 64-bit"], ["Linux", "Ubuntu 22.04+ / Fedora 38+ · AppImage · .deb"], ["网络", "首次登录授权需联网；授权离线窗口内可继续本地业务"]];
+  const changes = ["议价交割闭环：报价 → 平台费 → 净收入确认门", "冲突中心三方裁决与逐项覆盖", "批量执行差异预览新增高风险承认门", "设备门禁 Sunset · LocalContinuation 保留态"];
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u4E0B\u8F7D\u5BA2\u6237\u7AEF",
+    style: {
+      padding: 18,
+      maxWidth: 900,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 20,
+      padding: "22px 24px",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 9,
+      background: "linear-gradient(105deg,rgba(212,164,55,0.06),transparent 55%),var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/logo/app-icon-tile.svg",
+    width: "60",
+    height: "60",
+    alt: "",
+    style: {
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 19,
+      fontWeight: 600,
+      color: "var(--text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "GoodDealer \u684C\u9762\u5BA2\u6237\u7AEF"), /*#__PURE__*/React.createElement(DlBadge, {
+    tone: "gold"
+  }, "v0.9.0")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-2)",
+      lineHeight: 1.6,
+      margin: 0,
+      maxWidth: 520
+    }
+  }, "\u672C\u5730\u6267\u884C\u3001\u4E91\u7AEF\u540C\u6B65\u7684\u57DF\u540D\u8D44\u4EA7\u7BA1\u7406\u7EC8\u7AEF\u3002\u6279\u91CF\u6267\u884C\u3001\u5DEE\u5F02\u9884\u89C8\u3001\u8BAE\u4EF7\u4EA4\u5272\u3001\u51B2\u7A81\u88C1\u51B3\u4E0E\u8BBE\u5907\u95E8\u7981\u90FD\u5728\u5BA2\u6237\u7AEF\u5B8C\u6210\u2014\u2014\u5E73\u53F0\u51ED\u636E\u7ECF\u672C\u5730\u5BC6\u94A5\u52A0\u5BC6\uFF0C\u6C38\u4E0D\u4E0A\u4E91\u3002")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      alignItems: "flex-end",
+      flex: "none"
+    }
+  }, /*#__PURE__*/React.createElement(DlBtn, {
+    size: "lg",
+    variant: "primary",
+    icon: /*#__PURE__*/React.createElement(I.Apple, {
+      size: 16
+    })
+  }, "\u4E0B\u8F7D macOS \u7248"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "\u68C0\u6D4B\u5230\u4F60\u7684\u7CFB\u7EDF \xB7 Apple Silicon"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3,1fr)",
+      gap: 14
+    }
+  }, D.releases.map(r => /*#__PURE__*/React.createElement(ReleaseCard, {
+    key: r.os,
+    r: r
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(DlPanel, {
+    title: "\u5B89\u88C5\u540E\uFF1A\u7ED1\u5B9A\u5230\u6B64\u8D26\u6237"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 11
+    }
+  }, steps.map(s => /*#__PURE__*/React.createElement(StepRow, {
+    key: s[0],
+    n: s[0],
+    t: s[1],
+    s: s[2]
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(DlPanel, {
+    title: "\u7CFB\u7EDF\u8981\u6C42"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, reqs.map(x => /*#__PURE__*/React.createElement("div", {
+    key: x[0],
+    style: {
+      display: "flex",
+      gap: 12,
+      padding: "7px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 70,
+      flex: "none",
+      color: "var(--text-3)"
+    }
+  }, x[0]), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-2)",
+      flex: 1
+    }
+  }, x[1]))))), /*#__PURE__*/React.createElement(DlPanel, {
+    title: "\u66F4\u65B0\u65E5\u5FD7 \xB7 0.9.0",
+    actions: /*#__PURE__*/React.createElement(DlBtn, {
+      size: "sm",
+      variant: "ghost",
+      icon: /*#__PURE__*/React.createElement(I.ExternalLink, {
+        size: 13
+      })
+    }, "\u5168\u90E8")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 7,
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.5
+    }
+  }, changes.map((c, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--gd-gold)",
+      flex: "none"
+    }
+  }, "\xB7"), c)))))));
+}
+window.GDDownload = Download;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/Download.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/License.jsx
+try { (() => {
+// 订阅与许可 License — plan, billing cycle, ownership/license certificate, tier upgrade.
+const {
+  Panel: LPanel,
+  Badge: LBadge,
+  Button: LBtn,
+  Money: LMoney,
+  ProgressBar: LProg,
+  Switch: LSwitch,
+  Dialog: LDlg,
+  Input: LInput,
+  StatusDot: LDot
+} = window.GoodDealerDesignSystem_b5b0b6;
+const TIERS = [{
+  k: "Starter",
+  price: 99,
+  domains: "至 200 域名",
+  devices: "1 台设备",
+  feats: ["单注册商连接", "基础同步", "操作历史"]
+}, {
+  k: "Professional",
+  price: 299,
+  domains: "无限域名",
+  devices: "2 台设备 · 单活动",
+  feats: ["全部平台连接", "批量执行 · 差异预览", "冲突中心 · 回滚", "议价交割闭环"]
+}, {
+  k: "Portfolio",
+  price: 899,
+  domains: "无限域名 · 多 Workspace",
+  devices: "5 台设备",
+  feats: ["Professional 全部", "多 Workspace 隔离", "团队席位", "优先支持 · SLA"]
+}];
+function Feat({
+  on,
+  children
+}) {
+  const I = window.GDI;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 12,
+      color: on ? "var(--text-2)" : "var(--text-3)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Check, {
+    size: 13,
+    style: {
+      color: on ? "var(--gd-success)" : "var(--text-3)",
+      flex: "none"
+    }
+  }), children);
+}
+function License() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [autoRenew, setAutoRenew] = React.useState(D.plan.autoRenew);
+  const [dlg, setDlg] = React.useState(null); // pay | upgrade | cancel
+  const [target, setTarget] = React.useState(null);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8BA2\u9605\u4E0E\u8BB8\u53EF",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "当前方案",
+      value: "Professional",
+      tone: "gold",
+      meta: "年付 License"
+    }, {
+      label: "年费",
+      value: "$299.00",
+      tone: "gold",
+      meta: "下次扣款 2026-12-31"
+    }, {
+      label: "本期剩余",
+      value: "136 天",
+      tone: "warning",
+      meta: "已用 63%"
+    }, {
+      label: "所有权验证",
+      value: "已验证",
+      tone: "success",
+      meta: "本地密钥签发"
+    }, {
+      label: "设备额度",
+      value: "2 台",
+      meta: "单活动执行权"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "grid",
+      gridTemplateColumns: "1fr 320px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(LPanel, {
+    title: "\u5F53\u524D\u65B9\u6848",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        fontSize: 12,
+        color: "var(--text-2)"
+      }
+    }, "\u81EA\u52A8\u7EED\u8D39 ", /*#__PURE__*/React.createElement(LSwitch, {
+      checked: autoRenew,
+      onChange: () => setAutoRenew(v => !v)
+    }))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 20,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, "\u5E74\u4ED8 License"), /*#__PURE__*/React.createElement(LBadge, {
+    tone: "gold"
+  }, "PROFESSIONAL"), /*#__PURE__*/React.createElement(LMoney, {
+    amount: 299,
+    size: 15
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-3)"
+    }
+  }, "/ \u5E74")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginBottom: 6,
+      fontFamily: "var(--font-mono)"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "2025-12-31 \u5F00\u59CB"), /*#__PURE__*/React.createElement("span", null, "\u5269\u4F59 136 \u5929"), /*#__PURE__*/React.createElement("span", null, "2026-12-31 \u7EED\u8D39")), /*#__PURE__*/React.createElement(LProg, {
+    value: 63,
+    height: 6
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3,1fr)",
+      gap: 14,
+      margin: "16px 0 4px"
+    }
+  }, [["无限域名", "已管理 1,024"], ["2 台设备", "单活动执行权"], ["全部平台连接", "Atom · Afternic · SellerHub"], ["批量执行", "差异预览 · 回滚"], ["冲突中心", "三方裁决"], ["议价交割", "托管交易闭环"]].map(([t, s]) => /*#__PURE__*/React.createElement("div", {
+    key: t,
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3,
+      padding: "10px 12px",
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 7
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Check, {
+    size: 13,
+    style: {
+      color: "var(--gd-success)"
+    }
+  }), t), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      paddingLeft: 19
+    }
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 9,
+      marginTop: 14,
+      paddingTop: 14,
+      borderTop: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    variant: "primary",
+    onClick: () => {
+      setTarget(TIERS[2]);
+      setDlg("upgrade");
+    }
+  }, "\u5347\u7EA7\u5230 Portfolio"), /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    onClick: () => setDlg("pay")
+  }, "\u66F4\u6362\u652F\u4ED8\u65B9\u5F0F"), /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => setDlg("cancel"),
+    icon: /*#__PURE__*/React.createElement(I.Ban, {
+      size: 13
+    })
+  }, "\u53D6\u6D88\u7EED\u8BA2"))), /*#__PURE__*/React.createElement(LPanel, {
+    title: "\u6240\u6709\u6743\u4E0E\u8BB8\u53EF\u8BC1\u4E66",
+    actions: /*#__PURE__*/React.createElement(LBadge, {
+      tone: "success",
+      dot: true
+    }, "\u5DF2\u9A8C\u8BC1")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      alignItems: "flex-start"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/graphics/seal.svg",
+    width: "44",
+    height: "44",
+    alt: "",
+    style: {
+      flex: "none",
+      marginTop: 2
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.6,
+      margin: "0 0 12px"
+    }
+  }, "License \u7531\u672C\u5730\u5BC6\u94A5\u7B7E\u53D1\u5E76\u7ED1\u5B9A Workspace \u6240\u6709\u6743\uFF0C\u51ED\u636E\u6C38\u4E0D\u4E0A\u4E91\u3002\u8BC1\u4E66\u7528\u4E8E\u8BBE\u5907\u95E8\u7981\u4E0E\u79BB\u7EBF\u6821\u9A8C\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "9px 12px",
+      background: "var(--gd-ink)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 5,
+      fontFamily: "var(--font-mono)",
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-3)"
+    }
+  }, "License Key"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--gd-gold)",
+      letterSpacing: "0.02em"
+    }
+  }, "GD-PRO-8F2A-C91D-\xB7\xB7\xB7 \xB7-4E7B"), /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.Copy, {
+      size: 13
+    }),
+    style: {
+      marginLeft: "auto"
+    }
+  }, "\u590D\u5236")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 9,
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.Download, {
+      size: 13
+    })
+  }, "\u4E0B\u8F7D\u8BC1\u4E66"), /*#__PURE__*/React.createElement(LBtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.RefreshCw, {
+      size: 13
+    })
+  }, "\u8F6E\u6362\u5BC6\u94A5")))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(LPanel, {
+    flush: true,
+    title: "\u65B9\u6848\u5BF9\u6BD4"
+  }, TIERS.map(t => {
+    const cur = t.k === "Professional";
+    return /*#__PURE__*/React.createElement("div", {
+      key: t.k,
+      style: {
+        padding: "13px 16px",
+        borderBottom: "1px solid var(--gd-line)",
+        background: cur ? "linear-gradient(90deg,rgba(212,164,55,0.05),transparent 60%)" : "transparent"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "var(--text-1)"
+      }
+    }, t.k), cur && /*#__PURE__*/React.createElement(LBadge, {
+      tone: "gold"
+    }, "\u5F53\u524D"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "auto",
+        display: "flex",
+        alignItems: "baseline",
+        gap: 3
+      }
+    }, /*#__PURE__*/React.createElement(LMoney, {
+      amount: t.price,
+      size: 13,
+      tone: cur ? "gold" : "body"
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--text-3)"
+      }
+    }, "/\u5E74"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 5
+      }
+    }, /*#__PURE__*/React.createElement(Feat, {
+      on: true
+    }, t.domains), /*#__PURE__*/React.createElement(Feat, {
+      on: true
+    }, t.devices), t.feats.slice(0, 2).map(f => /*#__PURE__*/React.createElement(Feat, {
+      key: f,
+      on: true
+    }, f))), !cur && /*#__PURE__*/React.createElement(LBtn, {
+      size: "sm",
+      variant: t.price > 299 ? "primary" : "ghost",
+      style: {
+        width: "100%",
+        marginTop: 10
+      },
+      onClick: () => {
+        setTarget(t);
+        setDlg("upgrade");
+      }
+    }, t.price > 299 ? "升级" : "降级", "\u5230 ", t.k));
+  })), /*#__PURE__*/React.createElement(LPanel, {
+    title: "\u672C\u6708\u7528\u91CF"
+  }, [["域名", D.usage.domains.toLocaleString(), "无限"], ["绑定设备", "2", "2 台"], ["平台连接", "4", ""], ["云端存储", "38 MB", ""]].map(([k, v, cap]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      padding: "8px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      color: "var(--text-2)"
+    }
+  }, k), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: "var(--text-1)"
+    }
+  }, v), cap && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginLeft: 6
+    }
+  }, "/ ", cap)))))), /*#__PURE__*/React.createElement(LDlg, {
+    open: dlg === "pay",
+    onClose: () => setDlg(null),
+    title: "\u66F4\u6362\u652F\u4ED8\u65B9\u5F0F",
+    width: 440,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LBtn, {
+      onClick: () => setDlg(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(LBtn, {
+      variant: "primary",
+      onClick: () => setDlg(null)
+    }, "\u4FDD\u5B58\u652F\u4ED8\u65B9\u5F0F"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(LInput, {
+    label: "\u5361\u53F7",
+    mono: true,
+    placeholder: "4242 4242 4242 4242"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(LInput, {
+    label: "\u6709\u6548\u671F",
+    mono: true,
+    placeholder: "12 / 28"
+  }), /*#__PURE__*/React.createElement(LInput, {
+    label: "CVC",
+    mono: true,
+    placeholder: "\xB7\xB7\xB7"
+  })), /*#__PURE__*/React.createElement(LInput, {
+    label: "\u6301\u5361\u4EBA",
+    placeholder: "LI XINGHANG"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u652F\u4ED8\u7531\u7B2C\u4E09\u65B9\u5904\u7406\uFF0CGoodDealer \u4E0D\u5B58\u50A8\u5B8C\u6574\u5361\u53F7\u3002"))), /*#__PURE__*/React.createElement(LDlg, {
+    open: dlg === "upgrade",
+    onClose: () => setDlg(null),
+    title: target ? `切换到 ${target.k}` : "",
+    width: 460,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LBtn, {
+      onClick: () => setDlg(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(LBtn, {
+      variant: "primary",
+      onClick: () => setDlg(null)
+    }, target && target.price > 299 ? "升级" : "确认切换", "\u5230 ", target && target.k, " \xB7 $", target && target.price, "/\u5E74"))
+  }, target && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "\u4ECE ", /*#__PURE__*/React.createElement("b", null, "Professional \xB7 $299/\u5E74"), " \u5207\u6362\u5230 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--gd-gold)"
+    }
+  }, target.k, " \xB7 $", target.price, "/\u5E74"), "\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 7,
+      background: "var(--gd-panel)",
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 7,
+      fontSize: 12,
+      color: "var(--text-2)"
+    }
+  }, target.feats.map(f => /*#__PURE__*/React.createElement(Feat, {
+    key: f,
+    on: true
+  }, f))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, target.price > 299 ? "立即生效，按剩余天数补差价 $" + Math.round((target.price - 299) * 136 / 365) + "。" : "下个账单周期生效，本期不退款。"))), /*#__PURE__*/React.createElement(LDlg, {
+    open: dlg === "cancel",
+    onClose: () => setDlg(null),
+    title: "\u53D6\u6D88\u7EED\u8BA2",
+    width: 440,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LBtn, {
+      onClick: () => setDlg(null)
+    }, "\u4FDD\u7559\u8BA2\u9605"), /*#__PURE__*/React.createElement(LBtn, {
+      variant: "danger",
+      onClick: () => {
+        setAutoRenew(false);
+        setDlg(null);
+      }
+    }, "\u53D6\u6D88\u7EED\u8BA2 \xB7 \u81F3 2026-12-31 \u5230\u671F"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      fontSize: 13,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u53D6\u6D88\u540E License \u4ECD\u6709\u6548\u81F3 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "2026-12-31"), "\uFF0C\u5C4A\u65F6\u4E0D\u518D\u81EA\u52A8\u7EED\u8D39\u3002"), /*#__PURE__*/React.createElement("span", null, "\u5230\u671F\u540E\u8FDB\u5165 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)"
+    }
+  }, "Sunset \xB7 LocalContinuation"), "\uFF1A\u672C\u5730\u6570\u636E\u4FDD\u7559\u53EA\u8BFB\uFF0C\u4E91\u7AEF\u540C\u6B65\u4E0E\u6267\u884C\u6743\u505C\u6B62\u3002\u968F\u65F6\u53EF\u6062\u590D\u7EED\u8BA2\u3002"))));
+}
+window.GDLicense = License;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/License.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/Security.jsx
+try { (() => {
+// 安全 Security — 2FA, recovery codes, password, active sessions. Reinforces: platform
+// credentials are encrypted locally and never appear here (they never go to cloud).
+const {
+  Panel: SPanel,
+  Badge: SBadge,
+  Button: SBtn,
+  Switch: SSwitch,
+  Dialog: SDlg,
+  Input: SInput,
+  StatusDot: SDot,
+  IconButton: SIcon
+} = window.GoodDealerDesignSystem_b5b0b6;
+function SessionRow({
+  s,
+  onRevoke
+}) {
+  const I = window.GDI;
+  const Ic = {
+    desktop: I.Monitor,
+    web: I.Globe,
+    mobile: I.Smartphone
+  }[s.kind] || I.Globe;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "12px 16px",
+      borderBottom: "1px solid var(--gd-line)",
+      background: s.flag ? "var(--gd-warning-tint)" : "transparent"
+    }
+  }, /*#__PURE__*/React.createElement(Ic, {
+    size: 17,
+    style: {
+      color: s.flag ? "var(--gd-warning)" : "var(--gd-text-muted)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 3
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)",
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, s.device, s.current && /*#__PURE__*/React.createElement(SBadge, {
+    tone: "success"
+  }, "\u672C\u6B21\u4F1A\u8BDD"), s.flag && /*#__PURE__*/React.createElement(SBadge, {
+    tone: "warning",
+    mono: false
+  }, "\u5F02\u5E38\u4F4D\u7F6E")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, s.location, " \xB7 ", s.ip)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--text-3)",
+      flex: "none"
+    }
+  }, s.last), /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 64,
+      flex: "none",
+      display: "flex",
+      justifyContent: "flex-end"
+    }
+  }, s.current ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u5F53\u524D") : /*#__PURE__*/React.createElement(SBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => onRevoke(s)
+  }, "\u7EC8\u6B62")));
+}
+function Security() {
+  const D = window.GD_ACCOUNT;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [sessions, setSessions] = React.useState(() => D.sessions.map(s => ({
+    ...s
+  })));
+  const [totp, setTotp] = React.useState(true);
+  const [sms, setSms] = React.useState(false);
+  const [dlg, setDlg] = React.useState(null); // pw | codes | revokeAll
+  const flagged = sessions.filter(s => s.flag).length;
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u5B89\u5168",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "双重验证",
+      value: totp ? "已启用" : "未启用",
+      tone: totp ? "success" : "danger",
+      meta: "Authenticator app"
+    }, {
+      label: "活跃会话",
+      value: sessions.length + " 个",
+      meta: "1 桌面 · 1 移动 · 网页"
+    }, {
+      label: "异常登录",
+      value: flagged + " 处",
+      tone: flagged ? "warning" : "success",
+      meta: flagged ? "东京 · 建议核实" : "无"
+    }, {
+      label: "恢复码",
+      value: "8 个",
+      meta: "剩余可用"
+    }, {
+      label: "上次改密",
+      value: "92 天前",
+      mono: true,
+      meta: "2026-05-17"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "grid",
+      gridTemplateColumns: "1fr 340px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(SPanel, {
+    flush: true,
+    title: "\u6D3B\u8DC3\u4F1A\u8BDD",
+    actions: /*#__PURE__*/React.createElement(SBtn, {
+      size: "sm",
+      variant: "ghost",
+      onClick: () => setDlg("revokeAll")
+    }, "\u7EC8\u6B62\u5176\u5B83\u5168\u90E8\u4F1A\u8BDD")
+  }, sessions.map(s => /*#__PURE__*/React.createElement(SessionRow, {
+    key: s.id,
+    s: s,
+    onRevoke: rs => setSessions(ss => ss.filter(x => x.id !== rs.id))
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      padding: "13px 15px",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 7,
+      background: "var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/icons/keyhole.svg",
+    width: "26",
+    height: "26",
+    alt: "",
+    style: {
+      flex: "none",
+      marginTop: 1,
+      opacity: .9
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, "\u6CE8\u518C\u5546\u3001DNS\u3001\u4EA4\u6613\u5E73\u53F0\u7684 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u5E73\u53F0\u51ED\u636E\u7ECF\u672C\u5730\u5BC6\u94A5\u52A0\u5BC6\u4FDD\u5B58\uFF0C\u6C38\u4E0D\u4E0A\u4E91"), "\uFF0C\u56E0\u6B64\u4E0D\u4F1A\u51FA\u73B0\u5728\u672C\u9875\u9762\u6216\u4EFB\u4F55\u4E91\u7AEF\u3002\u6B64\u5904\u4EC5\u7BA1\u7406 GoodDealer \u8D26\u6237\u672C\u8EAB\u7684\u767B\u5F55\u4E0E\u9A8C\u8BC1\u3002"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(SPanel, {
+    title: "\u53CC\u91CD\u9A8C\u8BC1 2FA"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "10px 0",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Lock, {
+    size: 16,
+    style: {
+      color: totp ? "var(--gd-success)" : "var(--text-3)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, "Authenticator App"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "TOTP \xB7 \u6BCF 30 \u79D2")), /*#__PURE__*/React.createElement(SSwitch, {
+    checked: totp,
+    onChange: () => setTotp(v => !v)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "10px 0",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Smartphone, {
+    size: 16,
+    style: {
+      color: sms ? "var(--gd-success)" : "var(--text-3)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, "\u77ED\u4FE1\u9A8C\u8BC1\u7801"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "+86 \xB7\xB7\xB7 \xB7\xB7\xB7 8821")), /*#__PURE__*/React.createElement(SSwitch, {
+    checked: sms,
+    onChange: () => setSms(v => !v)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "10px 0"
+    }
+  }, /*#__PURE__*/React.createElement(I.ShieldCheck, {
+    size: 16,
+    style: {
+      color: "var(--text-3)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, "\u786C\u4EF6\u5B89\u5168\u5BC6\u94A5"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "WebAuthn \xB7 \u672A\u6DFB\u52A0")), /*#__PURE__*/React.createElement(SBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u6DFB\u52A0")))), /*#__PURE__*/React.createElement(SPanel, {
+    title: "\u6062\u590D\u7801",
+    actions: /*#__PURE__*/React.createElement(SBadge, {
+      tone: "success"
+    }, "8 \u5269\u4F59")
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.6,
+      margin: "0 0 10px"
+    }
+  }, "\u4E22\u5931\u9A8C\u8BC1\u8BBE\u5907\u65F6\u7528\u4E8E\u767B\u5F55\u3002\u8BF7\u79BB\u7EBF\u4FDD\u5B58\uFF0C\u6BCF\u4E2A\u4EC5\u53EF\u4F7F\u7528\u4E00\u6B21\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 9
+    }
+  }, /*#__PURE__*/React.createElement(SBtn, {
+    size: "sm",
+    onClick: () => setDlg("codes")
+  }, "\u67E5\u770B\u6062\u590D\u7801"), /*#__PURE__*/React.createElement(SBtn, {
+    size: "sm",
+    variant: "ghost",
+    icon: /*#__PURE__*/React.createElement(I.RefreshCw, {
+      size: 13
+    }),
+    onClick: () => setDlg("codes")
+  }, "\u91CD\u65B0\u751F\u6210"))), /*#__PURE__*/React.createElement(SPanel, {
+    title: "\u5BC6\u7801"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 14,
+      color: "var(--text-2)",
+      letterSpacing: "0.1em"
+    }
+  }, "\xB7\xB7\xB7\xB7\xB7\xB7\xB7\xB7\xB7\xB7\xB7\xB7"), /*#__PURE__*/React.createElement(SBtn, {
+    size: "sm",
+    style: {
+      marginLeft: "auto"
+    },
+    onClick: () => setDlg("pw")
+  }, "\u66F4\u6539\u5BC6\u7801"))))), /*#__PURE__*/React.createElement(SDlg, {
+    open: dlg === "pw",
+    onClose: () => setDlg(null),
+    title: "\u66F4\u6539\u5BC6\u7801",
+    width: 420,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(SBtn, {
+      onClick: () => setDlg(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(SBtn, {
+      variant: "primary",
+      onClick: () => setDlg(null)
+    }, "\u66F4\u65B0\u5BC6\u7801"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(SInput, {
+    label: "\u5F53\u524D\u5BC6\u7801",
+    placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+  }), /*#__PURE__*/React.createElement(SInput, {
+    label: "\u65B0\u5BC6\u7801",
+    placeholder: "\u81F3\u5C11 12 \u4F4D"
+  }), /*#__PURE__*/React.createElement(SInput, {
+    label: "\u786E\u8BA4\u65B0\u5BC6\u7801",
+    placeholder: "\u518D\u6B21\u8F93\u5165"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u66F4\u6539\u5BC6\u7801\u4F1A\u7EC8\u6B62\u5176\u5B83\u5168\u90E8\u4F1A\u8BDD\u3002"))), /*#__PURE__*/React.createElement(SDlg, {
+    open: dlg === "codes",
+    onClose: () => setDlg(null),
+    title: "\u6062\u590D\u7801",
+    width: 420,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(SBtn, {
+      onClick: () => setDlg(null)
+    }, "\u5173\u95ED"), /*#__PURE__*/React.createElement(SBtn, {
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 13
+      }),
+      onClick: () => setDlg(null)
+    }, "\u4E0B\u8F7D .txt"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 8
+    }
+  }, ["8F2A-C91D", "4E7B-2AD0", "91C3-7FE1", "B0D4-3A88", "6C2E-91FA", "D74B-0C15", "3E9A-B72D", "F10C-8E44"].map(c => /*#__PURE__*/React.createElement("span", {
+    key: c,
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 13,
+      color: "var(--gd-gold)",
+      padding: "7px 10px",
+      background: "var(--gd-ink)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 5,
+      textAlign: "center",
+      letterSpacing: "0.04em"
+    }
+  }, c))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u6BCF\u4E2A\u6062\u590D\u7801\u4EC5\u53EF\u4F7F\u7528\u4E00\u6B21\u3002\u91CD\u65B0\u751F\u6210\u4F1A\u4F7F\u65E7\u7801\u5168\u90E8\u5931\u6548\u3002"))), /*#__PURE__*/React.createElement(SDlg, {
+    open: dlg === "revokeAll",
+    onClose: () => setDlg(null),
+    title: "\u7EC8\u6B62\u5176\u5B83\u5168\u90E8\u4F1A\u8BDD",
+    width: 420,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(SBtn, {
+      onClick: () => setDlg(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(SBtn, {
+      variant: "danger",
+      onClick: () => {
+        setSessions(ss => ss.filter(s => s.current));
+        setDlg(null);
+      }
+    }, "\u7EC8\u6B62 ", sessions.filter(s => !s.current).length, " \u4E2A\u4F1A\u8BDD"))
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, "\u5C06\u767B\u51FA\u9664\u672C\u6B21\u4F1A\u8BDD\u5916\u7684\u5168\u90E8\u8BBE\u5907\u4E0E\u7F51\u9875\u4F1A\u8BDD\uFF08\u542B\u684C\u9762\u5BA2\u6237\u7AEF\uFF09\u3002\u684C\u9762\u5BA2\u6237\u7AEF\u9700\u91CD\u65B0\u767B\u5F55\uFF0C\u4F46\u4E0D\u5F71\u54CD\u5DF2\u7ED1\u5B9A\u8BBE\u5907\u7684\u6267\u884C\u6743\u4E0E\u672C\u5730\u6570\u636E\u3002")));
+}
+window.GDSecurity = Security;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/Security.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/controls.jsx
+try { (() => {
+// Kit-local reusable controls: Pagination + EditableCell (inline double-click edit).
+// Composed from DS primitives; loaded via Babel so they work without a bundle recompile.
+const {
+  Select: GDSelect,
+  IconButton: GDIconButton
+} = window.GoodDealerDesignSystem_b5b0b6;
+function pageWindow(cur, total) {
+  if (total <= 7) return Array.from({
+    length: total
+  }, (_, i) => i + 1);
+  const s = new Set([1, 2, total - 1, total, cur - 1, cur, cur + 1]);
+  const arr = [...s].filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const n of arr) {
+    if (n - prev > 1) out.push("gap" + n);
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+function PageNum({
+  n,
+  active,
+  onClick
+}) {
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: onClick,
+    onMouseEnter: e => {
+      if (!active) e.currentTarget.style.background = "var(--gd-panel-raised)";
+    },
+    onMouseLeave: e => {
+      if (!active) e.currentTarget.style.background = "transparent";
+    },
+    style: {
+      minWidth: 24,
+      height: 24,
+      padding: "0 6px",
+      borderRadius: 5,
+      cursor: "pointer",
+      fontFamily: "var(--font-mono)",
+      fontVariantNumeric: "tabular-nums",
+      fontSize: 12,
+      border: active ? "1px solid var(--gd-line-strong)" : "1px solid transparent",
+      background: active ? "var(--gd-panel-raised)" : "transparent",
+      color: active ? "var(--text-1)" : "var(--text-2)"
+    }
+  }, n);
+}
+function Pagination({
+  page,
+  pageSize,
+  total,
+  onPage,
+  onPageSize,
+  pageSizes = [10, 25, 50],
+  note
+}) {
+  const I = window.GDI;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, pages);
+  const from = total === 0 ? 0 : (cur - 1) * pageSize + 1;
+  const to = Math.min(total, cur * pageSize);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      width: "100%",
+      fontSize: 12,
+      color: "var(--gd-text-muted)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontVariantNumeric: "tabular-nums"
+    }
+  }, from.toLocaleString(), "\u2013", to.toLocaleString(), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-3)"
+    }
+  }, "/ ", total.toLocaleString())), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, "\u6BCF\u9875", /*#__PURE__*/React.createElement(GDSelect, {
+    size: "sm",
+    options: pageSizes.map(String),
+    value: String(pageSize),
+    onChange: e => onPageSize(+e.target.value)
+  })), note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11
+    }
+  }, note), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: note ? 16 : "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, /*#__PURE__*/React.createElement(GDIconButton, {
+    size: "sm",
+    label: "\u4E0A\u4E00\u9875",
+    disabled: cur <= 1,
+    onClick: () => onPage(cur - 1)
+  }, /*#__PURE__*/React.createElement(I.ChevronLeft, {
+    size: 14
+  })), pageWindow(cur, pages).map((n, i) => typeof n === "number" ? /*#__PURE__*/React.createElement(PageNum, {
+    key: i,
+    n: n,
+    active: n === cur,
+    onClick: () => onPage(n)
+  }) : /*#__PURE__*/React.createElement("span", {
+    key: i,
+    style: {
+      padding: "0 2px",
+      color: "var(--gd-text-faint)"
+    }
+  }, "\u2026")), /*#__PURE__*/React.createElement(GDIconButton, {
+    size: "sm",
+    label: "\u4E0B\u4E00\u9875",
+    disabled: cur >= pages,
+    onClick: () => onPage(cur + 1)
+  }, /*#__PURE__*/React.createElement(I.ChevronRight, {
+    size: 14
+  }))));
+}
+window.GDPagination = Pagination;
+
+// EditableCell — double-click to edit in place (uncontrolled input read via ref on
+// commit, so it is race-free); Enter/blur reports the pending value to onCommit
+// (parent shows the "save & sync?" prompt); Escape cancels.
+function EditableCell({
+  value,
+  display,
+  onCommit,
+  width = 94,
+  prefix
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const ref = React.useRef(null);
+  const doneRef = React.useRef(false);
+  React.useEffect(() => {
+    if (editing && ref.current) {
+      ref.current.value = value == null ? "" : String(value);
+      ref.current.focus();
+      ref.current.select();
+    }
+  }, [editing]);
+  const start = () => {
+    doneRef.current = false;
+    setEditing(true);
+  };
+  const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    const raw = ref.current ? ref.current.value : "";
+    setEditing(false);
+    const clean = String(raw).trim();
+    if (clean !== "" && clean !== String(value)) onCommit(clean);
+  };
+  const cancel = () => {
+    doneRef.current = true;
+    setEditing(false);
+  };
+  if (editing) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        justifyContent: "flex-end"
+      },
+      onClick: e => e.stopPropagation()
+    }, prefix && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gd-text-faint)",
+        fontSize: 11,
+        fontFamily: "var(--font-mono)"
+      }
+    }, prefix), /*#__PURE__*/React.createElement("input", {
+      ref: ref,
+      inputMode: "decimal",
+      onKeyDown: e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") cancel();
+      },
+      onBlur: commit,
+      style: {
+        width,
+        height: 24,
+        background: "var(--gd-ink)",
+        border: "1px solid var(--gd-blue)",
+        boxShadow: "0 0 0 2px rgba(77,141,255,0.25)",
+        borderRadius: 5,
+        color: "var(--gd-text)",
+        fontFamily: "var(--font-mono)",
+        fontVariantNumeric: "tabular-nums",
+        fontSize: 12,
+        textAlign: "right",
+        padding: "0 7px",
+        outline: "none"
+      }
+    }));
+  }
+  return /*#__PURE__*/React.createElement("span", {
+    onDoubleClick: e => {
+      e.stopPropagation();
+      start();
+    },
+    onClick: e => e.stopPropagation(),
+    title: "\u53CC\u51FB\u7F16\u8F91 \xB7 \u56DE\u8F66\u786E\u8BA4",
+    style: {
+      cursor: "text",
+      display: "inline-block",
+      borderBottom: "1px dashed transparent",
+      paddingBottom: 1,
+      transition: "border-color 120ms"
+    },
+    onMouseEnter: e => e.currentTarget.style.borderBottomColor = "var(--gd-line-strong)",
+    onMouseLeave: e => e.currentTarget.style.borderBottomColor = "transparent"
+  }, display != null ? display : value);
+}
+window.GDEditableCell = EditableCell;
+
+// MetricStrip — the anti-jitter KPI band. Fixed height on EVERY screen (the meta line
+// is always reserved, so 2-line and 3-line screens are the same height); equal-flex
+// cells; optional per-cell drill-in (pointer + hover). Because the height is constant,
+// the content baseline never shifts when you switch screens — the frame stays put.
+function MetricStrip({
+  metrics = []
+}) {
+  const tone = t => ({
+    gold: "var(--gd-gold)",
+    danger: "var(--gd-danger)",
+    warning: "var(--gd-warning)",
+    blue: "var(--gd-blue)",
+    success: "var(--gd-success)",
+    muted: "var(--text-3)"
+  })[t] || "var(--text-1)";
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      height: 72,
+      flex: "none",
+      background: "var(--surface-region)",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, metrics.map((m, i) => {
+    const click = m.onClick;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      onClick: click || undefined,
+      onMouseEnter: click ? e => {
+        e.currentTarget.style.background = "var(--gd-panel-raised)";
+      } : undefined,
+      onMouseLeave: click ? e => {
+        e.currentTarget.style.background = "transparent";
+      } : undefined,
+      style: {
+        flex: 1,
+        minWidth: 0,
+        padding: "0 16px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 3,
+        transition: "background 120ms",
+        borderRight: i < metrics.length - 1 ? "1px solid var(--gd-line)" : "none",
+        cursor: click ? "pointer" : "default"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-label",
+      style: {
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, m.label), /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-metric-sm",
+      style: {
+        color: m.tone === "muted" ? "var(--text-3)" : tone(m.tone),
+        fontFamily: m.mono ? "var(--font-mono)" : undefined,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, m.value), /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-meta",
+      style: {
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        minHeight: 14
+      }
+    }, m.meta != null ? m.meta : "\u00A0"));
+  }));
+}
+window.GDMetricStrip = MetricStrip;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/controls.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/data.js
+try { (() => {
+// account-web mock data — the cloud/account side (local execution stays in the desktop client).
+window.GD_ACCOUNT = {
+  profile: {
+    name: "陈立行",
+    email: "li@quanta.trade",
+    workspace: "个人 Workspace",
+    memberSince: "2024-03-11",
+    locale: "中文（zh-CN）",
+    timezone: "Asia/Shanghai (UTC+8)"
+  },
+  plan: {
+    name: "年付 License",
+    tier: "Professional",
+    price: 299,
+    cycle: "年",
+    seats: 1,
+    renews: "2026-12-31",
+    started: "2024-12-31",
+    autoRenew: true,
+    domainsIncluded: "无限",
+    devicesIncluded: 2,
+    method: "Visa · 4242"
+  },
+  usage: {
+    domains: 1024,
+    valuation: 284120,
+    platforms: 4,
+    accounts: 3,
+    devicesBound: 2,
+    storageMB: 38
+  },
+  devices: [{
+    id: "mac",
+    name: "MacBook Pro",
+    os: "macOS 15.2 · Apple Silicon",
+    self: true,
+    state: "active",
+    epoch: 41,
+    last: "现在",
+    location: "上海",
+    added: "2024-12-31"
+  }, {
+    id: "iph",
+    name: "iPhone 17 Pro",
+    os: "iOS 19.1",
+    self: false,
+    state: "standby",
+    last: "今日 08:30",
+    location: "上海",
+    added: "2025-06-02"
+  }, {
+    id: "air",
+    name: "MacBook Air (2019)",
+    os: "macOS 13 · Intel",
+    self: false,
+    state: "sunset",
+    last: "06-12",
+    location: "—",
+    added: "2024-03-11"
+  }],
+  invoices: [{
+    id: "INV-2026-0012",
+    date: "2025-12-31",
+    desc: "年付 License · Professional · 2026",
+    amount: 299,
+    status: "paid",
+    method: "Visa · 4242"
+  }, {
+    id: "INV-2025-0009",
+    date: "2024-12-31",
+    desc: "年付 License · Professional · 2025",
+    amount: 299,
+    status: "paid",
+    method: "Visa · 4242"
+  }, {
+    id: "INV-2025-0021",
+    date: "2025-06-02",
+    desc: "追加绑定设备额度",
+    amount: 0,
+    status: "paid",
+    method: "—"
+  }, {
+    id: "INV-2024-0004",
+    date: "2024-03-11",
+    desc: "月付 License · Professional · 试用转正",
+    amount: 29,
+    status: "paid",
+    method: "Visa · 4242"
+  }],
+  sessions: [{
+    id: 1,
+    device: "MacBook Pro · 桌面客户端",
+    kind: "desktop",
+    ip: "116.226.xx.xx",
+    location: "上海 · 中国",
+    last: "现在",
+    current: true
+  }, {
+    id: 2,
+    device: "Chrome 129 · macOS",
+    kind: "web",
+    ip: "116.226.xx.xx",
+    location: "上海 · 中国",
+    last: "12 分钟前",
+    current: false
+  }, {
+    id: 3,
+    device: "iPhone 17 Pro · 桌面客户端",
+    kind: "mobile",
+    ip: "223.104.xx.xx",
+    location: "上海 · 中国",
+    last: "今日 08:30",
+    current: false
+  }, {
+    id: 4,
+    device: "Safari · macOS",
+    kind: "web",
+    ip: "45.32.xx.xx",
+    location: "东京 · 日本",
+    last: "07-28",
+    current: false,
+    flag: true
+  }],
+  ledger: [{
+    rev: 8241,
+    op: "批量改价 BIN −8%",
+    platform: "Atom / Afternic",
+    source: "MacBook Pro",
+    items: 823,
+    status: "applied",
+    time: "14:02"
+  }, {
+    rev: 8240,
+    op: "新增 TXT 验证记录",
+    platform: "Cloudflare",
+    source: "MacBook Pro",
+    items: 17,
+    status: "applied",
+    time: "13:44"
+  }, {
+    rev: 8239,
+    op: "变更 Nameserver → Cloudflare",
+    platform: "注册商",
+    source: "MacBook Pro",
+    items: 3,
+    status: "applied",
+    time: "13:31",
+    risk: true
+  }, {
+    rev: 8238,
+    op: "成交与交割 vault.io",
+    platform: "Atom",
+    source: "MacBook Pro",
+    items: 1,
+    status: "applied",
+    time: "11:20",
+    value: 12800
+  }, {
+    rev: 8237,
+    op: "批量改价 BIN −12%",
+    platform: "Atom",
+    source: "MacBook Air",
+    items: 240,
+    status: "rolledback",
+    time: "昨日 09:12"
+  }],
+  portfolio: [{
+    domain: "kanban.ai",
+    registrar: "Namecheap",
+    status: "synced",
+    bin: 45000,
+    expiry: "2027-01-28"
+  }, {
+    domain: "marble.finance",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 15000,
+    expiry: "2027-02-17"
+  }, {
+    domain: "vault.io",
+    registrar: "Spaceship",
+    status: "sold",
+    bin: 12800,
+    expiry: "2027-03-14"
+  }, {
+    domain: "crest.capital",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 9800,
+    expiry: "2027-11-30"
+  }, {
+    domain: "north.capital",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 8200,
+    expiry: "2028-05-01"
+  }, {
+    domain: "quanta.trade",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 6600,
+    expiry: "2027-06-11"
+  }, {
+    domain: "oxide.dev",
+    registrar: "Namecheap",
+    status: "pending",
+    bin: 5200,
+    expiry: "2026-10-05"
+  }, {
+    domain: "lantern.app",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 3900,
+    expiry: "2027-07-22"
+  }, {
+    domain: "goldrail.com",
+    registrar: "Spaceship",
+    status: "synced",
+    bin: 3500,
+    expiry: "2026-11-02"
+  }, {
+    domain: "driftline.com",
+    registrar: "Spaceship",
+    status: "pending",
+    bin: 2400,
+    expiry: "2026-12-24"
+  }, {
+    domain: "helio.systems",
+    registrar: "Dynadot",
+    status: "synced",
+    bin: 1750,
+    expiry: "2027-09-08"
+  }, {
+    domain: "lumen.dev",
+    registrar: "Dynadot",
+    status: "conflict",
+    bin: 980,
+    expiry: "2026-09-19"
+  }],
+  activity: [{
+    kind: "sync",
+    text: "云端已接收 823 项修改",
+    meta: "MacBook Pro · rev 8,241",
+    time: "14:02"
+  }, {
+    kind: "sale",
+    text: "vault.io 已成交并放款",
+    meta: "Atom · 净收入入账",
+    time: "11:20",
+    value: 12800
+  }, {
+    kind: "device",
+    text: "iPhone 17 Pro 申请待命",
+    meta: "Standby · 未持有执行权",
+    time: "08:30"
+  }, {
+    kind: "billing",
+    text: "发票 INV-2026-0012 已支付",
+    meta: "Visa · 4242",
+    time: "昨日"
+  }, {
+    kind: "security",
+    text: "新的网页登录 · 东京",
+    meta: "Safari · 45.32.xx.xx",
+    time: "07-28",
+    flag: true
+  }],
+  releases: [{
+    os: "macOS",
+    icon: "Apple",
+    variant: "Apple Silicon · Intel 通用",
+    size: "92 MB",
+    ver: "0.9.0",
+    note: "推荐 · 本机版本"
+  }, {
+    os: "Windows",
+    icon: "Monitor",
+    variant: "Windows 10/11 · x64",
+    size: "104 MB",
+    ver: "0.9.0",
+    note: ""
+  }, {
+    os: "Linux",
+    icon: "HardDrive",
+    variant: "AppImage · .deb",
+    size: "98 MB",
+    ver: "0.9.0",
+    note: ""
+  }]
+};
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/data.js", error: String((e && e.message) || e) }); }
+
+// ui_kits/account-web/icons.jsx
+try { (() => {
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
+// Lucide icon paths (1.7px stroke, geometric) — shared across the web kits.
+const mkIcon = children => ({
+  size = 15,
+  style,
+  ...p
+}) => /*#__PURE__*/React.createElement("svg", _extends({
+  width: size,
+  height: size,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: "1.7",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  style: style
+}, p), children);
+const GDI = {
+  LayoutDashboard: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "9",
+    x: "3",
+    y: "3",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "5",
+    x: "14",
+    y: "3",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "9",
+    x: "14",
+    y: "12",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "5",
+    x: "3",
+    y: "16",
+    rx: "1"
+  }))),
+  Globe: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 12h20"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+  }))),
+  Coins: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "8",
+    cy: "8",
+    r: "6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18.09 10.37A6 6 0 1 1 10.34 18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 6h1v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m16.71 13.88.7.71-2.82 2.82"
+  }))),
+  Users: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "9",
+    cy: "7",
+    r: "4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M22 21v-2a4 4 0 0 0-3-3.87"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 3.13a4 4 0 0 1 0 7.75"
+  }))),
+  User: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "7",
+    r: "4"
+  }))),
+  CreditCard: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "14",
+    x: "2",
+    y: "5",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "2",
+    x2: "22",
+    y1: "10",
+    y2: "10"
+  }))),
+  Receipt: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 17.5v-11"
+  }))),
+  KeyRound: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M2 18v3c0 .5.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "16.5",
+    cy: "7.5",
+    r: ".7",
+    fill: "currentColor"
+  }))),
+  Key: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "7.5",
+    cy: "15.5",
+    r: "5.5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m21 2-9.6 9.6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m15.5 7.5 3 3L22 7l-3-3"
+  }))),
+  ShieldCheck: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9 12 2 2 4-4"
+  }))),
+  Shield: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+  })),
+  Lock: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "18",
+    height: "11",
+    x: "3",
+    y: "11",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 11V7a5 5 0 0 1 10 0v4"
+  }))),
+  Smartphone: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "14",
+    height: "20",
+    x: "5",
+    y: "2",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 18h.01"
+  }))),
+  Monitor: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "2",
+    y: "3",
+    width: "20",
+    height: "14",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    y1: "21",
+    x2: "16",
+    y2: "21"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "17",
+    x2: "12",
+    y2: "21"
+  }))),
+  Database: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("ellipse", {
+    cx: "12",
+    cy: "5",
+    rx: "9",
+    ry: "3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 5V19A9 3 0 0 0 21 19V5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 12A9 3 0 0 0 21 12"
+  }))),
+  Cloud: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"
+  })),
+  Server: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "8",
+    x: "2",
+    y: "2",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "8",
+    x: "2",
+    y: "14",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "6",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "18",
+    y2: "18"
+  }))),
+  Activity: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M22 12h-4l-3 9L9 3l-3 9H2"
+  })),
+  LifeBuoy: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m4.93 4.93 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m14.83 9.17 4.24-4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m14.83 14.83 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9.17 14.83-4.24 4.24"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "4"
+  }))),
+  ScrollText: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 12h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 8h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M19 17V5a2 2 0 0 0-2-2H4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"
+  }))),
+  SlidersHorizontal: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "14",
+    y1: "4",
+    y2: "4"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "3",
+    y1: "4",
+    y2: "4"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "12",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "3",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "16",
+    y1: "20",
+    y2: "20"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "3",
+    y1: "20",
+    y2: "20"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "14",
+    x2: "14",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "8",
+    y1: "10",
+    y2: "14"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "16",
+    x2: "16",
+    y1: "18",
+    y2: "22"
+  }))),
+  Megaphone: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m3 11 18-5v12L3 14v-3z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M11.6 16.8a3 3 0 1 1-5.8-1.6"
+  }))),
+  Bell: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10.3 21a1.94 1.94 0 0 0 3.4 0"
+  }))),
+  LogOut: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 17 21 12 16 7"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "9",
+    y1: "12",
+    y2: "12"
+  }))),
+  Settings: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }))),
+  Search: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "11",
+    cy: "11",
+    r: "7"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m20 20-3.5-3.5"
+  }))),
+  RefreshCw: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 12a9 9 0 0 1 15.6-6.2L21 8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M21 3v5h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M21 12a9 9 0 0 1-15.6 6.2L3 16"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 21v-5h5"
+  }))),
+  Download: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "7 10 12 15 17 10"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "15",
+    x2: "12",
+    y2: "3"
+  }))),
+  Upload: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "17 8 12 3 7 8"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "3",
+    x2: "12",
+    y2: "15"
+  }))),
+  X: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M18 6 6 18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m6 6 12 12"
+  }))),
+  Plus: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 5v14"
+  }))),
+  Minus: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  })),
+  Check: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M20 6 9 17l-5-5"
+  })),
+  ChevronRight: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m9 18 6-6-6-6"
+  })),
+  ChevronLeft: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m15 18-6-6 6-6"
+  })),
+  ChevronDown: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m6 9 6 6 6-6"
+  })),
+  ExternalLink: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 3h6v6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 14 21 3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+  }))),
+  ArrowRight: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m12 5 7 7-7 7"
+  }))),
+  ArrowUpRight: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M7 7h10v10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 17 17 7"
+  }))),
+  MoreHorizontal: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "19",
+    cy: "12",
+    r: "1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "5",
+    cy: "12",
+    r: "1"
+  }))),
+  Filter: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+  })),
+  Calendar: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "18",
+    height: "18",
+    x: "3",
+    y: "4",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "16",
+    x2: "16",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "8",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "3",
+    x2: "21",
+    y1: "10",
+    y2: "10"
+  }))),
+  Clock: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "12 6 12 12 16 14"
+  }))),
+  TrendingUp: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("polyline", {
+    points: "22 7 13.5 15.5 8.5 10.5 2 17"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 7 22 7 22 13"
+  }))),
+  TrendingDown: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("polyline", {
+    points: "22 17 13.5 8.5 8.5 13.5 2 7"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 17 22 17 22 11"
+  }))),
+  Zap: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+  })),
+  Ban: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m4.9 4.9 14.2 14.2"
+  }))),
+  Copy: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "14",
+    height: "14",
+    x: "8",
+    y: "8",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+  }))),
+  Eye: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }))),
+  EyeOff: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M9.88 9.88a3 3 0 1 0 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "2",
+    x2: "22",
+    y1: "2",
+    y2: "22"
+  }))),
+  Mail: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "16",
+    x: "2",
+    y: "4",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"
+  }))),
+  DollarSign: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12",
+    y1: "2",
+    y2: "22"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+  }))),
+  Wallet: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 12V7H5a2 2 0 0 1 0-4h14v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 5v14a2 2 0 0 0 2 2h16v-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 12a2 2 0 0 0 0 4h4v-4Z"
+  }))),
+  Building2: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 6h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 10h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 14h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 18h4"
+  }))),
+  Cpu: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "16",
+    height: "16",
+    x: "4",
+    y: "4",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "6",
+    height: "6",
+    x: "9",
+    y: "9",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 2v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 20v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 15h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 9h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M20 15h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M20 9h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M9 2v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M9 20v2"
+  }))),
+  HardDrive: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "22",
+    x2: "2",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "16",
+    y2: "16"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "10.01",
+    y1: "16",
+    y2: "16"
+  }))),
+  Wifi: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12 20h.01"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 8.82a15 15 0 0 1 20 0"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M5 12.86a10 10 0 0 1 14 0"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8.5 16.43a5 5 0 0 1 7 0"
+  }))),
+  BarChart3: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 3v18h18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 17V9"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M13 17V5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 17v-3"
+  }))),
+  Gauge: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m12 14 4-4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3.34 19a10 10 0 1 1 17.32 0"
+  }))),
+  CircleCheck: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9 12 2 2 4-4"
+  }))),
+  CircleAlert: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12",
+    y1: "8",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12.01",
+    y1: "16",
+    y2: "16"
+  }))),
+  AlertTriangle: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 9v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 17h.01"
+  }))),
+  Trash2: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 6h18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "10",
+    y1: "11",
+    y2: "17"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "14",
+    x2: "14",
+    y1: "11",
+    y2: "17"
+  }))),
+  FileText: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M14 2v4a2 2 0 0 0 2 2h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 9H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 13H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 17H8"
+  }))),
+  Pause: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "14",
+    y: "4",
+    width: "4",
+    height: "16",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    x: "6",
+    y: "4",
+    width: "4",
+    height: "16",
+    rx: "1"
+  }))),
+  Play: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "6 3 20 12 6 21 6 3"
+  })),
+  Apple: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 2c1 .5 2 2 2 5"
+  }))),
+  Command: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"
+  }))
+};
+window.GDI = GDI;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/account-web/icons.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/AdminDashboard.jsx
+try { (() => {
+// 运营概览 Dashboard — MRR trend, plan mix, recent transactions, attention feed, fleet health.
+const {
+  Panel: DPanel,
+  Badge: DBadge,
+  Button: DBtn,
+  Money: DMoney,
+  StatusDot: DDot
+} = window.GoodDealerDesignSystem_b5b0b6;
+function Bars({
+  series
+}) {
+  const max = Math.max(...series),
+    min = Math.min(...series);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-end",
+      gap: 5,
+      height: 96,
+      marginTop: 4
+    }
+  }, series.map((v, i) => {
+    const h = 8 + (v - min) / (max - min || 1) * 82;
+    const last = i === series.length - 1;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      title: "$" + v + "k",
+      style: {
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+        alignItems: "stretch",
+        gap: 5
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        height: h,
+        borderRadius: "2px 2px 0 0",
+        background: last ? "var(--gd-gold)" : "rgba(212,164,55,0.32)"
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "var(--text-3)",
+        textAlign: "center",
+        fontFamily: "var(--font-mono)"
+      }
+    }, i + 1));
+  }));
+}
+function AttnRow({
+  icon,
+  tone,
+  text,
+  meta,
+  cta,
+  onGo
+}) {
+  const I = window.GDI;
+  const Ic = I[icon];
+  const col = `var(--gd-${tone})`;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 11,
+      padding: "11px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      alignItems: "flex-start"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 26,
+      height: 26,
+      flex: "none",
+      borderRadius: 6,
+      background: `var(--gd-${tone}-tint)`,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: col
+    }
+  }, /*#__PURE__*/React.createElement(Ic, {
+    size: 14
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, text), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 2
+    }
+  }, meta)), /*#__PURE__*/React.createElement("button", {
+    onClick: onGo,
+    style: {
+      flex: "none",
+      background: "none",
+      border: "none",
+      color: "var(--gd-blue)",
+      fontSize: 11.5,
+      cursor: "pointer",
+      fontFamily: "var(--font-sans)",
+      whiteSpace: "nowrap",
+      padding: "2px 0"
+    }
+  }, cta));
+}
+function AdminDashboard({
+  go
+}) {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const K = D.kpis;
+  const MetricStrip = window.GDMetricStrip;
+  const totalMrr = D.planMix.reduce((s, p) => s + p.mrr, 0);
+  const fleetStates = [["active", "Active", 1842, "gold"], ["standby", "Standby", 1903, "blue"], ["activating", "激活中", 41, "blue"], ["draining", "排空中", 18, "warning"], ["sunset", "Sunset 保留", 302, "neutral"]];
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8FD0\u8425\u6982\u89C8",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "活跃客户",
+      value: K.activeCustomers.toLocaleString(),
+      meta: "试用 " + K.trials + " · 流失率 " + K.churnRate + "%"
+    }, {
+      label: "月经常性收入 MRR",
+      value: "$48,210",
+      tone: "gold",
+      meta: "ARR $578,520 · 环比 +0.6%"
+    }, {
+      label: "在线设备",
+      value: K.devicesOnline.toLocaleString(),
+      meta: "绑定 " + K.devicesBound.toLocaleString() + " · 单活动"
+    }, {
+      label: "同步健康",
+      value: K.syncHealth + "%",
+      tone: "success",
+      meta: "队列 128 · p95 42ms"
+    }, {
+      label: "待处理工单",
+      value: K.openTickets,
+      tone: "warning",
+      meta: "2 高优先级",
+      onClick: () => go("support")
+    }, {
+      label: "高风险告警",
+      value: K.alerts,
+      tone: "danger",
+      meta: "1 服务降级",
+      onClick: () => go("infra")
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 340px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(DPanel, {
+    title: "\u6708\u7ECF\u5E38\u6027\u6536\u5165 \xB7 \u8FD1 12 \u4E2A\u6708",
+    actions: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        fontSize: 15,
+        color: "var(--gd-gold)"
+      }
+    }, "$48.2k"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--gd-success)",
+        marginLeft: 8
+      }
+    }, "+26% YoY"))
+  }, /*#__PURE__*/React.createElement(Bars, {
+    series: D.revenueSeries
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 18,
+      marginTop: 14,
+      paddingTop: 12,
+      borderTop: "1px solid var(--gd-line)"
+    }
+  }, D.planMix.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.plan,
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 11,
+      color: "var(--text-2)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: p.color,
+      flex: "none"
+    }
+  }), p.plan), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 14,
+      color: "var(--text-1)"
+    }
+  }, p.count.toLocaleString()), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "$", (p.mrr / 1000).toFixed(1), "k MRR"))))), /*#__PURE__*/React.createElement(DPanel, {
+    flush: true,
+    title: "\u8FD1\u671F\u4EA4\u6613",
+    actions: /*#__PURE__*/React.createElement(DBtn, {
+      size: "sm",
+      variant: "ghost",
+      onClick: () => go("revenue")
+    }, "\u5168\u90E8 \u2192")
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("tbody", null, D.transactions.slice(0, 5).map((t, i) => /*#__PURE__*/React.createElement("tr", {
+    key: t.id,
+    style: {
+      borderBottom: i < 4 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, t.id), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 8px",
+      color: "var(--text-1)"
+    }
+  }, t.customer), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 8px"
+    }
+  }, t.type === "refund" ? /*#__PURE__*/React.createElement(DBadge, {
+    tone: "neutral",
+    mono: false
+  }, "\u9000\u6B3E") : t.status === "failed" ? /*#__PURE__*/React.createElement(DBadge, {
+    tone: "danger",
+    mono: false
+  }, "\u5931\u8D25") : /*#__PURE__*/React.createElement(DBadge, {
+    tone: "success"
+  }, "\u6210\u529F")), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "9px 16px",
+      textAlign: "right"
+    }
+  }, /*#__PURE__*/React.createElement(DMoney, {
+    amount: t.amount,
+    size: 12,
+    tone: t.type === "refund" ? "danger" : "gold",
+    sign: t.type === "refund"
+  })))))))), /*#__PURE__*/React.createElement(DPanel, {
+    flush: true,
+    title: "\u9700\u8981\u5173\u6CE8",
+    actions: /*#__PURE__*/React.createElement(DBadge, {
+      tone: "danger"
+    }, 2 + 2 + 2, " \u9879")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "2px 16px 4px"
+    }
+  }, /*#__PURE__*/React.createElement(AttnRow, {
+    icon: "Activity",
+    tone: "warning",
+    text: "Webhooks \u670D\u52A1\u964D\u7EA7",
+    meta: "Afternic \u56DE\u8C03\u5EF6\u8FDF 340ms \xB7 INC-241",
+    cta: "\u67E5\u770B",
+    onGo: () => go("infra")
+  }), /*#__PURE__*/React.createElement(AttnRow, {
+    icon: "CreditCard",
+    tone: "danger",
+    text: "2 \u7B14\u6263\u6B3E\u5931\u8D25",
+    meta: "Sana Qureshi \xB7 Halcyon Group \xB7 past_due",
+    cta: "\u5904\u7406",
+    onGo: () => go("revenue")
+  }), /*#__PURE__*/React.createElement(AttnRow, {
+    icon: "LifeBuoy",
+    tone: "warning",
+    text: "2 \u4E2A\u9AD8\u4F18\u5148\u7EA7\u5DE5\u5355",
+    meta: "\u8BBE\u5907\u95E8\u7981 \xB7 \u6279\u91CF\u6539\u4EF7\u672A\u751F\u6548",
+    cta: "\u6536\u4EF6\u7BB1",
+    onGo: () => go("support")
+  }), /*#__PURE__*/React.createElement(AttnRow, {
+    icon: "Cpu",
+    tone: "warning",
+    text: "1 \u53F0\u8BBE\u5907\u6FC0\u6D3B\u6EDE\u7559",
+    meta: "Sana Qureshi \xB7 D-9111 \xB7 \u6392\u7A7A 2 \u5929",
+    cta: "\u8230\u961F",
+    onGo: () => go("fleet")
+  }), /*#__PURE__*/React.createElement(AttnRow, {
+    icon: "Users",
+    tone: "neutral",
+    text: "186 \u4E2A\u8BD5\u7528\u5C06\u5728 14 \u5929\u5185\u5230\u671F",
+    meta: "\u8F6C\u5316\u63D0\u9192",
+    cta: "\u5BA2\u6237",
+    onGo: () => go("customers")
+  })))), /*#__PURE__*/React.createElement(DPanel, {
+    title: "\u8BBE\u5907\u8230\u961F\u5065\u5EB7",
+    actions: /*#__PURE__*/React.createElement(DBtn, {
+      size: "sm",
+      variant: "ghost",
+      onClick: () => go("fleet")
+    }, "\u8230\u961F\u8BE6\u60C5 \u2192")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 0
+    }
+  }, fleetStates.map(([k, label, n, tone], i) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      padding: "4px 16px",
+      borderRight: i < fleetStates.length - 1 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      fontSize: 11,
+      color: "var(--text-2)"
+    }
+  }, /*#__PURE__*/React.createElement(DDot, {
+    kind: k === "active" ? "active" : k === "standby" ? "standby" : tone === "warning" ? "warning" : "neutral"
+  }), label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 20,
+      color: tone === "gold" ? "var(--gd-gold)" : tone === "warning" ? "var(--gd-warning)" : "var(--text-1)"
+    }
+  }, n.toLocaleString())))))));
+}
+window.GDAdminDashboard = AdminDashboard;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/AdminDashboard.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/AdminShell.jsx
+try { (() => {
+// admin-web Shell — operator console. Web-native full-bleed: grouped sidebar + topbar (env pill,
+// global search) + full-width system-health status bar. Same ink/gold/blue terminal language, operator density.
+const {
+  StatusBar: AStatusBar,
+  IconButton: AIconButton,
+  Badge: ABadge2
+} = window.GoodDealerDesignSystem_b5b0b6;
+const ADot = ({
+  tone,
+  hollow,
+  size = 7
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    width: size,
+    height: size,
+    borderRadius: "50%",
+    flex: "none",
+    display: "inline-block",
+    background: hollow ? "transparent" : `var(--gd-${tone})`,
+    border: hollow ? `1.5px solid var(--gd-${tone})` : "none"
+  }
+});
+const ANAV = [{
+  sec: "运营",
+  items: [{
+    k: "dashboard",
+    label: "概览",
+    icon: "LayoutDashboard"
+  }, {
+    k: "customers",
+    label: "客户",
+    icon: "Users"
+  }, {
+    k: "licenses",
+    label: "许可与订阅",
+    icon: "KeyRound"
+  }, {
+    k: "revenue",
+    label: "计费与营收",
+    icon: "DollarSign"
+  }]
+}, {
+  sec: "系统",
+  items: [{
+    k: "fleet",
+    label: "设备舰队",
+    icon: "Cpu"
+  }, {
+    k: "infra",
+    label: "同步与基础设施",
+    icon: "Activity"
+  }, {
+    k: "audit",
+    label: "审计日志",
+    icon: "ScrollText"
+  }]
+}, {
+  sec: "支持",
+  items: [{
+    k: "support",
+    label: "支持工单",
+    icon: "LifeBuoy",
+    count: 23,
+    tone: "warning"
+  }, {
+    k: "announcements",
+    label: "公告",
+    icon: "Megaphone"
+  }]
+}];
+const AFOOT = [{
+  k: "config",
+  label: "系统配置",
+  icon: "SlidersHorizontal"
+}];
+const asx = {
+  side: {
+    width: 224,
+    flex: "none",
+    background: "var(--gd-panel)",
+    borderRight: "1px solid var(--gd-line)",
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0
+  },
+  brand: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "15px 16px 14px",
+    borderBottom: "1px solid var(--gd-line)"
+  },
+  navSec: {
+    padding: "14px 16px 5px",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "var(--text-3)",
+    fontWeight: 500
+  },
+  item: on => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    margin: "1px 8px",
+    padding: "0 9px",
+    height: 30,
+    borderRadius: 5,
+    cursor: "pointer",
+    fontSize: 13,
+    color: on ? "var(--text-1)" : "var(--text-2)",
+    background: on ? "var(--gd-panel-raised)" : "transparent",
+    border: "none",
+    width: "calc(100% - 16px)",
+    fontFamily: "var(--font-sans)",
+    textAlign: "left",
+    transition: "background 120ms,color 120ms",
+    fontWeight: on ? 500 : 400,
+    position: "relative"
+  }),
+  bar: {
+    position: "absolute",
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 2,
+    borderRadius: 1,
+    background: "var(--gd-gold)"
+  },
+  count: tone => ({
+    marginLeft: "auto",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    color: tone ? `var(--gd-${tone})` : "var(--text-3)",
+    lineHeight: "15px"
+  }),
+  topbar: {
+    height: 52,
+    flex: "none",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "0 18px",
+    borderBottom: "1px solid var(--gd-line)",
+    background: "var(--gd-chrome)"
+  },
+  cmd: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    height: 30,
+    padding: "0 8px 0 11px",
+    width: 300,
+    background: "var(--gd-ink)",
+    border: "1px solid var(--gd-line-strong)",
+    borderRadius: 5,
+    color: "var(--text-3)",
+    fontSize: 12,
+    cursor: "text"
+  },
+  kbd: {
+    marginLeft: "auto",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    color: "var(--text-3)",
+    border: "1px solid var(--gd-line-strong)",
+    borderRadius: 3,
+    padding: "0 4px",
+    lineHeight: "15px"
+  },
+  env: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    height: 24,
+    padding: "0 9px",
+    borderRadius: 999,
+    border: "1px solid rgba(92,174,125,0.35)",
+    background: "var(--gd-success-tint)",
+    color: "var(--gd-success)",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    whiteSpace: "nowrap"
+  }
+};
+function ANavItem({
+  item,
+  active,
+  onGo
+}) {
+  const on = active === item.k;
+  const Ic = window.GDI[item.icon];
+  return /*#__PURE__*/React.createElement("button", {
+    style: asx.item(on),
+    onClick: () => onGo(item.k),
+    onMouseEnter: e => {
+      if (!on) e.currentTarget.style.background = "var(--gd-panel-raised)";
+    },
+    onMouseLeave: e => {
+      if (!on) e.currentTarget.style.background = "transparent";
+    }
+  }, on && /*#__PURE__*/React.createElement("span", {
+    style: asx.bar
+  }), /*#__PURE__*/React.createElement(Ic, {
+    size: 16,
+    style: {
+      flex: "none",
+      opacity: on ? 1 : .72,
+      color: on ? "var(--text-1)" : undefined
+    }
+  }), item.label, item.count != null && /*#__PURE__*/React.createElement("span", {
+    style: asx.count(item.tone)
+  }, item.count));
+}
+function AdminShell({
+  active,
+  onGo,
+  title,
+  crumb,
+  children,
+  syncing,
+  onSync
+}) {
+  const I = window.GDI;
+  const footer = /*#__PURE__*/React.createElement(AStatusBar, {
+    left: [/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ADot, {
+      tone: "success"
+    }), "\u7CFB\u7EDF\u6B63\u5E38"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "\u540C\u6B65\u961F\u5217 ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        color: "var(--gd-text)"
+      }
+    }, "128")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "API p95 ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        color: "var(--gd-text)"
+      }
+    }, "42ms")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "12 region")],
+    right: [/*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "\u5728\u7EBF\u8BBE\u5907 ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        color: "var(--gd-text)"
+      }
+    }, "1,842"), " / 4,106"), /*#__PURE__*/React.createElement(React.Fragment, null, "MRR ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        color: "var(--gd-gold)"
+      }
+    }, "$48.2k"), " ", /*#__PURE__*/React.createElement(ADot, {
+      tone: "gold"
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "ops@gooddealer.com"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-3)"
+      }
+    }, "admin v0.9.0")]
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: "100%",
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("aside", {
+    style: asx.side
+  }, /*#__PURE__*/React.createElement("div", {
+    style: asx.brand
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "../../assets/logo/mark-flat.svg",
+    width: "22",
+    height: "22",
+    alt: ""
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: "var(--text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "GoodDealer"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      letterSpacing: "0.04em"
+    }
+  }, "\u8FD0\u8425\u63A7\u5236\u53F0 \xB7 Admin"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflow: "auto",
+      minHeight: 0
+    }
+  }, ANAV.map(g => /*#__PURE__*/React.createElement("div", {
+    key: g.sec
+  }, /*#__PURE__*/React.createElement("div", {
+    style: asx.navSec
+  }, g.sec), g.items.map(it => /*#__PURE__*/React.createElement(ANavItem, {
+    key: it.k,
+    item: it,
+    active: active,
+    onGo: onGo
+  }))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--gd-line)",
+      paddingTop: 6
+    }
+  }, AFOOT.map(it => /*#__PURE__*/React.createElement(ANavItem, {
+    key: it.k,
+    item: it,
+    active: active,
+    onGo: onGo
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "11px 14px 12px",
+      margin: "6px 0 0",
+      borderTop: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 28,
+      height: 28,
+      flex: "none",
+      borderRadius: "50%",
+      background: "linear-gradient(135deg,var(--gd-panel-raised),var(--gd-line))",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: "var(--gd-gold)"
+    }
+  }, "\u738B"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2,
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-1)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, "\u738B\u8FD0\u7EF4 ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      color: "var(--gd-gold)",
+      border: "1px solid rgba(212,164,55,0.4)",
+      borderRadius: 3,
+      padding: "0 4px",
+      lineHeight: "13px",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "ADMIN")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, "\u8FD0\u8425\u7BA1\u7406\u5458")), /*#__PURE__*/React.createElement(AIconButton, {
+    size: "sm",
+    label: "\u9000\u51FA\u767B\u5F55"
+  }, /*#__PURE__*/React.createElement(I.LogOut, {
+    size: 14
+  }))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      minWidth: 0,
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: asx.topbar
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, title), crumb && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-3)"
+    }
+  }, crumb), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: asx.env
+  }, /*#__PURE__*/React.createElement(ADot, {
+    tone: "success",
+    size: 6
+  }), "Production"), /*#__PURE__*/React.createElement("div", {
+    style: asx.cmd
+  }, /*#__PURE__*/React.createElement(I.Search, {
+    size: 13
+  }), /*#__PURE__*/React.createElement("span", null, "\u641C\u7D22\u5BA2\u6237\u3001\u8BBE\u5907\u3001\u53D1\u7968\u2026"), /*#__PURE__*/React.createElement("span", {
+    style: asx.kbd
+  }, "\u2318K")), /*#__PURE__*/React.createElement(AIconButton, {
+    size: "sm",
+    label: "\u544A\u8B66"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "relative",
+      display: "inline-flex"
+    }
+  }, /*#__PURE__*/React.createElement(I.Bell, {
+    size: 15
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute",
+      top: -1,
+      right: -1,
+      width: 5,
+      height: 5,
+      borderRadius: "50%",
+      background: "var(--gd-danger)"
+    }
+  }))), /*#__PURE__*/React.createElement(AIconButton, {
+    size: "sm",
+    label: "\u5237\u65B0",
+    onClick: onSync
+  }, /*#__PURE__*/React.createElement(I.RefreshCw, {
+    size: 14,
+    style: syncing ? {
+      animation: "gd-spinner 1s linear infinite"
+    } : undefined
+  })))), /*#__PURE__*/React.createElement("main", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 0,
+      overflow: "auto",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, children))), footer);
+}
+window.GDAdminShell = AdminShell;
+window.GDADot = ADot;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/AdminShell.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Announcements.jsx
+try { (() => {
+// 公告 Announcements — compose/schedule/publish product & maintenance notices to customer segments.
+const {
+  Panel: AnPanel,
+  Badge: AnBadge,
+  Button: AnBtn,
+  Select: AnSel,
+  Input: AnInput,
+  Dialog: AnDlg,
+  Toolbar: AnToolbar
+} = window.GoodDealerDesignSystem_b5b0b6;
+const AN_STAT = {
+  published: /*#__PURE__*/React.createElement(AnBadge, {
+    tone: "success"
+  }, "\u5DF2\u53D1\u5E03"),
+  scheduled: /*#__PURE__*/React.createElement(AnBadge, {
+    tone: "sync",
+    mono: false
+  }, "\u5DF2\u6392\u671F"),
+  draft: /*#__PURE__*/React.createElement(AnBadge, {
+    tone: "neutral",
+    mono: false
+  }, "\u8349\u7A3F")
+};
+function Announcements() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [items, setItems] = React.useState(() => D.announcements.map(a => ({
+    ...a
+  })));
+  const [compose, setCompose] = React.useState(false);
+  const counts = {
+    published: items.filter(a => a.status === "published").length,
+    scheduled: items.filter(a => a.status === "scheduled").length,
+    draft: items.filter(a => a.status === "draft").length
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u516C\u544A",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "已发布",
+      value: counts.published,
+      tone: "success",
+      meta: "当前生效"
+    }, {
+      label: "已排期",
+      value: counts.scheduled,
+      tone: "body",
+      meta: "待自动发布"
+    }, {
+      label: "草稿",
+      value: counts.draft,
+      meta: "未发布"
+    }, {
+      label: "本月触达",
+      value: "2,847",
+      meta: "全部客户"
+    }, {
+      label: "平均阅读率",
+      value: "68%",
+      tone: "gold",
+      meta: "应用内公告"
+    }]
+  }), /*#__PURE__*/React.createElement(AnToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--text-1)"
+      }
+    }, "\u5168\u90E8\u516C\u544A"),
+    right: /*#__PURE__*/React.createElement(AnBtn, {
+      size: "sm",
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Plus, {
+        size: 14
+      }),
+      onClick: () => setCompose(true)
+    }, "\u64B0\u5199\u516C\u544A")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      maxWidth: 960
+    }
+  }, items.map(a => /*#__PURE__*/React.createElement("div", {
+    key: a.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      padding: "14px 16px",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 8,
+      background: "var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 34,
+      height: 34,
+      flex: "none",
+      borderRadius: 7,
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: a.status === "published" ? "var(--gd-gold)" : "var(--text-3)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Megaphone, {
+    size: 16
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 9
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, a.title), AN_STAT[a.status]), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 3,
+      fontFamily: "var(--font-mono)"
+    }
+  }, a.id, " \xB7 \u53D7\u4F17 ", a.audience, " \xB7 ", a.author)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      color: a.status === "scheduled" ? "var(--gd-blue)" : "var(--text-3)",
+      flex: "none"
+    }
+  }, a.date), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flex: "none"
+    }
+  }, a.status === "draft" && /*#__PURE__*/React.createElement(AnBtn, {
+    size: "sm",
+    variant: "primary"
+  }, "\u53D1\u5E03"), a.status === "scheduled" && /*#__PURE__*/React.createElement(AnBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u6539\u671F"), /*#__PURE__*/React.createElement(AnBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, a.status === "published" ? "查看" : "编辑"))))), /*#__PURE__*/React.createElement(AnDlg, {
+    open: compose,
+    onClose: () => setCompose(false),
+    title: "\u64B0\u5199\u516C\u544A",
+    width: 560,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(AnBtn, {
+      onClick: () => setCompose(false)
+    }, "\u5B58\u8349\u7A3F"), /*#__PURE__*/React.createElement(AnBtn, {
+      variant: "primary",
+      onClick: () => setCompose(false)
+    }, "\u53D1\u5E03 \xB7 \u5168\u90E8\u5BA2\u6237"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(AnInput, {
+    label: "\u6807\u9898",
+    placeholder: "\u5982\uFF1A0.9.1 \u53D1\u5E03\u8BF4\u660E"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(AnSel, {
+    label: "\u53D7\u4F17",
+    size: "md",
+    options: ["全部客户", "Professional · Portfolio", "仅 Portfolio", "按区域", "仅试用客户"],
+    value: "\u5168\u90E8\u5BA2\u6237",
+    onChange: () => {}
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(AnSel, {
+    label: "\u53D1\u5E03",
+    size: "md",
+    options: ["立即发布", "定时发布"],
+    value: "\u7ACB\u5373\u53D1\u5E03",
+    onChange: () => {}
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u6B63\u6587"), /*#__PURE__*/React.createElement("textarea", {
+    placeholder: "\u652F\u6301 Markdown\u3002\u8BED\u6C14\u514B\u5236\u3001\u9648\u8FF0\u4E8B\u5B9E\u2014\u2014\u4E0E\u4EA7\u54C1\u6587\u6848\u4E00\u81F4\u3002",
+    style: {
+      width: "100%",
+      minHeight: 120,
+      resize: "vertical",
+      background: "var(--gd-ink)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 5,
+      color: "var(--gd-text)",
+      fontFamily: "var(--font-sans)",
+      fontSize: 13,
+      lineHeight: 1.6,
+      padding: "10px 12px",
+      outline: "none",
+      boxSizing: "border-box"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, /*#__PURE__*/React.createElement(I.Users, {
+    size: 13
+  }), "\u9884\u8BA1\u89E6\u8FBE 2,847 \u4F4D\u5BA2\u6237 \xB7 \u540C\u65F6\u663E\u793A\u4E8E\u5E94\u7528\u5185\u4E0E\u90AE\u4EF6"))));
+}
+window.GDAnnouncements = Announcements;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Announcements.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Audit.jsx
+try { (() => {
+// 审计日志 Audit — read-only append-only log of operator + system actions. Sensitive actions highlighted.
+const {
+  Table: AuTable,
+  Badge: AuBadge,
+  Button: AuBtn,
+  Select: AuSel,
+  Input: AuInput,
+  Toolbar: AuToolbar
+} = window.GoodDealerDesignSystem_b5b0b6;
+const SENSITIVE = ["强制解绑设备", "手动退款", "重置客户 2FA", "切换功能开关"];
+function Audit() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [actor, setActor] = React.useState("全部操作者");
+  const [q, setQ] = React.useState("");
+  const actors = ["全部操作者", ...Array.from(new Set(D.audit.map(a => a.actor)))];
+  let rows = D.audit.filter(a => (actor === "全部操作者" || a.actor === actor) && (q === "" || a.action.includes(q) || a.target.includes(q)));
+  const isSensitive = a => SENSITIVE.some(s => a.action.startsWith(s));
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u5BA1\u8BA1\u65E5\u5FD7",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "今日操作",
+      value: "342",
+      meta: "运营 + 系统"
+    }, {
+      label: "运营者操作",
+      value: "38",
+      meta: "人工"
+    }, {
+      label: "系统操作",
+      value: "304",
+      meta: "自动"
+    }, {
+      label: "高敏感操作",
+      value: "6",
+      tone: "warning",
+      meta: "解绑 · 退款 · 2FA · 开关"
+    }, {
+      label: "操作者",
+      value: "5",
+      meta: "运营团队"
+    }, {
+      label: "保留期",
+      value: "365 天",
+      mono: true,
+      meta: "追加不可篡改"
+    }]
+  }), /*#__PURE__*/React.createElement(AuToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(AuInput, {
+      size: "sm",
+      prefix: /*#__PURE__*/React.createElement(I.Search, {
+        size: 13
+      }),
+      placeholder: "\u641C\u7D22\u64CD\u4F5C\u3001\u5BF9\u8C61\u2026",
+      value: q,
+      onChange: e => setQ(e.target.value),
+      style: {
+        width: 240
+      }
+    }), /*#__PURE__*/React.createElement(AuSel, {
+      size: "sm",
+      options: actors,
+      value: actor,
+      onChange: e => setActor(e.target.value)
+    }), /*#__PURE__*/React.createElement(AuSel, {
+      size: "sm",
+      options: ["全部类型", "客户", "计费", "设备", "配置", "公告"],
+      value: "\u5168\u90E8\u7C7B\u578B",
+      onChange: () => {}
+    })),
+    right: /*#__PURE__*/React.createElement(AuBtn, {
+      size: "sm",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 14
+      })
+    }, "\u5BFC\u51FA\u65E5\u5FD7")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(AuTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "time",
+      label: "时间",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11.5,
+          color: "var(--text-2)"
+        }
+      }, a.time)
+    }, {
+      key: "actor",
+      label: "操作者",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 20,
+          height: 20,
+          flex: "none",
+          borderRadius: "50%",
+          background: a.actor === "系统" ? "var(--gd-panel-raised)" : "var(--gd-blue-tint)",
+          border: "1px solid var(--gd-line-strong)",
+          fontSize: 9,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: a.actor === "系统" ? "var(--text-3)" : "var(--gd-blue)",
+          fontFamily: "var(--font-mono)"
+        }
+      }, a.actor === "系统" ? "S" : a.actor[0]), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: a.actor === "系统" ? "var(--text-3)" : "var(--text-1)"
+        }
+      }, a.actor))
+    }, {
+      key: "action",
+      label: "操作",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, isSensitive(a) && /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: "var(--gd-warning)",
+          flex: "none"
+        }
+      }), a.action, isSensitive(a) && /*#__PURE__*/React.createElement(AuBadge, {
+        tone: "warning",
+        mono: false
+      }, "\u654F\u611F"))
+    }, {
+      key: "target",
+      label: "对象",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11.5,
+          color: "var(--text-2)"
+        }
+      }, a.target)
+    }, {
+      key: "ip",
+      label: "来源 IP",
+      numeric: true,
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, a.ip)
+    }],
+    rows: rows,
+    footer: /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        width: "100%",
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, /*#__PURE__*/React.createElement("span", null, rows.length, " \u6761 \xB7 \u8FFD\u52A0\u4E0D\u53EF\u7BE1\u6539 \xB7 \u4E0E SIEM \u5B9E\u65F6\u6295\u9012"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "auto",
+        fontFamily: "var(--font-mono)"
+      }
+    }, "\u4FDD\u7559 365 \u5929"))
+  })));
+}
+window.GDAudit = Audit;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Audit.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Config.jsx
+try { (() => {
+// 系统配置 Config — feature flags (grouped, toggle + rollout), global defaults, maintenance, environment.
+const {
+  Panel: CoPanel,
+  Badge: CoBadge,
+  Button: CoBtn,
+  Switch: CoSwitch,
+  Select: CoSel,
+  Input: CoInput,
+  Dialog: CoDlg
+} = window.GoodDealerDesignSystem_b5b0b6;
+function FlagRow({
+  f,
+  onToggle
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      padding: "12px 16px",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)",
+      whiteSpace: "nowrap"
+    }
+  }, f.name), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 10,
+      color: "var(--text-3)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 3,
+      padding: "0 5px",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      minWidth: 0
+    }
+  }, f.key)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 3,
+      lineHeight: 1.5
+    }
+  }, f.desc)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 96,
+      flex: "none",
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-3)"
+    }
+  }, "\u7070\u5EA6"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: f.rollout === 100 ? "var(--gd-success)" : f.enabled ? "var(--gd-gold)" : "var(--text-3)"
+    }
+  }, f.rollout, "%")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 4,
+      borderRadius: 2,
+      background: "var(--gd-line)",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: f.rollout + "%",
+      height: "100%",
+      background: f.enabled ? f.rollout === 100 ? "var(--gd-success)" : "var(--gd-gold)" : "var(--gd-line-strong)"
+    }
+  }))), /*#__PURE__*/React.createElement(CoSwitch, {
+    checked: f.enabled,
+    onChange: () => onToggle(f.key)
+  }));
+}
+function Config() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const [flags, setFlags] = React.useState(() => D.flags.map(f => ({
+    ...f
+  })));
+  const [maint, setMaint] = React.useState(false);
+  const [dlg, setDlg] = React.useState(false);
+  const toggle = key => setFlags(fs => fs.map(f => f.key === key ? {
+    ...f,
+    enabled: !f.enabled,
+    rollout: !f.enabled && f.rollout === 0 ? 100 : f.enabled ? f.rollout : f.rollout
+  } : f));
+  const sections = Array.from(new Set(flags.map(f => f.section)));
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u7CFB\u7EDF\u914D\u7F6E",
+    style: {
+      padding: 18,
+      display: "grid",
+      gridTemplateColumns: "1fr 340px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, sections.map(sec => /*#__PURE__*/React.createElement(CoPanel, {
+    key: sec,
+    flush: true,
+    title: "功能开关 · " + sec,
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, flags.filter(f => f.section === sec && f.enabled).length, "/", flags.filter(f => f.section === sec).length, " \u542F\u7528")
+  }, flags.filter(f => f.section === sec).map(f => /*#__PURE__*/React.createElement(FlagRow, {
+    key: f.key,
+    f: f,
+    onToggle: toggle
+  }))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(CoPanel, {
+    title: "\u5168\u5C40\u9ED8\u8BA4",
+    actions: /*#__PURE__*/React.createElement(CoBtn, {
+      size: "sm",
+      variant: "primary"
+    }, "\u4FDD\u5B58")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, [["默认试用时长", /*#__PURE__*/React.createElement(CoSel, {
+    size: "sm",
+    options: ["7 天", "14 天", "30 天"],
+    value: "14 \u5929",
+    onChange: () => {}
+  })], ["默认同步间隔", /*#__PURE__*/React.createElement(CoSel, {
+    size: "sm",
+    options: ["实时", "每 5 分钟", "每 15 分钟"],
+    value: "\u6BCF 5 \u5206\u949F",
+    onChange: () => {}
+  })], ["新客户默认方案", /*#__PURE__*/React.createElement(CoSel, {
+    size: "sm",
+    options: ["Starter", "Professional"],
+    value: "Professional",
+    onChange: () => {}
+  })], ["设备额度上限", /*#__PURE__*/React.createElement(CoInput, {
+    size: "sm",
+    mono: true,
+    value: "2",
+    onChange: () => {},
+    style: {
+      width: 70
+    }
+  })]].map(([k, ctrl], i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "10px 0",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      fontSize: 12.5,
+      color: "var(--text-2)"
+    }
+  }, k), ctrl)))), /*#__PURE__*/React.createElement(CoPanel, {
+    title: "\u7EF4\u62A4\u6A21\u5F0F"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(I.AlertTriangle, {
+    size: 18,
+    style: {
+      color: maint ? "var(--gd-danger)" : "var(--text-3)",
+      flex: "none",
+      marginTop: 1
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, "Cloud \u7EF4\u62A4\u6A21\u5F0F"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginTop: 3,
+      lineHeight: 1.5
+    }
+  }, "\u6682\u505C Cloud \u63A7\u5236\u9762\u5199\u5165\u4E0E\u540C\u6B65\u63A5\u6536\uFF1B\u5DF2\u6388\u6743\u5BA2\u6237\u7AEF\u7EE7\u7EED\u63D0\u4EA4\u672C\u5730\u4E1A\u52A1\u5E76\u6392\u961F\u7B49\u5F85\u6062\u590D\u3002\u7528\u4E8E\u8BA1\u5212\u7EF4\u62A4\u7A97\u53E3\u3002")), /*#__PURE__*/React.createElement(CoSwitch, {
+    checked: maint,
+    onChange: () => setMaint(v => !v)
+  })), maint && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      padding: "9px 12px",
+      background: "var(--gd-danger-tint)",
+      border: "1px solid rgba(229,115,95,0.35)",
+      borderRadius: 6,
+      fontSize: 11.5,
+      color: "var(--gd-danger)"
+    }
+  }, "\u7EF4\u62A4\u6A21\u5F0F\u5DF2\u542F\u7528 \xB7 \u540C\u6B65\u6682\u7F13\uFF0C\u672C\u5730\u63D0\u4EA4\u4E0D\u53D7 Cloud \u4F20\u8F93\u963B\u585E")), /*#__PURE__*/React.createElement(CoPanel, {
+    title: "\u73AF\u5883"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, [["环境", "Production"], ["区域", "12 · 全球"], ["构建", "admin 0.9.0 · 2026-08-12"], ["Sync API", "v3.2.1"]].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      gap: 12,
+      padding: "7px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 70,
+      flex: "none",
+      color: "var(--text-3)"
+    }
+  }, k), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-1)",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11.5
+    }
+  }, v)))))));
+}
+window.GDConfig = Config;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Config.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Customers.jsx
+try { (() => {
+// 客户管理 Customers — cross-customer table with filters + detail drawer (plan, devices, actions).
+const {
+  Panel: CPanel,
+  Table: CTable,
+  Badge: CBadge,
+  Button: CBtn,
+  Money: CMoney,
+  Input: CInput,
+  Select: CSel,
+  Toolbar: CToolbar,
+  Dialog: CDlg,
+  StatusDot: CDot,
+  IconButton: CIcon
+} = window.GoodDealerDesignSystem_b5b0b6;
+const CSTAT = {
+  active: {
+    b: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "success"
+    }, "\u6D3B\u8DC3")
+  },
+  trial: {
+    b: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "sync",
+      mono: false
+    }, "\u8BD5\u7528")
+  },
+  past_due: {
+    b: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "warning",
+      mono: false
+    }, "\u903E\u671F")
+  },
+  churned: {
+    b: /*#__PURE__*/React.createElement(CBadge, {
+      tone: "neutral",
+      mono: false
+    }, "\u5DF2\u6D41\u5931")
+  }
+};
+const PLAN_COL = {
+  Professional: "var(--gd-gold)",
+  Portfolio: "var(--gd-blue)",
+  Starter: "var(--gd-text-muted)"
+};
+function Customers() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const Pagination = window.GDPagination;
+  const [q, setQ] = React.useState("");
+  const [plan, setPlan] = React.useState("全部方案");
+  const [status, setStatus] = React.useState("全部状态");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
+  const [sel, setSel] = React.useState(null);
+  React.useEffect(() => {
+    setPage(1);
+  }, [q, plan, status, pageSize]);
+  const SMAP = {
+    "全部状态": null,
+    "活跃": "active",
+    "试用": "trial",
+    "逾期": "past_due",
+    "已流失": "churned"
+  };
+  let rows = D.customers.filter(c => (plan === "全部方案" || c.plan === plan) && (SMAP[status] == null || c.status === SMAP[status]) && (q === "" || c.name.toLowerCase().includes(q.toLowerCase()) || c.email.includes(q.toLowerCase()) || c.id.toLowerCase().includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cur = Math.min(page, pages);
+  const pageRows = rows.slice((cur - 1) * pageSize, cur * pageSize);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u5BA2\u6237\u7BA1\u7406",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "总客户",
+      value: "2,847",
+      meta: "含试用与流失"
+    }, {
+      label: "活跃",
+      value: "2,413",
+      tone: "success",
+      meta: "付费订阅"
+    }, {
+      label: "试用",
+      value: "186",
+      tone: "body",
+      meta: "14 天内到期 92"
+    }, {
+      label: "逾期 past_due",
+      value: "48",
+      tone: "warning",
+      meta: "扣款失败重试中"
+    }, {
+      label: "本月新增",
+      value: "+124",
+      tone: "success",
+      meta: "净增 +71"
+    }, {
+      label: "本月流失",
+      value: "53",
+      tone: "danger",
+      meta: "流失率 1.8%"
+    }]
+  }), /*#__PURE__*/React.createElement(CToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(CInput, {
+      size: "sm",
+      prefix: /*#__PURE__*/React.createElement(I.Search, {
+        size: 13
+      }),
+      placeholder: "\u641C\u7D22\u59D3\u540D\u3001\u90AE\u7BB1\u3001\u5BA2\u6237 ID\u2026",
+      value: q,
+      onChange: e => setQ(e.target.value),
+      style: {
+        width: 240
+      }
+    }), /*#__PURE__*/React.createElement(CSel, {
+      size: "sm",
+      options: ["全部方案", "Professional", "Portfolio", "Starter"],
+      value: plan,
+      onChange: e => setPlan(e.target.value)
+    }), /*#__PURE__*/React.createElement(CSel, {
+      size: "sm",
+      options: ["全部状态", "活跃", "试用", "逾期", "已流失"],
+      value: status,
+      onChange: e => setStatus(e.target.value)
+    })),
+    right: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(CBtn, {
+      size: "sm",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 14
+      })
+    }, "\u5BFC\u51FA CSV"), /*#__PURE__*/React.createElement(CBtn, {
+      size: "sm",
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Plus, {
+        size: 14
+      })
+    }, "\u65B0\u5EFA\u5BA2\u6237"))
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(CTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    onRowClick: setSel,
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "name",
+      label: "客户",
+      render: c => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 26,
+          height: 26,
+          flex: "none",
+          borderRadius: "50%",
+          background: "var(--gd-panel-raised)",
+          border: "1px solid var(--gd-line-strong)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          color: "var(--text-2)"
+        }
+      }, c.country), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+          minWidth: 0
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, c.name), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--text-3)",
+          fontFamily: "var(--font-mono)"
+        }
+      }, c.email)))
+    }, {
+      key: "id",
+      label: "ID",
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, c.id)
+    }, {
+      key: "plan",
+      label: "方案",
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 6,
+          height: 6,
+          borderRadius: 2,
+          background: PLAN_COL[c.plan],
+          flex: "none"
+        }
+      }), c.plan)
+    }, {
+      key: "status",
+      label: "状态",
+      render: c => CSTAT[c.status].b
+    }, {
+      key: "devices",
+      label: "设备",
+      numeric: true,
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: c.devices ? "var(--text-1)" : "var(--text-3)"
+        }
+      }, c.devices)
+    }, {
+      key: "domains",
+      label: "域名",
+      numeric: true,
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-2)"
+        }
+      }, c.domains.toLocaleString())
+    }, {
+      key: "mrr",
+      label: "MRR",
+      numeric: true,
+      render: c => c.mrr ? /*#__PURE__*/React.createElement(CMoney, {
+        amount: c.mrr,
+        size: 12
+      }) : /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-3)"
+        }
+      }, "\u2014")
+    }, {
+      key: "lastSeen",
+      label: "最后活跃",
+      numeric: true,
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, c.lastSeen)
+    }],
+    rows: pageRows,
+    footer: /*#__PURE__*/React.createElement(Pagination, {
+      page: cur,
+      pageSize: pageSize,
+      total: rows.length,
+      onPage: setPage,
+      onPageSize: setPageSize,
+      note: /*#__PURE__*/React.createElement(React.Fragment, null, D.customers.length, " \u4F4D\u5BA2\u6237 \xB7 MRR ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--gd-gold)"
+        }
+      }, "$48.2k"))
+    })
+  })), /*#__PURE__*/React.createElement(CDlg, {
+    open: !!sel,
+    onClose: () => setSel(null),
+    title: sel ? sel.name : "",
+    width: 520,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(CBtn, {
+      onClick: () => setSel(null)
+    }, "\u5173\u95ED"), /*#__PURE__*/React.createElement(CBtn, {
+      icon: /*#__PURE__*/React.createElement(I.ExternalLink, {
+        size: 13
+      })
+    }, "\u4EE5\u5BA2\u6237\u8EAB\u4EFD\u67E5\u770B"), /*#__PURE__*/React.createElement(CBtn, {
+      variant: "primary"
+    }, "\u7BA1\u7406\u8BA2\u9605"))
+  }, sel && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      paddingBottom: 12,
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 40,
+      height: 40,
+      flex: "none",
+      borderRadius: "50%",
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line-strong)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "var(--font-mono)",
+      fontSize: 12,
+      color: "var(--gd-gold)"
+    }
+  }, sel.country), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, sel.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, sel.email, " \xB7 ", sel.id)), CSTAT[sel.status].b), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(4,1fr)",
+      gap: 10
+    }
+  }, [["方案", sel.plan], ["MRR", sel.mrr ? "$" + sel.mrr : "—"], ["设备", sel.devices + " / " + (sel.plan === "Portfolio" ? 5 : 2)], ["域名", sel.domains.toLocaleString()]].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      padding: "9px 11px",
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gd-t-label"
+  }, k), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 14,
+      color: k === "MRR" ? "var(--gd-gold)" : "var(--text-1)",
+      marginTop: 3
+    }
+  }, v)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, [["注册日期", sel.since], ["最后活跃", sel.lastSeen], ["地区", sel.country], ["支付状态", sel.status === "past_due" ? "扣款失败 · 重试中" : "正常"]].map(([k, v]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      padding: "8px 0",
+      borderBottom: "1px solid var(--gd-line)",
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 100,
+      flex: "none",
+      color: "var(--text-3)"
+    }
+  }, k), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: v.includes("失败") ? "var(--gd-warning)" : "var(--text-1)",
+      fontFamily: k === "注册日期" ? "var(--font-mono)" : undefined
+    }
+  }, v)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(CBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u91CD\u7F6E 2FA"), /*#__PURE__*/React.createElement(CBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u53D1\u9001\u91CD\u7F6E\u90AE\u4EF6"), sel.status === "churned" ? /*#__PURE__*/React.createElement(CBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u6062\u590D\u8D26\u6237") : /*#__PURE__*/React.createElement(CBtn, {
+    size: "sm",
+    variant: "ghost"
+  }, "\u6682\u505C\u8D26\u6237")))));
+}
+window.GDCustomers = Customers;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Customers.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Fleet.jsx
+try { (() => {
+// 设备舰队监控 Fleet — cross-customer ActiveDeviceLease fleet: state, Epoch, region, lease health;
+// force-deauthorize a stale/lost device (operator danger ceremony, audited).
+const {
+  Panel: FPanel,
+  Table: FTable,
+  Badge: FBadge,
+  Button: FBtn,
+  Select: FSel,
+  Input: FInput,
+  Toolbar: FToolbar,
+  Dialog: FDlg,
+  Checkbox: FCheck,
+  StatusDot: FDot
+} = window.GoodDealerDesignSystem_b5b0b6;
+const FSTATE = {
+  active: {
+    dot: "active",
+    badge: /*#__PURE__*/React.createElement(FBadge, {
+      tone: "gold"
+    }, "ACTIVE")
+  },
+  standby: {
+    dot: "standby",
+    badge: /*#__PURE__*/React.createElement(FBadge, {
+      mono: false
+    }, "Standby")
+  },
+  activating: {
+    dot: "sync",
+    badge: /*#__PURE__*/React.createElement(FBadge, {
+      tone: "sync",
+      mono: false
+    }, "\u6FC0\u6D3B\u4E2D"),
+    pulse: true
+  },
+  draining: {
+    dot: "warning",
+    badge: /*#__PURE__*/React.createElement(FBadge, {
+      tone: "warning",
+      mono: false
+    }, "\u6392\u7A7A\u4E2D"),
+    pulse: true
+  },
+  sunset: {
+    dot: "neutral",
+    badge: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--text-3)",
+        fontFamily: "var(--font-mono)",
+        border: "1px solid var(--gd-line-strong)",
+        borderRadius: 3,
+        padding: "1px 6px"
+      }
+    }, "RETAINED")
+  }
+};
+const FHEALTH = {
+  ok: /*#__PURE__*/React.createElement(FBadge, {
+    tone: "success"
+  }, "\u6B63\u5E38"),
+  warn: /*#__PURE__*/React.createElement(FBadge, {
+    tone: "warning",
+    mono: false
+  }, "\u544A\u8B66"),
+  stale: /*#__PURE__*/React.createElement(FBadge, {
+    tone: "danger",
+    mono: false
+  }, "\u5931\u8054")
+};
+function Fleet() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const Pagination = window.GDPagination;
+  const [devices, setDevices] = React.useState(() => D.fleet.map(d => ({
+    ...d
+  })));
+  const [state, setState] = React.useState("全部状态");
+  const [region, setRegion] = React.useState("全部区域");
+  const [q, setQ] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
+  const [deauth, setDeauth] = React.useState(null);
+  const [ack, setAck] = React.useState(false);
+  React.useEffect(() => {
+    setPage(1);
+  }, [state, region, q, pageSize]);
+  const SMAP = {
+    "全部状态": null,
+    "Active": "active",
+    "Standby": "standby",
+    "激活中": "activating",
+    "排空中": "draining",
+    "Sunset": "sunset"
+  };
+  const regions = ["全部区域", ...Array.from(new Set(D.fleet.map(d => d.region)))];
+  let rows = devices.filter(d => (SMAP[state] == null || d.state === SMAP[state]) && (region === "全部区域" || d.region === region) && (q === "" || d.customer.toLowerCase().includes(q.toLowerCase()) || d.id.toLowerCase().includes(q.toLowerCase()) || d.name.toLowerCase().includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cur = Math.min(page, pages);
+  const pageRows = rows.slice((cur - 1) * pageSize, cur * pageSize);
+  const runDeauth = () => {
+    const t = deauth;
+    setDeauth(null);
+    setAck(false);
+    setDevices(ds => ds.map(d => d.id === t.id ? {
+      ...d,
+      state: "sunset",
+      health: "stale"
+    } : d));
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8BBE\u5907\u8230\u961F",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "绑定设备",
+      value: "4,106",
+      meta: "跨 2,413 客户"
+    }, {
+      label: "在线",
+      value: "1,842",
+      tone: "success",
+      meta: "持权 Active 1,842"
+    }, {
+      label: "待命 Standby",
+      value: "1,903",
+      meta: "蓝空心 · 无执行权"
+    }, {
+      label: "激活 / 排空中",
+      value: "59",
+      tone: "body",
+      meta: "迁移执行权中"
+    }, {
+      label: "失联 / 告警",
+      value: "37",
+      tone: "danger",
+      meta: "Lease 心跳超时"
+    }, {
+      label: "区域",
+      value: "12",
+      meta: "就近同步"
+    }]
+  }), /*#__PURE__*/React.createElement(FToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(FInput, {
+      size: "sm",
+      prefix: /*#__PURE__*/React.createElement(I.Search, {
+        size: 13
+      }),
+      placeholder: "\u641C\u7D22\u5BA2\u6237\u3001\u8BBE\u5907 ID\u2026",
+      value: q,
+      onChange: e => setQ(e.target.value),
+      style: {
+        width: 220
+      }
+    }), /*#__PURE__*/React.createElement(FSel, {
+      size: "sm",
+      options: ["全部状态", "Active", "Standby", "激活中", "排空中", "Sunset"],
+      value: state,
+      onChange: e => setState(e.target.value)
+    }), /*#__PURE__*/React.createElement(FSel, {
+      size: "sm",
+      options: regions,
+      value: region,
+      onChange: e => setRegion(e.target.value)
+    })),
+    right: /*#__PURE__*/React.createElement(FBtn, {
+      size: "sm",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 14
+      })
+    }, "\u5BFC\u51FA")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(FTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "id",
+      label: "设备 ID",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, d.id)
+    }, {
+      key: "customer",
+      label: "客户",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, d.customer)
+    }, {
+      key: "name",
+      label: "设备",
+      render: d => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 1
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, d.name), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, d.os))
+    }, {
+      key: "state",
+      label: "执行权状态",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7
+        }
+      }, /*#__PURE__*/React.createElement(FDot, {
+        kind: FSTATE[d.state].dot,
+        pulse: FSTATE[d.state].pulse
+      }), FSTATE[d.state].badge)
+    }, {
+      key: "epoch",
+      label: "Epoch",
+      numeric: true,
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: d.state === "active" ? "var(--gd-gold)" : "var(--text-3)"
+        }
+      }, d.epoch)
+    }, {
+      key: "region",
+      label: "区域",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-2)"
+        }
+      }, d.region)
+    }, {
+      key: "health",
+      label: "Lease 健康",
+      render: d => FHEALTH[d.health]
+    }, {
+      key: "lastSeen",
+      label: "心跳",
+      numeric: true,
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: d.health === "stale" ? "var(--gd-danger)" : "var(--text-3)"
+        }
+      }, d.lastSeen)
+    }, {
+      key: "act",
+      label: "",
+      align: "right",
+      render: d => d.state !== "sunset" ? /*#__PURE__*/React.createElement(FBtn, {
+        size: "sm",
+        variant: "ghost",
+        onClick: () => setDeauth(d)
+      }, "\u5F3A\u5236\u89E3\u7ED1") : /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, "\u5DF2\u9000\u5F79")
+    }],
+    rows: pageRows,
+    footer: /*#__PURE__*/React.createElement(Pagination, {
+      page: cur,
+      pageSize: pageSize,
+      total: rows.length,
+      onPage: setPage,
+      onPageSize: setPageSize,
+      note: /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)"
+        }
+      }, "\u5355\u6D3B\u52A8\u6267\u884C\u6743 \xB7 Epoch \u5355\u8C03\u9012\u589E")
+    })
+  })), /*#__PURE__*/React.createElement(FDlg, {
+    open: !!deauth,
+    onClose: () => {
+      setDeauth(null);
+      setAck(false);
+    },
+    title: "\u5F3A\u5236\u89E3\u7ED1\u8BBE\u5907\uFF08\u8FD0\u8425\u64CD\u4F5C\uFF09",
+    width: 500,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(FBtn, {
+      onClick: () => {
+        setDeauth(null);
+        setAck(false);
+      }
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(FBtn, {
+      variant: "danger",
+      disabled: !ack,
+      onClick: runDeauth
+    }, "\u5F3A\u5236\u89E3\u7ED1 ", deauth && deauth.id))
+  }, deauth && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "\u5BF9 ", /*#__PURE__*/React.createElement("b", null, deauth.customer), " \u7684\u8BBE\u5907 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      fontFamily: "var(--font-mono)"
+    }
+  }, deauth.id, " \xB7 ", deauth.name), " \u6267\u884C\u5F3A\u5236\u89E3\u7ED1\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 7,
+      background: "var(--gd-panel)",
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      fontSize: 12,
+      color: "var(--text-2)",
+      lineHeight: 1.55
+    }
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u540E\u679C"), "\uFF1A\u8BE5\u8BBE\u5907\u7684 ActiveDeviceLease \u7ACB\u5373\u540A\u9500\uFF0C\u4E0B\u6B21\u8054\u7F51\u88AB\u5F3A\u5236\u767B\u51FA\u5E76\u8F6C\u5165 Sunset \u4FDD\u7559\u6001\uFF08\u672C\u5730\u53EA\u8BFB\uFF09\u3002"), deauth.state === "active" && /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--gd-danger)",
+      fontWeight: 500
+    }
+  }, "\u8BE5\u8BBE\u5907\u5F53\u524D\u6301\u6709\u6267\u884C\u6743"), "\uFF1A\u89E3\u7ED1\u540E\u5BA2\u6237\u5728\u53E6\u4E00\u53F0\u8BBE\u5907\u5B89\u5168\u6FC0\u6D3B\u524D\u5C06\u65E0\u6CD5\u6267\u884C\u5199\u64CD\u4F5C\u3002"), /*#__PURE__*/React.createElement("span", null, "\u64CD\u4F5C\u4EE5\u8FD0\u8425\u8EAB\u4EFD\u8BB0\u5165", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, "\u5BA1\u8BA1\u65E5\u5FD7"), "\uFF0C\u5BA2\u6237\u4F1A\u6536\u5230\u5B89\u5168\u901A\u77E5\u3002\u4EC5\u7528\u4E8E\u8BBE\u5907\u4E22\u5931\u6216\u6EE5\u7528\u3002")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--gd-line)",
+      paddingTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(FCheck, {
+    checked: ack,
+    onChange: () => setAck(a => !a),
+    label: "\u6211\u786E\u8BA4\u6B64\u4E3A\u4E0D\u53EF\u9006\u7684\u8FD0\u8425\u5F3A\u5236\u64CD\u4F5C\uFF0C\u4E14\u5DF2\u6838\u5B9E\u5FC5\u8981\u6027"
+  })))));
+}
+window.GDFleet = Fleet;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Fleet.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Licenses.jsx
+try { (() => {
+// 许可与订阅 Licenses — plan mix + subscription ledger (seats, renewal, MRR), issue/comp a license.
+const {
+  Panel: LPanel,
+  Table: LTable,
+  Badge: LBadge,
+  Button: LBtn,
+  Money: LMoney,
+  Select: LSel,
+  Input: LInput,
+  Toolbar: LToolbar,
+  Dialog: LDlg
+} = window.GoodDealerDesignSystem_b5b0b6;
+const LPLAN_COL = {
+  Professional: "var(--gd-gold)",
+  Portfolio: "var(--gd-blue)",
+  Starter: "var(--gd-viz-drawdown)"
+};
+const LSEATS = {
+  Professional: 2,
+  Portfolio: 5,
+  Starter: 1
+};
+function nextRenewal(since) {
+  const [, mm, dd] = since.split("-");
+  const today = new Date("2026-08-17");
+  let y = 2026;
+  const anniv = new Date("2026-" + mm + "-" + dd);
+  if (anniv < today) y = 2027;
+  const d = new Date(y + "-" + mm + "-" + dd);
+  const days = Math.round((d - today) / 864e5);
+  return {
+    date: y + "-" + mm + "-" + dd,
+    days
+  };
+}
+function Licenses() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const Pagination = window.GDPagination;
+  const [plan, setPlan] = React.useState("全部方案");
+  const [q, setQ] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
+  const [issue, setIssue] = React.useState(false);
+  React.useEffect(() => {
+    setPage(1);
+  }, [plan, q, pageSize]);
+  const totalMrr = D.planMix.reduce((s, p) => s + p.mrr, 0);
+  let rows = D.customers.filter(c => c.status !== "churned" && (plan === "全部方案" || c.plan === plan) && (q === "" || c.name.toLowerCase().includes(q.toLowerCase()) || c.id.toLowerCase().includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cur = Math.min(page, pages);
+  const pageRows = rows.slice((cur - 1) * pageSize, cur * pageSize);
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8BB8\u53EF\u4E0E\u8BA2\u9605",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "活跃订阅",
+      value: "2,413",
+      meta: "付费 License"
+    }, {
+      label: "月经常性收入",
+      value: "$48,210",
+      tone: "gold",
+      meta: "ARR $578,520"
+    }, {
+      label: "试用转化",
+      value: "64%",
+      tone: "success",
+      meta: "近 30 天"
+    }, {
+      label: "本月续费",
+      value: "312",
+      meta: "自动 297 · 手动 15"
+    }, {
+      label: "逾期订阅",
+      value: "48",
+      tone: "warning",
+      meta: "扣款失败"
+    }, {
+      label: "14 天内到期",
+      value: "126",
+      tone: "body",
+      meta: "含试用 92"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 18px 0"
+    }
+  }, /*#__PURE__*/React.createElement(LPanel, {
+    title: "\u65B9\u6848\u5206\u5E03",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        fontSize: 13,
+        color: "var(--gd-gold)"
+      }
+    }, "$", (totalMrr / 1000).toFixed(1), "k MRR")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      height: 10,
+      borderRadius: 3,
+      overflow: "hidden",
+      marginBottom: 14
+    }
+  }, D.planMix.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.plan,
+    title: p.plan,
+    style: {
+      width: p.mrr / totalMrr * 100 + "%",
+      background: p.color
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 0
+    }
+  }, D.planMix.map((p, i) => /*#__PURE__*/React.createElement("div", {
+    key: p.plan,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4,
+      padding: "0 16px",
+      borderRight: i < 2 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      fontSize: 12,
+      color: "var(--text-1)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: p.color,
+      flex: "none"
+    }
+  }), p.plan), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 18,
+      color: "var(--text-1)"
+    }
+  }, p.count.toLocaleString()), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u8BA2\u9605")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "$", (p.mrr / 1000).toFixed(1), "k \xB7 ", (p.mrr / totalMrr * 100).toFixed(0), "%")))))), /*#__PURE__*/React.createElement(LToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LInput, {
+      size: "sm",
+      prefix: /*#__PURE__*/React.createElement(I.Search, {
+        size: 13
+      }),
+      placeholder: "\u641C\u7D22\u5BA2\u6237\u3001\u8BA2\u9605\u2026",
+      value: q,
+      onChange: e => setQ(e.target.value),
+      style: {
+        width: 220
+      }
+    }), /*#__PURE__*/React.createElement(LSel, {
+      size: "sm",
+      options: ["全部方案", "Professional", "Portfolio", "Starter"],
+      value: plan,
+      onChange: e => setPlan(e.target.value)
+    })),
+    right: /*#__PURE__*/React.createElement(LBtn, {
+      size: "sm",
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Plus, {
+        size: 14
+      }),
+      onClick: () => setIssue(true)
+    }, "\u7B7E\u53D1 License")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(LTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "name",
+      label: "客户",
+      render: c => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 1
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, c.name), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--text-3)",
+          fontFamily: "var(--font-mono)"
+        }
+      }, c.id))
+    }, {
+      key: "plan",
+      label: "方案",
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          width: 6,
+          height: 6,
+          borderRadius: 2,
+          background: LPLAN_COL[c.plan],
+          flex: "none"
+        }
+      }), c.plan)
+    }, {
+      key: "cycle",
+      label: "周期",
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12,
+          color: "var(--text-2)"
+        }
+      }, c.status === "trial" ? "试用" : "年付")
+    }, {
+      key: "seats",
+      label: "设备额度",
+      render: c => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-1)"
+        }
+      }, c.devices, " ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--text-3)"
+        }
+      }, "/ ", LSEATS[c.plan]))
+    }, {
+      key: "mrr",
+      label: "MRR",
+      numeric: true,
+      render: c => c.mrr ? /*#__PURE__*/React.createElement(LMoney, {
+        amount: c.mrr,
+        size: 12
+      }) : /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-3)"
+        }
+      }, "\u2014")
+    }, {
+      key: "renew",
+      label: "下次续费",
+      numeric: true,
+      render: c => {
+        const r = nextRenewal(c.since);
+        const soon = r.days <= 30;
+        return c.status === "trial" ? /*#__PURE__*/React.createElement(LBadge, {
+          tone: "sync",
+          mono: false
+        }, "\u8BD5\u7528\u4E2D") : /*#__PURE__*/React.createElement("span", {
+          style: {
+            display: "inline-flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 1
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            color: c.status === "past_due" ? "var(--gd-warning)" : "var(--text-2)"
+          }
+        }, r.date), /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontSize: 10,
+            color: soon ? "var(--gd-warning)" : "var(--text-3)"
+          }
+        }, r.days, " \u5929\u540E"));
+      }
+    }, {
+      key: "status",
+      label: "状态",
+      render: c => c.status === "past_due" ? /*#__PURE__*/React.createElement(LBadge, {
+        tone: "warning",
+        mono: false
+      }, "\u903E\u671F") : c.status === "trial" ? /*#__PURE__*/React.createElement(LBadge, {
+        tone: "sync",
+        mono: false
+      }, "\u8BD5\u7528") : /*#__PURE__*/React.createElement(LBadge, {
+        tone: "success"
+      }, "\u6D3B\u8DC3")
+    }, {
+      key: "act",
+      label: "",
+      align: "right",
+      render: c => /*#__PURE__*/React.createElement(LBtn, {
+        size: "sm",
+        variant: "ghost"
+      }, "\u7BA1\u7406")
+    }],
+    rows: pageRows,
+    footer: /*#__PURE__*/React.createElement(Pagination, {
+      page: cur,
+      pageSize: pageSize,
+      total: rows.length,
+      onPage: setPage,
+      onPageSize: setPageSize,
+      note: /*#__PURE__*/React.createElement(React.Fragment, null, "\u6D3B\u8DC3\u8BA2\u9605 MRR ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--gd-gold)"
+        }
+      }, "$", (totalMrr / 1000).toFixed(1), "k"))
+    })
+  })), /*#__PURE__*/React.createElement(LDlg, {
+    open: issue,
+    onClose: () => setIssue(false),
+    title: "\u7B7E\u53D1 License",
+    width: 460,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LBtn, {
+      onClick: () => setIssue(false)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(LBtn, {
+      variant: "primary",
+      onClick: () => setIssue(false)
+    }, "\u7B7E\u53D1\u5E76\u53D1\u9001"))
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(LInput, {
+    label: "\u5BA2\u6237\u90AE\u7BB1",
+    mono: true,
+    placeholder: "name@company.com"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(LSel, {
+    label: "\u65B9\u6848",
+    size: "md",
+    options: ["Professional", "Portfolio", "Starter"],
+    value: "Professional",
+    onChange: () => {}
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement(LSel, {
+    label: "\u5468\u671F",
+    size: "md",
+    options: ["年付", "月付", "赠送（comp）"],
+    value: "\u5E74\u4ED8",
+    onChange: () => {}
+  }))), /*#__PURE__*/React.createElement(LInput, {
+    label: "\u5907\u6CE8\uFF08\u5185\u90E8\uFF09",
+    placeholder: "\u5982\uFF1A\u5408\u4F5C\u65B9\u8D60\u9001 \xB7 12 \u4E2A\u6708"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u7B7E\u53D1\u5C06\u521B\u5EFA\u8BA2\u9605\u5E76\u5411\u5BA2\u6237\u53D1\u9001\u6FC0\u6D3B\u90AE\u4EF6\uFF1B\u8D60\u9001 License \u4E0D\u4EA7\u751F\u6263\u6B3E\uFF0C\u4F1A\u8BB0\u5165\u5BA1\u8BA1\u65E5\u5FD7\u3002"))));
+}
+window.GDLicenses = Licenses;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Licenses.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Revenue.jsx
+try { (() => {
+// 计费与营收 Revenue — MRR/ARR, plan contribution, transactions ledger, past-due recovery.
+const {
+  Panel: RPanel,
+  Table: RTable,
+  Badge: RBadge,
+  Button: RBtn,
+  Money: RMoney,
+  Select: RSel,
+  Toolbar: RToolbar,
+  Dialog: RDlg
+} = window.GoodDealerDesignSystem_b5b0b6;
+function Revenue() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [type, setType] = React.useState("全部类型");
+  const [status, setStatus] = React.useState("全部状态");
+  const [refund, setRefund] = React.useState(null);
+  const totalMrr = D.planMix.reduce((s, p) => s + p.mrr, 0);
+  const TMAP = {
+    "全部类型": null,
+    "扣款": "charge",
+    "退款": "refund"
+  };
+  const SMAP = {
+    "全部状态": null,
+    "成功": "succeeded",
+    "失败": "failed"
+  };
+  let tx = D.transactions.filter(t => (TMAP[type] == null || t.type === TMAP[type]) && (SMAP[status] == null || t.status === SMAP[status]));
+  const pastDue = [{
+    customer: "Sana Qureshi",
+    id: "C-11733",
+    amount: 24.9,
+    method: "Mastercard · 8890",
+    tries: 2,
+    next: "今日 20:00"
+  }, {
+    customer: "Halcyon Group",
+    id: "C-11988",
+    amount: 74.9,
+    method: "—",
+    tries: 1,
+    next: "明日 09:00"
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u8BA1\u8D39\u4E0E\u8425\u6536",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "MRR",
+      value: "$48,210",
+      tone: "gold",
+      meta: "环比 +0.6%"
+    }, {
+      label: "ARR",
+      value: "$578,520",
+      tone: "gold",
+      meta: "年化"
+    }, {
+      label: "本月净新增",
+      value: "+$1,840",
+      tone: "success",
+      meta: "扩张 -流失"
+    }, {
+      label: "本月退款",
+      value: "$149.40",
+      tone: "danger",
+      meta: "6 笔"
+    }, {
+      label: "逾期待收",
+      value: "$4,120",
+      tone: "warning",
+      meta: "48 笔重试中"
+    }, {
+      label: "扣款回收率",
+      value: "92%",
+      tone: "success",
+      meta: "失败重试成功"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 18px 0",
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(RPanel, {
+    title: "MRR \u6784\u6210",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "var(--font-mono)",
+        fontSize: 13,
+        color: "var(--gd-gold)"
+      }
+    }, "$", (totalMrr / 1000).toFixed(1), "k")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      height: 10,
+      borderRadius: 3,
+      overflow: "hidden",
+      marginBottom: 12
+    }
+  }, D.planMix.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.plan,
+    style: {
+      width: p.mrr / totalMrr * 100 + "%",
+      background: p.color
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, D.planMix.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.plan,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: p.color,
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-1)",
+      flex: 1,
+      whiteSpace: "nowrap"
+    }
+  }, p.plan), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      whiteSpace: "nowrap"
+    }
+  }, p.count.toLocaleString(), " \u8BA2\u9605"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: "var(--gd-gold)",
+      width: 64,
+      textAlign: "right"
+    }
+  }, "$", (p.mrr / 1000).toFixed(1), "k"))))), /*#__PURE__*/React.createElement(RPanel, {
+    flush: true,
+    title: "\u903E\u671F\u5F85\u6536",
+    actions: /*#__PURE__*/React.createElement(RBadge, {
+      tone: "warning"
+    }, pastDue.length, " \u9700\u5904\u7406")
+  }, pastDue.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "12px 16px",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, /*#__PURE__*/React.createElement(I.CircleAlert, {
+    size: 17,
+    style: {
+      color: "var(--gd-warning)",
+      flex: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, p.customer), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, p.method, " \xB7 \u91CD\u8BD5 ", p.tries, " \u6B21 \xB7 \u4E0B\u6B21 ", p.next)), /*#__PURE__*/React.createElement(RMoney, {
+    amount: p.amount,
+    size: 13,
+    tone: "gold"
+  }), /*#__PURE__*/React.createElement(RBtn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => setRefund(null)
+  }, "\u91CD\u8BD5\u6263\u6B3E"))))), /*#__PURE__*/React.createElement(RToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--text-1)"
+      }
+    }, "\u4EA4\u6613\u6D41\u6C34"), /*#__PURE__*/React.createElement(RSel, {
+      size: "sm",
+      options: ["全部类型", "扣款", "退款"],
+      value: type,
+      onChange: e => setType(e.target.value)
+    }), /*#__PURE__*/React.createElement(RSel, {
+      size: "sm",
+      options: ["全部状态", "成功", "失败"],
+      value: status,
+      onChange: e => setStatus(e.target.value)
+    })),
+    right: /*#__PURE__*/React.createElement(RBtn, {
+      size: "sm",
+      icon: /*#__PURE__*/React.createElement(I.Download, {
+        size: 14
+      })
+    }, "\u5BFC\u51FA\u5BF9\u8D26\u5355")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(RTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "id",
+      label: "交易号",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, t.id)
+    }, {
+      key: "customer",
+      label: "客户",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, t.customer)
+    }, {
+      key: "type",
+      label: "类型",
+      render: t => t.type === "refund" ? /*#__PURE__*/React.createElement(RBadge, {
+        tone: "neutral",
+        mono: false
+      }, "\u9000\u6B3E") : /*#__PURE__*/React.createElement(RBadge, {
+        tone: "sync",
+        mono: false
+      }, "\u6263\u6B3E")
+    }, {
+      key: "method",
+      label: "支付方式",
+      muted: true,
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11.5,
+          color: "var(--text-2)"
+        }
+      }, t.method)
+    }, {
+      key: "amount",
+      label: "金额",
+      numeric: true,
+      render: t => /*#__PURE__*/React.createElement(RMoney, {
+        amount: t.amount,
+        size: 12,
+        tone: t.type === "refund" ? "danger" : "gold",
+        sign: t.type === "refund"
+      })
+    }, {
+      key: "status",
+      label: "状态",
+      render: t => t.status === "failed" ? /*#__PURE__*/React.createElement(RBadge, {
+        tone: "danger",
+        mono: false
+      }, "\u5931\u8D25") : /*#__PURE__*/React.createElement(RBadge, {
+        tone: "success"
+      }, "\u6210\u529F")
+    }, {
+      key: "date",
+      label: "时间",
+      numeric: true,
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, t.date)
+    }, {
+      key: "act",
+      label: "",
+      align: "right",
+      render: t => t.type === "charge" && t.status === "succeeded" ? /*#__PURE__*/React.createElement(RBtn, {
+        size: "sm",
+        variant: "ghost",
+        onClick: () => setRefund(t)
+      }, "\u9000\u6B3E") : t.status === "failed" ? /*#__PURE__*/React.createElement(RBtn, {
+        size: "sm",
+        variant: "ghost"
+      }, "\u91CD\u8BD5") : /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, "\u2014")
+    }],
+    rows: tx,
+    footer: /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        width: "100%",
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, /*#__PURE__*/React.createElement("span", null, tx.length, " \u7B14\u4EA4\u6613 \xB7 \u8BA1\u8D39\u7531 Stripe \u5904\u7406"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "auto",
+        fontFamily: "var(--font-mono)"
+      }
+    }, "\u4ECA\u65E5\u51C0\u989D ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gd-gold)"
+      }
+    }, "+$224.60")))
+  })), /*#__PURE__*/React.createElement(RDlg, {
+    open: !!refund,
+    onClose: () => setRefund(null),
+    title: "\u9000\u6B3E",
+    width: 440,
+    danger: true,
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RBtn, {
+      onClick: () => setRefund(null)
+    }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(RBtn, {
+      variant: "danger",
+      onClick: () => setRefund(null)
+    }, "\u9000\u6B3E ", refund && "$" + refund.amount.toFixed(2)))
+  }, refund && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      fontSize: 13,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u5411 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--text-1)"
+    }
+  }, refund.customer), " \u9000\u6B3E ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: "var(--gd-gold)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, "$", refund.amount.toFixed(2)), "\uFF08", refund.id, "\uFF09\u3002"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, "\u9000\u6B3E\u7ECF\u539F\u652F\u4ED8\u65B9\u5F0F\uFF08", refund.method, "\uFF09\u8FD4\u8FD8\uFF0C3\u20135 \u4E2A\u5DE5\u4F5C\u65E5\u5230\u8D26\uFF0C\u5E76\u8BB0\u5165\u5BA1\u8BA1\u65E5\u5FD7\u3002\u662F\u5426\u540C\u65F6\u964D\u7EA7/\u6682\u505C\u8BA2\u9605\u9700\u53E6\u884C\u64CD\u4F5C\u3002"))));
+}
+window.GDRevenue = Revenue;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Revenue.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/Support.jsx
+try { (() => {
+// 支持工单 Support — ticket inbox: tabs by status, table, detail drawer with reply/assign/resolve.
+const {
+  Panel: TPanel,
+  Table: TTable,
+  Badge: TBadge,
+  Button: TBtn,
+  Tabs: TTabs,
+  Input: TInput,
+  Select: TSel,
+  Toolbar: TToolbar,
+  Dialog: TDlg
+} = window.GoodDealerDesignSystem_b5b0b6;
+const PRIO = {
+  high: /*#__PURE__*/React.createElement(TBadge, {
+    tone: "danger",
+    mono: false
+  }, "\u9AD8"),
+  normal: /*#__PURE__*/React.createElement(TBadge, {
+    tone: "sync",
+    mono: false
+  }, "\u666E\u901A"),
+  low: /*#__PURE__*/React.createElement(TBadge, {
+    tone: "neutral",
+    mono: false
+  }, "\u4F4E")
+};
+const CHAN = {
+  email: "邮件",
+  "in-app": "应用内",
+  billing: "账单"
+};
+function Support() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const [tickets, setTickets] = React.useState(() => D.tickets.map(t => ({
+    ...t
+  })));
+  const [tab, setTab] = React.useState("open");
+  const [q, setQ] = React.useState("");
+  const [sel, setSel] = React.useState(null);
+  const counts = {
+    open: tickets.filter(t => t.status === "open").length,
+    pending: tickets.filter(t => t.status === "pending").length,
+    resolved: tickets.filter(t => t.status === "resolved").length
+  };
+  let rows = tickets.filter(t => (tab === "all" || t.status === tab) && (q === "" || t.subject.includes(q) || t.customer.includes(q) || t.id.toLowerCase().includes(q.toLowerCase())));
+  const resolve = t => {
+    setTickets(ts => ts.map(x => x.id === t.id ? {
+      ...x,
+      status: "resolved"
+    } : x));
+    setSel(null);
+  };
+  const assign = t => {
+    setTickets(ts => ts.map(x => x.id === t.id ? {
+      ...x,
+      assignee: "王运维",
+      status: x.status === "open" ? "pending" : x.status
+    } : x));
+    setSel(s => s && s.id === t.id ? {
+      ...s,
+      assignee: "王运维"
+    } : s);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u652F\u6301\u5DE5\u5355",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "待处理",
+      value: counts.open + counts.pending,
+      tone: "warning",
+      meta: "open + pending"
+    }, {
+      label: "高优先级",
+      value: tickets.filter(t => t.priority === "high" && t.status !== "resolved").length,
+      tone: "danger",
+      meta: "需优先响应"
+    }, {
+      label: "平均首响",
+      value: "1.8h",
+      tone: "success",
+      meta: "SLA 4h"
+    }, {
+      label: "今日解决",
+      value: "14",
+      tone: "success",
+      meta: "解决率 91%"
+    }, {
+      label: "未分配",
+      value: tickets.filter(t => t.assignee === "—" && t.status !== "resolved").length,
+      tone: "warning",
+      meta: "待认领"
+    }, {
+      label: "CSAT 满意度",
+      value: "4.7",
+      tone: "gold",
+      meta: "近 30 天 · 5 分制"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "0 18px",
+      borderBottom: "1px solid var(--gd-line)",
+      background: "var(--gd-panel)"
+    }
+  }, /*#__PURE__*/React.createElement(TTabs, {
+    items: [{
+      key: "open",
+      label: "待认领",
+      count: counts.open
+    }, {
+      key: "pending",
+      label: "处理中",
+      count: counts.pending
+    }, {
+      key: "resolved",
+      label: "已解决",
+      count: counts.resolved
+    }, {
+      key: "all",
+      label: "全部"
+    }],
+    active: tab,
+    onChange: setTab
+  })), /*#__PURE__*/React.createElement(TToolbar, {
+    region: true,
+    left: /*#__PURE__*/React.createElement(TInput, {
+      size: "sm",
+      prefix: /*#__PURE__*/React.createElement(I.Search, {
+        size: 13
+      }),
+      placeholder: "\u641C\u7D22\u4E3B\u9898\u3001\u5BA2\u6237\u3001\u5DE5\u5355\u53F7\u2026",
+      value: q,
+      onChange: e => setQ(e.target.value),
+      style: {
+        width: 260
+      }
+    }),
+    right: /*#__PURE__*/React.createElement(TBtn, {
+      size: "sm",
+      variant: "primary",
+      icon: /*#__PURE__*/React.createElement(I.Plus, {
+        size: 14
+      })
+    }, "\u65B0\u5EFA\u5DE5\u5355")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement(TTable, {
+    density: "regular",
+    rowKey: "id",
+    maxHeight: "100%",
+    onRowClick: setSel,
+    style: {
+      flex: 1,
+      minHeight: 0,
+      border: "none",
+      borderRadius: 0
+    },
+    columns: [{
+      key: "id",
+      label: "工单",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, t.id)
+    }, {
+      key: "subject",
+      label: "主题",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: "var(--text-1)"
+        }
+      }, t.subject)
+    }, {
+      key: "customer",
+      label: "客户",
+      muted: true
+    }, {
+      key: "priority",
+      label: "优先级",
+      render: t => PRIO[t.priority]
+    }, {
+      key: "channel",
+      label: "渠道",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12,
+          color: "var(--text-2)"
+        }
+      }, CHAN[t.channel])
+    }, {
+      key: "assignee",
+      label: "处理人",
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12,
+          color: t.assignee === "—" ? "var(--text-3)" : "var(--text-1)"
+        }
+      }, t.assignee === "—" ? "未分配" : t.assignee)
+    }, {
+      key: "status",
+      label: "状态",
+      render: t => t.status === "resolved" ? /*#__PURE__*/React.createElement(TBadge, {
+        tone: "success"
+      }, "\u5DF2\u89E3\u51B3") : t.status === "pending" ? /*#__PURE__*/React.createElement(TBadge, {
+        tone: "sync",
+        mono: false
+      }, "\u5904\u7406\u4E2D") : /*#__PURE__*/React.createElement(TBadge, {
+        tone: "warning",
+        mono: false
+      }, "\u5F85\u8BA4\u9886")
+    }, {
+      key: "updated",
+      label: "更新",
+      numeric: true,
+      render: t => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--text-3)"
+        }
+      }, t.updated)
+    }],
+    rows: rows,
+    emptyText: "\u6B64\u5206\u7C7B\u4E0B\u6682\u65E0\u5DE5\u5355"
+  })), /*#__PURE__*/React.createElement(TDlg, {
+    open: !!sel,
+    onClose: () => setSel(null),
+    title: sel ? sel.id : "",
+    width: 560,
+    footer: sel && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TBtn, {
+      onClick: () => setSel(null)
+    }, "\u5173\u95ED"), sel.assignee === "—" && /*#__PURE__*/React.createElement(TBtn, {
+      onClick: () => assign(sel)
+    }, "\u8BA4\u9886"), sel.status !== "resolved" && /*#__PURE__*/React.createElement(TBtn, {
+      variant: "primary",
+      onClick: () => resolve(sel)
+    }, "\u6807\u8BB0\u5DF2\u89E3\u51B3"))
+  }, sel && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 13
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, PRIO[sel.priority], sel.status === "resolved" ? /*#__PURE__*/React.createElement(TBadge, {
+    tone: "success"
+  }, "\u5DF2\u89E3\u51B3") : sel.status === "pending" ? /*#__PURE__*/React.createElement(TBadge, {
+    tone: "sync",
+    mono: false
+  }, "\u5904\u7406\u4E2D") : /*#__PURE__*/React.createElement(TBadge, {
+    tone: "warning",
+    mono: false
+  }, "\u5F85\u8BA4\u9886"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      marginLeft: "auto"
+    }
+  }, CHAN[sel.channel], " \xB7 ", sel.updated)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-1)"
+    }
+  }, sel.subject), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-3)",
+      marginTop: 3
+    }
+  }, sel.customer, " \xB7 \u5904\u7406\u4EBA ", sel.assignee === "—" ? "未分配" : sel.assignee)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      padding: "13px 14px",
+      background: "var(--gd-panel)",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 7
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 24,
+      height: 24,
+      flex: "none",
+      borderRadius: "50%",
+      background: "var(--gd-panel-raised)",
+      border: "1px solid var(--gd-line-strong)",
+      fontSize: 10,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "var(--text-2)"
+    }
+  }, "\u5BA2"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-2)",
+      lineHeight: 1.6
+    }
+  }, "\u79FB\u4EA4\u6267\u884C\u6743\u540E\u65B0\u8BBE\u5907\u4E00\u76F4\u505C\u7559\u5728\u300C\u6B63\u5728\u5B89\u5168\u6FC0\u6D3B\u300D\uFF0C\u8D85\u8FC7\u4E00\u5929\u4ECD\u672A\u5B8C\u6210\uFF0C\u65E7\u8BBE\u5907\u5DF2\u6392\u7A7A\u3002\u8BF7\u534F\u52A9\u6392\u67E5\u3002"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u56DE\u590D"), /*#__PURE__*/React.createElement("textarea", {
+    placeholder: "\u8F93\u5165\u56DE\u590D\u2026",
+    style: {
+      width: "100%",
+      minHeight: 70,
+      resize: "vertical",
+      background: "var(--gd-ink)",
+      border: "1px solid var(--gd-line-strong)",
+      borderRadius: 5,
+      color: "var(--gd-text)",
+      fontFamily: "var(--font-sans)",
+      fontSize: 13,
+      padding: "9px 11px",
+      outline: "none",
+      boxSizing: "border-box"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement(TSel, {
+    size: "sm",
+    options: ["未分配", "王运维", "李工", "张工"],
+    value: sel.assignee === "—" ? "未分配" : sel.assignee,
+    onChange: () => {}
+  }), /*#__PURE__*/React.createElement(TSel, {
+    size: "sm",
+    options: ["高", "普通", "低"],
+    value: sel.priority === "high" ? "高" : sel.priority === "low" ? "低" : "普通",
+    onChange: () => {}
+  }), /*#__PURE__*/React.createElement(TBtn, {
+    size: "sm",
+    variant: "primary",
+    style: {
+      marginLeft: "auto"
+    }
+  }, "\u53D1\u9001\u56DE\u590D")))));
+}
+window.GDSupport = Support;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/Support.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/SyncInfra.jsx
+try { (() => {
+// 同步与基础设施健康 SyncInfra — service health, sync queue by region, incidents, connector health.
+const {
+  Panel: IPanel,
+  Badge: IBadge,
+  Button: IBtn,
+  StatusDot: IDot
+} = window.GoodDealerDesignSystem_b5b0b6;
+const SVC_TONE = {
+  ok: "success",
+  degraded: "warning",
+  warn: "warning",
+  down: "danger"
+};
+const SVC_LABEL = {
+  ok: "正常",
+  degraded: "降级",
+  warn: "告警",
+  down: "故障"
+};
+function ServiceCard({
+  s
+}) {
+  const tone = SVC_TONE[s.status];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "13px 14px",
+      border: "1px solid var(--gd-line)",
+      borderRadius: 7,
+      background: "var(--gd-panel)",
+      display: "flex",
+      flexDirection: "column",
+      gap: 9
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(IDot, {
+    kind: tone === "success" ? "success" : tone === "warning" ? "warning" : "danger",
+    pulse: s.status !== "ok"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)",
+      fontWeight: 500
+    }
+  }, s.name), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto"
+    }
+  }, /*#__PURE__*/React.createElement(IBadge, {
+    tone: tone,
+    mono: false
+  }, SVC_LABEL[s.status]))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u5EF6\u8FDF p95"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 13,
+      color: s.latency > 200 ? "var(--gd-warning)" : "var(--text-1)"
+    }
+  }, s.latency ? s.latency + "ms" : "—")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "gd-t-label"
+  }, "\u53EF\u7528\u6027 30d"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontSize: 13,
+      color: s.uptime < 99.5 ? "var(--gd-warning)" : "var(--text-1)"
+    }
+  }, s.uptime, "%"))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)"
+    }
+  }, s.note));
+}
+function SyncInfra() {
+  const D = window.GD_ADMIN;
+  const I = window.GDI;
+  const MetricStrip = window.GDMetricStrip;
+  const queues = [["us-east-1", 52, 40, "ok"], ["eu-west-2", 31, 55, "ok"], ["ap-east-1", 28, 48, "ok"], ["me-south-1", 17, 210, "warn"], ["ap-northeast-1", 12, 62, "ok"]];
+  const maxQ = Math.max(...queues.map(q => q[1]));
+  const connectors = [["Atom", "ok", "API · 511k Listing 同步"], ["Afternic", "warn", "回调延迟 340ms · CSV 人工"], ["Cloudflare", "ok", "DNS · 601k 区域"], ["Spaceship", "warn", "会话过期率 8%"], ["Dynadot", "ok", "注册商 API"], ["SellerHub", "ok", "已启用"]];
+  return /*#__PURE__*/React.createElement("div", {
+    "data-screen-label": "\u540C\u6B65\u4E0E\u57FA\u7840\u8BBE\u65BD",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement(MetricStrip, {
+    metrics: [{
+      label: "系统可用性",
+      value: "99.2%",
+      tone: "success",
+      meta: "30 天滚动"
+    }, {
+      label: "同步队列",
+      value: "128",
+      meta: "跨 12 区域"
+    }, {
+      label: "API 延迟 p95",
+      value: "42ms",
+      tone: "success",
+      meta: "Sync API"
+    }, {
+      label: "错误率",
+      value: "0.06%",
+      tone: "success",
+      meta: "近 1 小时"
+    }, {
+      label: "活跃事件",
+      value: "1",
+      tone: "warning",
+      meta: "1 服务降级"
+    }, {
+      label: "连接器健康",
+      value: "98.1%",
+      tone: "warning",
+      meta: "3 平台会话过期偏高"
+    }]
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 18,
+      display: "grid",
+      gridTemplateColumns: "1fr 360px",
+      gap: 14,
+      alignItems: "start"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(IPanel, {
+    title: "\u670D\u52A1\u5065\u5EB7",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, "\u81EA\u52A8\u63A2\u9488 \xB7 60s")
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, D.services.map(s => /*#__PURE__*/React.createElement(ServiceCard, {
+    key: s.name,
+    s: s
+  })))), /*#__PURE__*/React.createElement(IPanel, {
+    flush: true,
+    title: "\u6D3B\u8DC3\u4E0E\u8FD1\u671F\u4E8B\u4EF6"
+  }, D.incidents.map((inc, i) => /*#__PURE__*/React.createElement("div", {
+    key: inc.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "12px 16px",
+      borderBottom: i < D.incidents.length - 1 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement(IDot, {
+    kind: inc.sev === "minor" ? "warning" : inc.sev === "major" ? "danger" : "neutral"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)"
+    }
+  }, inc.title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      fontFamily: "var(--font-mono)"
+    }
+  }, inc.id, " \xB7 ", inc.svc, " \xB7 \u59CB\u4E8E ", inc.started)), /*#__PURE__*/React.createElement(IBadge, {
+    tone: inc.status === "监控中" ? "warning" : inc.status === "已缓解" ? "sync" : "neutral",
+    mono: false
+  }, inc.status))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(IPanel, {
+    title: "\u540C\u6B65\u961F\u5217 \xB7 \u6309\u533A\u57DF"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 11
+    }
+  }, queues.map(([r, q, lag, st]) => /*#__PURE__*/React.createElement("div", {
+    key: r,
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      fontSize: 11.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: "var(--text-2)",
+      flex: 1
+    }
+  }, r), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      color: st === "warn" ? "var(--gd-warning)" : "var(--text-3)"
+    }
+  }, q, " \u9879 \xB7 ", lag, "ms")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 5,
+      borderRadius: 3,
+      background: "var(--gd-line)",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: q / maxQ * 100 + "%",
+      height: "100%",
+      background: st === "warn" ? "var(--gd-warning)" : "var(--gd-blue)"
+    }
+  })))))), /*#__PURE__*/React.createElement(IPanel, {
+    flush: true,
+    title: "\u8FDE\u63A5\u5668\u5065\u5EB7",
+    actions: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-3)"
+      }
+    }, "\u5E73\u53F0\u4FA7")
+  }, connectors.map((c, i) => /*#__PURE__*/React.createElement("div", {
+    key: c[0],
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "10px 16px",
+      borderBottom: i < connectors.length - 1 ? "1px solid var(--gd-line)" : "none"
+    }
+  }, /*#__PURE__*/React.createElement(IDot, {
+    kind: c[1] === "ok" ? "success" : "warning"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-1)",
+      width: 78,
+      flex: "none"
+    }
+  }, c[0]), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-3)",
+      flex: 1,
+      minWidth: 0,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, c[2])))))));
+}
+window.GDSyncInfra = SyncInfra;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/SyncInfra.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/controls.jsx
+try { (() => {
+// Kit-local reusable controls: Pagination + EditableCell (inline double-click edit).
+// Composed from DS primitives; loaded via Babel so they work without a bundle recompile.
+const {
+  Select: GDSelect,
+  IconButton: GDIconButton
+} = window.GoodDealerDesignSystem_b5b0b6;
+function pageWindow(cur, total) {
+  if (total <= 7) return Array.from({
+    length: total
+  }, (_, i) => i + 1);
+  const s = new Set([1, 2, total - 1, total, cur - 1, cur, cur + 1]);
+  const arr = [...s].filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const n of arr) {
+    if (n - prev > 1) out.push("gap" + n);
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+function PageNum({
+  n,
+  active,
+  onClick
+}) {
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: onClick,
+    onMouseEnter: e => {
+      if (!active) e.currentTarget.style.background = "var(--gd-panel-raised)";
+    },
+    onMouseLeave: e => {
+      if (!active) e.currentTarget.style.background = "transparent";
+    },
+    style: {
+      minWidth: 24,
+      height: 24,
+      padding: "0 6px",
+      borderRadius: 5,
+      cursor: "pointer",
+      fontFamily: "var(--font-mono)",
+      fontVariantNumeric: "tabular-nums",
+      fontSize: 12,
+      border: active ? "1px solid var(--gd-line-strong)" : "1px solid transparent",
+      background: active ? "var(--gd-panel-raised)" : "transparent",
+      color: active ? "var(--text-1)" : "var(--text-2)"
+    }
+  }, n);
+}
+function Pagination({
+  page,
+  pageSize,
+  total,
+  onPage,
+  onPageSize,
+  pageSizes = [10, 25, 50],
+  note
+}) {
+  const I = window.GDI;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, pages);
+  const from = total === 0 ? 0 : (cur - 1) * pageSize + 1;
+  const to = Math.min(total, cur * pageSize);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      width: "100%",
+      fontSize: 12,
+      color: "var(--gd-text-muted)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "var(--font-mono)",
+      fontVariantNumeric: "tabular-nums"
+    }
+  }, from.toLocaleString(), "\u2013", to.toLocaleString(), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text-3)"
+    }
+  }, "/ ", total.toLocaleString())), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, "\u6BCF\u9875", /*#__PURE__*/React.createElement(GDSelect, {
+    size: "sm",
+    options: pageSizes.map(String),
+    value: String(pageSize),
+    onChange: e => onPageSize(+e.target.value)
+  })), note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11
+    }
+  }, note), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: note ? 16 : "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, /*#__PURE__*/React.createElement(GDIconButton, {
+    size: "sm",
+    label: "\u4E0A\u4E00\u9875",
+    disabled: cur <= 1,
+    onClick: () => onPage(cur - 1)
+  }, /*#__PURE__*/React.createElement(I.ChevronLeft, {
+    size: 14
+  })), pageWindow(cur, pages).map((n, i) => typeof n === "number" ? /*#__PURE__*/React.createElement(PageNum, {
+    key: i,
+    n: n,
+    active: n === cur,
+    onClick: () => onPage(n)
+  }) : /*#__PURE__*/React.createElement("span", {
+    key: i,
+    style: {
+      padding: "0 2px",
+      color: "var(--gd-text-faint)"
+    }
+  }, "\u2026")), /*#__PURE__*/React.createElement(GDIconButton, {
+    size: "sm",
+    label: "\u4E0B\u4E00\u9875",
+    disabled: cur >= pages,
+    onClick: () => onPage(cur + 1)
+  }, /*#__PURE__*/React.createElement(I.ChevronRight, {
+    size: 14
+  }))));
+}
+window.GDPagination = Pagination;
+
+// EditableCell — double-click to edit in place (uncontrolled input read via ref on
+// commit, so it is race-free); Enter/blur reports the pending value to onCommit
+// (parent shows the "save & sync?" prompt); Escape cancels.
+function EditableCell({
+  value,
+  display,
+  onCommit,
+  width = 94,
+  prefix
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const ref = React.useRef(null);
+  const doneRef = React.useRef(false);
+  React.useEffect(() => {
+    if (editing && ref.current) {
+      ref.current.value = value == null ? "" : String(value);
+      ref.current.focus();
+      ref.current.select();
+    }
+  }, [editing]);
+  const start = () => {
+    doneRef.current = false;
+    setEditing(true);
+  };
+  const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    const raw = ref.current ? ref.current.value : "";
+    setEditing(false);
+    const clean = String(raw).trim();
+    if (clean !== "" && clean !== String(value)) onCommit(clean);
+  };
+  const cancel = () => {
+    doneRef.current = true;
+    setEditing(false);
+  };
+  if (editing) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        justifyContent: "flex-end"
+      },
+      onClick: e => e.stopPropagation()
+    }, prefix && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gd-text-faint)",
+        fontSize: 11,
+        fontFamily: "var(--font-mono)"
+      }
+    }, prefix), /*#__PURE__*/React.createElement("input", {
+      ref: ref,
+      inputMode: "decimal",
+      onKeyDown: e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") cancel();
+      },
+      onBlur: commit,
+      style: {
+        width,
+        height: 24,
+        background: "var(--gd-ink)",
+        border: "1px solid var(--gd-blue)",
+        boxShadow: "0 0 0 2px rgba(77,141,255,0.25)",
+        borderRadius: 5,
+        color: "var(--gd-text)",
+        fontFamily: "var(--font-mono)",
+        fontVariantNumeric: "tabular-nums",
+        fontSize: 12,
+        textAlign: "right",
+        padding: "0 7px",
+        outline: "none"
+      }
+    }));
+  }
+  return /*#__PURE__*/React.createElement("span", {
+    onDoubleClick: e => {
+      e.stopPropagation();
+      start();
+    },
+    onClick: e => e.stopPropagation(),
+    title: "\u53CC\u51FB\u7F16\u8F91 \xB7 \u56DE\u8F66\u786E\u8BA4",
+    style: {
+      cursor: "text",
+      display: "inline-block",
+      borderBottom: "1px dashed transparent",
+      paddingBottom: 1,
+      transition: "border-color 120ms"
+    },
+    onMouseEnter: e => e.currentTarget.style.borderBottomColor = "var(--gd-line-strong)",
+    onMouseLeave: e => e.currentTarget.style.borderBottomColor = "transparent"
+  }, display != null ? display : value);
+}
+window.GDEditableCell = EditableCell;
+
+// MetricStrip — the anti-jitter KPI band. Fixed height on EVERY screen (the meta line
+// is always reserved, so 2-line and 3-line screens are the same height); equal-flex
+// cells; optional per-cell drill-in (pointer + hover). Because the height is constant,
+// the content baseline never shifts when you switch screens — the frame stays put.
+function MetricStrip({
+  metrics = []
+}) {
+  const tone = t => ({
+    gold: "var(--gd-gold)",
+    danger: "var(--gd-danger)",
+    warning: "var(--gd-warning)",
+    blue: "var(--gd-blue)",
+    success: "var(--gd-success)",
+    muted: "var(--text-3)"
+  })[t] || "var(--text-1)";
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      height: 72,
+      flex: "none",
+      background: "var(--surface-region)",
+      borderBottom: "1px solid var(--gd-line)"
+    }
+  }, metrics.map((m, i) => {
+    const click = m.onClick;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      onClick: click || undefined,
+      onMouseEnter: click ? e => {
+        e.currentTarget.style.background = "var(--gd-panel-raised)";
+      } : undefined,
+      onMouseLeave: click ? e => {
+        e.currentTarget.style.background = "transparent";
+      } : undefined,
+      style: {
+        flex: 1,
+        minWidth: 0,
+        padding: "0 16px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 3,
+        transition: "background 120ms",
+        borderRight: i < metrics.length - 1 ? "1px solid var(--gd-line)" : "none",
+        cursor: click ? "pointer" : "default"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-label",
+      style: {
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, m.label), /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-metric-sm",
+      style: {
+        color: m.tone === "muted" ? "var(--text-3)" : tone(m.tone),
+        fontFamily: m.mono ? "var(--font-mono)" : undefined,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, m.value), /*#__PURE__*/React.createElement("span", {
+      className: "gd-t-meta",
+      style: {
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        minHeight: 14
+      }
+    }, m.meta != null ? m.meta : "\u00A0"));
+  }));
+}
+window.GDMetricStrip = MetricStrip;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/controls.jsx", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/data.js
+try { (() => {
+// admin-web mock data — GoodDealer operator console (internal). Cross-customer fleet, revenue, infra, support.
+window.GD_ADMIN = {
+  operator: {
+    name: "王运维",
+    email: "ops@gooddealer.com",
+    role: "运营管理员"
+  },
+  kpis: {
+    customers: 2847,
+    activeCustomers: 2413,
+    trials: 186,
+    mrr: 48210,
+    arr: 578520,
+    devicesOnline: 1842,
+    devicesBound: 4106,
+    syncHealth: 99.2,
+    openTickets: 23,
+    alerts: 3,
+    churnRate: 1.8
+  },
+  revenueSeries: [38.1, 39.4, 40.2, 41.8, 43.0, 44.1, 45.6, 46.2, 47.0, 47.4, 47.9, 48.2],
+  // MRR $k by month
+  planMix: [{
+    plan: "Professional",
+    count: 1806,
+    mrr: 36020,
+    color: "var(--gd-gold)"
+  }, {
+    plan: "Portfolio",
+    count: 214,
+    mrr: 9610,
+    color: "var(--gd-blue)"
+  }, {
+    plan: "Starter",
+    count: 393,
+    mrr: 2580,
+    color: "var(--gd-viz-drawdown)"
+  }],
+  customers: [{
+    id: "C-10428",
+    name: "陈立行",
+    email: "li@quanta.trade",
+    plan: "Professional",
+    status: "active",
+    devices: 2,
+    domains: 1024,
+    mrr: 24.9,
+    since: "2024-03-11",
+    lastSeen: "14:02",
+    country: "CN"
+  }, {
+    id: "C-10091",
+    name: "Meridian Holdings",
+    email: "ops@meridian.co",
+    plan: "Portfolio",
+    status: "active",
+    devices: 5,
+    domains: 8420,
+    mrr: 74.9,
+    since: "2023-11-02",
+    lastSeen: "13:58",
+    country: "US"
+  }, {
+    id: "C-11733",
+    name: "Sana Qureshi",
+    email: "sana@qrsh.io",
+    plan: "Professional",
+    status: "past_due",
+    devices: 2,
+    domains: 612,
+    mrr: 24.9,
+    since: "2024-08-19",
+    lastSeen: "2 天前",
+    country: "AE"
+  }, {
+    id: "C-12055",
+    name: "北岛数字",
+    email: "admin@beidao.cn",
+    plan: "Portfolio",
+    status: "active",
+    devices: 4,
+    domains: 5109,
+    mrr: 74.9,
+    since: "2024-01-27",
+    lastSeen: "12:31",
+    country: "CN"
+  }, {
+    id: "C-12890",
+    name: "Diego Marín",
+    email: "d@marin.dev",
+    plan: "Starter",
+    status: "trial",
+    devices: 1,
+    domains: 88,
+    mrr: 0,
+    since: "2026-08-02",
+    lastSeen: "09:14",
+    country: "MX"
+  }, {
+    id: "C-11402",
+    name: "Kestrel Capital",
+    email: "it@kestrel.fund",
+    plan: "Portfolio",
+    status: "active",
+    devices: 5,
+    domains: 12040,
+    mrr: 74.9,
+    since: "2023-06-14",
+    lastSeen: "14:01",
+    country: "GB"
+  }, {
+    id: "C-13001",
+    name: "Yuki Tanaka",
+    email: "yuki@tnk.jp",
+    plan: "Professional",
+    status: "active",
+    devices: 2,
+    domains: 430,
+    mrr: 24.9,
+    since: "2025-02-08",
+    lastSeen: "昨日",
+    country: "JP"
+  }, {
+    id: "C-09980",
+    name: "Orbit Domains",
+    email: "team@orbit.io",
+    plan: "Professional",
+    status: "churned",
+    devices: 0,
+    domains: 0,
+    mrr: 0,
+    since: "2023-09-30",
+    lastSeen: "06-28",
+    country: "US"
+  }, {
+    id: "C-12610",
+    name: "Amara Okafor",
+    email: "amara@okf.ng",
+    plan: "Starter",
+    status: "active",
+    devices: 1,
+    domains: 142,
+    mrr: 8.3,
+    since: "2025-11-15",
+    lastSeen: "11:47",
+    country: "NG"
+  }, {
+    id: "C-13120",
+    name: "Lindqvist AB",
+    email: "drift@lindqvist.se",
+    plan: "Professional",
+    status: "trial",
+    devices: 1,
+    domains: 203,
+    mrr: 0,
+    since: "2026-08-10",
+    lastSeen: "10:22",
+    country: "SE"
+  }, {
+    id: "C-10777",
+    name: "Zheng Wei",
+    email: "zw@zheng.co",
+    plan: "Professional",
+    status: "active",
+    devices: 2,
+    domains: 756,
+    mrr: 24.9,
+    since: "2024-05-21",
+    lastSeen: "13:40",
+    country: "CN"
+  }, {
+    id: "C-11988",
+    name: "Halcyon Group",
+    email: "ops@halcyon.gg",
+    plan: "Portfolio",
+    status: "past_due",
+    devices: 3,
+    domains: 3301,
+    mrr: 74.9,
+    since: "2024-04-03",
+    lastSeen: "3 天前",
+    country: "SG"
+  }],
+  fleet: [{
+    id: "D-8841",
+    customer: "陈立行",
+    name: "MacBook Pro",
+    os: "macOS 15.2",
+    state: "active",
+    epoch: 41,
+    lastSeen: "现在",
+    region: "ap-east-1",
+    health: "ok"
+  }, {
+    id: "D-8842",
+    customer: "陈立行",
+    name: "iPhone 17 Pro",
+    os: "iOS 19.1",
+    state: "standby",
+    epoch: 41,
+    lastSeen: "08:30",
+    region: "ap-east-1",
+    health: "ok"
+  }, {
+    id: "D-6320",
+    customer: "Meridian Holdings",
+    name: "Mac Studio",
+    os: "macOS 15.1",
+    state: "active",
+    epoch: 127,
+    lastSeen: "现在",
+    region: "us-east-1",
+    health: "ok"
+  }, {
+    id: "D-6321",
+    customer: "Meridian Holdings",
+    name: "ThinkPad X1",
+    os: "Windows 11",
+    state: "standby",
+    epoch: 127,
+    lastSeen: "1 小时前",
+    region: "us-east-1",
+    health: "ok"
+  }, {
+    id: "D-7702",
+    customer: "Kestrel Capital",
+    name: "Precision 5680",
+    os: "Windows 11",
+    state: "active",
+    epoch: 88,
+    lastSeen: "现在",
+    region: "eu-west-2",
+    health: "ok"
+  }, {
+    id: "D-9110",
+    customer: "Sana Qureshi",
+    name: "MacBook Air",
+    os: "macOS 14.6",
+    state: "draining",
+    epoch: 53,
+    lastSeen: "2 天前",
+    region: "me-south-1",
+    health: "stale"
+  }, {
+    id: "D-9111",
+    customer: "Sana Qureshi",
+    name: "iPad Pro",
+    os: "iPadOS 19",
+    state: "activating",
+    epoch: 54,
+    lastSeen: "2 天前",
+    region: "me-south-1",
+    health: "warn"
+  }, {
+    id: "D-5540",
+    customer: "北岛数字",
+    name: "iMac",
+    os: "macOS 15.2",
+    state: "active",
+    epoch: 64,
+    lastSeen: "12:31",
+    region: "ap-east-1",
+    health: "ok"
+  }, {
+    id: "D-4102",
+    customer: "Halcyon Group",
+    name: "Legion Tower",
+    os: "Windows 10",
+    state: "sunset",
+    epoch: 31,
+    lastSeen: "3 天前",
+    region: "ap-southeast-1",
+    health: "stale"
+  }, {
+    id: "D-8003",
+    customer: "Yuki Tanaka",
+    name: "MacBook Pro",
+    os: "macOS 15.0",
+    state: "active",
+    epoch: 22,
+    lastSeen: "昨日",
+    region: "ap-northeast-1",
+    health: "ok"
+  }],
+  transactions: [{
+    id: "TX-88214",
+    customer: "Meridian Holdings",
+    amount: 74.9,
+    type: "charge",
+    date: "14:02",
+    method: "Amex · 1005",
+    status: "succeeded"
+  }, {
+    id: "TX-88213",
+    customer: "陈立行",
+    amount: 24.9,
+    type: "charge",
+    date: "13:44",
+    method: "Visa · 4242",
+    status: "succeeded"
+  }, {
+    id: "TX-88212",
+    customer: "Sana Qureshi",
+    amount: 24.9,
+    type: "charge",
+    date: "11:20",
+    method: "Mastercard · 8890",
+    status: "failed"
+  }, {
+    id: "TX-88210",
+    customer: "Orbit Domains",
+    amount: 24.9,
+    type: "refund",
+    date: "昨日",
+    method: "Visa · 3321",
+    status: "succeeded"
+  }, {
+    id: "TX-88208",
+    customer: "Kestrel Capital",
+    amount: 74.9,
+    type: "charge",
+    date: "昨日",
+    method: "Amex · 4400",
+    status: "succeeded"
+  }, {
+    id: "TX-88205",
+    customer: "北岛数字",
+    amount: 74.9,
+    type: "charge",
+    date: "08-15",
+    method: "UnionPay · 6210",
+    status: "succeeded"
+  }],
+  services: [{
+    name: "Sync API",
+    status: "ok",
+    latency: 42,
+    uptime: 99.98,
+    note: "p95 · 12 region"
+  }, {
+    name: "Auth / License",
+    status: "ok",
+    latency: 28,
+    uptime: 99.99,
+    note: "设备门禁签发"
+  }, {
+    name: "Cloud Store",
+    status: "ok",
+    latency: 61,
+    uptime: 99.97,
+    note: "Revision 账本"
+  }, {
+    name: "Webhooks",
+    status: "degraded",
+    latency: 340,
+    uptime: 99.4,
+    note: "Afternic 回调延迟"
+  }, {
+    name: "Billing (Stripe)",
+    status: "ok",
+    latency: 88,
+    uptime: 99.95,
+    note: "第三方"
+  }, {
+    name: "Connector Health",
+    status: "warn",
+    latency: 0,
+    uptime: 98.1,
+    note: "3 平台会话过期率偏高"
+  }],
+  incidents: [{
+    id: "INC-241",
+    title: "Afternic Webhook 回调延迟升高",
+    sev: "minor",
+    status: "监控中",
+    started: "13:10",
+    svc: "Webhooks"
+  }, {
+    id: "INC-240",
+    title: "me-south-1 同步队列积压",
+    sev: "minor",
+    status: "已缓解",
+    started: "11:02",
+    svc: "Sync API"
+  }, {
+    id: "INC-238",
+    title: "Stripe 计划性维护窗口",
+    sev: "info",
+    status: "已完成",
+    started: "08-14",
+    svc: "Billing"
+  }],
+  tickets: [{
+    id: "T-4821",
+    subject: "设备门禁：移交后无法激活 Standby",
+    customer: "Sana Qureshi",
+    priority: "high",
+    status: "open",
+    assignee: "—",
+    updated: "12 分钟前",
+    channel: "email"
+  }, {
+    id: "T-4818",
+    subject: "批量改价对 Afternic 未生效",
+    customer: "Meridian Holdings",
+    priority: "high",
+    status: "pending",
+    assignee: "李工",
+    updated: "1 小时前",
+    channel: "in-app"
+  }, {
+    id: "T-4815",
+    subject: "发票抬头修改申请",
+    customer: "北岛数字",
+    priority: "low",
+    status: "open",
+    assignee: "—",
+    updated: "2 小时前",
+    channel: "email"
+  }, {
+    id: "T-4809",
+    subject: "Portfolio 多 Workspace 隔离咨询",
+    customer: "Kestrel Capital",
+    priority: "normal",
+    status: "pending",
+    assignee: "王运维",
+    updated: "昨日",
+    channel: "in-app"
+  }, {
+    id: "T-4802",
+    subject: "过期信用卡扣款失败",
+    customer: "Sana Qureshi",
+    priority: "normal",
+    status: "open",
+    assignee: "—",
+    updated: "昨日",
+    channel: "billing"
+  }, {
+    id: "T-4790",
+    subject: "导出账户数据请求 (GDPR)",
+    customer: "Yuki Tanaka",
+    priority: "normal",
+    status: "resolved",
+    assignee: "李工",
+    updated: "08-15",
+    channel: "email"
+  }],
+  audit: [{
+    id: 1,
+    actor: "王运维",
+    action: "强制解绑设备",
+    target: "D-4102 · Halcyon Group",
+    time: "13:55",
+    ip: "10.0.4.21"
+  }, {
+    id: 2,
+    actor: "系统",
+    action: "扣款失败 · 自动重试",
+    target: "C-11733 · Sana Qureshi",
+    time: "11:21",
+    ip: "—"
+  }, {
+    id: 3,
+    actor: "李工",
+    action: "手动退款 $24.90",
+    target: "C-09980 · Orbit Domains",
+    time: "昨日 17:40",
+    ip: "10.0.4.9"
+  }, {
+    id: 4,
+    actor: "王运维",
+    action: "切换功能开关 batch_v2",
+    target: "全局 · 12% rollout",
+    time: "昨日 15:02",
+    ip: "10.0.4.21"
+  }, {
+    id: 5,
+    actor: "王运维",
+    action: "发布公告",
+    target: "ANN-0042 · 全部客户",
+    time: "昨日 10:30",
+    ip: "10.0.4.21"
+  }, {
+    id: 6,
+    actor: "系统",
+    action: "签发 ActiveDeviceLease",
+    target: "D-8003 · Yuki Tanaka · Epoch 22",
+    time: "08-15 09:12",
+    ip: "—"
+  }, {
+    id: 7,
+    actor: "李工",
+    action: "重置客户 2FA",
+    target: "C-12055 · 北岛数字",
+    time: "08-15 08:47",
+    ip: "10.0.4.9"
+  }],
+  flags: [{
+    key: "batch_v2",
+    name: "批量执行引擎 v2",
+    desc: "新的差异预览与分组执行管线",
+    enabled: true,
+    rollout: 12,
+    section: "执行"
+  }, {
+    key: "conflict_auto_merge",
+    name: "冲突自动合并建议",
+    desc: "对非价格字段给出合并建议（仍需人工确认）",
+    enabled: false,
+    rollout: 0,
+    section: "执行"
+  }, {
+    key: "sellerhub_connector",
+    name: "SellerHub 连接器",
+    desc: "启用 SellerHub 平台集成",
+    enabled: true,
+    rollout: 100,
+    section: "连接器"
+  }, {
+    key: "afternic_api_write",
+    name: "Afternic 价格写入 API",
+    desc: "绕过 CSV 人工上传（灰度）",
+    enabled: false,
+    rollout: 5,
+    section: "连接器"
+  }, {
+    key: "multi_workspace",
+    name: "多 Workspace 隔离",
+    desc: "仅 Portfolio 方案可见",
+    enabled: true,
+    rollout: 100,
+    section: "方案"
+  }, {
+    key: "web_execution",
+    name: "网页端执行（实验）",
+    desc: "允许在 account-web 提交低风险修改",
+    enabled: false,
+    rollout: 0,
+    section: "实验"
+  }],
+  announcements: [{
+    id: "ANN-0043",
+    title: "0.9.0 发布：议价交割闭环",
+    audience: "全部客户",
+    status: "published",
+    date: "昨日 10:30",
+    author: "王运维"
+  }, {
+    id: "ANN-0044",
+    title: "me-south-1 区域维护窗口 · 08-20 02:00 UTC",
+    audience: "中东区客户",
+    status: "scheduled",
+    date: "08-20 02:00",
+    author: "王运维"
+  }, {
+    id: "ANN-0045",
+    title: "新增 SellerHub 连接器指南",
+    audience: "Professional · Portfolio",
+    status: "draft",
+    date: "—",
+    author: "李工"
+  }, {
+    id: "ANN-0042",
+    title: "安全提示：为账户启用 2FA",
+    audience: "全部客户",
+    status: "published",
+    date: "08-12 09:00",
+    author: "王运维"
+  }]
+};
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/data.js", error: String((e && e.message) || e) }); }
+
+// ui_kits/admin-web/icons.jsx
+try { (() => {
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
+// Lucide icon paths (1.7px stroke, geometric) — shared across the web kits.
+const mkIcon = children => ({
+  size = 15,
+  style,
+  ...p
+}) => /*#__PURE__*/React.createElement("svg", _extends({
+  width: size,
+  height: size,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: "1.7",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  style: style
+}, p), children);
+const GDI = {
+  LayoutDashboard: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "9",
+    x: "3",
+    y: "3",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "5",
+    x: "14",
+    y: "3",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "9",
+    x: "14",
+    y: "12",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "7",
+    height: "5",
+    x: "3",
+    y: "16",
+    rx: "1"
+  }))),
+  Globe: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 12h20"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+  }))),
+  Coins: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "8",
+    cy: "8",
+    r: "6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18.09 10.37A6 6 0 1 1 10.34 18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 6h1v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m16.71 13.88.7.71-2.82 2.82"
+  }))),
+  Users: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "9",
+    cy: "7",
+    r: "4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M22 21v-2a4 4 0 0 0-3-3.87"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 3.13a4 4 0 0 1 0 7.75"
+  }))),
+  User: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "7",
+    r: "4"
+  }))),
+  CreditCard: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "14",
+    x: "2",
+    y: "5",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "2",
+    x2: "22",
+    y1: "10",
+    y2: "10"
+  }))),
+  Receipt: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 17.5v-11"
+  }))),
+  KeyRound: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M2 18v3c0 .5.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "16.5",
+    cy: "7.5",
+    r: ".7",
+    fill: "currentColor"
+  }))),
+  Key: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "7.5",
+    cy: "15.5",
+    r: "5.5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m21 2-9.6 9.6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m15.5 7.5 3 3L22 7l-3-3"
+  }))),
+  ShieldCheck: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9 12 2 2 4-4"
+  }))),
+  Shield: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+  })),
+  Lock: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "18",
+    height: "11",
+    x: "3",
+    y: "11",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 11V7a5 5 0 0 1 10 0v4"
+  }))),
+  Smartphone: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "14",
+    height: "20",
+    x: "5",
+    y: "2",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 18h.01"
+  }))),
+  Monitor: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "2",
+    y: "3",
+    width: "20",
+    height: "14",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    y1: "21",
+    x2: "16",
+    y2: "21"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "17",
+    x2: "12",
+    y2: "21"
+  }))),
+  Database: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("ellipse", {
+    cx: "12",
+    cy: "5",
+    rx: "9",
+    ry: "3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 5V19A9 3 0 0 0 21 19V5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 12A9 3 0 0 0 21 12"
+  }))),
+  Cloud: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"
+  })),
+  Server: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "8",
+    x: "2",
+    y: "2",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "8",
+    x: "2",
+    y: "14",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "6",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "18",
+    y2: "18"
+  }))),
+  Activity: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M22 12h-4l-3 9L9 3l-3 9H2"
+  })),
+  LifeBuoy: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m4.93 4.93 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m14.83 9.17 4.24-4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m14.83 14.83 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9.17 14.83-4.24 4.24"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "4"
+  }))),
+  ScrollText: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 12h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 8h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M19 17V5a2 2 0 0 0-2-2H4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"
+  }))),
+  SlidersHorizontal: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "14",
+    y1: "4",
+    y2: "4"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "3",
+    y1: "4",
+    y2: "4"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "12",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "3",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "16",
+    y1: "20",
+    y2: "20"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "3",
+    y1: "20",
+    y2: "20"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "14",
+    x2: "14",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "8",
+    y1: "10",
+    y2: "14"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "16",
+    x2: "16",
+    y1: "18",
+    y2: "22"
+  }))),
+  Megaphone: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m3 11 18-5v12L3 14v-3z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M11.6 16.8a3 3 0 1 1-5.8-1.6"
+  }))),
+  Bell: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10.3 21a1.94 1.94 0 0 0 3.4 0"
+  }))),
+  LogOut: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 17 21 12 16 7"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "21",
+    x2: "9",
+    y1: "12",
+    y2: "12"
+  }))),
+  Settings: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }))),
+  Search: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "11",
+    cy: "11",
+    r: "7"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m20 20-3.5-3.5"
+  }))),
+  RefreshCw: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 12a9 9 0 0 1 15.6-6.2L21 8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M21 3v5h-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M21 12a9 9 0 0 1-15.6 6.2L3 16"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 21v-5h5"
+  }))),
+  Download: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "7 10 12 15 17 10"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "15",
+    x2: "12",
+    y2: "3"
+  }))),
+  Upload: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "17 8 12 3 7 8"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    y1: "3",
+    x2: "12",
+    y2: "15"
+  }))),
+  X: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M18 6 6 18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m6 6 12 12"
+  }))),
+  Plus: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 5v14"
+  }))),
+  Minus: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  })),
+  Check: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M20 6 9 17l-5-5"
+  })),
+  ChevronRight: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m9 18 6-6-6-6"
+  })),
+  ChevronLeft: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m15 18-6-6 6-6"
+  })),
+  ChevronDown: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "m6 9 6 6 6-6"
+  })),
+  ExternalLink: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 3h6v6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 14 21 3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+  }))),
+  ArrowRight: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M5 12h14"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m12 5 7 7-7 7"
+  }))),
+  ArrowUpRight: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M7 7h10v10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M7 17 17 7"
+  }))),
+  MoreHorizontal: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "19",
+    cy: "12",
+    r: "1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "5",
+    cy: "12",
+    r: "1"
+  }))),
+  Filter: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+  })),
+  Calendar: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "18",
+    height: "18",
+    x: "3",
+    y: "4",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "16",
+    x2: "16",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "8",
+    x2: "8",
+    y1: "2",
+    y2: "6"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "3",
+    x2: "21",
+    y1: "10",
+    y2: "10"
+  }))),
+  Clock: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "12 6 12 12 16 14"
+  }))),
+  TrendingUp: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("polyline", {
+    points: "22 7 13.5 15.5 8.5 10.5 2 17"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 7 22 7 22 13"
+  }))),
+  TrendingDown: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("polyline", {
+    points: "22 17 13.5 8.5 8.5 13.5 2 7"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: "16 17 22 17 22 11"
+  }))),
+  Zap: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+  })),
+  Ban: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m4.9 4.9 14.2 14.2"
+  }))),
+  Copy: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "14",
+    height: "14",
+    x: "8",
+    y: "8",
+    rx: "2",
+    ry: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+  }))),
+  Eye: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }))),
+  EyeOff: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M9.88 9.88a3 3 0 1 0 4.24 4.24"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "2",
+    x2: "22",
+    y1: "2",
+    y2: "22"
+  }))),
+  Mail: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "20",
+    height: "16",
+    x: "2",
+    y: "4",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"
+  }))),
+  DollarSign: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12",
+    y1: "2",
+    y2: "22"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+  }))),
+  Wallet: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M21 12V7H5a2 2 0 0 1 0-4h14v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3 5v14a2 2 0 0 0 2 2h16v-5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 12a2 2 0 0 0 0 4h4v-4Z"
+  }))),
+  Building2: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 6h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 10h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 14h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 18h4"
+  }))),
+  Cpu: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    width: "16",
+    height: "16",
+    x: "4",
+    y: "4",
+    rx: "2"
+  }), /*#__PURE__*/React.createElement("rect", {
+    width: "6",
+    height: "6",
+    x: "9",
+    y: "9",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 2v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M15 20v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 15h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 9h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M20 15h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M20 9h2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M9 2v2"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M9 20v2"
+  }))),
+  HardDrive: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+    x1: "22",
+    x2: "2",
+    y1: "12",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "6",
+    x2: "6.01",
+    y1: "16",
+    y2: "16"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "10.01",
+    y1: "16",
+    y2: "16"
+  }))),
+  Wifi: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12 20h.01"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M2 8.82a15 15 0 0 1 20 0"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M5 12.86a10 10 0 0 1 14 0"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8.5 16.43a5 5 0 0 1 7 0"
+  }))),
+  BarChart3: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 3v18h18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M18 17V9"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M13 17V5"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 17v-3"
+  }))),
+  Gauge: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m12 14 4-4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M3.34 19a10 10 0 1 1 17.32 0"
+  }))),
+  CircleCheck: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m9 12 2 2 4-4"
+  }))),
+  CircleAlert: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "10"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12",
+    y1: "8",
+    y2: "12"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "12",
+    x2: "12.01",
+    y1: "16",
+    y2: "16"
+  }))),
+  AlertTriangle: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 9v4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 17h.01"
+  }))),
+  Trash2: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M3 6h18"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "10",
+    x2: "10",
+    y1: "11",
+    y2: "17"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: "14",
+    x2: "14",
+    y1: "11",
+    y2: "17"
+  }))),
+  FileText: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M14 2v4a2 2 0 0 0 2 2h4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 9H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 13H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 17H8"
+  }))),
+  Pause: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("rect", {
+    x: "14",
+    y: "4",
+    width: "4",
+    height: "16",
+    rx: "1"
+  }), /*#__PURE__*/React.createElement("rect", {
+    x: "6",
+    y: "4",
+    width: "4",
+    height: "16",
+    rx: "1"
+  }))),
+  Play: mkIcon(/*#__PURE__*/React.createElement("polygon", {
+    points: "6 3 20 12 6 21 6 3"
+  })),
+  Apple: mkIcon(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("path", {
+    d: "M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 2c1 .5 2 2 2 5"
+  }))),
+  Command: mkIcon(/*#__PURE__*/React.createElement("path", {
+    d: "M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"
+  }))
+};
+window.GDI = GDI;
+})(); } catch (e) { __ds_ns.__errors.push({ path: "ui_kits/admin-web/icons.jsx", error: String((e && e.message) || e) }); }
 
 // ui_kits/desktop/AssetLibrary.jsx
 try { (() => {
@@ -4602,7 +15009,7 @@ window.GDHistoryLog = HistoryLog;
 try { (() => {
 // 接入 / Onboarding — first-run wizard. The journey entrance.
 // Steps: 欢迎 → 设备门禁(签发 ActiveDeviceLease) → 连接账户 → 首次导入 → 完成.
-// Hardware-wallet mind: this device becomes Active, local key issues the lease (Epoch 1).
+// Hardware-wallet mind: the Host creates the device key and Cloud signs the bound lease (Epoch 1).
 const {
   Button: OBtn,
   Input: OInput,
@@ -4923,7 +15330,7 @@ function Onboarding({
       color: "var(--gd-gold)",
       fontWeight: 500
     }
-  }, "\u6267\u884C\u8BBE\u5907\uFF08Active\uFF09"), "\u3002\u672C\u5730\u5BC6\u94A5\u7B7E\u53D1 ActiveDeviceLease\uFF0C\u540C\u4E00\u65F6\u523B\u4EC5\u4E00\u53F0\u8BBE\u5907\u53EF\u6267\u884C\u5199\u64CD\u4F5C\u3002")), /*#__PURE__*/React.createElement("div", {
+  }, "\u6267\u884C\u8BBE\u5907\uFF08Active\uFF09"), "\u3002\u672C\u673A\u751F\u6210\u8BBE\u5907\u5BC6\u94A5\uFF0CCloud \u6821\u9A8C\u540E\u7B7E\u53D1 ActiveDeviceLease\uFF1B\u540C\u4E00\u65F6\u523B\u4EC5\u4E00\u53F0\u8BBE\u5907\u53EF\u6267\u884C\u5199\u64CD\u4F5C\u3002")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 14,
@@ -4982,7 +15389,7 @@ function Onboarding({
       fontSize: 12,
       color: "var(--gd-blue)"
     }
-  }, "\u6821\u9A8C\u8BBE\u5907\u6307\u7EB9 \xB7 \u7B7E\u53D1 Lease")) : /*#__PURE__*/React.createElement("div", {
+  }, "\u6821\u9A8C\u8BBE\u5907\u6307\u7EB9 \xB7 \u7B49\u5F85 Cloud \u7B7E\u53D1 Lease")) : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -4997,7 +15404,7 @@ function Onboarding({
       fontSize: 12,
       color: "var(--gd-text-muted)"
     }
-  }, "\u5DF2\u7B7E\u53D1 ActiveDeviceLease \xB7 ", /*#__PURE__*/React.createElement("span", {
+  }, "Cloud \u5DF2\u7B7E\u53D1 ActiveDeviceLease \xB7 ", /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: "var(--font-mono)",
       color: "var(--gd-gold)"
@@ -6827,7 +17234,6 @@ function Settings({
   }]);
   const [handoff, setHandoff] = React.useState(null);
   const [ack, setAck] = React.useState(false);
-  const [autoSync, setAutoSync] = React.useState(true);
   const [readonly, setReadonly] = React.useState(true);
   const runHandoff = () => {
     const to = handoff;
@@ -7078,17 +17484,17 @@ function Settings({
     }, /*#__PURE__*/React.createElement(KV, {
       k: "\u81EA\u52A8\u540C\u6B65"
     }, /*#__PURE__*/React.createElement(PSwitch, {
-      checked: autoSync,
-      onChange: () => setAutoSync(v => !v)
+      checked: true,
+      disabled: true
     })), /*#__PURE__*/React.createElement(KV, {
-      k: "\u540C\u6B65\u95F4\u9694"
+      k: "\u62C9\u53D6\u5237\u65B0"
     }, /*#__PURE__*/React.createElement(PSel, {
       size: "sm",
-      options: ["实时", "每 5 分钟", "每 15 分钟", "仅手动"],
+      options: ["可见时", "每 5 分钟", "每 15 分钟"],
       value: "\u6BCF 5 \u5206\u949F",
       onChange: () => {}
     })), /*#__PURE__*/React.createElement(KV, {
-      k: "\u79BB\u7EBF\u53EA\u8BFB"
+      k: "\u4E3B\u52A8\u53EA\u8BFB"
     }, /*#__PURE__*/React.createElement(PSwitch, {
       checked: readonly,
       onChange: () => setReadonly(v => !v)
@@ -7096,7 +17502,7 @@ function Settings({
       k: "\u51B2\u7A81\u7B56\u7565"
     }, /*#__PURE__*/React.createElement(PSel, {
       size: "sm",
-      options: ["总是人工裁决", "优先本地", "优先云端"],
+      options: ["总是人工裁决"],
       value: "\u603B\u662F\u4EBA\u5DE5\u88C1\u51B3",
       onChange: () => {}
     })), /*#__PURE__*/React.createElement("div", {
@@ -7106,7 +17512,7 @@ function Settings({
         paddingTop: 10,
         lineHeight: 1.6
       }
-    }, "\u79BB\u7EBF\u53EA\u8BFB\u5F00\u542F\u65F6\uFF0C\u4E91\u7AEF\u4E0D\u53EF\u8FBE\u5373\u8FDB\u5165\u53EA\u8BFB\u89C6\u56FE\uFF0C\u5E38\u9A7B\u663E\u793A\u300C\u6570\u636E\u6765\u81EA GoodDealer Cloud \xB7 \u622A\u81F3\u65F6\u95F4\u300D\u3002\u51B2\u7A81\u9879\u6C38\u4E0D\u81EA\u52A8\u8986\u76D6\uFF0C\u7EDF\u4E00\u5165\u51B2\u7A81\u4E2D\u5FC3\u4EBA\u5DE5\u88C1\u51B3\u3002"))),
+    }, "\u4E1A\u52A1\u53D8\u66F4\u5148\u63D0\u4EA4\u672C\u5730 SQLCipher\uFF0C\u518D\u5F02\u6B65\u590D\u5236\uFF1BCloud \u4E0D\u53EF\u8FBE\u672C\u8EAB\u4E0D\u4F1A\u5207\u6362\u4E3A\u53EA\u8BFB\u3002\u4E3B\u52A8\u53EA\u8BFB\u53EA\u80FD\u6536\u7D27\u5DF2\u9A8C\u8BC1\u8FD0\u884C\u6743\u9650\uFF0C\u4E0D\u80FD\u6269\u6743\uFF1B\u51B2\u7A81\u9879\u7EDF\u4E00\u8FDB\u5165\u51B2\u7A81\u4E2D\u5FC3\u4EBA\u5DE5\u88C1\u51B3\u3002"))),
     about: /*#__PURE__*/React.createElement(PPanel, {
       title: "\u5173\u4E8E"
     }, /*#__PURE__*/React.createElement("div", {

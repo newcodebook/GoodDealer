@@ -6,10 +6,8 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "gold
 export type ButtonSize = "sm" | "md" | "lg";
 
 /**
- * GoodDealer button. Primary = tech blue (system actions); gold variant is outline-only,
- * reserved for identity/value moments (authorization, ownership verification success) — never
- * a default CTA. See brand/README.md "INFORMATION HIERARCHY" for the E1–E4 attention ladder
- * this variant set maps to.
+ * Generic button with restrained visual variants. The gold variant is outline-only and is not
+ * intended as the default call to action.
  */
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
   /** @default "secondary" */
@@ -34,7 +32,7 @@ export function Button({
     .filter(Boolean)
     .join(" ");
   return (
-    <button className={className} {...rest}>
+    <button type="button" className={className} {...rest}>
       {icon}
       {children}
     </button>

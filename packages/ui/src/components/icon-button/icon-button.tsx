@@ -23,7 +23,7 @@ export function IconButton({ variant = "ghost", size = "md", label, children, ..
     .filter(Boolean)
     .join(" ");
   return (
-    <button className={className} title={label} aria-label={label} {...rest}>
+    <button type="button" className={className} title={label} aria-label={label} {...rest}>
       {children}
     </button>
   );

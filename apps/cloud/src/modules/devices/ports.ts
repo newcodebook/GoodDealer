@@ -6,7 +6,23 @@ import {
 import type { CheckpointDescriptor, MutationPage } from "@gooddealer/protocol/workspace";
 
 import type { ActiveDeviceLeaseClaims } from "./lease-lifecycle";
+import type { TenantTransaction } from "../../db/index";
 import type { WorkspaceTenantScope } from "../workspace/tenant-scope";
+
+export interface DeviceLoginEligibilityPort {
+  checkLoginEligibility(input: {
+    readonly accountId: string;
+    readonly deviceId: string;
+    readonly accountSecurityEpoch: number;
+  }): Promise<{ readonly eligible: boolean }>;
+}
+
+/** Production stays closed until persistent device binding and Lease evidence exists. */
+export class DenyingDeviceLoginEligibilityPort implements DeviceLoginEligibilityPort {
+  async checkLoginEligibility(): Promise<{ readonly eligible: false }> {
+    return { eligible: false };
+  }
+}
 
 export interface CheckpointCatalogPort {
   selectPublishedCheckpoint(scope: WorkspaceTenantScope, checkpointId: string): Promise<CheckpointDescriptor | null>;
@@ -23,15 +39,19 @@ export interface WorkspaceRevisionPort {
 
 export interface MutationPagePort {
   readPage(scope: WorkspaceTenantScope, request: {
-    readonly fromRevisionExclusive: number;
-    readonly throughRevisionInclusive: number;
+    readonly fromServerRevisionExclusive: number;
+    readonly throughServerRevisionInclusive: number;
     readonly cursor: string | null;
     readonly pageLimit: number;
   }): Promise<MutationPage>;
 }
 
 export interface DeviceCursorPort {
-  retireCursor(scope: WorkspaceTenantScope, deviceId: string, reason: "replaced" | "device_removed"): Promise<void>;
+  retireCursor(
+    scope: WorkspaceTenantScope,
+    deviceId: string,
+    reason: "replaced" | "device_removed" | "workspace_left",
+  ): Promise<void>;
   activateCursor(scope: WorkspaceTenantScope, deviceId: string, atRevision: number): Promise<void>;
 }
 
@@ -111,6 +131,28 @@ export interface DrainSealParticipantPort<Stream extends DrainStream = DrainStre
     readonly stream: Stream;
     readonly lastAssignedSequence: number;
   }): { rollback(): void };
+}
+
+/**
+ * Persistence participant called by devices while its tenant transaction is already open.
+ * The proof has already been locked and accepted by the devices owner routine. Implementations
+ * derive their own stream sequence, digest, and head from that proof and their immutable rows;
+ * devices cannot supply a replacement head or any stream claim.
+ */
+export interface TransactionalDrainLedgerPort<Stream extends DrainStream> {
+  /** Returns false only when this stream cannot seal the just-consumed proof exactly. */
+  installAcceptedSeal(transaction: TenantTransaction, input: {
+    readonly proofId: string;
+  }): Promise<boolean>;
+  readonly stream: Stream;
+}
+
+/** Device-owned authority used by mutation ingest while its tenant transaction is open. */
+export interface TransactionalMutationAuthorityPort {
+  lockAndValidateActiveLease(transaction: TenantTransaction, input: {
+    readonly sourceDeviceId: string;
+    readonly activeLeaseEpoch: number;
+  }): Promise<boolean>;
 }
 
 export interface DrainStreamWatermarkPort {

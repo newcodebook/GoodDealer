@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "workspace-fixture-1",
+  "workspaceSchemaVersion": 1,
+  "targetServerRevision": 4,
+  "checkpointDescriptor": {
+    "schemaVersion": 1,
+    "checkpointId": "checkpoint-fixture-1",
+    "workspaceId": "workspace-fixture-1",
+    "workspaceSchemaVersion": 1,
+    "throughServerRevision": 2,
+    "checkpointDigest": "11ls6sbrtLxiKOBhu8lMW86UaQnTbM6AmVIr8ADqBJI"
+  },
+  "checkpointSnapshot": {
+    "schemaVersion": 1,
+    "workspaceId": "workspace-fixture-1",
+    "workspaceSchemaVersion": 1,
+    "throughServerRevision": 2,
+    "rows": [
+      {
+        "entityId": "a.test",
+        "note": "checkpoint note",
+        "portfolioId": "portfolio-1",
+        "tags": ["listed"],
+        "targetPrice": { "currency": "USD", "amount": "1000" }
+      },
+      {
+        "entityId": "b.test",
+        "note": null,
+        "portfolioId": null,
+        "tags": [],
+        "targetPrice": null
+      }
+    ]
+  },
+  "pages": [
+    {
+      "cursor": null,
+      "page": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-fixture-1",
+        "fromServerRevisionExclusive": 2,
+        "throughServerRevisionInclusive": 4,
+        "mutations": [
+          {
+            "schemaVersion": 1,
+            "mutationId": "mutation-3",
+            "workspaceId": "workspace-fixture-1",
+            "workspaceSchemaVersion": 1,
+            "entityType": "domain_asset",
+            "entityId": "a.test",
+            "baseServerRevision": 2,
+            "changedFields": [
+              { "fieldPath": "note", "value": "rebuilt note" },
+              { "fieldPath": "tags", "value": ["priority", "sale"] }
+            ],
+            "sourceDeviceId": "device-source-1",
+            "activeLeaseEpoch": 11,
+            "deviceMutationSequence": 3,
+            "serverRevision": 3
+          }
+        ],
+        "returnedThroughServerRevision": 3,
+        "nextCursor": "after-3",
+        "pageDigest": "99EkVtVesfFpHE1acbNtZN1j-8o2Gpka7MYMG3CpUgs"
+      }
+    },
+    {
+      "cursor": "after-3",
+      "page": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-fixture-1",
+        "fromServerRevisionExclusive": 3,
+        "throughServerRevisionInclusive": 4,
+        "mutations": [
+          {
+            "schemaVersion": 1,
+            "mutationId": "mutation-4",
+            "workspaceId": "workspace-fixture-1",
+            "workspaceSchemaVersion": 1,
+            "entityType": "domain_asset",
+            "entityId": "b.test",
+            "baseServerRevision": 2,
+            "changedFields": [
+              { "fieldPath": "portfolioId", "value": "portfolio-2" },
+              { "fieldPath": "targetPrice", "value": { "currency": "USD", "amount": "2500" } }
+            ],
+            "sourceDeviceId": "device-source-1",
+            "activeLeaseEpoch": 11,
+            "deviceMutationSequence": 4,
+            "serverRevision": 4
+          }
+        ],
+        "returnedThroughServerRevision": 4,
+        "nextCursor": null,
+        "pageDigest": "u2vTWkXhceGK0VSJWbGuVvSFg9HQrXACpWHK-K_HOAM"
+      }
+    }
+  ],
+  "expected": {
+    "projection": [
+      {
+        "entityId": "a.test",
+        "note": "rebuilt note",
+        "portfolioId": "portfolio-1",
+        "tags": ["priority", "sale"],
+        "targetPrice": { "currency": "USD", "amount": "1000" }
+      },
+      {
+        "entityId": "b.test",
+        "note": null,
+        "portfolioId": "portfolio-2",
+        "tags": [],
+        "targetPrice": { "currency": "USD", "amount": "2500" }
+      }
+    ],
+    "entityDigests": [
+      {
+        "entityType": "domain_asset",
+        "partitionId": "p0000",
+        "digest": "LjNHbM6LGrhGrAMRK8LmWm5Efp40SXMeLSz_2jNqAL4"
+      }
+    ],
+    "digest": "KKcxhttPl1t74QQoOOfVpgwb6EIe-6jhxD9yd96E6zY"
+  }
+}

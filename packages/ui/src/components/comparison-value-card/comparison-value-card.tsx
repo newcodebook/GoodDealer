@@ -1,0 +1,5 @@
+import type { CSSProperties, ReactNode } from "react";
+import "./comparison-value-card.css";
+export type ComparisonValueTone = "body" | "sync" | "gold" | "warning" | "danger";
+export interface ComparisonValueCardProps { label: ReactNode; value: ReactNode; tone?: ComparisonValueTone; selected?: boolean; onSelect?: () => void; ellipsis?: boolean; style?: CSSProperties }
+export function ComparisonValueCard({ label, value, tone = "body", selected, onSelect, ellipsis, style }: ComparisonValueCardProps) { const content = <><span className={`gd-comparison-label gd-comparison-label--${tone}`}>{label}</span><span className={`gd-comparison-value${ellipsis ? " gd-comparison-value--ellipsis" : ""}`}>{value}</span></>; return onSelect ? <button type="button" className={`gd-comparison${selected ? " gd-comparison--selected" : ""}`} style={style} aria-pressed={selected} onClick={onSelect}>{content}</button> : <div className={`gd-comparison${selected ? " gd-comparison--selected" : ""}`} style={style}>{content}</div>; }

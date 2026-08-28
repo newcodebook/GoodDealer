@@ -39,7 +39,7 @@ export const executionFactSchema = z
     sourceDeviceId: identifier,
     workspaceId: identifier,
     activeLeaseEpoch: safePositiveInteger,
-    executionSequence: safePositiveInteger,
+    executionFactSequence: safePositiveInteger,
     eventType: identifier,
     evidenceLevel: identifier,
     occurredAt: canonicalUtcTimestamp,

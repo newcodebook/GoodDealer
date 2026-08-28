@@ -6,10 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-gooddealer-secure-host-core = { path = "../secure-host-core" }
 serde.workspace = true
 serde_json.workspace = true
-wry.workspace = true
+sha2.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

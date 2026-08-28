@@ -89,15 +89,15 @@ function HistoryLog({addUnsynced}){
       right={<span style={{fontSize:12,color:"var(--gd-text-faint)",whiteSpace:"nowrap"}}>只读账本 · 追加不可篡改 · 回滚生成新 Revision</span>}/>
     <div style={{flex:1,minHeight:0,display:"flex"}}>
       <div style={{flex:1,minWidth:0}}>
-        <window.GDResponsiveTable density="regular" rowKey="rev" maxHeight="100%" onRowClick={r=>setSelRev(r.rev)} style={{border:"none",borderRadius:0}}
+        <HTable density="regular" rowKey="rev" maxHeight="100%" onRowClick={r=>setSelRev(r.rev)} style={{border:"none",borderRadius:0}}
           columns={[
-            {priority:"essential",key:"rev",label:"Revision",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.rev===(sel&&sel.rev)?"var(--gd-blue)":"var(--text-1)"}}>rev {r.rev}</span>,width:96},
-            {priority:"essential",key:"action",label:"操作",render:r=><span style={{display:"inline-flex",alignItems:"center",gap:7}}>{r.action}{r.risk&&<I.AlertTriangle size={12} style={{color:"var(--gd-danger)"}}/>}</span>},
-            {priority:"secondary",key:"platform",label:"处理平台",muted:true},
-            {priority:"supplementary",key:"actor",label:"来源",muted:true,width:104},
-            {priority:"secondary",key:"count",label:"条目",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)"}}>{r.count}</span>},
-            {priority:"essential",key:"state",label:"状态",width:96,render:r=><HBadge tone={H_STATE[r.state].tone} mono={false}>{H_STATE[r.state].label}</HBadge>},
-            {priority:"secondary",key:"ts",label:"时间",numeric:true,muted:true,width:104},
+            {key:"rev",label:"Revision",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:r.rev===(sel&&sel.rev)?"var(--gd-blue)":"var(--text-1)"}}>rev {r.rev}</span>,width:96},
+            {key:"action",label:"操作",render:r=><span style={{display:"inline-flex",alignItems:"center",gap:7}}>{r.action}{r.risk&&<I.AlertTriangle size={12} style={{color:"var(--gd-danger)"}}/>}</span>},
+            {key:"platform",label:"处理平台",muted:true},
+            {key:"actor",label:"来源",muted:true,width:104},
+            {key:"count",label:"条目",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)"}}>{r.count}</span>},
+            {key:"state",label:"状态",width:96,render:r=><HBadge tone={H_STATE[r.state].tone} mono={false}>{H_STATE[r.state].label}</HBadge>},
+            {key:"ts",label:"时间",numeric:true,muted:true,width:104},
           ]}
           rows={rows}/>
       </div>

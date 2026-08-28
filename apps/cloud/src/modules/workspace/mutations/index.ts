@@ -1,5 +1,20 @@
 import { createHash } from "node:crypto";
 
+export { PostgresMutationDrainLedger } from "./postgres-drain-ledger";
+export { PostgresBootstrapMutationPagePort } from "./bootstrap-port";
+export {
+  PostgresWorkspaceMutationRepository,
+  type AssignedMutation,
+  type LockedMutationDrainDomain,
+  type MutationPersistenceFaultPoint,
+  type MutationReceipt,
+  type MutationReceiptResolution,
+} from "./postgres-repository";
+export {
+  PostgresWorkspaceMutationIngest,
+  type PostgresMutationCommitFaultPoint,
+} from "./postgres-ingest-service";
+
 import {
   DRAIN_STREAM_GENESIS_DIGEST,
   encodeDrainChainStepInput,
@@ -63,7 +78,7 @@ export type MutationIngestResult =
     readonly accepted: true;
     readonly assignments: readonly {
       readonly mutationId: string;
-      readonly mutationSequence: number;
+      readonly deviceMutationSequence: number;
       readonly serverRevision: number;
       readonly duplicate: boolean;
     }[];
@@ -258,15 +273,15 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
 export interface WorkspaceMutationQueryPort {
   readCommitted(
     scope: WorkspaceTenantScope,
-    fromRevisionExclusive: number,
-    throughRevisionInclusive: number,
+    fromServerRevisionExclusive: number,
+    throughServerRevisionInclusive: number,
   ): readonly SyncMutation[];
   hasCompleteRange(
     scope: WorkspaceTenantScope,
-    fromRevisionExclusive: number,
-    throughRevisionInclusive: number,
+    fromServerRevisionExclusive: number,
+    throughServerRevisionInclusive: number,
   ): boolean;
-  compactPrefix(scope: WorkspaceTenantScope, throughRevisionInclusive: number): { rollback(): void };
+  compactPrefix(scope: WorkspaceTenantScope, throughServerRevisionInclusive: number): { rollback(): void };
 }
 
 interface WorkspaceRevisionCommitPort {
@@ -343,12 +358,12 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     const sealedFailures = sealedThrough === null
       ? []
       : request.mutations.flatMap((mutation, index) =>
-        mutation.mutationSequence > sealedThrough ? [failure(index, mutation)] : [],
+        mutation.deviceMutationSequence > sealedThrough ? [failure(index, mutation)] : [],
       );
     if (sealedFailures.length > 0) {
       for (const item of sealedFailures) {
         const mutation = request.mutations[item.index];
-        if (mutation !== undefined) this.#ledger.recordRejectedAfterSeal(scope, domain, mutation.mutationSequence);
+        if (mutation !== undefined) this.#ledger.recordRejectedAfterSeal(scope, domain, mutation.deviceMutationSequence);
       }
       return reject("MUTATION_DRAIN_SEALED", sealedFailures);
     }
@@ -400,7 +415,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
 
     const observedHead = this.#revisions.readHead(scope).serverRevision;
     const baseFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisions.has(index) || mutation.baseRevision <= observedHead
+      duplicateRevisions.has(index) || mutation.baseServerRevision <= observedHead
         ? []
         : [{ ...failure(index, mutation), headRevision: observedHead }],
     );
@@ -419,7 +434,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
         const key = `${mutation.entityId}\u0000${field.fieldPath}`;
         const lastModifiedRevision = simulatedFieldRevisions.get(key) ??
           this.#portfolio.readFieldRevision(scope, mutation.entityId, field.fieldPath) ?? 0;
-        if (lastModifiedRevision > mutation.baseRevision) {
+        if (lastModifiedRevision > mutation.baseServerRevision) {
           staleFailures.push({
             ...failure(index, mutation),
             fieldPath: field.fieldPath,
@@ -445,7 +460,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     if (accepted.length > 0) {
       try {
         rollbacks.push(this.#ledger.appendAcceptedBatch(scope, domain, accepted.map(({ submitted }) => ({
-          sequence: submitted.mutationSequence,
+          sequence: submitted.deviceMutationSequence,
           envelope: encodeDrainStreamEnvelope("mutation", submitted),
         }))));
         this.#fault?.("after_ledger_append");
@@ -471,7 +486,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
       const duplicateRevision = duplicateRevisions.get(index);
       return {
         mutationId: mutation.mutationId,
-        mutationSequence: mutation.mutationSequence,
+        deviceMutationSequence: mutation.deviceMutationSequence,
         serverRevision: duplicateRevision ?? proposedRevisionByIndex.get(index)!,
         duplicate: duplicateRevision !== undefined,
       };
@@ -485,12 +500,12 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
 
   readCommitted(
     scope: WorkspaceTenantScope,
-    fromRevisionExclusive: number,
-    throughRevisionInclusive: number,
+    fromServerRevisionExclusive: number,
+    throughServerRevisionInclusive: number,
   ): readonly SyncMutation[] {
     const records = this.#recordsByRevision.get(workspaceTenantKey(scope));
     const output: SyncMutation[] = [];
-    for (let revision = fromRevisionExclusive + 1; revision <= throughRevisionInclusive; revision += 1) {
+    for (let revision = fromServerRevisionExclusive + 1; revision <= throughServerRevisionInclusive; revision += 1) {
       const mutation = records?.get(revision);
       if (mutation !== undefined) output.push(structuredClone(mutation));
     }
@@ -499,24 +514,24 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
 
   hasCompleteRange(
     scope: WorkspaceTenantScope,
-    fromRevisionExclusive: number,
-    throughRevisionInclusive: number,
+    fromServerRevisionExclusive: number,
+    throughServerRevisionInclusive: number,
   ): boolean {
     if (
-      !Number.isSafeInteger(fromRevisionExclusive) ||
-      !Number.isSafeInteger(throughRevisionInclusive) ||
-      fromRevisionExclusive < 0 ||
-      throughRevisionInclusive < fromRevisionExclusive
+      !Number.isSafeInteger(fromServerRevisionExclusive) ||
+      !Number.isSafeInteger(throughServerRevisionInclusive) ||
+      fromServerRevisionExclusive < 0 ||
+      throughServerRevisionInclusive < fromServerRevisionExclusive
     ) return false;
-    return this.readCommitted(scope, fromRevisionExclusive, throughRevisionInclusive).length ===
-      throughRevisionInclusive - fromRevisionExclusive;
+    return this.readCommitted(scope, fromServerRevisionExclusive, throughServerRevisionInclusive).length ===
+      throughServerRevisionInclusive - fromServerRevisionExclusive;
   }
 
   compactPrefix(
     scope: WorkspaceTenantScope,
-    throughRevisionInclusive: number,
+    throughServerRevisionInclusive: number,
   ): { rollback(): void } {
-    if (!Number.isSafeInteger(throughRevisionInclusive) || throughRevisionInclusive < 0) {
+    if (!Number.isSafeInteger(throughServerRevisionInclusive) || throughServerRevisionInclusive < 0) {
       throw new TypeError("mutation compaction watermark must be unsigned");
     }
     const key = workspaceTenantKey(scope);
@@ -524,7 +539,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     if (records === undefined) return { rollback: () => undefined };
     const removed = new Map<number, SyncMutation>();
     for (const [revision, mutation] of records) {
-      if (revision <= throughRevisionInclusive) {
+      if (revision <= throughServerRevisionInclusive) {
         removed.set(revision, mutation);
         records.delete(revision);
       }
@@ -590,7 +605,7 @@ function parseMutationIngestRequest(value: unknown): MutationIngestRequest | nul
   const mutations: SubmittedSyncMutation[] = [];
   for (const mutation of value.mutations) {
     const parsed = submittedSyncMutationSchema.safeParse(mutation);
-    if (!parsed.success) return null;
+    if (!parsed.success || parsed.data.operationKind === "delete") return null;
     if (
       parsed.data.workspaceId !== value.workspaceId ||
       parsed.data.sourceDeviceId !== value.sourceDeviceId ||
@@ -610,7 +625,7 @@ function parseMutationIngestRequest(value: unknown): MutationIngestRequest | nul
 function unorderedFailures(mutations: readonly SubmittedSyncMutation[]): MutationIngestFailure[] {
   const failures: MutationIngestFailure[] = [];
   for (let index = 1; index < mutations.length; index += 1) {
-    if (mutations[index - 1]!.mutationSequence >= mutations[index]!.mutationSequence) {
+    if (mutations[index - 1]!.deviceMutationSequence >= mutations[index]!.deviceMutationSequence) {
       failures.push(failure(index, mutations[index]!));
     }
   }
@@ -629,7 +644,7 @@ function failure(index: number, mutation: SubmittedSyncMutation): MutationIngest
 }
 
 function sequenceKey(mutation: SubmittedSyncMutation): string {
-  return `${mutation.sourceDeviceId}\u0000${mutation.activeLeaseEpoch}\u0000${mutation.mutationSequence}`;
+  return `${mutation.sourceDeviceId}\u0000${mutation.activeLeaseEpoch}\u0000${mutation.deviceMutationSequence}`;
 }
 
 function domainKey(scope: WorkspaceTenantScope, domain: MutationDrainDomain): string {

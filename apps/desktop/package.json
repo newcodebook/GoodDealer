@@ -6,19 +6,18 @@
   "scripts": {
     "build": "vite build",
     "icon:generate": "tauri icon ../../packages/ui/src/assets/logo/mark.svg --output src-tauri/icons --ios-color '#0A0B0F'",
+    "test": "vitest run src",
     "typecheck": "tsc -p tsconfig.json",
+    "visual:build": "vite build --config vite.visual.config.ts",
+    "visual:test": "vitest run visual-fixtures",
+    "visual:typecheck": "tsc -p visual-fixtures/tsconfig.json",
     "tauri": "tauri"
   },
   "dependencies": {
     "@gooddealer/client-core": "workspace:*",
-    "@gooddealer/cloud-client": "workspace:*",
-    "@gooddealer/connector-afternic": "workspace:*",
-    "@gooddealer/connector-atom": "workspace:*",
-    "@gooddealer/connector-cloudflare": "workspace:*",
-    "@gooddealer/connector-sdk": "workspace:*",
-    "@gooddealer/connector-spaceship": "workspace:*",
-    "@gooddealer/protocol": "workspace:*",
-    "@tauri-apps/api": "2.11.1",
+    "@gooddealer/i18n": "workspace:*",
+    "@gooddealer/ui": "workspace:*",
+    "@tauri-apps/api": "2.11.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

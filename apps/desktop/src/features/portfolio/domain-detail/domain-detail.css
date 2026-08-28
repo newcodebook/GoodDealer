@@ -1,0 +1,6 @@
+.domain-detail { display: flex; min-height: 0; height: 100%; flex-direction: column; overflow: auto; background: var(--gd-ink, #0c1018); color: var(--text-1, #edf2f8); }
+.domain-detail-toolbar { display: flex; min-height: 44px; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--gd-line, #253044); }
+.domain-detail-toolbar code { font-family: var(--font-mono, ui-monospace); font-size: 14px; }
+.domain-detail-spacer { flex: 1; }
+.domain-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+@media (max-width: 860px) { .domain-detail-grid { grid-template-columns: 1fr; } }

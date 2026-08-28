@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gooddealer.example/schemas/release-request.schema.json",
+  "title": "GoodDealer release request",
+  "description": "A strict product-owner request. The checked-in current request is intentionally only the unissued variant.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "state"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "state": { "const": "unissued" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "state",
+        "version",
+        "channel",
+        "productApproval",
+        "target",
+        "artifactRoot",
+        "artifacts"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "state": { "const": "approved" },
+        "version": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+(?:[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$",
+          "not": { "pattern": "^0\\.0\\.0(?:[-+].*)?$" }
+        },
+        "channel": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$"
+        },
+        "productApproval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "decisionRef"],
+          "properties": {
+            "kind": { "const": "product-owner-decision" },
+            "decisionRef": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            }
+          }
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["platform", "architecture"],
+          "properties": {
+            "platform": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+            "architecture": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+          }
+        },
+        "artifactRoot": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 240 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

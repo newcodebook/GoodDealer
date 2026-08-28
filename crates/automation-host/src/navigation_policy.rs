@@ -1,91 +1,120 @@
-//! Navigation policy for browser automation sessions (P0-28).
-//!
-//! Defines which URLs the automation WebView is allowed to navigate to.
-//! Active sessions navigate freely within the provider scope.
-//! Sunset sessions are restricted to read-only data-export pages.
+//! Immutable Host-created canonical navigation policy.
 
-/// Navigation policy governing which URLs the WebView may load.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "policy_type")]
-pub enum NavigationPolicy {
-    /// Active-session policy: navigation allowed within the provider scope.
-    Active {
-        /// Allowed origin domains (e.g., `["spaceship.com", "www.spaceship.com"]`).
-        allowed_domains: Vec<String>,
-        /// Whether sub-paths of allowed domains are permitted.
-        allow_subpaths: bool,
-        /// Whether HTTPS is required (always true in production).
-        require_https: bool,
-    },
-    /// Sunset-session policy: only data-export URLs are reachable.
-    Sunset {
-        /// Allowed export-only URLs.
-        allowed_export_urls: Vec<String>,
-        /// Whether HTTPS is required (always true in production).
-        require_https: bool,
-    },
+use url::{Host, Origin, Url};
+
+const MAX_URL_BYTES: usize = 2_048;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AllowedOrigin {
+    host: String,
+    port: u16,
 }
 
-/// Validation errors for [`NavigationPolicy`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NavigationPolicyError {
-    InvalidJson(String),
-    EmptyAllowedDomains,
-    EmptyAllowedExportUrls,
-    InsecureNotAllowed,
-}
-
-impl std::fmt::Display for NavigationPolicyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidJson(msg) => write!(f, "invalid navigation policy JSON: {msg}"),
-            Self::EmptyAllowedDomains => write!(f, "allowed_domains must not be empty"),
-            Self::EmptyAllowedExportUrls => write!(f, "allowed_export_urls must not be empty"),
-            Self::InsecureNotAllowed => write!(f, "require_https must be true"),
+impl AllowedOrigin {
+    fn host_created(origin: &str) -> Result<Self, NavigationError> {
+        if origin.is_empty() || origin.len() > MAX_URL_BYTES || !origin.is_ascii() {
+            return Err(NavigationError::InvalidUrl);
         }
+        let url = Url::parse(origin).map_err(|_| NavigationError::InvalidUrl)?;
+        if url.scheme() != "https"
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.path() != "/"
+        {
+            return Err(NavigationError::OriginNotCanonical);
+        }
+        let host = canonical_domain_host(&url)?;
+        let port = url
+            .port_or_known_default()
+            .ok_or(NavigationError::InvalidUrl)?;
+        if port != 443 {
+            return Err(NavigationError::PortDenied);
+        }
+        Ok(Self { host, port })
     }
 }
 
-impl std::error::Error for NavigationPolicyError {}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NavigationPolicy {
+    allowed_origins: Vec<AllowedOrigin>,
+}
 
 impl NavigationPolicy {
-    /// Parse and validate from JSON.
-    pub fn from_json(json: &str) -> Result<Self, NavigationPolicyError> {
-        let policy: Self = serde_json::from_str(json)
-            .map_err(|e| NavigationPolicyError::InvalidJson(e.to_string()))?;
-        policy.validate()?;
-        Ok(policy)
+    pub(crate) fn host_created(origins: &[&str]) -> Result<Self, NavigationError> {
+        if origins.is_empty() || origins.len() > 16 {
+            return Err(NavigationError::UnknownOrigin);
+        }
+        let mut allowed_origins = Vec::with_capacity(origins.len());
+        for origin in origins {
+            let parsed = AllowedOrigin::host_created(origin)?;
+            if allowed_origins.contains(&parsed) {
+                return Err(NavigationError::UnknownOrigin);
+            }
+            allowed_origins.push(parsed);
+        }
+        Ok(Self { allowed_origins })
     }
 
-    fn validate(&self) -> Result<(), NavigationPolicyError> {
-        match self {
-            Self::Active {
-                allowed_domains,
-                require_https,
-                ..
-            } => {
-                if allowed_domains.is_empty() {
-                    return Err(NavigationPolicyError::EmptyAllowedDomains);
-                }
-                if !require_https {
-                    return Err(NavigationPolicyError::InsecureNotAllowed);
-                }
-            }
-            Self::Sunset {
-                allowed_export_urls,
-                require_https,
-                ..
-            } => {
-                if allowed_export_urls.is_empty() {
-                    return Err(NavigationPolicyError::EmptyAllowedExportUrls);
-                }
-                if !require_https {
-                    return Err(NavigationPolicyError::InsecureNotAllowed);
-                }
-            }
+    pub(crate) fn decide(&self, input: &str) -> Result<(), NavigationError> {
+        if input.is_empty() || input.len() > MAX_URL_BYTES || !input.is_ascii() {
+            return Err(NavigationError::InvalidUrl);
+        }
+        let url = Url::parse(input).map_err(|_| NavigationError::InvalidUrl)?;
+        if url.scheme() != "https" {
+            return Err(NavigationError::SchemeDenied);
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err(NavigationError::UserInfoDenied);
+        }
+        if url.fragment().is_some() {
+            return Err(NavigationError::FragmentDenied);
+        }
+        let host = canonical_domain_host(&url)?;
+        let port = url
+            .port_or_known_default()
+            .ok_or(NavigationError::InvalidUrl)?;
+        if port != 443 {
+            return Err(NavigationError::PortDenied);
+        }
+        let origin = match url.origin() {
+            Origin::Tuple(_, _, _) => AllowedOrigin { host, port },
+            Origin::Opaque(_) => return Err(NavigationError::InvalidUrl),
+        };
+        if !self.allowed_origins.contains(&origin) {
+            return Err(NavigationError::UnknownOrigin);
         }
         Ok(())
     }
+}
+
+fn canonical_domain_host(url: &Url) -> Result<String, NavigationError> {
+    match url.host() {
+        Some(Host::Domain(host))
+            if !host.is_empty()
+                && !host.ends_with('.')
+                && host.is_ascii()
+                && host == host.to_ascii_lowercase() =>
+        {
+            Ok(host.to_owned())
+        }
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => Err(NavigationError::IpLiteralDenied),
+        _ => Err(NavigationError::InvalidUrl),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NavigationError {
+    InvalidUrl,
+    OriginNotCanonical,
+    SchemeDenied,
+    UserInfoDenied,
+    FragmentDenied,
+    PortDenied,
+    IpLiteralDenied,
+    UnknownOrigin,
+    StalePolicyBinding,
 }
 
 #[cfg(test)]
@@ -93,84 +122,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn active_policy_parses_valid() {
-        let json = serde_json::json!({
-            "policy_type": "active",
-            "allowed_domains": ["spaceship.com", "www.spaceship.com"],
-            "allow_subpaths": true,
-            "require_https": true
-        })
-        .to_string();
-        let policy = NavigationPolicy::from_json(&json).unwrap();
-        assert!(matches!(policy, NavigationPolicy::Active { .. }));
+    fn canonical_navigation_matrix_rejects_origin_confusion() {
+        let policy = NavigationPolicy::host_created(&["https://spaceship.com"]).unwrap();
+        assert_eq!(policy.decide("https://spaceship.com/account?tab=1"), Ok(()));
+        for candidate in [
+            "http://spaceship.com",
+            "https://user@spaceship.com",
+            "https://spaceship.com:444",
+            "https://evilspaceship.com",
+            "https://spaceship.com.evil.example",
+            "https://spaceship.com./",
+            "https://127.0.0.1/",
+            "https://[::1]/",
+            "https://spaceship.com/#secret",
+            "not a url",
+            "",
+        ] {
+            assert!(policy.decide(candidate).is_err(), "accepted {candidate}");
+        }
+        assert!(
+            policy
+                .decide(&format!(
+                    "https://spaceship.com/{}",
+                    "a".repeat(MAX_URL_BYTES)
+                ))
+                .is_err()
+        );
     }
 
     #[test]
-    fn sunset_policy_parses_valid() {
-        let json = serde_json::json!({
-            "policy_type": "sunset",
-            "allowed_export_urls": ["https://spaceship.com/export/domains"],
-            "require_https": true
-        })
-        .to_string();
-        let policy = NavigationPolicy::from_json(&json).unwrap();
-        assert!(matches!(policy, NavigationPolicy::Sunset { .. }));
-    }
-
-    #[test]
-    fn rejects_empty_domains() {
-        let json = serde_json::json!({
-            "policy_type": "active",
-            "allowed_domains": [],
-            "allow_subpaths": true,
-            "require_https": true
-        })
-        .to_string();
-        assert!(matches!(
-            NavigationPolicy::from_json(&json),
-            Err(NavigationPolicyError::EmptyAllowedDomains)
-        ));
-    }
-
-    #[test]
-    fn rejects_insecure_active() {
-        let json = serde_json::json!({
-            "policy_type": "active",
-            "allowed_domains": ["spaceship.com"],
-            "allow_subpaths": true,
-            "require_https": false
-        })
-        .to_string();
-        assert!(matches!(
-            NavigationPolicy::from_json(&json),
-            Err(NavigationPolicyError::InsecureNotAllowed)
-        ));
-    }
-
-    #[test]
-    fn rejects_insecure_sunset() {
-        let json = serde_json::json!({
-            "policy_type": "sunset",
-            "allowed_export_urls": ["http://spaceship.com/export"],
-            "require_https": false
-        })
-        .to_string();
-        assert!(matches!(
-            NavigationPolicy::from_json(&json),
-            Err(NavigationPolicyError::InsecureNotAllowed)
-        ));
-    }
-
-    #[test]
-    fn rejects_unknown_fields() {
-        let json = serde_json::json!({
-            "policy_type": "active",
-            "allowed_domains": ["spaceship.com"],
-            "allow_subpaths": true,
-            "require_https": true,
-            "rogue": true
-        })
-        .to_string();
-        assert!(NavigationPolicy::from_json(&json).is_err());
+    fn host_policy_rejects_noncanonical_origins() {
+        for origin in [
+            "http://spaceship.com",
+            "https://spaceship.com/path",
+            "https://spaceship.com?query=1",
+            "https://spaceship.com:444",
+            "https://127.0.0.1",
+            "https://spaceship.com.",
+        ] {
+            assert!(NavigationPolicy::host_created(&[origin]).is_err());
+        }
     }
 }

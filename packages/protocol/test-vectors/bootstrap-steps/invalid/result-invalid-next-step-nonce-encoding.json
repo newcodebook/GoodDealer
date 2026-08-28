@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "workflowRevision": 1,
   "acceptedStepNumber": 1,
   "nextStepNonce": "nonce+2=",
   "stepKind": "pin_checkpoint",
   "resultPayload": {
     "checkpointId": "checkpoint-4",
-    "checkpointRevision": 4,
+    "checkpointThroughServerRevision": 4,
     "checkpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "pinExpiresAt": "2026-08-14T09:00:00Z"
   },

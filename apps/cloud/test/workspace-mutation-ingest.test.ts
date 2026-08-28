@@ -28,7 +28,7 @@ const sha256 = { digest: async (bytes: Uint8Array) => createHash("sha256").updat
 function mutation(input: {
   sequence: number;
   mutationId?: string;
-  baseRevision?: number;
+  baseServerRevision?: number;
   sourceDeviceId?: string;
   fieldPath?: "note" | "portfolioId" | "tags" | "targetPrice";
 }): SubmittedSyncMutation {
@@ -46,12 +46,12 @@ function mutation(input: {
     workspaceId: "shared-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
-    entityId: "shared-entity",
-    baseRevision: input.baseRevision ?? input.sequence - 1,
+    entityId: "shared.test",
+    baseServerRevision: input.baseServerRevision ?? input.sequence - 1,
     changedFields: value,
     sourceDeviceId: input.sourceDeviceId ?? "shared-device",
     activeLeaseEpoch: 7,
-    mutationSequence: input.sequence,
+    deviceMutationSequence: input.sequence,
   } as SubmittedSyncMutation;
 }
 
@@ -94,7 +94,7 @@ function harness(fault?: (point: MutationCommitFaultPoint) => void) {
   });
   const bind = (scope: WorkspaceTenantScope) => {
     revisions.bindWorkspace(scope, 1);
-    portfolio.seedDomainAsset(scope, { entityId: "shared-entity" });
+    portfolio.seedDomainAsset(scope, { entityId: "shared.test" });
     leases.bindDevice(scope, "shared-device", "active", 7);
     leases.bindDevice(scope, "standby-device", "standby", 7);
   };
@@ -105,18 +105,18 @@ describe("workspace SubmittedSyncMutation ingest", () => {
   it("P23-INV-11/15 consumes the shared encoder and orders entities by UTF-8 bytes", async () => {
     const portfolio = new InMemoryDomainAssetPortfolio();
     portfolio.seedDomainAsset(scopeA, {
-      entityId: "a-asset",
+      entityId: "a-asset.test",
       portfolioId: "portfolio-1",
     });
     portfolio.seedDomainAsset(scopeA, {
-      entityId: "Z-asset",
+      entityId: "z-asset.test",
       note: "Uppercase sorts first by UTF-8 bytes",
       tags: ["ASCII", "ascii"],
       targetPrice: { currency: "USD", amount: "1200" },
     });
 
     const snapshot = portfolio.snapshot(scopeA);
-    expect(snapshot.map(({ entityId }) => entityId)).toEqual(["Z-asset", "a-asset"]);
+    expect(snapshot.map(({ entityId }) => entityId)).toEqual(["a-asset.test", "z-asset.test"]);
     const canonicalRows = snapshot.map(({ lastModifiedRevision: _revision, ...row }) => row);
     const sharedDigests = await computeDomainAssetEntityDigests(canonicalRows, sha256.digest);
     expect(await portfolio.readEntityDigestsAt(scopeA, 0, sha256.digest)).toEqual(sharedDigests);
@@ -130,11 +130,11 @@ describe("workspace SubmittedSyncMutation ingest", () => {
   it("P20-INV-13/14 enriches with one spread and appends the parsed submitted envelope", async () => {
     const subject = harness();
     subject.bind(scopeA);
-    const submitted = mutation({ sequence: 1, baseRevision: 0 });
+    const submitted = mutation({ sequence: 1, baseServerRevision: 0 });
     const result = await subject.ingest.ingest(scopeA, request([submitted]));
     expect(result).toEqual({
       accepted: true,
-      assignments: [{ mutationId: submitted.mutationId, mutationSequence: 1, serverRevision: 1, duplicate: false }],
+      assignments: [{ mutationId: submitted.mutationId, deviceMutationSequence: 1, serverRevision: 1, duplicate: false }],
       headRevision: 1,
     });
     const stored = subject.ingest.findByMutationId(scopeA, submitted.mutationId);
@@ -143,7 +143,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     const landed = subject.ledger.readEnvelope(scopeA, {
       sourceDeviceId: submitted.sourceDeviceId,
       activeLeaseEpoch: submitted.activeLeaseEpoch,
-    }, submitted.mutationSequence);
+    }, submitted.deviceMutationSequence);
     expect(landed).toEqual(encodeDrainStreamEnvelope("mutation", submitted));
     expect(landed).toEqual(encodeDrainStreamEnvelope("mutation", stored!));
   });
@@ -165,15 +165,15 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         result = await subject.ingest.ingest(scopeA, request([accepted[step % accepted.length]!]));
         expect(result).toMatchObject({ accepted: true, assignments: [{ duplicate: true }] });
       } else if (step % 5 === 1) {
-        const rejected = mutation({ sequence: accepted.length + 1, baseRevision: headBefore + 1_000 });
+        const rejected = mutation({ sequence: accepted.length + 1, baseServerRevision: headBefore + 1_000 });
         result = await subject.ingest.ingest(scopeA, request([rejected]));
         expect(result).toMatchObject({ accepted: false, code: "MUTATION_BASE_REVISION_AHEAD" });
       } else if (step % 5 === 2) {
-        const rejected = { ...mutation({ sequence: accepted.length + 1, baseRevision: headBefore }), serverRevision: 999 };
+        const rejected = { ...mutation({ sequence: accepted.length + 1, baseServerRevision: headBefore }), serverRevision: 999 };
         result = await subject.ingest.ingest(scopeA, request([rejected as SubmittedSyncMutation]));
         expect(result).toEqual({ accepted: false, code: "MUTATION_MALFORMED" });
       } else {
-        const submitted = mutation({ sequence: accepted.length + 1, baseRevision: headBefore });
+        const submitted = mutation({ sequence: accepted.length + 1, baseServerRevision: headBefore });
         result = await subject.ingest.ingest(scopeA, request([submitted]));
         expect(result).toMatchObject({ accepted: true, assignments: [{ duplicate: false }] });
         accepted.push(submitted);
@@ -207,12 +207,12 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     it(`P20-INV-10/11/19 rolls back every staged effect at ${point}`, async () => {
       const subject = harness((actual) => { if (actual === point) throw new Error(`fault:${point}`); });
       subject.bind(scopeA);
-      await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseRevision: 0 })])))
+      await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })])))
         .rejects.toThrow(`fault:${point}`);
       expect(subject.revisions.readHead(scopeA).serverRevision).toBe(0);
       expect(subject.revisions.assignedRevisions(scopeA)).toEqual([]);
       expect(subject.ingest.readCommitted(scopeA, 0, 1)).toEqual([]);
-      expect(subject.portfolio.inspectDomainAsset(scopeA, "shared-entity")).toMatchObject({
+      expect(subject.portfolio.inspectDomainAsset(scopeA, "shared.test")).toMatchObject({
         tags: [],
         lastModifiedRevision: { tags: 0 },
       });
@@ -227,13 +227,13 @@ describe("workspace SubmittedSyncMutation ingest", () => {
   it("A7 executes N1-N8 with two tenants sharing every identifier literal", async () => {
     const subject = harness();
     subject.bind(scopeA);
-    const first = mutation({ sequence: 1, mutationId: "shared-mutation", baseRevision: 0 });
-    const second = mutation({ sequence: 2, mutationId: "a-second", baseRevision: 1, fieldPath: "note" });
+    const first = mutation({ sequence: 1, mutationId: "shared-mutation", baseServerRevision: 0 });
+    const second = mutation({ sequence: 2, mutationId: "a-second", baseServerRevision: 1, fieldPath: "note" });
     expect(await subject.ingest.ingest(scopeA, request([first]))).toMatchObject({ accepted: true, headRevision: 1 });
     expect(await subject.ingest.ingest(scopeA, request([second]))).toMatchObject({ accepted: true, headRevision: 2 });
     expect(await subject.checkpoints.buildCheckpoint(scopeA, "shared-checkpoint", 2)).toMatchObject({
       accepted: true,
-      checkpoint: { status: "building", throughRevision: 2 },
+      checkpoint: { status: "building", throughServerRevision: 2 },
     });
     expect(await subject.checkpoints.verifyCheckpoint(scopeA, "shared-checkpoint")).toMatchObject({ accepted: true });
     expect(await subject.checkpoints.publishCheckpoint(scopeA, "shared-checkpoint")).toMatchObject({
@@ -241,8 +241,8 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       checkpoint: { status: "available" },
     });
     const firstPage = await subject.reader.readPage(scopeA, {
-      fromRevisionExclusive: 0,
-      throughRevisionInclusive: 2,
+      fromServerRevisionExclusive: 0,
+      throughServerRevisionInclusive: 2,
       cursor: null,
       pageLimit: 1,
     });
@@ -297,15 +297,15 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     } satisfies SubmittedSyncMutation;
     expect(await subject.ingest.ingest(scopeB, request([bFirst]))).toMatchObject({
       accepted: true,
-      assignments: [{ mutationId: "shared-mutation", mutationSequence: 1, serverRevision: 1, duplicate: false }],
+      assignments: [{ mutationId: "shared-mutation", deviceMutationSequence: 1, serverRevision: 1, duplicate: false }],
     });
     expect(subject.ingest.findByMutationId(scopeA, "shared-mutation")).toEqual({ ...first, serverRevision: 1 });
     expect(subject.ingest.findByMutationId(scopeB, "shared-mutation")).toEqual({ ...bFirst, serverRevision: 1 });
 
     // N4: A's opaque continuation is bound to accountId and rejected under B.
     await expect(subject.reader.readPage(scopeB, {
-      fromRevisionExclusive: 1,
-      throughRevisionInclusive: 2,
+      fromServerRevisionExclusive: 1,
+      throughServerRevisionInclusive: 2,
       cursor: firstPage.nextCursor,
       pageLimit: 1,
     })).rejects.toMatchObject({ code: "MUTATION_CURSOR_MISMATCH" });
@@ -330,7 +330,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     subject.bind(scopeA);
     const standbyMutation = mutation({
       sequence: 1,
-      baseRevision: 0,
+      baseServerRevision: 0,
       sourceDeviceId: "standby-device",
     });
     const before = {
@@ -365,7 +365,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
   it("P20-INV-52/53/54 rejects beyond a tenant-scoped immutable seal without advancing head", async () => {
     const subject = harness();
     subject.bind(scopeA);
-    const submitted = mutation({ sequence: 1, baseRevision: 0 });
+    const submitted = mutation({ sequence: 1, baseServerRevision: 0 });
     expect(await subject.ingest.ingest(scopeA, request([submitted]))).toMatchObject({ accepted: true });
     subject.ledger.installAcceptedDrainSeal(scopeA, {
       sourceDeviceId: "shared-device",
@@ -377,7 +377,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       accepted: true,
       assignments: [{ duplicate: true, serverRevision: 1 }],
     });
-    expect(await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseRevision: 1 })]))).toMatchObject({
+    expect(await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })]))).toMatchObject({
       accepted: false,
       code: "MUTATION_DRAIN_SEALED",
     });

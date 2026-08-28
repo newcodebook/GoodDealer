@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "auditEventId": "server-audit-transition-user-1",
+  "auditEventKind": "service",
+  "eventType": "audit_signing_key_transition",
+  "tenantScope": "global",
+  "accountId": null,
+  "workspaceId": null,
+  "targetType": "audit_signing_key",
+  "targetRef": "user-audit-key-transition-1",
+  "actorKind": "service",
+  "actorId": "gooddealer-audit-service",
+  "authorizationSource": "service_identity",
+  "chainId": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "auditSequence": 10,
+  "previousHash": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV",
+  "eventHash": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+  "occurredAt": "2026-08-22T14:13:00Z",
+  "authorizationContextHash": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "cryptographicSignerKind": "gooddealer_audit_service",
+  "cryptographicSignerId": "gooddealer-audit-service",
+  "signingKeyPurpose": "service_audit",
+  "signingKeyId": "service-audit-key-outgoing",
+  "signingKeyVersion": 7,
+  "signatureTranscriptVersion": 1,
+  "serverSignature": "c2VydmVyLWF1ZGl0LXNpZ25hdHVyZS00",
+  "signing_key_transition_id": null,
+  "payloadRedacted": {
+    "affectedSigningKeyPurpose": "user_audit",
+    "affectedOutgoingPublicKeyId": "user-audit-key-outgoing",
+    "affectedOutgoingPublicKeyVersion": 3,
+    "affectedIncomingPublicKeyId": "user-audit-key-incoming",
+    "affectedIncomingPublicKeyVersion": 4,
+    "effectiveBoundary": {
+      "rule": "after_transition_commit",
+      "transitionChainId": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+      "transitionAuditSequence": 10,
+      "notBeforeOccurredAt": "2026-08-22T14:13:00Z"
+    },
+    "custodyApprovalDigest": "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+  }
+}

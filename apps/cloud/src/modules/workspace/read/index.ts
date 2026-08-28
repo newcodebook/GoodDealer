@@ -1,21 +1,63 @@
 import {
+  WORKSPACE_SYNC_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   mutationPageSchema,
+  workspacePortfolioReadRequestSchema,
+  workspacePortfolioReadResponseSchema,
   type MutationPage,
+  type WorkspacePortfolioReadResponse,
 } from "@gooddealer/protocol/workspace";
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
 import type { WorkspaceBindingPort } from "../revisions/index";
 import type { WorkspaceMutationQueryPort } from "../mutations/index";
-import type { WorkspaceTenantScope } from "../tenant-scope";
+import type { PortfolioProjectionQueryPort } from "../state/portfolio/index";
+import {
+  parseWorkspaceTenantScope,
+  type WorkspaceTenantScope,
+} from "../tenant-scope";
+
+export type DomainAssetReplicaRecoveryRejectionCode = "WORKSPACE_TENANT_UNRESOLVED";
+
+export class DomainAssetReplicaRecoveryError extends Error {
+  constructor(readonly code: DomainAssetReplicaRecoveryRejectionCode) {
+    super(code);
+    this.name = "DomainAssetReplicaRecoveryError";
+  }
+}
+
+/**
+ * Tenant-scoped recovery boundary for a sanitized domain-asset sync replica.
+ * Authentication and account-to-workspace binding are resolved before this service;
+ * the wire request is never allowed to select an account scope. This is not a Desktop business
+ * Repository: callers must validate and merge the result into local SQLCipher before local Query.
+ */
+export class DomainAssetReplicaRecoveryService {
+  readonly #projection: PortfolioProjectionQueryPort;
+
+  constructor(projection: PortfolioProjectionQueryPort) {
+    this.#projection = projection;
+  }
+
+  async read(scope: WorkspaceTenantScope, value: unknown): Promise<WorkspacePortfolioReadResponse> {
+    const tenantScope = parseWorkspaceTenantScope(scope);
+    if (tenantScope === null) {
+      throw new DomainAssetReplicaRecoveryError("WORKSPACE_TENANT_UNRESOLVED");
+    }
+    workspacePortfolioReadRequestSchema.parse(value);
+    return workspacePortfolioReadResponseSchema.parse(
+      await this.#projection.readPortfolio(tenantScope),
+    );
+  }
+}
 
 export interface WorkspaceSha256Port {
   digest(bytes: Uint8Array): Promise<Uint8Array>;
 }
 
 export interface MutationPageRequest {
-  readonly fromRevisionExclusive: number;
-  readonly throughRevisionInclusive: number;
+  readonly fromServerRevisionExclusive: number;
+  readonly throughServerRevisionInclusive: number;
   readonly cursor: string | null;
   readonly pageLimit: number;
 }
@@ -53,44 +95,44 @@ export class InMemoryWorkspaceMutationReader {
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) throw new MutationPageReadError("WORKSPACE_TENANT_UNRESOLVED");
     if (
-      !Number.isSafeInteger(request.fromRevisionExclusive) ||
-      !Number.isSafeInteger(request.throughRevisionInclusive) ||
+      !Number.isSafeInteger(request.fromServerRevisionExclusive) ||
+      !Number.isSafeInteger(request.throughServerRevisionInclusive) ||
       !Number.isSafeInteger(request.pageLimit) ||
-      request.fromRevisionExclusive < 0 ||
-      request.throughRevisionInclusive < request.fromRevisionExclusive ||
+      request.fromServerRevisionExclusive < 0 ||
+      request.throughServerRevisionInclusive < request.fromServerRevisionExclusive ||
       request.pageLimit < 1 ||
       request.pageLimit > 256
     ) throw new MutationPageReadError("MUTATION_PAGE_RANGE_INVALID");
-    if (request.fromRevisionExclusive < binding.compactionWatermark) {
+    if (request.fromServerRevisionExclusive < binding.compactedThroughServerRevision) {
       throw new MutationPageReadError("MUTATION_PAGE_COMPACTED");
     }
     if (
       request.cursor !== null &&
-      request.cursor !== encodeCursor(scope, request.throughRevisionInclusive, request.fromRevisionExclusive)
+      request.cursor !== encodeCursor(scope, request.throughServerRevisionInclusive, request.fromServerRevisionExclusive)
     ) throw new MutationPageReadError("MUTATION_CURSOR_MISMATCH");
 
-    const returnedThroughRevision = Math.min(
-      request.throughRevisionInclusive,
-      request.fromRevisionExclusive + request.pageLimit,
+    const returnedThroughServerRevision = Math.min(
+      request.throughServerRevisionInclusive,
+      request.fromServerRevisionExclusive + request.pageLimit,
     );
     const mutations = this.#mutations.readCommitted(
       scope,
-      request.fromRevisionExclusive,
-      returnedThroughRevision,
+      request.fromServerRevisionExclusive,
+      returnedThroughServerRevision,
     );
-    if (mutations.length !== returnedThroughRevision - request.fromRevisionExclusive) {
+    if (mutations.length !== returnedThroughServerRevision - request.fromServerRevisionExclusive) {
       throw new MutationPageReadError("MUTATION_PAGE_RANGE_INVALID");
     }
-    const nextCursor = returnedThroughRevision === request.throughRevisionInclusive
+    const nextCursor = returnedThroughServerRevision === request.throughServerRevisionInclusive
       ? null
-      : encodeCursor(scope, request.throughRevisionInclusive, returnedThroughRevision);
+      : encodeCursor(scope, request.throughServerRevisionInclusive, returnedThroughServerRevision);
     const draft = {
-      schemaVersion: 1 as const,
+      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
       workspaceId: scope.workspaceId,
-      fromRevisionExclusive: request.fromRevisionExclusive,
-      throughRevisionInclusive: request.throughRevisionInclusive,
+      fromServerRevisionExclusive: request.fromServerRevisionExclusive,
+      throughServerRevisionInclusive: request.throughServerRevisionInclusive,
       mutations,
-      returnedThroughRevision,
+      returnedThroughServerRevision,
       nextCursor,
     };
     const pageDigest = Buffer.from(await this.#sha256.digest(encodeMutationPageDigestInput({
@@ -105,13 +147,13 @@ export class InMemoryWorkspaceMutationReader {
 
 function encodeCursor(
   scope: WorkspaceTenantScope,
-  throughRevisionInclusive: number,
-  returnedThroughRevision: number,
+  throughServerRevisionInclusive: number,
+  returnedThroughServerRevision: number,
 ): string {
   return Buffer.from(encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-CURSOR-V1", {
     accountId: scope.accountId,
     workspaceId: scope.workspaceId,
-    throughRevisionInclusive,
-    returnedThroughRevision,
+    throughServerRevisionInclusive,
+    returnedThroughServerRevision,
   })).toString("base64url");
 }

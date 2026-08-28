@@ -177,16 +177,40 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Enables the runtime_status command without any pre-configured scope.",
+          "description": "Enables the local_business_status command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-runtime-status",
-          "markdownDescription": "Enables the runtime_status command without any pre-configured scope."
+          "const": "allow-local-business-status",
+          "markdownDescription": "Enables the local_business_status command without any pre-configured scope."
         },
         {
-          "description": "Denies the runtime_status command without any pre-configured scope.",
+          "description": "Enables the local_domain_asset_upsert command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-runtime-status",
-          "markdownDescription": "Denies the runtime_status command without any pre-configured scope."
+          "const": "allow-local-domain-asset-upsert",
+          "markdownDescription": "Enables the local_domain_asset_upsert command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_portfolio_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-portfolio-read",
+          "markdownDescription": "Enables the local_portfolio_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_business_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-business-status",
+          "markdownDescription": "Denies the local_business_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_domain_asset_upsert command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-domain-asset-upsert",
+          "markdownDescription": "Denies the local_domain_asset_upsert command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_portfolio_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-portfolio-read",
+          "markdownDescription": "Denies the local_portfolio_read command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

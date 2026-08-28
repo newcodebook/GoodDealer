@@ -124,7 +124,7 @@ function fact(sequence: number, overrides: Partial<ExecutionFact> = {}) {
   return executionFactSchema.parse({
     ...structuredClone(executionFact),
     executionFactId: `execution-fact-${sequence}`,
-    executionSequence: sequence,
+    executionFactSequence: sequence,
     ...overrides,
   });
 }

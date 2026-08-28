@@ -3,6 +3,7 @@ node_modules/
 .specability/
 .ref/
 dist/
+dist-visual/
 target/
 .artifacts/
 /apps/desktop/src-tauri/gen/schemas/windows-schema.json

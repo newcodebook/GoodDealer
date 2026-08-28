@@ -6,7 +6,7 @@ import {
   mutationPageSchema,
   sha256DigestSchema,
   workspaceEntityDigestsSchema,
-  workspaceRevisionSchema,
+  serverRevisionSchema,
 } from "../workspace/index";
 import {
   base64Url,
@@ -17,7 +17,7 @@ import {
   safeUnsignedInteger,
 } from "../wire/index";
 
-export const BOOTSTRAP_STEP_SCHEMA_VERSION = 2 as const;
+export const BOOTSTRAP_STEP_SCHEMA_VERSION = 1 as const;
 
 const requestFields = {
   schemaVersion: z.literal(BOOTSTRAP_STEP_SCHEMA_VERSION),
@@ -31,7 +31,7 @@ const requestFields = {
 
 const checkpointBindingFields = {
   checkpointId: identifier,
-  checkpointRevision: workspaceRevisionSchema,
+  checkpointThroughServerRevision: serverRevisionSchema,
   checkpointDigest: sha256DigestSchema,
 } as const;
 
@@ -50,10 +50,10 @@ export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
       stepPayload: z
         .object({
           pinnedCheckpointId: identifier,
-          pinnedCheckpointRevision: workspaceRevisionSchema,
+          pinnedCheckpointThroughServerRevision: serverRevisionSchema,
           pinnedCheckpointDigest: sha256DigestSchema,
-          fromRevisionExclusive: workspaceRevisionSchema,
-          throughRevisionInclusive: workspaceRevisionSchema,
+          fromServerRevisionExclusive: serverRevisionSchema,
+          throughServerRevisionInclusive: serverRevisionSchema,
           cursor: mutationCursorSchema.nullable(),
           pageLimit: z.number().int().min(1).max(MAX_MUTATIONS_PER_PAGE),
         })
@@ -61,17 +61,17 @@ export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
     })
     .strict()
     .superRefine((request, context) => {
-      if (request.stepPayload.fromRevisionExclusive < request.stepPayload.pinnedCheckpointRevision) {
+      if (request.stepPayload.fromServerRevisionExclusive < request.stepPayload.pinnedCheckpointThroughServerRevision) {
         context.addIssue({
           code: "custom",
-          path: ["stepPayload", "fromRevisionExclusive"],
+          path: ["stepPayload", "fromServerRevisionExclusive"],
           message: "mutation fetch cannot start before the pinned checkpoint",
         });
       }
-      if (request.stepPayload.fromRevisionExclusive > request.stepPayload.throughRevisionInclusive) {
+      if (request.stepPayload.fromServerRevisionExclusive > request.stepPayload.throughServerRevisionInclusive) {
         context.addIssue({
           code: "custom",
-          path: ["stepPayload", "throughRevisionInclusive"],
+          path: ["stepPayload", "throughServerRevisionInclusive"],
           message: "mutation fetch revision bounds are inverted",
         });
       }
@@ -82,7 +82,7 @@ export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
       stepKind: z.literal("submit_rebuild_digest"),
       stepPayload: z
         .object({
-          targetRevision: workspaceRevisionSchema,
+          targetServerRevision: serverRevisionSchema,
           workspaceSchemaVersion: safePositiveInteger,
           entityDigests: workspaceEntityDigestsSchema,
         })
@@ -126,7 +126,7 @@ export const bootstrapStepResultSchema = z
         stepKind: z.literal("submit_rebuild_digest"),
         resultPayload: z
           .object({
-            verifiedRevision: workspaceRevisionSchema,
+            verifiedRevision: serverRevisionSchema,
             verifiedDigest: sha256DigestSchema,
             accepted: z.literal(true),
           })
@@ -155,6 +155,25 @@ export function encodeBootstrapStepResultDigestInput(value: unknown): Uint8Array
   const parsed = bootstrapStepResultSchema.parse(value);
   const { resultDigest: _resultDigest, ...digestInput } = parsed;
   return encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-RESULT-V1", digestInput);
+}
+
+/** Complete replay identity; unlike requestDigest this intentionally includes nonce and digest. */
+export function encodeBootstrapStepRequestReplayIdentity(value: unknown): Uint8Array {
+  return encodeDomainSeparatedWireValue(
+    "GOODDEALER-BOOTSTRAP-STEP-REQUEST-REPLAY-V1",
+    bootstrapStepRequestSchema.parse(value),
+  );
+}
+
+/** Cloud persistence name for the complete strict request replay transcript. */
+export const encodeBootstrapStepReplayRequest = encodeBootstrapStepRequestReplayIdentity;
+
+/** Complete persisted result bytes used for byte-identical idempotent replay. */
+export function encodeBootstrapStepResultReplayIdentity(value: unknown): Uint8Array {
+  return encodeDomainSeparatedWireValue(
+    "GOODDEALER-BOOTSTRAP-STEP-RESULT-REPLAY-V1",
+    bootstrapStepResultSchema.parse(value),
+  );
 }
 
 export type BootstrapStepRequest = z.infer<typeof bootstrapStepRequestSchema>;

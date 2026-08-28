@@ -1,0 +1,7 @@
+.portfolio-read-meta { min-width: 0; }
+.portfolio-read-meta--strip { padding: 8px 16px; border-bottom: 1px solid var(--gd-line, #253044); background: color-mix(in srgb, var(--gd-ink, #0c1018) 92%, white); }
+.portfolio-read-meta--strip > .gd-key-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; }
+.portfolio-read-meta--panel > .gd-key-values { display: flex; flex-direction: column; }
+.portfolio-read-meta > .gd-key-values > .gd-key-value-row { min-width: 0; border-bottom: 0; }
+.portfolio-read-meta > .gd-key-values > .gd-key-value-row > dd { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; overflow-wrap: anywhere; }
+@media (max-width: 860px) { .portfolio-read-meta--strip > .gd-key-values { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

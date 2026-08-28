@@ -12,7 +12,7 @@
   "sourceDeviceId": "device-a",
   "workspaceId": "workspace-a",
   "activeLeaseEpoch": 2,
-  "executionSequence": 1,
+  "executionFactSequence": 1,
   "eventType": "operation_succeeded",
   "evidenceLevel": "provider_confirmed",
   "occurredAt": "2026-08-14T17:59:00Z",

@@ -26,7 +26,7 @@ export interface BootstrapCapabilityRecord {
 
 export interface CheckpointPinRecord {
   readonly checkpointId: string;
-  readonly checkpointRevision: number;
+  readonly checkpointThroughServerRevision: number;
   readonly checkpointDigest: string;
   readonly pinExpiresAt: string;
 }
@@ -65,7 +65,7 @@ export interface DeviceSwitchWorkflowSnapshot {
   readonly pendingLeaseEpoch: number | null;
   readonly capability: BootstrapCapabilityRecord | null;
   readonly pin: CheckpointPinRecord | null;
-  readonly targetRevision: number | null;
+  readonly targetServerRevision: number | null;
   readonly targetSchemaVersion: number | null;
   readonly rebuildVerified: boolean;
   readonly nextStepNumber: number;
@@ -96,7 +96,7 @@ export class DeviceSwitchWorkflow {
   #pendingLeaseEpoch: number | null = null;
   #capability: BootstrapCapabilityRecord | null = null;
   #pin: CheckpointPinRecord | null = null;
-  #targetRevision: number | null = null;
+  #targetServerRevision: number | null = null;
   #targetSchemaVersion: number | null = null;
   #rebuildVerified = false;
   #nextStepNumber = 1;
@@ -160,8 +160,8 @@ export class DeviceSwitchWorkflow {
     return this.#pendingLeaseEpoch;
   }
 
-  get targetRevision(): number | null {
-    return this.#targetRevision;
+  get targetServerRevision(): number | null {
+    return this.#targetServerRevision;
   }
 
   get targetSchemaVersion(): number | null {
@@ -231,11 +231,11 @@ export class DeviceSwitchWorkflow {
     };
   }
 
-  recordPin(pin: CheckpointPinRecord, targetRevision: number, targetSchemaVersion: number): void {
+  recordPin(pin: CheckpointPinRecord, targetServerRevision: number, targetSchemaVersion: number): void {
     if (this.#status !== "bootstrapping") throw new WorkflowTransitionError("WORKFLOW_NOT_BOOTSTRAPPING");
-    if (this.#pin !== null || this.#targetRevision !== null) throw new WorkflowTransitionError("STEP_REPLAY_CONFLICT");
+    if (this.#pin !== null || this.#targetServerRevision !== null) throw new WorkflowTransitionError("STEP_REPLAY_CONFLICT");
     this.#pin = { ...pin };
-    this.#targetRevision = targetRevision;
+    this.#targetServerRevision = targetServerRevision;
     this.#targetSchemaVersion = targetSchemaVersion;
   }
 
@@ -345,7 +345,7 @@ export class DeviceSwitchWorkflow {
       pendingLeaseEpoch: this.#pendingLeaseEpoch,
       capability: this.capability,
       pin: this.pin,
-      targetRevision: this.#targetRevision,
+      targetServerRevision: this.#targetServerRevision,
       targetSchemaVersion: this.#targetSchemaVersion,
       rebuildVerified: this.#rebuildVerified,
       nextStepNumber: this.#nextStepNumber,

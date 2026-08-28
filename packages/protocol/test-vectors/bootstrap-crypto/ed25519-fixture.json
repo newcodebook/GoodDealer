@@ -1,0 +1,55 @@
+{
+  "fixtureOnly": true,
+  "algorithm": "Ed25519",
+  "keyPurpose": {
+    "bootstrap": "gooddealer.devices.bootstrap-capability.v1",
+    "activeLease": "gooddealer.devices.active-device-lease.v1"
+  },
+  "testPrivateKeyPkcs8DerBase64Url": "MC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+  "publicKeySpkiDerBase64Url": "MCowBQYDK2VwAyEAA6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "activeLeaseTestPrivateKeyPkcs8DerBase64Url": "MC4CAQAwBQYDK2VwBCIEICAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_",
+  "activeLeasePublicKeySpkiDerBase64Url": "MCowBQYDK2VwAyEAKay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+  "bootstrap": {
+    "envelope": {
+      "schemaVersion": 1,
+      "iss": "https://accounts.gooddealer.com",
+      "kid": "bootstrap-fixture-key-1",
+      "accountId": "account-fixture-1",
+      "deviceId": "device-target-1",
+      "accountSecurityEpoch": 7,
+      "jti": "bootstrap-jti-1",
+      "issuedAt": "2026-08-20T00:00:00Z",
+      "expiresAt": "2026-08-20T00:30:00Z",
+      "typ": "gd.bootstrap-capability.v1",
+      "aud": "gooddealer-desktop/bootstrap",
+      "payload": { "deviceSwitchRequestId": "switch-request-1" },
+      "signature": "RZUWN7y2JgY_bDX0B2c8Gx586Aa4LHwkgpaPxOohPf0ZQqZuof-0s5G9cEmC4e6jc6cvu7JS4yWbJC2PpbSZDQ"
+    },
+    "transcriptBase64Url": "ZDM0OkdPT0RERUFMRVItQk9PVFNUUkFQLUNBUEFCSUxJVFktVjF2NTIyOm81MTc6ZTM3Oms5OmFjY291bnRJZHYyMTpzMTc6YWNjb3VudC1maXh0dXJlLTFlMzE6azIwOmFjY291bnRTZWN1cml0eUVwb2NodjQ6bjE6N2U0MjprMzphdWR2MzI6czI4Omdvb2RkZWFsZXItZGVza3RvcC9ib290c3RyYXBlMzQ6azg6ZGV2aWNlSWR2MTk6czE1OmRldmljZS10YXJnZXQtMWU0MDprOTpleHBpcmVzQXR2MjQ6czIwOjIwMjYtMDgtMjBUMDA6MzA6MDBaZTQ1OmszOmlzc3YzNTpzMzE6aHR0cHM6Ly9hY2NvdW50cy5nb29kZGVhbGVyLmNvbWUzOTprODppc3N1ZWRBdHYyNDpzMjA6MjAyNi0wOC0yMFQwMDowMDowMFplMjk6azM6anRpdjE5OnMxNTpib290c3RyYXAtanRpLTFlMzc6azM6a2lkdjI3OnMyMzpib290c3RyYXAtZml4dHVyZS1rZXktMWU3MTprNzpwYXlsb2FkdjU3Om81MzplNDk6azIxOmRldmljZVN3aXRjaFJlcXVlc3RJZHYyMDpzMTY6c3dpdGNoLXJlcXVlc3QtMWUyNDprMTM6c2NoZW1hVmVyc2lvbnY0Om4xOjFlNDA6azM6dHlwdjMwOnMyNjpnZC5ib290c3RyYXAtY2FwYWJpbGl0eS52MQ",
+    "transcriptSha256": "J9pmud6MWRVbzDf0NnUXyuSZxDPOFpoYntFwCP3Ryxk"
+  },
+  "activeLease": {
+    "envelope": {
+      "schemaVersion": 1,
+      "iss": "https://accounts.gooddealer.com",
+      "kid": "lease-fixture-key-1",
+      "accountId": "account-fixture-1",
+      "deviceId": "device-target-1",
+      "accountSecurityEpoch": 7,
+      "jti": "lease-jti-1",
+      "issuedAt": "2026-08-20T00:00:00Z",
+      "expiresAt": "2026-08-20T08:00:00Z",
+      "typ": "gd.active-device-lease.v1",
+      "aud": "gooddealer-desktop/active-device-lease",
+      "payload": {
+        "leaseEpoch": 12,
+        "renewAfter": "2026-08-20T01:00:00Z",
+        "onlineExpiresAt": "2026-08-20T02:00:00Z",
+        "offlineExecuteUntil": "2026-08-20T08:00:00Z"
+      },
+      "signature": "Dzx7JnJoNYcEO2GepX7QaFnB0YxMDf4Es0PbXAwTed-CgMmctdGpq2ehWrIbEoxQxChH44YCJ62UXnSwjJPoCQ"
+    },
+    "transcriptBase64Url": "ZDMzOkdPT0RERUFMRVItQUNUSVZFLURFVklDRS1MRUFTRS1WMXY2NTE6bzY0NjplMzc6azk6YWNjb3VudElkdjIxOnMxNzphY2NvdW50LWZpeHR1cmUtMWUzMTprMjA6YWNjb3VudFNlY3VyaXR5RXBvY2h2NDpuMTo3ZTUyOmszOmF1ZHY0MjpzMzg6Z29vZGRlYWxlci1kZXNrdG9wL2FjdGl2ZS1kZXZpY2UtbGVhc2VlMzQ6azg6ZGV2aWNlSWR2MTk6czE1OmRldmljZS10YXJnZXQtMWU0MDprOTpleHBpcmVzQXR2MjQ6czIwOjIwMjYtMDgtMjBUMDg6MDA6MDBaZTQ1OmszOmlzc3YzNTpzMzE6aHR0cHM6Ly9hY2NvdW50cy5nb29kZGVhbGVyLmNvbWUzOTprODppc3N1ZWRBdHYyNDpzMjA6MjAyNi0wOC0yMFQwMDowMDowMFplMjU6azM6anRpdjE1OnMxMTpsZWFzZS1qdGktMWUzMzprMzpraWR2MjM6czE5OmxlYXNlLWZpeHR1cmUta2V5LTFlMTk4Oms3OnBheWxvYWR2MTgzOm8xNzg6ZTIyOmsxMDpsZWFzZUVwb2NodjU6bjI6MTJlNTE6azE5Om9mZmxpbmVFeGVjdXRlVW50aWx2MjQ6czIwOjIwMjYtMDgtMjBUMDg6MDA6MDBaZTQ3OmsxNTpvbmxpbmVFeHBpcmVzQXR2MjQ6czIwOjIwMjYtMDgtMjBUMDI6MDA6MDBaZTQyOmsxMDpyZW5ld0FmdGVydjI0OnMyMDoyMDI2LTA4LTIwVDAxOjAwOjAwWmUyNDprMTM6c2NoZW1hVmVyc2lvbnY0Om4xOjFlMzk6azM6dHlwdjI5OnMyNTpnZC5hY3RpdmUtZGV2aWNlLWxlYXNlLnYx",
+    "transcriptSha256": "uXEhlsm-Bf23Adi4Au8_90qHYENaS6RSIFWfKP9JlOI"
+  }
+}

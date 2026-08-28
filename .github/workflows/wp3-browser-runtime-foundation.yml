@@ -1,0 +1,38 @@
+name: wp3-browser-runtime-foundation
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  portable:
+    name: wp3-browser-runtime-foundation-portable-ubuntu-24.04-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - name: Collect non-closing Portable browser runtime evidence
+        run: node scripts/collect-browser-runtime-foundation-report.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: wp3-browser-runtime-foundation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/wp3/browser-runtime-foundation
+          include-hidden-files: true
+          retention-days: 90

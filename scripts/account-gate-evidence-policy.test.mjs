@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
+  ACCOUNT_GATE_REQUIRED_INPUTS,
+  ACCOUNT_GATE_VECTOR_INPUTS,
+  accountGateInputAdmissionErrors,
   accountGateReportPassesPolicy,
   collectAccountGateReport,
   drainProofSignatureCheckNamingCompliant,
   drainProofSignaturePortCannotSucceed,
   identityFixtureIsNonSellable,
   passwordHashCheckNamingCompliant,
-  passwordHashPortCannotSucceed,
+  denyingPasswordHashPortCannotSucceed,
   portfolioQueryContractIsPortable,
+  portfolioQuerySourceInputs,
   rawPasswordForbiddenSurfaceProof,
   sourceAcceptDrainReleasesLease,
   sourceAcceptsDrainProof,
@@ -52,14 +59,80 @@ const passwordHashPortSource = readFileSync(
   new URL("../apps/cloud/src/modules/identity/password-hash-port.ts", import.meta.url),
   "utf8",
 );
-const portfolioQuerySource = readFileSync(
-  new URL("../packages/client-core/src/portfolio/index.ts", import.meta.url),
-  "utf8",
-);
+const portfolioQuerySource = portfolioQuerySourceInputs
+  .map((path) => `// ${path}\n${readFileSync(new URL(`../${path}`, import.meta.url), "utf8")}`)
+  .join("\n");
 const portfolioQueryTestSource = readFileSync(
   new URL("../packages/client-core/test/portfolio-query.test.ts", import.meta.url),
   "utf8",
 );
+const accountGateCollectorSource = readFileSync(new URL("./collect-account-gate-report.mjs", import.meta.url), "utf8");
+const physicalTemporaryDirectory = realpathSync(tmpdir());
+const accountGateAdmittedInputPaths = Object.freeze([
+  ...new Set([...ACCOUNT_GATE_REQUIRED_INPUTS, ...ACCOUNT_GATE_VECTOR_INPUTS]),
+]);
+
+function temporaryDirectory(prefix) {
+  return mkdtempSync(join(physicalTemporaryDirectory, prefix));
+}
+
+function accountGateInputFixture(t, { repositoryRoot = temporaryDirectory("gooddealer-account-gate-inputs-") } = {}) {
+  const fixtureRoot = repositoryRoot;
+  t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  for (const path of accountGateAdmittedInputPaths) {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, path.endsWith(".json") ? "{}\n" : "input\n");
+  }
+  return fixtureRoot;
+}
+
+function replaceOnce(source, search, replacement) {
+  assert.ok(source.includes(search), "disposable mutation source is missing expected text");
+  return source.replace(search, replacement);
+}
+
+async function importDisposableCollector(t, fixtureRoot, transform = (source) => source) {
+  const disposablePath = join(fixtureRoot, "scripts", "collect-account-gate-report.mjs");
+  mkdirSync(dirname(disposablePath), { recursive: true });
+  writeFileSync(disposablePath, transform(accountGateCollectorSource));
+  return import(pathToFileURL(disposablePath).href);
+}
+
+function withPostAdmissionVectorSwap(source) {
+  const fsImport = 'import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";';
+  const swapImport = 'import { lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";';
+  const admittedSources = "  const inputSources = admittedRequiredInputSources();";
+  return replaceOnce(
+    replaceOnce(source, fsImport, swapImport),
+    admittedSources,
+    [
+      admittedSources,
+      '  const vectorPath = resolve(root, "packages/protocol/test-vectors/domain-asset-projection/valid/utf8-order.json");',
+      "  rmSync(vectorPath);",
+      '  symlinkSync(resolve(root, "external-post-admission-sentinel.json"), vectorPath);',
+    ].join("\n"),
+  );
+}
+
+function withTerminalOnlyRootAdmission(source) {
+  const componentWalk = [
+    "  const lexicalComponents = [];",
+    "  for (let current = resolvedRoot; ; current = dirname(current)) {",
+    "    lexicalComponents.unshift(current);",
+    "    if (dirname(current) === current) break;",
+    "  }",
+  ].join("\n");
+  return replaceOnce(source, componentWalk, "  const lexicalComponents = [resolvedRoot];");
+}
+
+function withRawVectorReread(source) {
+  return replaceOnce(
+    source,
+    '      JSON.parse(content.toString("utf8"));',
+    '      JSON.parse(readFileSync(resolve(root, path), "utf8"));',
+  );
+}
 
 test("WP-2 account gate evidence is fixture-only and independently runnable", () => {
   assert.equal(
@@ -72,6 +145,129 @@ test("WP-2 account gate evidence is fixture-only and independently runnable", ()
   assert.match(workflow, /\.artifacts\/wp2\/account-gate/);
   assert.match(workflow, /EVIDENCE_OWNING_MODULES: .*protocol-workspace.*cloud-account-device-bootstrap-fixtures/);
   assert.doesNotMatch(workflow, /windows-2025|macos-15/);
+});
+
+test("account gate input admission accepts the live inventory and rejects external regular-file symlink paths", (t) => {
+  assert.deepEqual(accountGateInputAdmissionErrors(), []);
+  assert.equal(accountGateReportPassesPolicy(collectAccountGateReport()), true);
+
+  const leafRoot = accountGateInputFixture(t);
+  const externalLeafDirectory = temporaryDirectory("gooddealer-account-gate-external-leaf-");
+  t.after(() => rmSync(externalLeafDirectory, { recursive: true, force: true }));
+  const leafInput = ACCOUNT_GATE_REQUIRED_INPUTS[0];
+  const externalLeaf = join(externalLeafDirectory, "account-gate.ts");
+  writeFileSync(externalLeaf, "external regular-file target\n");
+  rmSync(join(leafRoot, leafInput));
+  symlinkSync(externalLeaf, join(leafRoot, leafInput));
+  assert.ok(
+    accountGateInputAdmissionErrors({ repositoryRoot: leafRoot }).some((error) =>
+      error.includes(`symbolic link: ${leafInput}`),
+    ),
+  );
+
+  const ancestorRoot = accountGateInputFixture(t);
+  const externalProtocolRoot = temporaryDirectory("gooddealer-account-gate-external-parent-");
+  t.after(() => rmSync(externalProtocolRoot, { recursive: true, force: true }));
+  const externalParentTarget = join(externalProtocolRoot, "src", "account", "account-gate.ts");
+  mkdirSync(dirname(externalParentTarget), { recursive: true });
+  writeFileSync(externalParentTarget, "external regular-file target\n");
+  rmSync(join(ancestorRoot, "packages", "protocol"), { recursive: true });
+  symlinkSync(externalProtocolRoot, join(ancestorRoot, "packages", "protocol"));
+  assert.ok(
+    accountGateInputAdmissionErrors({ repositoryRoot: ancestorRoot }).some((error) =>
+      error.includes(`symbolic link: ${leafInput}`),
+    ),
+  );
+});
+
+test("account gate input admission fails closed for missing and directory leaves", (t) => {
+  const missingRoot = accountGateInputFixture(t);
+  const missingInput = ACCOUNT_GATE_REQUIRED_INPUTS[1];
+  rmSync(join(missingRoot, missingInput));
+  assert.ok(
+    accountGateInputAdmissionErrors({ repositoryRoot: missingRoot }).some((error) => error.includes("ENOENT")),
+  );
+
+  const directoryRoot = accountGateInputFixture(t);
+  const directoryInput = ACCOUNT_GATE_REQUIRED_INPUTS[2];
+  rmSync(join(directoryRoot, directoryInput));
+  mkdirSync(join(directoryRoot, directoryInput));
+  assert.ok(
+    accountGateInputAdmissionErrors({ repositoryRoot: directoryRoot }).some((error) =>
+      error.includes(`regular file: ${directoryInput}`),
+    ),
+  );
+});
+
+test("account gate input admission rejects a symlinked lexical repository-root ancestor", (t) => {
+  const externalParent = temporaryDirectory("gooddealer-account-gate-external-root-parent-");
+  t.after(() => rmSync(externalParent, { recursive: true, force: true }));
+  accountGateInputFixture(t, {
+    repositoryRoot: join(externalParent, "repository"),
+  });
+  const lexicalParent = temporaryDirectory("gooddealer-account-gate-lexical-root-parent-");
+  t.after(() => rmSync(lexicalParent, { recursive: true, force: true }));
+  const linkedParent = join(lexicalParent, "external-parent-link");
+  symlinkSync(externalParent, linkedParent);
+
+  const errors = accountGateInputAdmissionErrors({
+    repositoryRoot: join(linkedParent, "repository"),
+  });
+  assert.equal(errors.length, accountGateAdmittedInputPaths.length);
+  assert.equal(
+    errors.every((error) => error.includes("repository root may not traverse a symbolic link")),
+    true,
+  );
+});
+
+test("account gate lexical-root regression kills a terminal-only root-admission mutation", async (t) => {
+  const externalParent = temporaryDirectory("gooddealer-account-gate-mutant-root-parent-");
+  t.after(() => rmSync(externalParent, { recursive: true, force: true }));
+  const externalRepository = accountGateInputFixture(t, {
+    repositoryRoot: join(externalParent, "repository"),
+  });
+  const lexicalParent = temporaryDirectory("gooddealer-account-gate-mutant-lexical-parent-");
+  t.after(() => rmSync(lexicalParent, { recursive: true, force: true }));
+  const linkedParent = join(lexicalParent, "external-parent-link");
+  symlinkSync(externalParent, linkedParent);
+
+  const mutant = await importDisposableCollector(
+    t,
+    externalRepository,
+    withTerminalOnlyRootAdmission,
+  );
+  assert.deepEqual(
+    mutant.accountGateInputAdmissionErrors({
+      repositoryRoot: join(linkedParent, "repository"),
+    }),
+    [],
+  );
+});
+
+test("account gate vector counts parse only admitted bytes after a post-admission swap", async (t) => {
+  const vectorInput = "packages/protocol/test-vectors/domain-asset-projection/valid/utf8-order.json";
+  assert.ok(ACCOUNT_GATE_VECTOR_INPUTS.includes(vectorInput));
+  assert.doesNotMatch(accountGateCollectorSource, /\b(?:jsonFiles|readdirSync)\b/);
+
+  const swappedRoot = accountGateInputFixture(t);
+  writeFileSync(join(swappedRoot, "external-post-admission-sentinel.json"), "external post-admission sentinel\n");
+  const swappedCollector = await importDisposableCollector(t, swappedRoot, withPostAdmissionVectorSwap);
+  const swappedReport = swappedCollector.collectAccountGateReport();
+  assert.deepEqual(swappedReport.domainAssetProjectionVectors, { valid: 1, invalid: 3 });
+
+  const malformedRoot = accountGateInputFixture(t);
+  writeFileSync(join(malformedRoot, vectorInput), "not JSON\n");
+  const malformedCollector = await importDisposableCollector(t, malformedRoot);
+  assert.throws(() => malformedCollector.collectAccountGateReport(), SyntaxError);
+
+  const mutantRoot = accountGateInputFixture(t);
+  writeFileSync(join(mutantRoot, "external-post-admission-sentinel.json"), "external post-admission sentinel\n");
+  const rawRereadMutant = await importDisposableCollector(
+    t,
+    mutantRoot,
+    (source) => withRawVectorReread(withPostAdmissionVectorSwap(source)),
+  );
+  assert.throws(() => rawRereadMutant.collectAccountGateReport(), SyntaxError);
 });
 
 test("WP-2 workflow pins the evidence upload action", () => {
@@ -90,6 +286,13 @@ test("account gate report carries the portable P0-23 query contract and fails cl
   assert.equal(
     portfolioQueryContractIsPortable(
       portfolioQuerySource.replace("listDomains(): Promise<PortfolioQueryResult>;", "mutate(): Promise<void>;"),
+      portfolioQueryTestSource,
+    ),
+    false,
+  );
+  assert.equal(
+    portfolioQueryContractIsPortable(
+      portfolioQuerySource.replace("freshness.canEdit !== expectedCanEdit", "false"),
       portfolioQueryTestSource,
     ),
     false,
@@ -240,16 +443,16 @@ test("account gate report requires checkDrainProofSignature naming", () => {
   assert.equal(drainProofSignatureCheckNamingCompliant("const drain = true;"), false);
 });
 
-test("account gate report requires an unsuccessable checkPasswordHash port", () => {
-  assert.equal(passwordHashPortCannotSucceed(passwordHashPortSource), true);
+test("account gate report requires a Denying checkPasswordHash production default", () => {
+  assert.equal(denyingPasswordHashPortCannotSucceed(passwordHashPortSource), true);
   assert.equal(passwordHashCheckNamingCompliant(passwordHashPortSource), true);
   assert.equal(
-    passwordHashPortCannotSucceed(`
+    denyingPasswordHashPortCannotSucceed(`
       interface PasswordHashPort {
-        checkPasswordHash(): Promise<{
-          readonly verified: boolean;
-          readonly reason: "password_verification_disabled";
-        }>;
+        checkPasswordHash(): Promise<{ readonly verified: boolean }>;
+      }
+      class DenyingPasswordHashPort implements PasswordHashPort {
+        async checkPasswordHash() { return { verified: true }; }
       }
     `),
     false,
@@ -390,11 +593,12 @@ test("account gate report carries the DenyingPasswordHashPort structural asserti
   assert.equal(assertion.present, true);
   assert.equal(assertion.source, "apps/cloud/src/modules/identity/password-hash-port.ts");
   assert.deepEqual(Object.keys(assertion.checks), [
-    "interfaceReturnTypeCannotExpressSuccess",
+    "interfaceSupportsClosedVerdict",
+    "explicitVerifierOptInPresent",
     "denyingImplementationPresent",
     "denyingImplementationReturnsDisabled",
     "defaultCompositionUsesDenyingPort",
-    "typeLevelNegativeAssertionPresent",
+    "denyingCandidateZeroingTestPresent",
   ]);
   for (const field of Object.keys(assertion.checks)) {
     assert.equal(assertion.checks[field], true, field);
@@ -487,7 +691,7 @@ test("account gate report makes every fallback field a hard requirement", () => 
   assert.equal(report.signatureVerificationAbsent, true);
   assert.equal(report.drainProofAcceptanceAbsent, true);
   assert.equal(report.drainProofSignatureSuccessUnrepresentable, true);
-  assert.equal(report.passwordVerificationSuccessUnrepresentable, true);
+  assert.equal(report.productionPasswordVerificationDenying, true);
   assert.equal(report.passwordHashCheckNamingCompliant, true);
   assert.equal(report.rotationFamilyNegativeMatrixPresent, true);
   assert.equal(report.acceptDrainLeaseReleaseAbsent, true);
@@ -503,7 +707,7 @@ test("account gate report makes every fallback field a hard requirement", () => 
     "signatureVerificationAbsent",
     "drainProofAcceptanceAbsent",
     "drainProofSignatureSuccessUnrepresentable",
-    "passwordVerificationSuccessUnrepresentable",
+    "productionPasswordVerificationDenying",
     "passwordHashCheckNamingCompliant",
     "rotationFamilyNegativeMatrixPresent",
     "acceptDrainLeaseReleaseAbsent",

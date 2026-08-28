@@ -1,0 +1,1 @@
+.gd-toolbar{display:flex;flex:none;align-items:center;height:var(--toolbar-h);gap:10px;padding:0 12px;border-bottom:1px solid var(--gd-line);background:var(--gd-ink)}.gd-toolbar--region{background:var(--surface-region)}.gd-toolbar-side{display:flex;align-items:center;min-width:0;gap:8px}.gd-toolbar-spacer{flex:1}

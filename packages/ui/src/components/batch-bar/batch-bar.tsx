@@ -1,0 +1,4 @@
+import type { CSSProperties, ReactNode } from "react";
+import "./batch-bar.css";
+export interface BatchBarProps { count: number; unit?: string; label?: string; clearLabel?: string; children?: ReactNode; onClear?: () => void; style?: CSSProperties }
+export function BatchBar({ count, unit = "items", label = "Selected", clearLabel = "Clear", children, onClear, style }: BatchBarProps) { if (!count) return null; return <div className="gd-batchbar" style={style}><span className="gd-batchbar-count"><span className="lbl">{label}</span><b>{count}</b><span className="u">{unit}</span></span><span className="gd-batchbar-sep" /><div className="gd-batchbar-actions">{children}</div>{onClear ? <><span className="gd-batchbar-sep" /><button type="button" className="gd-batchbar-clear" onClick={onClear}>{clearLabel}</button></> : null}</div>; }

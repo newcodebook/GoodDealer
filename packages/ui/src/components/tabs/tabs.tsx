@@ -20,6 +20,7 @@ export function Tabs({ items = [], active, onChange }: TabsProps) {
     <div className="gd-tabs" role="tablist">
       {items.map((item) => (
         <button
+          type="button"
           key={item.key}
           role="tab"
           aria-selected={active === item.key}

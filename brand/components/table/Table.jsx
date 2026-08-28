@@ -32,28 +32,7 @@ const css=`
 `;
 ensureGdCss("gd-table-css",css);
 const SortGlyph=({dir})=><svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d={dir==="desc"?"M1 4L4 8L7 4":"M1 6L4 2L7 6"} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>;
-// Column priority — narrow views drop lower-priority columns instead of squeezing them unreadable.
-// column.priority: "essential" (default, always shown) | "secondary" (hidden below bpSecondary) |
-// "supplementary" (hidden below bpSupplementary). Width is the TABLE's own width (ResizeObserver),
-// not the window's — a table in a narrow panel sheds columns regardless of window size.
-export function visibleColumns(columns,w,bpSecondary=640,bpSupplementary=900){
-  if(w==null)return columns;
-  return columns.filter(c=>{const p=c.priority||"essential";
-    if(p==="secondary")return w>=bpSecondary;
-    if(p==="supplementary")return w>=bpSupplementary;
-    return true;});
-}
-export function Table({columns=[],rows=[],rowKey="id",density="regular",selectable=false,selected=[],onSelectionChange,sortKey,sortDir="asc",onSort,onRowClick,hover=true,maxHeight,footer,emptyText="没有匹配的项目",responsive=true,forceWidth=null,bpSecondary=640,bpSupplementary=900,style}){
-  const shellRef=React.useRef(null);
-  const [measuredW,setMeasuredW]=React.useState(null);
-  React.useEffect(()=>{
-    if(!responsive||forceWidth!=null)return;
-    const el=shellRef.current;if(!el||typeof ResizeObserver==="undefined")return;
-    const ro=new ResizeObserver(es=>setMeasuredW(es[0].contentRect.width));ro.observe(el);return ()=>ro.disconnect();
-  },[responsive,forceWidth]);
-  const effW=!responsive?null:(forceWidth!=null?forceWidth:measuredW);
-  const shownColumns=responsive?visibleColumns(columns,effW,bpSecondary,bpSupplementary):columns;
-  const hiddenCount=columns.length-shownColumns.length;
+export function Table({columns=[],rows=[],rowKey="id",density="regular",selectable=false,selected=[],onSelectionChange,sortKey,sortDir="asc",onSort,onRowClick,hover=true,maxHeight,footer,emptyText="没有匹配的项目",style}){
   const sel=new Set(selected);
   const keyOf=(r,i)=>typeof rowKey==="function"?rowKey(r):(r[rowKey]!==undefined?r[rowKey]:i);
   const allKeys=rows.map(keyOf);
@@ -62,12 +41,12 @@ export function Table({columns=[],rows=[],rowKey="id",density="regular",selectab
   const toggleAll=()=>onSelectionChange&&onSelectionChange(allSel?[]:allKeys);
   const toggleOne=k=>{const n=new Set(sel);n.has(k)?n.delete(k):n.add(k);onSelectionChange&&onSelectionChange([...n]);};
   const cellCls=c=>`${c.numeric?" gd-cell--num":""}${c.align==="right"&&!c.numeric?" gd-cell--num":""}${c.align==="center"?" gd-cell--center":""}${c.muted?" gd-cell--muted":""}`;
-  return <div className="gd-table-shell" ref={shellRef} style={style}>
+  return <div className="gd-table-shell" style={style}>
     <div className="gd-table-scroll" style={maxHeight?{maxHeight}:undefined}>
       <table className={`gd-table gd-table--${density}${hover?" gd-table--hover":""}`}>
         <thead><tr>
           {selectable&&<th className="gd-cell--check"><Checkbox checked={allSel} indeterminate={someSel&&!allSel} onChange={toggleAll}/></th>}
-          {shownColumns.map(c=><th key={c.key} className={cellCls(c)} style={c.width?{width:c.width}:undefined}>
+          {columns.map(c=><th key={c.key} className={cellCls(c)} style={c.width?{width:c.width}:undefined}>
             {c.sortable?<span className={`gd-th-sort${sortKey===c.key?" gd-th-sort--active":""}`} onClick={()=>onSort&&onSort(c.key,sortKey===c.key&&sortDir==="asc"?"desc":"asc")}>{c.label}<SortGlyph dir={sortKey===c.key?sortDir:"asc"}/></span>:c.label}
           </th>)}
         </tr></thead>
@@ -75,12 +54,12 @@ export function Table({columns=[],rows=[],rowKey="id",density="regular",selectab
           {rows.map((r,i)=>{const k=keyOf(r,i);const isSel=sel.has(k);
             return <tr key={k} className={`${isSel?"gd-row--selected":""}${onRowClick?" gd-row--clickable":""}`} onClick={onRowClick?()=>onRowClick(r):undefined}>
               {selectable&&<td className="gd-cell--check"><Checkbox stop checked={isSel} onChange={()=>toggleOne(k)}/></td>}
-              {shownColumns.map(c=><td key={c.key} className={cellCls(c)} style={c.width?{width:c.width}:undefined}>{c.render?c.render(r,i):r[c.key]}</td>)}
+              {columns.map(c=><td key={c.key} className={cellCls(c)} style={c.width?{width:c.width}:undefined}>{c.render?c.render(r,i):r[c.key]}</td>)}
             </tr>;})}
         </tbody>
       </table>
       {rows.length===0&&<div className="gd-table-empty">{emptyText}</div>}
     </div>
-    {(footer||hiddenCount>0)&&<div className="gd-table-foot">{footer}{hiddenCount>0&&<span style={{marginLeft:"auto",color:"var(--gd-text-faint)"}}>{hiddenCount} 列已折叠 · 加宽以显示</span>}</div>}
+    {footer&&<div className="gd-table-foot">{footer}</div>}
   </div>;
 }

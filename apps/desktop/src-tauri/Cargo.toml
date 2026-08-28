@@ -5,18 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[features]
-default = []
-sqlcipher-bundle-spike = ["gooddealer-local-storage/sqlcipher-bundle-spike"]
-
 [build-dependencies]
 tauri-build.workspace = true
 
 [dependencies]
-gooddealer-automation-host = { path = "../../../crates/automation-host" }
 gooddealer-local-storage = { path = "../../../crates/local-storage" }
-gooddealer-secure-host-core = { path = "../../../crates/secure-host-core" }
+serde.workspace = true
 tauri.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "=3.27.0"
 
 [lints]
 workspace = true

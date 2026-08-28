@@ -1,61 +1,60 @@
 # @gooddealer/marketing-web
 
-Public marketing site (top-of-funnel landing page), built with Astro as a fully static
-site — every page prerenders to plain HTML; the only client JS is four small vanilla
-`<script>` blocks (scroll reveal, workflow stepper, FAQ accordion, and the two JS-driven
-showcase demos).
+## Purpose
 
-## Relationship to `brand/ui_kits/marketing-web`
+The marketing web package owns a static Astro site and its presentation-only locale content. It is
+not an account application, a business API, or evidence that a public deployment is live.
 
-This app is a 1:1 port of the brand kit's marketing-web reference (see that kit's README
-for the design rationale). The mapping:
+## Principles
 
-| Reference (kit) | Here |
-| --- | --- |
-| `index.html` / `zh/index.html` shells (meta/SEO/JSON-LD) | `src/layouts/Layout.astro` + per-locale `meta` in `src/data/{en,zh}.ts` |
-| inline `<style>` block | `src/styles/marketing.css` (verbatim; kit-only `#root` rule dropped) |
-| `data.en.js` / `data.zh.js` (`window.MK_DATA`) | `src/data/en.ts` / `src/data/zh.ts`, typed by `src/data/types.ts` |
-| 11 `*.jsx` components (React UMD + in-browser Babel) | `src/components/**/*.astro`; React state machines (Workflow, FAQ, Aggregate/List demos) became vanilla scripts with identical timings |
-| `../../styles.css` tokens / `../../assets/*` | `@gooddealer/ui/tokens.css` / `@gooddealer/ui/assets/*` imports |
+- MUST: Prerender the site as static output and keep client-side behavior presentation-only.
+- MUST: Import shared UI tokens and assets through `@gooddealer/ui` exports.
+- MUST: Keep locale data typed and separate from Astro presentation components.
+- MUST: Treat account, installer, payment, and product calls to action as future external handoffs, not evidence that their destinations are available.
+- MUST: Keep runtime imports from `brand/` out of production source.
 
-Design changes flow brand-first: edit `brand/` (the design reference), then port here —
-same rule as `packages/ui` (see `packages/ui/README.md`).
+## Boundaries
 
-## Routes
+- Does NOT handle: Authentication, account sessions, payments, commercial authorization, or customer data. (see: src)
+- Does NOT handle: Server-side business routes or dynamic application state. (see: astro.config.mjs)
+- Does NOT handle: Deployment authority, provider credentials, release issuance, or Gate closure. (see: ../../docs/VERIFICATION.md)
+- Does NOT handle: Generic UI ownership. (see: ../../packages/ui/README.md)
 
-- `/` — English (`src/pages/index.astro`, `src/data/en.ts`)
-- `/zh/` — 中文 (`src/pages/zh/index.astro`, `src/data/zh.ts`)
+## Adversarial Surfaces
 
-New locale = new `src/data/<lang>.ts` + `src/pages/<lang>/index.astro` (copy the zh page,
-swap the data import).
+- **Static-origin boundary**: Production source has only declared static asset and handoff origins. Verified by: `../../scripts/marketing-web-workflow-policy.test.mjs`.
+- **Design-reference isolation**: Brand material is a reference, not a production runtime import. Verified by: repository boundary checks.
+- **Deployment claim laundering**: Workflow configuration cannot be treated as an observed external deployment. Verified by: review of workflow evidence and external provider records.
 
-## CTAs
+## Open Questions
 
-All conversion CTAs (sign-in, plan checkout, subscription) hand off to account-web at
-`https://app.gooddealer.com` — `src/config.ts` holds the single `ACCOUNT_WEB_URL`
-constant. Download links are `#` placeholders until installer URLs exist, as in the
-reference.
+- [ ] Which account, installer, payment, or product handoff destination is approved for the public site? (open since: 2026-08)
 
-## Deployment
+## Current surface
 
-Cloudflare Pages **Direct Upload** project `gooddealer-marketing` (no Git integration —
-Cloudflare never builds the repo), deployed by `.github/workflows/marketing-web.yml`:
-PRs touching the site run a build/typecheck `check` job; pushes to `main` additionally
-build `dist/` and upload it with the app's own `wrangler` devDependency
-(`pnpm exec wrangler pages deploy`, run from this directory — `cloudflare/wrangler-action`
-is avoided because it self-installs at the pnpm workspace root and fails). The Pages
-project is created idempotently on first deploy (`wrangler pages project create … || true`).
+`astro.config.mjs` uses static output. The repository workflow describes a constrained build and
+potential upload step for a main-branch event, but source configuration and a successful local
+build do not establish external project identity, credentials, serving state, approval, or deployment.
 
-The workflow needs two repository secrets: `CLOUDFLARE_API_TOKEN` (Pages:Edit) and
-`CLOUDFLARE_ACCOUNT_ID`. Until the token is set, the deploy step fails visibly — an
-accepted bootstrap state.
+The current site is therefore a static repository surface. Conversion and download destinations
+must remain visibly unavailable or externally supplied until the corresponding product and release
+decisions exist.
 
-## Commands
+An observed public deployment would additionally require all of the following external conditions:
 
-- `pnpm dev` / `pnpm build` / `pnpm preview`
-- `pnpm typecheck` — runs `astro check`
+- GitHub protected-main/review rules
+- environment protection/approval
+- Cloudflare project identity
+- artifact acceptance and serving
+- rollback, monitoring, and incident response
 
-`typescript` is pinned to 6.x in devDependencies: `astro check` relies on TypeScript's
-programmatic API, which the native (7.x) compiler does not expose yet
-(https://github.com/withastro/roadmap/discussions/1321). Lift the pin when Astro supports
-TS 7.
+None of those conditions is established by this repository or its workflow configuration.
+
+## Verification
+
+```sh
+pnpm --filter @gooddealer/marketing-web typecheck
+pnpm --filter @gooddealer/marketing-web build
+```
+
+Passing these commands verifies a static repository build only.

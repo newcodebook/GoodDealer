@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "auditEventId": "server-audit-staff-1",
+  "auditEventKind": "staff",
+  "eventType": "admin_read",
+  "tenantScope": "global",
+  "accountId": null,
+  "workspaceId": null,
+  "targetType": "account_summary",
+  "targetRef": "account-a",
+  "actorKind": "staff",
+  "actorId": "staff-owner-1",
+  "authorizationSource": "admin_read_authorization",
+  "chainId": "JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ",
+  "auditSequence": 4,
+  "previousHash": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+  "eventHash": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+  "occurredAt": "2026-08-22T14:11:00Z",
+  "authorizationContextHash": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+  "cryptographicSignerKind": "gooddealer_audit_service",
+  "cryptographicSignerId": "gooddealer-audit-service",
+  "signingKeyPurpose": "staff_audit",
+  "signingKeyId": "staff-audit-key-1",
+  "signingKeyVersion": 2,
+  "signatureTranscriptVersion": 1,
+  "serverSignature": "c2VydmVyLWF1ZGl0LXNpZ25hdHVyZS0y",
+  "signing_key_transition_id": null,
+  "payloadRedacted": {
+    "action": "admin_read",
+    "outcome": "allowed",
+    "reason": "purpose_authorized",
+    "adminPurposeRef": {
+      "kind": "support_case",
+      "reference": "support-case-1"
+    },
+    "authorizationDigest": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN",
+    "targetDigest": "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"
+  }
+}

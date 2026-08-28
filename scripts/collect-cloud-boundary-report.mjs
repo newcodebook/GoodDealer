@@ -31,7 +31,7 @@ export const CLOUD_BOUNDARY_EVIDENCE_DEFAULTS = Object.freeze({
 });
 
 export const CLOUD_BOUNDARY_SCOPE =
-  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, fixture session verifiers, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no production per-IP/device/account budgets, and no cross-instance rate-limit consistency.";
+  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, an explicit test-support public session verifier, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no production per-IP/device/account budgets, and no cross-instance rate-limit consistency.";
 
 const publicRouteTable = [
   "GET /v1/boundary/identity",
@@ -65,6 +65,7 @@ export const CLOUD_BOUNDARY_REQUIRED_INPUTS = Object.freeze([
   "apps/cloud/src/entrypoints/adapter/surface.ts",
   "apps/cloud/src/entrypoints/ports/public-session.ts",
   "apps/cloud/src/entrypoints/ports/staff-session.ts",
+  "apps/cloud/test/support/public-session.ts",
   "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/src/entrypoints/routes/admin/boundary.ts",
   "apps/cloud/test/entrypoints/error-identity-matrix.test.ts",
@@ -300,6 +301,7 @@ async function loadRuntimeModules() {
     import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/ports/audit-sink.ts"))),
     import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/ports/public-session.ts"))),
     import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/ports/staff-session.ts"))),
+    import(pathToFileURL(resolve(root, "apps/cloud/test/support/public-session.ts"))),
     import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/jobs.ts"))),
     import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/routes/admin/boundary.ts"))),
   ]).then(([
@@ -311,6 +313,7 @@ async function loadRuntimeModules() {
     audit,
     publicSession,
     staffSession,
+    testPublicSession,
     jobs,
     adminBoundary,
   ]) => ({
@@ -322,6 +325,7 @@ async function loadRuntimeModules() {
     ...audit,
     ...publicSession,
     ...staffSession,
+    ...testPublicSession,
     ...jobs,
     ...adminBoundary,
   }));

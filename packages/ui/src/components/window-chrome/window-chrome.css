@@ -1,0 +1,82 @@
+.gd-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--gd-ink);
+  box-shadow: var(--shadow-overlay);
+}
+
+.gd-titlebar {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--titlebar-h);
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--gd-line);
+  background: var(--gd-chrome);
+  user-select: none;
+}
+
+.gd-tb-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.gd-tb-context {
+  position: absolute;
+  left: 50%;
+  color: var(--text-3);
+  font-size: 11px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.gd-tb-ctl {
+  display: flex;
+  gap: 1px;
+  margin-left: auto;
+}
+
+.gd-tb-ctl button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-2);
+  cursor: default;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.gd-tb-ctl button:hover {
+  background: var(--gd-panel-raised);
+  color: var(--text-1);
+}
+
+.gd-tb-ctl button.gd-tb-close:hover {
+  background: var(--gd-danger);
+  color: var(--gd-on-accent);
+}
+
+.gd-window-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}

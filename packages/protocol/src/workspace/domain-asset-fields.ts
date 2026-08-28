@@ -2,6 +2,13 @@ import { z } from "zod";
 
 const utf8Encoder = new TextEncoder();
 
+/** DomainAsset identity is the canonical lowercase IDNA ASCII domain, not an opaque row id. */
+export const domainAssetIdSchema = z
+  .string()
+  .min(3)
+  .max(253)
+  .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u);
+
 /** Portable byte ordering shared by canonical workspace arrays. */
 export function compareUtf8(left: string, right: string): number {
   const leftBytes = utf8Encoder.encode(left);

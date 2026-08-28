@@ -62,45 +62,43 @@ function SalesDesk({addUnsynced}){
   const decline=o=>setD(s=>({...s,offers:s.offers.map(x=>x.id===o.id?{...x,state:"declined"}:x)}));
   const doXfer=()=>{const x=xfer;setXfer(null);setAckX(false);setD(s=>({...s,deals:s.deals.map(y=>y.id===x.id?{...y,stage:"transferred"}:y)}));addUnsynced&&addUnsynced(1);};
 
-  // Column priority (reference adoption of GDResponsiveTable): identity/value/status/actions are essential;
-  // platform & offer-count are secondary; view-count & listed-date are supplementary (drop first when narrow).
-  const listingsTab=<window.GDResponsiveTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
+  const listingsTab=<LTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
     columns={[
-      {key:"domain",label:"域名",priority:"essential",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
-      {key:"platforms",label:"平台",priority:"secondary",muted:true},
-      {key:"bin",label:"BIN",priority:"essential",numeric:true,render:r=><LMoney amount={r.bin}/>},
-      {key:"views",label:"浏览",priority:"supplementary",numeric:true,muted:true,width:72,render:r=><span style={{fontFamily:"var(--font-mono)"}}>{r.views.toLocaleString()}</span>},
-      {key:"offers",label:"询价",priority:"secondary",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)",color:r.offers?"var(--gd-blue)":"var(--gd-text-faint)"}}>{r.offers}</span>},
-      {key:"status",label:"状态",priority:"essential",width:88,render:r=><LBadge tone={r.status==="active"?"success":r.status==="paused"?"warning":undefined} mono={false}>{r.status==="active"?"在售":r.status==="paused"?"暂停":"草稿"}</LBadge>},
-      {key:"listed",label:"上架",priority:"supplementary",numeric:true,muted:true,width:80},
-      {key:"act",label:"",priority:"essential",width:150,render:r=><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>{r.status==="draft"?<LBtn size="sm" variant="primary">上架</LBtn>:<><LBtn size="sm" variant="ghost">改价</LBtn><LBtn size="sm" variant="ghost">{r.status==="paused"?"恢复":"暂停"}</LBtn></>}</span>},
+      {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
+      {key:"platforms",label:"平台",muted:true},
+      {key:"bin",label:"BIN",numeric:true,render:r=><LMoney amount={r.bin}/>},
+      {key:"views",label:"浏览",numeric:true,muted:true,width:72,render:r=><span style={{fontFamily:"var(--font-mono)"}}>{r.views.toLocaleString()}</span>},
+      {key:"offers",label:"询价",numeric:true,width:64,render:r=><span style={{fontFamily:"var(--font-mono)",color:r.offers?"var(--gd-blue)":"var(--gd-text-faint)"}}>{r.offers}</span>},
+      {key:"status",label:"状态",width:88,render:r=><LBadge tone={r.status==="active"?"success":r.status==="paused"?"warning":undefined} mono={false}>{r.status==="active"?"在售":r.status==="paused"?"暂停":"草稿"}</LBadge>},
+      {key:"listed",label:"上架",numeric:true,muted:true,width:80},
+      {key:"act",label:"",width:150,render:r=><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>{r.status==="draft"?<LBtn size="sm" variant="primary">上架</LBtn>:<><LBtn size="sm" variant="ghost">改价</LBtn><LBtn size="sm" variant="ghost">{r.status==="paused"?"恢复":"暂停"}</LBtn></>}</span>},
     ]} rows={d.listings}/>;
 
-  const offersTab=<window.GDResponsiveTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
+  const offersTab=<LTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
     columns={[
-      {priority:"essential",key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
-      {priority:"secondary",key:"buyer",label:"买家",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{r.buyer}</span>,width:104},
-      {priority:"essential",key:"offer",label:"报价",numeric:true,render:r=><span style={{display:"inline-flex",flexDirection:"column",alignItems:"flex-end"}}><LMoney amount={r.offer} tone="body"/><span style={{fontSize:10,color:"var(--gd-text-faint)",fontFamily:"var(--font-mono)"}}>BIN {money(r.bin)} · {Math.round((r.offer/r.bin-1)*100)}%</span></span>},
-      {priority:"secondary",key:"ask",label:"我方还价",numeric:true,width:104,render:r=>r.ask?<LMoney amount={r.ask} tone="body"/>:<span style={{color:"var(--gd-text-faint)"}}>—</span>},
-      {priority:"secondary",key:"platform",label:"平台",muted:true,width:88},
-      {priority:"essential",key:"state",label:"状态",width:88,render:r=><LBadge tone={OFFER_STATE[r.state].tone} mono={false}>{OFFER_STATE[r.state].label}</LBadge>},
-      {priority:"supplementary",key:"age",label:"时间",numeric:true,muted:true,width:92},
-      {priority:"essential",key:"act",label:"",width:184,render:r=>["pending","countered"].includes(r.state)?<span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+      {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
+      {key:"buyer",label:"买家",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--gd-text-muted)"}}>{r.buyer}</span>,width:104},
+      {key:"offer",label:"报价",numeric:true,render:r=><span style={{display:"inline-flex",flexDirection:"column",alignItems:"flex-end"}}><LMoney amount={r.offer} tone="body"/><span style={{fontSize:10,color:"var(--gd-text-faint)",fontFamily:"var(--font-mono)"}}>BIN {money(r.bin)} · {Math.round((r.offer/r.bin-1)*100)}%</span></span>},
+      {key:"ask",label:"我方还价",numeric:true,width:104,render:r=>r.ask?<LMoney amount={r.ask} tone="body"/>:<span style={{color:"var(--gd-text-faint)"}}>—</span>},
+      {key:"platform",label:"平台",muted:true,width:88},
+      {key:"state",label:"状态",width:88,render:r=><LBadge tone={OFFER_STATE[r.state].tone} mono={false}>{OFFER_STATE[r.state].label}</LBadge>},
+      {key:"age",label:"时间",numeric:true,muted:true,width:92},
+      {key:"act",label:"",width:184,render:r=>["pending","countered"].includes(r.state)?<span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
         <LBtn size="sm" variant="primary" onClick={()=>{setAccept(r);setAckA(false);}}>接受</LBtn>
         <LBtn size="sm" onClick={()=>{setCounter(r);setCVal(String(r.ask||Math.round((r.offer+r.bin)/2)));}}>还价</LBtn>
         <LBtn size="sm" variant="ghost" onClick={()=>decline(r)}>拒绝</LBtn>
       </span>:<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>{r.state==="accepted"?"已转成交":"—"}</span>},
     ]} rows={d.offers}/>;
 
-  const dealsTab=<window.GDResponsiveTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
+  const dealsTab=<LTable density="regular" rowKey="id" maxHeight="100%" style={{border:"none",borderRadius:0}}
     columns={[
-      {priority:"essential",key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
-      {priority:"essential",key:"amount",label:"成交额",numeric:true,render:r=><LMoney amount={r.amount}/>},
-      {priority:"secondary",key:"net",label:"净收入",numeric:true,width:120,render:r=><LMoney amount={Math.round(r.amount*(1-(FEE[r.platform]??0.12)))}/>},
-      {priority:"secondary",key:"platform",label:"平台",muted:true,width:84},
-      {priority:"supplementary",key:"buyer",label:"买家",muted:true,width:96,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.buyer}</span>},
-      {priority:"essential",key:"stage",label:"交割进度",width:190,render:r=>{const st=stageOf(r.stage);return <div style={{display:"flex",flexDirection:"column",gap:4}}><LBadge tone={r.stage==="paid"?"gold":st[3]} mono={false}>{st[1]}</LBadge><LProg segments={[{value:st[2]*100,tone:st[3]}]} height={4}/></div>;}},
-      {priority:"essential",key:"act",label:"",width:132,render:r=>r.stage==="transfer_pending"?<LBtn size="sm" variant="primary" onClick={()=>{setXfer(r);setAckX(false);}} icon={<I.ExternalLink size={13}/>}>推送转移</LBtn>:r.stage==="escrow"?<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>待买家付款</span>:r.stage==="transferred"?<LBtn size="sm" variant="ghost">确认放款</LBtn>:<LBadge tone="gold">SOLD</LBadge>},
+      {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>{r.domain}</span>},
+      {key:"amount",label:"成交额",numeric:true,render:r=><LMoney amount={r.amount}/>},
+      {key:"net",label:"净收入",numeric:true,width:120,render:r=><LMoney amount={Math.round(r.amount*(1-(FEE[r.platform]??0.12)))}/>},
+      {key:"platform",label:"平台",muted:true,width:84},
+      {key:"buyer",label:"买家",muted:true,width:96,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.buyer}</span>},
+      {key:"stage",label:"交割进度",width:190,render:r=>{const st=stageOf(r.stage);return <div style={{display:"flex",flexDirection:"column",gap:4}}><LBadge tone={r.stage==="paid"?"gold":st[3]} mono={false}>{st[1]}</LBadge><LProg segments={[{value:st[2]*100,tone:st[3]}]} height={4}/></div>;}},
+      {key:"act",label:"",width:132,render:r=>r.stage==="transfer_pending"?<LBtn size="sm" variant="primary" onClick={()=>{setXfer(r);setAckX(false);}} icon={<I.ExternalLink size={13}/>}>推送转移</LBtn>:r.stage==="escrow"?<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>待买家付款</span>:r.stage==="transferred"?<LBtn size="sm" variant="ghost">确认放款</LBtn>:<LBadge tone="gold">SOLD</LBadge>},
     ]} rows={d.deals}/>;
 
   const MetricStrip=window.GDMetricStrip;

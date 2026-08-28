@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+export { PostgresExecutionFactDrainLedger } from "./postgres-drain-ledger";
+
 import {
   DRAIN_STREAM_GENESIS_DIGEST,
   encodeDrainChainStepInput,
@@ -158,7 +160,7 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainS
 
     const sealedThrough = this.#seals.get(key);
     const records = this.#records.get(key);
-    const existing = records?.get(fact.executionSequence);
+    const existing = records?.get(fact.executionFactSequence);
     const canonicalEnvelope = encodeDrainStreamEnvelope("execution_fact", fact);
     if (existing !== undefined) {
       if (Buffer.from(existing.canonicalEnvelope).equals(Buffer.from(canonicalEnvelope))) {
@@ -175,7 +177,7 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainS
 
     const classification = fact.activeLeaseEpoch < input.currentLeaseEpoch ? "late" : "current";
     const target = records ?? new Map<number, AcceptedFactRecord>();
-    target.set(fact.executionSequence, { fact, canonicalEnvelope, receivedAt: input.receivedAt, classification });
+    target.set(fact.executionFactSequence, { fact, canonicalEnvelope, receivedAt: input.receivedAt, classification });
     this.#records.set(key, target);
     return { outcome: "accepted", classification, duplicate: false };
   }

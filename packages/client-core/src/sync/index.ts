@@ -13,15 +13,24 @@ import {
   type DrainStream,
 } from "@gooddealer/protocol/execution-events";
 import {
+  checkpointDescriptorSchema,
+  compareUtf8,
+  computeDomainAssetEntityDigests,
+  domainAssetProjectionSchema,
   encodeMutationPageDigestInput,
   encodeWorkspaceEntityDigestsInput,
+  mutationCursorSchema,
   mutationPageSchema,
-  workspaceEntityDigestsSchema,
-  type MutationPage,
+  serverRevisionSchema,
+  type DomainAssetProjectionRow,
   type SyncMutation,
   type WorkspaceEntityDigest,
 } from "@gooddealer/protocol/workspace";
-import { canonicalUtcTimestamp, identifier } from "@gooddealer/protocol/wire";
+import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
+import { z } from "zod";
+
+export * from "./conflict-center";
+export * from "./presentation-models";
 
 const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const BASE64_URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -270,106 +279,301 @@ export class BootstrapStepPlanner {
 
 export interface BootstrapRebuildSnapshot {
   readonly workspaceId: string;
-  readonly fromRevisionExclusive: number;
-  readonly throughRevisionInclusive: number;
-  readonly returnedThroughRevision: number;
+  readonly workspaceSchemaVersion: number;
+  readonly fromServerRevisionExclusive: number;
+  readonly throughServerRevisionInclusive: number;
+  readonly returnedThroughServerRevision: number;
   readonly nextCursor: string | null;
   readonly completed: boolean;
-  readonly mutations: readonly SyncMutation[];
+  readonly projection: readonly DomainAssetProjectionRow[];
 }
 
 export interface BootstrapRebuildDigestSet {
-  readonly targetRevision: number;
+  readonly targetServerRevision: number;
+  readonly projection: readonly DomainAssetProjectionRow[];
   readonly entityDigests: readonly WorkspaceEntityDigest[];
   readonly digest: string;
 }
 
+const bootstrapCheckpointSnapshotSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    workspaceId: identifier,
+    workspaceSchemaVersion: safePositiveInteger,
+    throughServerRevision: serverRevisionSchema,
+    rows: domainAssetProjectionSchema,
+  })
+  .strict();
+
 export interface BootstrapRebuildAccumulatorOptions {
   readonly sha256: Sha256Port;
   readonly workspaceId: string;
-  readonly fromRevisionExclusive: number;
-  readonly throughRevisionInclusive: number;
+  readonly workspaceSchemaVersion: number;
+  readonly targetServerRevision: number;
+  readonly checkpointDescriptor: unknown;
+  readonly checkpointSnapshot: unknown;
 }
 
-/** Verifies and folds one immutable, contiguous mutation-page chain. */
+export interface BootstrapMutationPagePresentation {
+  readonly cursor: string | null;
+  readonly page: unknown;
+}
+
+type MutableDomainAsset = {
+  entityId: string;
+  note: string | null;
+  portfolioId: string | null;
+  tags: string[];
+  targetPrice: { currency: string; amount: string } | null;
+};
+
+/** Derives one projection exclusively from a verified checkpoint and dense mutation pages. */
 export class BootstrapRebuildAccumulator {
   readonly #sha256: Sha256Port;
   readonly #workspaceId: string;
-  readonly #fromRevisionExclusive: number;
-  readonly #throughRevisionInclusive: number;
-  readonly #mutations: SyncMutation[] = [];
-  #returnedThroughRevision: number;
+  readonly #workspaceSchemaVersion: number;
+  readonly #fromServerRevisionExclusive: number;
+  readonly #throughServerRevisionInclusive: number;
+  #projection: Map<string, MutableDomainAsset>;
+  #mutationIds = new Set<string>();
+  #returnedThroughServerRevision: number;
   #nextCursor: string | null = null;
   #completed = false;
+  #appendInFlight = false;
 
-  constructor(options: BootstrapRebuildAccumulatorOptions) {
-    if (options.workspaceId.length === 0) throw new TypeError("workspace id must not be empty");
-    assertRevision(options.fromRevisionExclusive, "from revision");
-    assertRevision(options.throughRevisionInclusive, "through revision");
-    if (options.fromRevisionExclusive > options.throughRevisionInclusive) {
-      throw new TypeError("rebuild revision bounds are inverted");
-    }
-    this.#sha256 = options.sha256;
-    this.#workspaceId = options.workspaceId;
-    this.#fromRevisionExclusive = options.fromRevisionExclusive;
-    this.#throughRevisionInclusive = options.throughRevisionInclusive;
-    this.#returnedThroughRevision = options.fromRevisionExclusive;
+  private constructor(input: {
+    readonly sha256: Sha256Port;
+    readonly workspaceId: string;
+    readonly workspaceSchemaVersion: number;
+    readonly fromServerRevisionExclusive: number;
+    readonly throughServerRevisionInclusive: number;
+    readonly projection: Map<string, MutableDomainAsset>;
+  }) {
+    this.#sha256 = input.sha256;
+    this.#workspaceId = input.workspaceId;
+    this.#workspaceSchemaVersion = input.workspaceSchemaVersion;
+    this.#fromServerRevisionExclusive = input.fromServerRevisionExclusive;
+    this.#throughServerRevisionInclusive = input.throughServerRevisionInclusive;
+    this.#returnedThroughServerRevision = input.fromServerRevisionExclusive;
+    this.#projection = input.projection;
   }
 
-  async appendPage(input: MutationPage): Promise<void> {
-    if (this.#completed) throw new TypeError("rebuild page chain is already complete");
+  static async start(options: BootstrapRebuildAccumulatorOptions): Promise<BootstrapRebuildAccumulator> {
+    const workspaceId = identifier.parse(options.workspaceId);
+    const workspaceSchemaVersion = safePositiveInteger.parse(options.workspaceSchemaVersion);
+    const targetServerRevision = serverRevisionSchema.parse(options.targetServerRevision);
+    const descriptor = checkpointDescriptorSchema.parse(copyStrictWireValue(options.checkpointDescriptor));
+    const snapshot = bootstrapCheckpointSnapshotSchema.parse(copyStrictWireValue(options.checkpointSnapshot));
+    if (
+      descriptor.workspaceId !== workspaceId ||
+      snapshot.workspaceId !== workspaceId ||
+      descriptor.workspaceSchemaVersion !== workspaceSchemaVersion ||
+      snapshot.workspaceSchemaVersion !== workspaceSchemaVersion ||
+      descriptor.throughServerRevision !== snapshot.throughServerRevision ||
+      targetServerRevision < descriptor.throughServerRevision
+    ) {
+      throw new TypeError("checkpoint snapshot, descriptor, and rebuild binding do not match");
+    }
+    const entityDigests = await computeDomainAssetEntityDigests(
+      snapshot.rows,
+      options.sha256.digest.bind(options.sha256),
+    );
+    const checkpointDigest = encodeSha256Digest(
+      await options.sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
+    );
+    if (checkpointDigest !== descriptor.checkpointDigest) {
+      throw new TypeError("checkpoint snapshot digest does not match its descriptor");
+    }
+    return new BootstrapRebuildAccumulator({
+      sha256: options.sha256,
+      workspaceId,
+      workspaceSchemaVersion,
+      fromServerRevisionExclusive: descriptor.throughServerRevision,
+      throughServerRevisionInclusive: targetServerRevision,
+      projection: new Map(snapshot.rows.map((row) => [row.entityId, cloneDomainAsset(row)])),
+    });
+  }
 
-    const parsed = mutationPageSchema.safeParse(input);
-    if (!parsed.success) throw new TypeError(`invalid mutation page: ${parsed.error.message}`);
-    const page = parsed.data;
+  async appendPage(input: BootstrapMutationPagePresentation): Promise<void> {
+    if (this.#completed) throw new TypeError("rebuild page chain is already complete");
+    if (this.#appendInFlight) throw new TypeError("a rebuild page append is already in progress");
+    const presentation = z
+      .object({ cursor: mutationCursorSchema.nullable(), page: mutationPageSchema })
+      .strict()
+      .parse(copyStrictWireValue(input));
+    if (presentation.cursor !== this.#nextCursor) {
+      throw new TypeError("mutation page cursor does not match the expected continuation");
+    }
+    const page = presentation.page;
     if (page.workspaceId !== this.#workspaceId) {
       throw new TypeError("mutation page workspace does not match the rebuild workspace");
     }
-    if (page.throughRevisionInclusive !== this.#throughRevisionInclusive) {
+    if (page.throughServerRevisionInclusive !== this.#throughServerRevisionInclusive) {
       throw new TypeError("mutation page target revision does not match the rebuild target");
     }
-    if (page.fromRevisionExclusive !== this.#returnedThroughRevision) {
+    if (page.fromServerRevisionExclusive !== this.#returnedThroughServerRevision) {
       throw new TypeError("mutation pages must form one contiguous revision chain");
     }
+    if (page.mutations.some((mutation) => mutation.workspaceSchemaVersion !== this.#workspaceSchemaVersion)) {
+      throw new TypeError("mutation workspace schema does not match the frozen checkpoint schema");
+    }
 
-    const expectedDigest = encodeSha256Digest(
-      await this.#sha256.digest(encodeMutationPageDigestInput(page)),
-    );
-    if (page.pageDigest !== expectedDigest) throw new TypeError("mutation page digest does not match");
+    this.#appendInFlight = true;
+    try {
+      const expectedDigest = encodeSha256Digest(
+        await this.#sha256.digest(encodeMutationPageDigestInput(page)),
+      );
+      if (page.pageDigest !== expectedDigest) throw new TypeError("mutation page digest does not match");
 
-    this.#mutations.push(...page.mutations);
-    this.#returnedThroughRevision = page.returnedThroughRevision;
-    this.#nextCursor = page.nextCursor;
-    this.#completed = page.nextCursor === null;
+      const projection = cloneProjection(this.#projection);
+      const mutationIds = new Set(this.#mutationIds);
+      for (const mutation of page.mutations) {
+        if (mutationIds.has(mutation.mutationId)) {
+          throw new TypeError("rebuild mutation identity is duplicated");
+        }
+        mutationIds.add(mutation.mutationId);
+        applyDomainAssetMutation(projection, mutation);
+      }
+      domainAssetProjectionSchema.parse(canonicalProjection(projection));
+      this.#projection = projection;
+      this.#mutationIds = mutationIds;
+      this.#returnedThroughServerRevision = page.returnedThroughServerRevision;
+      this.#nextCursor = page.nextCursor;
+      this.#completed = page.nextCursor === null;
+    } finally {
+      this.#appendInFlight = false;
+    }
   }
 
   snapshot(): BootstrapRebuildSnapshot {
     return {
       workspaceId: this.#workspaceId,
-      fromRevisionExclusive: this.#fromRevisionExclusive,
-      throughRevisionInclusive: this.#throughRevisionInclusive,
-      returnedThroughRevision: this.#returnedThroughRevision,
+      workspaceSchemaVersion: this.#workspaceSchemaVersion,
+      fromServerRevisionExclusive: this.#fromServerRevisionExclusive,
+      throughServerRevisionInclusive: this.#throughServerRevisionInclusive,
+      returnedThroughServerRevision: this.#returnedThroughServerRevision,
       nextCursor: this.#nextCursor,
       completed: this.#completed,
-      mutations: this.#mutations.map((mutation) => ({
-        ...mutation,
-        changedFields: mutation.changedFields.map((field) => ({ ...field })),
-      })),
+      projection: canonicalProjection(this.#projection),
     };
   }
 
-  async finalize(entityDigests: readonly WorkspaceEntityDigest[]): Promise<BootstrapRebuildDigestSet> {
+  async finalize(): Promise<BootstrapRebuildDigestSet> {
     if (!this.#completed) throw new TypeError("rebuild digest requires a terminal page");
-    const parsed = workspaceEntityDigestsSchema.parse(entityDigests);
+    const projection = canonicalProjection(this.#projection);
+    const entityDigests = await computeDomainAssetEntityDigests(
+      projection,
+      this.#sha256.digest.bind(this.#sha256),
+    );
     const digest = encodeSha256Digest(
-      await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(parsed)),
+      await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
     );
     return {
-      targetRevision: this.#throughRevisionInclusive,
-      entityDigests: parsed.map((entry) => ({ ...entry })),
+      targetServerRevision: this.#throughServerRevisionInclusive,
+      projection,
+      entityDigests: entityDigests.map((entry) => ({ ...entry })),
       digest,
     };
   }
+}
+
+function cloneDomainAsset(row: DomainAssetProjectionRow): MutableDomainAsset {
+  return {
+    entityId: row.entityId,
+    note: row.note,
+    portfolioId: row.portfolioId,
+    tags: [...row.tags],
+    targetPrice: row.targetPrice === null ? null : { ...row.targetPrice },
+  };
+}
+
+function cloneProjection(input: Map<string, MutableDomainAsset>): Map<string, MutableDomainAsset> {
+  return new Map([...input].map(([entityId, row]) => [entityId, cloneDomainAsset(row)]));
+}
+
+function canonicalProjection(input: Map<string, MutableDomainAsset>): DomainAssetProjectionRow[] {
+  return [...input.values()]
+    .sort((left, right) => compareUtf8(left.entityId, right.entityId))
+    .map(cloneDomainAsset);
+}
+
+function applyDomainAssetMutation(projection: Map<string, MutableDomainAsset>, mutation: SyncMutation): void {
+  const row = projection.get(mutation.entityId);
+  if (row === undefined) throw new TypeError("rebuild mutation references an unknown entity");
+  for (const field of mutation.changedFields) {
+    switch (field.fieldPath) {
+      case "note": row.note = field.value; break;
+      case "portfolioId": row.portfolioId = field.value; break;
+      case "tags": row.tags = [...field.value]; break;
+      case "targetPrice": row.targetPrice = field.value === null ? null : { ...field.value }; break;
+    }
+  }
+}
+
+function copyStrictWireValue(value: unknown): unknown {
+  const budget = { properties: 0, bytes: 0 };
+  return copyStrictWireNode(value, budget, 0);
+}
+
+function copyStrictWireNode(
+  value: unknown,
+  budget: { properties: number; bytes: number },
+  depth: number,
+): unknown {
+  if (depth > 16 || budget.properties > 8_192 || budget.bytes > 2_000_000) {
+    throw new TypeError("rebuild wire value exceeds its structural budget");
+  }
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) throw new TypeError("rebuild wire number is unsafe");
+    return value;
+  }
+  if (typeof value === "string") {
+    budget.bytes += new TextEncoder().encode(value).byteLength;
+    if (budget.bytes > 2_000_000 || value.length > 100_000) {
+      throw new TypeError("rebuild wire string exceeds its budget");
+    }
+    return value;
+  }
+  if (typeof value !== "object") throw new TypeError("rebuild wire value has an invalid type");
+
+  const prototype = Object.getPrototypeOf(value);
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype || value.length > 8_192) {
+      throw new TypeError("rebuild wire array is malformed");
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== "string" || (key !== "length" && !/^(?:0|[1-9]\d*)$/u.test(key)))) {
+      throw new TypeError("rebuild wire array has non-index properties");
+    }
+    return Array.from({ length: value.length }, (_, index) => {
+      const descriptor = descriptors[String(index)];
+      if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+        throw new TypeError("rebuild wire array is sparse or uses accessors");
+      }
+      budget.properties += 1;
+      return copyStrictWireNode(descriptor.value, budget, depth + 1);
+    });
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("rebuild wire object has a custom prototype");
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string")) {
+    throw new TypeError("rebuild wire object has symbol properties");
+  }
+  const result: Record<string, unknown> = Object.create(null);
+  for (const key of keys as string[]) {
+    const descriptor = descriptors[key];
+    if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+      throw new TypeError("rebuild wire object uses accessors or hidden properties");
+    }
+    budget.properties += 1;
+    result[key] = copyStrictWireNode(descriptor.value, budget, depth + 1);
+  }
+  return result;
 }
 
 function assertRevision(value: number, label: string): void {

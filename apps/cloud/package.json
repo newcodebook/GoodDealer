@@ -5,10 +5,16 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run --exclude test/postgres/**/*.test.ts",
+    "test:postgres": "node --env-file-if-exists=../../.env.local ../../node_modules/vitest/vitest.mjs run --config vitest.postgres.config.ts"
   },
   "dependencies": {
     "@gooddealer/protocol": "workspace:*",
-    "fastify": "5.11.0"
+    "@node-rs/argon2": "2.1.0",
+    "fastify": "5.11.0",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5"
   }
 }

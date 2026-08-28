@@ -1,7 +1,5 @@
 # GoodDealer Design System
 
-> **边界声明**：`brand/` 目录是品牌与界面设计的事实源和参考实现，不属于产品代码，不参与任何构建，任何 App 不得 import 本目录。生产归属是 `packages/ui`（**生产真源**）：`tokens/` 已逐字移植为 `packages/ui/src/tokens/`、`assets/` 已复制为 `packages/ui/src/assets/`（经 `@gooddealer/ui/assets/*` 导出供 App 运行时使用）、`components/` 正按生产标准重写进 `packages/ui/src/components/`。设计演进的流程：先改 `brand/`（保持参考地位），再刻意移植到 `packages/ui`——移植落地前设计变更不算完成；`packages/ui` 不会自动跟随本目录的修改。
-
 GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面客户端（Tauri）：域名投资人在一个界面统一管理分散在多个注册商（Spaceship）、DNS（Cloudflare）和交易平台（Atom、Afternic、SellerHub）的资产——注册信息、DNS、价格、销售状态、所有权验证、批量操作。最多两台绑定设备，单活动设备持有执行权（Active 金实心点 / Standby 蓝空心点）；平台凭据永不上云。
 
 **视觉气质**：私人银行终端 / 硬件钱包，而非通用 SaaS。资产感（金）、掌控感（黑）、安全感（蓝）。中文优先（zh-CN 默认 locale），en-US 其次。
@@ -10,9 +8,9 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 
 - Codebase: `GoodDealer/` monorepo（本地挂载，只读）。UI 代码为 Phase 0 脚手架（`apps/desktop`、`apps/account-web`、`apps/admin-web`、`packages/ui` 均为占位）——**`brand/` 目录与 `docs/` 是设计事实源**：
   - `brand/README.md` 品牌视觉规范（色彩 70/20/10、金色分层、红线）
-  - `brand/guidelines/coin-seal-spec.html` 主标制图规范（「圩印 Coin Seal」：外圆内方 + 骑缝）
-  - `brand/tokens/*.css` 官方 token（`--gd-*`；base / colors / typography / spacing / motion / fonts / hierarchy）
-  - 风格对标：Linear 工艺 / Carbon 密度 / Kraken 表格 / Mercury 文案 / Amex 金色纪律（散见本文各节）
+  - `brand/logo/SPEC.md` 主标制图规范（本项目已重设计为「圩印 Coin Seal」：外圆内方 + 骑缝；完整规范见 `guidelines/coin-seal-spec.html`）
+  - `brand/tokens/brand.css|json` 官方 token（`--gd-*`）
+  - `brand/references.md` 风格对标（Linear 工艺 / Carbon 密度 / Kraken 表格 / Mercury 文案 / Amex 金色纪律）
   - `docs/UX_FLOWS.md`、`docs/PRODUCT_REQUIREMENTS.md`、`docs/GLOSSARY.md`、`docs/USER_JOURNEYS.md` 界面流程与术语
 - 无 Figma、无成品 UI 截图。UI kit 屏幕是按上述文档首次实例化，非对既有界面的复刻。
 
@@ -40,8 +38,6 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **数据可视化**：蓝 = 投入/过程，金 = 增值/结果，灰 `#6E7482` = 回撤/中性；辅助线/基线用描线色；数据标签等宽字体。
 - **语义扩展色**（本系统新增，见 Intentional additions）：成功 `#5CAE7D`、危险 `#E5735F`、警告 `#E08A48`——哑光、深底可读、与金保持距离。
 - **界面语义**：同步状态 = 蓝色药丸（`SYNCED`）；执行权 = 金实心点，Standby = 蓝空心点；估值 = 金色等宽数字。
-- **Standby 云端只读模式**：本机为 Standby 时整应用进入 Cloud Read-Only View——常驻「数据来自 GoodDealer Cloud · 截至 rev/时间」只读 banner（从不暗示刚从平台刷新）、变更类主操作明确禁用、刷新平台禁用、状态栏显示只读缓存；仅「切换为此设备执行」放行。连接页只显示非秘密本机标记（`曾配置候选`/`从未配置` + 「未验证，切换 Active 后才能检查」），不读取 Keychain/Browser Profile/凭据值、不发起健康检查。实现见 `ui_kits/desktop/Shell.jsx`（`role`）与 `SettingsPanel.jsx`。
-- **三轴网络状态**：网络能力按 **设备基础网络 · GoodDealer Cloud · 每个目标 Provider** 三条独立轴判定（绿=可达 / 橙=降级或离线执行窗口 / 红=不可达）。状态栏常驻三轴簇，降级时工作区顶部 banner 同时列出全部故障原因、权限取最严格交集，绝不以 Cloud 状态掩盖设备或平台故障；仅 Cloud 不可达且 Provider 可达时显示签名离线执行窗口（≤24h）。实现见 `ui_kits/desktop/NetworkStatus.jsx`。
 
 ## INFORMATION HIERARCHY（信息层级规范 · 系统性）
 
@@ -81,7 +77,6 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 对标私人银行终端 / 硬件钱包 / 原生桌面软件（Ledger Live、Linear、Warp、Kraken Pro），刻意避开通用 SaaS 网页观感。规范见 `guidelines/native-chrome.html`。
 
 - **窗口壳层**：`WindowChrome` 提供标题栏（品牌标 + 居中上下文 + 窗口控制键）；应用坐落于深色「桌面」之上、带窗口圆角与外阴影——像原生窗口，不像网页。
-- **窗口尺寸与断点**（规范见 `guidelines/window-sizing.html`，token 在 `tokens/spacing.css`）：原生桌面终端用刻意档位而非流式适配——**最小 960×640、默认首启 1280×832**（写进 `apps/desktop/src-tauri/tauri.conf.json`，非只在 CSS）。断点按窗口宽度：**compact <1080**（主 nav 收 56px 图标轨、状态栏留核心 4 段、⌘K 转图标+键位）· **regular 1080–1320**（full nav）· **wide ≥1320**（状态栏全环境段）。收轨专治设置类双侧栏挤压。
 - **命令工具栏**：`Toolbar` 主栏含 ⌘K 命令域（Raycast/Linear 心智）；次栏（`region`）承载筛选与主动作，而非页面顶部漂浮的 CTA 行。
 - **终端式状态栏**：`StatusBar` 常驻底部，等宽、hairline 分段，显示同步态 / 未同步数 / 最后同步 / Revision / Active 设备 / Epoch / License——原生软件最强信号。
 - **缝合式区块**：内容区用 1px 描线彼此缝合、边到边（KPI 用分隔条 ribbon 而非漂浮卡片网格），结构面无投影；圆角只留给交互控件（按钮/输入/药丸），结构区块方角。
@@ -95,8 +90,6 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **例外仅限单行短文**：`left:50%/translateX(-50%)` 只允许用于**必然单行**的浮层，且必须 `white-space:nowrap` + 内容短到不撞右缘（`WindowChrome` 居中上下文、`Tooltip` 气泡即此类，已合规）。
 - **紧凑横条**（BatchBar / Toolbar / StatusBar）：文字块一律 `white-space:nowrap`；分组用 flex `gap` 与显式分隔符（`.gd-batchbar-sep`），不靠空白符或 auto 宽度承载多元素；计数/标签做成定宽 chip 锚点，避免被压缩。
 - **审查通过**：全库 `left:50%/translateX(-50%)` 两处——WindowChrome context、Tooltip bubble（均为 nowrap 短文，安全）；BatchBar 已改整宽 flex，不再使用。新增浮层须过此三条。
-- **浮层继承 `white-space:nowrap`**：`position:fixed` 只脱离布局定位，不脱离 DOM 继承链。渲染在 `.gd-statusbar-seg`（nowrap）内的浮层（如 `NetworkStatus` 三轴弹层）会继承 nowrap，长文案不换行而溢出定宽浮层——浮层根须显式 `whiteSpace:"normal"` 复位。任何挂在 StatusBar/Tooltip 等 nowrap 容器内的浮层同理。
-- **窄窗（应用 minWidth 960）体检**：验证不能只断言"文案在"，要量**列对齐与横向溢出**。双侧栏界面（设置 = Shell nav 210 + 设置子栏 176）在 compact 档主 nav 收 56px 图标轨补回内容宽度；仍要量最小档：多列行改为收窄定宽 + `minWidth:0` 让次要列 ellipsis 降级（勿让定宽列之和超容器）；并排的多卡/时钟+详情行用 `flexWrap:"wrap"` + `flex:"1 1 220px"` 在窄区自然堆叠。判定真溢出以 `main.scrollWidth>clientWidth`（页面横向滚动）为准，单元素因 ellipsis 产生的 `scrollWidth>clientWidth` 属预期截断、非缺陷。
 
 ## ICONOGRAPHY
 
@@ -113,7 +106,7 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - `--gd-line-strong`、`--gd-text-faint`、tint 色（选中行、徽章底）
 - Lucide 功能图标集（CDN 替代，见 ICONOGRAPHY）
 - 组件库为标准集（代码库 `packages/ui` 为空占位，无既有组件清单）
-- 原生桌面壳层 `WindowChrome` / `Toolbar` / `StatusBar`（风格对标 Warp 状态栏、Linear/Raycast 壳层工艺——去 SaaS 化的界面语言）
+- 原生桌面壳层 `WindowChrome` / `Toolbar` / `StatusBar`（references.md 指向 Warp 状态栏、Linear/Raycast 壳层工艺——去 SaaS 化的界面语言）
 
 ## FONT SUBSTITUTIONS — 需要你提供
 
@@ -123,7 +116,7 @@ repo 无任何字体文件。当前 CDN 替代：General Sans（Fontshare，bran
 
 - `styles.css` — 全局入口（@import tokens/*）
 - `tokens/` — colors / typography / spacing / fonts / base
-- `assets/` — logo（5 版本）、graphics（3）、icons（2）；运行时副本经 `@gooddealer/ui/assets/*` 导出，App 从那里引用
+- `assets/` — logo（5 版本）、graphics（3）、icons（2）
 - `guidelines/` — 规范 specimen 卡片
 - `components/` — 23 个组件：
   - buttons/: Button, IconButton
@@ -133,5 +126,7 @@ repo 无任何字体文件。当前 CDN 替代：General Sans（Fontshare，bran
   - overlay/: Dialog, Tooltip
   - navigation/: Tabs, StatusBar
   - surfaces/: Panel, KpiStat, Toolbar, WindowChrome
-- `ui_kits/desktop/` — 桌面客户端 UI kit（接入 Onboarding / 资产库 / 域名详情 / 批量差异预览 / 续费 / 同步中心·Outbox / 销售管理·议价交割 / DNS 与验证 / 冲突中心 / 恢复中心 / 人工任务 / 资产保护·紧急下架 / 操作历史·回滚 / 设置·设备门禁 / 账户登录·锁定门禁）
+- `ui_kits/desktop/` — 桌面客户端 UI kit（接入 Onboarding / 资产库 / 域名详情 / 批量差异预览 / 续费 / 同步中心·Outbox / 销售管理·议价交割 / DNS 与验证 / 冲突中心 / 人工任务 / 操作历史·回滚 / 设置·设备门禁）
+- `ui_kits/account-web/` — 用户后台 UI kit（`apps/account-web`，云端/账户侧 Web）：概览 / 订阅与许可 / 设备 / 账单发票 / 安全 / 云端数据只读 / 账户设置 / 下载客户端。Web-native 全屏壳层，运营密度
+- `ui_kits/admin-web/` — 管理员后台 UI kit（`apps/admin-web`，运营方内部控制台）：运营概览 / 客户 / 许可与订阅 / 设备舰队 / 计费营收 / 同步与基础设施 / 支持工单 / 审计日志 / 系统配置 / 公告。分组侧栏 + Production 环境标 + 系统健康状态栏
 - `SKILL.md` — agent 使用指南

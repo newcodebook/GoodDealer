@@ -3,6 +3,6 @@
   "checkpointId": "checkpoint-4",
   "workspaceId": "workspace-a",
   "workspaceSchemaVersion": 1,
-  "throughRevision": 4,
+  "throughServerRevision": 4,
   "checkpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

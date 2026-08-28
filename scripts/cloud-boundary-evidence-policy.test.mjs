@@ -66,7 +66,7 @@ test("cross-surface import policy has positive and negative controls", () => {
   assert.equal(
     sourceCrossesSurfaceImport(
       "apps/cloud/src/entrypoints/http.ts",
-      'import { StaticPublicSessionVerifier } from "./ports/public-session";',
+      'import { CloudPublicSessionVerifier } from "./ports/public-session";',
     ),
     false,
   );

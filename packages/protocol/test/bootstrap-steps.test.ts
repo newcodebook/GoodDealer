@@ -9,7 +9,9 @@ import {
   bootstrapStepRequestSchema,
   bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
+  encodeBootstrapStepRequestReplayIdentity,
   encodeBootstrapStepResultDigestInput,
+  encodeBootstrapStepResultReplayIdentity,
 } from "../src/devices/index";
 
 const vectors = resolve(import.meta.dirname, "../test-vectors/bootstrap-steps");
@@ -19,8 +21,8 @@ function vector(path: string): unknown {
 }
 
 describe("bootstrap strict-step golden corpus", () => {
-  it("freezes the amended bootstrap step schema version", () => {
-    expect(BOOTSTRAP_STEP_SCHEMA_VERSION).toBe(2);
+  it("freezes the bootstrap step schema version", () => {
+    expect(BOOTSTRAP_STEP_SCHEMA_VERSION).toBe(1);
   });
 
   for (const path of [
@@ -76,9 +78,32 @@ describe("bootstrap strict-step golden corpus", () => {
     const digest = (value: Uint8Array) => createHash("sha256").update(value).digest("base64url");
     expect(
       digest(encodeBootstrapStepRequestDigestInput(vector("valid/request-pin-checkpoint.json"))),
-    ).toMatchInlineSnapshot(`"V-cW12Ult7-RIRDTTu7eMeU3s5lQSNJFhXJL-1pTKEI"`);
+    ).toMatchInlineSnapshot(`"wBuTYD8YagjyfwGF8-pSasS2VqSq8zc-olzAICO0QfY"`);
     expect(
       digest(encodeBootstrapStepResultDigestInput(vector("valid/result-pin-checkpoint.json"))),
-    ).toMatchInlineSnapshot(`"vfJqIXA8Ya_SVko_6HLyRZ-Xe8m1UZkrMwpDJ5UriH0"`);
+    ).toMatchInlineSnapshot(`"DF_azXVR3Zy9sjsX1P4sdoldvEDgVLbARcq7UsjD0no"`);
+  });
+
+  it("separates digest input from complete replay identity", () => {
+    const request = vector("valid/request-pin-checkpoint.json") as Record<string, unknown>;
+    const result = vector("valid/result-pin-checkpoint.json") as Record<string, unknown>;
+    const changedNonce = { ...request, stepNonce: "ZGlmZmVyZW50LW5vbmNl" };
+    const changedRequestDigest = { ...request, requestDigest: "B".repeat(43) };
+
+    expect(encodeBootstrapStepRequestDigestInput(changedNonce)).toEqual(
+      encodeBootstrapStepRequestDigestInput(request),
+    );
+    expect(encodeBootstrapStepRequestDigestInput(changedRequestDigest)).toEqual(
+      encodeBootstrapStepRequestDigestInput(request),
+    );
+    expect(encodeBootstrapStepRequestReplayIdentity(changedNonce)).not.toEqual(
+      encodeBootstrapStepRequestReplayIdentity(request),
+    );
+    expect(encodeBootstrapStepRequestReplayIdentity(changedRequestDigest)).not.toEqual(
+      encodeBootstrapStepRequestReplayIdentity(request),
+    );
+    expect(encodeBootstrapStepResultReplayIdentity(result)).not.toEqual(
+      encodeBootstrapStepResultDigestInput(result),
+    );
   });
 });

@@ -1,0 +1,90 @@
+.gd-activation {
+  display: flex;
+  width: min(560px, 100%);
+  min-height: 430px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-app);
+  box-shadow: var(--shadow-overlay);
+}
+
+.gd-activation-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 26px;
+  border-bottom: 1px solid var(--gd-line);
+  color: var(--text-1);
+  letter-spacing: .02em;
+}
+
+.gd-activation-state {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  padding: 36px;
+  text-align: center;
+}
+
+.gd-activation-state h1,
+.gd-activation-state p {
+  margin: 0;
+}
+
+.gd-activation-state h1 {
+  color: var(--text-1);
+  font-size: 20px;
+}
+
+.gd-activation-state p {
+  max-width: 360px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.gd-activation-icon {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.gd-activation-icon--pending {
+  background: var(--gd-blue-tint);
+  color: var(--gd-blue);
+}
+
+.gd-activation-icon--accepted {
+  background: var(--gd-success-tint);
+  color: var(--gd-success);
+}
+
+.gd-activation-icon--rejected {
+  background: var(--gd-danger-tint);
+  color: var(--gd-danger);
+}
+
+.gd-activation-state > .gd-panel {
+  width: min(360px, 100%);
+}
+
+.gd-activation-workspace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  color: var(--text-1);
+}
+
+.gd-activation-workspace strong {
+  overflow-wrap: anywhere;
+}

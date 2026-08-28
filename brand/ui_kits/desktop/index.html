@@ -1,4 +1,4 @@
-<!-- @dsCard group="Desktop App" viewport="1440x900" name="GoodDealer 桌面客户端" subtitle="接入 · 资产库 · 详情 · 批量 · 续费 · 销售·交割 · DNS 验证 · 冲突 · 人工任务 · 历史回滚 · 资产保护·紧急下架 · 设置·门禁" -->
+<!-- @dsCard group="Desktop App" viewport="1440x900" name="GoodDealer 桌面客户端" subtitle="接入 · 资产库 · 详情 · 批量 · 续费 · 销售·交割 · DNS 验证 · 冲突 · 人工任务 · 历史回滚 · 设置·门禁" -->
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>GoodDealer</title>
 <link rel="icon" href="../../assets/logo/mark-16.svg">
 <link rel="stylesheet" href="../../styles.css">
@@ -10,15 +10,11 @@
 <style>html,body{height:100%;overflow:hidden}
 body{background:#06070A;background-image:radial-gradient(120% 80% at 100% 100%,rgba(212,164,55,0.05),transparent 55%)}
 #root{height:100vh;padding:14px;display:flex;overflow:auto}
-@keyframes gd-spinner{to{transform:rotate(360deg)}}
-/* Standby 只读模式：内容区整体 pointer-events:none（保留滚动），并明确禁用变更类主操作 */
-.gd-readonly .gd-btn--primary,.gd-readonly .gd-btn--gold,.gd-readonly .gd-btn--danger{opacity:.38}
-.gd-readonly .gd-batchbar{display:none}
+@keyframes gd-spinner{to{transform:rotate(360deg)}}</style>
 </head>
 <body><div id="root"></div>
 <script type="text/babel" src="./icons.jsx"></script>
 <script type="text/babel" src="./controls.jsx"></script>
-<script type="text/babel" src="./NetworkStatus.jsx"></script>
 <script type="text/babel" src="./dialogs.jsx"></script>
 <script type="text/babel" src="./Shell.jsx"></script>
 <script type="text/babel" src="./AssetLibrary.jsx"></script>
@@ -32,16 +28,9 @@ body{background:#06070A;background-image:radial-gradient(120% 80% at 100% 100%,r
 <script type="text/babel" src="./DnsVerify.jsx"></script>
 <script type="text/babel" src="./RenewDesk.jsx"></script>
 <script type="text/babel" src="./DomainDetail.jsx"></script>
-<script type="text/babel" src="./EmergencyDelisting.jsx"></script>
-<script type="text/babel" src="./RecoveryCenter.jsx"></script>
-<script type="text/babel" src="./CsvImport.jsx"></script>
-<script type="text/babel" src="./CommandPalette.jsx"></script>
-<script type="text/babel" src="./BackupRestore.jsx"></script>
-<script type="text/babel" src="./ForcedSwitch.jsx"></script>
-<script type="text/babel" src="./BrowserHandoff.jsx"></script>
 <script type="text/babel">
 const {Panel,Badge}=window.GoodDealerDesignSystem_b5b0b6;
-const TITLES={assets:"资产库",batch:"批量任务",renew:"续费",protect:"资产保护 · 紧急下架",conflicts:"冲突中心",recovery:"恢复中心",inbox:"人工任务收件箱",sales:"销售管理",dns:"DNS 与验证",history:"操作历史",settings:"设置"};
+const TITLES={assets:"资产库",batch:"批量任务",renew:"续费",conflicts:"冲突中心",inbox:"人工任务收件箱",sales:"销售管理",dns:"DNS 与验证",history:"操作历史",settings:"设置"};
 function Stub({name}){
   return <div style={{maxWidth:560,margin:"64px auto",textAlign:"center",display:"flex",flexDirection:"column",gap:12,alignItems:"center",padding:16}}>
     <img src="../../assets/graphics/ascent.svg" style={{height:120,opacity:.9}} alt=""/>
@@ -56,8 +45,6 @@ function App(){
   const [unsynced,setUnsynced]=React.useState(0);
   const [domains,setDomains]=React.useState(()=>window.GD_DATA.domains.map(d=>({...d})));
   const [activeDevice,setActiveDevice]=React.useState({name:"MacBook Pro",epoch:41});
-  const [net,setNet]=React.useState("healthy");
-  const [role,setRole]=React.useState("active"); // active | standby (Cloud Read-Only View)
   const [onboarding,setOnboarding]=React.useState(false);
   const [batchFocus,setBatchFocus]=React.useState(null);
   // 本地变更自动同步云端：任何屏 addUnsynced 计数即时上升，随后自动回落到 0（无手动推送队列）。
@@ -73,19 +60,17 @@ function App(){
     :screen==="assets"?<GDAssetLibrary domains={domains} updateDomains={setDomains} addUnsynced={addUnsynced} onPlan={()=>{setBatchFocus("draft");setScreen("batch");}} onOpenDomain={setDetailId} onRenew={()=>setScreen("renew")}/>
     :screen==="renew"?<GDRenewDesk onBack={()=>setScreen("assets")} addUnsynced={addUnsynced}/>
     :screen==="batch"?<GDBatchPreview focus={batchFocus} onConsumeFocus={()=>setBatchFocus(null)} onBack={()=>setScreen("assets")} onGoAssets={()=>{setBatchFocus(null);setScreen("assets");}} onGoInbox={()=>setScreen("inbox")} onGoConflicts={()=>setScreen("conflicts")} onGoHistory={()=>setScreen("history")}/>
-    :screen==="settings"?<GDSettings activeDevice={activeDevice} onSetActive={setActiveDevice} onRunOnboarding={()=>setOnboarding(true)} role={role}/>
+    :screen==="settings"?<GDSettings activeDevice={activeDevice} onSetActive={setActiveDevice} onRunOnboarding={()=>setOnboarding(true)}/>
     :screen==="history"?<GDHistoryLog addUnsynced={addUnsynced}/>
     :screen==="sales"?<GDSalesDesk addUnsynced={addUnsynced}/>
     :screen==="dns"?<GDDnsVerify addUnsynced={addUnsynced}/>
-    :screen==="protect"?<GDEmergencyDelisting addUnsynced={addUnsynced}/>
-    :screen==="recovery"?<GDRecoveryCenter addUnsynced={addUnsynced}/>
     :screen==="conflicts"?<GDConflictCenter/>
     :screen==="inbox"?<GDTaskInbox/>
     :<Stub name={TITLES[screen]}/>;
-  return <GDShell active={detail?"assets":(screen==="renew"?"assets":screen)} onGo={go} title={title} crumb={crumb} syncing={syncing} onSync={sync} unsynced={unsynced} device={activeDevice} net={net} onNet={setNet} role={role} onRole={setRole} onOpenDomain={setDetailId}>{body}</GDShell>;
+  return <GDShell active={detail?"assets":(screen==="renew"?"assets":screen)} onGo={go} title={title} crumb={crumb} syncing={syncing} onSync={sync} unsynced={unsynced} device={activeDevice}>{body}</GDShell>;
 }
 (function boot(){
-  if(window.GDShell&&window.GDAssetLibrary&&window.GDBatchPreview&&window.GDConflictCenter&&window.GDTaskInbox&&window.GDDomainDetail&&window.GDSettings&&window.GDHistoryLog&&window.GDSalesDesk&&window.GDOnboarding&&window.GDDnsVerify&&window.GDRenewDesk&&window.GDEmergencyDelisting&&window.GDRecoveryCenter&&window.GDForcedSwitch&&window.GDCsvImport&&window.GDCommandPalette&&window.GDBackupRestore&&window.GDConnectFlow&&window.GDBrowserAutomationGrant&&window.GDNetworkStatus&&window.GDNetworkBanner&&window.GDPagination&&window.GDEditableCell&&window.GDResponsiveTable&&window.GDDialogs&&window.GDI){
+  if(window.GDShell&&window.GDAssetLibrary&&window.GDBatchPreview&&window.GDConflictCenter&&window.GDTaskInbox&&window.GDDomainDetail&&window.GDSettings&&window.GDHistoryLog&&window.GDSalesDesk&&window.GDOnboarding&&window.GDDnsVerify&&window.GDRenewDesk&&window.GDPagination&&window.GDEditableCell&&window.GDDialogs&&window.GDI){
     ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
   }else{setTimeout(boot,20);}
 })();

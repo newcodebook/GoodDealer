@@ -9,6 +9,7 @@ export interface CheckboxProps {
   indeterminate?: boolean;
   label?: ReactNode;
   disabled?: boolean;
+  ariaLabel?: string;
   /** Stop click propagation — for use inside clickable rows. */
   stop?: boolean;
   onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -19,7 +20,7 @@ function noop() {
   // React "controlled input without onChange" console warning.
 }
 
-export function Checkbox({ checked, indeterminate, onChange, label, disabled, stop }: CheckboxProps) {
+export function Checkbox({ checked, indeterminate, onChange, label, disabled, stop, ariaLabel }: CheckboxProps) {
   const boxClassName = ["gd-check-box", indeterminate && !checked ? "gd-check-box--ind" : null]
     .filter(Boolean)
     .join(" ");
@@ -27,7 +28,7 @@ export function Checkbox({ checked, indeterminate, onChange, label, disabled, st
 
   return (
     <label className={disabled ? "gd-check gd-check--disabled" : "gd-check"} onClick={handleClick}>
-      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={onChange || noop} />
+      <input type="checkbox" checked={!!checked} disabled={disabled} aria-label={ariaLabel} onChange={onChange || noop} />
       <span className={boxClassName}>
         <svg className="gd-check-tick" width="9" height="9" viewBox="0 0 10 10" fill="none">
           <path

@@ -1,0 +1,69 @@
+name: wp5-backup-foundation
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  backup-foundation:
+    name: wp5-backup-foundation-postgresql-18.6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: true
+      PGPASSWORD: postgres
+      GOODDEALER_POSTGRES_OWNER_URL: postgresql://gooddealer_cloud_owner:owner-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_APP_URL: postgresql://gooddealer_cloud_app:app-test-only@localhost:5432/postgres
+      GOODDEALER_UNQUALIFIED_POSTGRES_DIAGNOSTIC: "false"
+      EVIDENCE_PROFILE: local
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921 # stable
+        with:
+          toolchain: 1.97.1
+          components: clippy,rustfmt
+      - run: npm install --global pnpm@11.18.0
+      - run: pnpm install --frozen-lockfile
+      - name: Create non-privileged roles
+        run: |
+          psql --host localhost --username postgres --dbname postgres --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE gooddealer_cloud_owner LOGIN PASSWORD 'owner-test-only' NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE gooddealer_cloud_app LOGIN PASSWORD 'app-test-only' NOSUPERUSER NOBYPASSRLS;
+          ALTER DATABASE postgres OWNER TO gooddealer_cloud_owner;
+          SQL
+      - name: Verify fail-closed evidence policies
+        run: node --test scripts/backup-evidence-policy.test.mjs scripts/recovery-persistence-evidence-policy.test.mjs
+      - run: pnpm evidence:wp5:backup
+      - name: Collect qualifying recovery persistence evidence (exact PostgreSQL 18.6)
+        run: pnpm evidence:wp5:recovery-persistence
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: wp5-backup-foundation-${{ github.run_id }}-${{ github.run_attempt }}-evidence
+          path: .artifacts/wp5
+          include-hidden-files: true
+          retention-days: 90

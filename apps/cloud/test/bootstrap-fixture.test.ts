@@ -19,23 +19,23 @@ const checkpoint: CheckpointDescriptor = {
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-a",
   workspaceSchemaVersion: 1,
-  throughRevision: 4,
+  throughServerRevision: 4,
   checkpointDigest: ZERO_DIGEST,
 };
 
-function mutation(serverRevision: number, mutationSequence: number): SyncMutation {
+function mutation(serverRevision: number, deviceMutationSequence: number): SyncMutation {
   return {
     schemaVersion: 1,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-a",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
-    entityId: "domain-example-com",
-    baseRevision: serverRevision - 1,
+    entityId: "example.com",
+    baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 2,
-    mutationSequence,
+    deviceMutationSequence,
     serverRevision,
   };
 }
@@ -66,7 +66,7 @@ function signedRequest(value: Omit<BootstrapStepRequest, "requestDigest">): Boot
 
 function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest">> = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 1,
@@ -75,7 +75,7 @@ function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest
     stepKind: "pin_checkpoint",
     stepPayload: {
       checkpointId: checkpoint.checkpointId,
-      checkpointRevision: checkpoint.throughRevision,
+      checkpointThroughServerRevision: checkpoint.throughServerRevision,
       checkpointDigest: checkpoint.checkpointDigest,
     },
     ...overrides,
@@ -85,12 +85,12 @@ function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest
 function fetchRequest(
   stepNumber: number,
   expectedWorkflowRevision: number,
-  fromRevisionExclusive: number,
+  fromServerRevisionExclusive: number,
   cursor: string | null,
   pageLimit = 1,
 ): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber,
@@ -99,10 +99,10 @@ function fetchRequest(
     stepKind: "fetch_mutations",
     stepPayload: {
       pinnedCheckpointId: checkpoint.checkpointId,
-      pinnedCheckpointRevision: checkpoint.throughRevision,
+      pinnedCheckpointThroughServerRevision: checkpoint.throughServerRevision,
       pinnedCheckpointDigest: checkpoint.checkpointDigest,
-      fromRevisionExclusive,
-      throughRevisionInclusive: 6,
+      fromServerRevisionExclusive,
+      throughServerRevisionInclusive: 6,
       cursor,
       pageLimit,
     },
@@ -111,7 +111,7 @@ function fetchRequest(
 
 function submitRequest(digest = ENTITY_DIGEST): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 4,
@@ -119,7 +119,7 @@ function submitRequest(digest = ENTITY_DIGEST): BootstrapStepRequest {
     expectedWorkflowRevision: 3,
     stepKind: "submit_rebuild_digest",
     stepPayload: {
-      targetRevision: 6,
+      targetServerRevision: 6,
       workspaceSchemaVersion: 1,
       entityDigests: [{ entityType: "domain_asset", partitionId: null, digest }],
     },
@@ -141,11 +141,11 @@ describe("BootstrapFixtureService", () => {
 
     const firstPage = fixture.execute(fetchRequest(2, 1, 4, null));
     expect("stepKind" in firstPage && firstPage.stepKind === "fetch_mutations" && firstPage.resultPayload.mutationPage)
-      .toMatchObject({ returnedThroughRevision: 5, nextCursor: "bootstrap-after-5" });
+      .toMatchObject({ returnedThroughServerRevision: 5, nextCursor: "bootstrap-after-5" });
 
     const secondPage = fixture.execute(fetchRequest(3, 2, 5, "bootstrap-after-5"));
     expect("stepKind" in secondPage && secondPage.stepKind === "fetch_mutations" && secondPage.resultPayload.mutationPage)
-      .toMatchObject({ returnedThroughRevision: 6, nextCursor: null });
+      .toMatchObject({ returnedThroughServerRevision: 6, nextCursor: null });
 
     const completed = fixture.execute(submitRequest());
     expect("stepKind" in completed && completed.stepKind).toBe("submit_rebuild_digest");

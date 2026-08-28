@@ -40,7 +40,7 @@ function digestText(bytes: Uint8Array): string {
 const sha256: Sha256Port = { digest: async (bytes) => digest(bytes) };
 
 const common = {
-  schemaVersion: 2,
+  schemaVersion: 1,
   deviceSwitchRequestId: "switch-1",
   capabilityJti: "bootstrap-jti-1",
   stepNonce: "bm9uY2UtMQ",
@@ -56,7 +56,7 @@ const pinInput = {
   expectedWorkflowRevision: 1,
   stepPayload: {
     checkpointId: "checkpoint-1",
-    checkpointRevision: 2,
+    checkpointThroughServerRevision: 2,
     checkpointDigest: ZERO_DIGEST,
   },
 } as const satisfies PinInput;
@@ -68,10 +68,10 @@ const fetchInput = {
   expectedWorkflowRevision: 2,
   stepPayload: {
     pinnedCheckpointId: "checkpoint-1",
-    pinnedCheckpointRevision: 2,
+    pinnedCheckpointThroughServerRevision: 2,
     pinnedCheckpointDigest: ZERO_DIGEST,
-    fromRevisionExclusive: 2,
-    throughRevisionInclusive: 4,
+    fromServerRevisionExclusive: 2,
+    throughServerRevisionInclusive: 4,
     cursor: null,
     pageLimit: 1,
   },
@@ -83,7 +83,7 @@ const submitInput = {
   stepNonce: "bm9uY2UtNA",
   expectedWorkflowRevision: 4,
   stepPayload: {
-    targetRevision: 4,
+    targetServerRevision: 4,
     workspaceSchemaVersion: 1,
     entityDigests: [...entityDigests],
   },
@@ -96,32 +96,32 @@ function mutation(serverRevision: number, workspaceId = "workspace-1"): SyncMuta
     workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
-    entityId: `asset-${serverRevision}`,
-    baseRevision: serverRevision - 1,
+    entityId: `asset-${serverRevision}.test`,
+    baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "note", value: `revision ${serverRevision}` }],
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 1,
-    mutationSequence: serverRevision,
+    deviceMutationSequence: serverRevision,
     serverRevision,
   };
 }
 
 function page(input: {
   workspaceId?: string;
-  fromRevisionExclusive: number;
-  throughRevisionInclusive: number;
+  fromServerRevisionExclusive: number;
+  throughServerRevisionInclusive: number;
   mutations: readonly SyncMutation[];
   nextCursor: string | null;
 }): MutationPage {
   const withoutDigest = {
     schemaVersion: 1 as const,
     workspaceId: input.workspaceId ?? "workspace-1",
-    fromRevisionExclusive: input.fromRevisionExclusive,
-    throughRevisionInclusive: input.throughRevisionInclusive,
+    fromServerRevisionExclusive: input.fromServerRevisionExclusive,
+    throughServerRevisionInclusive: input.throughServerRevisionInclusive,
     mutations: [...input.mutations],
-    returnedThroughRevision:
+    returnedThroughServerRevision:
       input.mutations.length === 0
-        ? input.fromRevisionExclusive
+        ? input.fromServerRevisionExclusive
         : input.mutations[input.mutations.length - 1]!.serverRevision,
     nextCursor: input.nextCursor,
   };
@@ -172,129 +172,147 @@ describe("BootstrapStepPlanner", () => {
 });
 
 describe("BootstrapRebuildAccumulator", () => {
-  it("verifies and folds a contiguous page chain before finalizing the rebuild digest set", async () => {
-    const accumulator = new BootstrapRebuildAccumulator({
-      sha256,
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-    });
-    await accumulator.appendPage(page({
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(3)],
-      nextCursor: "after-3",
-    }));
-    await accumulator.appendPage(page({
-      fromRevisionExclusive: 3,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(4)],
-      nextCursor: null,
-    }));
+  const corpus = JSON.parse(readFileSync(resolve(
+    import.meta.dirname,
+    "../../protocol/test-vectors/bootstrap-rebuild/domain-asset-v1.json",
+  ), "utf8")) as {
+    workspaceId: string;
+    workspaceSchemaVersion: number;
+    targetServerRevision: number;
+    checkpointDescriptor: unknown;
+    checkpointSnapshot: unknown;
+    pages: { cursor: string | null; page: unknown }[];
+    expected: { projection: unknown; entityDigests: unknown; digest: string };
+  };
 
-    expect(accumulator.snapshot()).toEqual({
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-      returnedThroughRevision: 4,
-      nextCursor: null,
-      completed: true,
-      mutations: [mutation(3), mutation(4)],
-    });
-    const finalized = await accumulator.finalize(entityDigests);
-    expect(finalized).toEqual({
-      targetRevision: 4,
-      entityDigests,
-      digest: digestText(encodeWorkspaceEntityDigestsInput(entityDigests)),
-    });
+  const clone = <Value>(value: Value): Value => JSON.parse(JSON.stringify(value)) as Value;
+  const start = (overrides: Partial<{
+    workspaceId: string;
+    workspaceSchemaVersion: number;
+    targetServerRevision: number;
+    checkpointDescriptor: unknown;
+    checkpointSnapshot: unknown;
+  }> = {}) => BootstrapRebuildAccumulator.start({
+    sha256,
+    workspaceId: corpus.workspaceId,
+    workspaceSchemaVersion: corpus.workspaceSchemaVersion,
+    targetServerRevision: corpus.targetServerRevision,
+    checkpointDescriptor: clone(corpus.checkpointDescriptor),
+    checkpointSnapshot: clone(corpus.checkpointSnapshot),
+    ...overrides,
   });
 
-  it("rejects a page whose pageDigest does not match", async () => {
-    const accumulator = new BootstrapRebuildAccumulator({
-      sha256,
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 3,
-    });
-    const valid = page({
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 3,
-      mutations: [mutation(3)],
-      nextCursor: null,
-    });
+  it("derives the shared final projection and digests from checkpoint plus two dense pages", async () => {
+    const accumulator = await start();
+    await accumulator.appendPage(clone(corpus.pages[0]!));
+    await accumulator.appendPage(clone(corpus.pages[1]!));
 
-    await expect(accumulator.appendPage({ ...valid, pageDigest: ZERO_DIGEST })).rejects.toThrow(/digest/i);
-    expect(accumulator.snapshot().mutations).toEqual([]);
+    expect(await accumulator.finalize()).toEqual({
+      targetServerRevision: corpus.targetServerRevision,
+      projection: corpus.expected.projection,
+      entityDigests: corpus.expected.entityDigests,
+      digest: corpus.expected.digest,
+    });
+    expectTypeOf<Parameters<BootstrapRebuildAccumulator["finalize"]>>().toEqualTypeOf<[]>();
   });
 
-  it("rejects non-contiguous pages without repairing the gap", async () => {
-    const accumulator = new BootstrapRebuildAccumulator({
-      sha256,
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-    });
-    const skipped = page({
-      fromRevisionExclusive: 3,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(4)],
-      nextCursor: null,
-    });
+  it("rejects corrupted, secret-bearing, cross-workspace, and schema-drifted checkpoints", async () => {
+    const corrupted = clone(corpus.checkpointSnapshot) as { rows: { note: string | null }[] };
+    corrupted.rows[0]!.note = "tampered";
+    await expect(start({ checkpointSnapshot: corrupted })).rejects.toThrow(/digest/i);
 
-    await expect(accumulator.appendPage(skipped)).rejects.toThrow(/contiguous/i);
-    expect(accumulator.snapshot().returnedThroughRevision).toBe(2);
+    const secret = clone(corpus.checkpointSnapshot) as { rows: Record<string, unknown>[] };
+    secret.rows[0]!["DEVICE_SECRET"] = "must-not-cross-boundary";
+    await expect(start({ checkpointSnapshot: secret })).rejects.toThrow();
 
-    await accumulator.appendPage(page({
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(3)],
-      nextCursor: "after-3",
-    }));
-    expect(accumulator.snapshot().returnedThroughRevision).toBe(3);
+    const foreign = clone(corpus.checkpointSnapshot) as { workspaceId: string };
+    foreign.workspaceId = "workspace-foreign";
+    await expect(start({ checkpointSnapshot: foreign })).rejects.toThrow(/binding/i);
+    await expect(start({ workspaceSchemaVersion: 999 })).rejects.toThrow(/binding/i);
   });
 
-  it("rejects pages from another workspace", async () => {
-    const accumulator = new BootstrapRebuildAccumulator({
-      sha256,
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 3,
+  it("rejects accessors before invoking them", async () => {
+    let getterCalls = 0;
+    const snapshot = clone(corpus.checkpointSnapshot) as Record<string, unknown>;
+    Object.defineProperty(snapshot, "rows", {
+      enumerable: true,
+      get() { getterCalls += 1; return []; },
     });
-    const foreign = page({
-      workspaceId: "workspace-2",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 3,
-      mutations: [mutation(3, "workspace-2")],
-      nextCursor: null,
-    });
-
-    await expect(accumulator.appendPage(foreign)).rejects.toThrow(/workspace/i);
-    expect(accumulator.snapshot().mutations).toEqual([]);
+    await expect(start({ checkpointSnapshot: snapshot })).rejects.toThrow(/accessor/i);
+    expect(getterCalls).toBe(0);
   });
 
-  it("rejects finalization before a terminal page and rejects pages after completion", async () => {
-    const accumulator = new BootstrapRebuildAccumulator({
-      sha256,
-      workspaceId: "workspace-1",
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-    });
-    const first = page({
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(3)],
-      nextCursor: "after-3",
-    });
-    const terminal = page({
-      fromRevisionExclusive: 3,
-      throughRevisionInclusive: 4,
-      mutations: [mutation(4)],
-      nextCursor: null,
-    });
+  it("rejects page digest, cursor, target, workspace, schema, and unknown-entity drift atomically", async () => {
+    const cases: {
+      mutate(value: { cursor: string | null; page: Record<string, unknown> }): void;
+      pattern?: RegExp;
+      refreshDigest?: boolean;
+    }[] = [
+      { mutate: (value) => { value.page["pageDigest"] = ZERO_DIGEST; }, pattern: /digest/i },
+      { mutate: (value) => { value.cursor = "wrong-cursor"; }, pattern: /cursor/i },
+      { mutate: (value) => { value.page["throughServerRevisionInclusive"] = 5; }, pattern: /target/i },
+      { mutate: (value) => { value.page["workspaceId"] = "workspace-foreign"; }, pattern: /workspace/i },
+      { mutate: (value) => {
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["workspaceSchemaVersion"] = 999;
+      } },
+      { mutate: (value) => {
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityId"] = "missing-asset.test";
+      }, pattern: /unknown entity/i, refreshDigest: true },
+    ];
+    for (const testCase of cases) {
+      const accumulator = await start();
+      const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+      testCase.mutate(changed);
+      if (testCase.refreshDigest) {
+        changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+      }
+      await expect(accumulator.appendPage(changed)).rejects.toThrow(testCase.pattern);
+      expect(accumulator.snapshot().returnedThroughServerRevision).toBe(2);
+      expect(accumulator.snapshot().projection).toEqual(
+        (corpus.checkpointSnapshot as { rows: unknown }).rows,
+      );
+    }
+  });
 
-    await accumulator.appendPage(first);
-    await expect(accumulator.finalize(entityDigests)).rejects.toThrow(/terminal page/i);
-    await accumulator.appendPage(terminal);
-    await expect(accumulator.appendPage(terminal)).rejects.toThrow(/complete/i);
+  it("rejects missing, duplicate, and reordered revisions without partial advancement", async () => {
+    for (const revisions of [[4], [3, 3], [4, 3]]) {
+      const accumulator = await start();
+      const changed = clone(corpus.pages[0]!) as {
+        cursor: string | null;
+        page: { mutations: Record<string, unknown>[]; returnedThroughServerRevision: number };
+      };
+      const first = changed.page.mutations[0]!;
+      changed.page.mutations = revisions.map((revision) => ({
+        ...first,
+        mutationId: `mutation-${revision}`,
+        serverRevision: revision,
+      }));
+      changed.page.returnedThroughServerRevision = revisions.at(-1)!;
+      await expect(accumulator.appendPage(changed)).rejects.toThrow();
+      expect(accumulator.snapshot().returnedThroughServerRevision).toBe(2);
+    }
+  });
+
+  it("rejects a repeated mutation identity across otherwise dense pages", async () => {
+    const accumulator = await start();
+    await accumulator.appendPage(clone(corpus.pages[0]!));
+    const duplicate = clone(corpus.pages[1]!) as {
+      cursor: string | null;
+      page: { mutations: Record<string, unknown>[]; pageDigest: string };
+    };
+    duplicate.page.mutations[0]!["mutationId"] = "mutation-3";
+    duplicate.page.pageDigest = digestText(encodeMutationPageDigestInput(duplicate.page));
+    await expect(accumulator.appendPage(duplicate)).rejects.toThrow(/duplicated/i);
+    expect(accumulator.snapshot().returnedThroughServerRevision).toBe(3);
+  });
+
+  it("requires a terminal page and refuses every post-terminal append", async () => {
+    const accumulator = await start();
+    await accumulator.appendPage(clone(corpus.pages[0]!));
+    await expect(accumulator.finalize()).rejects.toThrow(/terminal page/i);
+    await accumulator.appendPage(clone(corpus.pages[1]!));
+    await expect(accumulator.appendPage(clone(corpus.pages[1]!))).rejects.toThrow(/complete/i);
   });
 });

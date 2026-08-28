@@ -1,24 +1,104 @@
 {
-  "description": "Shared Wire Corpus: TS and Rust reject the identical vectors. File order is stable; filenames are the test vector ID.",
-  "valid": [
-    { "file": "valid/backup-export-descriptor.json", "schema": "backupExportDescriptor" },
-    { "file": "valid/sealed-backup-envelope.json", "schema": "sealedBackupEnvelope" },
-    { "file": "valid/encrypted-backup-manifest.json", "schema": "encryptedBackupManifest" },
-    { "file": "valid/restore-candidate-rebase.json", "schema": "restoreCandidate" },
-    { "file": "valid/restore-candidate-blocked.json", "schema": "restoreCandidate" }
+  "schemaVersion": 1,
+  "manifestDigest": {
+    "fields": {
+      "schemaVersion": 1,
+      "backupClass": "synchronized",
+      "backupId": "backup-a",
+      "workspaceId": "workspace-a",
+      "workspaceSchemaVersion": 1,
+      "appVersion": "0.0.0",
+      "createdAt": "2026-08-20T10:00:00Z",
+      "sourceDeviceId": "device-a",
+      "activeLeaseEpoch": 7,
+      "throughServerRevision": 12,
+      "localCommitSequence": 22,
+      "cryptoProfile": "xchacha20-poly1305-stream-v1",
+      "proofId": "proof-a",
+      "proofDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "sections": [
+        {
+          "kind": "domain_asset",
+          "plaintextLength": 32,
+          "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ]
+    },
+    "expected": "wwmPciFYmHrXEYt9Xf6JhBvELZCxlS4CT5uprsCxT3k"
+  },
+  "diffDigest": {
+    "entries": [
+      {
+        "entityId": "a.test",
+        "fieldPath": "note",
+        "backupValue": "backup note",
+        "backupValueHash": "wnTZl_5RU0Nkuxin4IQMH5z5lfAj4g-YwoE_6emVeEI"
+      },
+      {
+        "entityId": "a.test",
+        "fieldPath": "portfolioId",
+        "backupValue": null,
+        "backupValueHash": "rgx9lmSuagJGtCa4eAW2RiwRMbWEUGF5xJhB5-Ux9sw"
+      },
+      {
+        "entityId": "a.test",
+        "fieldPath": "tags",
+        "backupValue": ["tag-a"],
+        "backupValueHash": "5dpy3gIOOi71yhyagqzByTAhEtTspgwbmzYR-Vo8Jdw"
+      },
+      {
+        "entityId": "a.test",
+        "fieldPath": "targetPrice",
+        "backupValue": null,
+        "backupValueHash": "rgx9lmSuagJGtCa4eAW2RiwRMbWEUGF5xJhB5-Ux9sw"
+      }
+    ],
+      "expected": "v6aBDFrh-PP9rLASK0nadXet_i7ZJSp5jaRX52sit_E"
+  },
+  "validBackupExports": [
+    {
+      "schemaVersion": 1,
+      "records": [
+        {
+          "entityId": "a.test",
+          "note": "backup note",
+          "portfolioId": null,
+          "tags": ["tag-a"],
+          "targetPrice": { "currency": "USD", "amount": "12.5" }
+        }
+      ]
+    }
   ],
-  "invalid": [
-    { "file": "invalid/descriptor-unknown-field.json", "schema": "backupExportDescriptor", "reason": "unknown field on strict object" },
-    { "file": "invalid/descriptor-missing-field.json", "schema": "backupExportDescriptor", "reason": "missing required field" },
-    { "file": "invalid/descriptor-unknown-backup-class.json", "schema": "backupExportDescriptor", "reason": "unknown backupClass enum variant" },
-    { "file": "invalid/envelope-unknown-field.json", "schema": "sealedBackupEnvelope", "reason": "unknown field on strict object" },
-    { "file": "invalid/envelope-unknown-crypto-profile.json", "schema": "sealedBackupEnvelope", "reason": "unknown cryptoProfile enum variant" },
-    { "file": "invalid/manifest-unknown-field.json", "schema": "encryptedBackupManifest", "reason": "unknown field on strict object" },
-    { "file": "invalid/manifest-missing-field.json", "schema": "encryptedBackupManifest", "reason": "missing required field" },
-    { "file": "invalid/manifest-tampered-digest.json", "schema": "encryptedBackupManifest", "reason": "manifestDigest does not match recomputed digest" },
-    { "file": "invalid/candidate-unknown-status.json", "schema": "restoreCandidate", "reason": "unknown status (apply_allowed not in union)" },
-    { "file": "invalid/candidate-unknown-reason.json", "schema": "restoreCandidate", "reason": "unknown reason enum variant" },
-    { "file": "invalid/candidate-unknown-field.json", "schema": "restoreCandidate", "reason": "unknown field on strict object" },
-    { "file": "invalid/candidate-missing-field.json", "schema": "restoreCandidate", "reason": "missing required field (manifestDigest)" }
+  "invalidBackupExports": [
+    {
+      "schemaVersion": 1,
+      "records": [
+        {
+          "entityId": "a.test",
+          "note": null,
+          "portfolioId": null,
+          "tags": [],
+          "targetPrice": null,
+          "credentialRef": "forbidden"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "records": [
+        { "entityId": "b.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null },
+        { "entityId": "a.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+      ]
+    }
+  ],
+  "validLifecycleCommands": [
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 1, "transition": "rebase_required" },
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 1, "transition": "discarded" },
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 1, "transition": "expired" }
+  ],
+  "invalidLifecycleCommands": [
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 1, "transition": "applied" },
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 0, "transition": "discarded" },
+    { "schemaVersion": 1, "candidateId": "candidate-a", "expectedRowVersion": 1, "transition": "discarded", "unknown": true }
   ]
 }

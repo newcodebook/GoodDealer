@@ -1,11 +1,207 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(import.meta.dirname, "..");
 const outputPath = resolve(root, process.argv[2] ?? ".artifacts/wp2/account-gate/account-gate-report.json");
-const requiredInputs = [
+export const portfolioQuerySourceInputs = [
+  "packages/client-core/src/portfolio/index.ts",
+  "packages/client-core/src/portfolio/data-freshness.ts",
+];
+
+function vectorPaths(basePath, valid, invalid) {
+  return [
+    ...valid.map((path) => `${basePath}/valid/${path}`),
+    ...invalid.map((path) => `${basePath}/invalid/${path}`),
+  ];
+}
+
+export const ACCOUNT_GATE_VECTOR_INPUTS = Object.freeze([
+  ...vectorPaths(
+    "packages/protocol/test-vectors/account",
+    [
+      "auth-access-envelope.json",
+      "auth-refresh-envelope.json",
+      "auth-session-authenticated.json",
+      "auth-session-refresh-required.json",
+      "auth-session-revoked.json",
+      "auth-session-signed-out.json",
+      "entitlement-projection-lifetime.json",
+      "entitlement-projection-subscription-active.json",
+      "entitlement-projection-subscription-grace.json",
+      "gate-active-eligible.json",
+      "gate-locked.json",
+      "gate-standby-eligible.json",
+      "login-request.json",
+      "reauth-proof-ref.json",
+      "refresh-request.json",
+      "rejection-device-removed.json",
+      "rejection-rate-limited.json",
+      "session-list.json",
+      "session-revoke-all-other.json",
+      "session-revoke-single.json",
+      "sign-out-all-devices.json",
+      "sign-out-this-device.json",
+    ],
+    [
+      "auth-access-cross-typ-as-refresh.json",
+      "auth-access-with-mutate-scope.json",
+      "auth-access-with-platform-scope.json",
+      "auth-access-wrong-key-purpose.json",
+      "auth-refresh-cross-typ-as-access.json",
+      "auth-refresh-snake-case-wire.json",
+      "auth-refresh-unsafe-generation.json",
+      "auth-refresh-wrong-audience.json",
+      "auth-session-authenticated-missing-epoch.json",
+      "auth-session-authenticated-without-expiry.json",
+      "auth-session-revocation-reason-without-revoked.json",
+      "auth-session-signed-out-with-account.json",
+      "auth-session-snake-case-wire.json",
+      "auth-session-unknown-field.json",
+      "auth-session-unknown-version.json",
+      "auth-session-unsafe-epoch.json",
+      "entitlement-projection-expiry-after-grace.json",
+      "entitlement-projection-lifetime-with-expiry.json",
+      "entitlement-projection-refresh-after-grace.json",
+      "entitlement-projection-subscription-all-major-versions.json",
+      "entitlement-projection-unsorted-features.json",
+      "entitlement-projection-with-payment-watermark.json",
+      "gate-active-with-failed-check.json",
+      "gate-locked-all-checks-pass.json",
+      "gate-locked-without-reason.json",
+      "gate-reason-without-locked.json",
+      "gate-standby-with-active-lease-pass.json",
+      "reauth-proof-inverted-window.json",
+      "rejection-non-retryable-marked-retryable.json",
+      "rejection-retry-after-on-non-rate-limited.json",
+      "rejection-with-message-field.json",
+      "session-display-name-control-character.json",
+      "session-list-duplicate-session-id.json",
+      "session-list-two-current.json",
+      "session-summary-desktop-without-device-id.json",
+      "session-summary-revoked-current.json",
+      "session-summary-revoked-without-timestamp.json",
+      "session-summary-web-with-device-id.json",
+      "sign-out-all-devices-missing-reauth-proof.json",
+      "sign-out-this-device-with-reauth-proof.json",
+    ],
+  ),
+  ...vectorPaths(
+    "packages/protocol/test-vectors/device-management",
+    [
+      "authority-active.json",
+      "authority-none.json",
+      "authority-standby-with-ingest.json",
+      "authority-standby.json",
+      "binding-active.json",
+      "binding-list-two-bound.json",
+      "binding-removed.json",
+      "binding-standby.json",
+      "lease-status-held-fresh.json",
+      "lease-status-held-offline-grace.json",
+      "lease-status-held-renewal-window.json",
+      "lease-status-not-held.json",
+      "removal-request.json",
+      "switch-request-forced.json",
+      "switch-request-normal.json",
+      "switch-view-bootstrapping.json",
+      "switch-view-completed.json",
+      "switch-view-waiting-expiry.json",
+    ],
+    [
+      "authority-duplicate-scopes.json",
+      "authority-none-with-scopes.json",
+      "authority-standby-with-mutate.json",
+      "authority-standby-with-platform-write.json",
+      "authority-unsorted-scopes.json",
+      "binding-last-seen-before-bound.json",
+      "binding-list-duplicate-device-id.json",
+      "binding-list-three-bound.json",
+      "binding-list-two-active.json",
+      "binding-list-two-current-device.json",
+      "binding-public-key-field.json",
+      "binding-removed-current-device.json",
+      "binding-removed-with-role.json",
+      "binding-removed-without-timestamp.json",
+      "binding-revoked-key-with-role.json",
+      "binding-role-on-removed-status.json",
+      "binding-snake-case-wire.json",
+      "binding-unknown-field.json",
+      "binding-unknown-version.json",
+      "binding-unsafe-credential-epoch.json",
+      "lease-status-held-missing-epoch.json",
+      "lease-status-inverted-window.json",
+      "lease-status-not-held-with-epoch.json",
+      "lease-status-not-held-wrong-renewal-state.json",
+      "lease-status-offline-window-too-long.json",
+      "lease-status-renewal-state-mismatch.json",
+      "lease-status-window-inverted-only.json",
+      "lease-status-with-signature.json",
+      "switch-bootstrapping-without-expiry.json",
+      "switch-completed-with-bootstrap-expiry.json",
+      "switch-earliest-takeover-before-request.json",
+      "switch-forced-without-earliest-takeover.json",
+      "switch-forced-without-reauth-proof.json",
+      "switch-normal-with-reauth-proof.json",
+    ],
+  ),
+  ...vectorPaths(
+    "packages/protocol/test-vectors/bootstrap-steps",
+    [
+      "request-fetch-mutations.json",
+      "request-pin-checkpoint.json",
+      "request-submit-rebuild-digest.json",
+      "result-fetch-mutations.json",
+      "result-pin-checkpoint.json",
+      "result-submit-rebuild-digest.json",
+    ],
+    [
+      "request-fetch-before-checkpoint.json",
+      "request-fetch-inverted-range.json",
+      "request-page-limit-too-large.json",
+      "request-payload-kind-mismatch.json",
+      "request-snake-case.json",
+      "request-unknown-field.json",
+      "request-unsafe-workflow-revision.json",
+      "request-unsorted-entity-digests.json",
+      "result-invalid-next-step-nonce-encoding.json",
+      "result-missing-next-step-nonce.json",
+      "result-mutation-page-gap.json",
+      "result-nonterminal-null-next-step-nonce.json",
+      "result-payload-kind-mismatch.json",
+      "result-terminal-nonnull-next-step-nonce.json",
+      "result-unknown-field.json",
+    ],
+  ),
+  ...vectorPaths(
+    "packages/protocol/test-vectors/workspace-sync",
+    ["checkpoint.json", "mutation-page.json", "mutation.json"],
+    [
+      "mutation-base-not-before-server.json",
+      "mutation-device-secret.json",
+      "mutation-duplicate-field.json",
+      "mutation-noncanonical-money.json",
+      "mutation-note-control-character.json",
+      "mutation-unknown-field.json",
+      "mutation-unsafe-revision.json",
+      "mutation-unsorted-fields.json",
+      "mutation-unsorted-tags.json",
+      "page-cross-workspace.json",
+      "page-cursor-at-target.json",
+      "page-returned-revision-mismatch.json",
+      "page-revision-gap.json",
+      "page-terminal-before-target.json",
+    ],
+  ),
+  ...vectorPaths(
+    "packages/protocol/test-vectors/domain-asset-projection",
+    ["utf8-order.json"],
+    ["locale-order.json", "revision-metadata.json", "secret-field.json"],
+  ),
+]);
+
+export const ACCOUNT_GATE_REQUIRED_INPUTS = Object.freeze([
   "packages/protocol/src/account/account-gate.ts",
   "packages/protocol/src/account/auth-session.ts",
   "packages/protocol/src/account/entitlement-projection.ts",
@@ -16,7 +212,7 @@ const requiredInputs = [
   "packages/protocol/src/workspace/domain-asset-fields.ts",
   "packages/protocol/src/workspace/domain-asset-projection.ts",
   "packages/client-core/src/runtime-mode/index.ts",
-  "packages/client-core/src/portfolio/index.ts",
+  ...portfolioQuerySourceInputs,
   "apps/cloud/src/modules/identity/index.ts",
   "apps/cloud/src/modules/identity/login-command.ts",
   "apps/cloud/src/modules/identity/password-hash-port.ts",
@@ -50,6 +246,7 @@ const requiredInputs = [
   "packages/protocol/test-vectors/domain-asset-projection/invalid/revision-metadata.json",
   "packages/protocol/test-vectors/domain-asset-projection/invalid/secret-field.json",
   "apps/cloud/test/identity-fixture.test.ts",
+  "apps/cloud/test/support/identity-fixture.ts",
   "apps/cloud/test/password-hash-fallback.test.ts",
   "apps/cloud/test/session-families.test.ts",
   "apps/cloud/test/licensing-fixture.test.ts",
@@ -64,7 +261,12 @@ const requiredInputs = [
   "apps/cloud/test/switch-workflow.test.ts",
   "apps/cloud/test/workspace-mutation-ingest.test.ts",
   "apps/cloud/test/workspace-checkpoint-cursor.test.ts",
-];
+]);
+const requiredInputs = ACCOUNT_GATE_REQUIRED_INPUTS;
+const admittedInputPaths = Object.freeze([
+  ...requiredInputs,
+  ...ACCOUNT_GATE_VECTOR_INPUTS.filter((path) => !requiredInputs.includes(path)),
+]);
 
 const identityPasswordPathInputs = [
   "apps/cloud/src/modules/identity/login-command.ts",
@@ -205,18 +407,101 @@ function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function jsonFiles(path) {
-  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
-    const child = resolve(path, entry.name);
-    return entry.isDirectory() ? jsonFiles(child) : entry.name.endsWith(".json") ? [child] : [];
-  });
+function normalizedRepositoryPath(path) {
+  if (typeof path !== "string" || path.length === 0 || isAbsolute(path) || /^[A-Za-z]:[\\/]/u.test(path)) {
+    return null;
+  }
+  const normalized = path.replaceAll("\\", "/");
+  if (normalized !== path || normalized.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    return null;
+  }
+  return normalized;
 }
 
-function vectorCounts(basePath) {
+function admittedRepositoryRoot(repositoryRoot) {
+  const resolvedRoot = resolve(repositoryRoot);
+  const lexicalComponents = [];
+  for (let current = resolvedRoot; ; current = dirname(current)) {
+    lexicalComponents.unshift(current);
+    if (dirname(current) === current) break;
+  }
+  for (const current of lexicalComponents) {
+    const stat = lstatSync(current);
+    const terminalComponent = current === resolvedRoot;
+    if (stat.isSymbolicLink()) {
+      if (terminalComponent) throw new Error("account gate repository root may not be a symbolic link");
+      throw new Error(`account gate repository root may not traverse a symbolic link: ${current}`);
+    }
+    if (!stat.isDirectory()) {
+      if (terminalComponent) throw new Error("account gate repository root must be a directory");
+      throw new Error(`account gate repository root has a non-directory ancestor: ${current}`);
+    }
+  }
+  return resolvedRoot;
+}
+
+function regularRequiredInputPath(repositoryRoot, path) {
+  const normalized = normalizedRepositoryPath(path);
+  if (normalized === null) throw new Error(`account gate input is not normalized: ${String(path)}`);
+
+  const resolvedRoot = admittedRepositoryRoot(repositoryRoot);
+  const parts = normalized.split("/");
+  const terminalPath = resolve(resolvedRoot, ...parts);
+  const rootRelativePath = relative(resolvedRoot, terminalPath);
+  if (rootRelativePath === "" || /^\.\.(?:[\\/]|$)/u.test(rootRelativePath) || isAbsolute(rootRelativePath)) {
+    throw new Error(`account gate input is outside the repository root: ${normalized}`);
+  }
+
+  let current = resolvedRoot;
+  for (const [index, part] of parts.entries()) {
+    current = resolve(current, part);
+    const stat = lstatSync(current);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`account gate input may not traverse a symbolic link: ${normalized}`);
+    }
+    const finalPart = index === parts.length - 1;
+    if (finalPart && !stat.isFile()) {
+      throw new Error(`account gate input must be a regular file: ${normalized}`);
+    }
+    if (!finalPart && !stat.isDirectory()) {
+      throw new Error(`account gate input has a non-directory parent: ${normalized}`);
+    }
+  }
+  return terminalPath;
+}
+
+export function accountGateInputAdmissionErrors({ repositoryRoot = root } = {}) {
+  const errors = [];
+  for (const path of admittedInputPaths) {
+    try {
+      regularRequiredInputPath(repositoryRoot, path);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `account gate input is unreadable: ${path}`);
+    }
+  }
+  return errors;
+}
+
+function readAdmittedInput(path) {
+  if (!admittedInputPaths.includes(path)) throw new Error(`account gate input is not admitted: ${path}`);
+  return readFileSync(regularRequiredInputPath(root, path));
+}
+
+function admittedRequiredInputSources() {
+  const errors = accountGateInputAdmissionErrors();
+  if (errors.length > 0) throw new Error(errors.join("\n"));
+  return new Map(admittedInputPaths.map((path) => [path, readAdmittedInput(path)]));
+}
+
+function vectorCounts(basePath, inputSources) {
   const count = (kind) => {
-    const directory = resolve(root, basePath, kind);
-    const files = jsonFiles(directory);
-    for (const path of files) JSON.parse(readFileSync(path, "utf8"));
+    const prefix = `${basePath}/${kind}/`;
+    const files = ACCOUNT_GATE_VECTOR_INPUTS.filter((path) => path.startsWith(prefix));
+    for (const path of files) {
+      const content = inputSources.get(path);
+      if (content === undefined) throw new Error(`account gate vector is not admitted: ${path}`);
+      JSON.parse(content.toString("utf8"));
+    }
     return files.length;
   };
   return { valid: count("valid"), invalid: count("invalid") };
@@ -362,15 +647,15 @@ function passwordHashWindows(source) {
   return [...source.matchAll(/\bcheckPasswordHash\b/g)].map(({ index = 0 }) => source.slice(index, index + 500));
 }
 
-export function passwordHashPortCannotSucceed(source) {
-  const refusingReturn = /\binterface\s+PasswordHashPort\b[\s\S]*?\bcheckPasswordHash\s*\([\s\S]*?\)\s*:\s*Promise\s*<\s*{\s*readonly\s+verified\s*:\s*false\s*;\s*readonly\s+reason\s*:\s*["']password_verification_disabled["']\s*;?\s*}\s*>\s*;/.test(
-    source,
+export function denyingPasswordHashPortCannotSucceed(source) {
+  const start = source.search(/\bclass\s+DenyingPasswordHashPort\b/);
+  if (start < 0) return false;
+  const window = source.slice(start, start + 900);
+  return (
+    /\bimplements\s+PasswordHashPort\b/.test(window) &&
+    /\breturn\s*{\s*verified\s*:\s*false\s*,\s*reason\s*:\s*["']password_verification_disabled["']\s*}/.test(window) &&
+    !/\breturn\s*{[^}]*\bverified\s*:\s*true\b/s.test(window)
   );
-  const successConstructible = passwordHashWindows(source).some((window) =>
-    /\bverified\b\s*(?:\?|readonly\s+)?\s*:\s*(?:boolean|true)\b/.test(window) ||
-    /\breturn\s*{[^}]*\bverified\s*:\s*true\b/s.test(window)
-  );
-  return refusingReturn && !successConstructible;
 }
 
 export function passwordHashCheckNamingCompliant(source) {
@@ -489,11 +774,13 @@ function denyingPasswordHashPortStructuralAssertion(portSource, loginCommandSour
   const denyingClassStart = portSource.search(/\bclass\s+DenyingPasswordHashPort\b/);
   const denyingClassSource = denyingClassStart < 0 ? "" : portSource.slice(denyingClassStart);
   const checks = {
-    interfaceReturnTypeCannotExpressSuccess: passwordHashPortCannotSucceed(portSource),
+    interfaceSupportsClosedVerdict:
+      /\btype\s+PasswordHashResult\b[\s\S]*?verified:\s*true[\s\S]*?verified:\s*false/.test(portSource),
+    explicitVerifierOptInPresent:
+      /\bclass\s+Argon2idPasswordHashVerifier\s+implements\s+PasswordHashPort\b/.test(portSource),
     denyingImplementationPresent:
       /\bclass\s+DenyingPasswordHashPort\s+implements\s+PasswordHashPort\b/.test(portSource),
     denyingImplementationReturnsDisabled:
-      /\breadonly\s+verified\s*:\s*false\b/.test(denyingClassSource) &&
       /\breturn\s*{\s*verified\s*:\s*false\s*,\s*reason\s*:\s*["']password_verification_disabled["']\s*}\s*;/.test(
         denyingClassSource,
       ),
@@ -501,13 +788,9 @@ function denyingPasswordHashPortStructuralAssertion(portSource, loginCommandSour
       /passwordHash\s*:\s*PasswordHashPort\s*=\s*new\s+DenyingPasswordHashPort\s*\(\s*\)/.test(
         loginCommandSource,
       ),
-    typeLevelNegativeAssertionPresent:
-      /Extract\s*<\s*PasswordHashResult\s*,\s*{\s*readonly\s+verified\s*:\s*true\s*}\s*>\s+extends\s+never/.test(
-        fallbackTestSource,
-      ) &&
-      /passwordSuccessIsUnrepresentable\s*:\s*PasswordSuccessIsUnrepresentable\s*=\s*true/.test(
-        fallbackTestSource,
-      ),
+    denyingCandidateZeroingTestPresent:
+      /keeps the Denying implementation as the default/.test(fallbackTestSource) &&
+      /candidate\.consumedBytesAreZeroed\(\)\)\.toBe\(true\)/.test(fallbackTestSource),
   };
   return {
     source: "apps/cloud/src/modules/identity/password-hash-port.ts",
@@ -518,11 +801,12 @@ function denyingPasswordHashPortStructuralAssertion(portSource, loginCommandSour
 
 function denyingPasswordHashPortStructuralAssertionPassesPolicy(assertion) {
   const expectedChecks = [
-    "interfaceReturnTypeCannotExpressSuccess",
+    "interfaceSupportsClosedVerdict",
+    "explicitVerifierOptInPresent",
     "denyingImplementationPresent",
     "denyingImplementationReturnsDisabled",
     "defaultCompositionUsesDenyingPort",
-    "typeLevelNegativeAssertionPresent",
+    "denyingCandidateZeroingTestPresent",
   ];
   return (
     assertion?.source === "apps/cloud/src/modules/identity/password-hash-port.ts" &&
@@ -590,43 +874,41 @@ export function portfolioQueryContractIsPortable(source, testSource) {
 }
 
 export function collectAccountGateReport() {
-  const inputs = requiredInputs.filter((path) => existsSync(resolve(root, path))).map((path) => {
-    const content = readFileSync(resolve(root, path));
+  const inputSources = admittedRequiredInputSources();
+  const sourceFor = (path) => {
+    const content = inputSources.get(path);
+    if (content === undefined) throw new Error(`account gate input is not admitted: ${path}`);
+    return content.toString("utf8");
+  };
+  const inputs = requiredInputs.map((path) => {
+    const content = inputSources.get(path);
+    if (content === undefined) throw new Error(`account gate input is not admitted: ${path}`);
     return { path, bytes: content.length, sha256: sha256(content) };
   });
   const runtimeSources = requiredInputs
     .filter((path) => path.includes("/src/"))
-    .map((path) => ({ path, source: readFileSync(resolve(root, path), "utf8") }));
+    .map((path) => ({ path, source: sourceFor(path) }));
   const runtimeSource = runtimeSources.map(({ source }) => source).join("\n");
   const cloudRuntimeSources = runtimeSources.filter(({ path }) => path.startsWith("apps/cloud/src/"));
   const workspaceRuntimeSources = cloudRuntimeSources.filter(({ path }) =>
     path.startsWith("apps/cloud/src/modules/workspace/")
   );
   const drainRuntimeSources = cloudRuntimeSources.filter(({ path }) => signatureVerificationBannedInputs.has(path));
-  const identitySource = readFileSync(resolve(root, "apps/cloud/src/modules/identity/index.ts"), "utf8");
-  const devicesSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/index.ts"), "utf8");
-  const drainPortSource = readFileSync(resolve(root, "apps/cloud/src/modules/devices/ports.ts"), "utf8");
-  const passwordHashPortSource = readFileSync(
-    resolve(root, "apps/cloud/src/modules/identity/password-hash-port.ts"),
-    "utf8",
-  );
-  const loginCommandSource = readFileSync(
-    resolve(root, "apps/cloud/src/modules/identity/login-command.ts"),
-    "utf8",
-  );
-  const passwordHashFallbackTestSource = readFileSync(
-    resolve(root, "apps/cloud/test/password-hash-fallback.test.ts"),
-    "utf8",
-  );
+  const identityFixtureSource = sourceFor("apps/cloud/test/support/identity-fixture.ts");
+  const devicesSource = sourceFor("apps/cloud/src/modules/devices/index.ts");
+  const drainPortSource = sourceFor("apps/cloud/src/modules/devices/ports.ts");
+  const passwordHashPortSource = sourceFor("apps/cloud/src/modules/identity/password-hash-port.ts");
+  const loginCommandSource = sourceFor("apps/cloud/src/modules/identity/login-command.ts");
+  const passwordHashFallbackTestSource = sourceFor("apps/cloud/test/password-hash-fallback.test.ts");
   const authNegativeMatrixSources = new Map([
     "apps/cloud/test/identity-fixture.test.ts",
     "apps/cloud/test/session-families.test.ts",
-  ].map((path) => [path, readFileSync(resolve(root, path), "utf8")]));
+  ].map((path) => [path, sourceFor(path)]));
   const authNegativeMatrix = collectAuthNegativeMatrix(authNegativeMatrixSources);
   const rawPasswordForbiddenSurfaceProofReport = rawPasswordForbiddenSurfaceProof(
     identityPasswordPathInputs.map((path) => ({
       path,
-      source: readFileSync(resolve(root, path), "utf8"),
+      source: sourceFor(path),
     })),
   );
   const denyingPasswordHashPortAssertion = denyingPasswordHashPortStructuralAssertion(
@@ -635,8 +917,10 @@ export function collectAccountGateReport() {
     passwordHashFallbackTestSource,
   );
   const drainRuntimeSource = drainRuntimeSources.map(({ source }) => source).join("\n");
-  const portfolioQuerySource = readFileSync(resolve(root, "packages/client-core/src/portfolio/index.ts"), "utf8");
-  const portfolioQueryTestSource = readFileSync(resolve(root, "packages/client-core/test/portfolio-query.test.ts"), "utf8");
+  const portfolioQuerySource = portfolioQuerySourceInputs
+    .map((path) => `// ${path}\n${sourceFor(path)}`)
+    .join("\n");
+  const portfolioQueryTestSource = sourceFor("packages/client-core/test/portfolio-query.test.ts");
 
   return {
     schemaVersion: 1,
@@ -657,7 +941,7 @@ export function collectAccountGateReport() {
       ({ source }) => !sourceAcceptsDrainProof(source),
     ),
     drainProofSignatureSuccessUnrepresentable: drainProofSignaturePortCannotSucceed(drainPortSource),
-    passwordVerificationSuccessUnrepresentable: denyingPasswordHashPortAssertion.present,
+    productionPasswordVerificationDenying: denyingPasswordHashPortAssertion.present,
     denyingPasswordHashPortStructuralAssertion: denyingPasswordHashPortAssertion,
     passwordHashCheckNamingCompliant: passwordHashCheckNamingCompliant(passwordHashPortSource),
     authNegativeMatrix,
@@ -686,13 +970,13 @@ export function collectAccountGateReport() {
     portfolioQueryProductionWiringAbsent: !/\bfrom\s+["'](?:@tauri-apps|@gooddealer\/cloud-client|gooddealer-local-storage|apps\/cloud)/.test(
       portfolioQuerySource,
     ),
-    internalAccountSellable: !identityFixtureIsNonSellable(identitySource),
+    internalAccountSellable: !identityFixtureIsNonSellable(identityFixtureSource),
     requiredInputsPresent: inputs.length === requiredInputs.length,
-    accountVectors: vectorCounts("packages/protocol/test-vectors/account"),
-    deviceVectors: vectorCounts("packages/protocol/test-vectors/device-management"),
-    bootstrapVectors: vectorCounts("packages/protocol/test-vectors/bootstrap-steps"),
-    workspaceVectors: vectorCounts("packages/protocol/test-vectors/workspace-sync"),
-    domainAssetProjectionVectors: vectorCounts("packages/protocol/test-vectors/domain-asset-projection"),
+    accountVectors: vectorCounts("packages/protocol/test-vectors/account", inputSources),
+    deviceVectors: vectorCounts("packages/protocol/test-vectors/device-management", inputSources),
+    bootstrapVectors: vectorCounts("packages/protocol/test-vectors/bootstrap-steps", inputSources),
+    workspaceVectors: vectorCounts("packages/protocol/test-vectors/workspace-sync", inputSources),
+    domainAssetProjectionVectors: vectorCounts("packages/protocol/test-vectors/domain-asset-projection", inputSources),
     inputs,
   };
 }
@@ -705,7 +989,7 @@ export function accountGateReportPassesPolicy(report) {
     report.signatureVerificationAbsent &&
     report.drainProofAcceptanceAbsent &&
     report.drainProofSignatureSuccessUnrepresentable &&
-    report.passwordVerificationSuccessUnrepresentable &&
+    report.productionPasswordVerificationDenying &&
     denyingPasswordHashPortStructuralAssertionPassesPolicy(
       report.denyingPasswordHashPortStructuralAssertion,
     ) &&
@@ -734,7 +1018,15 @@ export function accountGateReportPassesPolicy(report) {
     report.workspaceVectors.invalid > 0 &&
     report.domainAssetProjectionVectors.valid > 0 &&
     report.domainAssetProjectionVectors.invalid > 0 &&
-    report.inputs.every((input) => statSync(resolve(root, input.path)).isFile())
+    accountGateInputAdmissionErrors().length === 0 &&
+    report.inputs.every((input) => {
+      try {
+        regularRequiredInputPath(root, input.path);
+        return true;
+      } catch {
+        return false;
+      }
+    })
   );
 }
 

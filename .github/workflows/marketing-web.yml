@@ -1,19 +1,8 @@
 name: marketing-web
 
-# Build-check on PRs; deploy to Cloudflare Pages on pushes to main that touch the site
-# or its inputs (@gooddealer/ui tokens/assets, lockfile, toolchain pins).
-#
-# Deployment model (same design as specability's web-ci): a Direct Upload Pages project
-# (no Git integration) deployed with the app's own wrangler devDependency, run from
-# apps/marketing-web via `pnpm exec` — cloudflare/wrangler-action is avoided on purpose
-# because it self-installs at the pnpm workspace root and fails (ERR_PNPM_ADDING_TO_ROOT).
-# The project is created on first run (idempotent), then dist/ deploys to production.
-#
-# Required repository secrets (Settings → Secrets and variables → Actions):
-#   CLOUDFLARE_API_TOKEN  — Cloudflare API token with the Pages:Edit permission
-#   CLOUDFLARE_ACCOUNT_ID — the Cloudflare account id owning the Pages project
-# Without them the deploy step fails fast and visibly — an accepted bootstrap state
-# until the secrets are set; PR check jobs never need them.
+# Build-check PRs and manual dispatches; deploy only a verified main-push checkout.
+# The workflow never provisions Pages resources: the fixed upload command fails visibly
+# when its external prerequisites are absent, unauthorized, or misconfigured.
 
 on:
   workflow_dispatch:
@@ -25,6 +14,7 @@ on:
       - pnpm-workspace.yaml
       - .node-version
       - .github/workflows/marketing-web.yml
+      - scripts/marketing-web-workflow-policy.test.mjs
   push:
     branches: [main]
     paths:
@@ -34,6 +24,7 @@ on:
       - pnpm-workspace.yaml
       - .node-version
       - .github/workflows/marketing-web.yml
+      - scripts/marketing-web-workflow-policy.test.mjs
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -63,6 +54,8 @@ jobs:
         run: npm install --global pnpm@11.18.0
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify marketing deployment source policy
+        run: node --test scripts/marketing-web-workflow-policy.test.mjs
       - name: Typecheck @gooddealer/marketing-web
         run: pnpm --filter @gooddealer/marketing-web typecheck
       - name: Build @gooddealer/marketing-web
@@ -73,12 +66,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: check
-    # Push-to-main (and manual dispatch) only — PR runs stop at `check`.
-    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+    # Manual dispatch and PRs are check-only. Promotion requires this main-push event.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .node-version
@@ -94,6 +88,4 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          pnpm exec wrangler pages project create gooddealer-marketing --production-branch main || true
-          pnpm exec wrangler pages deploy dist --project-name gooddealer-marketing --branch main
+        run: pnpm exec wrangler pages deploy dist --project-name gooddealer-marketing --branch main

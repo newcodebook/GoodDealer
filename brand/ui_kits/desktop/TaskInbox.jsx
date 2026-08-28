@@ -4,7 +4,6 @@ function TaskInbox(){
   const [cur,setCur]=React.useState(1);
   const [doneIds,setDoneIds]=React.useState([]);
   const [automation,setAutomation]=React.useState("user"); // user | software | paused
-  const [grant,setGrant]=React.useState(false);
   const tasks=window.GD_DATA.tasks;
   const t=tasks.find(x=>x.id===cur);
   const isDone=doneIds.includes(cur);
@@ -32,7 +31,7 @@ function TaskInbox(){
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <Button icon={<I.ExternalLink size={13}/>}>打开平台并登录</Button>
-            <Button variant="gold" onClick={()=>setGrant(true)}>授权执行</Button>
+            <Button variant="gold" onClick={()=>setAutomation("software")}>授权执行</Button>
             <Button variant="ghost" onClick={()=>setDoneIds(d=>isDone?d.filter(i=>i!==cur):[...d,cur])}>{isDone?"重新打开":"我已完成"}</Button>
             <Button variant="ghost" icon={<I.RefreshCw size={13}/>}>重新检查</Button>
           </div>
@@ -58,9 +57,6 @@ function TaskInbox(){
         </div>
       </Panel>
     </div>
-    <window.GDBrowserAutomationGrant open={grant} platform={t.platform} account={t.account} planCount={t.domains||1}
-      planAction={t.platform==="Afternic"?"上传价格 CSV":"下架 Listing"}
-      onClose={()=>setGrant(false)} onGrant={()=>{setGrant(false);setAutomation("software");}}/>
   </div>;
 }
 window.GDTaskInbox=TaskInbox;

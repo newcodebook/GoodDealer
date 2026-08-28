@@ -1,0 +1,121 @@
+{
+  "validSubmitRequests": [
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "0123456789abcdef0123456789abcdef",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": {
+        "status": "available",
+        "zone": {
+          "zoneId": "0123456789abcdef0123456789abcdef",
+          "zoneName": "example.com",
+          "status": "active"
+        },
+        "records": [
+          {
+            "recordId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "fqdn": "a.example.com",
+            "type": "A",
+            "content": "192.0.2.1",
+            "ttl": 1,
+            "proxied": false,
+            "providerVersionToken": "2026-08-20T05:59:59.123Z"
+          },
+          {
+            "recordId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "fqdn": "txt.example.com",
+            "type": "TXT",
+            "content": "verified",
+            "ttl": 2147483647,
+            "proxied": false,
+            "providerVersionToken": "2026-08-20T05:59:59.999Z"
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "fedcba9876543210fedcba9876543210",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:01Z",
+      "result": {
+        "status": "unavailable",
+        "zoneId": "0123456789abcdef0123456789abcdef",
+        "code": "rate_limited",
+        "retryAfterSeconds": 86400
+      }
+    }
+  ],
+  "invalidSubmitRequests": [
+    {
+      "schemaVersion": 1,
+      "observationId": "missing-source",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": { "status": "unavailable", "zoneId": "0123456789abcdef0123456789abcdef", "code": "permission", "retryAfterSeconds": null }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "fractional-observed-at",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00.000Z",
+      "result": { "status": "unavailable", "zoneId": "0123456789abcdef0123456789abcdef", "code": "permission", "retryAfterSeconds": null }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "upper-zone",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": { "status": "unavailable", "zoneId": "0123456789ABCDEF0123456789ABCDEF", "code": "permission", "retryAfterSeconds": null }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "bad-source-version",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": {
+        "status": "available",
+        "zone": { "zoneId": "0123456789abcdef0123456789abcdef", "zoneName": "example.com", "status": "active" },
+        "records": [{ "recordId": "a", "fqdn": "example.com", "type": "A", "content": "192.0.2.1", "ttl": 1, "proxied": false, "providerVersionToken": "2026-08-20T05:59:59Z" }]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "bad-retry",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": { "status": "unavailable", "zoneId": "0123456789abcdef0123456789abcdef", "code": "permission", "retryAfterSeconds": 1 }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "forbidden-token",
+      "connectionId": "connection-cloudflare-1",
+      "observedAt": "2026-08-20T06:00:00Z",
+      "result": { "status": "unavailable", "zoneId": "0123456789abcdef0123456789abcdef", "code": "invalid_observation", "retryAfterSeconds": null, "token": "must-not-cross" }
+    }
+  ],
+  "validSubmitResponses": [
+    { "schemaVersion": 1, "accepted": true, "observationSequence": 1, "disposition": "current" },
+    { "schemaVersion": 1, "accepted": true, "observationSequence": 9007199254740991, "disposition": "stale" }
+  ],
+  "invalidSubmitResponses": [
+    { "schemaVersion": 1, "accepted": true, "observationSequence": 0, "disposition": "current" },
+    { "schemaVersion": 1, "accepted": true, "observationSequence": 1, "disposition": "superseded" },
+    { "schemaVersion": 1, "accepted": true, "observationSequence": 9007199254740992, "disposition": "current" }
+  ]
+}

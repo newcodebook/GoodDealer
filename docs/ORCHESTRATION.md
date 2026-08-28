@@ -1,95 +1,132 @@
-# GoodDealer 多代理开发工作流程规范与执行计划
+# GoodDealer 多代理执行与收敛流程
 
-状态：Active Process
-适用范围：由主对话代理（Master Agent）通过 Specability 运行时编排子代理推进正式编码的全部工作。
+## 目的与权威顺序
 
-## 1. 角色与职责（RACI）
+本文件规定如何交付已接受范围内的变更，而不重新决定产品范围、运行策略或 Gate。它的目标是让
+相互独立的 Desktop 与 Cloud API 本地实现可以并行推进，同时保持信任边界、外部声明边界和当前
+源码事实不被弱化。
 
-| 角色 | 职责 | 边界 |
+按以下顺序读取事实和规则：
+
+1. `docs/adr/0013-…0018-…` 与 [决策登记](OPEN_DECISIONS.md) 是已接受的决定约束；它们不证明
+   某能力已经组合、部署或可用。
+2. 当前源码和拥有模块的 README 是当前组合事实；若普通文档与源码冲突，更新普通文档，不能以
+   旧说明、夹具或设计稿覆盖源码事实。
+3. [路线图](ROADMAP.md) 是简明 v1 能力地图和依赖关系的唯一所有者；本文件不复制它。
+4. [验证边界](VERIFICATION.md) 是详细垂直验收、负向控制和外部资格证据的唯一所有者。
+5. 本文件只拥有执行角色、证据、整合和文档收敛规则。外部资格登记不安排本地开发，也不替代
+   主代理的产品决定。
+
+普通当前文档只描述当前有效状态。仅 `docs/reviews/` 等明确为历史记录的材料可以保留历史；不能
+把废弃路径、旧阶段顺序或未修复状态伪装成当前设计的兼容说明。
+
+## 强制任务框架
+
+主代理在派发任何实现前建立一个 Task Frame。一个工作包只有在其框架完整时才可以开始；缺少
+不可逆决定或非授权条件时，构建者按“升级”规则处理，而不是猜测。
+
+| 字段 | 必须写明的内容 |
+| --- | --- |
+| 目标与允许声明 | 要实现的 [路线图](ROADMAP.md) 能力、可由本地证据支持的精确声明，以及不允许的可用性/发行声明。 |
+| 固定范围与非目标 | 仅限账户激活与个人默认工作区、资产只读投影、Cloudflare API-only Zone/DNS 只读观察；以及所有适用排除项。 |
+| 拥有 runtime 与信任域 | Desktop 展示、最小 Host/秘密保管、Cloud 身份/授权/API、持久化或连接器中的唯一负责人。 |
+| 合同与输入 | 已冻结的公开合同、声明导出、从 `unknown` 验证的位置、服务器端范围来源和错误/脱敏规则。 |
+| 源码现状 | 被检查的入口、当前未组合状态或已知范围缺陷；不得用目标设计替换该快照。 |
+| 依赖与共享面 | 允许并行的工作、真正的本地依赖、共享路由/迁移/导出/应用入口/文档，以及每个共享面的整合负责人。 |
+| 本地验收 | 垂直路径、模块测试、负向控制、所需文档/术语/链接扫描和对应的 [验证边界](VERIFICATION.md) 行。 |
+| 外部资格 | 仅链接会限制部署、真实提供商、原生、发行或 Gate 声明的资格；它们不是本地工作包的开始或继续条件。 |
+| 收敛与接受 | 独立评估者、整合/收敛负责人、修复责任人和最终验证责任人。 |
+
+## 角色、所有权与接受边界
+
+| 角色 | 职责 | 不得做的事 |
 | --- | --- | --- |
-| 用户（Owner） | 产品决策、one-way-door 决策、Gate 关闭所需的人类动作（真机证据、签名、独立审查、GateClosureAttestation）、最终验收 | `owner_ref` 见 [PHASE0_EXECUTION_PLAN.md §3](phase0/PHASE0_EXECUTION_PLAN.md) |
-| Master Agent（主对话代理） | Accountable：意图对齐、任务框架、切片排序、契约裁决、派发/监控/升级、提交前的独立复验、向用户汇报 | **不写业务代码**；不代替 evaluator；不签发任何 Attestation |
-| Architect 子代理 | 单个切片的契约与设计决策（Port/DTO/模块边界），产出 design artifact | 只设计不实现 |
-| Builder 子代理 | 有界实现任务：代码 + 同切片测试 + 文档同步 | 不得越出 assignment 模块范围；不得触碰 Fallback 禁区 |
-| Evaluator 子代理 | 独立验证：不信任 Builder 声明，逐条 criterion 判定 PASS/FAIL/UNCERTAIN | 与 Builder 上下文严格隔离 |
-| Reconciler 子代理 | 文档与实现漂移校正（按需） | 只在 Master 判断有漂移风险时使用 |
+| 主代理（master） | 解释用户目标，建立 Task Frame，处理产品/架构决定，指定整合负责人，并接受最终结果。 | 把沉默当成新决定，或把本地测试升级为外部资格。 |
+| 架构角色 | 当改动跨 runtime、信任域、持久化所有权、公开合同或共享面时，先产生可执行设计：边界、合同、依赖、负向控制和整合方案。 | 把设计当作当前实现或外部可用性证据。 |
+| 有界构建者 | 只修改已分配模块/文件，实施最小合同与测试，记录实际证据，并向共享面负责人交付清晰接口。 | 扩大范围、深层导入、替另一构建者拥有的共享面收尾，或接受自己的工作。 |
+| 独立评估者 | 重新检查需求、变更、负向边界和证据；复现相关验证并给出可操作的 PASS/FAIL。 | 评估自己实现的工作，或以静态阅读替代应运行的验证。 |
+| 整合/收敛负责人 | 唯一整合共享入口、迁移目录、公开导出、跨包合同和当前文档事实的人；协调修复与重新评估。 | 以编辑文档掩盖源码问题，或在未经过独立评估时宣布任一构建者已被接受。 |
 
-## 2. 运行时协议（Specability）
+每个工作包有一个构建者和一个独立评估者；每个共享面有一个具名整合负责人。多个构建者可以
+并行修改互不重叠的能力面，但不可同时拥有同一应用入口、公开导出、迁移目录、协议定义或同一
+当前源码快照。跨模块访问只能经过已声明的包导出、合同或端口。
 
-所有第一级子代理必须由 SQLite 运行时的 assignment 和 handoff packet 背书，禁止手写弱化 prompt 替代。
-
-标准派发路径：
-
-```text
-specability task start "<任务描述>" --execution-mode <mode> --recording-mode <mode> --json
-specability delegate --stdin --json     # 一次性完成 assignment + ready review + handoff packet
-# 用返回的 hostSpawn.payload 作为 Agent 工具的完整 prompt 启动子代理
-# 子代理首个动作：specability agent start --dispatch <dispatch_id> --host claude --json
-```
-
-- assignment 必须包含：role、name、objective、desired-outcome、done-when、至少一个 deliverable、至少一个 success criterion；已知的 modules / context / constraints / open questions 不得省略。
-- **workProfileKeywords 必填**（凡可能触及门禁面）：用具体表面事实描述，如 `stored user content`、`OS keychain`、`auth token`、`SQLite migration`、`tenant isolation`、`Tauri IPC command`；框架名（React/Fastify）只是次要上下文。涉及凭据、信任域、认证的 assignment 会被运行时强制路由 security-review advisor，其威胁面记录是 Builder 契约的一部分。
-- 派发不是 fire-and-forget：派发后用 `specability task recover --task <id> --json` 监控；`needs_input`/`blocked` 的子代理在等待答复，必须及时读取并解决。
-- 子代理不与用户对话。可逆且在授权范围内的决策自行保守选择并记录假设；实质改变目标/边界/安全态势/验收证据的决策一律升级给 Master，由 Master 决定是否上升到用户。
-
-## 3. 质量闭环（PDCA + 熔断）
-
-1. Evaluator 独立评审，逐条 criterion 给出结构化判定；FAIL 必须附复现步骤。
-2. 每轮修订只针对一个具名 finding，重新派发 Builder（范围限定到该 finding）。
-3. 复验必须用**新的** Evaluator（职责分离），不接受"Builder 说已修复"。
-4. 熔断：≤2 轮不收敛即停止重试，携带轮次历史升级给用户。
-5. Master 最终验收前必须亲自跑一次新鲜验证（至少根 `pnpm check`），不接受任何自报结果。
-6. 任务收口：`specability task finish --status <done|concerns|blocked|needs_input> ...`，并向用户提交整合的 Task Outcome Report（目标回顾 / 执行摘要 / 结果影响 / 验证证据 / 残余风险 / 收口判断），不转发子代理流水账。
-
-模型选择：Builder 一律走 Codex 子代理（`codex:codex-rescue` 转发，`--model gpt-5.6-sol --effort high --write`），handoff packet 以 `--host codex` 生成后作为任务文本一次性转发；Evaluator 与 Architect 用 Claude opus（独立性与跨模块判断）。Builder 与 Evaluator 因此天然跨模型，进一步强化职责分离。
-
-## 4. 项目特定约束（叠加在 Specability 协议之上，全部进 handoff packet 的 constraints）
-
-1. **契约先行**：每个纵切以冻结 `packages/protocol` 契约开头；契约未冻结，消费端 Builder 不启动。
-2. **不越 Gate**：所有 Fallback 保持——生产 Endpoint Registry deny-all、不接真实凭据、不产生真实外部写入、Admin Route 不注册。子代理无权解除任何 Fallback。
-3. **根门禁**：每个切片必须通过根 `pnpm check`；原生/Cloud 事务结论必须走 [PHASE0_EXECUTION_PLAN.md §4](phase0/PHASE0_EXECUTION_PLAN.md) 对应环境 Profile，Portable 单测不能替代。
-4. **工程规则**：`AGENTS.md` 全文对每个子代理生效（命名、边界、`unknown` 校验、fail-closed、秘密不入 TS/日志、测试随模块、不改生成文件）。
-5. **证据纪律**：子代理报告不构成 Gate 证据；Gate 状态只以 [PHASE0_GATE_REGISTER.md](phase0/PHASE0_GATE_REGISTER.md) 为准。真机安装、签名/公证、长期归档、独立 Security Review、GateClosureAttestation 是人类动作，识别到即升级用户，不得由代理模拟。
-6. **文档一致性**：切片落地时同步更新受影响的 docs/契约/示例；文档只描述当前有效状态。
-7. **单人 Owner 现实**：`owner_ref` 全部为同一人，Gate 要求的"独立 Reviewer/Approver"不能由子代理充当；涉及时升级用户决定处理方式。
-
-## 5. 执行计划
-
-### 5.1 当前锚点
-
-- P0-05（Port DTO → Tauri Adapter → Rust Handler 最小纵切）已完成并进根门禁。
-- P0-06 compile-check 集合已完成；R0-11 仍 In Progress（缺真机打包/签名/归档/Attestation）。
-- P0-07（SQLCipher）Hosted 三平台 bundle 技术证据已完成，仍缺 Windows 11 24H2 真机、签名/公证、长期归档、独立 Security Review 与 Attestation；**收口前不进入 P0-08**。
-- WS-A、WS-B、WS-C 的首批实现/审计均已完成；`pnpm evidence:wp2` 已建立 account-gate Portable/Cloud Fixture 证据生产器，但不解除任何 Fallback。
-- Gate 台账无 Closed 项；生产能力全部处于 Fallback。
-
-### 5.2 工作流（Workstream）划分
-
-按"无共享契约可并行、不得越过前置 Gate"的规则，首批三个工作流：
-
-| WS | 内容 | Gate 依赖 | 编排形态 |
-| --- | --- | --- | --- |
-| WS-A（已完成） | 设计系统迁移：按 `brand/` 事实源在 `packages/ui` 建立生产组件与 token 接线，替换占位实现 | 无 | 生产组件、token 与测试已进入根门禁 |
-| WS-B（已完成首纵切） | P0-15/P0-19 账号门禁与 Auth 纵切：冻结 `protocol/account`、`protocol/devices` 契约与 Auth DTO；建立 cloud `identity/licensing/devices` Fixture、不能表达成功的内部密码 Port、Secure Host Session Store Port、client-core `runtime-mode` 只读消费端及 `pnpm evidence:wp2` | R0-06/R0-16（Fallback 内实现，不解除） | 仅 Portable/Cloud Fixture；含失败关闭的内部密码输入边界，但不含真实密码验证、WebView→IPC、Keychain、生产 Route 或真实凭据 |
-| WS-C（已完成审计） | P0-07 收尾审计：三平台 Artifact 与 Manifest 技术资格已核对，剩余人类动作已列明 | R0-08/R0-16 | Hosted 技术证据不替代真机、签名/公证、长期归档、独立审查或 Attestation |
-
-上述首批工作流已经收口；下一波仍按“无共享契约可并行、契约先行、不得越 Gate”执行。
-
-### 5.3 每个切片的固定节奏
+## 可执行的工作流
 
 ```text
-契约冻结（Architect） → 实现+测试（Builder，对 Fixture） → 独立评审（Evaluator）
-→ Master 新鲜验证（pnpm check + 抽查） → 文档同步 → Task Outcome Report → 用户验收
+master → architect（仅跨边界设计）→ 有界构建者（可并行）→ 独立评估者
+       → 具名整合/收敛负责人 → 修复后重新评估 → 新鲜最终验证
 ```
 
-### 5.4 已知升级点（需要用户决策/动作）
+1. **框定。** 主代理确认 Task Frame、固定 v1 非目标、当前源码快照和所有共享面。对跨边界或
+   不可逆设计问题，先交给架构角色；没有这种问题时可直接进入有界构建。
+2. **设计并冻结合同。** 架构角色只在需要时定义最小公开合同、可信范围来源、输入验证、失败
+   关闭行为和整合责任。冻结合同允许 Desktop 展示/Host 适配准备与 Cloud API/持久化实现并行。
+3. **并行的有界构建。** 构建者在自己的 runtime 和文件所有权内实施、运行本地测试并记录证据。
+   后续外部资格不能阻止已接受范围内的 Desktop 或 Cloud API 本地工作；真实外部效果仍必须失败
+   关闭，直到其专属资格存在。
+4. **独立评估。** 评估者对每个完成的工作包复查 Task Frame 和 [验证边界](VERIFICATION.md)，运行
+   相关正向与负向检查，并检查它没有创建未授权的共享面或外部声明。
+5. **整合与修复。** 整合/收敛负责人按冻结合同合并共享面。任何 FAIL 回到拥有该缺陷的构建者；
+   修复后必须重新运行失败的验证，并由独立评估者重新评估。评估者或整合者不能把“看起来正确”
+   当作修复证据。
+6. **新鲜最终验证。** 在所有修复和最后一个共享面变更之后，主代理或指定最终验证者重新读取
+   当前入口和共享面，运行适用检查、术语/文档扫描、链接扫描和 `git diff --check`。之前的 PASS
+   不能替代这次新鲜验证；只有此步骤完成才可作出 Task Frame 中允许的完成声明。
 
-- Windows 11 24H2 真机打包与安装证据（P0-06/P0-07）。
-- 签名/公证身份与受保护环境（Release Engineering）。
-- 长期不可变归档位置与流程。
-- Gate 独立 Reviewer/Approver 的现实安排（单人 Owner 与独立性要求的冲突）。
-- W5 真实写入前的 TP 测试账号与可丢弃资产准备。
+“并行”只描述本地实现的调度，不取消真正的本地依赖，也不让 Cloudflare、部署、KMS/HSM、原生
+签名、公证、发行或 Gate 资格成为本地代码的替代物。
 
-### 5.5 后续波次
+## 共享面和收敛规则
 
-当前按 [PHASE0_EXECUTION_PLAN.md §2](phase0/PHASE0_EXECUTION_PLAN.md) 进入 W2：先做 P0-16 的 Bootstrap、DeviceSwitch、Lease 与 Key lifecycle Fixture/contract 纵切，再推进设备同步、Query 与 Cloud Boundary。其后依次为 W3（Backup/Recovery、Tenant Job）→ W4（双引擎 Browser/Consent/Ticket）→ W5（Connector 与受控真实写入，内部顺序固定）。每个波次开工前由 Master 重新对照 Gate 台账确认前置未被越过。
+共享面负责人必须在 Task Frame 中明确。至少包括：
+
+- 应用组合根、路由注册、Tauri command/capability、Cloud 公共路由和作业注册；
+- 协议 schema、包的 public export、迁移目录和跨语言绑定；
+- v1 合同所引用的当前源码快照、链接、术语和验收文档。
+
+构建者可提出变更，但只有共享面负责人能够整合它。文档收敛负责人不重写另一个构建者的主文本：
+它把不一致、失效链接、重复能力定义或过时源码断言退回给相应所有者，并在修复后重新检查。
+任何共享面改动都使相关的本地垂直验收和最终验证失效，直到重新取得证据。
+
+## 不可协商的最终状态规则
+
+- **没有兼容或过渡路径。** 不创建或描述旧路由、双 session/data 路径、兼容 API、别名包、临时
+  adapter、迁移桥、提供商 fallback 或浏览器 fallback。它们不能作为到 v1 的“临时”路线；凭据
+  迁移同样不属于 v1。
+- **运行时夹具和视觉资料没有权威。** 夹具、gallery、样例数据、disabled 控件、视觉 callback 和
+  `brand/` 只能作为展示/QA 参考，绝不进入生产 Desktop/UI 依赖图，不能授予授权、Host/Cloud 状态、
+  提供商结果或验收证据。
+- **共享 UI 的唯一边界。** 生产应用只能通过 `@gooddealer/ui` 的 public exports、声明的 tokens/assets，
+  以及 `@gooddealer/i18n` 的 public exports 使用共享展示资源。禁止 `brand/` 运行时 import、
+  `@gooddealer/ui-brand`、未声明别名和深层 import。
+- **没有凭空的视觉设计权威。** 设计参考可以被有意地移植为已公开的 UI/i18n 资源，但构建者不得
+  发明未被任务或已拥有设计资料要求的视觉系统（no invented visual design），更不能把视觉决定
+  当作产品、授权或外部事实。
+- **固定排除项仍失败关闭。** v1 没有浏览器、写入、市场/注册商、团队/多工作区、CSV import、
+  凭据迁移或任何外部 mutation；手工说明不构成浏览器或执行旁路。
+
+## 当前源码范围与声明控制
+
+当前 Desktop production 入口只使用窄本地业务 adapter；Tauri 精确注册三个本地业务命令，策略
+测试拒绝任何清单漂移。Cloud 的公开业务路由和周期作业为空，真实授权注入、同步、Provider 和
+发行仍未完成，因此产品 readiness 声明仍不成立。
+
+`secure-host-core` 的私有 Cloudflare Zone/DNS 只读 Service 是本地实现证据，不是已组合能力。
+后续 Desktop/Host/Cloud 整合者必须增加显式 capability allowlist 并重新检查入口、注册表和
+可达性；不得把未组合 feature、视觉资料或已删除 connector 路径恢复为兼容、过渡或 fixture 路线。
+
+## 证据、文档扫描与升级
+
+每个构建者在运行时记录目标、改动、实际命令输出、失败/跳过理由、未解决风险和需要的外部资格。
+最终收敛至少要完成：
+
+1. 重新检查生产入口、Tauri wiring、Cloud 路由/作业注册、连接器注册和共享 public exports；
+2. 搜索每个受影响的能力、排除项、`Current source state`、`Decision constraint`、兼容/夹具/品牌
+   术语，删除互相矛盾的普通当前文档；
+3. 验证内部 Markdown 链接和 [路线图](ROADMAP.md) 与 [验证边界](VERIFICATION.md) 的单一所有权；
+4. 运行适用的模块检查；完整仓库变更运行根 `pnpm check`；最后运行 `git diff --check`。
+
+有材料性歧义时，构建者只向主代理升级，并提供：待决定事项、影响、可选方案、推荐方案、不依赖
+该决定可继续的工作，以及已检查的源码/文档证据。构建者不直接向用户索取新决定，也不以未收到
+回复为由扩大范围。

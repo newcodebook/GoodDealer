@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "deviceSwitchRequestId": "switch-1",
   "capabilityJti": "bootstrap-jti-1",
   "stepNumber": 1,
@@ -7,7 +7,7 @@
   "expectedWorkflowRevision": 0,
   "stepKind": "pin_checkpoint",
   "stepPayload": {
-    "targetRevision": 5,
+    "targetServerRevision": 5,
     "workspaceSchemaVersion": 1,
     "entityDigests": []
   },

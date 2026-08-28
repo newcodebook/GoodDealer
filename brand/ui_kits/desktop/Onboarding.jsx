@@ -1,6 +1,6 @@
 // 接入 / Onboarding — first-run wizard. The journey entrance.
 // Steps: 欢迎 → 设备门禁(签发 ActiveDeviceLease) → 连接账户 → 首次导入 → 完成.
-// Hardware-wallet mind: this device becomes Active, local key issues the lease (Epoch 1).
+// Hardware-wallet mind: the Host creates the device key and Cloud signs the bound lease (Epoch 1).
 const {Button:OBtn,Input:OInput,Badge:OBadge,ProgressBar:OProg,StatusDot:ODot}=window.GoodDealerDesignSystem_b5b0b6;
 
 const STEPS=[["welcome","欢迎"],["device","设备门禁"],["connect","连接账户"],["import","首次导入"],["done","完成"]];
@@ -18,7 +18,7 @@ function Stepper({idx}){
           {st==="done"?<window.GDI.Check size={12}/>:i+1}</span>
         {l}
       </div>;})}
-    <div style={{marginTop:"auto",fontSize:10,color:"var(--gd-text-faint)",lineHeight:1.6,padding:"0 4px"}}>本地执行 · 云端同步</div>
+    <div style={{marginTop:"auto",fontSize:10,color:"var(--gd-text-faint)",lineHeight:1.6,padding:"0 4px"}}>本地执行 · 云端同步<br/>凭据经本地密钥加密，永不上云</div>
   </div>;
 }
 const Field=({label,children})=><div style={{display:"flex",flexDirection:"column",gap:6}}><span className="gd-t-label">{label}</span>{children}</div>;
@@ -77,17 +77,17 @@ function Onboarding({onFinish,onSkip,startIdx=0}){
     // 1 device
     <div key="d" style={{display:"flex",flexDirection:"column",height:"100%"}}>
       <div style={{display:"flex",flexDirection:"column",gap:16,marginTop:6}}>
-        <div><div style={{fontSize:17,fontWeight:600,color:"var(--text-1)"}}>设备门禁</div><div style={{fontSize:12,color:"var(--gd-text-muted)",marginTop:4}}>将此设备设为<b style={{color:"var(--gd-gold)",fontWeight:500}}>执行设备（Active）</b>。本地密钥签发 ActiveDeviceLease，同一时刻仅一台设备可执行写操作。</div></div>
+        <div><div style={{fontSize:17,fontWeight:600,color:"var(--text-1)"}}>设备门禁</div><div style={{fontSize:12,color:"var(--gd-text-muted)",marginTop:4}}>将此设备设为<b style={{color:"var(--gd-gold)",fontWeight:500}}>执行设备（Active）</b>。本机生成设备密钥，Cloud 校验后签发 ActiveDeviceLease；同一时刻仅一台设备可执行写操作。</div></div>
         <div style={{display:"flex",gap:14,alignItems:"flex-start",padding:"16px",border:"1px solid var(--gd-line)",borderRadius:9,background:"var(--gd-panel)"}}>
           <img src="../../assets/icons/keyhole.svg" width="40" height="40" alt="" style={{flex:"none",opacity:activated?1:.8}}/>
           <div style={{flex:1,display:"flex",flexDirection:"column",gap:12}}>
             <Field label="设备名称"><OInput size="md" value={dev} onChange={e=>setDev(e.target.value)} disabled={activating||activated} style={{maxWidth:280}}/></Field>
             {!activated?<div style={{display:"flex",alignItems:"center",gap:10}}>
               <OBtn variant="primary" disabled={activating||!dev} onClick={activate} icon={activating?<I.RefreshCw size={14} style={{animation:"gd-spinner 1s linear infinite"}}/>:<I.Shield size={14}/>}>{activating?"正在安全激活…":"生成本地密钥并激活"}</OBtn>
-              {activating&&<span style={{fontSize:12,color:"var(--gd-blue)"}}>校验设备指纹 · 签发 Lease</span>}
+              {activating&&<span style={{fontSize:12,color:"var(--gd-blue)"}}>校验设备指纹 · 等待 Cloud 签发 Lease</span>}
             </div>:<div style={{display:"flex",alignItems:"center",gap:10}}>
               <ODot kind="active"/><OBadge tone="gold">ACTIVE</OBadge>
-              <span style={{fontSize:12,color:"var(--gd-text-muted)"}}>已签发 ActiveDeviceLease · <span style={{fontFamily:"var(--font-mono)",color:"var(--gd-gold)"}}>Epoch 1</span></span>
+              <span style={{fontSize:12,color:"var(--gd-text-muted)"}}>Cloud 已签发 ActiveDeviceLease · <span style={{fontFamily:"var(--font-mono)",color:"var(--gd-gold)"}}>Epoch 1</span></span>
             </div>}
           </div>
         </div>

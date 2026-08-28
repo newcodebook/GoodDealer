@@ -10,7 +10,10 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gallery:dev": "vite gallery",
+    "gallery:build": "vite build gallery --outDir /tmp/gooddealer-ui-gallery-dist --emptyOutDir",
+    "gallery:smoke": "python3 gallery/browser-smoke.py"
   },
   "peerDependencies": {
     "react": "19.2.8"

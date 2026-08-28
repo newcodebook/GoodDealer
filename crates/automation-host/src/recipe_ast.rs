@@ -49,7 +49,7 @@ pub enum FieldCategory {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "step_type", rename_all = "snake_case")]
 pub enum RecipeStep {
-    /// Navigate the WebView to a URL.
+    /// Navigate the `WebView` to a URL.
     Navigate(NavigateStep),
     /// Wait for a CSS selector to appear in the DOM.
     WaitForSelector(WaitForSelectorStep),
@@ -189,6 +189,11 @@ impl std::error::Error for RecipeError {}
 
 impl Recipe {
     /// Parse and validate from JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecipeError`] when the JSON is invalid, contains unknown
+    /// fields or step types, or has no executable steps.
     pub fn from_json(json: &str) -> Result<Self, RecipeError> {
         let recipe: Self =
             serde_json::from_str(json).map_err(|e| RecipeError::InvalidJson(e.to_string()))?;
@@ -229,7 +234,8 @@ mod tests {
 
     #[test]
     fn wait_for_selector_step_parses() {
-        let json = r##"{"step_type":"wait_for_selector","selector":"#login-form","timeout_ms":10000}"##;
+        let json =
+            r##"{"step_type":"wait_for_selector","selector":"#login-form","timeout_ms":10000}"##;
         let step: RecipeStep = serde_json::from_str(json).unwrap();
         assert!(matches!(step, RecipeStep::WaitForSelector(_)));
     }
@@ -300,7 +306,8 @@ mod tests {
 
     #[test]
     fn rejects_fill_credit_card() {
-        let json = r##"{"step_type":"fill_credit_card","selector":"#cc","value":"4111111111111111"}"##;
+        let json =
+            r##"{"step_type":"fill_credit_card","selector":"#cc","value":"4111111111111111"}"##;
         assert!(serde_json::from_str::<RecipeStep>(json).is_err());
     }
 

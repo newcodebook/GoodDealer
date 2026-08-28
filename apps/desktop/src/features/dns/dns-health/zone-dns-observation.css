@@ -1,0 +1,76 @@
+.gd-zone-dns-observation,
+.gd-zone-dns-read {
+  min-width: 0;
+}
+
+.gd-zone-dns-observation {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.gd-zone-dns-observation > .gd-panel {
+  flex: 1;
+}
+
+.gd-zone-dns-read {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.gd-zone-dns-controls,
+.gd-zone-dns-footer,
+.gd-zone-dns-footer > span,
+.gd-zone-dns-value {
+  display: flex;
+  align-items: center;
+}
+
+.gd-zone-dns-controls {
+  gap: 8px;
+}
+
+.gd-zone-dns-controls .gd-field:first-child {
+  width: min(100%, 280px);
+}
+
+.gd-zone-dns-value {
+  min-width: 0;
+  gap: 7px;
+}
+
+.gd-zone-dns-value code,
+.gd-zone-dns-read td code {
+  overflow-wrap: anywhere;
+  font: 12px var(--font-mono);
+}
+
+.gd-zone-dns-type {
+  color: var(--gd-blue);
+}
+
+.gd-zone-dns-footer {
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--gd-text-faint);
+  font-size: 11px;
+}
+
+.gd-zone-dns-footer > span {
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .gd-zone-dns-controls,
+  .gd-zone-dns-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gd-zone-dns-controls .gd-field:first-child {
+    width: 100%;
+  }
+}

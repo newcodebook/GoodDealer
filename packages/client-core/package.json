@@ -11,7 +11,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gooddealer/connector-sdk": "workspace:*",
     "@gooddealer/protocol": "workspace:*",
     "zod": "4.4.3"
   }

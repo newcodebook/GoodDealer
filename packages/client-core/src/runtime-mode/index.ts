@@ -17,10 +17,9 @@ import type {
   DeviceBindingList,
   DeviceSwitchRequest,
   DeviceSwitchRequestView,
-  RuntimeStatus,
 } from "@gooddealer/protocol/devices";
 
-export type RuntimeMode = RuntimeStatus["mode"];
+export * from "./presentation-models";
 
 export type AccountSurface =
   | "locked"
@@ -61,11 +60,6 @@ export interface SessionInventoryView {
   sessions: readonly SessionInventoryItemView[];
 }
 
-/** Read-only Host boundary. Runtime authority and transitions remain in Rust. */
-export interface RuntimeStatusPort {
-  getStatus(): Promise<RuntimeStatus>;
-}
-
 /** Read-only account gate projection produced by the authoritative boundary. */
 export interface AccountGatePort {
   getGateStatus(): Promise<AccountGateStatus>;
@@ -101,45 +95,6 @@ function isActiveOnlyCapability(scope: CloudScope): boolean {
     scope === "workspace:mutate" ||
     scope.startsWith("platform:")
   );
-}
-
-/**
- * Pure UI routing projection. The Host and Cloud have already decided every
- * authority input; this function performs no clock arithmetic and grants
- * nothing.
- */
-export function projectAccountSurface(
-  runtime: RuntimeStatus,
-  gate: AccountGateStatus,
-  lease: ActiveDeviceLeaseStatus,
-  authority: DeviceAuthorityProjection,
-): AccountSurfaceView {
-  let surface: AccountSurface;
-
-  if (runtime.mode === "locked" || gate.outcome === "locked") {
-    surface = "locked";
-  } else if (authority.role === "none") {
-    surface = "locked";
-  } else if (runtime.mode === "local_continuation") {
-    surface = "local_continuation";
-  } else if (runtime.mode === "standby" || gate.outcome === "standby_eligible") {
-    surface = "standby_read_only";
-  } else if (runtime.mode === "activating" || runtime.mode === "draining") {
-    surface = "activating";
-  } else if (authority.role === "standby") {
-    surface = "standby_read_only";
-  } else {
-    surface = lease.held ? "active" : "standby_read_only";
-  }
-
-  return {
-    surface,
-    lockReason: gate.lockReason,
-    capabilities:
-      surface === "active"
-        ? [...authority.scopes]
-        : authority.scopes.filter((scope) => !isActiveOnlyCapability(scope)),
-  };
 }
 
 /**

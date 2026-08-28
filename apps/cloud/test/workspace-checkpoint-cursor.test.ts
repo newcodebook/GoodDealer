@@ -44,12 +44,12 @@ function mutation(sequence: number): SubmittedSyncMutation {
     workspaceId: scope.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
-    entityId: "asset-1",
-    baseRevision: sequence - 1,
+    entityId: "asset-1.test",
+    baseServerRevision: sequence - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${sequence}`] }],
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 7,
-    mutationSequence: sequence,
+    deviceMutationSequence: sequence,
   };
 }
 
@@ -90,10 +90,10 @@ function createHarness() {
   const checkpointState = {
     readEntityDigestsAt: async (
       checkpointScope: typeof scope,
-      throughRevision: number,
+      throughServerRevision: number,
       digest: (bytes: Uint8Array) => Promise<Uint8Array>,
     ) => {
-      const entityDigests = await portfolio.readEntityDigestsAt(checkpointScope, throughRevision, digest);
+      const entityDigests = await portfolio.readEntityDigestsAt(checkpointScope, throughServerRevision, digest);
       return corruptCheckpointRead
         ? entityDigests.map((entry) => ({ ...entry, digest: zeroDigest }))
         : entityDigests;
@@ -110,7 +110,7 @@ function createHarness() {
     time,
   });
   revisions.bindWorkspace(scope, 1);
-  portfolio.seedDomainAsset(scope, { entityId: "asset-1" });
+  portfolio.seedDomainAsset(scope, { entityId: "asset-1.test" });
   leases.bindDevice(scope, "device-a", "active", 7);
   leases.bindDevice(scope, "device-b", "standby", 7);
   return {
@@ -142,7 +142,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
     await ingestThrough(subject, 2);
     expect(await subject.checkpoints.buildCheckpoint(scope, "checkpoint-bad", 1)).toMatchObject({
       accepted: true,
-      checkpoint: { status: "building", publishedAt: null, throughRevision: 1 },
+      checkpoint: { status: "building", publishedAt: null, throughServerRevision: 1 },
     });
     expect(await subject.checkpoints.selectPublishedCheckpoint(scope, "checkpoint-bad")).toBeNull();
     expect(await subject.checkpoints.publishCheckpoint(scope, "checkpoint-bad")).toEqual({
@@ -183,14 +183,14 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
     expect(await subject.checkpoints.pinCheckpoint(scope, "checkpoint-1", "2026-08-15T08:11:00Z")).toBe(true);
     await subject.checkpoints.releasePin(scope, "checkpoint-1", "workflow-1");
     expect(subject.checkpoints.pinCount(scope)).toBe(1);
-    expect(subject.checkpoints.compactionWatermark(scope)).toBe(1);
+    expect(subject.checkpoints.compactedThroughServerRevision(scope)).toBe(1);
     expect(subject.checkpoints.compact(scope, 2)).toEqual({
       accepted: false,
       code: "COMPACTION_WATERMARK_BLOCKED",
     });
     expect(subject.checkpoints.compact(scope, 1)).toEqual({
       accepted: true,
-      compactionWatermark: 1,
+      compactedThroughServerRevision: 1,
       deletedMutationCount: 1,
     });
     expect(subject.checkpoints.supersedeCheckpoint(scope, "checkpoint-1")).toEqual({
@@ -203,18 +203,18 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       checkpoint: { status: "superseded" },
     });
 
-    expect(subject.revisions.resolveWorkspace(scope)).toMatchObject({ compactionWatermark: 1 });
+    expect(subject.revisions.resolveWorkspace(scope)).toMatchObject({ compactedThroughServerRevision: 1 });
     expect(subject.revisions.assignedRevisions(scope)).toEqual([2, 3]);
     expect(subject.ingest.readCommitted(scope, 1, 3).map((entry) => entry.serverRevision)).toEqual([2, 3]);
     await expect(subject.reader.readPage(scope, {
-      fromRevisionExclusive: 0,
-      throughRevisionInclusive: 3,
+      fromServerRevisionExclusive: 0,
+      throughServerRevisionInclusive: 3,
       cursor: null,
       pageLimit: 3,
     })).rejects.toEqual(new MutationPageReadError("MUTATION_PAGE_COMPACTED"));
     expect((await subject.reader.readPage(scope, {
-      fromRevisionExclusive: 1,
-      throughRevisionInclusive: 3,
+      fromServerRevisionExclusive: 1,
+      throughServerRevisionInclusive: 3,
       cursor: null,
       pageLimit: 3,
     })).mutations.map((entry) => entry.serverRevision)).toEqual([2, 3]);
@@ -237,7 +237,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
         schemaVersion: 1,
         workspaceId: scope.workspaceId,
         deviceId: "device-b",
-        lastReadRevision: 0,
+        readThroughServerRevision: 0,
         leaseExpiresAt: "2026-08-15T08:01:00Z",
         status: "active",
         resumeRequirement: "none",
@@ -337,15 +337,15 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
     await ingestThrough(subject, 2);
     const bootstrapPort: MutationPagePort = subject.reader;
     const pageRequest = {
-      fromRevisionExclusive: 0,
-      throughRevisionInclusive: 2,
+      fromServerRevisionExclusive: 0,
+      throughServerRevisionInclusive: 2,
       cursor: null,
       pageLimit: 1,
     } as const;
     const first = await bootstrapPort.readPage(scope, pageRequest);
     await expect(bootstrapPort.readPage(scope, {
-      fromRevisionExclusive: 2,
-      throughRevisionInclusive: 1,
+      fromServerRevisionExclusive: 2,
+      throughServerRevisionInclusive: 1,
       cursor: null,
       pageLimit: 1,
     })).rejects.toMatchObject({ code: "MUTATION_PAGE_RANGE_INVALID" });
@@ -354,31 +354,31 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
     expect(JSON.stringify(repeated)).toBe(JSON.stringify(first));
     expect((await bootstrapPort.readPage(scope, {
       ...pageRequest,
-      fromRevisionExclusive: 1,
+      fromServerRevisionExclusive: 1,
       cursor: first.nextCursor,
     })).mutations.map((entry) => entry.serverRevision)).toEqual([2]);
     await expect(bootstrapPort.readPage(
       { accountId: "account-2", workspaceId: scope.workspaceId },
-      { ...pageRequest, fromRevisionExclusive: 1, cursor: first.nextCursor },
+      { ...pageRequest, fromServerRevisionExclusive: 1, cursor: first.nextCursor },
     )).rejects.toMatchObject({ code: "WORKSPACE_TENANT_UNRESOLVED" });
 
     expect(await subject.readerCursors.openReaderCursor(scope, "device-b", 0)).toMatchObject({ accepted: true });
     expect(await subject.readerCursors.readAfter(scope, "device-b", 1)).toMatchObject({
       accepted: true,
-      page: { throughRevisionInclusive: 3, returnedThroughRevision: 1 },
+      page: { throughServerRevisionInclusive: 3, returnedThroughServerRevision: 1 },
     });
     await ingestThrough(subject, 4);
     expect(await subject.readerCursors.readAfter(scope, "device-b", 1)).toMatchObject({
       accepted: true,
-      page: { throughRevisionInclusive: 3, returnedThroughRevision: 2 },
+      page: { throughServerRevisionInclusive: 3, returnedThroughServerRevision: 2 },
     });
     expect(await subject.readerCursors.readAfter(scope, "device-b", 1)).toMatchObject({
       accepted: true,
-      page: { throughRevisionInclusive: 3, returnedThroughRevision: 3, nextCursor: null },
+      page: { throughServerRevisionInclusive: 3, returnedThroughServerRevision: 3, nextCursor: null },
     });
     expect(await subject.readerCursors.readAfter(scope, "device-b", 1)).toMatchObject({
       accepted: true,
-      page: { throughRevisionInclusive: 4, returnedThroughRevision: 4, nextCursor: null },
+      page: { throughServerRevisionInclusive: 4, returnedThroughServerRevision: 4, nextCursor: null },
     });
   });
 
@@ -448,7 +448,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       readTargetBinding: () => ({ signingKeyId: "key-b", signingKeyVersion: 1 }),
     });
     const pin = signedStep({
-      schemaVersion: 2,
+      schemaVersion: 1,
       deviceSwitchRequestId: "switch-1",
       capabilityJti: "capability-1",
       stepNumber: 1,
@@ -457,7 +457,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       stepKind: "pin_checkpoint",
       stepPayload: {
         checkpointId: checkpoint.checkpointId,
-        checkpointRevision: checkpoint.throughRevision,
+        checkpointThroughServerRevision: checkpoint.throughServerRevision,
         checkpointDigest: checkpoint.checkpointDigest,
       },
     });
@@ -466,7 +466,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       nextStepNonce: "nonce-2",
     });
     const fetch = signedStep({
-      schemaVersion: 2,
+      schemaVersion: 1,
       deviceSwitchRequestId: "switch-1",
       capabilityJti: "capability-1",
       stepNumber: 2,
@@ -475,17 +475,17 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       stepKind: "fetch_mutations",
       stepPayload: {
         pinnedCheckpointId: checkpoint.checkpointId,
-        pinnedCheckpointRevision: checkpoint.throughRevision,
+        pinnedCheckpointThroughServerRevision: checkpoint.throughServerRevision,
         pinnedCheckpointDigest: checkpoint.checkpointDigest,
-        fromRevisionExclusive: 1,
-        throughRevisionInclusive: 3,
+        fromServerRevisionExclusive: 1,
+        throughServerRevisionInclusive: 3,
         cursor: null,
         pageLimit: 256,
       },
     });
     expect(await workflow.executeStep(presentedCapability, fetch)).toMatchObject({
       acceptedStepNumber: 2,
-      resultPayload: { mutationPage: { returnedThroughRevision: 3, nextCursor: null } },
+      resultPayload: { mutationPage: { returnedThroughServerRevision: 3, nextCursor: null } },
     });
   });
 });

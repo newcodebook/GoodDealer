@@ -1,6 +1,16 @@
 export const ACCOUNT_PROTOCOL_VERSION = 1 as const;
 
 export {
+  ACCOUNT_ACTIVATION_SCHEMA_VERSION,
+  accountActivationRequestSchema,
+  accountActivationResponseSchema,
+} from "./activation";
+export type {
+  AccountActivationRequest,
+  AccountActivationResponse,
+} from "./activation";
+
+export {
   AUTH_SESSION_SCHEMA_VERSION,
   authLoginRequestSchema,
   authRefreshRequestSchema,

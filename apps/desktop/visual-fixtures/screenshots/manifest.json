@@ -1,0 +1,534 @@
+{
+  "schemaVersion": 1,
+  "canary": "GD_D_UI_V1_VISUAL_FIXTURES",
+  "catalogIntent": "synthetic-local-qa-only",
+  "presentations": [
+    {
+      "presentation": "shell",
+      "productionSource": "apps/desktop/src/app-shell/index.ts",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cases": [
+        {
+          "id": "shell-default",
+          "state": "default",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic accepted-route shell layout",
+          "actions": [
+            "navigate-eligible-route"
+          ],
+          "screenshot": {
+            "file": "screenshots/shell-default.png",
+            "captureStatus": "captured",
+            "sha256": "6914a6d3cedb80a108552ab2f9aca775d5449e9ee109feebabb47bae4cb84f3d"
+          }
+        },
+        {
+          "id": "shell-unavailable",
+          "state": "unavailable",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic unavailable banner layout",
+          "actions": [
+            "navigate-eligible-route"
+          ],
+          "screenshot": {
+            "file": "screenshots/shell-unavailable.png",
+            "captureStatus": "captured",
+            "sha256": "cfb84ddcff4a7042a21262eacc5675410fb6cc48ff87fcbc60422d4878bf4fad"
+          }
+        },
+        {
+          "id": "shell-uncertain",
+          "state": "uncertain",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic uncertain banner layout",
+          "actions": [
+            "navigate-eligible-route"
+          ],
+          "screenshot": {
+            "file": "screenshots/shell-uncertain.png",
+            "captureStatus": "captured",
+            "sha256": "139dbf75df19af33bd6f7d33059ea823423fa1ed38351f4ecadcae78e4c6c703"
+          }
+        }
+      ]
+    },
+    {
+      "presentation": "activation",
+      "productionSource": "apps/desktop/src/features/runtime-mode/activation/index.ts",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cases": [
+        {
+          "id": "activation-pending",
+          "state": "pending",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic pending activation state",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/activation-pending.png",
+            "captureStatus": "captured",
+            "sha256": "3432660fe2ce46908936236d48573473741e0e69f6b3952be3dc22acc32cd17a"
+          }
+        },
+        {
+          "id": "activation-accepted",
+          "state": "accepted",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic accepted personal-default workspace state",
+          "actions": [
+            "continue"
+          ],
+          "screenshot": {
+            "file": "screenshots/activation-accepted.png",
+            "captureStatus": "captured",
+            "sha256": "5c32c5e79eca907dded69439d5ebb72d8b5ded33dc2a46327518a0d6e0f50a3c"
+          }
+        },
+        {
+          "id": "activation-rejected",
+          "state": "rejected",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic retryable rejection state",
+          "actions": [
+            "retry"
+          ],
+          "screenshot": {
+            "file": "screenshots/activation-rejected.png",
+            "captureStatus": "captured",
+            "sha256": "a493cd7c3008b05fdfbee6ac92558fe723f63b67a31bf9686823ff0ffdda70b5"
+          }
+        }
+      ]
+    },
+    {
+      "presentation": "asset-list",
+      "productionSource": "apps/desktop/src/features/portfolio/index.ts",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cases": [
+        {
+          "id": "asset-list-loading",
+          "state": "loading",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic loading projection",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/asset-list-loading.png",
+            "captureStatus": "captured",
+            "sha256": "011522cde32463ffcbf285c55d47b62ab06ea547fbd4cb8e8acdeb5ff80e51e7"
+          }
+        },
+        {
+          "id": "asset-list-empty",
+          "state": "empty",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic empty read projection",
+          "actions": [
+            "local-query"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-list-empty.png",
+            "captureStatus": "captured",
+            "sha256": "da5b0c888b1b0d3de750e8dbe904bc07b03fa8247a755737566c2b107a4d1896"
+          }
+        },
+        {
+          "id": "asset-list-unavailable",
+          "state": "unavailable",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic unavailable read projection",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/asset-list-unavailable.png",
+            "captureStatus": "captured",
+            "sha256": "4e1be19af6c0b6010187470f13ffa84370fdbd98dd0824bba65e2c01d06bcab7"
+          }
+        },
+        {
+          "id": "asset-list-error",
+          "state": "error",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic closed projection error",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/asset-list-error.png",
+            "captureStatus": "captured",
+            "sha256": "5349676fe8c2d775035496cbea2233e036bf0bdce4b5e3b654529a5a01ce1c9d"
+          }
+        },
+        {
+          "id": "asset-list-ready",
+          "state": "ready",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic confirmed read projection",
+          "actions": [
+            "open-asset",
+            "local-query",
+            "local-window"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-list-ready.png",
+            "captureStatus": "captured",
+            "sha256": "70b5514b8b7d4bc0cbb31517fa25861c9753bab8d1eabd0d502b479202be89a4"
+          }
+        },
+        {
+          "id": "asset-list-stale",
+          "state": "stale",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic stale read projection",
+          "actions": [
+            "open-asset",
+            "local-query",
+            "local-window"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-list-stale.png",
+            "captureStatus": "captured",
+            "sha256": "9001a7e0cc652793573744a9ebae0cfe2184394dde7cfdd214b91e1e6dae27f2"
+          }
+        },
+        {
+          "id": "asset-list-uncertain",
+          "state": "uncertain",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic conflicted read projection",
+          "actions": [
+            "open-asset",
+            "local-query",
+            "local-window"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-list-uncertain.png",
+            "captureStatus": "captured",
+            "sha256": "741f2d3b3899c7c1e0f3aa0212cd7047344ba67cada0c69ef5c5b1b55005c638"
+          }
+        }
+      ]
+    },
+    {
+      "presentation": "asset-detail",
+      "productionSource": "apps/desktop/src/features/portfolio/index.ts",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cases": [
+        {
+          "id": "asset-detail-loading",
+          "state": "loading",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic loading detail projection",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-loading.png",
+            "captureStatus": "captured",
+            "sha256": "d332cf48c7399e3abf9be3f7f1729de846c03215726c92c0a00c1cb2d4ba9277"
+          }
+        },
+        {
+          "id": "asset-detail-unavailable",
+          "state": "unavailable",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic unavailable detail projection",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-unavailable.png",
+            "captureStatus": "captured",
+            "sha256": "64757f14f128b68d65da96d89a6f38a0c72718e5d5d408a541395b0521574244"
+          }
+        },
+        {
+          "id": "asset-detail-error",
+          "state": "error",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic closed detail error",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-error.png",
+            "captureStatus": "captured",
+            "sha256": "722b42c5c741afa653fd91280a45ac0fa3814cd1d95469b0751de766a992db66"
+          }
+        },
+        {
+          "id": "asset-detail-ready",
+          "state": "ready",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic confirmed detail projection",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-ready.png",
+            "captureStatus": "captured",
+            "sha256": "8c705c840387e222f7e52fdd65ab019d398016e711feca71ed79b941c52cbc84"
+          }
+        },
+        {
+          "id": "asset-detail-stale",
+          "state": "stale",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic stale detail projection",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-stale.png",
+            "captureStatus": "captured",
+            "sha256": "810a6c534a4e8c99092874a7f0198d0ac486400b983fc829c111cf41897bbc4f"
+          }
+        },
+        {
+          "id": "asset-detail-uncertain",
+          "state": "uncertain",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic conflicted detail projection",
+          "actions": [
+            "back"
+          ],
+          "screenshot": {
+            "file": "screenshots/asset-detail-uncertain.png",
+            "captureStatus": "captured",
+            "sha256": "c75e07f4c511986dbf7b19af4bbf1152638eaca7d6cc6ee5e5bf5681b75ed75d"
+          }
+        }
+      ]
+    },
+    {
+      "presentation": "cloudflare-connection",
+      "productionSource": "apps/desktop/src/features/connections/index.ts",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cases": [
+        {
+          "id": "connection-loading",
+          "state": "loading",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic loading observation",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/connection-loading.png",
+            "captureStatus": "captured",
+            "sha256": "d6aae51e3c9923347b72a766d2785b9bf40dc77996f953ed5549a072f5c6e4bf"
+          }
+        },
+        {
+          "id": "connection-not-configured",
+          "state": "not-configured",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic manual not-configured guidance",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/connection-not-configured.png",
+            "captureStatus": "captured",
+            "sha256": "14affb4409e1d81cdba4479f89e747c057678b1d86d9c32e3c7760eb16547993"
+          }
+        },
+        {
+          "id": "connection-checking",
+          "state": "checking",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic checking observation",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/connection-checking.png",
+            "captureStatus": "captured",
+            "sha256": "674c55bbca04ad21a441739432779f4ada80f60c5aeb3dfe4daad25b3739f2d8"
+          }
+        },
+        {
+          "id": "connection-available",
+          "state": "available",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic confirmed Cloudflare observation",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/connection-available.png",
+            "captureStatus": "captured",
+            "sha256": "26f8ad7f0b000536c36beb106a85c4ea50b6a991b5aee22c55eacc8fb4cceecb"
+          }
+        },
+        {
+          "id": "connection-stale",
+          "state": "stale",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic retained stale observation",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/connection-stale.png",
+            "captureStatus": "captured",
+            "sha256": "511510825306835c0380f8c1d376a5902d6811cccd70a90127b9302a153156fd"
+          }
+        },
+        {
+          "id": "connection-uncertain",
+          "state": "uncertain",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic uncertain observation",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/connection-uncertain.png",
+            "captureStatus": "captured",
+            "sha256": "bd4112c409beb2123df6658801eef9676fefb05dc15c8c5531106978f8cb04fa"
+          }
+        },
+        {
+          "id": "connection-unavailable",
+          "state": "unavailable",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic unavailable observation",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/connection-unavailable.png",
+            "captureStatus": "captured",
+            "sha256": "621f819516c225f766b24a37287d8895f2a0a8a502ff4c46d0bf63744125401e"
+          }
+        },
+        {
+          "id": "connection-error",
+          "state": "error",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic closed projection error",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/connection-error.png",
+            "captureStatus": "captured",
+            "sha256": "ee73740cd14cb6da29fa016272489aedca21924169cc15753acaa8622cdfe032"
+          }
+        }
+      ]
+    },
+    {
+      "presentation": "zone-dns-observation",
+      "productionSource": "apps/desktop/src/features/dns/index.ts",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cases": [
+        {
+          "id": "dns-loading",
+          "state": "loading",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic loading DNS observation",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/dns-loading.png",
+            "captureStatus": "captured",
+            "sha256": "d44e4324cec64725840e9615dbcdab4f9a28e77b579194e7b755be4019798710"
+          }
+        },
+        {
+          "id": "dns-empty",
+          "state": "empty",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic empty DNS observation",
+          "actions": [],
+          "screenshot": {
+            "file": "screenshots/dns-empty.png",
+            "captureStatus": "captured",
+            "sha256": "f204c97e7a912d0179d19bfdedaa76f497f0af6d8ced624eae304c640f055a10"
+          }
+        },
+        {
+          "id": "dns-available",
+          "state": "available",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic confirmed DNS observation with sanitized TXT read display",
+          "actions": [
+            "local-query",
+            "local-filter"
+          ],
+          "screenshot": {
+            "file": "screenshots/dns-available.png",
+            "captureStatus": "captured",
+            "sha256": "0dcf74083334aa1f976791ad81550e4655a5d6e504c67f10841b67254bd3205d"
+          }
+        },
+        {
+          "id": "dns-stale",
+          "state": "stale",
+          "locale": "zh-CN",
+          "fixtureIntent": "Synthetic stale DNS observation",
+          "actions": [
+            "local-query",
+            "local-filter",
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/dns-stale.png",
+            "captureStatus": "captured",
+            "sha256": "5bcfe2c49988c0d0c9c94fbf9a99958da25aa97c376a888da25c4d7dbf602e98"
+          }
+        },
+        {
+          "id": "dns-uncertain",
+          "state": "uncertain",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic conflicted DNS observation",
+          "actions": [
+            "local-query",
+            "local-filter",
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/dns-uncertain.png",
+            "captureStatus": "captured",
+            "sha256": "a106cd7cf5622b71ae608748bf109962bf14bb343778fda30113646abd30cf11"
+          }
+        },
+        {
+          "id": "dns-unavailable",
+          "state": "unavailable",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic unavailable DNS observation",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/dns-unavailable.png",
+            "captureStatus": "captured",
+            "sha256": "dc201736e1e48663686127abe03e6f25d74d4295820c82cbc536e0fd72bdd968"
+          }
+        },
+        {
+          "id": "dns-error",
+          "state": "error",
+          "locale": "en-US",
+          "fixtureIntent": "Synthetic closed DNS projection error",
+          "actions": [
+            "retry-read"
+          ],
+          "screenshot": {
+            "file": "screenshots/dns-error.png",
+            "captureStatus": "captured",
+            "sha256": "c02b9ecb2bfc2c9644957b2a563b0b19596cd92e28c45bf2bad9189694981912"
+          }
+        }
+      ]
+    }
+  ]
+}

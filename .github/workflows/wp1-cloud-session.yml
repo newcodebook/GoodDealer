@@ -1,0 +1,57 @@
+name: wp1-cloud-session
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CI: true
+
+jobs:
+  cloud-session:
+    name: wp1-cloud-session-ubuntu-24.04-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EVIDENCE_CI_JOB_NAME: wp1-cloud-session-ubuntu-24.04-x64
+      EVIDENCE_EXPECTED_PLATFORM: linux
+      EVIDENCE_EXPECTED_ARCH: x64
+      EVIDENCE_OWNER_ROLE: Secure Host Lead
+      EVIDENCE_OWNING_MODULES: secure-host-core,cloud-session
+      EVIDENCE_REQUIRED_REVIEWER_ROLE: Security Reviewer
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Initialize WP-1 cloud-session evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile quality --slice cloud-session --prepare
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@11.18.0
+      - name: Run portable cloud-session Fixture evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-wp0-evidence.mjs --profile quality --slice cloud-session
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: wp1-cloud-session-${{ github.run_id }}-${{ github.run_attempt }}-evidence
+          path: .artifacts/wp1/cloud-session
+          include-hidden-files: true
+          retention-days: 90

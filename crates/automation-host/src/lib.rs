@@ -1,34 +1,59 @@
-use std::any::TypeId;
+#![recursion_limit = "256"]
 
-use gooddealer_secure_host_core::RuntimeMode;
+// Removal condition: delete these dead-code allowances when a signed native
+// engine gate permits the Desktop composition root to consume the private seam.
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod browser_runtime;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod download_policy;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod engine;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod navigation_policy;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod permission_policy;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod popup_policy;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod profile;
+#[allow(
+    dead_code,
+    reason = "portable foundation is intentionally production-uncomposed"
+)]
+mod session;
 
-// P0-28: Policy modules
-pub mod download_policy;
-pub mod navigation_policy;
-pub mod upload_policy;
-
-// P0-27: Session context
-pub mod session;
-
-// P0-28: Profile
-pub mod profile;
-
-// P0-29: Recipe AST, injection, callback, webview, evidence
-pub mod callback_handler;
-pub mod evidence;
-pub mod injection;
 pub mod recipe_ast;
-pub mod webview_manager;
-
-// P0-30: Ticket consumer
 pub mod ticket_consumer;
 
-#[must_use]
-pub fn webview_runtime_marker() -> TypeId {
-    TypeId::of::<wry::WebView>()
+/// Production browser automation is deliberately unavailable until the native
+/// WebView2/WKWebView gate has signed platform evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserEngineAvailability {
+    Unavailable,
 }
 
 #[must_use]
-pub const fn automation_is_allowed(mode: RuntimeMode) -> bool {
-    matches!(mode, RuntimeMode::Active)
+pub fn browser_engine_availability() -> BrowserEngineAvailability {
+    engine::production_availability()
 }

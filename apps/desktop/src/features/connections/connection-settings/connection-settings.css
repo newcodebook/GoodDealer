@@ -1,0 +1,70 @@
+.gd-cloudflare-connection {
+  width: min(100%, 720px);
+}
+
+.gd-cloudflare-connection .gd-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.gd-cloudflare-connection-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.gd-cloudflare-connection-heading > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gd-cloudflare-connection-heading strong {
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.gd-cloudflare-connection-heading div > span,
+.gd-cloudflare-connection-footer {
+  color: var(--gd-text-faint);
+  font-size: 11px;
+}
+
+.gd-cloudflare-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--gd-warning);
+  border-radius: 9px;
+  background: var(--gd-warning-tint);
+  color: var(--gd-warning);
+  font: 600 11px var(--font-mono);
+}
+
+.gd-cloudflare-connection-footer,
+.gd-cloudflare-connection-footer > span {
+  display: flex;
+  align-items: center;
+}
+
+.gd-cloudflare-connection-footer {
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.gd-cloudflare-connection-footer > span {
+  gap: 6px;
+}
+
+@media (max-width: 560px) {
+  .gd-cloudflare-connection-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

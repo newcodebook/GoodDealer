@@ -10,6 +10,7 @@ import {
   type BootstrapStepResult,
 } from "@gooddealer/protocol/devices";
 import {
+  WORKSPACE_SYNC_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   encodeWorkspaceEntityDigestsInput,
   checkpointDescriptorSchema,
@@ -79,7 +80,7 @@ export class BootstrapFixtureService {
   #workflowRevision: number;
   #nextStepNumber = 1;
   #phase: "awaiting_pin" | "fetching" | "awaiting_digest" | "completed" = "awaiting_pin";
-  #returnedThroughRevision: number;
+  #returnedThroughServerRevision: number;
   #nextCursor: string | null = null;
   readonly #accepted = new Map<number, AcceptedPresentation>();
   readonly #deviceSwitchRequestId: string;
@@ -95,7 +96,7 @@ export class BootstrapFixtureService {
     this.#deviceSwitchRequestId = options.deviceSwitchRequestId;
     this.#capabilityJti = options.capabilityJti;
     this.#checkpoint = checkpointDescriptorSchema.parse(options.checkpoint);
-    this.#returnedThroughRevision = this.#checkpoint.throughRevision;
+    this.#returnedThroughServerRevision = this.#checkpoint.throughServerRevision;
     this.#stepNonceFor = options.stepNonceFor;
     this.#now = options.now ?? (() => new Date());
     this.#pinTtlSeconds = options.pinTtlSeconds ?? 600;
@@ -110,11 +111,11 @@ export class BootstrapFixtureService {
     if (options.mutations.length > 4_096) throw new TypeError("fixture mutation chain exceeds the in-memory limit");
     this.#mutations = options.mutations.map((mutation) => syncMutationSchema.parse(mutation));
 
-    if (this.#checkpoint.throughRevision + this.#mutations.length > Number.MAX_SAFE_INTEGER) {
+    if (this.#checkpoint.throughServerRevision + this.#mutations.length > Number.MAX_SAFE_INTEGER) {
       throw new TypeError("fixture mutation chain exceeds the safe revision range");
     }
 
-    let expectedRevision = this.#checkpoint.throughRevision + 1;
+    let expectedRevision = this.#checkpoint.throughServerRevision + 1;
     for (const mutation of this.#mutations) {
       if (mutation.workspaceId !== this.#checkpoint.workspaceId || mutation.serverRevision !== expectedRevision) {
         throw new TypeError("fixture mutations must form one contiguous checkpoint-bound workspace chain");
@@ -183,7 +184,7 @@ export class BootstrapFixtureService {
     if (request.stepKind !== "pin_checkpoint") return reject("STEP_OUT_OF_ORDER");
     if (
       request.stepPayload.checkpointId !== this.#checkpoint.checkpointId ||
-      request.stepPayload.checkpointRevision !== this.#checkpoint.throughRevision ||
+      request.stepPayload.checkpointThroughServerRevision !== this.#checkpoint.throughServerRevision ||
       request.stepPayload.checkpointDigest !== this.#checkpoint.checkpointDigest
     ) {
       return reject("CHECKPOINT_MISMATCH");
@@ -195,7 +196,7 @@ export class BootstrapFixtureService {
       stepKind: "pin_checkpoint",
       resultPayload: {
         checkpointId: this.#checkpoint.checkpointId,
-        checkpointRevision: this.#checkpoint.throughRevision,
+        checkpointThroughServerRevision: this.#checkpoint.throughServerRevision,
         checkpointDigest: this.#checkpoint.checkpointDigest,
         pinExpiresAt: new Date(this.#now().getTime() + this.#pinTtlSeconds * 1000)
           .toISOString()
@@ -208,42 +209,42 @@ export class BootstrapFixtureService {
     request: BootstrapStepRequest,
   ): BootstrapResultDraft | BootstrapFixtureRejection {
     if (request.stepKind !== "fetch_mutations") return reject("STEP_OUT_OF_ORDER");
-    const targetRevision = this.#checkpoint.throughRevision + this.#mutations.length;
+    const targetServerRevision = this.#checkpoint.throughServerRevision + this.#mutations.length;
     const payload = request.stepPayload;
     if (
       payload.pinnedCheckpointId !== this.#checkpoint.checkpointId ||
-      payload.pinnedCheckpointRevision !== this.#checkpoint.throughRevision ||
+      payload.pinnedCheckpointThroughServerRevision !== this.#checkpoint.throughServerRevision ||
       payload.pinnedCheckpointDigest !== this.#checkpoint.checkpointDigest
     ) {
       return reject("CHECKPOINT_MISMATCH");
     }
     if (
-      payload.fromRevisionExclusive !== this.#returnedThroughRevision ||
-      payload.throughRevisionInclusive !== targetRevision ||
+      payload.fromServerRevisionExclusive !== this.#returnedThroughServerRevision ||
+      payload.throughServerRevisionInclusive !== targetServerRevision ||
       payload.cursor !== this.#nextCursor
     ) {
       return reject("MUTATION_CURSOR_MISMATCH");
     }
 
-    const offset = this.#returnedThroughRevision - this.#checkpoint.throughRevision;
+    const offset = this.#returnedThroughServerRevision - this.#checkpoint.throughServerRevision;
     const mutations = this.#mutations.slice(offset, offset + payload.pageLimit);
-    const returnedThroughRevision =
-      mutations.length === 0 ? this.#returnedThroughRevision : mutations[mutations.length - 1]!.serverRevision;
-    const nextCursor = returnedThroughRevision < targetRevision ? `bootstrap-after-${returnedThroughRevision}` : null;
+    const returnedThroughServerRevision =
+      mutations.length === 0 ? this.#returnedThroughServerRevision : mutations[mutations.length - 1]!.serverRevision;
+    const nextCursor = returnedThroughServerRevision < targetServerRevision ? `bootstrap-after-${returnedThroughServerRevision}` : null;
     const pageWithoutDigest = {
-      schemaVersion: 1 as const,
+      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
       workspaceId: this.#checkpoint.workspaceId,
-      fromRevisionExclusive: this.#returnedThroughRevision,
-      throughRevisionInclusive: targetRevision,
+      fromServerRevisionExclusive: this.#returnedThroughServerRevision,
+      throughServerRevisionInclusive: targetServerRevision,
       mutations,
-      returnedThroughRevision,
+      returnedThroughServerRevision,
       nextCursor,
     };
     const mutationPage = mutationPageSchema.parse({
       ...pageWithoutDigest,
       pageDigest: digest(encodeMutationPageDigestInput({ ...pageWithoutDigest, pageDigest: ZERO_DIGEST })),
     });
-    this.#returnedThroughRevision = returnedThroughRevision;
+    this.#returnedThroughServerRevision = returnedThroughServerRevision;
     this.#nextCursor = nextCursor;
     if (nextCursor === null) this.#phase = "awaiting_digest";
     return {
@@ -258,9 +259,9 @@ export class BootstrapFixtureService {
     request: BootstrapStepRequest,
   ): BootstrapResultDraft | BootstrapFixtureRejection {
     if (request.stepKind !== "submit_rebuild_digest") return reject("STEP_OUT_OF_ORDER");
-    const targetRevision = this.#checkpoint.throughRevision + this.#mutations.length;
+    const targetServerRevision = this.#checkpoint.throughServerRevision + this.#mutations.length;
     if (
-      request.stepPayload.targetRevision !== targetRevision ||
+      request.stepPayload.targetServerRevision !== targetServerRevision ||
       request.stepPayload.workspaceSchemaVersion !== this.#checkpoint.workspaceSchemaVersion ||
       !equalBytes(
         encodeWorkspaceEntityDigestsInput(request.stepPayload.entityDigests),
@@ -275,7 +276,7 @@ export class BootstrapFixtureService {
       acceptedStepNumber: request.stepNumber,
       stepKind: "submit_rebuild_digest",
       resultPayload: {
-        verifiedRevision: targetRevision,
+        verifiedRevision: targetServerRevision,
         verifiedDigest: digest(encodeWorkspaceEntityDigestsInput(this.#expectedEntityDigests)),
         accepted: true,
       },

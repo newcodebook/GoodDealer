@@ -1,0 +1,20 @@
+.gd-desktop-shell {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gd-desktop-shell > .gd-appshell {
+  width: 100%;
+}
+
+.gd-desktop-shell .gd-navrail-section {
+  min-height: 100%;
+}
+
+.gd-desktop-shell-title {
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 600;
+}

@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
 
+export { PostgresWorkspaceDeviceAuditDrainLedger } from "./postgres-workspace-device-drain-ledger";
+export type {
+  SecurityAuditPort,
+  ServerAuditPorts,
+  ServiceAuditPort,
+  StaffAuditPort,
+  UserAuditPort,
+} from "./server-audit";
+
 import {
   DRAIN_STREAM_GENESIS_DIGEST,
   deviceAuditEventSchema,

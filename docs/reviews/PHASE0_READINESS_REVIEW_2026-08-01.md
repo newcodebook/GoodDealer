@@ -1,5 +1,7 @@
 # GoodDealer Phase 0 编码前全面审查
 
+> 历史审查记录：本文只描述 2026-08-01 基线及当时的 Finding，不是当前架构、数据库职责或实现状态的事实源。当前状态以仓库根 README、`docs/` 当前态文档和已接受 ADR 为准。
+
 状态：Final Review / Conditional Go
 
 审查日期：2026-08-01

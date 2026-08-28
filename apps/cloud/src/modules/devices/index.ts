@@ -39,8 +39,14 @@ import {
   type VerifiedDrainSealClaims,
 } from "./ports";
 import { DeviceSwitchWorkflow, isTerminal } from "./switch-workflow";
+import {
+  BootstrapCapabilityVerifier,
+  DenyingBootstrapVerificationKeySource,
+} from "./bootstrap-capability-verifier";
+import { DenyingActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
 
 export { BootstrapFixtureService } from "./bootstrap-fixture";
+export { PostgresMutationAuthority } from "./postgres-mutation-authority";
 export type {
   BootstrapFixtureOptions,
   BootstrapFixtureRejection,
@@ -73,6 +79,27 @@ export {
 } from "./drain-verification";
 export type { DrainVerifierOptions } from "./drain-verification";
 export * from "./ports";
+export {
+  DEVICE_DRAIN_LOCK_ORDER,
+  PostgresDeviceDrainTransition,
+} from "./postgres-drain-transition";
+
+/**
+ * Production Bootstrap cryptography has deliberately no key/signer arguments. Until the
+ * corresponding Gates close, both authority sources are concrete Denying implementations.
+ */
+export function createProductionBootstrapCryptoBoundary() {
+  return Object.freeze({
+    verifier: new BootstrapCapabilityVerifier(new DenyingBootstrapVerificationKeySource()),
+    leaseSigner: new DenyingActiveDeviceLeaseSigner(),
+  });
+}
+export type {
+  DrainTransitionRejection,
+  PostgresDrainFaultPoint,
+  PostgresDrainTransitionAttempt,
+  PostgresDrainTransitionResult,
+} from "./postgres-drain-transition";
 export {
   BOOTSTRAP_CAPABILITY_TTL_SECONDS,
   DRAINING_STATE_TTL_SECONDS,

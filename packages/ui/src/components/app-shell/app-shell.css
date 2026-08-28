@@ -1,0 +1,1 @@
+.gd-appshell{display:flex;overflow:hidden;flex:1;flex-direction:column;min-width:0;min-height:0;background:var(--gd-ink)}.gd-appshell-mainrow{display:flex;flex:1;min-height:0}.gd-appshell-column{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}.gd-appshell-content{display:flex;overflow:auto;flex:1;flex-direction:column;min-width:0;min-height:0}

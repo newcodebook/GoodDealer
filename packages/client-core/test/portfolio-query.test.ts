@@ -28,8 +28,8 @@ function result(source: "active_local" | "standby_cloud"): PortfolioQueryResult 
     freshness: {
       source,
       serverRevision: 7,
-      lastCloudSyncAt: timestamp,
-      lastPlatformReadAt: "2026-08-15T11:59:00Z",
+      lastReplicationActivityAt: timestamp,
+      lastSuccessfulProviderObservationAt: "2026-08-15T11:59:00Z",
       canEdit: source === "active_local",
     },
   });

@@ -155,7 +155,7 @@ export class BootstrapWorkflow {
     if (isReplay) return this.#executor.execute(request);
 
     let pendingPin: CheckpointPinRecord | null = null;
-    let targetRevision: number | null = null;
+    let targetServerRevision: number | null = null;
     let targetSchemaVersion: number | null = null;
     if (request.stepKind === "pin_checkpoint") {
       const scope = { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId };
@@ -167,7 +167,7 @@ export class BootstrapWorkflow {
         selected === null ||
         selected.workspaceId !== this.#workflow.workspaceId ||
         selected.checkpointId !== request.stepPayload.checkpointId ||
-        selected.throughRevision !== request.stepPayload.checkpointRevision ||
+        selected.throughServerRevision !== request.stepPayload.checkpointThroughServerRevision ||
         selected.checkpointDigest !== request.stepPayload.checkpointDigest
       ) {
         return reject("CHECKPOINT_MISMATCH");
@@ -183,18 +183,18 @@ export class BootstrapWorkflow {
       }
       pendingPin = {
         checkpointId: selected.checkpointId,
-        checkpointRevision: selected.throughRevision,
+        checkpointThroughServerRevision: selected.throughServerRevision,
         checkpointDigest: selected.checkpointDigest,
         pinExpiresAt,
       };
-      targetRevision = head.serverRevision;
+      targetServerRevision = head.serverRevision;
       targetSchemaVersion = head.workspaceSchemaVersion;
     } else if (request.stepKind === "fetch_mutations") {
-      if (request.stepPayload.throughRevisionInclusive !== snapshot.targetRevision) {
+      if (request.stepPayload.throughServerRevisionInclusive !== snapshot.targetServerRevision) {
         return reject("TARGET_REVISION_MISMATCH");
       }
     } else {
-      if (request.stepPayload.targetRevision !== snapshot.targetRevision) return reject("REBUILD_DIGEST_MISMATCH");
+      if (request.stepPayload.targetServerRevision !== snapshot.targetServerRevision) return reject("REBUILD_DIGEST_MISMATCH");
       if (request.stepPayload.workspaceSchemaVersion !== snapshot.targetSchemaVersion) {
         await this.#failAndRelease("workspace_schema_unsupported");
         return reject("WORKSPACE_SCHEMA_UNSUPPORTED");
@@ -208,8 +208,8 @@ export class BootstrapWorkflow {
           accountId: this.#workflow.accountId,
           workspaceId: this.#workflow.workspaceId,
         }, {
-          fromRevisionExclusive: request.stepPayload.fromRevisionExclusive,
-          throughRevisionInclusive: request.stepPayload.throughRevisionInclusive,
+          fromServerRevisionExclusive: request.stepPayload.fromServerRevisionExclusive,
+          throughServerRevisionInclusive: request.stepPayload.throughServerRevisionInclusive,
           cursor: request.stepPayload.cursor,
           pageLimit: request.stepPayload.pageLimit,
         });
@@ -242,8 +242,8 @@ export class BootstrapWorkflow {
       await this.#failAndRelease("mutation_page_mismatch");
       return reject("MUTATION_CURSOR_MISMATCH");
     }
-    if (pendingPin !== null && targetRevision !== null && targetSchemaVersion !== null) {
-      this.#workflow.recordPin(pendingPin, targetRevision, targetSchemaVersion);
+    if (pendingPin !== null && targetServerRevision !== null && targetSchemaVersion !== null) {
+      this.#workflow.recordPin(pendingPin, targetServerRevision, targetSchemaVersion);
     }
     this.#workflow.recordAcceptedStep(result);
     return result;
@@ -254,7 +254,7 @@ export class BootstrapWorkflow {
     if (statusRejection !== null) return { activated: false, code: statusRejection };
     const snapshot = this.#workflow.snapshot();
     if (!snapshot.rebuildVerified) return { activated: false, code: "REBUILD_DIGEST_MISMATCH" };
-    if (snapshot.targetRevision === null) return { activated: false, code: "REBUILD_DIGEST_MISMATCH" };
+    if (snapshot.targetServerRevision === null) return { activated: false, code: "REBUILD_DIGEST_MISMATCH" };
     const now = this.#trustedTime.now();
     if (snapshot.capability === null || snapshot.capability.consumedAt !== null) {
       return { activated: false, code: "CAPABILITY_CONSUMED" };
@@ -305,7 +305,7 @@ export class BootstrapWorkflow {
     await this.#deviceCursor.activateCursor(
       { accountId: snapshot.accountId, workspaceId: snapshot.workspaceId },
       snapshot.toDeviceId,
-      snapshot.targetRevision,
+      snapshot.targetServerRevision,
     );
     throw new TypeError("lease issuance success is disabled in P0-16");
   }

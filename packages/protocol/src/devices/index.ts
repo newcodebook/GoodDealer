@@ -3,6 +3,8 @@ export const DEVICES_PROTOCOL_VERSION = 1 as const;
 export {
   AUTH_ACCESS_SIGNATURE_DOMAIN,
   AUTH_REFRESH_SIGNATURE_DOMAIN,
+  ACTIVE_DEVICE_LEASE_SIGNATURE_DOMAIN,
+  BOOTSTRAP_CAPABILITY_SIGNATURE_DOMAIN,
   DEVICE_IDENTITY_SCHEMA_VERSION,
   activeDeviceLeaseEnvelopeSchema,
   authAccessEnvelopeSchema,
@@ -12,6 +14,9 @@ export {
   deviceProofSchema,
   encodeAuthAccessSignatureTranscript,
   encodeAuthRefreshSignatureTranscript,
+  encodeActiveDeviceLeaseSignatureTranscript,
+  encodeBootstrapCapabilitySignatureTranscript,
+  encodeBootstrapCapabilitySignedEnvelope,
   entitlementEnvelopeSchema,
   offlineDeviceLeaseEnvelopeSchema,
   signedCredentialEnvelopeSchema,
@@ -19,16 +24,12 @@ export {
 export type {
   AuthAccessEnvelope,
   AuthRefreshEnvelope,
+  ActiveDeviceLeaseEnvelope,
+  BootstrapCapabilityEnvelope,
   DeviceBindingChallenge,
   DeviceProof,
   SignedCredentialEnvelope,
 } from "./device-identity";
-
-export {
-  RUNTIME_STATUS_SCHEMA_VERSION,
-  runtimeStatusSchema,
-} from "./runtime-status";
-export type { RuntimeStatus } from "./runtime-status";
 
 export {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
@@ -64,6 +65,9 @@ export {
   bootstrapStepRequestSchema,
   bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
+  encodeBootstrapStepRequestReplayIdentity,
+  encodeBootstrapStepReplayRequest,
   encodeBootstrapStepResultDigestInput,
+  encodeBootstrapStepResultReplayIdentity,
 } from "./bootstrap-steps";
 export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-steps";

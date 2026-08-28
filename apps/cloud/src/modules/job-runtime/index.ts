@@ -12,6 +12,24 @@ import {
   tenantJobEnvelopeSchema,
 } from "@gooddealer/protocol/jobs";
 
+export {
+  JobKindRegistry,
+  PostgresJobRuntime,
+  productionJobKindDefinitions,
+} from "./postgres-job-runtime";
+export type {
+  EnqueueResult,
+  JobAuthorizationRevalidationPort,
+  JobKindDefinition,
+  JobReplayAuthorizationVerificationPort,
+  JobRuntimeFaultPoint,
+  JobRuntimeRecord,
+  LeasedJobHandle,
+  ReplayAuthorizationRecord,
+  TransactionalJobHandlerPort,
+  VerifiedJobReplayCapability,
+} from "./postgres-job-runtime";
+
 // ---------------------------------------------------------------------------
 // Fixture TTL constants (not production wall clock)
 // ---------------------------------------------------------------------------

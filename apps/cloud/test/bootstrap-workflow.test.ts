@@ -36,7 +36,7 @@ const checkpoint: CheckpointDescriptor = {
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
-  throughRevision: 4,
+  throughServerRevision: 4,
   checkpointDigest: ZERO_DIGEST,
 };
 
@@ -47,12 +47,12 @@ function mutation(serverRevision: number): SyncMutation {
     workspaceId: "workspace-1",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
-    entityId: "domain-example-com",
-    baseRevision: serverRevision - 1,
+    entityId: "example.com",
+    baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 2,
-    mutationSequence: serverRevision,
+    deviceMutationSequence: serverRevision,
     serverRevision,
   };
 }
@@ -69,7 +69,7 @@ function signedRequest(value: Omit<BootstrapStepRequest, "requestDigest">): Boot
 
 function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest">> = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber: 1,
@@ -78,7 +78,7 @@ function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest
     stepKind: "pin_checkpoint",
     stepPayload: {
       checkpointId: checkpoint.checkpointId,
-      checkpointRevision: checkpoint.throughRevision,
+      checkpointThroughServerRevision: checkpoint.throughServerRevision,
       checkpointDigest: checkpoint.checkpointDigest,
     },
     ...overrides,
@@ -90,13 +90,13 @@ function fetchRequest(input: {
   nonce?: string;
   expectedRevision?: number;
   fromRevision?: number;
-  throughRevision?: number;
+  throughServerRevision?: number;
   cursor?: string | null;
   pageLimit?: number;
 } = {}): BootstrapStepRequest {
   const stepNumber = input.stepNumber ?? 2;
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber,
@@ -105,19 +105,19 @@ function fetchRequest(input: {
     stepKind: "fetch_mutations",
     stepPayload: {
       pinnedCheckpointId: checkpoint.checkpointId,
-      pinnedCheckpointRevision: checkpoint.throughRevision,
+      pinnedCheckpointThroughServerRevision: checkpoint.throughServerRevision,
       pinnedCheckpointDigest: checkpoint.checkpointDigest,
-      fromRevisionExclusive: input.fromRevision ?? 4,
-      throughRevisionInclusive: input.throughRevision ?? 6,
+      fromServerRevisionExclusive: input.fromRevision ?? 4,
+      throughServerRevisionInclusive: input.throughServerRevision ?? 6,
       cursor: input.cursor ?? null,
       pageLimit: input.pageLimit ?? 256,
     },
   });
 }
 
-function submitRequest(input: { targetRevision?: number; schemaVersion?: number; expectedRevision?: number } = {}): BootstrapStepRequest {
+function submitRequest(input: { targetServerRevision?: number; schemaVersion?: number; expectedRevision?: number } = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 2,
+    schemaVersion: 1,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber: 3,
@@ -125,7 +125,7 @@ function submitRequest(input: { targetRevision?: number; schemaVersion?: number;
     expectedWorkflowRevision: input.expectedRevision ?? 3,
     stepKind: "submit_rebuild_digest",
     stepPayload: {
-      targetRevision: input.targetRevision ?? 6,
+      targetServerRevision: input.targetServerRevision ?? 6,
       workspaceSchemaVersion: input.schemaVersion ?? 1,
       entityDigests: [{ entityType: "domain_asset", partitionId: null, digest: ENTITY_DIGEST }],
     },
@@ -133,21 +133,21 @@ function submitRequest(input: { targetRevision?: number; schemaVersion?: number;
 }
 
 function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain = mutations): MutationPage {
-  const offset = request.fromRevisionExclusive - checkpoint.throughRevision;
+  const offset = request.fromServerRevisionExclusive - checkpoint.throughServerRevision;
   const selected = chain.slice(offset, offset + request.pageLimit);
-  const returnedThroughRevision = selected.length === 0
-    ? request.fromRevisionExclusive
+  const returnedThroughServerRevision = selected.length === 0
+    ? request.fromServerRevisionExclusive
     : selected[selected.length - 1]!.serverRevision;
-  const nextCursor = returnedThroughRevision < request.throughRevisionInclusive
-    ? `bootstrap-after-${returnedThroughRevision}`
+  const nextCursor = returnedThroughServerRevision < request.throughServerRevisionInclusive
+    ? `bootstrap-after-${returnedThroughServerRevision}`
     : null;
   const draft = {
     schemaVersion: 1 as const,
     workspaceId: "workspace-1",
-    fromRevisionExclusive: request.fromRevisionExclusive,
-    throughRevisionInclusive: request.throughRevisionInclusive,
+    fromServerRevisionExclusive: request.fromServerRevisionExclusive,
+    throughServerRevisionInclusive: request.throughServerRevisionInclusive,
     mutations: selected,
-    returnedThroughRevision,
+    returnedThroughServerRevision,
     nextCursor,
   };
   return mutationPageSchema.parse({
@@ -161,7 +161,7 @@ function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain =
 function createHarness(input: {
   checkpointValue?: CheckpointDescriptor;
   mutationsValue?: readonly SyncMutation[];
-  targetRevision?: number;
+  targetServerRevision?: number;
   targetSchemaVersion?: number;
   enterBootstrapping?: boolean;
   pinAvailable?: boolean;
@@ -247,7 +247,7 @@ function createHarness(input: {
     checkpointCatalog,
     workspaceRevision: {
       readHead: async () => ({
-        serverRevision: input.targetRevision ?? 6,
+        serverRevision: input.targetServerRevision ?? 6,
         workspaceSchemaVersion: input.targetSchemaVersion ?? 1,
       }),
     },
@@ -295,7 +295,7 @@ describe("BootstrapWorkflow", () => {
     expect(JSON.stringify(replay)).toBe(JSON.stringify(pin));
     expect(harness.aggregate.snapshot()).toMatchObject({
       workflowRevision: 2,
-      targetRevision: 6,
+      targetServerRevision: 6,
       targetSchemaVersion: 1,
     });
   });
@@ -378,7 +378,7 @@ describe("BootstrapWorkflow", () => {
     await targetHarness.orchestration.executeStep(targetHarness.presentedCapability, pinRequest());
     expectCode(await targetHarness.orchestration.executeStep(
       targetHarness.presentedCapability,
-      fetchRequest({ throughRevision: 5 }),
+      fetchRequest({ throughServerRevision: 5 }),
     ), "TARGET_REVISION_MISMATCH");
 
     const schemaHarness = createHarness();
@@ -386,7 +386,7 @@ describe("BootstrapWorkflow", () => {
     await schemaHarness.orchestration.executeStep(schemaHarness.presentedCapability, fetchRequest());
     expectCode(await schemaHarness.orchestration.executeStep(
       schemaHarness.presentedCapability,
-      submitRequest({ schemaVersion: 2 }),
+      submitRequest({ schemaVersion: 999 }),
     ), "WORKSPACE_SCHEMA_UNSUPPORTED");
     expect(schemaHarness.aggregate.status).toBe("failed");
   });
@@ -524,18 +524,18 @@ describe("BootstrapWorkflow", () => {
   });
 
   it("§11 risk 2 accepts a legal zero-mutation terminal page at the pinned target", async () => {
-    const harness = createHarness({ mutationsValue: [], targetRevision: 4 });
+    const harness = createHarness({ mutationsValue: [], targetServerRevision: 4 });
     await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
-    const emptyFetch = fetchRequest({ throughRevision: 4 });
+    const emptyFetch = fetchRequest({ throughServerRevision: 4 });
     const result = await harness.orchestration.executeStep(harness.presentedCapability, emptyFetch);
     expect(result).toMatchObject({
       stepKind: "fetch_mutations",
       resultPayload: {
         mutationPage: {
           mutations: [],
-          fromRevisionExclusive: 4,
-          returnedThroughRevision: 4,
-          throughRevisionInclusive: 4,
+          fromServerRevisionExclusive: 4,
+          returnedThroughServerRevision: 4,
+          throughServerRevisionInclusive: 4,
           nextCursor: null,
         },
       },

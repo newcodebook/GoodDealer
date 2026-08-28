@@ -6,6 +6,8 @@ import {
   type WorkspaceEntityDigest,
 } from "@gooddealer/protocol/workspace";
 
+export { PostgresBootstrapProjectionDigestPort } from "./bootstrap-port";
+
 import type { WorkspaceTenantScope } from "../../tenant-scope";
 import { workspaceTenantKey } from "../../tenant-scope";
 
@@ -107,11 +109,11 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       .map(projectRow);
   }
 
-  snapshotAtRevision(scope: WorkspaceTenantScope, throughRevision: number): readonly DomainAssetProjection[] {
-    if (!Number.isSafeInteger(throughRevision) || throughRevision < 0) {
+  snapshotAtRevision(scope: WorkspaceTenantScope, throughServerRevision: number): readonly DomainAssetProjection[] {
+    if (!Number.isSafeInteger(throughServerRevision) || throughServerRevision < 0) {
       throw new TypeError("workspace snapshot revision must be unsigned");
     }
-    const rows = this.#history.get(workspaceTenantKey(scope))?.get(throughRevision);
+    const rows = this.#history.get(workspaceTenantKey(scope))?.get(throughServerRevision);
     if (rows === undefined) throw new TypeError("workspace snapshot revision is unavailable");
     return [...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)).map(projectRow);
   }
@@ -128,10 +130,10 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
 
   async readEntityDigestsAt(
     scope: WorkspaceTenantScope,
-    throughRevision: number,
+    throughServerRevision: number,
     digest: (bytes: Uint8Array) => Promise<Uint8Array>,
   ): Promise<readonly WorkspaceEntityDigest[]> {
-    const canonicalRows = this.snapshotAtRevision(scope, throughRevision)
+    const canonicalRows = this.snapshotAtRevision(scope, throughServerRevision)
       .map(({ lastModifiedRevision: _revision, ...row }) => row);
     return computeDomainAssetEntityDigests(canonicalRows, digest);
   }
@@ -212,3 +214,13 @@ function cloneHistory(
 function cloneMoney<Value extends { readonly currency: string; readonly amount: string } | null>(value: Value): Value {
   return (value === null ? null : { ...value }) as Value;
 }
+
+export {
+  PostgresPortfolioMutationService,
+  PostgresPortfolioProjectionQuery,
+  PostgresPortfolioRepository,
+  type LockedDomainAsset,
+  type PortfolioMaterializationPort,
+  type PortfolioProjectionQueryPort,
+  type PortfolioSyncPersistencePort,
+} from "./postgres-repository";

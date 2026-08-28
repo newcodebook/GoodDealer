@@ -385,9 +385,9 @@ describe("P17 canonical byte layouts", () => {
       proofTranscript: digest(encodeDrainProofSignatureTranscript(proof)),
       proofDigestInput: digest(encodeDrainProofDigestInput(proof)),
     }).toEqual({
-      mutationEnvelope: "-rJZQVVa2abp5-tP_23kG8mnk9-nBBLgtYga1Lpm0AI",
-      executionFactTranscript: "wZjiANMqtQcldrMRSG3TWkClnoIUaVyqoL3pHJgdBQQ",
-      executionFactEnvelope: "UKQxe32lm0Hr4rutp8FSvJHHljNBwdLBhsSnFxnHebo",
+      mutationEnvelope: "UOKWHc4HbPwEcAL65ZqsBZNzHhBQMqMyTiqu0I8P_4g",
+      executionFactTranscript: "3pNPc2ckw_aEBcDuCi4SLjSNCyU5iq8T6E3yuuWOQ9A",
+      executionFactEnvelope: "ZJVnUm-9bcVTZLXRcDGd2LjUq2CU4Z131DeiZzysqNI",
       accountAuditTranscript: "AO_KE_einS6zs8tNRUU5aaT-Pomp4wOnK4YmbsFJYUI",
       accountAuditEnvelope: "fAHpQJ-mescIlXS7HvH8bavuQ8grbXtOcT0qYVdpKCc",
       workspaceAuditTranscript: "qsNW_wdfwHvDVqz2hSNi5FBsSH6hIy6tZ4ktQh8DhQ8",
@@ -425,11 +425,11 @@ describe("P17 canonical byte layouts", () => {
       "workspaceSchemaVersion",
       "entityType",
       "entityId",
-      "baseRevision",
+      "baseServerRevision",
       "changedFields",
       "sourceDeviceId",
       "activeLeaseEpoch",
-      "mutationSequence",
+      "deviceMutationSequence",
       "serverRevision",
     ]);
     expect(Object.keys(submittedResult)).toEqual(Object.keys(enrichedResult).slice(0, -1));
@@ -611,12 +611,12 @@ describe("P17-INV-8 pre-existing workspace corpus remains unchanged", () => {
 
     const zeroSequence = syncMutationSchema.safeParse({
       ...accepted,
-      mutationSequence: 0,
+      deviceMutationSequence: 0,
     });
     expect(zeroSequence.success).toBe(false);
     if (!zeroSequence.success) {
       expect(zeroSequence.error.issues.map(({ path }) => path)).toContainEqual([
-        "mutationSequence",
+        "deviceMutationSequence",
       ]);
     }
 
@@ -638,5 +638,33 @@ describe("P17-INV-8 pre-existing workspace corpus remains unchanged", () => {
         ]),
       );
     }
+  });
+
+  it("represents deletion explicitly and rejects ambiguous upsert/delete payloads", () => {
+    const base = {
+      schemaVersion: 1,
+      mutationId: "mutation-delete",
+      workspaceId: "workspace-delete",
+      workspaceSchemaVersion: 1,
+      entityType: "domain_asset",
+      entityId: "deleted.test",
+      baseServerRevision: 4,
+      sourceDeviceId: "device-delete",
+      activeLeaseEpoch: 1,
+      deviceMutationSequence: 5,
+    } as const;
+    expect(submittedSyncMutationSchema.parse({
+      ...base,
+      operationKind: "delete",
+      deletedAt: "2026-08-28T00:00:00Z",
+      changedFields: [],
+    })).toMatchObject({ operationKind: "delete", entityId: "deleted.test" });
+    expect(submittedSyncMutationSchema.safeParse({ ...base, changedFields: [] }).success).toBe(false);
+    expect(submittedSyncMutationSchema.safeParse({
+      ...base,
+      operationKind: "delete",
+      deletedAt: "2026-08-28T00:00:00Z",
+      changedFields: [{ fieldPath: "note", value: null }],
+    }).success).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ import { createAdminHttp } from "../../src/entrypoints/admin-http";
 import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 import { createPublicHttp } from "../../src/entrypoints/http";
 import { InMemoryAuditSink } from "../../src/entrypoints/ports/audit-sink";
-import { StaticPublicSessionVerifier } from "../../src/entrypoints/ports/public-session";
+import { StaticPublicSessionVerifier } from "../support/public-session";
 import { StaticStaffSessionVerifier } from "../../src/entrypoints/ports/staff-session";
 
 function ids(prefix: string): () => string {

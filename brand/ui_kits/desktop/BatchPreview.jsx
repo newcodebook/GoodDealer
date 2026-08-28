@@ -50,17 +50,17 @@ function BatchList({jobs,onOpen,onGoAssets}){
       </>}
       right={<Button size="sm" variant="primary" onClick={onGoAssets}>去资产库新建</Button>}/>
     <div style={{flex:1,minHeight:0,display:"flex"}}>
-      <window.GDResponsiveTable density="regular" rowKey="id" onRowClick={r=>onOpen(r.id)} maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
+      <Table density="regular" rowKey="id" onRowClick={r=>onOpen(r.id)} maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
         columns={[
-          {priority:"essential",key:"name",label:"批次",render:r=><div style={{display:"flex",flexDirection:"column",gap:2}}><span style={{fontSize:13,color:"var(--text-1)",fontWeight:500}}>{r.name}</span><span style={{fontSize:11,color:"var(--gd-text-faint)"}}>{r.rule}</span></div>},
-          {priority:"secondary",key:"target",label:"目标",numeric:true,width:76,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.target.toLocaleString()}</span>},
-          {priority:"secondary",key:"where",label:"平台 · 账户",render:r=><div style={{display:"flex",flexDirection:"column",gap:2}}><span style={{fontSize:12}}>{r.platform}</span><span style={{fontSize:11,color:"var(--gd-text-faint)"}}>{r.account}</span></div>},
-          {priority:"supplementary",key:"created",label:"创建",width:92,render:r=><span style={{fontSize:12,color:"var(--gd-text-muted)"}}>{r.created}</span>},
-          {priority:"essential",key:"status",label:"状态",width:92,render:r=>jobBadge(r.status)},
-          {priority:"secondary",key:"progress",label:"进度",width:150,render:r=><ProgCell job={r}/>},
-          {priority:"supplementary",key:"result",label:"结果",render:r=>r.status==="draft"?<span style={{fontSize:12,color:"var(--gd-text-faint)"}}>自动 {r.auto} · 人工 {r.manual} · 冲突 {r.conflict}</span>:<ResultChips res={r.result}/>},
-          {priority:"secondary",key:"risk",label:"风险",width:72,render:r=>riskBadge(r.risk)||<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>},
-          {priority:"essential",key:"act",label:"",width:40,align:"right",render:()=><I.ChevronRight size={14} style={{color:"var(--gd-text-faint)"}}/>},
+          {key:"name",label:"批次",render:r=><div style={{display:"flex",flexDirection:"column",gap:2}}><span style={{fontSize:13,color:"var(--text-1)",fontWeight:500}}>{r.name}</span><span style={{fontSize:11,color:"var(--gd-text-faint)"}}>{r.rule}</span></div>},
+          {key:"target",label:"目标",numeric:true,width:76,render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.target.toLocaleString()}</span>},
+          {key:"where",label:"平台 · 账户",render:r=><div style={{display:"flex",flexDirection:"column",gap:2}}><span style={{fontSize:12}}>{r.platform}</span><span style={{fontSize:11,color:"var(--gd-text-faint)"}}>{r.account}</span></div>},
+          {key:"created",label:"创建",width:92,render:r=><span style={{fontSize:12,color:"var(--gd-text-muted)"}}>{r.created}</span>},
+          {key:"status",label:"状态",width:92,render:r=>jobBadge(r.status)},
+          {key:"progress",label:"进度",width:150,render:r=><ProgCell job={r}/>},
+          {key:"result",label:"结果",render:r=>r.status==="draft"?<span style={{fontSize:12,color:"var(--gd-text-faint)"}}>自动 {r.auto} · 人工 {r.manual} · 冲突 {r.conflict}</span>:<ResultChips res={r.result}/>},
+          {key:"risk",label:"风险",width:72,render:r=>riskBadge(r.risk)||<span style={{color:"var(--gd-text-faint)",fontSize:12}}>—</span>},
+          {key:"act",label:"",width:40,align:"right",render:()=><I.ChevronRight size={14} style={{color:"var(--gd-text-faint)"}}/>},
         ]}
         rows={rows} emptyText="没有匹配的批量任务"
         footer={<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>共 {rows.length} 个批次 · 点击行查看详情与执行 · 执行结果记入「操作历史」</span>}/>
@@ -125,16 +125,16 @@ function BatchDetail({job,onBack,onGoInbox,onGoConflicts,onGoHistory}){
     </Panel>
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       <Tabs active={tab} onChange={setTab} items={[{key:"all",label:"全部",count:counts.all},{key:"auto",label:"可自动执行",count:counts.auto},{key:"manual",label:"需人工",count:counts.manual},{key:"conflict",label:"冲突",count:counts.conflict},{key:"excluded",label:"已排除",count:counts.excluded}]}/>
-      <window.GDResponsiveTable density="compact" rowKey="id"
+      <Table density="compact" rowKey="id"
         columns={[
-          {priority:"essential",key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.domain}</span>},
-          {priority:"essential",key:"field",label:"字段",muted:true,width:92},
-          {priority:"essential",key:"diff",label:"旧值 → 新值",render:r=><DiffValue oldValue={r.oldV} newValue={r.newV}/>},
-          {priority:"supplementary",key:"src",label:"来源",muted:true},
-          {priority:"secondary",key:"risk",label:"风险",render:r=>String(r.risk).startsWith("高")?<span style={{color:"var(--gd-danger)",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}><I.AlertTriangle size={12}/>{r.risk}</span>:String(r.risk).startsWith("中")?<span style={{color:"var(--gd-warning)",fontSize:12}}>{r.risk}</span>:<span style={{color:"var(--gd-text-faint)",fontSize:12}}>{r.risk}</span>},
-          {priority:"secondary",key:"method",label:"执行",muted:true,width:70},
-          {priority:"essential",key:"state",label:"状态",render:r=>stateBadge(r.state),width:86},
-          {priority:"essential",key:"act",label:"",width:60,align:"right",render:r=>r.state!=="excluded"?<Button size="sm" variant="ghost" onClick={()=>setExcluded(x=>[...x,r.id])}>排除</Button>:<Button size="sm" variant="ghost" onClick={()=>setExcluded(x=>x.filter(i=>i!==r.id))}>恢复</Button>},
+          {key:"domain",label:"域名",render:r=><span style={{fontFamily:"var(--font-mono)",fontSize:12}}>{r.domain}</span>},
+          {key:"field",label:"字段",muted:true,width:92},
+          {key:"diff",label:"旧值 → 新值",render:r=><DiffValue oldValue={r.oldV} newValue={r.newV}/>},
+          {key:"src",label:"来源",muted:true},
+          {key:"risk",label:"风险",render:r=>String(r.risk).startsWith("高")?<span style={{color:"var(--gd-danger)",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}><I.AlertTriangle size={12}/>{r.risk}</span>:String(r.risk).startsWith("中")?<span style={{color:"var(--gd-warning)",fontSize:12}}>{r.risk}</span>:<span style={{color:"var(--gd-text-faint)",fontSize:12}}>{r.risk}</span>},
+          {key:"method",label:"执行",muted:true,width:70},
+          {key:"state",label:"状态",render:r=>stateBadge(r.state),width:86},
+          {key:"act",label:"",width:60,align:"right",render:r=>r.state!=="excluded"?<Button size="sm" variant="ghost" onClick={()=>setExcluded(x=>[...x,r.id])}>排除</Button>:<Button size="sm" variant="ghost" onClick={()=>setExcluded(x=>x.filter(i=>i!==r.id))}>恢复</Button>},
         ]}
         rows={rows} emptyText="此分类下没有项目"
         footer={<span style={{fontSize:11,color:"var(--gd-text-faint)"}}>预览 {rows.length} / {job.target} 行 · 冲突项不会提交</span>}/>

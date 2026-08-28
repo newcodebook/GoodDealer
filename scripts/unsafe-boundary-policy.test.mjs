@@ -8,15 +8,13 @@ import {
   unsafeCodeBoundaryErrors,
 } from "./unsafe-boundary-policy.mjs";
 
-const allowedPath = "crates/secure-host-core/src/keychain/windows.rs";
-
-test("keeps the ADR-0012 unsafe-code override allowlist exact", () => {
-  assert.deepEqual(unsafeCodeAllowlist, [allowedPath]);
-  assert.deepEqual(
+test("keeps the unsafe-code override allowlist empty", () => {
+  assert.deepEqual(unsafeCodeAllowlist, []);
+  assert.equal(
     unsafeCodeBoundaryErrors([
-      { path: allowedPath, source: "#![allow(unsafe_code)]\nunsafe fn credential_call() {}" },
-    ]),
-    [],
+      { path: "crates/example/src/lib.rs", source: "#![allow(unsafe_code)]" },
+    ]).length,
+    1,
   );
 });
 

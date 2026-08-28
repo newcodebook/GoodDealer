@@ -6,7 +6,10 @@ import {
 } from "@gooddealer/protocol/account";
 
 import {
+  ARGON2ID_V1_DECOY_PHC,
+  ConsumeOncePassword,
   DenyingPasswordHashPort,
+  isArgon2idV1Phc,
   type PasswordHashPort,
   type StoredPasswordHash,
 } from "./password-hash-port";
@@ -18,7 +21,7 @@ interface InternalLoginCommand {
   readonly rememberDevice: boolean;
   readonly emailNormalized: string;
   /** D-022 credential value; it is consumed only by PasswordHashPort and never retained. */
-  readonly secret: string;
+  readonly secret: ConsumeOncePassword;
 }
 
 export interface InternalPasswordAccountRecord {
@@ -30,13 +33,6 @@ export interface InternalPasswordAccountRecord {
 export interface InternalLoginCommandRejection {
   readonly code: "SCHEMA_INVALID";
 }
-
-const decoyPasswordHash: StoredPasswordHash = {
-  algorithm: "argon2id",
-  params: { memoryKiB: 65_536, iterations: 3, parallelism: 1 },
-  salt: "AAAAAAAAAAAAAAAAAAAAAA",
-  hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-};
 
 /**
  * Module-internal real credential path. It deliberately cannot authenticate while the
@@ -59,10 +55,11 @@ export class InternalPasswordLoginCommandService {
     if (command === null) return { code: "SCHEMA_INVALID" };
 
     const account = this.#accounts.get(command.emailNormalized);
-    await this.#passwordHash.checkPasswordHash(
-      command.secret,
-      account?.storedPasswordHash ?? decoyPasswordHash,
-    );
+    const stored = account?.storedPasswordHash;
+    const phc = stored?.policyId === "argon2id-v1" && isArgon2idV1Phc(stored.phc)
+      ? stored.phc
+      : ARGON2ID_V1_DECOY_PHC;
+    await this.#passwordHash.checkPasswordHash(command.secret, phc);
 
     // The port result has no successful variant. A future widening must change both the
     // port type and this closed command outcome before authentication can succeed.
@@ -72,7 +69,7 @@ export class InternalPasswordLoginCommandService {
 
 function parseInternalLoginCommand(input: unknown): InternalLoginCommand | null {
   if (!isRecord(input)) return null;
-  const allowedKeys = new Set([
+  const fields = exactOwnDataProperties(input, [
     "schemaVersion",
     "method",
     "deviceId",
@@ -80,31 +77,31 @@ function parseInternalLoginCommand(input: unknown): InternalLoginCommand | null 
     "emailNormalized",
     "secret",
   ]);
-  if (Object.keys(input).some((key) => !allowedKeys.has(key))) return null;
+  if (fields === null) return null;
   if (
-    input.schemaVersion !== AUTH_SESSION_SCHEMA_VERSION ||
-    input.method !== "password" ||
-    typeof input.deviceId !== "string" ||
-    input.deviceId.length < 1 ||
-    typeof input.rememberDevice !== "boolean" ||
-    typeof input.emailNormalized !== "string" ||
-    typeof input.secret !== "string" ||
-    input.secret.length < 1 ||
-    input.secret.length > 4_096
+    fields.schemaVersion !== AUTH_SESSION_SCHEMA_VERSION ||
+    fields.method !== "password" ||
+    typeof fields.deviceId !== "string" ||
+    fields.deviceId.length < 1 ||
+    typeof fields.rememberDevice !== "boolean" ||
+    typeof fields.emailNormalized !== "string" ||
+    typeof fields.secret !== "string"
   ) {
     return null;
   }
-  const emailNormalized = input.emailNormalized.normalize("NFKC").trim().toLowerCase();
-  if (emailNormalized.length < 3 || emailNormalized.length > 320 || emailNormalized !== input.emailNormalized) {
+  const emailNormalized = fields.emailNormalized.normalize("NFKC").trim().toLowerCase();
+  if (emailNormalized.length < 3 || emailNormalized.length > 320 || emailNormalized !== fields.emailNormalized) {
     return null;
   }
+  const secret = ConsumeOncePassword.fromUnknown(fields.secret);
+  if (secret === null) return null;
   return {
-    schemaVersion: input.schemaVersion,
-    method: input.method,
-    deviceId: input.deviceId,
-    rememberDevice: input.rememberDevice,
+    schemaVersion: fields.schemaVersion,
+    method: fields.method,
+    deviceId: fields.deviceId,
+    rememberDevice: fields.rememberDevice,
     emailNormalized,
-    secret: input.secret,
+    secret,
   };
 }
 
@@ -120,4 +117,22 @@ function rejection(code: "INVALID_CREDENTIALS"): AccountRejection {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function exactOwnDataProperties(
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[],
+): Record<string, unknown> | null {
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== expectedKeys.length || ownKeys.some((key) => typeof key !== "string")) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const result: Record<string, unknown> = Object.create(null);
+  for (const key of expectedKeys) {
+    const descriptor = descriptors[key];
+    if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) return null;
+    result[key] = descriptor.value;
+  }
+  return result;
 }

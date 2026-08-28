@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  canonicalUtcTimestamp,
   encodeDomainSeparatedWireValue,
   identifier,
   safePositiveInteger,
@@ -8,6 +9,7 @@ import {
 } from "../wire/index";
 import {
   canonicalMoneySchema,
+  domainAssetIdSchema,
   domainAssetNoteSchema,
   domainAssetTagsSchema,
 } from "./domain-asset-fields";
@@ -18,7 +20,7 @@ export const MAX_MUTATIONS_PER_PAGE = 256 as const;
 /** A SHA-256 value encoded as unpadded base64url. */
 export const sha256DigestSchema = z.string().length(43).regex(/^[A-Za-z0-9_-]{43}$/);
 
-export const workspaceRevisionSchema = safeUnsignedInteger;
+export const serverRevisionSchema = safeUnsignedInteger;
 
 const domainAssetChangedFieldSchema = z.discriminatedUnion("fieldPath", [
   z
@@ -34,7 +36,6 @@ const domainAssetChangedFieldSchema = z.discriminatedUnion("fieldPath", [
 
 const changedFieldsSchema = z
   .array(domainAssetChangedFieldSchema)
-  .min(1)
   .max(4)
   .superRefine((fields, context) => {
     for (let index = 1; index < fields.length; index += 1) {
@@ -62,25 +63,45 @@ const submittedSyncMutationFields = {
   workspaceId: identifier,
   workspaceSchemaVersion: safePositiveInteger,
   entityType: z.literal("domain_asset"),
-  entityId: identifier,
-  baseRevision: workspaceRevisionSchema,
+  entityId: domainAssetIdSchema,
+  operationKind: z.enum(["upsert", "delete"]).optional(),
+  deletedAt: canonicalUtcTimestamp.optional(),
+  baseServerRevision: serverRevisionSchema,
   changedFields: changedFieldsSchema,
   sourceDeviceId: identifier,
   activeLeaseEpoch: safePositiveInteger,
-  mutationSequence: safePositiveInteger,
+  deviceMutationSequence: safePositiveInteger,
 } as const;
 
 /** The device-committed mutation before Cloud assigns its server revision. */
-export const submittedSyncMutationSchema = z.object(submittedSyncMutationFields).strict();
+export const submittedSyncMutationSchema = z.object(submittedSyncMutationFields).strict()
+  .superRefine((mutation, context) => {
+    const operationKind = mutation.operationKind ?? "upsert";
+    if (operationKind === "upsert") {
+      if (mutation.changedFields.length === 0) {
+        context.addIssue({ code: "custom", path: ["changedFields"], message: "upsert requires changed fields" });
+      }
+      if (mutation.deletedAt !== undefined) {
+        context.addIssue({ code: "custom", path: ["deletedAt"], message: "upsert cannot carry deletion time" });
+      }
+    } else {
+      if (mutation.changedFields.length !== 0) {
+        context.addIssue({ code: "custom", path: ["changedFields"], message: "delete cannot carry changed fields" });
+      }
+      if (mutation.deletedAt === undefined) {
+        context.addIssue({ code: "custom", path: ["deletedAt"], message: "delete requires deletion time" });
+      }
+    }
+  });
 
 export const syncMutationSchema = submittedSyncMutationSchema
-  .extend({ serverRevision: safePositiveInteger })
+  .safeExtend({ serverRevision: safePositiveInteger })
   .strict()
   .superRefine((mutation, context) => {
-    if (mutation.baseRevision >= mutation.serverRevision) {
+    if (mutation.baseServerRevision >= mutation.serverRevision) {
       context.addIssue({
         code: "custom",
-        path: ["baseRevision"],
+        path: ["baseServerRevision"],
         message: "base revision must precede the assigned server revision",
       });
     }
@@ -92,7 +113,7 @@ export const checkpointDescriptorSchema = z
     checkpointId: identifier,
     workspaceId: identifier,
     workspaceSchemaVersion: safePositiveInteger,
-    throughRevision: workspaceRevisionSchema,
+    throughServerRevision: serverRevisionSchema,
     checkpointDigest: sha256DigestSchema,
   })
   .strict();
@@ -108,7 +129,7 @@ export const workspaceEntityDigestSchema = z
 export const workspaceEntityDigestsSchema = z
   .array(workspaceEntityDigestSchema)
   .min(1)
-  .max(256)
+  .max(4_096)
   .superRefine((digests, context) => {
     const keys = digests.map(({ entityType, partitionId }) => `${entityType}\u0000${partitionId ?? ""}`);
     for (let index = 1; index < keys.length; index += 1) {
@@ -129,24 +150,24 @@ export const mutationPageSchema = z
   .object({
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     workspaceId: identifier,
-    fromRevisionExclusive: workspaceRevisionSchema,
-    throughRevisionInclusive: workspaceRevisionSchema,
+    fromServerRevisionExclusive: serverRevisionSchema,
+    throughServerRevisionInclusive: serverRevisionSchema,
     mutations: z.array(syncMutationSchema).max(MAX_MUTATIONS_PER_PAGE),
-    returnedThroughRevision: workspaceRevisionSchema,
+    returnedThroughServerRevision: serverRevisionSchema,
     nextCursor: mutationCursorSchema.nullable(),
     pageDigest: sha256DigestSchema,
   })
   .strict()
   .superRefine((page, context) => {
-    if (page.fromRevisionExclusive > page.throughRevisionInclusive) {
+    if (page.fromServerRevisionExclusive > page.throughServerRevisionInclusive) {
       context.addIssue({
         code: "custom",
-        path: ["throughRevisionInclusive"],
+        path: ["throughServerRevisionInclusive"],
         message: "page revision bounds are inverted",
       });
     }
 
-    let expectedRevision = page.fromRevisionExclusive + 1;
+    let expectedRevision = page.fromServerRevisionExclusive + 1;
     for (let index = 0; index < page.mutations.length; index += 1) {
       const mutation = page.mutations[index]!;
       if (mutation.workspaceId !== page.workspaceId) {
@@ -168,30 +189,30 @@ export const mutationPageSchema = z
 
     const expectedReturnedRevision =
       page.mutations.length === 0
-        ? page.fromRevisionExclusive
+        ? page.fromServerRevisionExclusive
         : page.mutations[page.mutations.length - 1]!.serverRevision;
-    if (page.returnedThroughRevision !== expectedReturnedRevision) {
+    if (page.returnedThroughServerRevision !== expectedReturnedRevision) {
       context.addIssue({
         code: "custom",
-        path: ["returnedThroughRevision"],
+        path: ["returnedThroughServerRevision"],
         message: "returned revision must equal the last mutation revision",
       });
     }
-    if (page.returnedThroughRevision > page.throughRevisionInclusive) {
+    if (page.returnedThroughServerRevision > page.throughServerRevisionInclusive) {
       context.addIssue({
         code: "custom",
-        path: ["returnedThroughRevision"],
+        path: ["returnedThroughServerRevision"],
         message: "page returned beyond its pinned target revision",
       });
     }
-    if (page.nextCursor === null && page.returnedThroughRevision !== page.throughRevisionInclusive) {
+    if (page.nextCursor === null && page.returnedThroughServerRevision !== page.throughServerRevisionInclusive) {
       context.addIssue({
         code: "custom",
         path: ["nextCursor"],
         message: "a terminal page must reach the pinned target revision",
       });
     }
-    if (page.nextCursor !== null && page.returnedThroughRevision >= page.throughRevisionInclusive) {
+    if (page.nextCursor !== null && page.returnedThroughServerRevision >= page.throughServerRevisionInclusive) {
       context.addIssue({
         code: "custom",
         path: ["nextCursor"],
@@ -211,7 +232,7 @@ export function encodeWorkspaceEntityDigestsInput(value: unknown): Uint8Array {
   return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V1", parsed);
 }
 
-export type WorkspaceRevision = z.infer<typeof workspaceRevisionSchema>;
+export type WorkspaceRevision = z.infer<typeof serverRevisionSchema>;
 export type SubmittedSyncMutation = z.infer<typeof submittedSyncMutationSchema>;
 export type SyncMutation = z.infer<typeof syncMutationSchema>;
 export type CheckpointDescriptor = z.infer<typeof checkpointDescriptorSchema>;

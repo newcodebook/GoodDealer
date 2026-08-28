@@ -5,6 +5,8 @@ import {
   identifier,
   safePositiveInteger,
 } from "../wire/index";
+import { workspaceTenantScopeSchema } from "./tenant-scope";
+import type { WorkspaceTenantScope } from "./tenant-scope";
 
 export const TENANT_JOB_SCHEMA_VERSION = 1 as const;
 
@@ -12,14 +14,8 @@ export const TENANT_JOB_SCHEMA_VERSION = 1 as const;
 // WorkspaceTenantScope — defined natively in protocol (NOT imported from cloud)
 // ---------------------------------------------------------------------------
 
-export const workspaceTenantScopeSchema = z
-  .object({
-    accountId: identifier,
-    workspaceId: identifier,
-  })
-  .strict();
-
-export type WorkspaceTenantScope = z.infer<typeof workspaceTenantScopeSchema>;
+export { workspaceTenantScopeSchema } from "./tenant-scope";
+export type { WorkspaceTenantScope } from "./tenant-scope";
 
 // ---------------------------------------------------------------------------
 // Quarantine reason enum
@@ -142,3 +138,15 @@ export const tenantJobEnvelopeSchema = z.discriminatedUnion("jobKind", [
 ]);
 
 export type TenantJobEnvelope = z.infer<typeof tenantJobEnvelopeSchema>;
+
+// Persistence create is distinct from the fixture envelope above; entry-point ownership,
+// not a design-iteration version number, keeps caller-authored attempt/lease fields out.
+export {
+  MAX_PERSISTENT_JOB_CREATE_BYTES,
+  PERSISTENT_JOB_CREATE_SCHEMA_VERSION,
+  encodePersistentJobPayloadDigestInput,
+  encodePersistentJobRequestDigestInput,
+  parsePersistentJobCreateRequest,
+  persistentJobCreateRequestSchema,
+} from "./persistent-create";
+export type { PersistentJobCreateRequest, PersistentJobRuntimePolicy } from "./persistent-create";

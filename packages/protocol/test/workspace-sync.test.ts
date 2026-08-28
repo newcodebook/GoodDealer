@@ -85,16 +85,15 @@ describe("workspace sync golden corpus", () => {
     const digest = createHash("sha256")
       .update(encodeMutationPageDigestInput(vector("valid/mutation-page.json")))
       .digest("base64url");
-    expect(digest).toMatchInlineSnapshot(`"OUmtP4KHs4AT8qfiBmAN-qc1bRO3sjd2vaocM3vh4fg"`);
+    expect(digest).toMatchInlineSnapshot(`"wc41T-gboDM2AV9_dx8CTNi23X6NDS0cHUn1iWvc1vE"`);
   });
 
-  it("orders domain asset projections by UTF-8 bytes where locale collation diverges", () => {
+  it("orders canonical domain asset identities by UTF-8 bytes", () => {
     const parsed = domainAssetProjectionSchema.parse(projectionVector().rows);
     const entityIds = parsed.map(({ entityId }) => entityId);
 
-    expect(entityIds).toEqual(["Z-asset", "a-asset"]);
+    expect(entityIds).toEqual(["a-asset.test", "z-asset.test"]);
     expect([...entityIds].sort(compareUtf8)).toEqual(entityIds);
-    expect([...entityIds].sort((left, right) => left.localeCompare(right))).toEqual(["a-asset", "Z-asset"]);
     expect(domainAssetProjectionSchema.safeParse(
       JSON.parse(readFileSync(resolve(projectionVectors, "invalid/locale-order.json"), "utf8")),
     ).success).toBe(false);
@@ -111,14 +110,18 @@ describe("workspace sync golden corpus", () => {
     await expect(computeDomainAssetEntityDigests(
       rows,
       async (bytes) => createHash("sha256").update(bytes).digest(),
-    )).resolves.toEqual([{ entityType: "domain_asset", partitionId: null, digest: golden.digest }]);
+    )).resolves.toEqual([{
+      entityType: "domain_asset",
+      partitionId: "p0000",
+      digest: golden.digest,
+    }]);
     await expect(computeDomainAssetEntityDigests(rows, async () => new Uint8Array(31)))
       .rejects.toThrow("SHA-256 digest must be exactly 32 bytes");
   });
 
   it("preserves the pre-lift domain and canonical row layout for locale-equal inputs", () => {
     const rows = domainAssetProjectionSchema.parse([{
-      entityId: "asset-1",
+      entityId: "asset-1.test",
       note: null,
       portfolioId: "portfolio-1",
       tags: ["brandable", "premium"],

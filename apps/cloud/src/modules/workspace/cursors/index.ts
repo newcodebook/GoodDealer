@@ -5,7 +5,7 @@ import { workspaceTenantKey } from "../tenant-scope";
 
 interface WorkspaceScopeResolverPort {
   resolveWorkspace(scope: WorkspaceTenantScope):
-    | { readonly bound: true; readonly compactionWatermark: number }
+    | { readonly bound: true; readonly compactedThroughServerRevision: number }
     | { readonly bound: false };
 }
 
@@ -15,8 +15,8 @@ interface WorkspaceHeadReaderPort {
 
 interface ReaderMutationPagePort {
   readPage(scope: WorkspaceTenantScope, input: {
-    readonly fromRevisionExclusive: number;
-    readonly throughRevisionInclusive: number;
+    readonly fromServerRevisionExclusive: number;
+    readonly throughServerRevisionInclusive: number;
     readonly cursor: string | null;
     readonly pageLimit: number;
   }): Promise<MutationPage>;
@@ -40,7 +40,7 @@ export interface ReaderCursorProjection {
   readonly schemaVersion: 1;
   readonly workspaceId: string;
   readonly deviceId: string;
-  readonly lastReadRevision: number;
+  readonly readThroughServerRevision: number;
   readonly leaseExpiresAt: string;
   readonly status: "active" | "retired";
   readonly resumeRequirement: "none" | "rebootstrap_required";
@@ -71,7 +71,7 @@ type StoredReaderCursorLookup =
 
 type StoredReaderCursor = {
   -readonly [Key in keyof ReaderCursorProjection]: ReaderCursorProjection[Key];
-} & { nextCursor: string | null; pageTargetRevision: number | null };
+} & { nextCursor: string | null; pinnedPageTargetServerRevision: number | null };
 
 /** Standby-only cursor state with no port to mutation ingest, revision allocation, or domain state. */
 export class InMemoryReaderCursors {
@@ -109,28 +109,28 @@ export class InMemoryReaderCursors {
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
     const head = this.#heads.readHead(scope).serverRevision;
-    if (!Number.isSafeInteger(atRevision) || atRevision < binding.compactionWatermark || atRevision > head) {
-      return reject(atRevision < binding.compactionWatermark
+    if (!Number.isSafeInteger(atRevision) || atRevision < binding.compactedThroughServerRevision || atRevision > head) {
+      return reject(atRevision < binding.compactedThroughServerRevision
         ? "READER_CURSOR_COMPACTION_RACE"
         : "CURSOR_REVISION_REGRESSION");
     }
     const now = this.#time.now();
     const existing = this.#cursors.get(workspaceTenantKey(scope))?.get(deviceId);
-    if (existing?.status === "active" && atRevision < existing.lastReadRevision) {
+    if (existing?.status === "active" && atRevision < existing.readThroughServerRevision) {
       return reject("CURSOR_REVISION_REGRESSION");
     }
     const cursor: StoredReaderCursor = {
       schemaVersion: 1,
       workspaceId: scope.workspaceId,
       deviceId,
-      lastReadRevision: atRevision,
+      readThroughServerRevision: atRevision,
       leaseExpiresAt: addSeconds(now, this.#config.leaseTtlSeconds),
       status: "active",
       resumeRequirement: "none",
       retiredAt: null,
       retiredReason: null,
       nextCursor: null,
-      pageTargetRevision: null,
+      pinnedPageTargetServerRevision: null,
     };
     this.#workspaceCursors(scope).set(deviceId, cursor);
     return accept(cursor);
@@ -146,22 +146,22 @@ export class InMemoryReaderCursors {
     const cursor = checked.cursor;
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
-    if (cursor.lastReadRevision < binding.compactionWatermark) {
+    if (cursor.readThroughServerRevision < binding.compactedThroughServerRevision) {
       this.#retire(scope, cursor, "compaction_race");
       return reject("READER_CURSOR_COMPACTION_RACE");
     }
-    const throughRevisionInclusive = cursor.pageTargetRevision ?? this.#heads.readHead(scope).serverRevision;
+    const throughServerRevisionInclusive = cursor.pinnedPageTargetServerRevision ?? this.#heads.readHead(scope).serverRevision;
     try {
       const page = await this.#pages.readPage(scope, {
-        fromRevisionExclusive: cursor.lastReadRevision,
-        throughRevisionInclusive,
+        fromServerRevisionExclusive: cursor.readThroughServerRevision,
+        throughServerRevisionInclusive,
         cursor: cursor.nextCursor,
         pageLimit,
       });
-      if (page.returnedThroughRevision < cursor.lastReadRevision) return reject("CURSOR_REVISION_REGRESSION");
-      cursor.lastReadRevision = page.returnedThroughRevision;
+      if (page.returnedThroughServerRevision < cursor.readThroughServerRevision) return reject("CURSOR_REVISION_REGRESSION");
+      cursor.readThroughServerRevision = page.returnedThroughServerRevision;
       cursor.nextCursor = page.nextCursor;
-      cursor.pageTargetRevision = page.nextCursor === null ? null : throughRevisionInclusive;
+      cursor.pinnedPageTargetServerRevision = page.nextCursor === null ? null : throughServerRevisionInclusive;
       return { accepted: true, cursor: project(cursor), page };
     } catch (error) {
       if (hasCode(error, "MUTATION_PAGE_COMPACTED")) {
@@ -177,7 +177,7 @@ export class InMemoryReaderCursors {
     if (!checked.accepted) return checked;
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
-    if (checked.cursor.lastReadRevision < binding.compactionWatermark) {
+    if (checked.cursor.readThroughServerRevision < binding.compactedThroughServerRevision) {
       this.#retire(scope, checked.cursor, "compaction_race");
       return reject("READER_CURSOR_COMPACTION_RACE");
     }
@@ -207,7 +207,7 @@ export class InMemoryReaderCursors {
       if (cursor.status === "active" && this.#time.now() >= cursor.leaseExpiresAt) {
         this.#retire(scope, cursor, "ttl_expired");
       }
-      if (cursor.status === "active") active.push(cursor.lastReadRevision);
+      if (cursor.status === "active") active.push(cursor.readThroughServerRevision);
     }
     return active.length === 0 ? null : Math.min(...active);
   }
@@ -237,7 +237,7 @@ export class InMemoryReaderCursors {
     cursor.retiredReason = reason;
     cursor.resumeRequirement = reason === "device_removed" ? "none" : "rebootstrap_required";
     cursor.nextCursor = null;
-    cursor.pageTargetRevision = null;
+    cursor.pinnedPageTargetServerRevision = null;
   }
 
   #workspaceCursors(scope: WorkspaceTenantScope): Map<string, StoredReaderCursor> {
@@ -302,13 +302,13 @@ export class InMemoryDeviceCursors {
     });
   }
 
-  advanceCursor(scope: WorkspaceTenantScope, deviceId: string, throughRevision: number): void {
+  advanceCursor(scope: WorkspaceTenantScope, deviceId: string, throughServerRevision: number): void {
     const cursor = this.#cursors.get(workspaceTenantKey(scope))?.get(deviceId);
     if (cursor === undefined || cursor.status !== "active") throw new TypeError("active device cursor is unavailable");
-    if (!Number.isSafeInteger(throughRevision) || throughRevision < cursor.lastPulledRevision) {
+    if (!Number.isSafeInteger(throughServerRevision) || throughServerRevision < cursor.lastPulledRevision) {
       throw new TypeError("CURSOR_REVISION_REGRESSION");
     }
-    this.#workspaceCursors(scope).set(deviceId, { ...cursor, lastPulledRevision: throughRevision });
+    this.#workspaceCursors(scope).set(deviceId, { ...cursor, lastPulledRevision: throughServerRevision });
   }
 
   snapshot(scope: WorkspaceTenantScope): readonly DeviceCursorProjection[] {
@@ -341,7 +341,7 @@ function reject(code: ReaderCursorRejectionCode): { readonly accepted: false; re
 }
 
 function project(cursor: StoredReaderCursor): ReaderCursorProjection {
-  const { nextCursor: _nextCursor, pageTargetRevision: _pageTargetRevision, ...projection } = cursor;
+  const { nextCursor: _nextCursor, pinnedPageTargetServerRevision: _pinnedPageTargetServerRevision, ...projection } = cursor;
   return { ...projection };
 }
 
@@ -358,3 +358,4 @@ function canonicalNow(): string {
 function hasCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
+export { PostgresDeviceCursorRepository } from "./postgres-repository";

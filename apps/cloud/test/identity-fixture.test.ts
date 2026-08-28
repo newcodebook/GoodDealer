@@ -8,7 +8,7 @@ import {
 } from "@gooddealer/protocol/account";
 import { describe, expect, it } from "vitest";
 
-import { IdentityFixtureService } from "../src/modules/identity/index";
+import { IdentityFixtureService } from "./support/identity-fixture";
 
 const loginRequest = (deviceId: string): AuthLoginRequest => ({
   schemaVersion: 1,

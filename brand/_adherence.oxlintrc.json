@@ -23,6 +23,8 @@
               "components/status/**",
               "components/surfaces/**",
               "components/table/**",
+              "ui_kits/account-web/**",
+              "ui_kits/admin-web/**",
               "ui_kits/desktop/**"
             ],
             "message": "Import design-system components from 'index.js', not component internals."

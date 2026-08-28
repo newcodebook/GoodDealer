@@ -1,44 +1,38 @@
-// 审计 / Audit — append-only. Every controlled read (AdminReadAuthorization), action (AdminActionAuthorization),
-// case advance, job disposition, and policy publish leaves an immutable trace here — nothing else can write to
-// an account or the platform without appearing. Read-only, filterable by type. Each entry carries its
-// AdminPurposeRef, so any access can be traced back to the case/reason that legitimized it.
-const {Badge:AuBadge,Button:AuBtn}=window.GoodDealerDesignSystem_b5b0b6;
-const AU_TYPE={read:["sync","读授权"],action:["danger","写动作"],case:["warning","案件"],job:["neutral","作业处置"],policy:["gold","政策发布"]};
-const AU_OUT={granted:"已授权",committed:"已提交",advanced:"已推进",frozen:"已冻结",published:"已发布"};
+// 审计日志 Audit — read-only append-only log of operator + system actions. Sensitive actions highlighted.
+const {Table:AuTable,Badge:AuBadge,Button:AuBtn,Select:AuSel,Input:AuInput,Toolbar:AuToolbar}=window.GoodDealerDesignSystem_b5b0b6;
 
-function Audit({onOpenAccount}){
-  const rows=window.ADM_DATA.audit;
-  const [f,setF]=React.useState("all");
-  const filters=[["all","全部"],["read","读授权"],["action","写动作"],["case","案件"],["job","作业处置"],["policy","政策发布"]];
-  const shown=rows.filter(r=>f==="all"||r.type===f);
-  return <div style={{display:"flex",flexDirection:"column",gap:18}}>
-    <div><h1 className="adm-h1">审计</h1><p className="adm-sub" style={{margin:0}}>追加不可改。每一次受控读、写、案件推进、作业处置与政策发布都在此留痕，并绑定 AdminPurposeRef 可回溯。</p></div>
+const SENSITIVE=["强制解绑设备","手动退款","重置客户 2FA","切换功能开关"];
 
-    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-      {filters.map(([k,l])=><button key={k} onClick={()=>setF(k)} style={{padding:"5px 12px",borderRadius:6,fontSize:12,cursor:"pointer",
-        border:"1px solid "+(f===k?"var(--gd-gold)":"var(--gd-line-strong)"),background:f===k?"var(--gd-gold-tint)":"transparent",color:f===k?"var(--text-1)":"var(--text-2)"}}>
-        {l}{k!=="all"&&<span style={{marginLeft:6,color:"var(--text-3)"}}>{rows.filter(r=>r.type===k).length}</span>}</button>)}
-    </div>
-
-    <div className="adm-card" style={{padding:0,overflow:"hidden"}}>
-      <div style={{display:"flex",padding:"9px 18px",borderBottom:"1px solid var(--gd-line-strong)",fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase",color:"var(--text-3)"}}>
-        <span style={{width:96,flex:"none"}}>时间</span><span style={{width:84,flex:"none"}}>类型</span><span style={{width:96,flex:"none"}}>对象</span><span style={{flex:1}}>明细</span><span style={{width:120,flex:"none"}}>PurposeRef</span><span style={{width:84,flex:"none",textAlign:"right"}}>结果</span>
-      </div>
-      {shown.map((r,i)=>{const t=AU_TYPE[r.type];const isAcct=/^acc_/.test(r.target);
-        return <div key={i} style={{display:"flex",alignItems:"center",padding:"11px 18px",borderTop:"1px solid var(--gd-line)",fontSize:12}}>
-          <span style={{width:96,flex:"none",fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-3)"}}>{r.at}</span>
-          <span style={{width:84,flex:"none"}}><AuBadge tone={t[0]} mono={false}>{t[1]}</AuBadge></span>
-          <span style={{width:96,flex:"none"}}>{isAcct?<button onClick={()=>onOpenAccount&&onOpenAccount(r.target)} style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-link)",background:"none",border:"none",cursor:"pointer",padding:0}}>{r.target}</button>:<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-2)"}}>{r.target}</span>}</span>
-          <span style={{flex:1,minWidth:0,color:"var(--text-2)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.detail}</span>
-          <span style={{width:120,flex:"none",fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-3)"}}>{r.purpose}</span>
-          <span style={{width:84,flex:"none",textAlign:"right",fontSize:11,color:"var(--text-2)"}}>{AU_OUT[r.outcome]||r.outcome}</span>
-        </div>;})}
-      {!shown.length&&<div style={{padding:"22px",textAlign:"center",fontSize:12,color:"var(--text-3)"}}>该类型暂无记录。</div>}
-    </div>
-
-    <div style={{border:"1px solid var(--gd-line)",borderRadius:8,padding:"12px 16px",fontSize:11,color:"var(--text-3)",lineHeight:1.6}}>
-      审计为追加写入、不可修改或删除；管理员亦不能读平台凭据/密钥/备份秘密，故这些从不出现在明细里。每条读/写都能经 PurposeRef 回溯到合法事由。
+function Audit(){
+  const D=window.GD_ADMIN;const I=window.GDI;const MetricStrip=window.GDMetricStrip;
+  const [actor,setActor]=React.useState("全部操作者");const [q,setQ]=React.useState("");
+  const actors=["全部操作者",...Array.from(new Set(D.audit.map(a=>a.actor)))];
+  let rows=D.audit.filter(a=>(actor==="全部操作者"||a.actor===actor)&&(q===""||a.action.includes(q)||a.target.includes(q)));
+  const isSensitive=a=>SENSITIVE.some(s=>a.action.startsWith(s));
+  return <div data-screen-label="审计日志" style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0}}>
+    <MetricStrip metrics={[
+      {label:"今日操作",value:"342",meta:"运营 + 系统"},
+      {label:"运营者操作",value:"38",meta:"人工"},
+      {label:"系统操作",value:"304",meta:"自动"},
+      {label:"高敏感操作",value:"6",tone:"warning",meta:"解绑 · 退款 · 2FA · 开关"},
+      {label:"操作者",value:"5",meta:"运营团队"},
+      {label:"保留期",value:"365 天",mono:true,meta:"追加不可篡改"},
+    ]}/>
+    <AuToolbar region
+      left={<><AuInput size="sm" prefix={<I.Search size={13}/>} placeholder="搜索操作、对象…" value={q} onChange={e=>setQ(e.target.value)} style={{width:240}}/><AuSel size="sm" options={actors} value={actor} onChange={e=>setActor(e.target.value)}/><AuSel size="sm" options={["全部类型","客户","计费","设备","配置","公告"]} value="全部类型" onChange={()=>{}}/></>}
+      right={<AuBtn size="sm" icon={<I.Download size={14}/>}>导出日志</AuBtn>}/>
+    <div style={{flex:1,minHeight:0,display:"flex"}}>
+      <AuTable density="regular" rowKey="id" maxHeight="100%" style={{flex:1,minHeight:0,border:"none",borderRadius:0}}
+        columns={[
+          {key:"time",label:"时间",render:a=><span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:"var(--text-2)"}}>{a.time}</span>},
+          {key:"actor",label:"操作者",render:a=><span style={{display:"inline-flex",alignItems:"center",gap:7}}><span style={{width:20,height:20,flex:"none",borderRadius:"50%",background:a.actor==="系统"?"var(--gd-panel-raised)":"var(--gd-blue-tint)",border:"1px solid var(--gd-line-strong)",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",color:a.actor==="系统"?"var(--text-3)":"var(--gd-blue)",fontFamily:"var(--font-mono)"}}>{a.actor==="系统"?"S":a.actor[0]}</span><span style={{fontSize:12.5,color:a.actor==="系统"?"var(--text-3)":"var(--text-1)"}}>{a.actor}</span></span>},
+          {key:"action",label:"操作",render:a=><span style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:12.5,color:"var(--text-1)"}}>{isSensitive(a)&&<span style={{width:6,height:6,borderRadius:"50%",background:"var(--gd-warning)",flex:"none"}}></span>}{a.action}{isSensitive(a)&&<AuBadge tone="warning" mono={false}>敏感</AuBadge>}</span>},
+          {key:"target",label:"对象",render:a=><span style={{fontFamily:"var(--font-mono)",fontSize:11.5,color:"var(--text-2)"}}>{a.target}</span>},
+          {key:"ip",label:"来源 IP",numeric:true,render:a=><span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-3)"}}>{a.ip}</span>},
+        ]}
+        rows={rows}
+        footer={<div style={{display:"flex",alignItems:"center",width:"100%",fontSize:11,color:"var(--text-3)"}}><span>{rows.length} 条 · 追加不可篡改 · 与 SIEM 实时投递</span><span style={{marginLeft:"auto",fontFamily:"var(--font-mono)"}}>保留 365 天</span></div>}/>
     </div>
   </div>;
 }
-window.ADMAudit=Audit;
+window.GDAudit=Audit;

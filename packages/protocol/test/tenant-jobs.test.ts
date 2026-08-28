@@ -351,7 +351,7 @@ describe("N-13: no active lease → rejected", () => {
 
   it("lease typ must be exact literal", () => {
     const result = jobLeaseSchema.safeParse(
-      validLease({ typ: "gd.tenant-job-lease.v2" }),
+      validLease({ typ: "gd.tenant-job-lease.v999" }),
     );
     expect(result.success).toBe(false);
   });

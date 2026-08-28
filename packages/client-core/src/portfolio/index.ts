@@ -1,27 +1,8 @@
-import { domainAssetProjectionSchema, workspaceRevisionSchema } from "@gooddealer/protocol/workspace";
+import { domainAssetProjectionSchema } from "@gooddealer/protocol/workspace";
 import { z } from "zod";
 
-export const portfolioQuerySourceSchema = z.enum(["active_local", "standby_cloud"]);
-
-export const dataFreshnessSchema = z
-  .object({
-    source: portfolioQuerySourceSchema,
-    serverRevision: workspaceRevisionSchema,
-    lastCloudSyncAt: z.iso.datetime().nullable(),
-    lastPlatformReadAt: z.iso.datetime().nullable(),
-    canEdit: z.boolean(),
-  })
-  .strict()
-  .superRefine((freshness, context) => {
-    const expectedCanEdit = freshness.source === "active_local";
-    if (freshness.canEdit !== expectedCanEdit) {
-      context.addIssue({
-        code: "custom",
-        path: ["canEdit"],
-        message: `${freshness.source} requires canEdit=${expectedCanEdit}`,
-      });
-    }
-  });
+import { dataFreshnessSchema } from "./data-freshness";
+import type { DataFreshness, PortfolioQuerySource } from "./data-freshness";
 
 export const portfolioQueryResultSchema = z
   .object({
@@ -32,8 +13,6 @@ export const portfolioQueryResultSchema = z
   })
   .strict();
 
-export type PortfolioQuerySource = z.infer<typeof portfolioQuerySourceSchema>;
-export type DataFreshness = z.infer<typeof dataFreshnessSchema>;
 export type PortfolioQueryResult = z.infer<typeof portfolioQueryResultSchema>;
 
 /** The UI owns only this read capability; neither adapter exposes mutation methods. */
@@ -63,14 +42,14 @@ abstract class ValidatingPortfolioQueryAdapter implements PortfolioQueryPort {
   }
 }
 
-/** Portable Active fixture seam; production Tauri/local-storage wiring is intentionally absent. */
+/** Active boundary validator; production Tauri/local-storage wiring is intentionally absent. */
 export class ActiveLocalPortfolioAdapter extends ValidatingPortfolioQueryAdapter {
   constructor(boundary: PortfolioQueryBoundary) {
     super(boundary, "active_local");
   }
 }
 
-/** Portable Standby fixture seam; production cloud-client/workspace-read wiring is intentionally absent. */
+/** Standby boundary validator; production cloud-client/workspace-read wiring is intentionally absent. */
 export class StandbyCloudPortfolioAdapter extends ValidatingPortfolioQueryAdapter {
   constructor(boundary: PortfolioQueryBoundary) {
     super(boundary, "standby_cloud");
@@ -88,3 +67,62 @@ function cloneQueryResult(result: PortfolioQueryResult): PortfolioQueryResult {
     freshness: { ...result.freshness },
   };
 }
+
+export { canonicalDomainNameSchema, canonicalizeDomainName } from "./domain-name";
+export type { CanonicalDomainName } from "./domain-name";
+
+export { dataFreshnessSchema, portfolioQuerySourceSchema } from "./data-freshness";
+export type { DataFreshness, PortfolioQuerySource } from "./data-freshness";
+
+export {
+  buildCsvImportPreview,
+  csvColumnMappingSchema,
+  csvImportFieldSchema,
+  csvImportPreviewRowSchema,
+  csvImportPreviewSchema,
+  csvImportViewModelSchema,
+} from "./csv-import";
+export type {
+  CsvColumnMapping,
+  CsvImportField,
+  CsvImportPreview,
+  CsvImportPreviewRow,
+  CsvImportViewModel,
+} from "./csv-import";
+
+export {
+  ValidatingPortfolioPresentationPort,
+  ValidatingPortfolioPlanPort,
+  csvImportPlanRequestSchema,
+  portfolioPlanReceiptSchema,
+} from "./ports";
+export type {
+  CsvImportPlanRequest,
+  PortfolioPlanPort,
+  PortfolioPlanBoundary,
+  PortfolioPlanReceipt,
+  PortfolioPresentationPort,
+  ValidatedPortfolioPresentationPort,
+} from "./ports";
+
+export {
+  assetLibraryRowSchema,
+  assetLibraryViewModelSchema,
+  assetLibraryWindowRequestSchema,
+  assetStatusSchema,
+  canonicalMoneyViewSchema,
+  createAssetLibraryWindow,
+  domainDetailStateSchema,
+  domainDetailViewModelSchema,
+  parseAssetLibraryViewModel,
+  parseDomainDetailViewModel,
+} from "./view-models";
+export type {
+  AssetLibraryRow,
+  AssetLibraryViewModel,
+  AssetLibraryWindowRequest,
+  AssetStatus,
+  CanonicalMoneyView,
+  DomainDetailState,
+  DomainDetailViewModel,
+} from "./view-models";

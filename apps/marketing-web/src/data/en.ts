@@ -1,7 +1,9 @@
 // marketing-web English content. Public top-of-funnel site. Every claim is grounded in
 // docs/PRODUCT_REQUIREMENTS.md and stays HONEST about first-version scope: NO background polling /
 // OS wakeup / Cloud Relay / unattended execution / auto-delist; credentials never leave the device;
-// cloud sync is baseline (no local-only mode); max 2 devices, single Active; publish/公开展示 is
+// cloud sync is mandatory asynchronous replication (no permanent local-only product mode), while
+// Desktop commits business work to local SQLCipher first and can operate within its verified offline
+// authorization window; max 2 devices, single Active; publish/公开展示 is
 // future and not marketed. Pricing mirrors account-web.
 //
 // TEXT VOICE: customer-facing, outcome-oriented. No developer jargon (no "credentials/rollback/
@@ -77,7 +79,7 @@ export const meta: PageMeta = {
           name: "Is there a purely local, offline mode?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "No. Cloud sync is a core feature for keeping data consistent between your two computers. Platform passwords still only exist locally.",
+            text: "There is no permanent local-only mode: cloud sync is automatic and keeps the sanitized business replica available to your other computer. The desktop app still saves business work to its encrypted local database first and, after account and device authorization, can continue within its verified offline window. Queued changes sync when the connection returns. Platform accounts, passwords, API keys, and browser sessions remain only on that computer.",
           },
         },
         {
@@ -157,7 +159,7 @@ export const data: MkData = {
     { q: "Are platform passwords and API keys uploaded?", a: "No. Passwords and login details always stay on your computer. GoodDealer's cloud and operations backend cannot read them. API keys are entered in a secure input field within the software; the cloud only syncs domain names, prices, and other business data." },
     { q: "How many devices can I link?", a: "Up to two computers. Only one can execute operations at a time; the other can only view. Adding a third requires unlinking an existing one first. If you unlink the active computer, the new device must wait for the current operation to finish before taking over." },
     { q: "Which registrars and platforms are supported?", a: "The release target covers mainstream registrars, sales platforms, and DNS providers, including Spaceship, Namecheap, Dynadot, Alibaba Cloud, Cloudflare, Atom, Spaceship SellerHub, and Afternic. Each integration is released only after its compatibility and safety gates pass; unsupported registrars can be supplemented via file import." },
-    { q: "Is there a purely local, offline mode?", a: "No. Cloud sync is a core feature for keeping data consistent between your two computers. Platform passwords still only exist locally." },
+    { q: "Is there a purely local, offline mode?", a: "There is no permanent local-only mode: cloud sync is automatic and keeps the sanitized business replica available to your other computer. The desktop app still saves business work to its encrypted local database first and, after account and device authorization, can continue within its verified offline window. Queued changes sync when the connection returns. Platform accounts, passwords, API keys, and browser sessions remain only on that computer." },
     { q: "Will I be charged again after the lifetime purchase?", a: "No. The lifetime purchase is a one-time payment with no recurring charges. It includes all future major version updates. Monthly and annual plans can be cancelled anytime and stop billing at the end of the period." },
   ],
   download: {

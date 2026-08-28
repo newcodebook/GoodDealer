@@ -1,10 +1,10 @@
 window.GD_DATA={
 domains:[
-{id:1,domain:"vault.io",tags:["三字母"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"sold",bin:12800,expiry:"2027-03-14",cost:4000,notes:"2021 收购 · 三字母金融词"},
-{id:2,domain:"goldrail.com",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:3500,expiry:"2026-11-02",cost:2800,notes:"组合 A · 关键词域名"},
-{id:3,domain:"kanban.ai",tags:["AI"],registrar:"Namecheap",dns:"注册商",platforms:"Afternic",status:"synced",bin:45000,expiry:"2027-01-28",cost:6500,notes:"AI 热词 · 高潜标的"},
+{id:1,domain:"vault.io",tags:["三字母"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"sold",bin:12800,expiry:"2027-03-14"},
+{id:2,domain:"goldrail.com",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:3500,expiry:"2026-11-02"},
+{id:3,domain:"kanban.ai",tags:["AI"],registrar:"Namecheap",dns:"注册商",platforms:"Afternic",status:"synced",bin:45000,expiry:"2027-01-28"},
 {id:4,domain:"lumen.dev",tags:[],registrar:"Dynadot",dns:"Cloudflare",platforms:"SellerHub",status:"conflict",bin:980,expiry:"2026-09-19"},
-{id:5,domain:"north.capital",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"synced",bin:8200,expiry:"2028-05-01",cost:9000,notes:"组合 A · 成本略高于当前 BIN"},
+{id:5,domain:"north.capital",tags:["portfolio-a"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"synced",bin:8200,expiry:"2028-05-01"},
 {id:6,domain:"tessera.xyz",tags:[],registrar:"Namecheap",dns:"注册商",platforms:"—",status:"unlisted",bin:null,expiry:"2026-08-30"},
 {id:7,domain:"quanta.trade",tags:["金融"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom",status:"synced",bin:6600,expiry:"2027-06-11"},
 {id:8,domain:"driftline.com",tags:["portfolio-b"],registrar:"Spaceship",dns:"Cloudflare",platforms:"Atom · Afternic",status:"pending",bin:2400,expiry:"2026-12-24"},
@@ -49,25 +49,5 @@ batchJobs:[
 {id:"b-run",name:"变更 Nameserver → Cloudflare",rule:"迁移 DNS · 3 注册商",target:146,platform:"注册商",account:"Spaceship · Dynadot",created:"今日 13:31",status:"running",risk:"high",progress:62},
 {id:"b-done",name:"上架到 Atom",rule:"新建 Listing · BIN",target:512,platform:"Atom",account:"主账户",created:"今日 11:20",status:"done",risk:"low",progress:100,result:{ok:512,waiting:0,retry:0,unknown:0,manual:0,failed:0},op:"OP-2026-0804-07"},
 {id:"b-part",name:"DNS 记录同步",rule:"TXT 验证写入",target:88,platform:"Cloudflare / 注册商",account:"DNS 提供商",created:"昨日 18:44",status:"partial",risk:"mid",progress:100,result:{ok:79,waiting:0,retry:3,unknown:0,manual:6,failed:0},op:"OP-2026-0803-22"},
-{id:"b-rb",name:"批量改价",rule:"BIN −12% · 全库",target:240,platform:"Atom",account:"主账户",created:"昨日 09:12",status:"rolledback",risk:"low",progress:100,rolledTo:8204,op:"OP-2026-0803-05"}],
-incidents:[
-{id:"INC-2026-0805-01",domain:"vault.io",soldOn:"Atom",soldPrice:212000,source:"Atom 平台读取 · 用户刷新",detectedAt:"14:03",createdAt:"14:03",status:"open",
- listings:[
-  {id:"L1",platform:"Atom",account:"主账户",method:"API",role:"source",state:"confirmed",note:"售出来源 · 平台随成交自动下架"},
-  {id:"L2",platform:"Afternic",account:"主账户",method:"API",role:"delist",state:"prepared"},
-  {id:"L3",platform:"SellerHub",account:"主账户",method:"manual",role:"delist",state:"prepared",why:"无下架 API，需在平台官网手工下架"},
-  {id:"L4",platform:"Bodis 停放页",account:"主账户",method:"API",role:"delist",state:"outcome_unknown",why:"上一次请求已发出但结果未知，只能检查平台状态，不能直接重试"}]}],
-recovery:{
-device:[
- {id:"sc1",domain:"north.capital",field:"BIN",base:"8,900.00",cand:"8,600.00",cloud:"8,200.00",device:"MacBook Air (2019)",epoch:40,risk:"low"},
- {id:"sc2",domain:"kanban.ai",field:"最低报价",base:"400.00",cand:"420.00",cloud:"450.00",device:"MacBook Air (2019)",epoch:40,risk:"low"},
- {id:"sc3",domain:"goldrail.com",field:"Nameserver",base:"ns.spaceship.com",cand:"cloudflare.com",cloud:"ns.spaceship.com",device:"MacBook Air (2019)",epoch:40,risk:"high"}],
-backup:[
- {id:"rc1",domain:"quanta.trade",field:"BIN",base:"6,600.00",cand:"7,200.00",cloud:"6,600.00",backupAt:"07-28 09:12",backupRev:8102,risk:"low"},
- {id:"rc2",domain:"crest.capital",field:"标签",base:"金融",cand:"金融 · portfolio-a",cloud:"金融 · portfolio-a",backupAt:"07-28 09:12",backupRev:8102,risk:"low"},
- {id:"rc3",domain:"vault.io",field:"Listing 状态",base:"BIN 上架",cand:"BIN 上架",cloud:"已售 · 下架",backupAt:"07-28 09:12",backupRev:8102,risk:"high"}],
-late:[
- {id:"le1",domain:"marble.finance",op:"改价 → 15,000.00",device:"MacBook Air (2019)",epoch:40,occurredAt:"06-12 05:41",receivedAt:"今日 08:30",evidence:"平台确认",evidenceTone:"success"},
- {id:"le2",domain:"lantern.app",op:"新增 TXT _atomverify",device:"MacBook Air (2019)",epoch:40,occurredAt:"06-12 05:44",receivedAt:"今日 08:30",evidence:"请求已发出 · 结果未知",evidenceTone:"warning"}]
-}
+{id:"b-rb",name:"批量改价",rule:"BIN −12% · 全库",target:240,platform:"Atom",account:"主账户",created:"昨日 09:12",status:"rolledback",risk:"low",progress:100,rolledTo:8204,op:"OP-2026-0803-05"}]
 };

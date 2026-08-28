@@ -11,20 +11,12 @@ const workflow = readFileSync(
   new URL("../.github/workflows/wp5-sqlcipher.yml", import.meta.url),
   "utf8",
 );
-const bundleWorkflow = readFileSync(
-  new URL("../.github/workflows/wp5-sqlcipher-bundle.yml", import.meta.url),
-  "utf8",
-);
 const desktopManifest = readFileSync(
   new URL("../apps/desktop/src-tauri/Cargo.toml", import.meta.url),
   "utf8",
 );
 const defaultTauriConfig = readFileSync(
   new URL("../apps/desktop/src-tauri/tauri.conf.json", import.meta.url),
-  "utf8",
-);
-const spikeTauriConfig = readFileSync(
-  new URL("../apps/desktop/src-tauri/tauri.bundle-spike.conf.json", import.meta.url),
   "utf8",
 );
 const evidenceCollector = readFileSync(
@@ -44,40 +36,14 @@ test("WP-5 SQLCipher evidence has a dedicated command and native matrix", () => 
   assert.match(workflow, /\.artifacts\/wp5\/sqlcipher/);
 });
 
-test("SQLCipher bundle evidence uses a dedicated feature-gated native matrix", () => {
-  assert.equal(
-    packageJson.scripts["evidence:wp5:bundle"],
-    "node scripts/collect-wp0-evidence.mjs --slice sqlcipher-bundle",
-  );
-  assert.match(bundleWorkflow, /windows-2025/);
-  assert.match(bundleWorkflow, /macos-15\r?\n/);
-  assert.match(bundleWorkflow, /macos-15-intel/);
-  assert.match(bundleWorkflow, /--profile native --slice sqlcipher-bundle/);
-  assert.match(bundleWorkflow, /target\/release\/bundle/);
-  const bundleSlice = evidenceCollector.slice(
-    evidenceCollector.indexOf('if (slice === "sqlcipher-bundle")'),
-  );
-  assert.ok(
-    bundleSlice.indexOf('id: "desktop-frontend-build"') <
-      bundleSlice.indexOf('id: "sqlcipher-bundle-spike-lint"'),
-    "the clean-runner frontendDist must exist before Tauri macro expansion during Clippy",
-  );
-});
-
-test("SQLCipher bundle linkage is opt-in and cannot alter the default desktop build", () => {
+test("SQLCipher is the default business database without disposable prototype surfaces", () => {
   assert.match(crateManifest, /^default = \[\]$/m);
-  assert.match(
-    crateManifest,
-    /^sqlcipher-bundle-spike = \["dep:rusqlite", "dep:serde", "dep:serde_json"\]$/m,
-  );
-  assert.match(crateManifest, /^rusqlite = \{ workspace = true, optional = true \}$/m);
   assert.match(crateManifest, /^rusqlite\.workspace = true$/m);
-  assert.match(desktopManifest, /^default = \[\]$/m);
-  assert.match(
-    desktopManifest,
-    /^sqlcipher-bundle-spike = \["gooddealer-local-storage\/sqlcipher-bundle-spike"\]$/m,
-  );
+  assert.match(crateManifest, /^serde\.workspace = true$/m);
+  assert.match(crateManifest, /^serde_json\.workspace = true$/m);
   assert.equal(JSON.parse(defaultTauriConfig).bundle.active, false);
-  assert.equal(JSON.parse(spikeTauriConfig).bundle.active, true);
-  assert.match(spikeTauriConfig, /sqlcipher-spike/);
+  assert.doesNotMatch(evidenceCollector, /sqlcipher-bundle/i);
+  assert.doesNotMatch(crateManifest, /sqlcipher-bundle/i);
+  assert.doesNotMatch(desktopManifest, /sqlcipher-bundle/i);
+  assert.equal(packageJson.scripts["evidence:wp5:bundle"], undefined);
 });

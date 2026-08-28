@@ -3,16 +3,18 @@ import { extname, relative, resolve } from "node:path";
 
 import {
   cloudEntrypointSourceErrors,
-  cloudManifestErrors,
   importBoundaryErrors,
-  secureHostManifestErrors,
 } from "./boundary-policy.mjs";
+import { cloudPersistenceBoundaryErrors } from "./cloud-persistence-policy.mjs";
+import {
+  repositoryTopologyImportErrors,
+} from "./repository-topology-policy.mjs";
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 import { repositoryUnsafeCodeBoundaryErrors } from "./unsafe-boundary-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
-const errors = [];
+const errors = [...repositoryTopologyImportErrors()];
 
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -43,79 +45,18 @@ for (const file of walk(root).filter((path) => sourceExtensions.has(extname(path
   const source = withoutComments(readFileSync(file, "utf8"));
   errors.push(
     ...cloudEntrypointSourceErrors(localPath, source).map((error) => `${localPath}: ${error}`),
+    ...cloudPersistenceBoundaryErrors(localPath, source).map((error) => `${localPath}: ${error}`),
   );
   const imports = importsOf(source);
-  const dynamicImportCount = [...source.matchAll(/\bimport\s*\(/g)].length;
-  const literalDynamicImportCount = [
-    ...source.matchAll(/\bimport\s*\(\s*["'][^"']+["']\s*\)/g),
-  ].length;
-  if (dynamicImportCount !== literalDynamicImportCount) {
-    errors.push(`${localPath}: computed dynamic imports are forbidden by the trust-domain fallback`);
-  }
   for (const specifier of imports) {
     errors.push(...importBoundaryErrors(localPath, specifier).map((error) => `${localPath}: ${error}`));
   }
 }
 
-const compositionRoot = withoutComments(
-  readFileSync(resolve(root, "apps/desktop/src/composition-root.ts"), "utf8"),
-);
-const connectorRegistrations = {
-  spaceship: "spaceshipConnector",
-  cloudflare: "cloudflareConnector",
-  atom: "atomConnector",
-  afternic: "afternicConnector",
-};
-const registrationMatch = compositionRoot.match(
-  /export\s+const\s+registeredConnectors\s*=\s*\[([\s\S]*?)\]\s*as\s+const/,
-);
-const registeredNames = new Set(
-  registrationMatch?.[1]
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean) ?? [],
-);
-for (const [connector, localName] of Object.entries(connectorRegistrations)) {
-  const importPattern = new RegExp(
-    `import\\s*\\{\\s*${localName}\\s*\\}\\s*from\\s*["']@gooddealer/connector-${connector}["']`,
-  );
-  if (!importPattern.test(compositionRoot) || !registeredNames.has(localName)) {
-    errors.push(`desktop composition root does not import and register ${connector}`);
-  }
-}
-if (registeredNames.size !== Object.keys(connectorRegistrations).length) {
-  errors.push("desktop composition root connector registration set is not the reviewed allowlist");
-}
-
-const tauriSourceRoot = resolve(root, "apps/desktop/src-tauri/src");
-const tauriRustSources = walk(tauriSourceRoot)
-  .filter((path) => extname(path) === ".rs")
-  .map((path) => withoutComments(readFileSync(path, "utf8")));
-
-const localCapability = JSON.parse(
-  readFileSync(resolve(root, "apps/desktop/src-tauri/capabilities/local-app.json"), "utf8"),
-);
 errors.push(
-  ...tauriCommandPolicyErrors({
-    buildSource: withoutComments(
-      readFileSync(resolve(root, "apps/desktop/src-tauri/build.rs"), "utf8"),
-    ),
-    mainSource: withoutComments(
-      readFileSync(resolve(root, "apps/desktop/src-tauri/src/main.rs"), "utf8"),
-    ),
-    rustSources: tauriRustSources,
-    capability: localCapability,
-    adapterSource: withoutComments(
-      readFileSync(resolve(root, "apps/desktop/src/adapters/tauri/index.ts"), "utf8"),
-    ),
-  }).map((error) => `Tauri command policy: ${error}`),
+  ...tauriCommandPolicyErrors({ root }).map((error) => `Tauri command policy: ${error}`),
 );
 
-const cloudManifest = readFileSync(resolve(root, "apps/cloud/package.json"), "utf8");
-errors.push(...cloudManifestErrors(cloudManifest));
-
-const secureHostManifest = readFileSync(resolve(root, "crates/secure-host-core/Cargo.toml"), "utf8");
-errors.push(...secureHostManifestErrors(secureHostManifest));
 errors.push(...repositoryUnsafeCodeBoundaryErrors(root));
 
 if (errors.length > 0) {

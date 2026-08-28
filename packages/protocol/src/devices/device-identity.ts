@@ -12,6 +12,13 @@ import {
 export const DEVICE_IDENTITY_SCHEMA_VERSION = 1 as const;
 export const AUTH_ACCESS_SIGNATURE_DOMAIN = "GOODDEALER-AUTH-ACCESS-V1" as const;
 export const AUTH_REFRESH_SIGNATURE_DOMAIN = "GOODDEALER-AUTH-REFRESH-V1" as const;
+export const BOOTSTRAP_CAPABILITY_SIGNATURE_DOMAIN =
+  "GOODDEALER-BOOTSTRAP-CAPABILITY-V1" as const;
+export const ACTIVE_DEVICE_LEASE_SIGNATURE_DOMAIN =
+  "GOODDEALER-ACTIVE-DEVICE-LEASE-V1" as const;
+
+const BOOTSTRAP_CAPABILITY_SIGNED_ENVELOPE_DOMAIN =
+  "GOODDEALER-BOOTSTRAP-CAPABILITY-SIGNED-ENVELOPE-V1";
 
 function validateCredentialWindow(
   envelope: { issuedAt: string; expiresAt: string },
@@ -241,8 +248,36 @@ export function encodeAuthRefreshSignatureTranscript(value: unknown): Uint8Array
   return encodeDomainSeparatedWireValue(AUTH_REFRESH_SIGNATURE_DOMAIN, envelopeWithoutSignature);
 }
 
+/** Fixed-purpose transcript. The signature bytes are never self-authenticating input. */
+export function encodeBootstrapCapabilitySignatureTranscript(value: unknown): Uint8Array {
+  const parsed = bootstrapCapabilityEnvelopeSchema.parse(value);
+  const { signature: _signature, ...envelopeWithoutSignature } = parsed;
+  return encodeDomainSeparatedWireValue(
+    BOOTSTRAP_CAPABILITY_SIGNATURE_DOMAIN,
+    envelopeWithoutSignature,
+  );
+}
+
+/** Canonical durable identity for the complete, already signed Bootstrap envelope. */
+export function encodeBootstrapCapabilitySignedEnvelope(value: unknown): Uint8Array {
+  const parsed = bootstrapCapabilityEnvelopeSchema.parse(value);
+  return encodeDomainSeparatedWireValue(BOOTSTRAP_CAPABILITY_SIGNED_ENVELOPE_DOMAIN, parsed);
+}
+
+/** Active Lease uses a purpose-isolated transcript even when every common claim is equal. */
+export function encodeActiveDeviceLeaseSignatureTranscript(value: unknown): Uint8Array {
+  const parsed = activeDeviceLeaseEnvelopeSchema.parse(value);
+  const { signature: _signature, ...envelopeWithoutSignature } = parsed;
+  return encodeDomainSeparatedWireValue(
+    ACTIVE_DEVICE_LEASE_SIGNATURE_DOMAIN,
+    envelopeWithoutSignature,
+  );
+}
+
 export type DeviceBindingChallenge = z.infer<typeof deviceBindingChallengeSchema>;
 export type DeviceProof = z.infer<typeof deviceProofSchema>;
 export type AuthAccessEnvelope = z.infer<typeof authAccessEnvelopeSchema>;
 export type AuthRefreshEnvelope = z.infer<typeof authRefreshEnvelopeSchema>;
+export type BootstrapCapabilityEnvelope = z.infer<typeof bootstrapCapabilityEnvelopeSchema>;
+export type ActiveDeviceLeaseEnvelope = z.infer<typeof activeDeviceLeaseEnvelopeSchema>;
 export type SignedCredentialEnvelope = z.infer<typeof signedCredentialEnvelopeSchema>;

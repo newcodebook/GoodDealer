@@ -1,9 +1,12 @@
 import {
+  WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   encodeWorkspaceEntityDigestsInput,
   type CheckpointDescriptor,
   type WorkspaceEntityDigest,
 } from "@gooddealer/protocol/workspace";
+
+export { PostgresBootstrapCheckpointPort } from "./bootstrap-port";
 
 import type { CheckpointCatalogPort } from "../../devices/ports";
 import type { WorkspaceTenantScope } from "../tenant-scope";
@@ -11,7 +14,7 @@ import { workspaceTenantKey } from "../tenant-scope";
 
 interface CheckpointBindingPort {
   resolveWorkspace(scope: WorkspaceTenantScope):
-    | { readonly bound: true; readonly workspaceSchemaVersion: number; readonly compactionWatermark: number }
+    | { readonly bound: true; readonly workspaceSchemaVersion: number; readonly compactedThroughServerRevision: number }
     | { readonly bound: false };
 }
 
@@ -20,13 +23,13 @@ interface CheckpointRevisionPort {
     readonly serverRevision: number;
     readonly workspaceSchemaVersion: number;
   };
-  advanceCompactionWatermark(scope: WorkspaceTenantScope, throughRevision: number): { rollback(): void };
+  advanceCompactionWatermark(scope: WorkspaceTenantScope, throughServerRevision: number): { rollback(): void };
 }
 
 interface CheckpointSnapshotPort {
   readEntityDigestsAt(
     scope: WorkspaceTenantScope,
-    throughRevision: number,
+    throughServerRevision: number,
     digest: (bytes: Uint8Array) => Promise<Uint8Array>,
   ): Promise<readonly WorkspaceEntityDigest[]>;
 }
@@ -34,10 +37,10 @@ interface CheckpointSnapshotPort {
 interface CheckpointMutationLogPort {
   hasCompleteRange(
     scope: WorkspaceTenantScope,
-    fromRevisionExclusive: number,
-    throughRevisionInclusive: number,
+    fromServerRevisionExclusive: number,
+    throughServerRevisionInclusive: number,
   ): boolean;
-  compactPrefix(scope: WorkspaceTenantScope, throughRevisionInclusive: number): { rollback(): void };
+  compactPrefix(scope: WorkspaceTenantScope, throughServerRevisionInclusive: number): { rollback(): void };
 }
 
 interface CursorWatermarkPort {
@@ -98,7 +101,7 @@ export type CheckpointLifecycleResult =
   | { readonly accepted: false; readonly code: CheckpointRejectionCode };
 
 export type CompactionResult =
-  | { readonly accepted: true; readonly compactionWatermark: number; readonly deletedMutationCount: number }
+  | { readonly accepted: true; readonly compactedThroughServerRevision: number; readonly deletedMutationCount: number }
   | { readonly accepted: false; readonly code: CheckpointRejectionCode };
 
 /** Fixture implementation of build -> verify -> publish -> prefix-only compact. */
@@ -149,26 +152,26 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
   async buildCheckpoint(
     scope: WorkspaceTenantScope,
     checkpointId: string,
-    throughRevision: number,
+    throughServerRevision: number,
   ): Promise<CheckpointLifecycleResult> {
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
     const head = this.#revisions.readHead(scope);
-    if (!Number.isSafeInteger(throughRevision) || throughRevision < 0 || throughRevision > head.serverRevision) {
+    if (!Number.isSafeInteger(throughServerRevision) || throughServerRevision < 0 || throughServerRevision > head.serverRevision) {
       return reject("COMPACTION_CHAIN_INCOMPLETE");
     }
     const checkpoints = this.#workspaceCheckpoints(scope);
     if (checkpoints.has(checkpointId)) throw new TypeError("checkpoint id is immutable");
-    const entityDigests = await this.#state.readEntityDigestsAt(scope, throughRevision, (bytes) => this.#sha256.digest(bytes));
+    const entityDigests = await this.#state.readEntityDigestsAt(scope, throughServerRevision, (bytes) => this.#sha256.digest(bytes));
     const checkpointDigest = Buffer.from(
       await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
     ).toString("base64url");
     const descriptor = checkpointDescriptorSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
       checkpointId,
       workspaceId: scope.workspaceId,
       workspaceSchemaVersion: binding.workspaceSchemaVersion,
-      throughRevision,
+      throughServerRevision,
       checkpointDigest,
     });
     const stored: StoredCheckpoint = { descriptor, status: "building", verified: false, publishedAt: null };
@@ -182,7 +185,7 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
     if (checkpoint === undefined || checkpoint.status !== "building") return reject("CHECKPOINT_NOT_AVAILABLE");
     const entityDigests = await this.#state.readEntityDigestsAt(
       scope,
-      checkpoint.descriptor.throughRevision,
+      checkpoint.descriptor.throughServerRevision,
       (bytes) => this.#sha256.digest(bytes),
     );
     const recomputed = Buffer.from(
@@ -276,12 +279,12 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
     return (this.#diagnostics.get(workspaceTenantKey(scope)) ?? []).map((diagnostic) => ({ ...diagnostic }));
   }
 
-  compactionWatermark(scope: WorkspaceTenantScope): number | null {
+  compactedThroughServerRevision(scope: WorkspaceTenantScope): number | null {
     if (!this.#bindings.resolveWorkspace(scope).bound) return null;
     this.#purgeExpiredPins(scope);
     const available = [...(this.#checkpoints.get(workspaceTenantKey(scope))?.values() ?? [])]
       .filter((checkpoint) => checkpoint.status === "available")
-      .map((checkpoint) => checkpoint.descriptor.throughRevision);
+      .map((checkpoint) => checkpoint.descriptor.throughServerRevision);
     if (available.length === 0) return null;
     const terms = [
       this.#deviceCursors.minimumActiveRevision(scope),
@@ -296,30 +299,30 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
   compact(scope: WorkspaceTenantScope, requestedThroughRevision?: number): CompactionResult {
     const binding = this.#bindings.resolveWorkspace(scope);
     if (!binding.bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
-    const watermark = this.compactionWatermark(scope);
+    const watermark = this.compactedThroughServerRevision(scope);
     if (watermark === null) return reject("COMPACTION_CHAIN_INCOMPLETE");
-    const throughRevision = requestedThroughRevision ?? watermark;
+    const throughServerRevision = requestedThroughRevision ?? watermark;
     if (
-      !Number.isSafeInteger(throughRevision) ||
-      throughRevision < binding.compactionWatermark ||
-      throughRevision > watermark
+      !Number.isSafeInteger(throughServerRevision) ||
+      throughServerRevision < binding.compactedThroughServerRevision ||
+      throughServerRevision > watermark
     ) return reject("COMPACTION_WATERMARK_BLOCKED");
 
     const head = this.#revisions.readHead(scope).serverRevision;
     const hasCheckpoint = [...(this.#checkpoints.get(workspaceTenantKey(scope))?.values() ?? [])]
-      .some((checkpoint) => checkpoint.status === "available" && checkpoint.descriptor.throughRevision >= throughRevision);
-    if (!hasCheckpoint || !this.#mutations.hasCompleteRange(scope, binding.compactionWatermark, head)) {
+      .some((checkpoint) => checkpoint.status === "available" && checkpoint.descriptor.throughServerRevision >= throughServerRevision);
+    if (!hasCheckpoint || !this.#mutations.hasCompleteRange(scope, binding.compactedThroughServerRevision, head)) {
       return reject("COMPACTION_CHAIN_INCOMPLETE");
     }
-    const deletedMutationCount = throughRevision - binding.compactionWatermark;
-    const mutationRollback = this.#mutations.compactPrefix(scope, throughRevision);
+    const deletedMutationCount = throughServerRevision - binding.compactedThroughServerRevision;
+    const mutationRollback = this.#mutations.compactPrefix(scope, throughServerRevision);
     try {
-      this.#revisions.advanceCompactionWatermark(scope, throughRevision);
+      this.#revisions.advanceCompactionWatermark(scope, throughServerRevision);
     } catch (error) {
       mutationRollback.rollback();
       throw error;
     }
-    return { accepted: true, compactionWatermark: throughRevision, deletedMutationCount };
+    return { accepted: true, compactedThroughServerRevision: throughServerRevision, deletedMutationCount };
   }
 
   #workspaceCheckpoints(scope: WorkspaceTenantScope): Map<string, StoredCheckpoint> {
@@ -336,7 +339,7 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
     if (pins === undefined || pins.size === 0) return null;
     const revisions = [...pins.keys()].flatMap((checkpointId) => {
       const checkpoint = this.#checkpoints.get(workspaceTenantKey(scope))?.get(checkpointId);
-      return checkpoint === undefined ? [] : [checkpoint.descriptor.throughRevision];
+      return checkpoint === undefined ? [] : [checkpoint.descriptor.throughServerRevision];
     });
     return revisions.length === 0 ? null : Math.min(...revisions);
   }
@@ -355,7 +358,7 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
   #supersedeExcess(scope: WorkspaceTenantScope): void {
     const available = [...this.#workspaceCheckpoints(scope).values()]
       .filter((checkpoint) => checkpoint.status === "available")
-      .sort((left, right) => right.descriptor.throughRevision - left.descriptor.throughRevision);
+      .sort((left, right) => right.descriptor.throughServerRevision - left.descriptor.throughServerRevision);
     for (const checkpoint of available.slice(this.#config.retainedAvailableCheckpoints)) {
       if (!this.#pins.get(workspaceTenantKey(scope))?.has(checkpoint.descriptor.checkpointId)) {
         checkpoint.status = "superseded";

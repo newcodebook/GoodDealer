@@ -39,12 +39,12 @@ const mutation = {
   workspaceId: "workspace-a",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset",
-  entityId: "domain-example-com",
-  baseRevision: 4,
+  entityId: "example.com",
+  baseServerRevision: 4,
   changedFields: [{ fieldPath: "note", value: "Priority portfolio" }],
   sourceDeviceId: "device-a",
   activeLeaseEpoch: 2,
-  mutationSequence: 9,
+  deviceMutationSequence: 9,
 } as const satisfies SubmittedSyncMutation;
 
 function state(
