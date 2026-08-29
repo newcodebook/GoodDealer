@@ -28,7 +28,7 @@ replace this Repository.
 
 ## Open Questions
 
-- [ ] Which production composition will deliver and refresh the verified authorization grant consumed by `LocalBusinessRuntime`? (open since: 2026-08)
+- [ ] Which native Cloud transport and signing-key distribution implementation will satisfy the purpose-specific ActiveDeviceLease verifier port? Until it is qualified, production remains authorization-required. (open since: 2026-08)
 
 ## Native commands
 
@@ -71,6 +71,13 @@ ordinary audit payloads.
 Account, subscription/entitlement, device binding, and ActiveDeviceLease/Epoch remain Cloud control
 plane facts. Invalid authorization keeps the runtime locked. A valid cached grant may permit local
 business work only for its defined offline window; Desktop cannot extend that window itself.
+
+The Host strictly consumes the frozen `DesktopAuthorizationGrant` shape and requires a separate,
+purpose-specific signature verifier before producing an `AuthorizedWorkspace`. It binds the grant
+to the expected account, device, Account Security Epoch, Lease Epoch, personal default Workspace,
+and exact read/mutate scopes. Parsing never proves the signature. Every status, Portfolio read, and
+DomainAsset write rechecks the trusted Host clock against `offlineExecuteUntil`; equality is expired.
+Workspace or authority substitution is rejected before the SQLCipher Repository is replaced.
 
 ## Verification
 

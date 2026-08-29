@@ -1,5 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "remove when the native Cloud transport and signing-key distribution compose the grant verifier"
+    )
+)]
+mod authorization;
 mod command_handlers;
 mod host_storage;
 
