@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
+
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -36,10 +38,12 @@ export const JOBS_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/db/migrations.ts",
   "apps/cloud/src/entrypoints/jobs.ts",
   "apps/cloud/src/entrypoints/ports/job-scheduler.ts",
+  "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/test/postgres/job-runtime-persistence.test.ts",
   "apps/cloud/test/job-runtime-persistence-boundary.test.ts",
   "packages/protocol/test/persistent-job-create.test.ts",
   "scripts/collect-jobs-persistence-report.mjs",
+  "scripts/collect-cloud-boundary-report.mjs",
   "scripts/jobs-persistence-evidence-policy.test.mjs",
   ".github/workflows/wp4-jobs-persistence.yml",
 ];
@@ -91,7 +95,7 @@ function main() {
     },
     tests: { postgres: tests },
     productionSurfaces: {
-      publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
+      publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
       periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
       jobApplicationPorts: /type JobApplicationPorts = readonly \[\]/u.test(scheduler) ? 0 : -1,
@@ -132,7 +136,7 @@ export function jobsPersistenceReportPassesPolicy(value) {
     && exactReplayAudit(value.database?.replayAudit)
     && exactTestObservation(value.tests?.postgres)
     && exactJson(value.productionSurfaces, {
-      publicBusinessRoutes: 0, adminBusinessRoutes: 0, periodicJobs: 0, jobApplicationPorts: 0,
+      publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0, jobApplicationPorts: 0,
       productionJobKinds: 0, scheduler: "DenyingPeriodicScheduler", schedulerCalls: 0,
       entrypointRuntimeImports: 0, tauriCommands: [],
     })

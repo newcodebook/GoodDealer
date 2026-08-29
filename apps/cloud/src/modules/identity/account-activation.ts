@@ -37,6 +37,13 @@ export interface AuthenticatedSubjectRevalidationPort {
 
 export class AccountActivationError extends Error {}
 
+export function activationIdentityFor(value: unknown): {
+  readonly accountId: string;
+  readonly workspaceId: string;
+} {
+  return derivedIds(parseAuthenticatedSubject(value).stableSubject);
+}
+
 export async function activateAccount(
   database: ActivationDatabase,
   subjectPort: AuthenticatedSubjectRevalidationPort,
@@ -45,7 +52,7 @@ export async function activateAccount(
 ): Promise<ActivationResult> {
   parseActivationIntent(intentValue);
   const subject = parseAuthenticatedSubject(await subjectPort.revalidate());
-  const ids = derivedIds(subject.stableSubject);
+  const ids = activationIdentityFor(subject);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const client = await database.connect();

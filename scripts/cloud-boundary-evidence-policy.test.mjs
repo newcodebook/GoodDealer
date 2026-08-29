@@ -12,6 +12,8 @@ import {
   jobsImportGraphReachesHttpFramework,
   sourceCrossesSurfaceImport,
   sourceDeclaresHandWrittenJsonSchema,
+  sourceDefinesExactAccountActivationBusinessRoute,
+  sourceDefinesSafeAccountActivationRoute,
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
   sourceSchedulesPeriodicJob,
@@ -123,6 +125,64 @@ test("public rate-limit policy layers the request address with the verified sess
   );
 });
 
+test("account activation policy requires public schemas, principal authorization, and principal-scoped invocation", () => {
+  const safeRoute = `
+    import { accountActivationRequestSchema, accountActivationResponseSchema } from "@gooddealer/protocol/account";
+    export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
+    const route = {
+      path: ACCOUNT_ACTIVATION_ROUTE,
+      request: accountActivationRequestSchema,
+      response: accountActivationResponseSchema,
+      authorize: (principal) => principal.clientKind === "account_web",
+      invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
+    };
+  `;
+  assert.equal(sourceDefinesSafeAccountActivationRoute(safeRoute), true);
+  assert.equal(
+    sourceDefinesSafeAccountActivationRoute(safeRoute.replace("account_web", "desktop")),
+    false,
+  );
+  assert.equal(
+    sourceDefinesSafeAccountActivationRoute(safeRoute.replace(
+      "@gooddealer/protocol/account",
+      "../../../modules/identity/account-activation",
+    )),
+    false,
+  );
+  assert.equal(
+    sourceDefinesSafeAccountActivationRoute(safeRoute.replace(
+      "activate(request, principal)",
+      "activate(request, request.accountId)",
+    )),
+    false,
+  );
+});
+
+test("account activation business-route allowlist is exact and rejects a second route", () => {
+  const exactFactory = `
+    import { accountActivationRequestSchema, accountActivationResponseSchema } from "@gooddealer/protocol/account";
+    export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
+    export function createPublicBusinessRoutes(ports): readonly [PublicRoute<AccountActivationRequest, AccountActivationResponse>] {
+      const accountActivationRoute: PublicRoute<AccountActivationRequest, AccountActivationResponse> = {
+        path: ACCOUNT_ACTIVATION_ROUTE,
+        request: accountActivationRequestSchema,
+        response: accountActivationResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
+      };
+      return [accountActivationRoute];
+    }
+  `;
+  assert.equal(sourceDefinesExactAccountActivationBusinessRoute(exactFactory), true);
+  assert.equal(
+    sourceDefinesExactAccountActivationBusinessRoute(exactFactory.replace(
+      "return [accountActivationRoute];",
+      'const recoveryRoute: PublicRoute<unknown, unknown> = { path: "/v1/recovery" }; return [accountActivationRoute, recoveryRoute];',
+    )),
+    false,
+  );
+});
+
 test("module route policy rejects framework, route, and network primitives", () => {
   assert.equal(sourceRegistersModuleRoute("export function project(value) { return value; }"), false);
   assert.equal(sourceRegistersModuleRoute('import Fastify from "fastify";'), true);
@@ -163,6 +223,22 @@ test("cloud boundary report observes real roots and fails closed on policy mutat
 
     const mutations = [
       { ...report, fixtureOnly: false },
+      { ...report, accountActivationRouteSourceSafe: false },
+      report.accountActivationIntegrationRequired
+        ? {
+            ...report,
+            accountActivationBoundary: {
+              ...report.accountActivationBoundary,
+              tenantSelectorsRejected: false,
+            },
+          }
+        : {
+            ...report,
+            accountActivationBoundary: {
+              ...report.accountActivationBoundary,
+              state: "integrated",
+            },
+          },
       { ...report, adminBusinessRoutesRegistered: true },
       { ...report, periodicJobsRegistered: true },
       { ...report, publicRootImportsStaffSurface: true },

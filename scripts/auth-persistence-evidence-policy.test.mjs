@@ -63,7 +63,7 @@ const report = {
     ownDataPropertyParser: true,
   },
   productionSurfaces: {
-    publicBusinessRoutes: 0,
+    publicBusinessRoutes: 1,
     adminBusinessRoutes: 0,
     periodicJobs: 0,
     passwordVerifier: "DenyingPasswordHashPort",

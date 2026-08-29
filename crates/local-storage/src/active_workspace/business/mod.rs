@@ -31,7 +31,6 @@ const FORBIDDEN_SYNC_KEYS: &[&str] = &[
     "token",
 ];
 
-#[derive(Clone)]
 pub struct LocalDatabaseKey([u8; 32]);
 
 impl LocalDatabaseKey {
@@ -44,6 +43,12 @@ impl LocalDatabaseKey {
 impl Debug for LocalDatabaseKey {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("LocalDatabaseKey([REDACTED])")
+    }
+}
+
+impl Drop for LocalDatabaseKey {
+    fn drop(&mut self) {
+        self.0.fill(0);
     }
 }
 

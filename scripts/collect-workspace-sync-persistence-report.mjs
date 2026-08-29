@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -151,6 +152,7 @@ const BASE_INPUT_PATHS = [
   "apps/desktop/src-tauri/src/main.rs",
   "apps/desktop/src/app.tsx",
   "scripts/collect-workspace-sync-persistence-report.mjs",
+  "scripts/collect-cloud-boundary-report.mjs",
   "scripts/workspace-sync-persistence-evidence-policy.test.mjs",
   ".github/workflows/wp2-workspace-sync-persistence.yml",
   "docs/ACCOUNT_AND_SYNC.md",
@@ -204,7 +206,7 @@ function main() {
     SELECT id, owner_module AS owner, checksum FROM gooddealer_cloud_migrations
     WHERE id IN (${WORKSPACE_SYNC_LEDGER_MIGRATIONS.map(([id]) => `'${id}'`).join(", ")})) r`);
   const productionSurfaces = {
-    publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
+    publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
     adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
     periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
     tauriCommands: [],
@@ -432,7 +434,7 @@ function expectedRls() {
 }
 function expectedProductionSurfaces() {
   return {
-    publicBusinessRoutes: 0,
+    publicBusinessRoutes: 1,
     adminBusinessRoutes: 0,
     periodicJobs: 0,
     tauriCommands: [],

@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { registerHooks } from "node:module";
+import { registerHooks, stripTypeScriptTypes } from "node:module";
 import { dirname, extname, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,12 +31,14 @@ export const CLOUD_BOUNDARY_EVIDENCE_DEFAULTS = Object.freeze({
 });
 
 export const CLOUD_BOUNDARY_SCOPE =
-  "Cloud entrypoint boundary only: two isolated Fastify composition roots with no business route, a framework-independent jobs composition with no registered periodic job, an explicit test-support public session verifier, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. No production Endpoint Registry, no real credentials, no persistence, no external network, no Staff AuditEvent chain, no job runtime, no proxy-derived client-IP policy, no production per-IP/device/account budgets, and no cross-instance rate-limit consistency.";
+  "Cloud entrypoint boundary only: two isolated Fastify composition roots, an exact public account-activation allowlist once its application port is integrated, no admin business route, a framework-independent jobs composition with no registered periodic job, an explicit test-support public session verifier, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. Account activation must use public protocol schemas, authenticate before parsing, derive account scope from the verified account_web principal, and reject tenant selectors. No other production Endpoint Registry, real credentials, external network, Staff AuditEvent chain, job runtime, proxy-derived client-IP policy, production per-IP/device/account budgets, or cross-instance rate-limit consistency.";
 
-const publicRouteTable = [
+const publicBoundaryRouteTable = [
   "GET /v1/boundary/identity",
   "POST /v1/boundary/validate",
 ];
+const accountActivationRoute = "POST /v1/account/activation";
+const integratedPublicRouteTable = [...publicBoundaryRouteTable, accountActivationRoute];
 const adminRouteTable = [
   "GET /admin/v1/boundary/identity",
   "POST /admin/v1/boundary/validate",
@@ -47,6 +49,7 @@ const allowedAdminPaths = new Set([
 ]);
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs"];
 const ignoredDirectories = new Set([".artifacts", ".git", "dist", "node_modules", "target"]);
+const accountActivationPortPath = "apps/cloud/src/entrypoints/ports/account-activation.ts";
 
 export const CLOUD_BOUNDARY_REQUIRED_INPUTS = Object.freeze([
   "scripts/collect-cloud-boundary-report.mjs",
@@ -176,6 +179,34 @@ export function sourceUsesLayeredPublicRateLimitBuckets(source) {
     && !/identityHeaderNames\s*:\s*\[\s*[^\]\s]/.test(cleanSource);
 }
 
+export function sourceDefinesSafeAccountActivationRoute(source) {
+  const cleanSource = withoutComments(source);
+  return /from\s+["']@gooddealer\/protocol\/account["']/.test(cleanSource)
+    && /request:\s*accountActivationRequestSchema\b/.test(cleanSource)
+    && /response:\s*accountActivationResponseSchema\b/.test(cleanSource)
+    && /path:\s*ACCOUNT_ACTIVATION_ROUTE\b/.test(cleanSource)
+    && /ACCOUNT_ACTIVATION_ROUTE\s*=\s*["']\/v1\/account\/activation["']/.test(cleanSource)
+    && /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*["']account_web["']/.test(cleanSource)
+    && /accountActivation\.activate\(request,\s*principal\)/.test(cleanSource);
+}
+
+/**
+ * Persistence evidence needs the exact public business-route allowlist, not the historical
+ * assumption that every business route is absent. Keep that observation anchored to the same
+ * source policy that proves account activation is principal-scoped and protocol-owned.
+ */
+export function sourceDefinesExactAccountActivationBusinessRoute(source) {
+  const cleanSource = withoutComments(source);
+  const factoryStart = cleanSource.indexOf("export function createPublicBusinessRoutes");
+  if (factoryStart < 0 || !sourceDefinesSafeAccountActivationRoute(cleanSource)) return false;
+  const factorySource = cleanSource.slice(factoryStart);
+  return /:\s*readonly\s*\[\s*PublicRoute<AccountActivationRequest,\s*AccountActivationResponse>\s*\]\s*\{/u
+    .test(factorySource)
+    && (factorySource.match(/\bconst\s+\w+Route\s*:\s*PublicRoute</gu) ?? []).length === 1
+    && (factorySource.match(/\bpath\s*:/gu) ?? []).length === 1
+    && /return\s*\[\s*accountActivationRoute\s*\]\s*;/u.test(factorySource);
+}
+
 export function sourceRegistersModuleRoute(source) {
   const cleanSource = withoutComments(source);
   return (
@@ -284,6 +315,17 @@ function registerTypeScriptHooks() {
         if (existsSync(fileURLToPath(candidate))) return nextResolve(candidate.href, context);
       }
       return nextResolve(specifier, context);
+    },
+    load(url, context, nextLoad) {
+      if (url.startsWith("file:") && url.endsWith(".ts")) {
+        const source = readFileSync(fileURLToPath(url), "utf8");
+        return {
+          format: "module",
+          shortCircuit: true,
+          source: stripTypeScriptTypes(source, { mode: "transform" }),
+        };
+      }
+      return nextLoad(url, context);
     },
   });
   hooksRegistered = true;
@@ -481,7 +523,15 @@ function staticBoundaryEvidence(runtime) {
   const moduleSources = readSources(resolve(root, "apps/cloud/src/modules"));
   const publicRoot = entrypointSources.find(({ path }) => path.endsWith("/entrypoints/http.ts"));
   const adminRoot = entrypointSources.find(({ path }) => path.endsWith("/entrypoints/admin-http.ts"));
+  const publicBoundary = entrypointSources.find(
+    ({ path }) => path.endsWith("/entrypoints/routes/public/boundary.ts"),
+  );
+  const accountActivationIntegrationRequired = existsSync(resolve(root, accountActivationPortPath));
   return {
+    accountActivationIntegrationRequired,
+    accountActivationRouteSourceSafe:
+      !accountActivationIntegrationRequired
+      || (publicBoundary !== undefined && sourceDefinesSafeAccountActivationRoute(publicBoundary.source)),
     adminBusinessRoutesRegistered:
       runtime.adminBusinessRoutes.length !== 0
       || entrypointSources.some(({ source }) => sourceRegistersAdminBusinessRoute(source)),
@@ -511,6 +561,60 @@ function staticBoundaryEvidence(runtime) {
       runtime.PUBLIC_SESSION_COOKIE === "gd_session"
       && runtime.STAFF_SESSION_COOKIE === "gd_staff_session"
       && runtime.PUBLIC_SESSION_COOKIE !== runtime.STAFF_SESSION_COOKIE,
+  };
+}
+
+async function observeAccountActivation(url, integrationRequired, invocations) {
+  if (!integrationRequired) {
+    return {
+      state: "pending-integration",
+      validPrincipalScopeDerived: null,
+      tenantSelectorsRejected: null,
+      unauthenticatedRejected: null,
+      desktopPrincipalRejected: null,
+    };
+  }
+  const request = async (cookie, payload) => {
+    const response = await fetch(`${url}/v1/account/activation`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(cookie === null ? {} : { cookie: `gd_session=${cookie}` }),
+      },
+      body: JSON.stringify(payload),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const valid = await request("activation-web-session", { schemaVersion: 1 });
+  const tenantSelectors = [];
+  for (const selector of ["accountId", "workspaceId", "tenantId", "role"]) {
+    tenantSelectors.push(await request("activation-web-session", {
+      schemaVersion: 1,
+      [selector]: "client-selected",
+    }));
+  }
+  const unauthenticated = await request(null, { schemaVersion: 1, workspaceId: "client-selected" });
+  const desktop = await request("activation-desktop-session", { schemaVersion: 1 });
+  const invocation = invocations[0];
+  return {
+    state: "integrated",
+    validPrincipalScopeDerived:
+      valid.status === 200
+      && valid.body?.schemaVersion === 1
+      && valid.body?.state === "active"
+      && Object.keys(valid.body).length === 2
+      && invocations.length === 1
+      && invocation?.request?.schemaVersion === 1
+      && Object.keys(invocation.request).length === 1
+      && invocation?.principal?.accountId === "activation-account-web"
+      && invocation?.principal?.clientKind === "account_web",
+    tenantSelectorsRejected: tenantSelectors.every(
+      ({ status, body }) => status === 400 && body?.code === "SCHEMA_INVALID",
+    ),
+    unauthenticatedRejected:
+      unauthenticated.status === 401 && unauthenticated.body?.code === "UNAUTHENTICATED",
+    desktopPrincipalRejected:
+      desktop.status === 404 && desktop.body?.code === "NOT_FOUND",
   };
 }
 
@@ -555,14 +659,42 @@ export async function collectCloudBoundaryReport(options = {}) {
     "matrix-rate-session",
     "probe-session-a",
     "probe-session-b",
-  ].map((sessionId, index) => ({ sessionId, accountId: `fixture-account-${index + 1}` }));
+  ].map((sessionId, index) => ({
+    sessionId,
+    accountId: `fixture-account-${index + 1}`,
+    clientKind: "account_web",
+  }));
+  publicSessions.push(
+    {
+      sessionId: "activation-web-session",
+      accountId: "activation-account-web",
+      clientKind: "account_web",
+    },
+    {
+      sessionId: "activation-desktop-session",
+      accountId: "activation-account-desktop",
+      clientKind: "desktop",
+    },
+  );
+  const accountActivationIntegrationRequired = existsSync(resolve(root, accountActivationPortPath));
+  const accountActivationInvocations = [];
+  const publicPorts = accountActivationIntegrationRequired
+    ? {
+        accountActivation: {
+          activate: async (request, principal) => {
+            accountActivationInvocations.push({ request, principal });
+            return { schemaVersion: 1, state: "active" };
+          },
+        },
+      }
+    : [];
   const publicApp = runtime.createPublicHttp({
     sessions: new runtime.StaticPublicSessionVerifier(publicSessions),
     preAuthRateLimit: runtime.rateLimitPolicy(1_000, 100),
     sessionRateLimit: runtime.rateLimitPolicy(1_000, 100),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
     correlationIds: ids("public-evidence-correlation"),
-    ports: [],
+    ports: publicPorts,
   });
   const adminApp = runtime.createAdminHttp({
     staffSessions: new runtime.StaticStaffSessionVerifier([
@@ -642,6 +774,11 @@ export async function collectCloudBoundaryReport(options = {}) {
     const adminOpenApiPaths = Object.keys(adminOpenApi.paths);
     const sharedOpenApiPaths = publicOpenApiPaths.filter((path) => adminOpenApiPaths.includes(path));
     const rateLimitObservation = await observeLayeredRateLimit(addressRateLimitUrl, sessionRateLimitUrl);
+    const accountActivationBoundary = await observeAccountActivation(
+      publicUrl,
+      accountActivationIntegrationRequired,
+      accountActivationInvocations,
+    );
     const inputs = inputEvidence();
     const staticEvidence = staticBoundaryEvidence(runtime);
 
@@ -665,6 +802,7 @@ export async function collectCloudBoundaryReport(options = {}) {
         cases: observedCases.map(({ rawBody: _rawBody, ...observed }) => observed),
       },
       routeTables: { public: publicRoutes, admin: adminRoutes },
+      accountActivationBoundary,
       openapi: {
         public: { paths: publicOpenApiPaths.length, sha256: sha256(publicOpenApiContent) },
         admin: { paths: adminOpenApiPaths.length, sha256: sha256(adminOpenApiContent) },
@@ -704,10 +842,28 @@ export function cloudBoundaryReportPassesPolicy(report) {
   const expectedCaseIds = matrixCases.map(({ id }) => id);
   const observedCaseIds = report.errorIdentityMatrix?.cases?.map(({ id }) => id) ?? [];
   const inputPaths = report.inputs?.map(({ path }) => path) ?? [];
+  const integrationRequired = report.accountActivationIntegrationRequired === true;
+  const expectedPublicRoutes = integrationRequired
+    ? integratedPublicRouteTable
+    : publicBoundaryRouteTable;
+  const accountActivationBoundaryPasses = integrationRequired
+    ? report.accountActivationRouteSourceSafe === true
+      && report.accountActivationBoundary?.state === "integrated"
+      && report.accountActivationBoundary?.validPrincipalScopeDerived === true
+      && report.accountActivationBoundary?.tenantSelectorsRejected === true
+      && report.accountActivationBoundary?.unauthenticatedRejected === true
+      && report.accountActivationBoundary?.desktopPrincipalRejected === true
+    : report.accountActivationRouteSourceSafe === true
+      && report.accountActivationBoundary?.state === "pending-integration"
+      && report.accountActivationBoundary?.validPrincipalScopeDerived === null
+      && report.accountActivationBoundary?.tenantSelectorsRejected === null
+      && report.accountActivationBoundary?.unauthenticatedRejected === null
+      && report.accountActivationBoundary?.desktopPrincipalRejected === null;
   return Boolean(
     report.schemaVersion === 1
     && report.scope === CLOUD_BOUNDARY_SCOPE
     && report.fixtureOnly === true
+    && accountActivationBoundaryPasses
     && report.adminBusinessRoutesRegistered === false
     && report.periodicJobsRegistered === false
     && report.publicRootImportsStaffSurface === false
@@ -728,9 +884,9 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.errorIdentityMatrix?.adminPreAuthResponsesIdentical === true
     && JSON.stringify(observedCaseIds) === JSON.stringify(expectedCaseIds)
     && report.errorIdentityMatrix.cases.every(({ matched }) => matched === true)
-    && JSON.stringify(report.routeTables?.public) === JSON.stringify(publicRouteTable)
+    && JSON.stringify(report.routeTables?.public) === JSON.stringify(expectedPublicRoutes)
     && JSON.stringify(report.routeTables?.admin) === JSON.stringify(adminRouteTable)
-    && report.openapi?.public?.paths === 2
+    && report.openapi?.public?.paths === expectedPublicRoutes.length
     && /^[0-9a-f]{64}$/.test(report.openapi?.public?.sha256 ?? "")
     && report.openapi?.admin?.paths === 2
     && /^[0-9a-f]{64}$/.test(report.openapi?.admin?.sha256 ?? "")

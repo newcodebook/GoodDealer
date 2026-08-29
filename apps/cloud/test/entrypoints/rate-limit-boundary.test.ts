@@ -5,7 +5,10 @@ import { createAdminHttp } from "../../src/entrypoints/admin-http";
 import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 import { createPublicHttp } from "../../src/entrypoints/http";
 import { InMemoryAuditSink } from "../../src/entrypoints/ports/audit-sink";
-import { StaticPublicSessionVerifier } from "../support/public-session";
+import {
+  denyingPublicApplicationPorts,
+  StaticPublicSessionVerifier,
+} from "../support/public-session";
 import { StaticStaffSessionVerifier } from "../../src/entrypoints/ports/staff-session";
 
 function ids(prefix: string): () => string {
@@ -39,7 +42,7 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
       sessionRateLimit: rateLimitPolicy(windowMs, sessionBurst),
       now: () => new Date("2020-01-01T00:00:00.000Z"),
       correlationIds: ids("rate-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     apps.push(app);
     return app;

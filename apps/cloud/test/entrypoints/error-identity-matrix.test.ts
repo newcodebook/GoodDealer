@@ -15,7 +15,10 @@ import {
 } from "../../src/entrypoints/adapter/surface";
 import { createPublicHttp } from "../../src/entrypoints/http";
 import { InMemoryAuditSink } from "../../src/entrypoints/ports/audit-sink";
-import { StaticPublicSessionVerifier } from "../support/public-session";
+import {
+  denyingPublicApplicationPorts,
+  StaticPublicSessionVerifier,
+} from "../support/public-session";
 import { StaticStaffSessionVerifier } from "../../src/entrypoints/ports/staff-session";
 import { accountRejectionCodeSchema } from "@gooddealer/protocol/account";
 import {
@@ -65,7 +68,7 @@ describe("the observed 16-row error identity matrix", () => {
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => new Date("2026-08-15T00:00:00.000Z"),
       correlationIds: ids("public-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     adminApp = createAdminHttp({
       staffSessions: new StaticStaffSessionVerifier([
@@ -303,6 +306,7 @@ describe("the observed 16-row error identity matrix", () => {
     expect(publicRoutes).toEqual([
       { method: "GET", path: "/v1/boundary/identity" },
       { method: "POST", path: "/v1/boundary/validate" },
+      { method: "POST", path: "/v1/account/activation" },
     ]);
     expect(adminRoutes).toEqual([
       { method: "GET", path: "/admin/v1/boundary/identity" },
@@ -415,7 +419,7 @@ describe("the observed 16-row error identity matrix", () => {
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => new Date("2026-08-15T00:00:00.000Z"),
       correlationIds: ids("matrix-rate-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     const rateLimitUrl = await rateLimitApp.listen({ host: "127.0.0.1", port: 0 });
     try {

@@ -75,8 +75,9 @@ describe("account auth and session contracts", () => {
     expect(displayLabel.safeParse("untrimmed ").success).toBe(false);
   });
 
-  it("freezes the eight account operation names", () => {
+  it("freezes the nine account operation names", () => {
     expect(accountOperationSchema.options).toEqual([
+      "account.activation.activate",
       "account.session.login",
       "account.session.refresh",
       "account.session.signOut",

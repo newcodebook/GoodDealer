@@ -91,8 +91,9 @@ describe("device management contracts", () => {
     });
   }
 
-  it("freezes the five device operation names", () => {
+  it("freezes the six device operation names", () => {
     expect(deviceOperationSchema.options).toEqual([
+      "devices.authorizationGrant.issue",
       "devices.bindings.list",
       "devices.binding.remove",
       "devices.lease.status",

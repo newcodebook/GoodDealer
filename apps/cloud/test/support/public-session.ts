@@ -1,10 +1,19 @@
 import { identifier } from "@gooddealer/protocol/wire";
 
+import type { PublicApplicationPorts } from "../../src/entrypoints/http";
 import {
   PUBLIC_SESSION_COOKIE,
   type PublicPrincipal,
   type PublicSessionVerifierPort,
 } from "../../src/entrypoints/ports/public-session";
+
+export const denyingPublicApplicationPorts: PublicApplicationPorts = {
+  accountActivation: {
+    async activate() {
+      return null;
+    },
+  },
+};
 
 export interface StaticPublicSession {
   readonly sessionId: string;

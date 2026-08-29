@@ -23,6 +23,7 @@ export {
   sha256DigestSchema,
   submittedSyncMutationSchema,
   syncMutationSchema,
+  tenantNeutralSubmittedSyncMutationSchema,
   workspaceFieldMetadata,
   workspaceEntityDigestSchema,
   workspaceEntityDigestsSchema,
@@ -33,9 +34,39 @@ export type {
   MutationPage,
   SubmittedSyncMutation,
   SyncMutation,
+  TenantNeutralSubmittedSyncMutation,
   WorkspaceEntityDigest,
   WorkspaceRevision,
 } from "./sync-mutation";
+
+export {
+  DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID,
+  WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID,
+  WORKSPACE_SYNC_PULL_OPERATION_ID,
+  WORKSPACE_SYNC_PUSH_OPERATION_ID,
+  workspaceCheckpointReadRequestSchema,
+  workspaceCheckpointReadResponseSchema,
+  workspaceMutationAcknowledgementSchema,
+  workspaceMutationPullRejectionCodeSchema,
+  workspaceMutationPullRequestSchema,
+  workspaceMutationPullResponseSchema,
+  workspaceMutationPushRejectionCodeSchema,
+  workspaceMutationPushRequestSchema,
+  workspaceMutationPushResponseSchema,
+  workspaceSyncOperationSchema,
+} from "./sync-transport";
+export type {
+  WorkspaceCheckpointReadRequest,
+  WorkspaceCheckpointReadResponse,
+  WorkspaceMutationAcknowledgement,
+  WorkspaceMutationPullRejectionCode,
+  WorkspaceMutationPullRequest,
+  WorkspaceMutationPullResponse,
+  WorkspaceMutationPushRejectionCode,
+  WorkspaceMutationPushRequest,
+  WorkspaceMutationPushResponse,
+  WorkspaceSyncOperation,
+} from "./sync-transport";
 
 export {
   MAX_WORKSPACE_PORTFOLIO_READ_ASSETS,

@@ -28,7 +28,7 @@ replace this Repository.
 
 ## Open Questions
 
-- [ ] Which production composition will deliver and refresh the verified authorization grant consumed by `LocalBusinessRuntime`? (open since: 2026-08)
+- [ ] Which native Cloud transport and signing-key distribution implementation will satisfy the purpose-specific ActiveDeviceLease verifier port? Until it is qualified, production remains authorization-required. (open since: 2026-08)
 
 ## Native commands
 
@@ -46,6 +46,19 @@ DomainAsset upsert commits the local business row and a secret-free Sync Outbox 
 SQLCipher transaction. Portfolio reads return the local snapshot. Cloud transport is absent from
 both command implementations and the regression suite proves local read/write without it.
 
+## Native storage identity
+
+The native Host resolves one fixed `active-workspace/business.db` location beneath Tauri's
+application-data directory. It rejects relative roots, symlinked storage roots, symlinked database
+files, and non-file database targets; on Unix it restricts the Host-owned database directory to the
+owner.
+
+On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
+the operating system CSPRNG only when no database exists. If an existing database loses its
+Keychain item, startup fails closed instead of creating a replacement key. Keychain failures,
+malformed key material, and wrong SQLCipher keys expose only stable non-secret error codes. Other
+platform keychain adapters remain fail-closed until their native implementations are qualified.
+
 ## Secret boundary
 
 Third-party account identity, Provider Account ID, account labels, credential bindings, API keys,
@@ -58,6 +71,13 @@ ordinary audit payloads.
 Account, subscription/entitlement, device binding, and ActiveDeviceLease/Epoch remain Cloud control
 plane facts. Invalid authorization keeps the runtime locked. A valid cached grant may permit local
 business work only for its defined offline window; Desktop cannot extend that window itself.
+
+The Host strictly consumes the frozen `DesktopAuthorizationGrant` shape and requires a separate,
+purpose-specific signature verifier before producing an `AuthorizedWorkspace`. It binds the grant
+to the expected account, device, Account Security Epoch, Lease Epoch, personal default Workspace,
+and exact read/mutate scopes. Parsing never proves the signature. Every status, Portfolio read, and
+DomainAsset write rechecks the trusted Host clock against `offlineExecuteUntil`; equality is expired.
+Workspace or authority substitution is rejected before the SQLCipher Repository is replaced.
 
 ## Verification
 

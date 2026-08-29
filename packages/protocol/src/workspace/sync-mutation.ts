@@ -57,10 +57,12 @@ export const workspaceFieldMetadata = {
   "domain_asset.targetPrice": { privacyClass: "PUBLIC_BUSINESS", mergeClass: "manual" },
 } as const;
 
-const submittedSyncMutationFields = {
+const submittedSyncMutationPrefixFields = {
   schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
   mutationId: identifier,
-  workspaceId: identifier,
+} as const;
+
+const submittedSyncMutationSuffixFields = {
   workspaceSchemaVersion: safePositiveInteger,
   entityType: z.literal("domain_asset"),
   entityId: domainAssetIdSchema,
@@ -73,26 +75,50 @@ const submittedSyncMutationFields = {
   deviceMutationSequence: safePositiveInteger,
 } as const;
 
-/** The device-committed mutation before Cloud assigns its server revision. */
-export const submittedSyncMutationSchema = z.object(submittedSyncMutationFields).strict()
-  .superRefine((mutation, context) => {
-    const operationKind = mutation.operationKind ?? "upsert";
-    if (operationKind === "upsert") {
-      if (mutation.changedFields.length === 0) {
-        context.addIssue({ code: "custom", path: ["changedFields"], message: "upsert requires changed fields" });
-      }
-      if (mutation.deletedAt !== undefined) {
-        context.addIssue({ code: "custom", path: ["deletedAt"], message: "upsert cannot carry deletion time" });
-      }
-    } else {
-      if (mutation.changedFields.length !== 0) {
-        context.addIssue({ code: "custom", path: ["changedFields"], message: "delete cannot carry changed fields" });
-      }
-      if (mutation.deletedAt === undefined) {
-        context.addIssue({ code: "custom", path: ["deletedAt"], message: "delete requires deletion time" });
-      }
+function validateSubmittedSyncMutation(
+  mutation: {
+    operationKind?: "upsert" | "delete" | undefined;
+    deletedAt?: string | undefined;
+    changedFields: readonly unknown[];
+  },
+  context: z.RefinementCtx,
+) {
+  const operationKind = mutation.operationKind ?? "upsert";
+  if (operationKind === "upsert") {
+    if (mutation.changedFields.length === 0) {
+      context.addIssue({ code: "custom", path: ["changedFields"], message: "upsert requires changed fields" });
     }
-  });
+    if (mutation.deletedAt !== undefined) {
+      context.addIssue({ code: "custom", path: ["deletedAt"], message: "upsert cannot carry deletion time" });
+    }
+  } else {
+    if (mutation.changedFields.length !== 0) {
+      context.addIssue({ code: "custom", path: ["changedFields"], message: "delete cannot carry changed fields" });
+    }
+    if (mutation.deletedAt === undefined) {
+      context.addIssue({ code: "custom", path: ["deletedAt"], message: "delete requires deletion time" });
+    }
+  }
+}
+
+/** Tenant-neutral mutation accepted by the Cloud wire boundary. */
+export const tenantNeutralSubmittedSyncMutationSchema = z
+  .object({
+    ...submittedSyncMutationPrefixFields,
+    ...submittedSyncMutationSuffixFields,
+  })
+  .strict()
+  .superRefine(validateSubmittedSyncMutation);
+
+/** The device-committed mutation before Cloud assigns its server revision. */
+export const submittedSyncMutationSchema = z
+  .object({
+    ...submittedSyncMutationPrefixFields,
+    workspaceId: identifier,
+    ...submittedSyncMutationSuffixFields,
+  })
+  .strict()
+  .superRefine(validateSubmittedSyncMutation);
 
 export const syncMutationSchema = submittedSyncMutationSchema
   .safeExtend({ serverRevision: safePositiveInteger })
@@ -234,6 +260,9 @@ export function encodeWorkspaceEntityDigestsInput(value: unknown): Uint8Array {
 
 export type WorkspaceRevision = z.infer<typeof serverRevisionSchema>;
 export type SubmittedSyncMutation = z.infer<typeof submittedSyncMutationSchema>;
+export type TenantNeutralSubmittedSyncMutation = z.infer<
+  typeof tenantNeutralSubmittedSyncMutationSchema
+>;
 export type SyncMutation = z.infer<typeof syncMutationSchema>;
 export type CheckpointDescriptor = z.infer<typeof checkpointDescriptorSchema>;
 export type MutationPage = z.infer<typeof mutationPageSchema>;

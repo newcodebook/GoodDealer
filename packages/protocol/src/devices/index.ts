@@ -71,3 +71,14 @@ export {
   encodeBootstrapStepResultReplayIdentity,
 } from "./bootstrap-steps";
 export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-steps";
+
+export {
+  DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID,
+  DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
+  desktopAuthorizationGrantRequestSchema,
+  desktopAuthorizationGrantSchema,
+} from "./authorization-grant";
+export type {
+  DesktopAuthorizationGrant,
+  DesktopAuthorizationGrantRequest,
+} from "./authorization-grant";

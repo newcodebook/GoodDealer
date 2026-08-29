@@ -10,11 +10,12 @@ tauri-build.workspace = true
 
 [dependencies]
 gooddealer-local-storage = { path = "../../../crates/local-storage" }
+gooddealer-secure-host-core = { path = "../../../crates/secure-host-core" }
 serde.workspace = true
+serde_json.workspace = true
 tauri.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile = "=3.27.0"
 
 [lints]

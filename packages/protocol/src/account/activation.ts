@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const ACCOUNT_ACTIVATION_SCHEMA_VERSION = 1 as const;
+export const ACCOUNT_ACTIVATION_OPERATION_ID = "account.activation.activate" as const;
 
 /** The authenticated server session is the only activation identity source. */
 export const accountActivationRequestSchema = z

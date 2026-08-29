@@ -699,7 +699,7 @@ function profileDefinition(profile, slice, reportPath) {
     return {
       resolvedProfile: "wp4-cloud-boundary",
       applicability:
-        "Fixture-only Cloud entrypoint isolation, error identity, OpenAPI, boundary policy, and single-process rate-limit evidence; no business route, real credential, persistence, external network, AuditEvent chain, or job runtime.",
+        "Local Cloud entrypoint isolation, error identity, exact account-activation route/OpenAPI allowlist when integrated, protocol-schema and authenticated-scope policy, and single-process rate-limit evidence; no real credential, external network, Staff AuditEvent chain, or job runtime.",
       commands: [
         {
           id: "protocol-typecheck",

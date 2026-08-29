@@ -36,7 +36,7 @@ const report = {
     replayAudit,
   },
   tests:{postgres:{file:"test/postgres/job-runtime-persistence.test.ts",success:true,total:POSTGRES_JOBS_TEST_NAMES.length,passed:POSTGRES_JOBS_TEST_NAMES.length,failed:0,names:POSTGRES_JOBS_TEST_NAMES}},
-  productionSurfaces:{publicBusinessRoutes:0,adminBusinessRoutes:0,periodicJobs:0,jobApplicationPorts:0,productionJobKinds:0,scheduler:"DenyingPeriodicScheduler",schedulerCalls:0,entrypointRuntimeImports:0,tauriCommands:[]},
+  productionSurfaces:{publicBusinessRoutes:1,adminBusinessRoutes:0,periodicJobs:0,jobApplicationPorts:0,productionJobKinds:0,scheduler:"DenyingPeriodicScheduler",schedulerCalls:0,entrypointRuntimeImports:0,tauriCommands:[]},
   gates:{"R0-09":"In Progress"},inputs:hashes,inputSetDigest:digestInputs(hashes),
 };
 
@@ -50,6 +50,7 @@ test("jobs persistence policy rejects fabricated qualification, roles, RLS, migr
     {...report,tests:{postgres:{...report.tests.postgres,total:POSTGRES_JOBS_TEST_NAMES.length-1}}},
     {...report,tests:{postgres:{...report.tests.postgres,names:[...POSTGRES_JOBS_TEST_NAMES.slice(0,-1),POSTGRES_JOBS_TEST_NAMES[0]]}}},
     {...report,inputs:hashes.slice(1)},
+    {...report,productionSurfaces:{...report.productionSurfaces,publicBusinessRoutes:-1}},
     {...report,productionSurfaces:{...report.productionSurfaces,periodicJobs:1}},
     {...report,productionSurfaces:{...report.productionSurfaces,productionJobKinds:1}},
     {...report,gates:{"R0-09":"Closed"}}, {...report,closesGate:true}, {...report,repository:{...report.repository,dirty:true}},

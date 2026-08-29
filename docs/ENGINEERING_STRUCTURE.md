@@ -51,7 +51,7 @@ crates/
 | `apps/desktop` | 受限展示、已验证投影、最小 Desktop/Host 适配和用户可见失败状态。 | 只消费已声明的合同；UI 不拥有秘密、租户、持久化、网络或授权；需要的 Tauri command/capability 必须是能力专属且可测试。 | 原生签名/公证和平台观察只限制原生/客户构件声明。 |
 | `apps/cloud` | 服务器端身份、授权、默认工作区范围、同步副本、恢复与作业组合。 | public route 只能在拥有领域、认证、服务器端范围和严格 schema 实际组合后注册；业务副本不能成为 Desktop Repository。 | 托管环境、部署、监控和运行观察只限制已部署服务声明。 |
 | 最小 Host / `secure-host-core` | 秘密 custody 和能力专属本地操作；私有 Cloudflare Service 独占 Provider endpoint/wire、Credential Fence 与加固 HTTPS Transport。 | 不提供通用 bridge、文件/网络/密钥/endpoint 选择面；Provider wire 在 Host 内重建为领域类型；每个新 command/port 都有输入验证、最小权限和负向测试。 | 真实凭据、原生平台和提供商观察只限制外部效果/可用性声明。 |
-| `packages/protocol` 与 `packages/cloud-client` | tenant-neutral 账号控制面和同步恢复 wire、`unknown` 响应解析。 | transport 不携带租户、网络、凭据或提供商权威；Cloud replica 先合并到本地 SQLCipher 才能供 Query 使用。 | 不产生服务、部署或客户路径证据。 |
+| `packages/protocol` 与 `packages/cloud-client` | tenant-neutral 账号激活、授权 grant、同步 ACK/Cursor/Checkpoint 与恢复 wire、`unknown` 响应解析。 | transport 请求不携带租户、网络、凭据或提供商权威；grant 解析不替代签名验证；Cloud replica 先合并到本地 SQLCipher 才能供 Query 使用。详见[首切片共享合同](FIRST_SLICE_SHARED_CONTRACT.md)。 | 不产生服务、部署或客户路径证据。 |
 | `packages/ui` 与 `packages/i18n` | 无权威的通用展示资源与文案。 | 仅使用 public exports；组件/文案不能决定路由、授权、秘密、网络或副作用。 | gallery、copy 和视觉验证不能成为产品或提供商事实。 |
 | connector 包 | 特定 Cloudflare 非秘密合同和测试资产。 | TypeScript connector 不拥有 Provider 实现、Token 或网络；allowlist、脱敏和只读合同可以本地测试。 | 条款、受控 Zone、速率/移除行为和安全审查才限制真实 Cloudflare 观察声明。 |
 
@@ -84,9 +84,13 @@ v1 只有账户激活/个人默认工作区、资产只读投影和 Cloudflare A
 
 ## Current source state：Desktop 与 Cloudflare 组合边界
 
-当前源码不支持产品 readiness 声明，但已恢复正确生产方向：`apps/desktop` 通过三个具名 Tauri
-命令读取和写入 Host-owned 本地业务库；未授权时保持锁定。Cloud 的 `publicBusinessRoutes` 与
-`periodicJobs` 仍为空注册表。Cloud 中央目录按字面顺序注册 M001–M014：M002 直接建立
+当前源码不支持产品 readiness 声明。首切片共享 schema、operation id 和 `cloud-client` 消费面已冻结。
+Cloud 的 production `publicBusinessRoutes` 精确注册一条 `POST /v1/account/activation`；它只接受
+`account_web` 认证主体、从主体派生 Account 范围、用 protocol public schema 严格解析无租户选择器的
+请求，并复核个人默认工作区绑定。public OpenAPI 因此精确包含两条 boundary route 和这一条业务 route；
+`adminBusinessRoutes` 与 `periodicJobs` 仍为空。`apps/desktop` 通过三个具名 Tauri 命令读取和写入
+Host-owned 本地业务库；未授权时保持锁定，数据库身份和 OS keychain/CSPRNG/零化 key material 由
+`secure-host-core` 持有，Desktop Host 只新增到该 trust domain 的内部依赖。Cloud 中央目录按字面顺序注册 M001–M014：M002 直接建立
 `workspace_replica_*` 脱敏读取与恢复副本 schema。连接键控的 Cloudflare Observation 设计仍
 不存在，当前 Cloud schema 不保存任何 Provider 连接身份。
 
