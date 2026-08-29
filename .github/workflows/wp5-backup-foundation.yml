@@ -33,6 +33,9 @@ jobs:
       GOODDEALER_POSTGRES_APP_URL: postgresql://gooddealer_cloud_app:app-test-only@localhost:5432/postgres
       GOODDEALER_UNQUALIFIED_POSTGRES_DIAGNOSTIC: "false"
       EVIDENCE_PROFILE: local
+      EVIDENCE_CI_JOB_NAME: wp5-backup-foundation-postgresql-18.6
+      EVIDENCE_EXPECTED_PLATFORM: linux
+      EVIDENCE_EXPECTED_ARCH: x64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,7 +60,10 @@ jobs:
           SQL
       - name: Verify fail-closed evidence policies
         run: node --test scripts/backup-evidence-policy.test.mjs scripts/recovery-persistence-evidence-policy.test.mjs
-      - run: pnpm evidence:wp5:backup
+      - name: Collect repository-only unavailable backup evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm evidence:wp5:backup
       - name: Collect qualifying recovery persistence evidence (exact PostgreSQL 18.6)
         run: pnpm evidence:wp5:recovery-persistence
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

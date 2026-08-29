@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -30,6 +30,18 @@ const expectedBackupEvidenceInputPaths = [
   "scripts/collect-wp0-evidence.mjs",
   "scripts/backup-evidence-policy.test.mjs",
 ];
+
+test("backup workflow provides a closed GitHub evidence context", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/wp5-backup-foundation.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /EVIDENCE_CI_JOB_NAME: wp5-backup-foundation-postgresql-18\.6/u);
+  assert.match(workflow, /EVIDENCE_EXPECTED_PLATFORM: linux/u);
+  assert.match(workflow, /EVIDENCE_EXPECTED_ARCH: x64/u);
+  assert.match(workflow, /EVIDENCE_GITHUB_TOKEN: \$\{\{ github\.token \}\}/u);
+  assert.doesNotMatch(workflow, /dtolnay\/rust-toolchain/u);
+});
 
 test("backup evidence input inventory is literal, complete, and closed", () => {
   assertCompleteBackupEvidenceInputInventory(BACKUP_EVIDENCE_INPUT_PATHS);
