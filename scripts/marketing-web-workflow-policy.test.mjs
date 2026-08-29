@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const checkoutAction = "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09";
-const setupNodeAction = "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444";
+const checkoutAction = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const setupNodeAction = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
 export const MARKETING_ALLOWED_EXTERNAL_ORIGINS = Object.freeze([
   "https://fonts.googleapis.com",
   "https://cdn.fontshare.com",
