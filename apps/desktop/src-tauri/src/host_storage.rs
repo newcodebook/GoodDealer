@@ -136,6 +136,7 @@ fn prepare_database_path(app_data_root: &Path) -> Result<PathBuf, HostStorageErr
     if canonical_business_directory.parent() != Some(canonical_root.as_path()) {
         return Err(HostStorageError::InvalidPath);
     }
+    #[cfg(unix)]
     harden_directory_permissions(&canonical_business_directory)?;
     Ok(canonical_business_directory.join(BUSINESS_DATABASE_NAME))
 }
@@ -161,11 +162,6 @@ fn harden_directory_permissions(path: &Path) -> Result<(), HostStorageError> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
         .map_err(|_| HostStorageError::InvalidPath)
-}
-
-#[cfg(not(unix))]
-fn harden_directory_permissions(_path: &Path) -> Result<(), HostStorageError> {
-    Ok(())
 }
 
 #[cfg(test)]
