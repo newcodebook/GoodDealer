@@ -36,12 +36,12 @@ impl LocalDatabaseKeyMaterial {
         *self.0
     }
 
-    fn from_stored(mut stored: Vec<u8>) -> Result<Self, LocalDatabaseKeyError> {
+    fn from_stored(stored: Vec<u8>) -> Result<Self, LocalDatabaseKeyError> {
+        let stored = Zeroizing::new(stored);
         let bytes = stored
             .as_slice()
             .try_into()
             .map_err(|_| LocalDatabaseKeyError::Rejected)?;
-        stored.fill(0);
         Ok(Self(Zeroizing::new(bytes)))
     }
 }
