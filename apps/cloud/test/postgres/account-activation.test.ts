@@ -3,8 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { AccountTransactionRunner, runCloudMigrations, TenantTransactionRunner } from "../../src/db/index";
 import { cloudMigrations } from "../../src/db/migrations";
+import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
+import { createPostgresCloudPublicHttp } from "../../src/entrypoints/http";
 import {
   activateAccount,
+  activationIdentityFor,
   type AuthenticatedSubjectRevalidationPort,
 } from "../../src/modules/identity/index";
 import { activationTenantScope } from "../../src/modules/workspace/tenant-scope";
@@ -39,6 +42,54 @@ beforeEach(async () => {
 afterAll(async () => Promise.all([ownerPool.end(), appPool.end(), reusePool.end()]));
 
 describe("PostgreSQL account activation", () => {
+  it("composes the authenticated HTTP route through PostgreSQL activation and default-workspace repositories", async () => {
+    const identity = activationIdentityFor(subject);
+    const app = createPostgresCloudPublicHttp({
+      pool: appPool,
+      identity: {
+        async readSessionVerification(sessionId) {
+          return {
+            sessionId,
+            accountId: identity.accountId,
+            clientKind: "account_web",
+            expiresAt: "2030-01-01T00:00:00Z",
+            sessionAccountSecurityEpoch: 1,
+            currentAccountSecurityEpoch: 1,
+            familyState: "active",
+          };
+        },
+      },
+      activationSubjects: {
+        async readActivationSubject(principal) {
+          return principal.accountId === identity.accountId ? subject : null;
+        },
+      },
+      preAuthRateLimit: rateLimitPolicy(60_000, 10),
+      sessionRateLimit: rateLimitPolicy(60_000, 10),
+      now: () => new Date("2026-08-29T00:00:00Z"),
+      correlationIds: () => "postgres-activation-correlation",
+    });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/account/activation",
+        headers: { cookie: "gd_session=postgres-activation-session" },
+        payload: { schemaVersion: 1 },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ schemaVersion: 1, state: "active" });
+      const persisted = await ownerPool.query<{ account_id: string; workspace_id: string }>(
+        `SELECT b.account_id, b.workspace_id
+           FROM workspace_account_bindings b
+          WHERE b.account_id = $1 AND b.is_default = true`,
+        [identity.accountId],
+      );
+      expect(persisted.rows).toEqual([identity]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates one account, personal workspace, binding, and initial record; replay is stable", async () => {
     const first = await activateAccount(appPool, verified, { schemaVersion: 1 });
     const second = await activateAccount(appPool, verified, { schemaVersion: 1 });
