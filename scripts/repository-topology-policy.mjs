@@ -43,8 +43,12 @@ function workspaceImport(packageName, rationale, allowedSubpaths = ["."]) {
   return { packageName, rationale, allowedSubpaths };
 }
 
-function rustDependency(crate, rationale) {
-  return { crate, rationale };
+function rustDependency(crate, rationale, integrationMarker) {
+  return {
+    crate,
+    rationale,
+    ...(integrationMarker === undefined ? {} : { integrationMarker }),
+  };
 }
 
 function topologyUnit({
@@ -309,13 +313,14 @@ export const repositoryTopology = Object.freeze([
     sourceRoots: ["src", "test"],
     publicEntrypoints: [publicEntrypoint(".", "src/index.ts", true)],
     workspaceImports: [
-      workspaceImport("@gooddealer/protocol", "Public account, Cloudflare observation, and workspace contracts.", [
+      workspaceImport("@gooddealer/protocol", "Public account, device authorization, and workspace contracts.", [
         "./account",
         "./connectors",
+        "./devices",
         "./workspace",
       ]),
     ],
-    protocolSubpaths: ["./account", "./connectors", "./workspace"],
+    protocolSubpaths: ["./account", "./connectors", "./devices", "./workspace"],
   }),
   topologyUnit({
     id: "connector-cloudflare",
@@ -470,6 +475,11 @@ export const repositoryTopology = Object.freeze([
     ],
     rustDependencies: [
       rustDependency("gooddealer-local-storage", "Local encrypted storage boundary."),
+      rustDependency(
+        "gooddealer-secure-host-core",
+        "Native keychain, CSPRNG, and zeroizing local-database key custody.",
+        "crates/secure-host-core/src/local_database_key.rs",
+      ),
     ],
     externalDependencies: ["serde", "serde_json", "tauri", "tauri-build", "tempfile"],
   }),
@@ -735,6 +745,16 @@ function catalogErrors(topology) {
       if (typeof dependency.rationale !== "string" || dependency.rationale.trim().length === 0) {
         errors.push(`catalog unit ${unit.id}: catalogued Rust dependency ${dependency.crate} has no rationale`);
       }
+      if (
+        dependency.integrationMarker !== undefined
+        && (
+          typeof dependency.integrationMarker !== "string"
+          || dependency.integrationMarker.startsWith("/")
+          || dependency.integrationMarker.includes("..")
+        )
+      ) {
+        errors.push(`catalog unit ${unit.id}: invalid Rust integration marker for ${dependency.crate}`);
+      }
     }
   }
 
@@ -921,8 +941,19 @@ function cargoInventory(root, topology, errors) {
     const actualRustDependencies = uniqueSorted(
       pkg.dependencies.filter((dependency) => workspaceCrateNames.has(dependency.name)).map((dependency) => dependency.name),
     );
-    const cataloguedRustDependencies = uniqueSorted(unit.rustDependencies.map((dependency) => dependency.crate));
-    if (!arrayEquals(actualRustDependencies, cataloguedRustDependencies)) {
+    const allowedRustDependencies = uniqueSorted(unit.rustDependencies.map((dependency) => dependency.crate));
+    const requiredRustDependencies = uniqueSorted(
+      unit.rustDependencies
+        .filter(
+          (dependency) => dependency.integrationMarker === undefined
+            || existsSync(resolve(root, dependency.integrationMarker)),
+        )
+        .map((dependency) => dependency.crate),
+    );
+    if (
+      requiredRustDependencies.some((dependency) => !actualRustDependencies.includes(dependency))
+      || actualRustDependencies.some((dependency) => !allowedRustDependencies.includes(dependency))
+    ) {
       errors.push(`${manifestPath}: Cargo workspace dependency edges do not exactly match the catalog`);
     }
     const actualExternalDependencies = uniqueSorted(

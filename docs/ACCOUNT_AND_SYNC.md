@@ -48,4 +48,5 @@ Provider 调用只能由本地 Secure Host 使用本地凭据发起。观察或�
 时，已签发授权只在产品定义的有效离线期限内继续；这不是无限离线承诺。锁定、重新登录或设备
 切换不得用 Cloud 副本覆盖或清空本地数据库。
 
-详细不变量见 [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md)。
+详细不变量见 [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md)。首个实现切片的
+operation id、schema、Cloud/Desktop 接线与错误语义见[首切片共享合同](FIRST_SLICE_SHARED_CONTRACT.md)。

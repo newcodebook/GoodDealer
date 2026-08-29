@@ -23,9 +23,10 @@
 
 | 区域 | Current source state | 声明限制 |
 | --- | --- | --- |
-| Desktop Host | Tauri 精确注册本地业务状态、Portfolio 读取和 DomainAsset 写入三个命令；Runtime 未获授权时锁定。 | 不证明账号授权注入、OS 密钥 custody 或客户发行已完成。 |
+| Desktop Host | Tauri 精确注册本地业务状态、Portfolio 读取和 DomainAsset 写入三个命令；Runtime 未获授权时锁定；本地数据库 key 的 keychain/CSPRNG/零化材料由 `secure-host-core` 持有。 | 不证明账号 grant/Lease 签名验证、原生平台资格或客户发行已完成。 |
 | Desktop production graph | `apps/desktop/src/app.tsx` 只使用窄本地业务 adapter；不导入 `cloud-client`、Provider 或数据库实现。 | 本地纵向存在不等于真实登录、Provider 或发行可用。 |
-| Cloud public composition | `publicBusinessRoutes` 与 `periodicJobs` 目前都是空注册表。 | Cloud 模块、迁移和合同不等于客户可用 API。 |
+| Cloud public composition | `publicBusinessRoutes` 精确包含 `POST /v1/account/activation`，public OpenAPI 精确包含两条 boundary route 加该业务 route；路由只授权 `account_web` 主体，拒绝未认证、Desktop 主体和客户端租户选择字段。`adminBusinessRoutes` 与 `periodicJobs` 仍为空。 | 本地 route/HTTP 测试不等于已部署客户 API；PostgreSQL composition 测试需要 `GOODDEALER_POSTGRES_*` 环境。 |
+| 首切片共享合同 | `@gooddealer/protocol` 与 `@gooddealer/cloud-client` 已公开 tenant-neutral 激活、授权 grant、Mutation ACK、Pull Cursor、Checkpoint 与恢复输入合同。 | 合同与激活 route 不证明 grant/sync route、Desktop transport、Lease 签名验证或端到端组合已经存在。 |
 | Cloudflare Secure Host | `secure-host-core` 已实现私有 Zone/DNS 只读 Service、Credential Fence、固定 `api.cloudflare.com` 的加固 HTTPS Transport，以及自主维护的私有 endpoint/Provider wire。 | 本地实现未组合原生秘密录入、Tauri Command、Cloud API 或真实提供商资格，不能声明客户可用。 |
 | 已接受目标 | ADR-0013、连接器规范和 ADR-0017 固定个人默认工作区、Cloudflare API-only 只读观察和无浏览器。 | 决定约束不等于实际账户、资产读取或提供商观察。 |
 
@@ -46,6 +47,16 @@ Desktop production 图的范围控制由源码测试持续验证；后续组合�
 5. 本地路径没有引入浏览器、写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 或任何
    compatibility/transition/fallback 路径。
 6. 所有共享入口、公开导出、协议、迁移和当前文档由具名整合负责人重新检查。
+
+账户、授权和同步实现必须采用[首切片共享合同](FIRST_SLICE_SHARED_CONTRACT.md)的 operation id、schema、
+ACK 关联和恢复语义；不得在 Cloud 或 Desktop 内复制或放宽这些 wire 定义。
+
+Cloud boundary 门禁在 activation application port 尚未进入同一集成树时报告 `pending-integration`；
+一旦该 port 存在，就 fail closed 地要求唯一 activation 业务 route、三条 public OpenAPI path、protocol
+public schema、认证主体派生范围以及租户选择字段/未认证/Desktop 主体的负向观察。Repository topology
+同样以 `secure-host-core` 的本地数据库 key capability 为接线标记：标记存在时，Desktop Tauri manifest
+必须声明 `gooddealer-secure-host-core`，且 `getrandom`、`security-framework`、`zeroize` 不得下沉到
+Desktop 或 `local-storage`。
 
 ## v1 详细垂直验收
 

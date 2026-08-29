@@ -248,6 +248,7 @@ test("the production catalog covers the current repository inventory", () => {
   const automationHost = repositoryTopology.find((unit) => unit.id === "automation-host");
   const secureHostCore = repositoryTopology.find((unit) => unit.id === "secure-host-core");
   const localStorage = repositoryTopology.find((unit) => unit.id === "local-storage");
+  const desktopTauriHost = repositoryTopology.find((unit) => unit.id === "desktop-tauri-host");
   const repositoryTooling = repositoryTopology.find((unit) => unit.id === "repository-tooling");
   const releaseEngineering = repositoryTopology.find((unit) => unit.id === "release-engineering");
   assert.ok(protocol.publicEntrypoints.some((entry) => entry.id === "./wire"));
@@ -289,7 +290,28 @@ test("the production catalog covers the current repository inventory", () => {
     "tempfile",
   ]);
   assert.equal(localStorage.externalDependencies.includes("getrandom"), false);
+  assert.equal(localStorage.externalDependencies.includes("security-framework"), false);
   assert.equal(localStorage.externalDependencies.includes("zeroize"), false);
+  assert.deepEqual(
+    desktopTauriHost.rustDependencies.map(({ crate }) => crate),
+    ["gooddealer-local-storage", "gooddealer-secure-host-core"],
+  );
+  assert.equal(
+    desktopTauriHost.rustDependencies.find(
+      ({ crate }) => crate === "gooddealer-secure-host-core",
+    ).integrationMarker,
+    "crates/secure-host-core/src/local_database_key.rs",
+  );
+  assert.deepEqual(desktopTauriHost.externalDependencies, [
+    "serde",
+    "serde_json",
+    "tauri",
+    "tauri-build",
+    "tempfile",
+  ]);
+  assert.equal(secureHostCore.externalDependencies.includes("getrandom"), true);
+  assert.equal(secureHostCore.externalDependencies.includes("security-framework"), true);
+  assert.equal(secureHostCore.externalDependencies.includes("zeroize"), true);
   assert.equal(
     repositoryTooling.publicEntrypoints.some(
       (entry) => entry.id === "collect-consent-ticket-foundation",
@@ -503,4 +525,22 @@ test("rejects a Cargo workspace edge absent from the catalog", (t) => {
   const mutatedTopology = structuredClone(topology);
   mutatedTopology.find((unit) => unit.id === "fixture-rust-a").rustDependencies = [];
   assert.match(policyErrorText(root, mutatedTopology), /Cargo workspace dependency edges do not exactly match the catalog/u);
+});
+
+test("requires a staged Rust dependency as soon as its integration marker exists", (t) => {
+  const { root, topology } = useFixture(t);
+  topology.find((unit) => unit.id === "fixture-rust-a").rustDependencies[0].integrationMarker =
+    "crates/rust-a/src/secure.rs";
+  writeFile(
+    root,
+    "crates/rust-a/Cargo.toml",
+    '[package]\nname = "gooddealer-rust-a"\nversion = "0.1.0"\nedition = "2024"\n',
+  );
+  assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
+
+  writeFile(root, "crates/rust-a/src/secure.rs", "pub fn secure() {}\n");
+  assert.match(
+    policyErrorText(root, topology),
+    /Cargo workspace dependency edges do not exactly match the catalog/,
+  );
 });

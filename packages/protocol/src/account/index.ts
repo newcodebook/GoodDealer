@@ -1,6 +1,7 @@
 export const ACCOUNT_PROTOCOL_VERSION = 1 as const;
 
 export {
+  ACCOUNT_ACTIVATION_OPERATION_ID,
   ACCOUNT_ACTIVATION_SCHEMA_VERSION,
   accountActivationRequestSchema,
   accountActivationResponseSchema,

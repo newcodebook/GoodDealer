@@ -42,3 +42,6 @@ Query；恢复内容同样受字段白名单和秘密排除规则约束。
 
 Cloud transport 失败不撤销已提交的本地事务。业务能力是否可继续由缓存的已签名授权及产品定义
 的离线期限决定；无效订阅或 Lease 仍可锁定入口。授权权威和业务数据权威不得混为一谈。
+
+首个实现切片统一采用[共享合同](FIRST_SLICE_SHARED_CONTRACT.md)中的 tenant-neutral Push、精确 ACK、
+Pull Cursor、Checkpoint 和恢复输入定义；拥有模块不得复制或放宽 wire schema。
