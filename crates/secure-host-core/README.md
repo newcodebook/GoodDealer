@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`gooddealer-secure-host-core` owns two separate Host capabilities: sealed local backup export and read-only Cloudflare Zone/DNS observation. Their state, credentials, audiences, purposes, fences, and transports are intentionally disjoint. Neither capability can admit or convert authority held by the other.
+`gooddealer-secure-host-core` owns three separate Host capabilities: the Desktop SQLCipher key lifecycle, sealed local backup export, and read-only Cloudflare Zone/DNS observation. Their state, credentials, audiences, purposes, fences, and transports are intentionally disjoint. No capability can admit or convert authority held by another.
 
 ## Principles
 
@@ -10,6 +10,7 @@
 - MUST: Keep token bytes in private zeroizing Host state and check the complete connection, Zone, purpose, permission, generation, and token-replacement fence around every asynchronous boundary.
 - MUST: Bound and strictly parse Provider data before publication; discard the whole observation after any request, page, decode, validation, or fence failure.
 - MUST: Keep the GoodDealer-private Cloudflare Service as the only runtime owner of Zone/DNS endpoint, Provider wire, credentials, transport, errors, and domain mapping.
+- MUST: Keep the fixed-purpose Desktop SQLCipher key in the OS credential store and zeroize Host key material when it leaves scope.
 
 ## Boundaries
 
@@ -27,6 +28,7 @@
 - **Untrusted or exhausting provider data**: Response, aggregate, request, page, record, string, JSON node, and JSON depth bounds fail closed; IDs, types, timestamps, pagination, duplicates, and Zone bindings are validated. Verified by: `src/cloudflare_operation.rs` tests.
 - **Partial observation publication**: Every logical read and final fence check must succeed before an observation is constructed. Verified by: `src/cloudflare_operation.rs` tests.
 - **Backup, session, and cookie authority confusion**: Cloudflare production modules do not import or accept sealed backup/session/credential/Host-state types. Verified by: source review of `src/cloudflare_credential.rs`, `src/cloudflare_operation.rs`, and `src/cloudflare_transport.rs`; the sole `backup_operation::SecureHost` reference is the owning public Host type, not backup authority admission.
+- **Local database key disclosure or replacement**: SQLCipher key material is redacted, length-checked, purpose-isolated in the OS credential store, and generated only through the native CSPRNG. Existing database detection and missing-key rejection remain the Desktop Host's responsibility. Verified by: `src/local_database_key.rs` and `../../apps/desktop/src-tauri/src/host_storage.rs` tests.
 
 ## Contracts
 

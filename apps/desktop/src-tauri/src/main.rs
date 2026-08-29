@@ -1,10 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod command_handlers;
+mod host_storage;
+
+use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
-        .manage(command_handlers::LocalBusinessRuntime::default())
+        .setup(|app| {
+            let app_data_root = app.path().app_data_dir()?;
+            let storage = host_storage::HostStorageBootstrap::initialize(
+                &app_data_root,
+                &host_storage::NativeDatabaseKeyStore,
+            )?;
+            app.manage(command_handlers::LocalBusinessRuntime::new(storage));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             command_handlers::local_business_status,
             command_handlers::local_portfolio_read,

@@ -46,6 +46,19 @@ DomainAsset upsert commits the local business row and a secret-free Sync Outbox 
 SQLCipher transaction. Portfolio reads return the local snapshot. Cloud transport is absent from
 both command implementations and the regression suite proves local read/write without it.
 
+## Native storage identity
+
+The native Host resolves one fixed `active-workspace/business.db` location beneath Tauri's
+application-data directory. It rejects relative roots, symlinked storage roots, symlinked database
+files, and non-file database targets; on Unix it restricts the Host-owned database directory to the
+owner.
+
+On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
+the operating system CSPRNG only when no database exists. If an existing database loses its
+Keychain item, startup fails closed instead of creating a replacement key. Keychain failures,
+malformed key material, and wrong SQLCipher keys expose only stable non-secret error codes. Other
+platform keychain adapters remain fail-closed until their native implementations are qualified.
+
 ## Secret boundary
 
 Third-party account identity, Provider Account ID, account labels, credential bindings, API keys,

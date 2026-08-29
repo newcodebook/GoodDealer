@@ -1,12 +1,12 @@
-use std::path::Path;
 use std::sync::Mutex;
 
 use gooddealer_local_storage::{
-    BusinessDatabase, BusinessDatabaseError, DomainAssetWrite, LocalDatabaseKey, Money,
-    PortfolioReadSnapshot,
+    BusinessDatabase, BusinessDatabaseError, DomainAssetWrite, Money, PortfolioReadSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
+
+use crate::host_storage::HostStorageBootstrap;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -42,12 +42,19 @@ struct LocalDomainAssetWrite {
 
 /// Host-owned local business runtime. Only the trusted authorization composition may activate it;
 /// no IPC command accepts a database path, key, account, device, or workspace selector.
-#[derive(Default)]
 pub(crate) struct LocalBusinessRuntime {
+    storage: Option<HostStorageBootstrap>,
     database: Mutex<Option<BusinessDatabase>>,
 }
 
 impl LocalBusinessRuntime {
+    pub(crate) fn new(storage: HostStorageBootstrap) -> Self {
+        Self {
+            storage: Some(storage),
+            database: Mutex::new(None),
+        }
+    }
+
     fn status(&self) -> LocalBusinessStatus {
         let state = if self
             .database
@@ -75,16 +82,27 @@ impl LocalBusinessRuntime {
     )]
     pub(crate) fn activate_authorized_workspace(
         &self,
-        path: &Path,
-        key: &LocalDatabaseKey,
         workspace_id: &str,
     ) -> Result<(), BusinessDatabaseError> {
-        let database = BusinessDatabase::open(path, key, workspace_id)?;
+        let database = self
+            .storage
+            .as_ref()
+            .ok_or(BusinessDatabaseError::StorageRejected)?
+            .open_workspace(workspace_id)?;
         *self
             .database
             .lock()
             .map_err(|_| BusinessDatabaseError::StorageRejected)? = Some(database);
         Ok(())
+    }
+}
+
+impl Default for LocalBusinessRuntime {
+    fn default() -> Self {
+        Self {
+            storage: None,
+            database: Mutex::new(None),
+        }
     }
 }
 
@@ -144,21 +162,31 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::host_storage::{DatabaseKeyStore, HostStorageError};
+
+    struct TestKeyStore;
+
+    impl DatabaseKeyStore for TestKeyStore {
+        fn load(&self) -> Result<Option<[u8; 32]>, HostStorageError> {
+            Ok(Some([0x61; 32]))
+        }
+
+        fn generate_and_store(&self) -> Result<[u8; 32], HostStorageError> {
+            unreachable!("the deterministic test key already exists")
+        }
+    }
 
     #[test]
     fn cloud_transport_is_not_required_for_local_business_read_and_write() {
         let directory = tempdir().unwrap();
-        let runtime = LocalBusinessRuntime::default();
+        let storage = HostStorageBootstrap::initialize(directory.path(), &TestKeyStore).unwrap();
+        let runtime = LocalBusinessRuntime::new(storage);
         assert_eq!(
             runtime.status().state,
             LocalBusinessState::AuthorizationRequired
         );
         runtime
-            .activate_authorized_workspace(
-                &directory.path().join("business.db"),
-                &LocalDatabaseKey::from_bytes([0x61; 32]),
-                "workspace-local",
-            )
+            .activate_authorized_workspace("workspace-local")
             .unwrap();
         {
             let mut database = runtime.database.lock().unwrap();

@@ -6,6 +6,7 @@ mod cloudflare_credential;
 mod cloudflare_operation;
 mod cloudflare_provider;
 mod cloudflare_transport;
+mod local_database_key;
 mod sealed_credential;
 mod sealed_host_state;
 mod sealed_initialization;
@@ -23,4 +24,8 @@ pub use cloudflare_operation::{
     CloudflareObservationErrorCode, CloudflareObservationResult,
     CloudflareObservationSubmitRequest, CloudflareRecordType, CloudflareUnavailableObservationCode,
     CloudflareZoneMetadata, CloudflareZoneReadIntent, CloudflareZoneStatus,
+};
+pub use local_database_key::{
+    LocalDatabaseKeyError, LocalDatabaseKeyMaterial, generate_local_database_key,
+    load_local_database_key,
 };
