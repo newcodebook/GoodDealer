@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "the Rejected suffix keeps every fail-closed boundary code explicit at call sites"
+)]
 pub enum PortfolioReadError {
     StorageRejected,
     SchemaRejected,

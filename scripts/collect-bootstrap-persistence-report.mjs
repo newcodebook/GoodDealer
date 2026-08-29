@@ -114,7 +114,7 @@ function main() {
       normalHandoffEnabled: false,
       verifier: /class DenyingBootstrapVerificationKeySource/u.test(verifier) ? "Denying" : "unresolved",
       leaseSigner: /class DenyingActiveDeviceLeaseSigner/u.test(activation) ? "Denying" : "unresolved",
-      drainSignedReadyWrites: /canonical_signed_envelope|signed_envelope_digest|signing_key_id|ready_at/u.test(drain) ? 1 : 0,
+      drainSignedReadyWrites: drainSourceWritesSignedReadiness(drain) ? 1 : 0,
       publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
       periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
@@ -152,6 +152,14 @@ export function bootstrapPersistenceReportPassesPolicy(value) {
 
 export function digestInputs(inputs) {
   return Array.isArray(inputs) ? sha256(inputs.map(({ path, sha256: digest }) => `${path}\0${digest}`).join("\0")) : "";
+}
+export function drainSourceWritesSignedReadiness(source) {
+  if (typeof source !== "string") return true;
+  const signedReadinessField = /\b(?:canonical_signed_envelope|signed_envelope_digest|signing_key_id|ready_at)\b/iu;
+  return [...source.matchAll(/`([^`]*)`/gu)]
+    .map(([, statement]) => statement)
+    .some((statement) => /\b(?:INSERT\s+INTO|UPDATE)\b/iu.test(statement)
+      && signedReadinessField.test(statement));
 }
 function exactMigrations(value) { return Array.isArray(value) && value.length === BOOTSTRAP_MIGRATIONS.length
   && value.every((row, index) => row.id === BOOTSTRAP_MIGRATIONS[index][0] && row.owner === BOOTSTRAP_MIGRATIONS[index][1]

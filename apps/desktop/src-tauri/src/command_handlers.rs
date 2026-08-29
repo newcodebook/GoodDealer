@@ -66,6 +66,13 @@ impl LocalBusinessRuntime {
 
     /// This is a native composition seam, not an IPC surface. The caller must derive all inputs
     /// from a verified account/entitlement/device grant and a Host-owned application data root.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "the authorization composition will call this seam; tests exercise it before that host wiring lands"
+        )
+    )]
     pub(crate) fn activate_authorized_workspace(
         &self,
         path: &Path,
@@ -121,7 +128,7 @@ pub(crate) fn local_domain_asset_upsert(
         .upsert_domain_asset(
             &request.mutation_id,
             &request.created_at,
-            DomainAssetWrite {
+            &DomainAssetWrite {
                 entity_id: request.asset.entity_id,
                 note: request.asset.note,
                 portfolio_id: request.asset.portfolio_id,
@@ -161,7 +168,7 @@ mod tests {
                 .upsert_domain_asset(
                     "mutation-local",
                     "2026-08-28T00:00:00Z",
-                    DomainAssetWrite {
+                    &DomainAssetWrite {
                         entity_id: "domain-local.test".to_owned(),
                         note: Some("committed without cloud".to_owned()),
                         portfolio_id: None,

@@ -50,6 +50,11 @@ impl Debug for LocalDatabaseKey {
 pub struct SealedProviderCredential(Vec<u8>);
 
 impl SealedProviderCredential {
+    /// Creates bounded host-sealed credential bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusinessDatabaseError::InvalidInput`] when the value is empty or exceeds 64 KiB.
     pub fn new(value: Vec<u8>) -> Result<Self, BusinessDatabaseError> {
         if value.is_empty() || value.len() > 65_536 {
             return Err(BusinessDatabaseError::InvalidInput);
@@ -125,6 +130,11 @@ pub struct BusinessDatabase {
 }
 
 impl BusinessDatabase {
+    /// Opens the encrypted business database for one authorized workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the workspace identity is invalid or mismatched, or storage cannot be opened.
     pub fn open(
         path: &Path,
         key: &LocalDatabaseKey,
@@ -167,17 +177,31 @@ impl BusinessDatabase {
         })
     }
 
+    /// Reads the current portfolio projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusinessDatabaseError::StorageRejected`] when the encrypted store cannot be read.
     pub fn read_portfolio(&self) -> Result<PortfolioReadSnapshot, BusinessDatabaseError> {
         self.store
             .read_portfolio(&self.workspace_id)
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
+    /// Commits one validated domain mutation and its Outbox fields atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when input is invalid, sync payloads contain secrets, or storage rejects the transaction.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the full immediate transaction remains contiguous so atomic write ordering is reviewable"
+    )]
     pub fn upsert_domain_asset(
         &mut self,
         mutation_id: &str,
         created_at: &str,
-        asset: DomainAssetWrite,
+        asset: &DomainAssetWrite,
     ) -> Result<(), BusinessDatabaseError> {
         validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         validate_timestamp(Some(created_at.to_owned()))
@@ -367,6 +391,8 @@ impl BusinessDatabase {
             ),
         ];
         for (ordinal, (field_path, field_value_json)) in field_values.iter().enumerate() {
+            let ordinal =
+                i64::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?;
             transaction
                 .execute(
                     "INSERT INTO sync_outbox_fields
@@ -375,7 +401,7 @@ impl BusinessDatabase {
                     params![
                         self.workspace_id,
                         mutation_id,
-                        ordinal as i64,
+                        ordinal,
                         field_path,
                         field_value_json,
                         hex_digest(field_value_json.as_bytes()),
@@ -388,9 +414,14 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
+    /// Stores provider identity and a new sealed credential version locally.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when local metadata is invalid or the credential transaction is rejected.
     pub fn upsert_provider_connection(
         &mut self,
-        account: ProviderConnectionWrite,
+        account: &ProviderConnectionWrite,
     ) -> Result<(), BusinessDatabaseError> {
         for value in [
             &account.connection_id,
@@ -475,6 +506,14 @@ impl BusinessDatabase {
 
     /// Applies strict Cloud sync-replica input to the local authority. An empty page is a no-op;
     /// omission is never interpreted as deletion. Replica merges do not generate a new Outbox row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid revision sequences or projections, pending local fields, or storage rejection.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the replica transaction remains contiguous so revision and rollback ordering is reviewable"
+    )]
     pub fn merge_domain_asset_replica(
         &mut self,
         mutations: Vec<DomainAssetReplicaMutation>,
@@ -655,6 +694,11 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
+    /// Reads a bounded page of pending Outbox mutations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the limit is outside 1..=1000, storage fails, or a payload violates secret policy.
     pub fn pending_sync_mutations(
         &self,
         limit: usize,
@@ -662,6 +706,7 @@ impl BusinessDatabase {
         if !(1..=1_000).contains(&limit) {
             return Err(BusinessDatabaseError::InvalidInput);
         }
+        let limit = i64::try_from(limit).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let mut statement = self
             .store
             .raw_connection()
@@ -673,7 +718,7 @@ impl BusinessDatabase {
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let rows = statement
-            .query_map(params![self.workspace_id, limit as i64], |row| {
+            .query_map(params![self.workspace_id, limit], |row| {
                 Ok(PendingSyncMutation {
                     mutation_id: row.get(0)?,
                     entity_kind: row.get(1)?,
@@ -692,6 +737,11 @@ impl BusinessDatabase {
         Ok(mutations)
     }
 
+    /// Marks one pending Outbox mutation acknowledged at a safe server revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identifiers, revisions, timestamps, missing pending rows, or storage rejection.
     pub fn acknowledge_sync_mutation(
         &mut self,
         mutation_id: &str,
@@ -781,13 +831,13 @@ fn contains_forbidden_sync_key(value: &serde_json::Value) -> bool {
         serde_json::Value::Object(object) => object.iter().any(|(key, value)| {
             let normalized: String = key
                 .chars()
-                .filter(|character| character.is_ascii_alphanumeric())
+                .filter(char::is_ascii_alphanumeric)
                 .flat_map(char::to_lowercase)
                 .collect();
             FORBIDDEN_SYNC_KEYS.iter().any(|forbidden| {
                 let forbidden: String = forbidden
                     .chars()
-                    .filter(|character| character.is_ascii_alphanumeric())
+                    .filter(char::is_ascii_alphanumeric)
                     .flat_map(char::to_lowercase)
                     .collect();
                 normalized.contains(&forbidden)
@@ -810,10 +860,7 @@ fn validate_domain_asset(asset: &DomainAssetWrite) -> Result<(), BusinessDatabas
 }
 
 fn validate_local_text(value: &str) -> Result<(), BusinessDatabaseError> {
-    if value.is_empty()
-        || value.len() > 512
-        || value.chars().any(|character| character.is_control())
-    {
+    if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
         return Err(BusinessDatabaseError::InvalidInput);
     }
     Ok(())
@@ -846,7 +893,7 @@ mod tests {
             .upsert_domain_asset(
                 "mutation-1",
                 TIMESTAMP,
-                DomainAssetWrite {
+                &DomainAssetWrite {
                     entity_id: "domain-1.test".to_owned(),
                     note: Some("local source of truth".to_owned()),
                     portfolio_id: None,
@@ -889,7 +936,7 @@ mod tests {
     fn provider_connection_and_sealed_credential_are_local_only() {
         let mut database = database();
         database
-            .upsert_provider_connection(ProviderConnectionWrite {
+            .upsert_provider_connection(&ProviderConnectionWrite {
                 connection_id: "connection-local".to_owned(),
                 provider_kind: "cloudflare".to_owned(),
                 display_label: "private account".to_owned(),
@@ -929,7 +976,7 @@ mod tests {
             target_price: None,
         };
         database
-            .upsert_domain_asset("mutation-1", TIMESTAMP, first)
+            .upsert_domain_asset("mutation-1", TIMESTAMP, &first)
             .unwrap();
         let conflicting = DomainAssetWrite {
             entity_id: "domain-1.test".to_owned(),
@@ -940,7 +987,7 @@ mod tests {
         };
         assert!(
             database
-                .upsert_domain_asset("mutation-1", TIMESTAMP, conflicting)
+                .upsert_domain_asset("mutation-1", TIMESTAMP, &conflicting)
                 .is_err()
         );
         assert_eq!(
@@ -958,7 +1005,7 @@ mod tests {
             .upsert_domain_asset(
                 "mutation-local",
                 TIMESTAMP,
-                DomainAssetWrite {
+                &DomainAssetWrite {
                     entity_id: "domain-local.test".to_owned(),
                     note: Some("must survive empty cloud".to_owned()),
                     portfolio_id: None,
@@ -1123,6 +1170,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the adversarial scenario keeps all related target outcomes visible in one test"
+    )]
     fn provider_observations_preserve_target_outcomes_and_capability_lineage() {
         let mut database = database();
         let connection = database.store.fixture_connection();
@@ -1305,6 +1356,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the operation-plan scenario keeps its full atomic lifecycle visible in one test"
+    )]
     fn operations_require_an_approved_immutable_plan_and_real_item() {
         let mut database = database();
         let connection = database.store.fixture_connection();
