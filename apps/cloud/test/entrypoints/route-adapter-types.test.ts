@@ -11,9 +11,10 @@ import {
   adminBusinessRoutes,
 } from "../../src/entrypoints/routes/admin/boundary";
 import {
+  createPublicBusinessRoutes,
   publicBoundaryRoutes,
-  publicBusinessRoutes,
 } from "../../src/entrypoints/routes/public/boundary";
+import { denyingPublicApplicationPorts } from "../support/public-session";
 
 describe("nominal route surfaces and structural fallbacks", () => {
   it("makes cross-surface registration a compile-time error", () => {
@@ -28,10 +29,12 @@ describe("nominal route surfaces and structural fallbacks", () => {
     expect(adminBoundaryRoutes).toHaveLength(2);
   });
 
-  it("keeps both business registries as empty tuple types", () => {
-    expectTypeOf(publicBusinessRoutes).toEqualTypeOf<readonly []>();
+  it("registers only the account activation public business route", () => {
+    const publicBusinessRoutes = createPublicBusinessRoutes(denyingPublicApplicationPorts);
     expectTypeOf(adminBusinessRoutes).toEqualTypeOf<readonly []>();
-    expect(publicBusinessRoutes).toEqual([]);
+    expect(publicBusinessRoutes.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: "POST", path: "/v1/account/activation" },
+    ]);
     expect(adminBusinessRoutes).toEqual([]);
   });
 

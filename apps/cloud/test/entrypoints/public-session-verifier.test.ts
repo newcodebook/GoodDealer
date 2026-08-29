@@ -12,6 +12,7 @@ import {
   type PublicSessionVerifierPort,
 } from "../../src/entrypoints/ports/public-session";
 import { IdentityFixtureService } from "../support/identity-fixture";
+import { denyingPublicApplicationPorts } from "../support/public-session";
 import { IdentityAccountSessionVerifier } from "../../src/modules/identity/session-verifier";
 
 const evaluatedAt = new Date("2026-08-15T00:00:00.000Z");
@@ -157,7 +158,7 @@ describe("production public-session composition", () => {
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => evaluatedAt,
       correlationIds: ids("public-session-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     apps.push(created);
     return created;
@@ -239,7 +240,7 @@ describe("production public-session composition", () => {
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => evaluatedAt,
       correlationIds: ids("uniform-policy-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     apps.push(publicApp);
     const response = await publicApp.inject({
@@ -263,7 +264,7 @@ describe("production public-session composition", () => {
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => evaluatedAt,
       correlationIds: ids("reader-failure-correlation"),
-      ports: [],
+      ports: denyingPublicApplicationPorts,
     });
     apps.push(publicApp);
     const response = await publicApp.inject({

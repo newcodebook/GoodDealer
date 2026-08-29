@@ -1,4 +1,5 @@
 export * from "./account-activation";
+export * from "./account-activation-service";
 export * from "./account-security-state-port";
 export * from "./password-hash-port";
 export * from "./postgres-authentication-repository";

@@ -1,8 +1,15 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import type { Pool } from "pg";
 
 import type { AccountRejection } from "@gooddealer/protocol/account";
 
+import { AccountTransactionRunner } from "../db/index";
+import {
+  AccountActivationApplicationService,
+  type AccountActivationSubjectReaderPort,
+} from "../modules/identity/account-activation-service";
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/session-verifier";
+import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
 import { assignCorrelationId, correlationIdFor } from "./adapter/correlation";
 import {
   rateLimitedRejection,
@@ -19,17 +26,21 @@ import {
 } from "./adapter/rate-limit";
 import { attachOpenApiDocument, buildOpenApiDocument } from "./adapter/schema";
 import { registerPublicRoutes, setRoutePrincipal } from "./adapter/surface";
+import type { AccountActivationApplicationPort } from "./ports/account-activation";
 import {
   CloudPublicSessionVerifier,
   PUBLIC_SESSION_COOKIE,
   type PublicSessionVerifierPort,
 } from "./ports/public-session";
 import {
+  createPublicBusinessRoutes,
   publicBoundaryRoutes,
-  publicBusinessRoutes,
+  PublicRouteAuthorizationError,
 } from "./routes/public/boundary";
 
-export type PublicApplicationPorts = readonly [];
+export interface PublicApplicationPorts {
+  readonly accountActivation: AccountActivationApplicationPort;
+}
 
 export interface PublicHttpDependencies {
   readonly sessions: PublicSessionVerifierPort;
@@ -44,6 +55,12 @@ export interface CloudPublicHttpDependencies extends Omit<PublicHttpDependencies
   readonly identity: IdentitySessionVerificationReader;
 }
 
+export interface PostgresCloudPublicHttpDependencies
+  extends Omit<CloudPublicHttpDependencies, "ports"> {
+  readonly pool: Pool;
+  readonly activationSubjects: AccountActivationSubjectReaderPort;
+}
+
 export const PUBLIC_BODY_LIMIT_BYTES = 256;
 export const PUBLIC_MAX_URL_LENGTH = 2_048;
 
@@ -56,6 +73,24 @@ export function createCloudPublicHttp(deps: CloudPublicHttpDependencies): Fastif
   });
 }
 
+/** Production composition binds the authenticated HTTP surface to PostgreSQL-owned services. */
+export function createPostgresCloudPublicHttp(
+  deps: PostgresCloudPublicHttpDependencies,
+): FastifyInstance {
+  const { pool, activationSubjects, ...http } = deps;
+  const accountTransactions = new AccountTransactionRunner(pool);
+  return createCloudPublicHttp({
+    ...http,
+    ports: {
+      accountActivation: new AccountActivationApplicationService(
+        pool,
+        activationSubjects,
+        new PostgresDefaultWorkspaceTenantResolver(accountTransactions),
+      ),
+    },
+  });
+}
+
 export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance {
   const app = Fastify({
     logger: false,
@@ -64,7 +99,7 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
   });
   const preAuthLimiter = new InMemoryFixedWindowRateLimiter(deps.preAuthRateLimit);
   const sessionLimiter = new InMemoryFixedWindowRateLimiter(deps.sessionRateLimit);
-  const routes = [...publicBoundaryRoutes, ...publicBusinessRoutes] as const;
+  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports)] as const;
 
   app.addHook("onRequest", async (request, reply) => {
     assignCorrelationId(request, reply, deps.correlationIds);
@@ -112,6 +147,9 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
 
   app.setNotFoundHandler(async (request, reply) => sendNotFound(request, reply));
   app.setErrorHandler(async (error: FastifyError, request, reply) => {
+    if (error instanceof PublicRouteAuthorizationError) {
+      return sendNotFound(request, reply);
+    }
     if (
       error.validation !== undefined
       || error.code === "FST_ERR_VALIDATION"

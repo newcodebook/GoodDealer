@@ -1,4 +1,10 @@
 import {
+  accountActivationRequestSchema,
+  accountActivationResponseSchema,
+  type AccountActivationRequest,
+  type AccountActivationResponse,
+} from "@gooddealer/protocol/account";
+import {
   boundaryAcceptedResponseSchema,
   boundaryEmptyRequestSchema,
   boundaryValidateRequestSchema,
@@ -14,6 +20,7 @@ import {
   type PublicSurface,
   type RouteAdapter,
 } from "../../adapter/surface";
+import type { AccountActivationApplicationPort } from "../../ports/account-activation";
 import type { PublicPrincipal } from "../../ports/public-session";
 
 export type PublicRoute<TIn, TOut> = RouteAdapter<PublicSurface, PublicPrincipal, TIn, TOut>;
@@ -41,4 +48,31 @@ const validateRoute: PublicRoute<BoundaryValidateRequest, BoundaryAcceptedRespon
 };
 
 export const publicBoundaryRoutes = [identityRoute, validateRoute] as const;
-export const publicBusinessRoutes: readonly [] = [];
+
+export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
+
+export class PublicRouteAuthorizationError extends Error {}
+
+export interface PublicBusinessRoutePorts {
+  readonly accountActivation: AccountActivationApplicationPort;
+}
+
+export function createPublicBusinessRoutes(
+  ports: PublicBusinessRoutePorts,
+): readonly [PublicRoute<AccountActivationRequest, AccountActivationResponse>] {
+  const accountActivationRoute: PublicRoute<AccountActivationRequest, AccountActivationResponse> = {
+    surface: PUBLIC_SURFACE,
+    method: "POST",
+    path: ACCOUNT_ACTIVATION_ROUTE,
+    request: accountActivationRequestSchema,
+    response: accountActivationResponseSchema,
+    requiredScope: null,
+    authorize: (principal) => principal.clientKind === "account_web",
+    invoke: async (request, principal) => {
+      const response = await ports.accountActivation.activate(request, principal);
+      if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+      return response;
+    },
+  };
+  return [accountActivationRoute];
+}
