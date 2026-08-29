@@ -88,7 +88,8 @@ const expectedMigrationFiles = expectedCatalog.map(
 
 describe("Cloud migration catalog", () => {
   it("keeps the consolidated M002 and terminal M014 as literal imports rather than discovered migrations", () => {
-    const source = readFileSync(new URL("../src/db/migrations.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../src/db/migrations.ts", import.meta.url), "utf8")
+      .replaceAll("\r\n", "\n");
 
     expect(source).toContain(
       'import { accountDefaultWorkspaceMigration } from "../modules/workspace/default-workspace/migrations/202608200014-account-default-workspace";',
@@ -121,7 +122,7 @@ describe("Cloud migration catalog", () => {
   it("keeps exactly one consolidated design-time migration file for each M001–M014 catalog entry", () => {
     const migrationFiles = globSync("src/modules/**/migrations/*.ts", {
       cwd: new URL("../", import.meta.url),
-    }).sort();
+    }).map((file) => file.replaceAll("\\", "/")).sort();
 
     expect(migrationFiles).toEqual(expectedMigrationFiles);
   });

@@ -33,19 +33,22 @@ jobs:
       GOODDEALER_POSTGRES_APP_URL: postgresql://gooddealer_cloud_app:app-test-only@localhost:5432/postgres
       GOODDEALER_UNQUALIFIED_POSTGRES_DIAGNOSTIC: "false"
       EVIDENCE_PROFILE: local
+      EVIDENCE_CI_JOB_NAME: wp5-backup-foundation-postgresql-18.6
+      EVIDENCE_EXPECTED_PLATFORM: linux
+      EVIDENCE_EXPECTED_ARCH: x64
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921 # stable
-        with:
-          toolchain: 1.97.1
-          components: clippy,rustfmt
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.97.1
       - run: npm install --global pnpm@11.18.0
       - run: pnpm install --frozen-lockfile
       - name: Create non-privileged roles
@@ -57,7 +60,10 @@ jobs:
           SQL
       - name: Verify fail-closed evidence policies
         run: node --test scripts/backup-evidence-policy.test.mjs scripts/recovery-persistence-evidence-policy.test.mjs
-      - run: pnpm evidence:wp5:backup
+      - name: Collect repository-only unavailable backup evidence
+        env:
+          EVIDENCE_GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm evidence:wp5:backup
       - name: Collect qualifying recovery persistence evidence (exact PostgreSQL 18.6)
         run: pnpm evidence:wp5:recovery-persistence
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

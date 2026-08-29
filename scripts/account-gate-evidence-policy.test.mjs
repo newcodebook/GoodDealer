@@ -66,7 +66,10 @@ const portfolioQueryTestSource = readFileSync(
   new URL("../packages/client-core/test/portfolio-query.test.ts", import.meta.url),
   "utf8",
 );
-const accountGateCollectorSource = readFileSync(new URL("./collect-account-gate-report.mjs", import.meta.url), "utf8");
+const accountGateCollectorSource = readFileSync(
+  new URL("./collect-account-gate-report.mjs", import.meta.url),
+  "utf8",
+).replaceAll("\r\n", "\n");
 const physicalTemporaryDirectory = realpathSync(tmpdir());
 const accountGateAdmittedInputPaths = Object.freeze([
   ...new Set([...ACCOUNT_GATE_REQUIRED_INPUTS, ...ACCOUNT_GATE_VECTOR_INPUTS]),

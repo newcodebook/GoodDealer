@@ -8,6 +8,11 @@ updates:
       time: "02:00"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    ignore:
+      # Runtime types must stay aligned with the Node major in `.node-version`.
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: cargo
     directory: /

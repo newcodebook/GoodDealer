@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { BOOTSTRAP_INPUT_PATHS, BOOTSTRAP_MIGRATIONS, BOOTSTRAP_PORTABLE_TEST_NAMES,
   BOOTSTRAP_POSTGRES_TEST_NAMES, BOOTSTRAP_TABLES, bootstrapPersistenceReportPassesPolicy,
-  digestInputs } from "./collect-bootstrap-persistence-report.mjs";
+  digestInputs, drainSourceWritesSignedReadiness } from "./collect-bootstrap-persistence-report.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const inputs = BOOTSTRAP_INPUT_PATHS.map((path) => ({ path,
@@ -69,4 +69,18 @@ test("Bootstrap hosted workflow pins PostgreSQL 18.6 and exact evidence command"
   assert.match(workflow, /NOSUPERUSER NOBYPASSRLS/u);
   assert.equal(packageJson.scripts["evidence:wp2:bootstrap-persistence"],
     "node scripts/collect-bootstrap-persistence-report.mjs");
+});
+
+test("Bootstrap drain readiness detector distinguishes reads from writes", () => {
+  assert.equal(drainSourceWritesSignedReadiness(`
+    const row = await transaction.query(\`SELECT signing_key_id, ready_at FROM device_drain_proofs\`);
+    await transaction.query(\`UPDATE device_active_leases SET released_at = now()\`);
+  `), false);
+  assert.equal(drainSourceWritesSignedReadiness(`
+    await transaction.query(\`UPDATE device_drain_proofs SET ready_at = now()\`);
+  `), true);
+  assert.equal(drainSourceWritesSignedReadiness(`
+    await transaction.query(\`INSERT INTO device_drain_proofs (signing_key_id) VALUES ($1)\`);
+  `), true);
+  assert.equal(drainSourceWritesSignedReadiness(undefined), true);
 });

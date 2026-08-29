@@ -16,6 +16,7 @@ export const RECOVERY_PERSISTENCE_TEST_NAMES = Object.freeze([
   "derives candidate fields against the locked current baseline without mutating workspace state",
   "returns a byte-identical receipt for the same request and rejects workflow or backup digest conflicts",
   "isolates identical literal workflow backup and candidate ids across tenants",
+  "keeps recovery evidence immutable to the application role",
   "serializes concurrent creators into one persistent request and candidate set",
   "enforces non-Apply lifecycle row-version CAS and exposes only unresolved non-expired watermark",
   "binds lifecycle CAS to tenant, status, baseline and complete authority provenance",

@@ -76,7 +76,14 @@ fn scan_file(path: &Path) -> FileScan {
             .to_string_lossy()
             .into_owned(),
         bytes: bytes.len(),
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: Sha256::digest(&bytes).iter().fold(
+            String::with_capacity(64),
+            |mut output, byte| {
+                use std::fmt::Write;
+                write!(output, "{byte:02x}").expect("writing into a String cannot fail");
+                output
+            },
+        ),
         canary_absent: !contains(&bytes, CANARY.as_bytes()),
         sqlite_header_absent: !contains(&bytes, SQLITE_HEADER),
     }
