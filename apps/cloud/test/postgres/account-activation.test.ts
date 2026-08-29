@@ -78,8 +78,8 @@ describe("PostgreSQL account activation", () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ schemaVersion: 1, state: "active" });
-      const persisted = await ownerPool.query<{ account_id: string; workspace_id: string }>(
-        `SELECT b.account_id, b.workspace_id
+      const persisted = await ownerPool.query<{ accountId: string; workspaceId: string }>(
+        `SELECT b.account_id AS "accountId", b.workspace_id AS "workspaceId"
            FROM workspace_account_bindings b
           WHERE b.account_id = $1 AND b.is_default = true`,
         [identity.accountId],

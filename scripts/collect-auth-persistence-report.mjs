@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
+
 const root = resolve(import.meta.dirname, "..");
 
 export const AUTH_PERSISTENCE_INPUT_PATHS = [
@@ -12,8 +14,10 @@ export const AUTH_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/modules/identity/password-hash-port.ts",
   "apps/cloud/src/modules/identity/postgres-authentication-repository.ts",
   "apps/cloud/src/modules/identity/migrations/202608200003-identity-authentication.ts",
+  "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/test/password-hash-fallback.test.ts",
   "apps/cloud/test/postgres/identity-authentication.test.ts",
+  "scripts/collect-cloud-boundary-report.mjs",
   ".github/workflows/wp2-auth-persistence.yml",
 ];
 
@@ -123,7 +127,7 @@ function main() {
         && /\("value" in descriptor\)/u.test(loginSource),
     },
     productionSurfaces: {
-      publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
+      publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
       periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
       passwordVerifier:
@@ -179,7 +183,7 @@ export function authPersistenceReportPassesPolicy(value) {
       "separateTransactionSettings", "exactEmailPredicate", "ownDataPropertyParser",
     ])
     && exactJson(value.productionSurfaces, {
-      publicBusinessRoutes: 0,
+      publicBusinessRoutes: 1,
       adminBusinessRoutes: 0,
       periodicJobs: 0,
       passwordVerifier: "DenyingPasswordHashPort",

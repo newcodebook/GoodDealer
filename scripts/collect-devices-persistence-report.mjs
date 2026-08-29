@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -19,11 +20,13 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/modules/workspace/mutations/postgres-drain-ledger.ts",
   "apps/cloud/src/modules/execution-ledger/postgres-drain-ledger.ts",
   "apps/cloud/src/modules/audit/postgres-workspace-device-drain-ledger.ts",
+  "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/test/postgres/device-drain-persistence.test.ts",
   "apps/cloud/test/postgres/workspace-mutation-persistence.test.ts",
   "apps/cloud/test/postgres/workspace-checkpoint-persistence.test.ts",
   "apps/cloud/test/postgres/immutable-drain-ledger.test.ts",
   "scripts/collect-devices-persistence-report.mjs",
+  "scripts/collect-cloud-boundary-report.mjs",
   "scripts/devices-persistence-evidence-policy.test.mjs",
   ".github/workflows/wp2-devices-persistence.yml",
   "package.json",
@@ -282,7 +285,7 @@ function main() {
     },
     tests: { postgres: postgresTests },
     productionSurfaces: {
-      publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
+      publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
       periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
       tauriCommands: [],
@@ -327,7 +330,7 @@ export function devicesPersistenceReportPassesPolicy(value) {
     && exactJson(value.database?.immutableTriggers, IMMUTABLE_TRIGGER_EXPECTATIONS)
     && exactTestObservation(value.tests?.postgres)
     && exactJson(value.productionSurfaces, {
-      publicBusinessRoutes: 0, adminBusinessRoutes: 0, periodicJobs: 0,
+      publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0,
       tauriCommands: [], leaseSigner: "DenyingLeaseSigner",
       drainSignatureSuccessVariants: 0, cursorWrites: 0, currentEpochWrites: 0,
       networkPrimitives: 0, leaseIssuanceCalls: 0,

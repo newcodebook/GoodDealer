@@ -25,7 +25,7 @@ const report = {
     postgres: observation("test/postgres/bootstrap-persistence.test.ts", BOOTSTRAP_POSTGRES_TEST_NAMES) },
   production: { fixtureOnly: true, productionComposition: false, productionLeaseIssued: false,
     normalHandoffEnabled: false, verifier: "Denying", leaseSigner: "Denying", drainSignedReadyWrites: 0,
-    publicBusinessRoutes: 0, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
+    publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
     fixtureImportsFromSource: 0 },
   gates: { "R0-05": "In Progress", "R0-06": "In Progress", "R0-09": "In Progress", "R0-16": "In Progress" },
   inputs, inputSetDigest: digestInputs(inputs),
@@ -47,7 +47,7 @@ test("Bootstrap policy accepts only exact PostgreSQL 18.6 facts and exact named 
 
 test("Bootstrap policy rejects fabricated production activation, surfaces, Gates, and source facts", () => {
   for (const [key, value] of [["productionComposition", true], ["productionLeaseIssued", true],
-    ["normalHandoffEnabled", true], ["drainSignedReadyWrites", 1], ["periodicJobs", 1],
+    ["normalHandoffEnabled", true], ["drainSignedReadyWrites", 1], ["publicBusinessRoutes", -1], ["periodicJobs", 1],
     ["fixtureImportsFromSource", 1]]) {
     assert.equal(bootstrapPersistenceReportPassesPolicy({ ...report,
       production: { ...report.production, [key]: value } }), false, key);

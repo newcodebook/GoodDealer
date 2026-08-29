@@ -190,6 +190,23 @@ export function sourceDefinesSafeAccountActivationRoute(source) {
     && /accountActivation\.activate\(request,\s*principal\)/.test(cleanSource);
 }
 
+/**
+ * Persistence evidence needs the exact public business-route allowlist, not the historical
+ * assumption that every business route is absent. Keep that observation anchored to the same
+ * source policy that proves account activation is principal-scoped and protocol-owned.
+ */
+export function sourceDefinesExactAccountActivationBusinessRoute(source) {
+  const cleanSource = withoutComments(source);
+  const factoryStart = cleanSource.indexOf("export function createPublicBusinessRoutes");
+  if (factoryStart < 0 || !sourceDefinesSafeAccountActivationRoute(cleanSource)) return false;
+  const factorySource = cleanSource.slice(factoryStart);
+  return /:\s*readonly\s*\[\s*PublicRoute<AccountActivationRequest,\s*AccountActivationResponse>\s*\]\s*\{/u
+    .test(factorySource)
+    && (factorySource.match(/\bconst\s+\w+Route\s*:\s*PublicRoute</gu) ?? []).length === 1
+    && (factorySource.match(/\bpath\s*:/gu) ?? []).length === 1
+    && /return\s*\[\s*accountActivationRoute\s*\]\s*;/u.test(factorySource);
+}
+
 export function sourceRegistersModuleRoute(source) {
   const cleanSource = withoutComments(source);
   return (

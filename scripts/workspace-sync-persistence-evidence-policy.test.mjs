@@ -64,7 +64,7 @@ const report = {
     { id: "production-composition", status: "Unlinked" },
   ],
   productionSurfaces: {
-    publicBusinessRoutes: 0,
+    publicBusinessRoutes: 1,
     adminBusinessRoutes: 0,
     periodicJobs: 0,
     tauriCommands: [],

@@ -84,7 +84,7 @@ const report = {
   },
   tests: { postgres: observation },
   productionSurfaces: {
-    publicBusinessRoutes: 0, adminBusinessRoutes: 0, periodicJobs: 0,
+    publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0,
     tauriCommands: [], leaseSigner: "DenyingLeaseSigner",
     drainSignatureSuccessVariants: 0, cursorWrites: 0, currentEpochWrites: 0,
     networkPrimitives: 0, leaseIssuanceCalls: 0,

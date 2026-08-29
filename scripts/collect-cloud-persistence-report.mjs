@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const ownerUrl = requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL");
@@ -12,6 +14,10 @@ if (!/^18\.6(?:\D|$)/u.test(serverVersion)) {
 }
 
 run("pnpm", ["--filter", "@gooddealer/cloud", "test:postgres"]);
+const publicRoutes = readFileSync(
+  resolve(root, "apps/cloud/src/entrypoints/routes/public/boundary.ts"),
+  "utf8",
+);
 const migrations = JSON.parse(run("psql", [
   ownerUrl,
   "--no-psqlrc",
@@ -38,7 +44,7 @@ const report = {
     "one-concurrent-writer-wins",
   ],
   productionSurfaces: {
-    publicBusinessRoutes: 0,
+    publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
     adminBusinessRoutes: 0,
     periodicJobs: 0,
     networkComposition: false,

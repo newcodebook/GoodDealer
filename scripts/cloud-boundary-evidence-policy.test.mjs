@@ -12,6 +12,7 @@ import {
   jobsImportGraphReachesHttpFramework,
   sourceCrossesSurfaceImport,
   sourceDeclaresHandWrittenJsonSchema,
+  sourceDefinesExactAccountActivationBusinessRoute,
   sourceDefinesSafeAccountActivationRoute,
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
@@ -152,6 +153,31 @@ test("account activation policy requires public schemas, principal authorization
     sourceDefinesSafeAccountActivationRoute(safeRoute.replace(
       "activate(request, principal)",
       "activate(request, request.accountId)",
+    )),
+    false,
+  );
+});
+
+test("account activation business-route allowlist is exact and rejects a second route", () => {
+  const exactFactory = `
+    import { accountActivationRequestSchema, accountActivationResponseSchema } from "@gooddealer/protocol/account";
+    export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
+    export function createPublicBusinessRoutes(ports): readonly [PublicRoute<AccountActivationRequest, AccountActivationResponse>] {
+      const accountActivationRoute: PublicRoute<AccountActivationRequest, AccountActivationResponse> = {
+        path: ACCOUNT_ACTIVATION_ROUTE,
+        request: accountActivationRequestSchema,
+        response: accountActivationResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
+      };
+      return [accountActivationRoute];
+    }
+  `;
+  assert.equal(sourceDefinesExactAccountActivationBusinessRoute(exactFactory), true);
+  assert.equal(
+    sourceDefinesExactAccountActivationBusinessRoute(exactFactory.replace(
+      "return [accountActivationRoute];",
+      'const recoveryRoute: PublicRoute<unknown, unknown> = { path: "/v1/recovery" }; return [accountActivationRoute, recoveryRoute];',
     )),
     false,
   );

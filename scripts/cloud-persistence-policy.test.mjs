@@ -51,6 +51,7 @@ test("workspace read cannot deep-import PostgreSQL or db implementation", () => 
 test("Cloud persistence evidence is explicit and cannot silently skip PostgreSQL", () => {
   const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8");
   const workflow = readFileSync(new URL("../.github/workflows/wp4-cloud-persistence.yml", import.meta.url), "utf8");
+  const collector = readFileSync(new URL("./collect-cloud-persistence-report.mjs", import.meta.url), "utf8");
   const integration = readFileSync(
     new URL("../apps/cloud/test/postgres/persistence.test.ts", import.meta.url),
     "utf8",
@@ -60,6 +61,8 @@ test("Cloud persistence evidence is explicit and cannot silently skip PostgreSQL
   assert.match(workflow, /GOODDEALER_POSTGRES_APP_URL/u);
   assert.match(integration, /PostgreSQL integration evidence never skips/u);
   assert.match(integration, /\^18\\\.6/u);
+  assert.match(collector, /sourceDefinesExactAccountActivationBusinessRoute\(publicRoutes\) \? 1 : -1/u);
+  assert.doesNotMatch(collector, /publicBusinessRoutes:\s*0/u);
 });
 
 test("portfolio repository cannot query the revisions-owned table", () => {

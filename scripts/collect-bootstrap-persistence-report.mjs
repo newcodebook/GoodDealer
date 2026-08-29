@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { sourceDefinesExactAccountActivationBusinessRoute } from "./collect-cloud-boundary-report.mjs";
+
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -53,9 +55,11 @@ export const BOOTSTRAP_INPUT_PATHS = [
   "apps/cloud/src/modules/workspace/state/portfolio/bootstrap-port.ts",
   "apps/cloud/src/modules/workspace/cursors/postgres-repository.ts",
   "apps/cloud/src/modules/workspace/cursors/migrations/202608200005-device-cursors.ts",
+  "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/test/bootstrap-persistence-boundary.test.ts",
   "apps/cloud/test/postgres/bootstrap-persistence.test.ts",
   "scripts/collect-bootstrap-persistence-report.mjs",
+  "scripts/collect-cloud-boundary-report.mjs",
   "scripts/bootstrap-persistence-evidence-policy.test.mjs",
   ".github/workflows/wp2-bootstrap-persistence.yml",
   "docs/ACCOUNT_AND_SYNC.md",
@@ -115,7 +119,7 @@ function main() {
       verifier: /class DenyingBootstrapVerificationKeySource/u.test(verifier) ? "Denying" : "unresolved",
       leaseSigner: /class DenyingActiveDeviceLeaseSigner/u.test(activation) ? "Denying" : "unresolved",
       drainSignedReadyWrites: drainSourceWritesSignedReadiness(drain) ? 1 : 0,
-      publicBusinessRoutes: /publicBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(publicRoutes) ? 0 : -1,
+      publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
       periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
       tauriCommands: [],
@@ -144,7 +148,7 @@ export function bootstrapPersistenceReportPassesPolicy(value) {
     && exactObservation(value.tests?.postgres, "test/postgres/bootstrap-persistence.test.ts", BOOTSTRAP_POSTGRES_TEST_NAMES)
     && exact(value.production, { fixtureOnly: true, productionComposition: false, productionLeaseIssued: false,
       normalHandoffEnabled: false, verifier: "Denying", leaseSigner: "Denying", drainSignedReadyWrites: 0,
-      publicBusinessRoutes: 0, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
+      publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
       fixtureImportsFromSource: 0 })
     && exact(value.gates, { "R0-05": "In Progress", "R0-06": "In Progress", "R0-09": "In Progress", "R0-16": "In Progress" })
     && exactInputs(value.inputs) && value.inputSetDigest === digestInputs(value.inputs);
