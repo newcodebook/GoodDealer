@@ -13,7 +13,7 @@ export const MARKETING_ALLOWED_EXTERNAL_ORIGINS = Object.freeze([
 ]);
 export const FIXED_MARKETING_DEPLOY_COMMAND = "pnpm exec wrangler pages deploy dist --project-name gooddealer-marketing --branch main";
 
-const read = (path) => readFileSync(resolve(root, path), "utf8");
+const read = (path) => readFileSync(resolve(root, path), "utf8").replaceAll("\r\n", "\n");
 const count = (source, needle) => source.split(needle).length - 1;
 const hasExactLines = (source, lines) => lines.every((line) => source.includes(line));
 const endOfSource = "(?![\\s\\S])";
