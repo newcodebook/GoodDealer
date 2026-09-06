@@ -20,7 +20,7 @@ url.workspace = true
 zeroize = "=1.9.0"
 
 [dev-dependencies]
-rcgen = { version = "=0.14.9", default-features = false, features = ["crypto", "pem", "ring"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 
 [lints.rust]
