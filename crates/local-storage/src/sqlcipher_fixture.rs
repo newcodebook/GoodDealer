@@ -10,16 +10,9 @@ const WRONG_KEY: [u8; 32] = [0x24; 32];
 const CANARY: &str = "GOODDEALER_SQLCIPHER_CANARY_DO_NOT_PERSIST_IN_PLAINTEXT";
 
 fn key_database(connection: &Connection, key: &[u8; 32]) -> SqlResult<()> {
-    let raw_key = key
-        .iter()
-        .fold(String::with_capacity(67), |mut output, byte| {
-            use std::fmt::Write;
-            write!(output, "{byte:02x}").expect("writing into a String cannot fail");
-            output
-        });
-    connection.execute_batch(&format!(
-        "PRAGMA key = \"x'{raw_key}'\"; PRAGMA cipher_memory_security = ON;"
-    ))?;
+    let key_sql = crate::sqlcipher_key_sql::key_pragma(key);
+    connection.execute_batch(key_sql.as_str())?;
+    crate::sqlcipher_process_policy::apply(connection)?;
     Ok(())
 }
 
@@ -87,4 +80,8 @@ fn bundled_sqlcipher_encrypts_fixture_database_and_wal() {
         .query_row("SELECT value FROM fixture", [], |row| row.get(0))
         .expect("read fixture with the correct key");
     assert_eq!(value, CANARY);
+    let memory_security: String = correct_connection
+        .query_row("PRAGMA cipher_memory_security", [], |row| row.get(0))
+        .expect("read unit-test SQLCipher memory-security state");
+    assert_eq!(memory_security, "0");
 }

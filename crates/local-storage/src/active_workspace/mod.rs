@@ -58,22 +58,19 @@ mod portfolio_connection {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
         let connection = Connection::open_with_flags(path, flags)
             .map_err(|_| PortfolioReadError::StorageRejected)?;
-        let key = key
-            .iter()
-            .fold(String::with_capacity(64), |mut output, byte| {
-                use std::fmt::Write;
-                write!(output, "{byte:02x}").expect("writing into a String cannot fail");
-                output
-            });
+        let key_sql = crate::sqlcipher_key_sql::key_pragma(key);
         connection
-            .execute_batch(&format!(
-                "PRAGMA key = \"x'{key}'\";
-            PRAGMA cipher_memory_security = ON;
-            PRAGMA trusted_schema = OFF;
+            .execute_batch(key_sql.as_str())
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        crate::sqlcipher_process_policy::apply(&connection)
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        connection
+            .execute_batch(
+                "PRAGMA trusted_schema = OFF;
             PRAGMA foreign_keys = ON;
             PRAGMA recursive_triggers = ON;
-            PRAGMA busy_timeout = 5000;"
-            ))
+            PRAGMA busy_timeout = 5000;",
+            )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         connection
             .query_row("SELECT count(*) FROM sqlite_schema", [], |row| {

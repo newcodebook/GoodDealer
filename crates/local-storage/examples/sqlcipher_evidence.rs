@@ -7,6 +7,11 @@ use rusqlite::{Connection, Result as SqlResult};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "../src/sqlcipher_key_sql.rs"]
+mod sqlcipher_key_sql;
+#[path = "../src/sqlcipher_process_policy.rs"]
+mod sqlcipher_process_policy;
+
 const EXPECTED_SQLCIPHER_VERSION: &str = "4.17.0 community";
 const EXPECTED_SQLITE_VERSION: &str = "3.53.3";
 const FIXTURE_KEY: [u8; 32] = [0x42; 32];
@@ -32,6 +37,7 @@ struct EvidenceReport {
     scope: &'static str,
     sqlcipher_version: String,
     sqlite_version: String,
+    cipher_memory_security_enabled: bool,
     database_and_wal_encrypted: bool,
     rollback_journal_encrypted: bool,
     wrong_key_rejected: bool,
@@ -49,16 +55,9 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 fn key_database(connection: &Connection, key: &[u8; 32]) -> SqlResult<()> {
-    let raw_key = key
-        .iter()
-        .fold(String::with_capacity(64), |mut output, byte| {
-            use std::fmt::Write;
-            write!(output, "{byte:02x}").expect("writing into a String cannot fail");
-            output
-        });
-    connection.execute_batch(&format!(
-        "PRAGMA key = \"x'{raw_key}'\"; PRAGMA cipher_memory_security = ON;"
-    ))
+    let key_sql = sqlcipher_key_sql::key_pragma(key);
+    connection.execute_batch(key_sql.as_str())?;
+    sqlcipher_process_policy::apply(connection)
 }
 
 fn open_keyed(path: &Path, key: &[u8; 32]) -> SqlResult<Connection> {
@@ -144,6 +143,12 @@ fn run(output_path: &Path) -> EvidenceReport {
             .execute("INSERT INTO fixture(value) VALUES (?1)", [CANARY])
             .expect("insert encrypted fixture row");
     }
+    let cipher_memory_security_enabled = connection
+        .query_row("PRAGMA cipher_memory_security", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .expect("read SQLCipher memory-security policy state")
+        == "1";
 
     let mut scans = vec![scan_file(&database_path), scan_file(&wal_path)];
     let database_and_wal_encrypted = scans
@@ -228,6 +233,7 @@ fn run(output_path: &Path) -> EvidenceReport {
         scope: "temporary SQLCipher fixture only; no production storage or user data",
         sqlcipher_version,
         sqlite_version,
+        cipher_memory_security_enabled,
         database_and_wal_encrypted,
         rollback_journal_encrypted,
         wrong_key_rejected,
@@ -262,6 +268,7 @@ fn main() -> ExitCode {
         .expect("usage: sqlcipher_evidence <report-path>");
     let report = run(&output_path);
     let passed = report.database_and_wal_encrypted
+        && report.cipher_memory_security_enabled
         && report.rollback_journal_encrypted
         && report.wrong_key_rejected
         && report.truncated_database_rejected

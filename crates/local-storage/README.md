@@ -33,3 +33,21 @@ Owns the SQLCipher Active Workspace that is authoritative for Desktop business e
 ## Open Questions
 
 - [x] No unresolved schema-ownership question remains for the current single-workspace Desktop database. (open since: 2026-08)
+
+## SQLCipher Process Memory Policy
+
+Production local-storage builds explicitly request SQLCipher memory security after keying every
+ordinary database connection and before connection-local settings or schema validation. The request
+is owned by one private process-policy module: callers cannot select or disable it, and the repository
+never issues a memory-security OFF operation. Integration tests link the non-test library, so any
+integration test that opens storage intentionally uses the production ON policy in its own process.
+
+Library unit-test builds leave SQLCipher 4.17's process-global default OFF. This keeps ordinary and
+fixture unit paths from irreversibly enabling the allocator's lock/wipe/unlock work for the rest of
+the unit-test process. The SQLCipher fixture retains its distinct deferred wrong-key validation;
+ordinary opens continue to validate the schema eagerly. The release evidence example is a separate
+non-test process, requires policy state 1, and reports it as `cipherMemorySecurityEnabled`.
+
+Raw key hex and complete key-bearing PRAGMA SQL allocations in these paths use zeroizing Rust
+strings. SQLCipher policy state 1 proves that the allocator policy was requested and is active; it
+is not attestation that every operating-system `mlock` or `VirtualLock` call succeeded.

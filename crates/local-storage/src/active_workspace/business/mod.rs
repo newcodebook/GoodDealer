@@ -892,6 +892,17 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_keyed_open_retains_default_memory_security_in_unit_tests() {
+        let database = database();
+        let state: String = database
+            .store
+            .raw_connection()
+            .query_row("PRAGMA cipher_memory_security", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(state, "0");
+    }
+
+    #[test]
     fn business_write_and_sync_outbox_commit_atomically() {
         let mut database = database();
         database

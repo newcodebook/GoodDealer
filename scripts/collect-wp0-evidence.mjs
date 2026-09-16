@@ -60,6 +60,8 @@ const keyInputPaths = [
   "Cargo.lock",
   "crates/local-storage/Cargo.toml",
   "crates/local-storage/examples/sqlcipher_evidence.rs",
+  "crates/local-storage/src/sqlcipher_key_sql.rs",
+  "crates/local-storage/src/sqlcipher_process_policy.rs",
   "crates/local-storage/src/sqlcipher_fixture.rs",
   "rust-toolchain.toml",
   "scripts/collect-wp0-evidence.mjs",
@@ -97,6 +99,7 @@ const accountGateKeyInputPaths = [
 ];
 const cloudBoundaryKeyInputPaths = [...CLOUD_BOUNDARY_REQUIRED_INPUTS];
 const sqlcipherRequiredChecks = [
+  "cipherMemorySecurityEnabled",
   "databaseAndWalEncrypted",
   "rollbackJournalEncrypted",
   "wrongKeyRejected",
