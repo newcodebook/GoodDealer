@@ -1,10 +1,11 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "mutationId": "mutation-unsafe",
   "workspaceId": "workspace-a",
   "workspaceSchemaVersion": 1,
   "entityType": "domain_asset",
   "entityId": "example.com",
+  "operationKind": "upsert",
   "baseServerRevision": 9007199254740992,
   "changedFields": [{ "fieldPath": "note", "value": null }],
   "sourceDeviceId": "device-a",

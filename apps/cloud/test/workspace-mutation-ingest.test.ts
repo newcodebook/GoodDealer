@@ -41,12 +41,13 @@ function mutation(input: {
         ? [{ fieldPath, value: `portfolio-${input.sequence}` }]
         : [{ fieldPath, value: { currency: "USD", amount: String(input.sequence) } }];
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: input.mutationId ?? `mutation-${input.sequence}`,
     workspaceId: "shared-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "shared.test",
+    operationKind: "upsert",
     baseServerRevision: input.baseServerRevision ?? input.sequence - 1,
     changedFields: value,
     sourceDeviceId: input.sourceDeviceId ?? "shared-device",
@@ -57,7 +58,7 @@ function mutation(input: {
 
 function request(submitted: readonly SubmittedSyncMutation[]) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workspaceId: "shared-workspace",
     sourceDeviceId: submitted[0]?.sourceDeviceId ?? "shared-device",
     activeLeaseEpoch: 7,

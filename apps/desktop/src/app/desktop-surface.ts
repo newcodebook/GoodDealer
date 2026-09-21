@@ -38,7 +38,6 @@ export type DesktopSurface =
   | WorkspaceDesktopSurface<"active">
   | AdjudicatedDesktopSurface<"draining">
   | AdjudicatedDesktopSurface<"startup_recovery">
-  // LocalContinuation remains route-free until the separate Sunset authority chain is delivered.
   | AdjudicatedDesktopSurface<"local_continuation">;
 
 const routeFreeSurfaceKinds = desktopSurfaceKinds.filter(
@@ -62,7 +61,7 @@ export function parseDesktopSurface(value: unknown): DesktopSurface | null {
       availableRouteIds.length === 0 ||
       !availableRouteIds.every(isAppRouteId) ||
       new Set(availableRouteIds).size !== availableRouteIds.length ||
-      (defaultRouteId !== "portfolio.list" && defaultRouteId !== "dns.health" && defaultRouteId !== "settings") ||
+      (defaultRouteId !== "portfolio.list" && defaultRouteId !== "dns.health" && defaultRouteId !== "sync.conflicts" && defaultRouteId !== "settings") ||
       !availableRouteIds.includes(defaultRouteId)
     ) {
       return null;

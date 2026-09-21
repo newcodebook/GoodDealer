@@ -1,5 +1,26 @@
 # Cloudflare connector contracts
 
+## Role
+
+Host-independent Cloudflare intent and sanitized observation contract boundary without Provider execution.
+
+## Owns
+
+- Strict Cloudflare Zone read intent and Host-local observation error contracts.
+- Re-export of the protocol-owned, non-secret Cloudflare observation envelope.
+
+## Touchpoints
+
+- Supplies contracts to local Host and Desktop composition without receiving credentials or transport authority.
+- Consumes observation schemas from `../../protocol` and leaves Provider I/O to native Secure Host code.
+- Keeps Cloud submission and business projection behind local-storage and sync boundaries.
+
+## Change Guide
+
+- Change public shapes only with coordinated protocol, Host, and consumer updates.
+- Preserve descriptor-safe parsing, bounded traversal, and rejection of secrets and execution authority.
+- Verify contract, hostile-input, and public-surface tests after changes.
+
 ## Purpose
 
 This package defines the non-secret, read-only Host intent and local-error boundary for observing one selected Cloudflare Zone and its A, AAAA, CNAME, and TXT DNS records. It performs no provider I/O. The public observation envelope and its parser are owned by `@gooddealer/protocol` and are only re-exported here.

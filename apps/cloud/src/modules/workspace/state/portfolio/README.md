@@ -1,5 +1,26 @@
 # Workspace portfolio state
 
+## Role
+
+Cloud workspace-state capability for tenant-keyed business replicas and sanitized recovery projection.
+
+## Owns
+
+- PostgreSQL persistence of allowlisted portfolio replica fields and projection state.
+- Read-only repeatable-read projection queries used by isolated recovery flows.
+
+## Touchpoints
+
+- Receives tenant scope, revisions, and mutations from sibling workspace capabilities.
+- Implements protocol-owned recovery shapes without becoming a Desktop business repository.
+- Registers its schema through the central Cloud migration catalog.
+
+## Change Guide
+
+- Change replica schema, materialization, and query logic together with exact row parsers and RLS tests.
+- Keep provider identity, credentials, caller-selected scope, and normal Desktop queries outside this module.
+- Verify portfolio read, persistence, PostgreSQL RLS, and migration tests after changes.
+
 ## Purpose
 
 This module owns tenant-keyed PostgreSQL sync replicas of allowlisted business fields and the

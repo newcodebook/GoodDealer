@@ -39,12 +39,13 @@ const sha256 = { digest: async (bytes: Uint8Array) => createHash("sha256").updat
 
 function mutation(sequence: number): SubmittedSyncMutation {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: `mutation-${sequence}`,
     workspaceId: scope.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "asset-1.test",
+    operationKind: "upsert",
     baseServerRevision: sequence - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${sequence}`] }],
     sourceDeviceId: "device-a",
@@ -55,7 +56,7 @@ function mutation(sequence: number): SubmittedSyncMutation {
 
 function request(sequence: number) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workspaceId: scope.workspaceId,
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 7,

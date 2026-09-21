@@ -4,9 +4,9 @@
 
 Screens（点击侧栏切换）：
 - **概览 Dashboard** — License 周期进度、设备执行权（Active/Standby/Sunset）、云端同步、近期动态、云端数据快照
-- **订阅与许可 License** — 方案/周期/续费、本期进度、方案对比与升降级、所有权与 License 证书、用量
+- **订阅与许可 License** — 同一功能档位的 USD 9.80 月付、USD 98 年付、USD 498 十年固定期，首发 Stripe 托管结账、优惠码、首次购买 14 天退款说明；无免费试用、永久买断或本地卡资料输入
 - **设备 Devices** — ActiveDeviceLease 状态 + Epoch；重命名、远程解绑丢失设备（danger 确认仪式）、释放额度配对新设备（移交执行权在桌面客户端完成）
-- **账单与发票 Billing** — 支付方式、账单信息、发票账本（DS Table）+ 收据弹窗
+- **账单与发票 Billing** — Provider 托管付款方式摘要与跳转、账单信息、发票账本（DS Table）+ 收据弹窗；Account Web 不采集卡号、安全码或付款账户资料
 - **安全 Security** — 活跃会话终止、2FA（TOTP/短信/硬件密钥）、恢复码、改密；强调平台凭据本地加密、永不上云、不在网页可见
 - **云端数据 CloudData** — 只读镜像：资产快照 + 操作账本（Revision），常驻「数据来自 GoodDealer Cloud」；编辑与执行引导至桌面客户端
 - **账户设置 AccountSettings** — 个人资料、偏好（locale/时区/货币）、通知开关、导出数据、删除账户（danger）

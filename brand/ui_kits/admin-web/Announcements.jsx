@@ -39,7 +39,7 @@ function Announcements(){
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <AnInput label="标题" placeholder="如：0.9.1 发布说明"/>
         <div style={{display:"flex",gap:10}}>
-          <div style={{flex:1}}><AnSel label="受众" size="md" options={["全部客户","Professional · Portfolio","仅 Portfolio","按区域","仅试用客户"]} value="全部客户" onChange={()=>{}}/></div>
+          <div style={{flex:1}}><AnSel label="受众" size="md" options={["全部客户","全部有效许可","月付客户","年付客户","10 年固定期客户","按区域"]} value="全部客户" onChange={()=>{}}/></div>
           <div style={{flex:1}}><AnSel label="发布" size="md" options={["立即发布","定时发布"]} value="立即发布" onChange={()=>{}}/></div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>

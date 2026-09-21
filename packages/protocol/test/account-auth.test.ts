@@ -75,9 +75,15 @@ describe("account auth and session contracts", () => {
     expect(displayLabel.safeParse("untrimmed ").success).toBe(false);
   });
 
-  it("freezes the nine account operation names", () => {
+  it("freezes the fifteen account operation names", () => {
     expect(accountOperationSchema.options).toEqual([
       "account.activation.activate",
+      "account.billing.checkout.create",
+      "account.billing.fixedTerm.confirm",
+      "account.billing.firstPurchaseRefund.request",
+      "account.billing.firstPurchaseRefund.status.read",
+      "account.billing.status.read",
+      "account.billing.subscription.cancel",
       "account.session.login",
       "account.session.refresh",
       "account.session.signOut",

@@ -22,14 +22,17 @@ function readProductionSources(directory: URL): string {
 }
 
 describe("Desktop production entrypoint boundary", () => {
-  it("keeps the main production closure limited to the thin local-business adapter", () => {
+  it("composes the reviewed router and shell over the thin native adapters", () => {
     const main = readSource("../main.tsx");
     const app = readSource("../app.tsx");
 
     expect(main).toContain('from "./app"');
     expect(main).not.toMatch(/app-shell|features|composition-root|connector-/u);
     expect(app).toMatch(/\.\/adapters\/tauri/u);
-    expect(app).not.toMatch(/app-shell|features|composition-root|connector-|marketplace|registration|pricing|batch|listing|cloud-client/u);
+    expect(app).toMatch(/DesktopRouter/u);
+    expect(app).toMatch(/DesktopShell/u);
+    expect(app).not.toMatch(/composition-root|connector-|marketplace|registration|pricing|batch|listing|cloud-client/u);
+    expect(app).not.toContain(">Sync conflicts</button>");
   });
 
   it("starts by opening the Host-owned local database and fabricates no authorization", () => {
@@ -60,6 +63,6 @@ describe("Desktop production entrypoint boundary", () => {
     const entrypointFiles = ["../main.tsx", "../app.tsx", "./desktop-router.tsx", "./route-registry.ts"];
     const entrypoint = entrypointFiles.map((path) => readSource(path)).join("\n");
 
-    expect(entrypoint).not.toMatch(/marketplace\.sales|operations\.(batch|manualTasks|history)|sync\.conflicts/u);
+    expect(entrypoint).not.toMatch(/marketplace\.sales|operations\.(batch|manualTasks|history)/u);
   });
 });

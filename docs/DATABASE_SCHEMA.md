@@ -29,8 +29,9 @@ GoodDealer 使用两个职责不同、不能互相替代的数据库：
 | 秘密 | Provider 账号身份和密封凭据只在本地表；任何 Cloud 表、Mutation 或审计均不得含这些字段。 |
 
 SQLite 打开后强制 `foreign_keys`、`recursive_triggers`、`trusted_schema=OFF` 和有界 busy timeout。
-所有本地表使用 `STRICT`。设计开发阶段由单一 Active Workspace schema 快照定义最终 DDL，
-Migration 使用 ID、Owner、checksum 和事务应用；首次生产发布后再切换为只追加迁移。
+所有本地表使用 `STRICT`。尚未被任何持久环境应用的设计快照可以在同一变更内直接整理最终 DDL；
+Migration 一旦进入本机共享 profile、共享开发、预发布或生产等保留数据的环境，其 ID、Owner、SQL
+和 checksum 即冻结，后续只追加拥有模块的前向 Migration。环境级别不能降低这项不可变性。
 
 ## 本地 SQLCipher 模型
 
@@ -60,7 +61,9 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 | 表 | 职责 | 是否允许同步 |
 | --- | --- | --- |
 | `local_provider_connections` | Provider 类型、账号别名、Provider Account ID、能力和连接生命周期。 | 否 |
-| `provider_credential_versions` | 密封凭据字节的唯一持久化位置，并保存 seal/key 版本、轮换/吊销和验证状态。 | 否 |
+| `cloudflare_credential_roots` / `cloudflare_credential_intents` / `cloudflare_credential_generation_ledger` / `cloudflare_credential_schema_guard` | 仅保存非秘密的凭据根、`prepared → prewrite_inspection_started → keychain_write_started → consumed` 主路径，以及 `cancelled` 和 `recovery_required → consumed` 闭合路径；同时保存单调 generation ledger、schema guard、授权快照摘要与激活证明。Cloudflare token 只保存在操作系统 Keychain。 | 否 |
+| `cloudflare_dns_staged_batches` / `cloudflare_dns_staged_records` | 保存凭据切换期间的非秘密 DNS 观察 custody：batch 绑定 workspace/connection incarnation、来源 intent、observation/run/entity、Lease Epoch、scope/Zone/observation digest、观察时间、Zone/Nameserver/DNSSEC/可用性/Provider version 事实及规范化记录；`visibility` 仅允许 `staged`、`committed`、`discarded`，credential intent 通过 batch ID 与完整 observation digest 精确绑定后才可提交或丢弃。 | 否；仅成功提交后另行产生 count-only Cloud 投影 |
+| `cloudflare_dns_source_heads` / `cloudflare_dns_projection_outbox` / `cloudflare_dns_projection_heads` | 保存 Cloudflare DNS 观察的单调来源序列、count-only Cloud 投影及其 durable delivery lease、重试截止时间和 ACK 头。 | 仅同步 count-only 投影；不含凭据或 Provider 原始记录 |
 | `provider_observation_runs` | 一次本地 Provider 读取的状态、`observation_capability`、Connector 版本和错误。 | 否；含本地连接 FK |
 | `provider_observation_targets` | 每次读取的逐资产 requested/succeeded/failed/missing 结果，用于部分失败和有界重试。 | 否；含本地运行 FK |
 | `registrar_observations` | Registrar、注册/到期、续费、锁定和置信状态。 | 仅显式脱敏字段 |
@@ -187,8 +190,9 @@ Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 
 
 ## 演进规则
 
-1. 设计开发阶段修改集中 schema 快照和固定 checksum；首次生产发布后既有 Migration 不重写，
-   只追加拥有模块的有序 Migration。
+1. 只允许重写尚未被任何持久环境应用的设计快照。Migration 一经保留数据的本机或共享环境应用，
+   其 ID、Owner、SQL 和 checksum 永久冻结；所有后续变化只追加拥有模块的有序前向 Migration。
+   不得通过改 ledger、重建共享数据库、接受未知 checksum alias 或把环境降级为“非生产”来绕过。
 2. 新字段默认本地权威且禁止同步，只有协议白名单、secret-canary、Cloud 副本和恢复测试同时存在
    才能进入同步。
 3. 新 Provider 字段先判断是否含账号或凭据身份；这些字段无论是否看似非秘密都只留本地。

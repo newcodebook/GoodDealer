@@ -327,7 +327,7 @@ interface AuditSigner {
 }
 
 /**
- * Production intentionally remains unable to sign until a custodian-backed KMS/HSM and
+ * Production intentionally remains unable to sign until a custodian-backed OpenBao Transit and
  * revocation/rotation authority are approved. It never receives or stores key material.
  */
 class DenyingProductionAuditSigner implements AuditSigner {

@@ -154,6 +154,14 @@ describe("consolidated portfolio replica M002 and PostgreSQL query", () => {
   });
 
   it("cannot redirect new-workspace initialization through a pg_temp shadow table", async () => {
+    const tempPrivilege = await shadowPool.query<{ allowed: boolean }>(
+      "SELECT has_database_privilege(current_user, current_database(), 'TEMP') AS allowed",
+    );
+    if (tempPrivilege.rows[0]?.allowed !== true) {
+      await expect(shadowPool.query("CREATE TEMP TABLE pg_temp.workspace_replica_portfolio_state (id integer)"))
+        .rejects.toMatchObject({ code: "42501" });
+      return;
+    }
     const scope = { accountId: "account-shadow", workspaceId: "workspace-shadow" } as const;
     await shadowTransactions.withTenant(scope, async (transaction) => {
       await transaction.query(`CREATE TEMP TABLE pg_temp.workspace_replica_portfolio_state (
@@ -364,13 +372,14 @@ function interceptClient(client: PoolClient, afterQuery: (sql: string) => Promis
 }
 
 function assertConsolidatedCatalog(): void {
-  expect(cloudMigrations).toHaveLength(14);
-  expect([cloudMigrations[0], cloudMigrations[1], cloudMigrations[13]].map(
+  expect(cloudMigrations).toHaveLength(22);
+  expect([cloudMigrations[0], cloudMigrations[1], cloudMigrations[13], cloudMigrations[14]].map(
     (migration) => migration === undefined ? undefined : { id: migration.id, owner: migration.owner },
   )).toEqual([
     { id: "202608200001-workspace-revisions", owner: "workspace/revisions" },
     { id: "202608200002-business-replica-model", owner: "workspace/state/portfolio" },
     { id: "202608200014-account-default-workspace", owner: "workspace/default-workspace" },
+    { id: "202608200015-commercial-entitlements", owner: "licensing" },
   ]);
 }
 

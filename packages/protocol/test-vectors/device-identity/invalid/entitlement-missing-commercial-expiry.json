@@ -14,14 +14,14 @@
     "licenseId": "license-01",
     "entitlementRevision": 1,
     "paymentWatermark": "payment-watermark-01",
-    "plan": "lifetime",
-    "entitlementKind": "lifetime",
+    "plan": "ten-year",
+    "entitlementKind": "fixed_term",
     "offlineGraceUntil": "2026-08-31T10:00:00Z",
     "deviceLimit": 2,
     "activeDeviceLimit": 1,
     "standbyCloudRead": true,
     "featureEntitlements": ["all_features"],
-    "allMajorVersions": true
+    "versionEntitlement": { "kind": "subscription_supported" }
   },
   "signature": "RmFrZVNpZ25hdHVyZQ"
 }

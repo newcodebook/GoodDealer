@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": "24.18.1",
-    "pnpm": "11.18.0"
+    "pnpm": "11.25.0"
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
@@ -15,8 +15,9 @@
     "test:postgres": "pnpm --filter @gooddealer/cloud test:postgres",
     "test:rust": "cargo test --workspace --all-targets",
     "check:topology": "node scripts/check-repository-topology.mjs",
+    "brand:bundle": "node scripts/generate-brand-design-system-bundle.mjs",
     "test:structure": "node --test scripts/*.test.mjs release/release-identity-command-boundary.test.mjs && pnpm check:topology && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
-    "check:platform-neutral": "pnpm typecheck && pnpm test && pnpm test:structure",
+    "check:platform-neutral": "pnpm --filter @gooddealer/account-web build && pnpm typecheck && pnpm test && pnpm test:structure",
     "check": "pnpm check:platform-neutral && pnpm test:rust",
     "gate:validate": "node scripts/validate-gate-closure-attestation.mjs",
     "evidence:wp0": "node scripts/collect-wp0-evidence.mjs",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@types/node": "24.13.3",
     "ajv": "8.20.0",
+    "esbuild": "0.28.2",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
   }

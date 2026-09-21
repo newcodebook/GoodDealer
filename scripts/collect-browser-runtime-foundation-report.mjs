@@ -7,10 +7,10 @@ import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const expectedDesktopObservation = Object.freeze({
-  commands: ["local_business_status", "local_domain_asset_upsert", "local_portfolio_read"],
-  capabilityCommands: ["local_business_status", "local_domain_asset_upsert", "local_portfolio_read"],
-  handlers: ["local_business_status", "local_domain_asset_upsert", "local_portfolio_read"],
-  adapter: "narrow-local-business",
+  commands: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
+  capabilityCommands: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
+  handlers: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
+  adapter: "cloudflare-connection-and-observation",
 });
 const testGroups = Object.freeze([
   ["browser-runtime", "browser_runtime::tests"],
@@ -35,6 +35,7 @@ export const BROWSER_RUNTIME_INPUT_PATHS = Object.freeze([
   "apps/desktop/src-tauri/build.rs",
   "apps/desktop/src-tauri/src/main.rs",
   "apps/desktop/src-tauri/src/command_handlers.rs",
+  "apps/desktop/src-tauri/src/oauth_runtime.rs",
   "apps/desktop/src-tauri/capabilities/local-app.json",
   "apps/desktop/src/adapters/tauri/index.ts",
   "scripts/collect-browser-runtime-foundation-report.mjs",

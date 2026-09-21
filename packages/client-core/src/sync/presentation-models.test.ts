@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ValidatingSyncPresentationPort,
+  parseSyncSnapshotViewModel,
   parseSyncSettingsViewModel,
   parseSyncStatusViewModel,
   type SyncPresentationBoundary,
@@ -33,7 +34,30 @@ const settings = {
   conflictResolution: "manual_review",
 } as const;
 
+const snapshot = {
+  schemaVersion: 1, source: "active_local", readGeneration: 4,
+  transport: "offline", blockedReason: null, activity: "idle",
+  pendingMutationCount: 2, openConflictCount: 1, rejectedMutationCount: 3,
+  recoveryRequired: false, appliedThroughServerRevision: 8,
+  lastReplicationActivityAt: timestamp, transportObservedAt: timestamp,
+} as const;
+
 describe("sync presentation contracts", () => {
+  it("accepts only an exact, internally consistent durable sync snapshot", () => {
+    expect(parseSyncSnapshotViewModel(snapshot)).toEqual(snapshot);
+    for (const invalid of [
+      { ...snapshot, blockedReason: "authorization" },
+      { ...snapshot, transport: "blocked", blockedReason: "security", activity: "syncing" },
+      { ...snapshot, transport: "checking", transportObservedAt: timestamp },
+      { ...snapshot, recoveryRequired: true },
+      { ...snapshot, cursor: "secret" },
+    ]) expect(() => parseSyncSnapshotViewModel(invalid)).toThrow("invalid sync snapshot projection");
+    expect(() => parseSyncSnapshotViewModel(Object.create(snapshot))).toThrow();
+    const accessor = { ...snapshot } as Record<string, unknown>;
+    Object.defineProperty(accessor, "readGeneration", { enumerable: true, get: () => 4 });
+    expect(() => parseSyncSnapshotViewModel(accessor)).toThrow();
+  });
+
   it("derives unsynced state from the three Cloud acknowledgement watermarks", () => {
     expect(parseSyncStatusViewModel(activeStatus)).toEqual(activeStatus);
     expect(() => parseSyncStatusViewModel({ ...activeStatus, unsyncedCount: 0 })).toThrow(
@@ -66,11 +90,11 @@ describe("sync presentation contracts", () => {
 
   it("validates unknown boundary results without owning upload, timers, or persistence", async () => {
     const boundary: SyncPresentationBoundary = {
-      getSyncStatus: async () => activeStatus,
+      getSyncStatus: async () => snapshot,
       getSyncSettings: async () => settings,
     };
     const port = new ValidatingSyncPresentationPort(boundary);
-    await expect(port.getSyncStatus()).resolves.toEqual(activeStatus);
+    await expect(port.getSyncStatus()).resolves.toEqual(snapshot);
     await expect(port.getSyncSettings()).resolves.toEqual(settings);
 
     const source = readFileSync(new URL("./presentation-models.ts", import.meta.url), "utf8");

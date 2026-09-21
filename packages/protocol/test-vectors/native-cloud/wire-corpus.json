@@ -1,0 +1,443 @@
+{
+  "corpusVersion": 2,
+  "generatedBy": "packages/protocol/scripts/generate-native-cloud-wire-corpus.ts",
+  "correlation": {
+    "workspaceId": "workspace-a",
+    "push": [
+      {
+        "mutationId": "mutation-5",
+        "deviceMutationSequence": 9
+      }
+    ],
+    "pullAfterServerRevision": 4,
+    "projection": {
+      "observationId": "123e4567-e89b-42d3-a456-426614174000",
+      "leaseEpoch": 7,
+      "sourceSequence": 1,
+      "canonicalRequestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "valid": [
+    {
+      "name": "push-accepted-new",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":5,\"duplicate\":false}],\"headServerRevision\":5}"
+    },
+    {
+      "name": "push-accepted-duplicate",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":5,\"duplicate\":true}],\"headServerRevision\":5}"
+    },
+    {
+      "name": "push-rejected-sync-schema-unsupported",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_SCHEMA_UNSUPPORTED\",\"correlationId\":\"correlation-push-sync_schema_unsupported\"}"
+    },
+    {
+      "name": "push-rejected-sync-input-rejected",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_INPUT_REJECTED\",\"correlationId\":\"correlation-push-sync_input_rejected\"}"
+    },
+    {
+      "name": "push-rejected-sync-authorization-rejected",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_AUTHORIZATION_REJECTED\",\"correlationId\":\"correlation-push-sync_authorization_rejected\"}"
+    },
+    {
+      "name": "push-rejected-sync-tenant-unresolved",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_TENANT_UNRESOLVED\",\"correlationId\":\"correlation-push-sync_tenant_unresolved\"}"
+    },
+    {
+      "name": "push-rejected-sync-idempotency-conflict",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_IDEMPOTENCY_CONFLICT\",\"correlationId\":\"correlation-push-sync_idempotency_conflict\"}"
+    },
+    {
+      "name": "push-rejected-sync-storage-rejected",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_STORAGE_REJECTED\",\"correlationId\":\"correlation-push-sync_storage_rejected\"}"
+    },
+    {
+      "name": "pull-accepted-terminal",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}"
+    },
+    {
+      "name": "pull-accepted-continuation",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":6,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":\"cursor_6\",\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":6,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":\"0FFhK6B45ObVxhJ7BAXneVqFo-MsovzqY4NZEozadTw\",\"predecessorConfirmationDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"expiresAt\":\"2000-02-29T23:59:59Z\"},\"confirmToken\":\"confirm_1\"}"
+    },
+    {
+      "name": "pull-accepted-all-canonical-fields",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"note\",\"value\":\"Line one\\nLine two\"},{\"fieldPath\":\"portfolioId\",\"value\":\"portfolio-1\"},{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]},{\"fieldPath\":\"targetPrice\",\"value\":{\"currency\":\"USD\",\"amount\":\"1200.125\"}}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}"
+    },
+    {
+      "name": "pull-rejected-sync-schema-unsupported-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_SCHEMA_UNSUPPORTED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_schema_unsupported\"}"
+    },
+    {
+      "name": "pull-rejected-sync-input-rejected-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_INPUT_REJECTED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_input_rejected\"}"
+    },
+    {
+      "name": "pull-rejected-sync-authorization-rejected-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_AUTHORIZATION_REJECTED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_authorization_rejected\"}"
+    },
+    {
+      "name": "pull-rejected-sync-tenant-unresolved-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_TENANT_UNRESOLVED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_tenant_unresolved\"}"
+    },
+    {
+      "name": "pull-rejected-sync-cursor-conflict-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_CURSOR_CONFLICT\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_cursor_conflict\"}"
+    },
+    {
+      "name": "pull-rejected-sync-rebootstrap-required-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_rebootstrap_required\"}"
+    },
+    {
+      "name": "pull-rejected-sync-storage-rejected-checkpoint-null",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_STORAGE_REJECTED\",\"checkpoint\":null,\"correlationId\":\"correlation-pull-sync_storage_rejected\"}"
+    },
+    {
+      "name": "pull-rebootstrap-required-checkpoint-present",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-pull-rebootstrap-checkpoint\"}"
+    },
+    {
+      "name": "checkpoint-present",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}"
+    },
+    {
+      "name": "checkpoint-null",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":null}"
+    },
+    {
+      "name": "projection-current",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}"
+    },
+    {
+      "name": "projection-stale",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":9007199254740991,\"disposition\":\"stale\"}"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "push-unknown-top-level",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":5,\"duplicate\":false}],\"headServerRevision\":5,\"token\":\"forbidden\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "push-unsafe-head-revision",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":5,\"duplicate\":false}],\"headServerRevision\":9007199254740992}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "push-ack-wrong-mutation",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"other\",\"deviceMutationSequence\":9,\"serverRevision\":5,\"duplicate\":false}],\"headServerRevision\":5}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "push-ack-wrong-sequence",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":10,\"serverRevision\":5,\"duplicate\":false}],\"headServerRevision\":5}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "push-ack-zero-server-revision",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":0,\"duplicate\":false}],\"headServerRevision\":5}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "push-ack-more-than-head",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[{\"mutationId\":\"mutation-5\",\"deviceMutationSequence\":9,\"serverRevision\":6,\"duplicate\":false}],\"headServerRevision\":5}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "push-rejected-unknown-code",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_UNAVAILABLE\",\"correlationId\":\"correlation-invalid\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "push-rejected-invalid-correlation",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_INPUT_REJECTED\",\"correlationId\":\"bad correlation\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-confirmed-through-ahead",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":5,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-page-workspace-substitution",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-other\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-page-from-revision-substitution",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":3,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-delivery-page-digest-mismatch",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-delivery-next-digest-without-cursor",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-continuation-missing-next-digest",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":6,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":\"cursor_6\",\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":6,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"expiresAt\":\"2000-02-29T23:59:59Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-continuation-wrong-next-digest",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":6,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":\"cursor_6\",\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":6,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"predecessorConfirmationDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"expiresAt\":\"2000-02-29T23:59:59Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-invalid-real-date",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-02-29T00:00:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-noncanonical-timestamp-millis",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00.000Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-page-digest-too-short",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-page-digest-padding",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-rejected-unknown-code",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_UNAVAILABLE\",\"checkpoint\":null,\"correlationId\":\"correlation-invalid\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-rejected-missing-checkpoint",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"correlationId\":\"correlation-invalid\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-rejected-cross-workspace-checkpoint",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-invalid\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "pull-mutation-unknown-field",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5,\"extra\":true}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-secret-field",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5,\"accessToken\":\"secret\"}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-unsafe-integer",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":9007199254740992,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-cross-workspace",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-noncanonical-domain",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"Example.COM\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-changed-fields-unsorted",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[]},{\"fieldPath\":\"note\",\"value\":null}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-changed-field-unknown",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[],\"token\":\"secret\"}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-note-forbidden-control",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"note\",\"value\":\"bad\\u0000note\"}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-portfolio-invalid-identifier",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"portfolioId\",\"value\":\"bad portfolio\"}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-tags-not-canonical",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"premium\",\"brandable\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-mutation-target-price-not-canonical",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"targetPrice\",\"value\":{\"currency\":\"USD\",\"amount\":\"01\"}}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-unknown-field",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"extra\":true}}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-missing",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-cross-workspace",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "checkpoint-digest-too-long",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-unsafe-revision",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":9007199254740992,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "projection-bad-digest-uppercase",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "projection-bad-digest-length",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "projection-extra-field",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\",\"provider\":\"cloudflare\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "projection-wrong-observation",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"223e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "projection-wrong-lease",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":8,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "projection-wrong-source-sequence",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":2,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "projection-wrong-request-digest",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "projection-zero-observation-sequence",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":0,\"disposition\":\"current\"}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "duplicate-top-level-key",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[],\"headServerRevision\":0}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "duplicate-nested-mutation-key",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":true,\"page\":{\"schemaVersion\":2,\"workspaceId\":\"workspace-a\",\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"mutations\":[{\"schemaVersion\":2,\"schemaVersion\":2,\"mutationId\":\"mutation-5\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"entityType\":\"domain_asset\",\"entityId\":\"example.com\",\"operationKind\":\"upsert\",\"baseServerRevision\":4,\"changedFields\":[{\"fieldPath\":\"tags\",\"value\":[\"brandable\",\"premium\"]}],\"sourceDeviceId\":\"device-a\",\"activeLeaseEpoch\":2,\"deviceMutationSequence\":9,\"serverRevision\":5}],\"returnedThroughServerRevision\":5,\"nextCursor\":null,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"},\"confirmedThrough\":4,\"pendingDelivery\":{\"generation\":1,\"fromServerRevisionExclusive\":4,\"throughServerRevisionInclusive\":5,\"targetServerRevision\":5,\"pageDigest\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"nextCursorDigest\":null,\"predecessorConfirmationDigest\":null,\"expiresAt\":\"2026-09-16T00:01:00Z\"},\"confirmToken\":\"confirm_1\"}",
+      "schemaAccepted": true
+    },
+    {
+      "name": "malformed-json",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":"
+    },
+    {
+      "name": "trailing-json",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":null}{}"
+    },
+    {
+      "name": "exponent-number",
+      "kind": "projection-response",
+      "wire": "{\"schemaVersion\":1,\"accepted\":true,\"observationId\":\"123e4567-e89b-42d3-a456-426614174000\",\"leaseEpoch\":7e0,\"sourceSequence\":1,\"canonicalRequestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"observationSequence\":1,\"disposition\":\"current\"}",
+      "schemaAccepted": true
+    }
+  ]
+}

@@ -128,5 +128,6 @@ Provider Observation 使用以下固定词汇：
 7. SQL、Repository、协议、测试向量、示例和当前态文档是否同步使用新名称？
 8. 是否已通过旧名称残留扫描、schema manifest、Migration checksum 和协议摘要测试？
 
-设计开发阶段应直接更新集中 schema 和对应固定 checksum。首次生产发布后，不得重写已发布
-Migration，只能追加由拥有模块维护的迁移。
+尚未被任何持久环境应用的设计快照应直接更新集中 schema 和对应固定 checksum。Migration 一旦被
+保留数据的本机、共享开发、预发布或生产环境应用，就不得再重写，只能追加由拥有模块维护的
+前向迁移。

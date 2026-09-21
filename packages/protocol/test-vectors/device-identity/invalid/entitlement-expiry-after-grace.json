@@ -22,7 +22,7 @@
     "activeDeviceLimit": 1,
     "standbyCloudRead": true,
     "featureEntitlements": ["subscription_features"],
-    "allMajorVersions": false
+    "versionEntitlement": { "kind": "subscription_supported" }
   },
   "signature": "RmFrZVNpZ25hdHVyZQ"
 }

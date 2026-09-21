@@ -4,6 +4,7 @@ export const shellRouteIds = [
   "portfolio.list",
   "portfolio.detail",
   "dns.health",
+  "sync.conflicts",
   "settings",
 ] as const;
 
@@ -32,11 +33,13 @@ export function createDefaultShellRoutes(
   const shellCopy = getPresentationCopy(locale, "shell");
   const assetCopy = getPresentationCopy(locale, "assetLibrary");
   const settingsCopy = getPresentationCopy(locale, "settings");
+  const conflictCopy = getPresentationCopy(locale, "conflictCenter");
   const eligible = new Set(eligibleRouteIds);
 
   const routes = [
     { id: "portfolio.list", label: shellCopy.assetLibrary, icon: "globe" },
     { id: "dns.health", label: assetCopy.dnsRecords, icon: "shield" },
+    { id: "sync.conflicts", label: conflictCopy.title, icon: "shield" },
     { id: "settings", label: settingsCopy.connections, icon: "settings" },
   ] as const satisfies readonly ShellRouteDefinition[];
 

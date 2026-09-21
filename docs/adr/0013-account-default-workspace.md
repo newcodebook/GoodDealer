@@ -1,6 +1,6 @@
 # ADR-0013：账户激活时创建个人默认工作区
 
-状态：Accepted product architecture; customer onboarding is not currently composed.
+状态：Accepted and composed for verified Account Web registration in development.
 
 ## 决策
 
@@ -35,5 +35,6 @@ ADR 定义身份、成员、商业归属、迁移和租户授权模型。
 
 ## 当前实现
 
-Cloud 尚未组合客户账户或工作区路由，Desktop 也未连接业务渲染。本 ADR 定义后续实现
-目标，不声明账户创建或工作区访问已经可用。
+Identity registration verification 在同一事务中完成邮箱验证、个人 Workspace、default-owner binding
+和初始 workspace revision，随后签发 Account Web session。该源码纵向已通过本地 PostgreSQL 证据；
+共享 VPS 部署、生产邮件和公开客户注册仍未资格化，Desktop 业务渲染也未因此自动开放。

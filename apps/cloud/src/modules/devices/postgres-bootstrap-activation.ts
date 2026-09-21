@@ -166,10 +166,9 @@ export class PostgresBootstrapActivation {
     const clock = await transaction.query<{ now: Date }>("SELECT transaction_timestamp() AS now");
     const issuedAt = clock.rows[0] === undefined ? undefined : canonicalSecond(clock.rows[0].now);
     if (issuedAt === undefined) refuse();
-    const onlineExpiresAt = minimumTimestamp([addSeconds(issuedAt, 900), entitlement.securityDeadline,
-      entitlement.entitlementDeadline]);
+    const onlineExpiresAt = minimumTimestamp([addSeconds(issuedAt, 900), entitlement.entitlementDeadline]);
     const offlineExecuteUntil = minimumTimestamp([addSeconds(issuedAt, 86_400),
-      entitlement.securityDeadline, entitlement.entitlementDeadline]);
+      entitlement.entitlementDeadline]);
     const claims = {
       schemaVersion: 1 as const,
       typ: "gd.active-device-lease.v1" as const,
@@ -206,11 +205,12 @@ export class PostgresBootstrapActivation {
     await transaction.query(
       `INSERT INTO device_active_leases
          (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
-          offline_execute_until, signed_envelope)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [transaction.scope.accountId, pendingEpoch, envelope.deviceId, envelope.jti, envelope.issuedAt,
         envelope.payload.renewAfter, envelope.payload.onlineExpiresAt,
-        envelope.payload.offlineExecuteUntil, canonicalEnvelope],
+        envelope.payload.offlineExecuteUntil, canonicalEnvelope, JSON.stringify(envelope),
+        createHash("sha256").update(signed.receipt).digest()],
     );
     this.dependencies.fault?.("after_lease_insert");
     await transaction.query(

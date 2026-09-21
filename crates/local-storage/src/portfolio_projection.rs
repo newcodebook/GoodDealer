@@ -5,16 +5,20 @@ use serde::{Deserialize, Serialize};
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[expect(
+#[allow(
     clippy::enum_variant_names,
     reason = "the Rejected suffix keeps every fail-closed boundary code explicit at call sites"
 )]
 pub enum PortfolioReadError {
     StorageRejected,
     SchemaRejected,
+    CredentialSchemaRebuildRequired,
     WorkspaceRejected,
     ProjectionRejected,
     RevisionRejected,
+    AssetNotFound,
+    QueryRejected,
+    WindowRejected,
 }
 
 impl PortfolioReadError {
@@ -22,11 +26,95 @@ impl PortfolioReadError {
         match self {
             Self::StorageRejected => "LOCAL_STORAGE_REJECTED",
             Self::SchemaRejected => "LOCAL_SCHEMA_REJECTED",
+            Self::CredentialSchemaRebuildRequired => "RebuildRequired(P0_07_CREDENTIAL_SCHEMA)",
             Self::WorkspaceRejected => "LOCAL_WORKSPACE_REJECTED",
             Self::ProjectionRejected => "LOCAL_PROJECTION_REJECTED",
             Self::RevisionRejected => "LOCAL_REVISION_REJECTED",
+            Self::AssetNotFound => "LOCAL_ASSET_NOT_FOUND",
+            Self::QueryRejected => "LOCAL_QUERY_REJECTED",
+            Self::WindowRejected => "LOCAL_WINDOW_REJECTED",
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortfolioReadFreshness {
+    pub source: String,
+    pub read_only_reason: Option<String>,
+    pub server_revision: u64,
+    pub last_replication_activity_at: Option<String>,
+    pub last_successful_provider_observation_at: Option<String>,
+    pub can_edit: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetLibraryRow {
+    pub id: String,
+    pub domain: String,
+    pub tags: Vec<String>,
+    pub registrar: Option<String>,
+    pub lifecycle_status: String,
+    pub sync_status: String,
+    pub target_price: Option<Money>,
+    pub expires_on: Option<String>,
+    pub asset_version: u64,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetLibraryWindow {
+    pub start_index: u32,
+    pub size: u16,
+    pub rows: Vec<AssetLibraryRow>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetLibraryReadSnapshot {
+    pub schema_version: u8,
+    pub kind: String,
+    pub read_generation: u64,
+    pub freshness: PortfolioReadFreshness,
+    pub total_rows: u32,
+    pub total_value: Option<Money>,
+    pub expiring_within60_days: u32,
+    pub conflict_count: u32,
+    pub listing_count: u32,
+    pub window: AssetLibraryWindow,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainDetailAsset {
+    pub id: String,
+    pub domain: String,
+    pub tags: Vec<String>,
+    pub registrar: Option<String>,
+    pub lifecycle_status: String,
+    pub sync_status: String,
+    pub target_price: Option<Money>,
+    pub expires_on: Option<String>,
+    pub acquired_on: Option<String>,
+    pub acquisition_cost: Option<Money>,
+    pub auto_renew: Option<bool>,
+    pub registrar_lock: Option<bool>,
+    pub note: Option<String>,
+    pub asset_version: u64,
+    pub portfolio_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainDetailReadSnapshot {
+    pub schema_version: u8,
+    pub kind: String,
+    pub read_generation: u64,
+    pub freshness: PortfolioReadFreshness,
+    pub state: String,
+    pub asset: DomainDetailAsset,
+    pub conflict_fields: Vec<String>,
 }
 
 impl Display for PortfolioReadError {
@@ -60,6 +148,7 @@ pub struct DomainAssetProjectionRow {
     pub target_price: Option<Money>,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PortfolioReadSnapshot {
@@ -122,7 +211,7 @@ pub(crate) fn validate_identifier(value: &str) -> Result<(), PortfolioReadError>
     Ok(())
 }
 
-fn validate_domain_asset_id(value: &str) -> Result<(), PortfolioReadError> {
+pub(crate) fn validate_domain_asset_id(value: &str) -> Result<(), PortfolioReadError> {
     if value.len() > 253 || value.len() < 3 || value != value.to_ascii_lowercase() {
         return Err(PortfolioReadError::ProjectionRejected);
     }
@@ -193,16 +282,16 @@ pub(crate) fn validate_timestamp(
     Ok(Some(value))
 }
 
-fn is_forbidden_text_character(character: char) -> bool {
+pub(crate) fn is_forbidden_text_character(character: char) -> bool {
     character.is_control()
         || matches!(character as u32, 0x00ad | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff | 0xfff9..=0xfffb)
 }
 
-fn valid_currency(value: &str) -> bool {
+pub(crate) fn valid_currency(value: &str) -> bool {
     value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 
-fn valid_amount(value: &str) -> bool {
+pub(crate) fn valid_amount(value: &str) -> bool {
     let (whole, fractional) = value
         .split_once('.')
         .map_or((value, None), |(whole, part)| (whole, Some(part)));

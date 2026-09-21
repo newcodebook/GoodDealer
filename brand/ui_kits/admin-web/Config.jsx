@@ -1,5 +1,5 @@
 // 系统配置 Config — feature flags (grouped, toggle + rollout), global defaults, maintenance, environment.
-const {Panel:CoPanel,Badge:CoBadge,Button:CoBtn,Switch:CoSwitch,Select:CoSel,Input:CoInput,Dialog:CoDlg}=window.GoodDealerDesignSystem_b5b0b6;
+const {Panel:CoPanel,Badge:CoBadge,Button:CoBtn,Switch:CoSwitch}=window.GoodDealerDesignSystem_b5b0b6;
 
 function FlagRow({f,onToggle}){
   return <div style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderBottom:"1px solid var(--gd-line)"}}>
@@ -29,11 +29,12 @@ function Config(){
       </CoPanel>)}
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
-      <CoPanel title="全局默认" actions={<CoBtn size="sm" variant="primary">保存</CoBtn>}>
+      <CoPanel title="商业政策" actions={<CoBadge tone="neutral" mono={false}>固定</CoBadge>}>
         <div style={{display:"flex",flexDirection:"column"}}>
-          {[["默认试用时长",<CoSel size="sm" options={["7 天","14 天","30 天"]} value="14 天" onChange={()=>{}}/>],["默认同步间隔",<CoSel size="sm" options={["实时","每 5 分钟","每 15 分钟"]} value="每 5 分钟" onChange={()=>{}}/>],["新客户默认方案",<CoSel size="sm" options={["Starter","Professional"]} value="Professional" onChange={()=>{}}/>],["设备额度上限",<CoInput size="sm" mono value="2" onChange={()=>{}} style={{width:70}}/>]].map(([k,ctrl],i)=>
+          {[["功能档位",<span style={{fontSize:12,color:"var(--text-1)"}}>单一档位</span>],["可售期限",<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--text-1)",textAlign:"right"}}>月付 $9.80 · 年付 $98<br/>10 年固定期 $498</span>],["首次购买退款窗口",<span style={{fontSize:12,color:"var(--text-1)"}}>14 天全额退款 · 续费不重置</span>],["设备额度上限",<span style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--text-1)"}}>2</span>]].map(([k,ctrl],i)=>
             <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--gd-line)"}}><span style={{flex:1,fontSize:12.5,color:"var(--text-2)"}}>{k}</span>{ctrl}</div>)}
         </div>
+        <div style={{fontSize:11,color:"var(--text-3)",lineHeight:1.6,marginTop:10}}>不提供免费试用；10 年固定期不会自动续费，也不代表永久许可。价格与退款政策只能通过已接受的商业决策变更。</div>
       </CoPanel>
       <CoPanel title="维护模式">
         <div style={{display:"flex",alignItems:"flex-start",gap:12}}>

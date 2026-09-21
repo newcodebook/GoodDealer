@@ -316,7 +316,7 @@ describe("S1 server-audit strict corpus", () => {
         ...user,
         payloadRedacted: {
           ...user.payloadRedacted,
-          password: "audit-secret-canary",
+          password: "non-secret-fixture-value-1",
         },
       }).success,
     ).toBe(false);

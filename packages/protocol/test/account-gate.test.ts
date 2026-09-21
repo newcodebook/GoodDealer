@@ -17,28 +17,29 @@ function vector(path: string): unknown {
 }
 
 const validCases = [
-  ["entitlement-projection-lifetime.json", entitlementProjectionSchema],
+  ["entitlement-projection-fixed-term.json", entitlementProjectionSchema],
   ["entitlement-projection-subscription-active.json", entitlementProjectionSchema],
   ["entitlement-projection-subscription-grace.json", entitlementProjectionSchema],
-  ["gate-active-eligible.json", accountGateStatusSchema],
-  ["gate-standby-eligible.json", accountGateStatusSchema],
-  ["gate-locked.json", accountGateStatusSchema],
+  ["gate-active.json", accountGateStatusSchema],
+  ["gate-standby-read-only.json", accountGateStatusSchema],
+  ["gate-commercial-read-only.json", accountGateStatusSchema],
+  ["gate-security-locked.json", accountGateStatusSchema],
   ["rejection-rate-limited.json", accountRejectionSchema],
   ["rejection-device-removed.json", accountRejectionSchema],
 ] as const;
 
 const invalidCases = [
-  ["entitlement-projection-lifetime-with-expiry.json", entitlementProjectionSchema],
-  ["entitlement-projection-subscription-all-major-versions.json", entitlementProjectionSchema],
+  ["entitlement-projection-fixed-term-without-expiry.json", entitlementProjectionSchema],
+  ["entitlement-projection-unsupported-version-kind.json", entitlementProjectionSchema],
   ["entitlement-projection-expiry-after-grace.json", entitlementProjectionSchema],
   ["entitlement-projection-refresh-after-grace.json", entitlementProjectionSchema],
   ["entitlement-projection-unsorted-features.json", entitlementProjectionSchema],
   ["entitlement-projection-with-payment-watermark.json", entitlementProjectionSchema],
   ["gate-active-with-failed-check.json", accountGateStatusSchema],
   ["gate-standby-with-active-lease-pass.json", accountGateStatusSchema],
-  ["gate-locked-without-reason.json", accountGateStatusSchema],
-  ["gate-reason-without-locked.json", accountGateStatusSchema],
-  ["gate-locked-all-checks-pass.json", accountGateStatusSchema],
+  ["gate-security-locked-without-reason.json", accountGateStatusSchema],
+  ["gate-reason-with-active.json", accountGateStatusSchema],
+  ["gate-security-locked-all-checks-pass.json", accountGateStatusSchema],
   ["rejection-retry-after-on-non-rate-limited.json", accountRejectionSchema],
   ["rejection-non-retryable-marked-retryable.json", accountRejectionSchema],
   ["rejection-with-message-field.json", accountRejectionSchema],
@@ -57,12 +58,12 @@ describe("account entitlement, gate, and rejection contracts", () => {
     });
   }
 
-  it("does not over-constrain a lifetime grace projection (INV-16)", () => {
-    const lifetime = vector("valid/entitlement-projection-lifetime.json");
-    expect(entitlementProjectionSchema.safeParse({ ...(lifetime as object), state: "grace" }).success).toBe(true);
+  it("does not over-constrain a fixed-term grace projection (INV-16)", () => {
+    const fixedTerm = vector("valid/entitlement-projection-fixed-term.json");
+    expect(entitlementProjectionSchema.safeParse({ ...(fixedTerm as object), state: "grace" }).success).toBe(true);
   });
 
-  it("freezes all 20 account rejection codes", () => {
-    expect(accountRejectionCodeSchema.options).toHaveLength(20);
+  it("freezes all 23 account rejection codes", () => {
+    expect(accountRejectionCodeSchema.options).toHaveLength(23);
   });
 });

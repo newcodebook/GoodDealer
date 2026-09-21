@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { appRouteIds, type AppRoute } from "./app-route";
+import { appRouteIds, parseAppRoute, type AppRoute } from "./app-route";
 import {
   desktopSurfaceKinds,
   parseDesktopSurface,
@@ -47,7 +47,7 @@ describe("desktop route registry", () => {
       availableRouteIds: ["portfolio.list", "portfolio.detail", "settings"],
       defaultRouteId: "portfolio.list",
     };
-    const detail: AppRoute = { id: "portfolio.detail", domainId: "domain-1" };
+    const detail: AppRoute = { id: "portfolio.detail", domainId: "example.test" };
 
     expect(resolveAppRoute(surface, detail)).toEqual(detail);
     expect(resolveAppRoute(surface, { id: "dns.health" })).toEqual({
@@ -94,7 +94,7 @@ describe("desktop route registry", () => {
     for (const routeId of appRouteIds) {
       const requestedRoute: AppRoute =
         routeId === "portfolio.detail"
-          ? { id: routeId, domainId: "domain-1" }
+          ? { id: routeId, domainId: "example.test" }
           : { id: routeId };
       expect(
         isAppRouteReachable(localContinuationSurface, routeId),
@@ -124,6 +124,13 @@ describe("desktop route registry", () => {
       availableRouteIds: [],
       defaultRouteId: "portfolio.list",
     })).toBeNull();
+  });
+
+  it("admits only canonical lowercase DNS detail identities", () => {
+    expect(parseAppRoute({ id: "portfolio.detail", domainId: "example.test" })).toEqual({ id: "portfolio.detail", domainId: "example.test" });
+    expect(parseAppRoute({ id: "portfolio.detail", domainId: "EXAMPLE.TEST" })).toBeNull();
+    expect(parseAppRoute({ id: "portfolio.detail", domainId: "example.test/path" })).toBeNull();
+    expect(parseAppRoute({ id: "portfolio.detail", domainId: "example.test", workspaceId: "attacker" })).toBeNull();
   });
 
 });

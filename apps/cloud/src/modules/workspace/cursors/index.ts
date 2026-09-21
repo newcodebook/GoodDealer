@@ -135,7 +135,6 @@ export class InMemoryReaderCursors {
     this.#workspaceCursors(scope).set(deviceId, cursor);
     return accept(cursor);
   }
-
   async readAfter(
     scope: WorkspaceTenantScope,
     deviceId: string,

@@ -43,7 +43,7 @@ import {
   BootstrapCapabilityVerifier,
   DenyingBootstrapVerificationKeySource,
 } from "./bootstrap-capability-verifier";
-import { DenyingActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
+import type { ActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
 
 export { BootstrapFixtureService } from "./bootstrap-fixture";
 export { PostgresMutationAuthority } from "./postgres-mutation-authority";
@@ -58,6 +58,24 @@ export type {
   BootstrapWorkflowOptions,
   BootstrapWorkflowResult,
 } from "./bootstrap-workflow";
+export {
+  DenyingActiveDeviceLeaseVerifier,
+  TrustedActiveDeviceLeaseVerifier,
+} from "./active-device-lease-verifier";
+export type {
+  ActiveDeviceLeaseVerifier,
+  TrustedActiveDeviceLeaseVerificationKey,
+} from "./active-device-lease-verifier";
+export {
+  DESKTOP_AUTHORIZATION_GRANT_KEY_PURPOSE,
+  DenyingDesktopAuthorizationGrantSigner,
+  DesktopAuthorizationGrantIssuer,
+} from "./authorization-grant-issuer";
+export type {
+  DesktopAuthorizationGrantIssueResult,
+  DesktopAuthorizationGrantSigner,
+} from "./authorization-grant-issuer";
+
 export {
   ActiveDeviceLeaseLifecycle,
   LEASE_OFFLINE_CEILING_SECONDS,
@@ -83,15 +101,30 @@ export {
   DEVICE_DRAIN_LOCK_ORDER,
   PostgresDeviceDrainTransition,
 } from "./postgres-drain-transition";
+export { PostgresDesktopAuthorizationApplicationService } from "./postgres-desktop-authorization";
+export { PostgresDesktopLoginLease } from "./postgres-desktop-login-lease";
+export type {
+  DesktopLoginLeaseEntitlementPort,
+  DesktopLoginLeasePort,
+  DesktopOAuthLeasePort,
+} from "./postgres-desktop-login-lease";
+export type { ActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
+export { PostgresDeviceLoginEligibility } from "./postgres-device-login-eligibility";
+export {
+  DESKTOP_DEVICE_LOGIN_CHALLENGE_TTL_SECONDS,
+  DESKTOP_DEVICE_PROOF_DOMAIN,
+  PostgresDeviceLoginProof,
+  desktopDeviceProofTranscript,
+} from "./postgres-device-login-proof";
 
 /**
- * Production Bootstrap cryptography has deliberately no key/signer arguments. Until the
- * corresponding Gates close, both authority sources are concrete Denying implementations.
+ * Production Bootstrap verification remains closed until its device trust-root source is
+ * composed. Lease signing is explicit so a qualified purpose-specific signer can be injected.
  */
-export function createProductionBootstrapCryptoBoundary() {
+export function createProductionBootstrapCryptoBoundary(leaseSigner: ActiveDeviceLeaseSigner) {
   return Object.freeze({
     verifier: new BootstrapCapabilityVerifier(new DenyingBootstrapVerificationKeySource()),
-    leaseSigner: new DenyingActiveDeviceLeaseSigner(),
+    leaseSigner,
   });
 }
 export type {

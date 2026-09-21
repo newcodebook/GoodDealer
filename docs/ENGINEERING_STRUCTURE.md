@@ -24,7 +24,7 @@
 apps/
   desktop/        Tauri 壳、Desktop 展示入口和最小应用组合
   cloud/          Cloud 领域、持久化、公开/内部边界及作业组合
-  account-web/    future: 独立账户与合规网页边界
+  account-web/    独立账户与合规网页边界；开发部署含真实 Stripe test-mode 付款 UI
   admin-web/      future: 独立内部管理展示边界
   marketing-web/  静态营销站点
 packages/
@@ -85,13 +85,23 @@ v1 只有账户激活/个人默认工作区、资产只读投影和 Cloudflare A
 ## Current source state：Desktop 与 Cloudflare 组合边界
 
 当前源码不支持产品 readiness 声明。首切片共享 schema、operation id 和 `cloud-client` 消费面已冻结。
-Cloud 的 production `publicBusinessRoutes` 精确注册一条 `POST /v1/account/activation`；它只接受
-`account_web` 认证主体、从主体派生 Account 范围、用 protocol public schema 严格解析无租户选择器的
-请求，并复核个人默认工作区绑定。public OpenAPI 因此精确包含两条 boundary route 和这一条业务 route；
-`adminBusinessRoutes` 与 `periodicJobs` 仍为空。`apps/desktop` 通过三个具名 Tauri 命令读取和写入
-Host-owned 本地业务库；未授权时保持锁定，数据库身份和 OS keychain/CSPRNG/零化 key material 由
-`secure-host-core` 持有，Desktop Host 只新增到该 trust domain 的内部依赖。Cloud 中央目录按字面顺序注册 M001–M014：M002 直接建立
-`workspace_replica_*` 脱敏读取与恢复副本 schema。连接键控的 Cloudflare Observation 设计仍
+Cloud 的 production `publicBusinessRoutes` 精确注册账号激活、Desktop Grant，以及 billing
+checkout/status/cancel/fixed-term confirm 六条业务 route。账号激活只接受 `account_web` 认证主体、从主体派生 Account
+范围并复核个人默认工作区绑定；后者只接受 Desktop 主体，且在设备-session 绑定和生产签名
+custody 未组合前明确拒绝。六条业务 route 都用 protocol public schema 严格解析无客户端租户选择器的请求，
+并按各自客户端类型与主体派生范围授权。
+public OpenAPI 因此精确包含两条 boundary route，以及账号激活、Desktop Grant、billing
+checkout/status/cancel/fixed-term confirm 六条业务 route；
+`adminBusinessRoutes` 仍为空；`periodicJobs` 只包含 Licensing 拥有的 durable provider inbox 与
+exact-resource reconciliation。`apps/desktop` 通过三个具名 Tauri 命令读取和写入
+Host-owned 本地业务库；未授权时保持锁定，数据库身份和 OS keychain/CSPRNG/零化 SQLCipher key
+material 由 `gooddealer-local-storage` 的 `DesktopLocalHost` 持有，OAuth/device/Cloudflare 等非存储
+capability 由 `secure-host-core` 持有。Cloud 中央目录按字面
+顺序注册 M001–M017、M019 后接 M020：M002 建立 `workspace_replica_*` 脱敏读取与恢复副本 schema，M015
+是规范化商业领域的 greenfield baseline，M016 增加 Identity refresh recovery，M017 增加 Devices
+登录授权加固，M019 建立 PID/XID/nonce/purpose/session 绑定的一次性 Identity transaction capability，
+M020 建立 Account access challenge 和加密邮件 outbox；
+不存在 M018 compatibility migration。连接键控的 Cloudflare Observation 设计仍
 不存在，当前 Cloud schema 不保存任何 Provider 连接身份。
 
 `secure-host-core` 已实现私有 Cloudflare Zone/DNS 只读 Service、Credential Fence、固定来源的
@@ -116,7 +126,7 @@ fixture 或被排除 connector 路径。
 
 | 需要继续本地实现的条件 | 只限制外部声明的条件 |
 | --- | --- |
-| 已接受的 ADR 范围、唯一拥有模块、严格合同、`unknown` 验证、服务器端授权/范围、领域持久化和对应负向测试。 | 托管 PostgreSQL/部署、KMS/HSM 生产 custody、真实 Cloudflare Token/Zone、原生签名/公证、归档、独立审查、发行和 Gate。 |
+| 已接受的 ADR 范围、唯一拥有模块、严格合同、`unknown` 验证、服务器端授权/范围、领域持久化和对应负向测试。 | 托管 PostgreSQL/部署、生产 OpenBao 集群/key/workload identity、真实 Cloudflare Token/Zone、原生签名/公证、归档、独立审查、发行和 Gate。 |
 | 已命名的共享面整合负责人，以及本地 UI→Host→Cloud API→persistence 验收。 | 这些资格只能授权它们观察到的真实环境、提供商、构件或发行事实。 |
 
 因此，外部资格不能阻止已冻结、已授权范围内的 Desktop 和 Cloud API 本地实现；反过来，本地

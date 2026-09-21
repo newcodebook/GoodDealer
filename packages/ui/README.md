@@ -1,5 +1,26 @@
 # @gooddealer/ui
 
+## Role
+
+Host-independent React presentation system for shared GoodDealer components, tokens, icons, and assets.
+
+## Owns
+
+- Generic accessible UI primitives and their package-root public exports.
+- Production design tokens, icons, assets, and component-level presentation behavior.
+
+## Touchpoints
+
+- Supplies visual primitives to Desktop, Account Web, Marketing Web, and other applications.
+- Receives typed data, copy, and callbacks from owning applications without acquiring business authority.
+- Uses brand material as reference only and keeps gallery fixtures outside production graphs.
+
+## Change Guide
+
+- Add generic primitives under the owning component area and export supported APIs through the package root.
+- Keep routing, network access, Host integration, permissions, and business state in consuming applications.
+- Verify typecheck, component tests, gallery build, and relevant consumer tests after changes.
+
 ## Purpose
 
 This package owns host-independent React components, tokens, icons, and assets for GoodDealer

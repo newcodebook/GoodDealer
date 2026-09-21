@@ -112,7 +112,7 @@ const lockedActionSchema = z.enum([
 const planViewSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("monthly_subscription"), planId: identifier }).strict(),
   z.object({ kind: z.literal("annual_subscription"), planId: identifier }).strict(),
-  z.object({ kind: z.literal("lifetime"), planId: identifier }).strict(),
+  z.object({ kind: z.literal("fixed_term"), planId: identifier }).strict(),
 ]);
 
 const lockedBase = {
@@ -160,13 +160,6 @@ export const lockedAccountSnapshotSchema = z.discriminatedUnion("reason", [
   }
   if (!value.availableActions.includes("quit")) {
     context.addIssue({ code: "custom", path: ["availableActions"], message: "a locked account must remain quit-able" });
-  }
-  if (value.reason === "entitlement_expired" && value.plan.kind === "lifetime") {
-    context.addIssue({
-      code: "custom",
-      path: ["plan"],
-      message: "a lifetime entitlement is not subscription-expired",
-    });
   }
 });
 

@@ -10,16 +10,18 @@ import {
 } from "./route-contract";
 
 describe("DesktopShell route contract", () => {
-  it("closes the shell to the four accepted routes and shows only three rail destinations", () => {
+  it("closes the shell to the five accepted routes and shows four rail destinations", () => {
     expect(shellRouteIds).toEqual([
       "portfolio.list",
       "portfolio.detail",
       "dns.health",
+      "sync.conflicts",
       "settings",
     ]);
     expect(createDefaultShellRoutes("en-US", shellRouteIds).map(({ id }) => id)).toEqual([
       "portfolio.list",
       "dns.health",
+      "sync.conflicts",
       "settings",
     ]);
   });

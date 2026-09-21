@@ -85,7 +85,7 @@ describe("workspace sync golden corpus", () => {
     const digest = createHash("sha256")
       .update(encodeMutationPageDigestInput(vector("valid/mutation-page.json")))
       .digest("base64url");
-    expect(digest).toMatchInlineSnapshot(`"wc41T-gboDM2AV9_dx8CTNi23X6NDS0cHUn1iWvc1vE"`);
+    expect(digest).toMatchInlineSnapshot(`"2JOxdJKimw9paT7l6cWKmZM187FqR5Qcg-OlhEC6KBM"`);
   });
 
   it("orders canonical domain asset identities by UTF-8 bytes", () => {

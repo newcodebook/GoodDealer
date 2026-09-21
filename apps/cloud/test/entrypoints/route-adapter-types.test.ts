@@ -29,18 +29,25 @@ describe("nominal route surfaces and structural fallbacks", () => {
     expect(adminBoundaryRoutes).toHaveLength(2);
   });
 
-  it("registers only the account activation public business route", () => {
+  it("registers account activation, Desktop authorization, and commercial account routes", () => {
     const publicBusinessRoutes = createPublicBusinessRoutes(denyingPublicApplicationPorts);
     expectTypeOf(adminBusinessRoutes).toEqualTypeOf<readonly []>();
     expect(publicBusinessRoutes.map(({ method, path }) => ({ method, path }))).toEqual([
       { method: "POST", path: "/v1/account/activation" },
+      { method: "POST", path: "/v1/devices/authorization-grant" },
+      { method: "POST", path: "/v1/account/billing/checkout" },
+      { method: "GET", path: "/v1/account/billing/status" },
+      { method: "POST", path: "/v1/account/billing/subscription/cancel" },
+      { method: "POST", path: "/v1/account/billing/fixed-term/confirm" },
+      { method: "POST", path: "/v1/account/billing/first-purchase-refund" },
+      { method: "POST", path: "/v1/account/billing/first-purchase-refund/status" },
     ]);
     expect(adminBusinessRoutes).toEqual([]);
   });
 
-  it("keeps schedulePeriodic unable to express success", () => {
+  it("allows the explicit commercial worker registry to report scheduler acceptance", () => {
     type ScheduleResult = Awaited<ReturnType<JobSchedulerPort["schedulePeriodic"]>>;
     type Success = Extract<ScheduleResult, { scheduled: true }>;
-    expectTypeOf<Success>().toEqualTypeOf<never>();
+    expectTypeOf<Success>().toEqualTypeOf<{ readonly scheduled: true }>();
   });
 });

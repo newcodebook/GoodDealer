@@ -1,5 +1,26 @@
 # @gooddealer/marketing-web
 
+## Role
+
+Static public marketing site for presentation-only GoodDealer product and locale content.
+
+## Owns
+
+- Astro static-site composition and typed marketing locale content.
+- Presentation-only navigation and calls-to-action whose destinations remain externally qualified.
+
+## Touchpoints
+
+- Imports supported tokens and assets through `../../packages/ui` exports.
+- Uses repository release and verification evidence without owning deployment authority.
+- Hands off account, payment, installer, and product actions only to approved external destinations.
+
+## Change Guide
+
+- Change static pages and locale content inside this application; keep business and account state out.
+- Treat brand material as design reference and shared UI as the production presentation boundary.
+- Verify package typecheck, static build, and marketing workflow policy checks after changes.
+
 ## Purpose
 
 The marketing web package owns a static Astro site and its presentation-only locale content. It is

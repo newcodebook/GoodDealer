@@ -15,7 +15,7 @@ const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const checkpoint: CheckpointDescriptor = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-a",
   workspaceSchemaVersion: 1,
@@ -25,12 +25,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number, deviceMutationSequence: number): SyncMutation {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-a",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
     sourceDeviceId: "device-a",

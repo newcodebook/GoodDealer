@@ -1,4 +1,4 @@
-// 运营概览 Dashboard — MRR trend, plan mix, recent transactions, attention feed, fleet health.
+// 运营概览 Dashboard — MRR trend, billing-term mix, recent transactions, attention feed, fleet health.
 const {Panel:DPanel,Badge:DBadge,Button:DBtn,Money:DMoney,StatusDot:DDot}=window.GoodDealerDesignSystem_b5b0b6;
 
 function Bars({series}){
@@ -23,12 +23,12 @@ function AttnRow({icon,tone,text,meta,cta,onGo}){
 
 function AdminDashboard({go}){
   const D=window.GD_ADMIN;const I=window.GDI;const K=D.kpis;const MetricStrip=window.GDMetricStrip;
-  const totalMrr=D.planMix.reduce((s,p)=>s+p.mrr,0);
+  const totalMrr=D.termMix.reduce((s,p)=>s+p.mrr,0);
   const fleetStates=[["active","Active",1842,"gold"],["standby","Standby",1903,"blue"],["activating","激活中",41,"blue"],["draining","排空中",18,"warning"],["sunset","Sunset 保留",302,"neutral"]];
   return <div data-screen-label="运营概览" style={{display:"flex",flexDirection:"column",minHeight:0}}>
     <MetricStrip metrics={[
-      {label:"活跃客户",value:K.activeCustomers.toLocaleString(),meta:"试用 "+K.trials+" · 流失率 "+K.churnRate+"%"},
-      {label:"月经常性收入 MRR",value:"$48,210",tone:"gold",meta:"ARR $578,520 · 环比 +0.6%"},
+      {label:"活跃客户",value:K.activeCustomers.toLocaleString(),meta:"首次购买退款期内 "+K.refundEligible+" · 流失率 "+K.churnRate+"%"},
+      {label:"月经常性收入 MRR",value:"$19,927",tone:"gold",meta:"ARR $239,124 · 固定期收入另计"},
       {label:"在线设备",value:K.devicesOnline.toLocaleString(),meta:"绑定 "+K.devicesBound.toLocaleString()+" · 单活动"},
       {label:"同步健康",value:K.syncHealth+"%",tone:"success",meta:"队列 128 · p95 42ms"},
       {label:"待处理工单",value:K.openTickets,tone:"warning",meta:"2 高优先级",onClick:()=>go("support")},
@@ -37,13 +37,13 @@ function AdminDashboard({go}){
     <div style={{padding:18,display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,alignItems:"start"}}>
         <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
-          <DPanel title="月经常性收入 · 近 12 个月" actions={<><span style={{fontFamily:"var(--font-mono)",fontSize:15,color:"var(--gd-gold)"}}>$48.2k</span><span style={{fontSize:11,color:"var(--gd-success)",marginLeft:8}}>+26% YoY</span></>}>
+          <DPanel title="月经常性收入 · 近 12 个月" actions={<><span style={{fontFamily:"var(--font-mono)",fontSize:15,color:"var(--gd-gold)"}}>${(totalMrr/1000).toFixed(1)}k</span><span style={{fontSize:11,color:"var(--text-3)",marginLeft:8}}>不含 10 年固定期</span></>}>
             <Bars series={D.revenueSeries}/>
             <div style={{display:"flex",gap:18,marginTop:14,paddingTop:12,borderTop:"1px solid var(--gd-line)"}}>
-              {D.planMix.map(p=><div key={p.plan} style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
-                <span style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--text-2)"}}><span style={{width:8,height:8,borderRadius:2,background:p.color,flex:"none"}}></span>{p.plan}</span>
+              {D.termMix.map(p=><div key={p.term} style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
+                <span style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--text-2)"}}><span style={{width:8,height:8,borderRadius:2,background:p.color,flex:"none"}}></span>{p.term}</span>
                 <span style={{fontFamily:"var(--font-mono)",fontSize:14,color:"var(--text-1)"}}>{p.count.toLocaleString()}</span>
-                <span style={{fontSize:11,color:"var(--text-3)",fontFamily:"var(--font-mono)"}}>${(p.mrr/1000).toFixed(1)}k MRR</span>
+                <span style={{fontSize:11,color:"var(--text-3)",fontFamily:"var(--font-mono)"}}>{p.mrr?"$"+(p.mrr/1000).toFixed(1)+"k MRR":"固定期收入"}</span>
               </div>)}
             </div>
           </DPanel>
@@ -64,7 +64,7 @@ function AdminDashboard({go}){
             <AttnRow icon="CreditCard" tone="danger" text="2 笔扣款失败" meta="Sana Qureshi · Halcyon Group · past_due" cta="处理" onGo={()=>go("revenue")}/>
             <AttnRow icon="LifeBuoy" tone="warning" text="2 个高优先级工单" meta="设备门禁 · 批量改价未生效" cta="收件箱" onGo={()=>go("support")}/>
             <AttnRow icon="Cpu" tone="warning" text="1 台设备激活滞留" meta="Sana Qureshi · D-9111 · 排空 2 天" cta="舰队" onGo={()=>go("fleet")}/>
-            <AttnRow icon="Users" tone="neutral" text="186 个试用将在 14 天内到期" meta="转化提醒" cta="客户" onGo={()=>go("customers")}/>
+            <AttnRow icon="Users" tone="neutral" text="92 笔首次购买仍在退款期内" meta="14 天全额退款窗口 · 续费不重置" cta="客户" onGo={()=>go("customers")}/>
           </div>
         </DPanel>
       </div>

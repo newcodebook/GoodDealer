@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="referrer" content="no-referrer">
+    <title>GoodDealer Account</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="GoodDealer Account">
+        <span class="brand-mark">GD</span>
+        <span>GoodDealer</span>
+      </a>
+      <span class="environment">DEVELOPMENT · STRIPE TEST MODE</span>
+    </header>
+    <main>
+      <section id="access-panel" class="access-panel" aria-labelledby="access-title">
+        <p class="eyebrow">ACCOUNT ACCESS</p>
+        <h1 id="access-title">进入 GoodDealer</h1>
+        <p class="lede">登录或创建账户。密码只发送到 GoodDealer Identity；支付资料仍由 Stripe 托管。</p>
+        <div class="access-tabs" role="tablist" aria-label="账户操作">
+          <button id="login-tab" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="access-form">登录</button>
+          <button id="register-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="access-form">注册</button>
+        </div>
+        <form id="access-form" class="access-form" role="tabpanel" aria-labelledby="login-tab">
+          <label for="email">邮箱</label>
+          <input id="email" name="email" type="email" autocomplete="email" maxlength="320" required>
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="1024" required>
+          <button id="access-submit" type="submit">登录</button>
+        </form>
+        <form id="verify-form" class="access-form" aria-labelledby="register-tab" hidden>
+          <label for="verification-code">邮箱验证码</label>
+          <input id="verification-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <button type="submit">验证并登录</button>
+        </form>
+        <section class="notice" id="access-notice" hidden aria-live="polite"></section>
+      </section>
+
+      <div id="billing-panel" hidden>
+      <section class="hero">
+        <p class="eyebrow">ACCOUNT / BILLING</p>
+        <h1>选择你的授权期限</h1>
+        <p class="lede">三种期限，同一套完整能力。付款资料始终由支付 Provider 托管，GoodDealer 不接触卡号或安全码。</p>
+        <div id="session-state" class="session-state" role="status">正在读取账户状态…</div>
+      </section>
+
+      <section class="plans" aria-label="GoodDealer plans">
+        <article class="plan">
+          <div><p class="plan-kicker">灵活开始</p><h2>月付</h2></div>
+          <p class="price"><span>$</span>9.80 <small>/ 月</small></p>
+          <button data-checkout="monthly" disabled>通过 Stripe 订阅</button>
+        </article>
+        <article class="plan featured">
+          <span class="ribbon">节省两个月</span>
+          <div><p class="plan-kicker">推荐</p><h2>年付</h2></div>
+          <p class="price"><span>$</span>98 <small>/ 年</small></p>
+          <button data-checkout="annual" disabled>通过 Stripe 订阅</button>
+        </article>
+        <article class="plan">
+          <div><p class="plan-kicker">长期特惠</p><h2>10 年预付</h2></div>
+          <p class="price"><span>$</span>498 <small>/ 10 年</small></p>
+          <button data-checkout="ten_year" disabled>通过 Stripe 购买</button>
+        </article>
+      </section>
+
+      <section class="provider-row" aria-label="Payment providers">
+        <div><span class="provider-name stripe">Stripe</span><span>测试模式已接入</span></div>
+      </section>
+
+      <section class="details">
+        <div><h3>所有期限均包含</h3><p>Portfolio 管理、Provider 只读连接、最多两台绑定设备与一台活动设备。</p></div>
+        <div><h3>退款规则</h3><p>每个账号首次结算购买后 336 小时内可申请全额退款；续费不会重置窗口。</p></div>
+        <div><h3>优惠码</h3><label for="campaign">活动代码</label><input id="campaign" maxlength="64" autocomplete="off" placeholder="可选，例如 LAUNCH20"></div>
+      </section>
+
+      <section id="refund-panel" class="refund-panel" hidden aria-labelledby="refund-title">
+        <div>
+          <p class="eyebrow">FIRST PURCHASE REFUND</p>
+          <h2 id="refund-title">首购退款</h2>
+          <p id="refund-copy" class="refund-copy" role="status" aria-live="polite">首次结算购买可在退款窗口内申请全额退款。接受后商业功能会立即切换为只读。</p>
+        </div>
+        <button id="refund-submit" type="button">申请全额退款</button>
+      </section>
+
+      <section class="notice" id="notice" hidden aria-live="polite"></section>
+      </div>
+    </main>
+    <footer>GoodDealer Account · 安全支付边界</footer>
+  </body>
+</html>

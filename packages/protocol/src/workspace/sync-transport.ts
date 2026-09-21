@@ -1,15 +1,17 @@
 import { z } from "zod";
 
-import { identifier, safePositiveInteger } from "../wire/index";
+import { canonicalUtcTimestamp, encodeDomainSeparatedWireValue, identifier, safePositiveInteger } from "../wire/index";
 import {
   MAX_MUTATIONS_PER_PAGE,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   mutationCursorSchema,
   mutationPageSchema,
+  sha256DigestSchema,
   serverRevisionSchema,
   tenantNeutralSubmittedSyncMutationSchema,
 } from "./sync-mutation";
+import { domainAssetProjectionSchema } from "./domain-asset-projection";
 
 export const WORKSPACE_SYNC_PUSH_OPERATION_ID = "workspace.sync.mutations.push" as const;
 export const WORKSPACE_SYNC_PULL_OPERATION_ID = "workspace.sync.mutations.pull" as const;
@@ -49,13 +51,12 @@ export const workspaceMutationPushRequestSchema = z
       if (
         previous !== undefined &&
         (previous.sourceDeviceId !== mutation.sourceDeviceId ||
-          previous.activeLeaseEpoch !== mutation.activeLeaseEpoch ||
           mutation.deviceMutationSequence !== previous.deviceMutationSequence + 1)
       ) {
         context.addIssue({
           code: "custom",
           path: ["mutations", index, "deviceMutationSequence"],
-          message: "a push must contain one contiguous device and lease stream",
+          message: "a push must contain one contiguous global device stream",
         });
       }
     }
@@ -71,16 +72,12 @@ export const workspaceMutationAcknowledgementSchema = z
   .strict();
 
 export const workspaceMutationPushRejectionCodeSchema = z.enum([
-  "WORKSPACE_TENANT_UNRESOLVED",
-  "AUTHORIZATION_REJECTED",
-  "MUTATION_MALFORMED",
-  "MUTATION_SCHEMA_VERSION_UNSUPPORTED",
-  "MUTATION_BATCH_UNORDERED",
-  "MUTATION_ID_CONFLICT",
-  "MUTATION_SEQUENCE_CONFLICT",
-  "MUTATION_ENTITY_UNKNOWN",
-  "MUTATION_BASE_REVISION_AHEAD",
-  "MUTATION_FIELD_STALE",
+  "SYNC_SCHEMA_UNSUPPORTED",
+  "SYNC_INPUT_REJECTED",
+  "SYNC_AUTHORIZATION_REJECTED",
+  "SYNC_TENANT_UNRESOLVED",
+  "SYNC_IDEMPOTENCY_CONFLICT",
+  "SYNC_STORAGE_REJECTED",
 ]);
 
 export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepted", [
@@ -131,16 +128,50 @@ export const workspaceMutationPullRequestSchema = z
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     afterServerRevision: serverRevisionSchema,
     cursor: mutationCursorSchema.nullable(),
+    confirm: mutationCursorSchema.nullable(),
     pageLimit: safePositiveInteger.max(MAX_MUTATIONS_PER_PAGE),
   })
   .strict();
 
 export const workspaceMutationPullRejectionCodeSchema = z.enum([
-  "WORKSPACE_TENANT_UNRESOLVED",
-  "AUTHORIZATION_REJECTED",
-  "MUTATION_CURSOR_MISMATCH",
-  "MUTATION_PAGE_COMPACTED",
+  "SYNC_SCHEMA_UNSUPPORTED",
+  "SYNC_INPUT_REJECTED",
+  "SYNC_AUTHORIZATION_REJECTED",
+  "SYNC_TENANT_UNRESOLVED",
+  "SYNC_CURSOR_CONFLICT",
+  "SYNC_REBOOTSTRAP_REQUIRED",
+  "SYNC_STORAGE_REJECTED",
 ]);
+
+/** Durable Cloud delivery proof. Tokens are opaque and never interpreted by Desktop. */
+export const pendingDeliverySchema = z
+  .object({
+    generation: safePositiveInteger,
+    fromServerRevisionExclusive: serverRevisionSchema,
+    throughServerRevisionInclusive: serverRevisionSchema,
+    targetServerRevision: serverRevisionSchema,
+    pageDigest: sha256DigestSchema,
+    nextCursorDigest: sha256DigestSchema.nullable(),
+    predecessorConfirmationDigest: sha256DigestSchema.nullable(),
+    expiresAt: canonicalUtcTimestamp,
+  })
+  .strict()
+  .superRefine((delivery, context) => {
+    if (delivery.fromServerRevisionExclusive > delivery.throughServerRevisionInclusive) {
+      context.addIssue({
+        code: "custom",
+        path: ["throughServerRevisionInclusive"],
+        message: "delivery revision bounds are inverted",
+      });
+    }
+    if (delivery.throughServerRevisionInclusive > delivery.targetServerRevision) {
+      context.addIssue({
+        code: "custom",
+        path: ["targetServerRevision"],
+        message: "delivery cannot exceed its pinned target",
+      });
+    }
+  });
 
 export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepted", [
   z
@@ -148,6 +179,9 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
       schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
       accepted: z.literal(true),
       page: mutationPageSchema,
+      confirmedThrough: serverRevisionSchema,
+      pendingDelivery: pendingDeliverySchema,
+      confirmToken: mutationCursorSchema,
     })
     .strict(),
   z
@@ -165,12 +199,60 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
 export const workspaceCheckpointReadRequestSchema = z
   .object({ schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION) })
   .strict();
+export const workspaceRebootstrapRequestSchema = z
+  .object({ schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION) })
+  .strict();
 export const workspaceCheckpointReadResponseSchema = z
   .object({
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     checkpoint: checkpointDescriptorSchema.nullable(),
   })
   .strict();
+
+/** Bounded, tenant-derived evidence consumed by Desktop rebootstrap staging. */
+export const rebootstrapPlanSchema = z
+  .object({
+    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    checkpoint: checkpointDescriptorSchema,
+    snapshot: domainAssetProjectionSchema,
+    requiredMutationRange: z.object({
+      fromServerRevisionExclusive: serverRevisionSchema,
+      throughServerRevisionInclusive: serverRevisionSchema,
+    }).strict(),
+    mutations: z.array(mutationPageSchema).max(4_096),
+    pinnedHeadRevision: serverRevisionSchema,
+    pinnedHeadDigest: sha256DigestSchema,
+  })
+  .strict()
+  .superRefine((plan, context) => {
+    const range = plan.requiredMutationRange;
+    if (range.throughServerRevisionInclusive < range.fromServerRevisionExclusive) {
+      context.addIssue({ code: "custom", path: ["requiredMutationRange"], message: "mutation range is inverted" });
+    }
+    if (plan.checkpoint.throughServerRevision !== range.fromServerRevisionExclusive) {
+      context.addIssue({ code: "custom", path: ["checkpoint", "throughServerRevision"], message: "checkpoint does not anchor the required range" });
+    }
+    if (plan.pinnedHeadRevision < range.throughServerRevisionInclusive) {
+      context.addIssue({ code: "custom", path: ["pinnedHeadRevision"], message: "pinned head precedes required range" });
+    }
+    let expected = range.fromServerRevisionExclusive;
+    for (const page of plan.mutations) {
+      if (page.workspaceId !== plan.checkpoint.workspaceId || page.fromServerRevisionExclusive !== expected) {
+        context.addIssue({ code: "custom", path: ["mutations"], message: "mutation pages are not contiguous and workspace-bound" });
+        break;
+      }
+      expected = page.returnedThroughServerRevision;
+    }
+    if (expected !== range.throughServerRevisionInclusive) {
+      context.addIssue({ code: "custom", path: ["mutations"], message: "required mutation range is incomplete" });
+    }
+  });
+
+export function encodeRebootstrapPlanDigestInput(value: unknown): Uint8Array {
+  const parsed = rebootstrapPlanSchema.parse(value);
+  const { pinnedHeadDigest: _digest, ...input } = parsed;
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", input);
+}
 
 export type WorkspaceSyncOperation = z.infer<typeof workspaceSyncOperationSchema>;
 export type WorkspaceMutationPushRequest = z.infer<typeof workspaceMutationPushRequestSchema>;
@@ -186,5 +268,8 @@ export type WorkspaceMutationPullRejectionCode = z.infer<
   typeof workspaceMutationPullRejectionCodeSchema
 >;
 export type WorkspaceMutationPullResponse = z.infer<typeof workspaceMutationPullResponseSchema>;
+export type PendingDelivery = z.infer<typeof pendingDeliverySchema>;
 export type WorkspaceCheckpointReadRequest = z.infer<typeof workspaceCheckpointReadRequestSchema>;
 export type WorkspaceCheckpointReadResponse = z.infer<typeof workspaceCheckpointReadResponseSchema>;
+export type WorkspaceRebootstrapRequest = z.infer<typeof workspaceRebootstrapRequestSchema>;
+export type RebootstrapPlan = z.infer<typeof rebootstrapPlanSchema>;

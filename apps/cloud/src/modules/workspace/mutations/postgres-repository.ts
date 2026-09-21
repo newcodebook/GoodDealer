@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
 import {
   WORKSPACE_SYNC_SCHEMA_VERSION,
+  encodeSubmittedSyncMutationDigestInput,
   submittedSyncMutationSchema,
   syncMutationSchema,
   serverRevisionSchema,
@@ -58,6 +59,11 @@ interface ReceiptRow {
   submitted_envelope_digest: Buffer;
 }
 
+interface SequenceLedgerRow extends ReceiptRow {
+  wire_schema_version: number;
+  wire_mutation_digest: Buffer;
+}
+
 interface MutationHeaderRow {
   server_revision: string;
   mutation_id: string;
@@ -94,26 +100,31 @@ export class PostgresWorkspaceMutationRepository {
 
   async lockDrainDomain(transaction: TenantTransaction, value: unknown): Promise<LockedMutationDrainDomain> {
     const domain = parseDrainDomain(value);
-    const result = await transaction.query<{
-      contiguous_received_through: string;
-      highest_received_sequence: string;
-      rolling_digest: Buffer;
-      sealed: boolean;
-    }>(
-      `SELECT contiguous_received_through, highest_received_sequence, rolling_digest, sealed
-       FROM public.workspace_mutation_drain_lock_domain($1::text, $2::bigint)`,
-      [domain.sourceDeviceId, domain.activeLeaseEpoch],
-    );
-    const row = result.rows[0];
-    if (result.rows.length !== 1 || row === undefined) throw new TypeError("mutation drain head routine is unavailable");
-    if (row.sealed) throw new TypeError("mutation drain domain is sealed");
     const handle: LockedMutationDrainDomain = {
       ...domain,
-      contiguousReceivedThrough: parseUnsignedInteger(row.contiguous_received_through, "stored contiguous sequence"),
-      highestReceivedSequence: parseUnsignedInteger(row.highest_received_sequence, "stored highest sequence"),
-      rollingDigest: parseDigest(row.rolling_digest, "stored rolling digest"),
+      // Epoch-scoped drain rows remain historical evidence. Sync v2 serializes and advances only
+      // the global per-device sequence head below.
+      contiguousReceivedThrough: 0,
+      highestReceivedSequence: 0,
+      rollingDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       [lockedDomainBrand]: true,
     };
+    await transaction.query(
+      `INSERT INTO workspace_device_mutation_heads
+         (account_id, workspace_id, source_device_id,
+          contiguous_received_through, highest_received_sequence, row_version)
+       VALUES ($1, $2, $3, 0, 0, 1)
+       ON CONFLICT (account_id, workspace_id, source_device_id) DO NOTHING`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, domain.sourceDeviceId],
+    );
+    const globalHead = await transaction.query(
+      `SELECT contiguous_received_through
+       FROM workspace_device_mutation_heads
+       WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
+       FOR UPDATE`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, domain.sourceDeviceId],
+    );
+    if (globalHead.rowCount !== 1) throw new TypeError("global mutation sequence head is unavailable");
     const locks = this.#locks.get(transaction) ?? new Set();
     locks.add(handle);
     this.#locks.set(transaction, locks);
@@ -130,24 +141,24 @@ export class PostgresWorkspaceMutationRepository {
     assertMutationDomain(transaction, lock, mutation);
     // The Drain head already serializes this source/lease domain. Receipts are
     // insert-only, and a row lock cannot protect a receipt that does not exist yet.
-    const result = await transaction.query<ReceiptRow>(
+    const result = await transaction.query<SequenceLedgerRow>(
       `SELECT mutation_id, source_device_id, active_lease_epoch, device_mutation_sequence,
-              server_revision, submitted_envelope_digest
-       FROM workspace_mutation_receipts
+              server_revision, wire_schema_version, wire_mutation_digest,
+              wire_mutation_digest AS submitted_envelope_digest
+       FROM workspace_device_mutation_sequence_ledger
        WHERE account_id = $1 AND workspace_id = $2
          AND (mutation_id = $3 OR
-           (source_device_id = $4 AND active_lease_epoch = $5 AND device_mutation_sequence = $6))
+           (source_device_id = $4 AND device_mutation_sequence = $5))
        ORDER BY mutation_id COLLATE "C"`,
       [transaction.scope.accountId, transaction.scope.workspaceId, mutation.mutationId,
-        mutation.sourceDeviceId, mutation.activeLeaseEpoch, mutation.deviceMutationSequence],
+        mutation.sourceDeviceId, mutation.deviceMutationSequence],
     );
     const receipts = result.rows.map(parseReceipt);
     const byId = receipts.find((receipt) => receipt.mutationId === mutation.mutationId);
     const bySequence = receipts.find((receipt) =>
       receipt.sourceDeviceId === mutation.sourceDeviceId &&
-      receipt.activeLeaseEpoch === mutation.activeLeaseEpoch &&
       receipt.deviceMutationSequence === mutation.deviceMutationSequence);
-    const digest = digestEnvelope(encodeDrainStreamEnvelope("mutation", mutation)).toString("base64url");
+    const digest = wireDigest(mutation).toString("base64url");
     if (byId !== undefined) {
       if (byId.submittedEnvelopeDigest !== digest) return { status: "mutation_id_conflict", receipt: byId };
       if (bySequence === undefined || bySequence.mutationId !== mutation.mutationId) {
@@ -185,6 +196,8 @@ export class PostgresWorkspaceMutationRepository {
       const envelope = Buffer.from(encodeDrainStreamEnvelope("mutation", mutation));
       if (envelope.length > 65_536) throw new TypeError("canonical submitted mutation is oversized");
       const digest = digestEnvelope(envelope);
+      // Keep the epoch-scoped drain chain as immutable historical evidence. The v2
+      // sequence ledger below is the authority for global ordering and replay.
       const drainAppend = await transaction.query<{ envelope_digest: Buffer }>(
         `SELECT public.workspace_mutation_drain_append_record(
            $1::text, $2::bigint, $3::bigint, $4::bytea
@@ -205,6 +218,42 @@ export class PostgresWorkspaceMutationRepository {
           mutation.sourceDeviceId, mutation.activeLeaseEpoch, mutation.deviceMutationSequence,
           serverRevision, digest],
       );
+      await transaction.query(
+        `INSERT INTO workspace_device_mutation_sequence_ledger (
+           account_id, workspace_id, source_device_id, device_mutation_sequence,
+           mutation_id, active_lease_epoch, wire_schema_version, wire_mutation_digest,
+           server_revision, accepted_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,$8,transaction_timestamp())`,
+        [transaction.scope.accountId, transaction.scope.workspaceId, mutation.sourceDeviceId,
+          mutation.deviceMutationSequence, mutation.mutationId, mutation.activeLeaseEpoch,
+          wireDigest(mutation), serverRevision],
+      );
+      const head = await transaction.query<{ contiguous_received_through: string }>(
+        `WITH RECURSIVE contiguous(sequence) AS (
+           SELECT contiguous_received_through
+           FROM workspace_device_mutation_heads
+           WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
+           UNION ALL
+           SELECT contiguous.sequence + 1
+           FROM contiguous
+           WHERE EXISTS (
+             SELECT 1
+             FROM workspace_device_mutation_sequence_ledger AS ledger
+             WHERE ledger.account_id=$1 AND ledger.workspace_id=$2
+               AND ledger.source_device_id=$3
+               AND ledger.device_mutation_sequence=contiguous.sequence + 1
+           )
+         )
+         UPDATE workspace_device_mutation_heads
+         SET contiguous_received_through=(SELECT max(sequence) FROM contiguous),
+             highest_received_sequence=greatest(highest_received_sequence, $4),
+             row_version=row_version+1, updated_at=transaction_timestamp()
+         WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
+         RETURNING contiguous_received_through`,
+        [transaction.scope.accountId, transaction.scope.workspaceId,
+          mutation.sourceDeviceId, mutation.deviceMutationSequence],
+      );
+      if (head.rowCount !== 1) throw new TypeError("global mutation sequence head is unavailable");
       fault?.("after_receipt_insert");
       await transaction.query(
         `INSERT INTO workspace_mutations (
@@ -361,9 +410,8 @@ function parseStoredMutation(
     workspaceSchemaVersion: parseUnsignedInteger(header.workspace_schema_version, "stored workspace schema version"),
     entityType: header.entity_type,
     entityId: header.entity_id,
-    ...(header.operation_kind === "delete"
-      ? { operationKind: "delete", deletedAt: required(header.deleted_at) }
-      : {}),
+    operationKind: header.operation_kind,
+    ...(header.operation_kind === "delete" ? { deletedAt: required(header.deleted_at) } : {}),
     baseServerRevision: parseUnsignedInteger(header.base_server_revision, "stored base revision"),
     changedFields,
     sourceDeviceId: header.source_device_id,
@@ -434,6 +482,13 @@ function encodeField(field: SubmittedSyncMutation["changedFields"][number]): {
 
 function digestEnvelope(envelope: Uint8Array): Buffer {
   return createHash("sha256").update(envelope).digest();
+}
+
+function wireDigest(mutation: SubmittedSyncMutation): Buffer {
+  const { workspaceId: _workspaceId, ...tenantNeutral } = mutation;
+  return createHash("sha256")
+    .update(encodeSubmittedSyncMutationDigestInput(tenantNeutral))
+    .digest();
 }
 
 function parseDigest(value: Buffer, label: string): string {

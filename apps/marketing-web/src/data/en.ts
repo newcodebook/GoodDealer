@@ -35,7 +35,7 @@ export const meta: PageMeta = {
       offers: [
         { "@type": "Offer", price: "9.80", priceCurrency: "USD", name: "Monthly" },
         { "@type": "Offer", price: "98.00", priceCurrency: "USD", name: "Annual" },
-        { "@type": "Offer", price: "498.00", priceCurrency: "USD", name: "Lifetime" },
+        { "@type": "Offer", price: "498.00", priceCurrency: "USD", name: "10-Year Special" },
       ],
     },
     {
@@ -84,10 +84,10 @@ export const meta: PageMeta = {
         },
         {
           "@type": "Question",
-          name: "Will I be charged again after the lifetime purchase?",
+          name: "Does the 10-year special renew automatically?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "No. The lifetime purchase is a one-time payment with no recurring charges. It includes all future major version updates. Monthly and annual plans can be cancelled anytime and stop billing at the end of the period.",
+            text: "No. The 10-year special prepays a fixed 10-year term and does not renew automatically. Monthly and annual plans can be cancelled anytime and stop billing at the end of the paid period.",
           },
         },
       ],
@@ -150,17 +150,17 @@ export const data: MkData = {
   plans: [
     { key: "monthly", name: "Monthly", price: 9.8, unit: "/mo", period: "Billed monthly · Cancel anytime", cta: "Choose Monthly" },
     { key: "annual", name: "Annual", price: 98, unit: "/yr", sub: "≈ $8.2/mo · Save 17%", period: "Billed annually · Cancel anytime", cta: "Choose Annual", popular: true },
-    { key: "lifetime", name: "Lifetime", price: 498, unit: "one-time", sub: "Includes all future major versions", period: "Pay once · Never charged again", cta: "Choose Lifetime", gold: true },
+    { key: "ten-year", name: "10-Year Special", price: 498, unit: "/10 yrs", sub: "Prepaid · Fixed 10-year term", period: "No auto-renewal · Renew at expiry", cta: "Choose 10 Years", gold: true },
   ],
   planFeatures: ["Full features · Asset Library · Sales · DNS · Bulk Operations", "Up to two computers · One operator", "Platform passwords always stay local", "14-day full refund"],
-  planNote: "All three plans include the exact same features — the only difference is duration: monthly, annual, or one-time purchase. Checkout is handled by Paddle. GoodDealer never touches your card number.",
+  planNote: "All three plans include the same features; only the term differs: monthly, annual, or 10 years prepaid. Stripe securely handles checkout. GoodDealer never touches your card number.",
   faq: [
     { q: "Does it automatically monitor sales and delist domains?", a: "No. The first version does not run in the background automatically. When you refresh, or when a sale is detected during another operation, the software generates a cross-platform delist checklist for you to confirm and execute." },
     { q: "Are platform passwords and API keys uploaded?", a: "No. Passwords and login details always stay on your computer. GoodDealer's cloud and operations backend cannot read them. API keys are entered in a secure input field within the software; the cloud only syncs domain names, prices, and other business data." },
     { q: "How many devices can I link?", a: "Up to two computers. Only one can execute operations at a time; the other can only view. Adding a third requires unlinking an existing one first. If you unlink the active computer, the new device must wait for the current operation to finish before taking over." },
     { q: "Which registrars and platforms are supported?", a: "The release target covers mainstream registrars, sales platforms, and DNS providers, including Spaceship, Namecheap, Dynadot, Alibaba Cloud, Cloudflare, Atom, Spaceship SellerHub, and Afternic. Each integration is released only after its compatibility and safety gates pass; unsupported registrars can be supplemented via file import." },
     { q: "Is there a purely local, offline mode?", a: "There is no permanent local-only mode: cloud sync is automatic and keeps the sanitized business replica available to your other computer. The desktop app still saves business work to its encrypted local database first and, after account and device authorization, can continue within its verified offline window. Queued changes sync when the connection returns. Platform accounts, passwords, API keys, and browser sessions remain only on that computer." },
-    { q: "Will I be charged again after the lifetime purchase?", a: "No. The lifetime purchase is a one-time payment with no recurring charges. It includes all future major version updates. Monthly and annual plans can be cancelled anytime and stop billing at the end of the period." },
+    { q: "Does the 10-year special renew automatically?", a: "No. The 10-year special prepays a fixed 10-year term and does not renew automatically. Monthly and annual plans can be cancelled anytime and stop billing at the end of the paid period." },
   ],
   download: {
     title: "Get started on your computer",
@@ -231,7 +231,7 @@ export const data: MkData = {
   // ui — component-level strings that are NOT in the data blocks above (section headers, eyebrows,
   // diagram labels, animation captions). Keyed by component for easy lookup.
   ui: {
-    shell: { login: "Sign In", download: "Download", footerLegal: "Paddle is the Merchant of Record — checkout never touches your card number", footerLang: "English first · 中文也有" },
+    shell: { login: "Sign In", download: "Download", footerLegal: "Stripe securely handles checkout; GoodDealer never touches your card number", footerLang: "English first · 中文也有" },
     hero: { eyebrowSub: "Domain Asset Management", titleBefore: "Domains across registrars\nand platforms, ", titleGold: "controlled in one place" },
     benefits: { tag: "Feature Highlights", tagSub: "What You Get", h2: "Multi-registrar domains, unified bulk management", lead: "Stop switching between registrars and sales platforms — filter, reprice, list, verify, all in one place.", from: "From", to: "To" },
     pillars: { tag: "Core Scenarios", tagSub: "Four Core Capabilities", h2: "From asset library to bulk operations", lead: "Registrars, DNS, and sales platforms each go their own way. GoodDealer unifies them into one domain table you can bulk-edit — preview before you commit." },
@@ -272,7 +272,7 @@ export const data: MkData = {
       arrow: { label: "Only business data syncs", sub: "No passwords" },
       cloudNode: { title: "GoodDealer Cloud", sub: "For your second device to view", items: ["Domains · Prices · Listing status", "Operation logs (no passwords)"] },
     },
-    pricing: { tag: "Pricing", tagSub: "Monthly · Annual · Lifetime", h2: "Pick a duration — features are exactly the same", popular: "Most Popular", oneTime: "One-Time Purchase" },
+    pricing: { tag: "Pricing", tagSub: "Monthly · Annual · 10 Years", h2: "Pick a duration — features are exactly the same", popular: "Most Popular", oneTime: "Prepaid" },
     faq: { tag: "FAQ", tagSub: "Boundaries & Commitments", h2: "Let's be clear about the boundaries" },
     download: { tag: "Download", tagSub: "macOS · Windows" },
   },

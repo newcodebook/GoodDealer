@@ -1,5 +1,6 @@
 import {
   WORKSPACE_SYNC_SCHEMA_VERSION,
+  workspaceMutationPushRequestSchema,
   submittedSyncMutationSchema,
   type SubmittedSyncMutation,
 } from "@gooddealer/protocol/workspace";
@@ -43,11 +44,18 @@ export class PostgresWorkspaceMutationIngest {
   }) {}
 
   async ingest(scope: unknown, value: unknown): Promise<MutationIngestResult> {
-    const request = parseRequest(value);
-    if (request === null) return reject("MUTATION_MALFORMED");
+    const parsedRequest = parseRequest(value);
+    if (parsedRequest === null) return reject("MUTATION_MALFORMED");
     const parsedScope = parseWorkspaceTenantScope(scope);
     if (parsedScope === null) return reject("WORKSPACE_TENANT_UNRESOLVED");
-    if (request.workspaceId !== parsedScope.workspaceId) return reject("MUTATION_WORKSPACE_MISMATCH");
+    const request: MutationIngestRequest = {
+      ...parsedRequest,
+      workspaceId: parsedScope.workspaceId,
+      mutations: parsedRequest.mutations.map((mutation) => ({
+        ...mutation,
+        workspaceId: parsedScope.workspaceId,
+      })),
+    };
     const orderFailures = request.mutations.flatMap((mutation, index) =>
       index === 0 || request.mutations[index - 1]!.deviceMutationSequence < mutation.deviceMutationSequence
         ? [] : [failure(index, mutation)]);
@@ -71,26 +79,19 @@ export class PostgresWorkspaceMutationIngest {
   ): Promise<MutationIngestResult> {
     await transaction.query("SET LOCAL lock_timeout = '5s'");
     await transaction.query("SET LOCAL statement_timeout = '20s'");
-    if (request.workspaceId !== transaction.scope.workspaceId) {
-      throw new IngestRejected(reject("MUTATION_WORKSPACE_MISMATCH"));
-    }
-    const authority = await this.dependencies.authority.lockAndValidateActiveLease(transaction, {
-      sourceDeviceId: request.sourceDeviceId,
-      activeLeaseEpoch: request.activeLeaseEpoch,
-    });
-    if (!authority) throw new IngestRejected(reject("MUTATION_DEVICE_NOT_ACTIVE", allFailures(request)));
-
-    let drain;
-    try {
-      drain = await this.dependencies.mutations.lockDrainDomain(transaction, {
+    const drainByEpoch = new Map<number, Awaited<ReturnType<PostgresWorkspaceMutationRepository["lockDrainDomain"]>>>();
+    for (const mutation of request.mutations) {
+      if (drainByEpoch.has(mutation.activeLeaseEpoch)) continue;
+      const authority = await this.dependencies.authority.lockAndValidateActiveLease(transaction, {
         sourceDeviceId: request.sourceDeviceId,
-        activeLeaseEpoch: request.activeLeaseEpoch,
+        activeLeaseEpoch: mutation.activeLeaseEpoch,
       });
-    } catch (error) {
-      if (error instanceof TypeError && error.message.includes("sealed")) {
-        throw new IngestRejected(reject("MUTATION_DRAIN_SEALED", allFailures(request)));
-      }
-      throw error;
+      if (!authority) throw new IngestRejected(reject("MUTATION_DEVICE_NOT_ACTIVE", allFailures(request)));
+      const drain = await this.dependencies.mutations.lockDrainDomain(transaction, {
+        sourceDeviceId: request.sourceDeviceId,
+        activeLeaseEpoch: mutation.activeLeaseEpoch,
+      });
+      drainByEpoch.set(mutation.activeLeaseEpoch, drain);
     }
 
     const revision = await this.dependencies.revisions.lock(transaction);
@@ -109,6 +110,8 @@ export class PostgresWorkspaceMutationIngest {
 
     const duplicateRevisionByIndex = new Map<number, number>();
     for (const [index, mutation] of request.mutations.entries()) {
+      const drain = drainByEpoch.get(mutation.activeLeaseEpoch);
+      if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
       const resolution = await this.dependencies.mutations.resolveReceipt(transaction, drain, mutation);
       if (resolution.status === "exact") duplicateRevisionByIndex.set(index, resolution.receipt.serverRevision);
       if (resolution.status === "mutation_id_conflict") {
@@ -152,12 +155,16 @@ export class PostgresWorkspaceMutationIngest {
       return serverRevision === undefined ? [] : [{ mutation, serverRevision }];
     });
     if (accepted.length > 0) {
-      await this.dependencies.mutations.appendAccepted(
-        transaction,
-        drain,
-        accepted,
-        this.dependencies.fault,
-      );
+      for (const entry of accepted) {
+        const drain = drainByEpoch.get(entry.mutation.activeLeaseEpoch);
+        if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
+        await this.dependencies.mutations.appendAccepted(
+          transaction,
+          drain,
+          [entry],
+          this.dependencies.fault,
+        );
+      }
       await this.dependencies.portfolio.applyAcceptedMutations(transaction, accepted);
       this.dependencies.fault?.("after_materialization");
       this.dependencies.fault?.("before_revision_commit");
@@ -179,35 +186,19 @@ export class PostgresWorkspaceMutationIngest {
 
 function parseRequest(value: unknown): MutationIngestRequest | null {
   if (!isSafeWireValue(value)) return null;
-  const record = exactRecord(value, [
-    "activeLeaseEpoch",
-    "mutations",
-    "schemaVersion",
-    "sourceDeviceId",
-    "workspaceId",
-  ]);
-  if (record === null ||
-    record.schemaVersion !== WORKSPACE_SYNC_SCHEMA_VERSION ||
-    !identifier.safeParse(record.workspaceId).success ||
-    !identifier.safeParse(record.sourceDeviceId).success ||
-    !safePositiveInteger.safeParse(record.activeLeaseEpoch).success ||
-    !Array.isArray(record.mutations) || record.mutations.length < 1 || record.mutations.length > MAX_MUTATIONS_PER_INGEST) {
-    return null;
-  }
-  const mutations: SubmittedSyncMutation[] = [];
-  for (const candidate of record.mutations) {
-    const parsed = submittedSyncMutationSchema.safeParse(candidate);
-    if (!parsed.success || parsed.data.operationKind === "delete" ||
-      parsed.data.workspaceId !== record.workspaceId ||
-      parsed.data.sourceDeviceId !== record.sourceDeviceId ||
-      parsed.data.activeLeaseEpoch !== record.activeLeaseEpoch) return null;
-    mutations.push(parsed.data);
-  }
+  const parsed = workspaceMutationPushRequestSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const sourceDeviceId = parsed.data.mutations[0]?.sourceDeviceId;
+  if (sourceDeviceId === undefined || parsed.data.mutations.some((mutation) => mutation.sourceDeviceId !== sourceDeviceId)) return null;
+  const mutations = parsed.data.mutations.map((mutation) => submittedSyncMutationSchema.parse({
+    ...mutation,
+    workspaceId: "derived-after-tenant-parse",
+  }));
   return {
     schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
-    workspaceId: record.workspaceId as string,
-    sourceDeviceId: record.sourceDeviceId as string,
-    activeLeaseEpoch: record.activeLeaseEpoch as number,
+    workspaceId: "derived-after-tenant-parse",
+    sourceDeviceId,
+    activeLeaseEpoch: mutations[0]!.activeLeaseEpoch,
     mutations,
   };
 }

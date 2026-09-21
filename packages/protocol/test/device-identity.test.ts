@@ -57,11 +57,11 @@ describe("device identity contract", () => {
     ).toBe(false);
   });
 
-  it("separates a lifetime commercial entitlement from credential expiry", () => {
+  it("separates a fixed commercial term from credential expiry", () => {
     expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement.json")).success).toBe(true);
     expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement-grace.json")).success).toBe(true);
     expect(
-      entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-lifetime-expiry.json")).success,
+      entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-fixed-term-without-expiry.json")).success,
     ).toBe(false);
   });
 
@@ -172,7 +172,7 @@ describe("device identity contract", () => {
     "invalid/credential-unsafe-lease-epoch.json",
     "invalid/credential-invalid-time-order.json",
     "invalid/credential-snake-case-wire.json",
-    "invalid/entitlement-lifetime-expiry.json",
+    "invalid/entitlement-fixed-term-without-expiry.json",
     "invalid/entitlement-missing-commercial-expiry.json",
     "invalid/entitlement-invalid-time.json",
     "invalid/entitlement-expiry-after-grace.json",

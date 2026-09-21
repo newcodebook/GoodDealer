@@ -4,10 +4,29 @@ import { extname, resolve } from "node:path";
 const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
+  "cloudflare_connection_activate",
+  "cloudflare_connection_status",
+  "cloudflare_observation_read",
+  "cloudflare_zone_observe",
+  "desktop_authentication_begin",
+  "desktop_authentication_refresh",
+  "desktop_authentication_status",
+  "local_asset_library_read",
+  "local_backup_artifact_select",
+  "local_backup_export",
+  "local_backup_restore_begin",
+  "local_backup_restore_status",
   "local_business_status",
-  "local_domain_asset_upsert",
-  "local_portfolio_read",
+  "local_conflict_center_read",
+  "local_conflict_resolve",
+  "local_domain_asset_delete",
+  "local_domain_asset_edit",
+  "local_domain_detail_read",
+  "local_sync_status",
 ];
+const reviewedAdapterCommands = reviewedCommands.filter(
+  (command) => !command.startsWith("local_backup_"),
+);
 
 function unique(values) {
   return [...new Set(values)].sort();
@@ -87,6 +106,76 @@ function rustSources(root, errors) {
   return sources;
 }
 
+function attributedCommandBlock(sources, command) {
+  const marker = new RegExp(`fn\\s+${command}\\b`, "u");
+  for (const source of sources) {
+    const match = marker.exec(source);
+    if (match === null) continue;
+    const remainder = source.slice(match.index);
+    const nextCommand = remainder.indexOf("\n#[tauri::command]", 1);
+    return nextCommand === -1 ? remainder : remainder.slice(0, nextCommand);
+  }
+  return "";
+}
+
+function hasRawBackupCommand(sources, command, aggregateMethod) {
+  const source = attributedCommandBlock(sources, command);
+  const body = rustFunctionBody(source, command);
+  const signature = new RegExp(
+    `fn\\s+${command}\\s*\\(\\s*request\\s*:\\s*tauri::ipc::Request\\s*<\\s*'_\\s*>\\s*,\\s*host\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*DesktopLocalHost\\s*>\\s*>\\s*,?\\s*\\)`,
+    "u",
+  );
+  const exactBody = new RegExp(
+    `^let wire = bounded_request_wire\\(&request\\)\\?; let aggregate = Arc::clone\\(host\\.inner\\(\\)\\); tauri::async_runtime::spawn_blocking\\(move \\|\\| aggregate\\.${aggregateMethod}\\(&wire\\)\\) \\.await \\.map_err\\(\\|_\\| "BACKUP_STORAGE_REJECTED"\\.to_owned\\(\\)\\)\\? \\.map_err\\(map_desktop_backup_error\\)$`,
+    "u",
+  );
+  return signature.test(source)
+    && body !== ""
+    && exactBody.test(normalizeRust(body));
+}
+
+function normalizeRust(source) {
+  return source.replace(/\s+/gu, " ").trim();
+}
+
+function rustFunctionBody(source, name) {
+  const marker = new RegExp(`\\bfn\\s+${name}\\b`, "u").exec(source);
+  if (marker === null) return "";
+  const open = source.indexOf("{", marker.index);
+  if (open < 0) return "";
+  const close = matchingBrace(source, open);
+  return close < 0 ? "" : source.slice(open + 1, close);
+}
+
+function matchingBrace(source, open) {
+  let depth = 0;
+  let state = "code";
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (state === "line") {
+      if (char === "\n") state = "code";
+      continue;
+    }
+    if (state === "block") {
+      if (char === "*" && next === "/") { state = "code"; index += 1; }
+      continue;
+    }
+    if (state === "string" || state === "char") {
+      if (char === "\\") { index += 1; continue; }
+      if ((state === "string" && char === '"') || (state === "char" && char === "'")) state = "code";
+      continue;
+    }
+    if (char === "/" && next === "/") { state = "line"; index += 1; continue; }
+    if (char === "/" && next === "*") { state = "block"; index += 1; continue; }
+    if (char === '"') { state = "string"; continue; }
+    if (char === "'" && source[index + 2] === "'") { state = "char"; continue; }
+    if (char === "{") depth += 1;
+    if (char === "}" && --depth === 0) return index;
+  }
+  return -1;
+}
+
 function listFromRustCall(source, callPattern) {
   const match = source.match(callPattern);
   if (!match) return [];
@@ -134,7 +223,9 @@ export function capabilityCommands(capability) {
 export function adapterCommands(source) {
   return unique([...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
     .map((match) => match[1])
-    .filter((command) => command.startsWith("local_")));
+    .filter((command) => command.startsWith("local_")
+      || command.startsWith("desktop_authentication_")
+      || command.startsWith("cloudflare_")));
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
@@ -156,12 +247,20 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   );
   const adapterPath = "apps/desktop/src/adapters/tauri/index.ts";
   const adapterSource = requiredRegularFile(root, adapterPath, errors);
+  const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
+  const backupIpcSource = requiredRegularFile(
+    root,
+    "apps/desktop/src-tauri/src/backup_ipc.rs",
+    errors,
+  );
   const sources = rustSources(root, errors);
   if (
     buildSource === null ||
     mainSource === null ||
     capabilitySource === null ||
     adapterSource === null ||
+    desktopManifest === null ||
+    backupIpcSource === null ||
     errors.length > 0
   ) {
     return errors;
@@ -191,8 +290,9 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     adapter: adapterCommands(adapterSource),
   };
   for (const [name, commands] of Object.entries(sets)) {
-    if (JSON.stringify(commands) !== JSON.stringify(reviewedCommands)) {
-      errors.push(`${name} command set differs from reviewed local-business commands: ${commands.join(", ")}`);
+    const expected = name === "adapter" ? reviewedAdapterCommands : reviewedCommands;
+    if (JSON.stringify(commands) !== JSON.stringify(expected)) {
+      errors.push(`${name} command set differs from reviewed Desktop commands: ${commands.join(", ")}`);
     }
   }
   if (!Array.isArray(capability.webviews) || capability.webviews.length !== 1 || capability.webviews[0] !== "local-app") {
@@ -211,8 +311,86 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   if (capability.$schema !== "../gen/schemas/desktop-schema.json") {
     errors.push("local-app capability must use the checked-in Desktop schema");
   }
-  if (capability.identifier !== "local-app" || capability.description !== "Local application shell with narrow local-business commands.") {
+  if (capability.identifier !== "local-app" || capability.description !== "Local application shell with narrow business and authentication commands.") {
     errors.push("local-app capability identity differs from the reviewed shell");
+  }
+
+  const rustSource = sources.join("\n");
+  if (
+    mainSource.match(/DesktopLocalHost::production\s*\(/gu)?.length !== 1 ||
+    !/app\.manage\s*\(\s*Arc::clone\s*\(\s*&local_host\s*\)\s*\)/u.test(mainSource)
+  ) {
+    errors.push("Desktop startup must construct and manage exactly one local-host aggregate");
+  }
+  const statusSource = attributedCommandBlock(sources, "local_backup_restore_status");
+  const statusSignature = statusSource.match(
+    /fn\s+local_backup_restore_status\s*\(([\s\S]*?)\)\s*->/u,
+  )?.[1] ?? "";
+  const exactStatusSignature = /^\s*host\s*:\s*State\s*<\s*'_,\s*Arc\s*<\s*DesktopLocalHost\s*>\s*>\s*,?\s*$/u;
+  const statusBody = rustFunctionBody(statusSource, "local_backup_restore_status");
+  const exactStatusBody = /^let aggregate = Arc::clone\(host\.inner\(\)\); tauri::async_runtime::spawn_blocking\(move \|\| aggregate\.backup_status\(\)\) \.await \.map_err\(\|_\| "BACKUP_STORAGE_REJECTED"\.to_owned\(\)\)$/u;
+  if (
+    !exactStatusSignature.test(statusSignature) ||
+    !exactStatusBody.test(normalizeRust(statusBody))
+  ) {
+    errors.push("backup status must remain an argument-free blocking aggregate query");
+  }
+  for (const [command, method] of [
+    ["local_backup_export", "export_backup"],
+    ["local_backup_artifact_select", "inspect_backup"],
+    ["local_backup_restore_begin", "restore_backup"],
+  ]) {
+    if (!hasRawBackupCommand(sources, command, method)) {
+      errors.push(`${command} must use bounded raw IPC and one blocking aggregate call`);
+    }
+  }
+  for (const required of [
+    "const MAX_BACKUP_REQUEST_WIRE_BYTES: usize = 4_096;",
+    "let InvokeBody::Raw(wire) = body else",
+    "(1..=MAX_BACKUP_REQUEST_WIRE_BYTES).contains(&wire.len())",
+  ]) {
+    if (!backupIpcSource.includes(required)) {
+      errors.push("backup raw-wire admission no longer checks before its bounded copy");
+      break;
+    }
+  }
+  const backupAdmissionSource = backupIpcSource.split("#[cfg(test)]", 1)[0];
+  const wrapperBody = rustFunctionBody(backupAdmissionSource, "bounded_request_wire");
+  const boundedBody = rustFunctionBody(backupAdmissionSource, "bounded_raw_body");
+  const exactWrapper = "bounded_raw_body(request.body())";
+  const exactBoundedBody = "let InvokeBody::Raw(wire) = body else { return Err(backup_operation_rejected()); }; if !(1..=MAX_BACKUP_REQUEST_WIRE_BYTES).contains(&wire.len()) { return Err(backup_operation_rejected()); } Ok(wire.clone())";
+  if (
+    normalizeRust(wrapperBody) !== exactWrapper ||
+    normalizeRust(boundedBody) !== exactBoundedBody
+  ) {
+    errors.push("backup raw-wire admission must perform no parse and exactly one bounded copy");
+  }
+  for (const forbidden of [
+    "AuthorizedWorkspace",
+    "BackupAuthoritySnapshot",
+    "BackupCryptoPort",
+    "BackupProjection",
+    "BackupRuntime",
+    "DesktopBackupBinding",
+    "DesktopBackupContainer",
+    "IsolatedBackupCandidate",
+    "BusinessDatabase",
+    "CloudflareAuthoritySnapshot",
+    "HostStorageBootstrap",
+    "RebootstrapPublication",
+    "SyncAuthority",
+    "VerifiedLocalWorkspaceBinding",
+    "authority_is_current",
+  ]) {
+    if (rustSource.includes(forbidden)) {
+      errors.push(`Desktop local-host internals must not expose ${forbidden}`);
+    }
+  }
+  if (/gooddealer_local_storage::backup::/u.test(rustSource)) {
+    errors.push("Desktop must not deep-import the local-storage backup implementation");
+  }
+  if (desktopManifest.includes("backup-test-adapter")) {
+    errors.push("Desktop must not activate a backup test adapter feature");
   }
   return errors;
 }

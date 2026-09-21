@@ -36,6 +36,7 @@ export interface RouteAdapter<S extends Surface, TAuth, TIn, TOut> {
   readonly requiredScope: string | null;
   readonly authorize: (principal: TAuth) => boolean;
   readonly invoke: (input: TIn, principal: TAuth) => Promise<TOut | AccountRejection>;
+  readonly bodyLimit?: number;
 }
 
 export interface RegisteredRoute {
@@ -128,6 +129,7 @@ function registerRoutes<S extends Surface, TAuth>(
             : {}),
         response: { 200: zodToJsonSchema(route.response) },
       },
+      ...(route.bodyLimit === undefined ? {} : { bodyLimit: route.bodyLimit }),
       handler: async (request, reply) => {
         const input = route.request.safeParse(
           route.method === "GET" ? request.query : (request.body ?? {}),

@@ -39,7 +39,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.18.0
+        run: npm install --global pnpm@11.25.0
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Remove partial pinned Rust toolchain from runner image

@@ -10,8 +10,10 @@
 
 ## 当前实现
 
-`secure-host-core` 只公开窄备份操作，且具体生产构造拒绝。当前没有可组合的通用会话、
-秘密、密钥链或网络 API。
+`secure-host-core` 只公开具体的 OAuth/设备/授权验证/Cloudflare 能力，没有通用会话、秘密、密钥链或
+网络 API。备份秘密路径完全位于 `gooddealer-local-storage` 的 Desktop Local Host 私有边界；它不向
+`secure-host-core` 或 Desktop 暴露备份 key、binding、handle、candidate、plaintext 或通用解密接口，
+具体生产 native 备份组合保持拒绝。
 
 ## 后果
 

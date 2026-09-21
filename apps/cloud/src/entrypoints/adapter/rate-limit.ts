@@ -22,6 +22,11 @@ interface WindowState {
 
 export const NO_IDENTITY_HEADERS: readonly [] = [];
 
+/** Only the same-host reverse proxy may supply the one-hop client address. */
+export function trustLoopbackProxy(address: string): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
 export function rateLimitPolicy(windowMs: number, burst: number): RateLimitPolicy {
   if (!Number.isSafeInteger(windowMs) || windowMs <= 0) {
     throw new Error("rate-limit window must be a positive safe integer");

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "accessMode": "commercial_read_only",
+  "restrictionReason": "entitlement_expired",
+  "capabilities": ["local:export", "local:read"],
+  "accountCheck": "pass",
+  "deviceBindingCheck": "pass",
+  "entitlementCheck": "fail",
+  "activeLeaseCheck": "fail",
+  "localIntegrityCheck": "pass",
+  "accountSecurityState": "normal",
+  "trustedTimeState": "trusted",
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

@@ -1,16 +1,19 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
   MAX_MUTATIONS_PER_PAGE,
   encodeMutationPageDigestInput,
   mutationPageSchema,
+  workspaceMutationPullRequestSchema,
   type MutationPage,
+  type PendingDelivery,
 } from "@gooddealer/protocol/workspace";
 import { identifier } from "@gooddealer/protocol/wire";
 
 import { type TenantTransaction, TenantTransactionRunner } from "../../../db/index";
 import {
   PostgresReaderCursorRepository,
+  type PostgresPendingDeliverySnapshot,
   type PostgresReaderCursorSnapshot,
 } from "./postgres-reader-cursor-repository";
 
@@ -79,8 +82,19 @@ export type PersistentReaderCursorPageResult =
   }
   | { readonly accepted: false; readonly code: PersistentReaderCursorRejectionCode };
 
+export type PersistentReaderPullResult =
+  | {
+    readonly accepted: true;
+    readonly page: MutationPage;
+    readonly confirmedThrough: number;
+    readonly pendingDelivery: PendingDelivery;
+    readonly confirmToken: string;
+  }
+  | { readonly accepted: false; readonly code: PersistentReaderCursorRejectionCode };
+
 export class PostgresReaderCursorService {
   readonly #leaseTtlSeconds: number;
+  readonly #tokenKey: Uint8Array | null;
 
   constructor(private readonly options: {
     readonly transactions: TenantTransactionRunner;
@@ -88,9 +102,14 @@ export class PostgresReaderCursorService {
     readonly cursors: PostgresReaderCursorRepository;
     readonly pages: ReaderMutationPageQueryPort;
     readonly leaseTtlSeconds?: number;
+    readonly tokenKey?: Uint8Array;
   }) {
     this.#leaseTtlSeconds = options.leaseTtlSeconds ?? 15 * 60;
     assertTtl(this.#leaseTtlSeconds);
+    this.#tokenKey = options.tokenKey === undefined ? null : new Uint8Array(options.tokenKey);
+    if (this.#tokenKey !== null && this.#tokenKey.byteLength < 32) {
+      throw new TypeError("reader cursor token key is malformed");
+    }
   }
 
   async open(
@@ -215,6 +234,150 @@ export class PostgresReaderCursorService {
         page,
       };
     });
+  }
+
+  /** Strict v2 pull: delivery is durable and replayable before confirmed progress advances. */
+  async pullV2(scope: unknown, deviceIdValue: unknown, requestValue: unknown): Promise<PersistentReaderPullResult> {
+    const tokenKey = this.#tokenKey;
+    if (tokenKey === null) throw new TypeError("reader cursor token key is unavailable");
+    const deviceId = identifier.parse(deviceIdValue);
+    const request = workspaceMutationPullRequestSchema.parse(requestValue);
+    return this.options.transactions.withTenant(scope, async (transaction) => {
+      const head = await this.options.revisions.lock(transaction);
+      if (head === null) return reject("WORKSPACE_TENANT_UNRESOLVED");
+      const cursor = await this.options.cursors.lock(transaction, deviceId);
+      if (cursor === null) return reject("READER_CURSOR_UNKNOWN");
+      if (cursor.retirementReason === "device_removed") return reject("READER_CURSOR_DEVICE_REMOVED");
+      if (cursor.status === "retired") return reject("READER_CURSOR_RETIRED");
+      const expiredCursor = await this.options.cursors.retireIfExpired(transaction, cursor);
+      if (expiredCursor !== null) return reject("READER_CURSOR_TTL_EXPIRED");
+      if (cursor.readThroughServerRevision < head.compactedThroughServerRevision) {
+        await this.options.cursors.retire(transaction, cursor, "compaction_race");
+        return reject("READER_CURSOR_COMPACTION_RACE");
+      }
+
+      let current = cursor;
+      let pending = await this.options.cursors.lockPendingDelivery(transaction, current);
+      if (pending?.expired === true) return reject("READER_CURSOR_STALE_PRESENTATION");
+      if (pending !== null) {
+        const confirmingCurrent = matchesTokenDigest(pending.confirmationTokenDigest, request.confirm);
+        const replayingCurrent = matchesTokenDigest(pending.predecessorConfirmationDigest, request.confirm);
+        if (confirmingCurrent) {
+          if (request.afterServerRevision !== pending.throughServerRevisionInclusive ||
+              !matchesTokenDigest(pending.nextCursorDigest, request.cursor)) {
+            return reject("READER_CURSOR_STALE_PRESENTATION");
+          }
+          current = await this.options.cursors.confirmPendingDelivery(
+            transaction, current, pending, digestRequiredToken(request.confirm), this.#leaseTtlSeconds,
+          );
+          pending = null;
+        } else if (replayingCurrent) {
+          if (request.afterServerRevision !== current.readThroughServerRevision ||
+              !matchesTokenDigest(current.continuationTokenDigest, request.cursor)) {
+            return reject("READER_CURSOR_STALE_PRESENTATION");
+          }
+          return this.#replayPending(transaction, current, pending, tokenKey);
+        } else {
+          return reject("READER_CURSOR_STALE_PRESENTATION");
+        }
+      } else if (request.confirm !== null || request.afterServerRevision !== current.readThroughServerRevision ||
+          !matchesTokenDigest(current.continuationTokenDigest, request.cursor)) {
+        return reject("READER_CURSOR_STALE_PRESENTATION");
+      }
+
+      const target = current.pinnedPageTargetServerRevision ?? head.serverRevision;
+      return this.#createPending(
+        transaction, current, target, request.pageLimit,
+        request.confirm === null ? null : digestToken(request.confirm), tokenKey,
+      );
+    });
+  }
+
+  async #createPending(
+    transaction: TenantTransaction,
+    cursor: PostgresReaderCursorSnapshot,
+    target: number,
+    pageLimit: number,
+    predecessorConfirmationDigest: Uint8Array | null,
+    tokenKey: Uint8Array,
+  ): Promise<PersistentReaderPullResult> {
+    const expiresAt = await this.options.cursors.readDeliveryExpiry(transaction, this.#leaseTtlSeconds);
+    const base = mutationPageSchema.parse(await this.options.pages.readPage(transaction, {
+      fromServerRevisionExclusive: cursor.readThroughServerRevision,
+      throughServerRevisionInclusive: target,
+      pageLimit,
+    }));
+    assertPage(base, transaction.scope.workspaceId, cursor.readThroughServerRevision, target);
+    const nextCursor = base.nextCursor === null ? null : opaqueToken(tokenKey, "cursor", transaction, cursor, {
+      from: base.fromServerRevisionExclusive,
+      through: base.returnedThroughServerRevision,
+      target,
+      expiresAt,
+    });
+    const unsigned = { ...base, nextCursor, pageDigest: "A".repeat(43) };
+    const pageDigest = createHash("sha256").update(encodeMutationPageDigestInput(unsigned)).digest("base64url");
+    const page = mutationPageSchema.parse({ ...unsigned, pageDigest });
+    const confirmToken = opaqueToken(tokenKey, "confirm", transaction, cursor, {
+      from: page.fromServerRevisionExclusive,
+      through: page.returnedThroughServerRevision,
+      target,
+      pageDigest,
+      nextCursorDigest: nextCursor === null ? null : digest(nextCursor),
+      predecessorConfirmationDigest: encodeDigest(predecessorConfirmationDigest),
+      expiresAt,
+    });
+    const pending = await this.options.cursors.insertPendingDelivery(transaction, cursor, {
+      fromServerRevisionExclusive: page.fromServerRevisionExclusive,
+      throughServerRevisionInclusive: page.returnedThroughServerRevision,
+      targetServerRevision: target,
+      pageLimit,
+      pageDigest: Buffer.from(pageDigest, "base64url"),
+      nextCursorDigest: nextCursor === null ? null : digestToken(nextCursor),
+      predecessorConfirmationDigest,
+      confirmationTokenDigest: digestToken(confirmToken),
+      expiresAt,
+    });
+    return presentPull(cursor.readThroughServerRevision, page, pending, confirmToken);
+  }
+
+  async #replayPending(
+    transaction: TenantTransaction,
+    cursor: PostgresReaderCursorSnapshot,
+    pending: PostgresPendingDeliverySnapshot,
+    tokenKey: Uint8Array,
+  ): Promise<PersistentReaderPullResult> {
+    const base = mutationPageSchema.parse(await this.options.pages.readPage(transaction, {
+      fromServerRevisionExclusive: pending.fromServerRevisionExclusive,
+      throughServerRevisionInclusive: pending.targetServerRevision,
+      pageLimit: pending.pageLimit,
+    }));
+    const nextCursor = base.nextCursor === null ? null : opaqueToken(tokenKey, "cursor", transaction, cursor, {
+      from: pending.fromServerRevisionExclusive,
+      through: pending.throughServerRevisionInclusive,
+      target: pending.targetServerRevision,
+      expiresAt: pending.expiresAt,
+    });
+    const unsigned = { ...base, nextCursor, pageDigest: "A".repeat(43) };
+    const pageDigest = createHash("sha256").update(encodeMutationPageDigestInput(unsigned)).digest("base64url");
+    const page = mutationPageSchema.parse({ ...unsigned, pageDigest });
+    if (page.returnedThroughServerRevision !== pending.throughServerRevisionInclusive ||
+        !timingSafeDigestEqual(pending.pageDigest, Buffer.from(pageDigest, "base64url")) ||
+        !matchesTokenDigest(pending.nextCursorDigest, nextCursor)) {
+      return reject("READER_CURSOR_STORAGE_INVALID");
+    }
+    const confirmToken = opaqueToken(tokenKey, "confirm", transaction, cursor, {
+      from: pending.fromServerRevisionExclusive,
+      through: pending.throughServerRevisionInclusive,
+      target: pending.targetServerRevision,
+      pageDigest,
+      nextCursorDigest: encodeDigest(pending.nextCursorDigest),
+      predecessorConfirmationDigest: encodeDigest(pending.predecessorConfirmationDigest),
+      expiresAt: pending.expiresAt,
+    });
+    if (!matchesTokenDigest(pending.confirmationTokenDigest, confirmToken)) {
+      return reject("READER_CURSOR_STORAGE_INVALID");
+    }
+    return presentPull(cursor.readThroughServerRevision, page, pending, confirmToken);
   }
 
   private async lockPresentedCursor(
@@ -365,10 +528,76 @@ function digestToken(token: string): Uint8Array {
   return createHash("sha256").update(token, "utf8").digest();
 }
 
+function digestRequiredToken(token: string | null): Uint8Array {
+  if (token === null) throw new TypeError("required reader token is absent");
+  return digestToken(token);
+}
+
+function digest(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("base64url");
+}
+
+function encodeDigest(value: Uint8Array | null): string | null {
+  return value === null ? null : Buffer.from(value).toString("base64url");
+}
+
+function matchesTokenDigest(expected: Uint8Array | null, token: string | null): boolean {
+  if (expected === null || token === null) return expected === null && token === null;
+  return timingSafeDigestEqual(expected, digestToken(token));
+}
+
+function timingSafeDigestEqual(expected: Uint8Array, actual: Uint8Array): boolean {
+  return expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
+}
+
+function opaqueToken(
+  key: Uint8Array,
+  purpose: "cursor" | "confirm",
+  transaction: TenantTransaction,
+  cursor: PostgresReaderCursorSnapshot,
+  binding: Readonly<Record<string, unknown>>,
+): string {
+  return createHmac("sha256", key)
+    .update("GOODDEALER-WORKSPACE-PULL-TOKEN-V2\0", "utf8")
+    .update(JSON.stringify({
+      purpose,
+      accountId: transaction.scope.accountId,
+      workspaceId: transaction.scope.workspaceId,
+      deviceId: cursor.deviceId,
+      generation: cursor.generation,
+      ...binding,
+    }), "utf8")
+    .digest("base64url");
+}
+
 function matchesToken(expected: Uint8Array | null, token: string | null): boolean {
   if (expected === null || token === null) return expected === null && token === null;
   const actual = digestToken(token);
   return expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
+}
+
+function presentPull(
+  confirmedThrough: number,
+  page: MutationPage,
+  pending: PostgresPendingDeliverySnapshot,
+  confirmToken: string,
+): PersistentReaderPullResult {
+  return {
+    accepted: true,
+    page,
+    confirmedThrough,
+    pendingDelivery: {
+      generation: pending.generation,
+      fromServerRevisionExclusive: pending.fromServerRevisionExclusive,
+      throughServerRevisionInclusive: pending.throughServerRevisionInclusive,
+      targetServerRevision: pending.targetServerRevision,
+      pageDigest: encodeDigest(pending.pageDigest)!,
+      nextCursorDigest: encodeDigest(pending.nextCursorDigest),
+      predecessorConfirmationDigest: encodeDigest(pending.predecessorConfirmationDigest),
+      expiresAt: pending.expiresAt,
+    },
+    confirmToken,
+  };
 }
 
 function accept(cursor: PostgresReaderCursorSnapshot, token: string | null): PersistentReaderCursorResult {

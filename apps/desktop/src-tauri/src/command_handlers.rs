@@ -1,373 +1,336 @@
-use std::sync::{Arc, Mutex};
+//! Thin Tauri adapters for the single Desktop local-host aggregate.
+
+use std::sync::Arc;
 
 use gooddealer_local_storage::{
-    BusinessDatabase, BusinessDatabaseError, DomainAssetWrite, Money, PortfolioReadSnapshot,
+    AssetLibraryReadSnapshot, DesktopAssetLibraryReadRequest, DesktopBackupError,
+    DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
+    DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest, DesktopDomainDetailReadRequest,
+    DesktopLocalBusinessStatus, DesktopLocalHost, DesktopSyncSnapshotView,
+    DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::State;
 
-use crate::authorization::{AuthorizedWorkspace, SystemClock, TrustedClock};
-use crate::host_storage::HostStorageBootstrap;
+use crate::backup_ipc::bounded_request_wire;
+use crate::native_cloud_runtime::NativeCloudCoordinator;
+use crate::provider_ipc::decode_provider_request;
+use crate::provider_lane::{ProviderOperation, ProviderStatus, ProviderSubmission};
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LocalBusinessStatus {
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareConnectionActivateRequest {
     schema_version: u8,
-    state: LocalBusinessState,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum LocalBusinessState {
-    AuthorizationRequired,
-    Ready,
+    connection_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct LocalDomainAssetUpsertRequest {
-    mutation_id: String,
-    created_at: String,
-    asset: LocalDomainAssetWrite,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LocalDomainAssetWrite {
+pub(crate) struct CloudflareZoneObserveRequest {
+    schema_version: u8,
+    connection_id: String,
     entity_id: String,
-    note: Option<String>,
-    portfolio_id: Option<String>,
-    tags: Vec<String>,
-    target_price: Option<Money>,
 }
 
-/// Host-owned local business runtime. Only the trusted authorization composition may activate it;
-/// no IPC command accepts a database path, key, account, device, or workspace selector.
-pub(crate) struct LocalBusinessRuntime {
-    storage: Option<HostStorageBootstrap>,
-    clock: Arc<dyn TrustedClock>,
-    state: Mutex<LocalBusinessRuntimeState>,
-}
-
-#[derive(Default)]
-struct LocalBusinessRuntimeState {
-    authorization: Option<AuthorizedWorkspace>,
-    database: Option<BusinessDatabase>,
-}
-
-impl LocalBusinessRuntime {
-    pub(crate) fn new(storage: HostStorageBootstrap) -> Self {
-        Self::with_clock(storage, Arc::new(SystemClock))
-    }
-
-    fn with_clock(storage: HostStorageBootstrap, clock: Arc<dyn TrustedClock>) -> Self {
-        Self {
-            storage: Some(storage),
-            clock,
-            state: Mutex::new(LocalBusinessRuntimeState::default()),
-        }
-    }
-
-    fn status(&self) -> LocalBusinessStatus {
-        let state =
-            self.clock
-                .unix_seconds()
-                .map_or(LocalBusinessState::AuthorizationRequired, |now| {
-                    self.state
-                        .lock()
-                        .map_or(LocalBusinessState::AuthorizationRequired, |state| {
-                            if state.database.is_some()
-                                && state
-                                    .authorization
-                                    .as_ref()
-                                    .is_some_and(|authorization| authorization.allows_at(now))
-                            {
-                                LocalBusinessState::Ready
-                            } else {
-                                LocalBusinessState::AuthorizationRequired
-                            }
-                        })
-                });
-        LocalBusinessStatus {
-            schema_version: 1,
-            state,
-        }
-    }
-
-    /// This is a native composition seam, not an IPC surface. The caller must derive all inputs
-    /// from a verified account/entitlement/device grant and a Host-owned application data root.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the authorization composition will call this seam; tests exercise it before that host wiring lands"
-        )
-    )]
-    pub(crate) fn activate_authorized_workspace(
-        &self,
-        authorization: AuthorizedWorkspace,
-    ) -> Result<(), BusinessDatabaseError> {
-        let now = self
-            .clock
-            .unix_seconds()
-            .map_err(|_| BusinessDatabaseError::WorkspaceRejected)?;
-        if !authorization.allows_at(now) {
-            return Err(BusinessDatabaseError::WorkspaceRejected);
-        }
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if state
-            .authorization
-            .as_ref()
-            .is_some_and(|existing| !existing.can_replace_with(&authorization))
-        {
-            return Err(BusinessDatabaseError::WorkspaceRejected);
-        }
-        let database = self
-            .storage
-            .as_ref()
-            .ok_or(BusinessDatabaseError::StorageRejected)?
-            .open_workspace(authorization.workspace_id())?;
-        state.database = Some(database);
-        state.authorization = Some(authorization);
-        Ok(())
-    }
-
-    fn read_portfolio(&self) -> Result<PortfolioReadSnapshot, String> {
-        let now = self
-            .clock
-            .unix_seconds()
-            .map_err(|error| error.to_string())?;
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| BusinessDatabaseError::StorageRejected.to_string())?;
-        ensure_authorized(&state, now)?;
-        state
-            .database
-            .as_ref()
-            .ok_or_else(|| "LOCAL_AUTHORIZATION_REQUIRED".to_owned())?
-            .read_portfolio()
-            .map_err(|error| error.to_string())
-    }
-
-    fn upsert_domain_asset(&self, request: LocalDomainAssetUpsertRequest) -> Result<(), String> {
-        let now = self
-            .clock
-            .unix_seconds()
-            .map_err(|error| error.to_string())?;
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| BusinessDatabaseError::StorageRejected.to_string())?;
-        ensure_authorized(&state, now)?;
-        state
-            .database
-            .as_mut()
-            .ok_or_else(|| "LOCAL_AUTHORIZATION_REQUIRED".to_owned())?
-            .upsert_domain_asset(
-                &request.mutation_id,
-                &request.created_at,
-                &DomainAssetWrite {
-                    entity_id: request.asset.entity_id,
-                    note: request.asset.note,
-                    portfolio_id: request.asset.portfolio_id,
-                    tags: request.asset.tags,
-                    target_price: request.asset.target_price,
-                },
-            )
-            .map_err(|error| error.to_string())
-    }
-}
-
-impl Default for LocalBusinessRuntime {
-    fn default() -> Self {
-        Self {
-            storage: None,
-            clock: Arc::new(SystemClock),
-            state: Mutex::new(LocalBusinessRuntimeState::default()),
-        }
-    }
-}
-
-fn ensure_authorized(state: &LocalBusinessRuntimeState, now: i64) -> Result<(), String> {
-    if state
-        .authorization
-        .as_ref()
-        .is_some_and(|authorization| authorization.allows_at(now))
-    {
-        Ok(())
-    } else {
-        Err("LOCAL_AUTHORIZATION_REQUIRED".to_owned())
-    }
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareObservationReadRequest {
+    schema_version: u8,
+    entity_id: String,
 }
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn local_business_status(
-    runtime: State<'_, LocalBusinessRuntime>,
-) -> LocalBusinessStatus {
-    runtime.status()
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> DesktopLocalBusinessStatus {
+    host.business_status()
 }
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn local_portfolio_read(
-    runtime: State<'_, LocalBusinessRuntime>,
-) -> Result<PortfolioReadSnapshot, String> {
-    runtime.read_portfolio()
+pub(crate) fn local_asset_library_read(
+    request: DesktopAssetLibraryReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<AssetLibraryReadSnapshot, String> {
+    host.read_asset_library(request)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn local_domain_asset_upsert(
-    request: LocalDomainAssetUpsertRequest,
-    runtime: State<'_, LocalBusinessRuntime>,
+pub(crate) fn local_domain_detail_read(
+    request: DesktopDomainDetailReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DomainDetailReadSnapshot, String> {
+    host.read_domain_detail(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_domain_asset_edit(
+    request: DesktopDomainAssetEditRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DomainAssetMutationReceipt, String> {
+    host.edit_domain_asset(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_domain_asset_delete(
+    request: DesktopDomainAssetDeleteRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DomainAssetMutationReceipt, String> {
+    host.delete_domain_asset(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_conflict_center_read(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopConflictCenterView, String> {
+    host.read_conflict_center()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_conflict_resolve(
+    request: DesktopConflictResolveRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+    coordinator: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<DesktopConflictResolutionReceipt, String> {
+    let receipt = host
+        .resolve_conflict(request)
+        .map_err(|error| error.to_string())?;
+    coordinator.wake_sync();
+    Ok(receipt)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_sync_status(
+    host: State<'_, Arc<DesktopLocalHost>>,
+    coordinator: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<DesktopSyncSnapshotView, String> {
+    let observation = coordinator
+        .transport_observation()
+        .ok_or_else(|| "LOCAL_SYNC_UNAVAILABLE".to_owned())?;
+    let mut snapshot = host
+        .read_sync_snapshot()
+        .map_err(|error| error.to_string())?;
+    snapshot.apply_transport(
+        observation.state,
+        observation.syncing,
+        observation.observed_at_unix_seconds,
+    );
+    Ok(snapshot)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn local_backup_restore_status(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopBackupRestoreStatus, String> {
+    let aggregate = Arc::clone(host.inner());
+    tauri::async_runtime::spawn_blocking(move || aggregate.backup_status())
+        .await
+        .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn local_backup_export(
+    request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopBackupExportStatus, String> {
+    let wire = bounded_request_wire(&request)?;
+    let aggregate = Arc::clone(host.inner());
+    tauri::async_runtime::spawn_blocking(move || aggregate.export_backup(&wire))
+        .await
+        .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+        .map_err(map_desktop_backup_error)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn local_backup_artifact_select(
+    request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopVerifiedBackupArtifact, String> {
+    let wire = bounded_request_wire(&request)?;
+    let aggregate = Arc::clone(host.inner());
+    tauri::async_runtime::spawn_blocking(move || aggregate.inspect_backup(&wire))
+        .await
+        .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+        .map_err(map_desktop_backup_error)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn local_backup_restore_begin(
+    request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopBackupRestoreStatus, String> {
+    let wire = bounded_request_wire(&request)?;
+    let aggregate = Arc::clone(host.inner());
+    tauri::async_runtime::spawn_blocking(move || aggregate.restore_backup(&wire))
+        .await
+        .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+        .map_err(map_desktop_backup_error)
+}
+
+fn map_desktop_backup_error(error: DesktopBackupError) -> String {
+    error.code().to_owned()
+}
+
+#[tauri::command]
+pub(crate) async fn cloudflare_connection_activate(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<(), String> {
-    runtime.upsert_domain_asset(request)
+    let request: CloudflareConnectionActivateRequest = decode_provider_request(&request, 512)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    map_provider_submission(cloud.submit_provider(&ProviderOperation::Activate {
+        connection_id: request.connection_id,
+    }))
+}
+
+#[tauri::command]
+pub(crate) async fn cloudflare_zone_observe(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<(), String> {
+    let request: CloudflareZoneObserveRequest = decode_provider_request(&request, 1_024)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    validate_cloudflare_entity_id(&request.entity_id)?;
+    map_provider_submission(cloud.submit_provider(&ProviderOperation::Observe {
+        connection_id: request.connection_id,
+        entity_id: request.entity_id,
+    }))
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn cloudflare_connection_status(
+    host: State<'_, Arc<DesktopLocalHost>>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<serde_json::Value, String> {
+    let local = host
+        .read_cloudflare_connection()
+        .map_err(|_| "CLOUDFLARE_STATUS_UNAVAILABLE".to_owned())?;
+    let state = match cloud.provider_status() {
+        ProviderStatus::Recovering => "recovering",
+        ProviderStatus::Busy => "busy",
+        ProviderStatus::Blocked => "blocked",
+        ProviderStatus::Ready if local.connection_ref.is_none() => "not-configured",
+        ProviderStatus::Ready => "ready",
+    };
+    Ok(
+        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "readGeneration": local.read_generation }),
+    )
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn cloudflare_observation_read(
+    request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<serde_json::Value, String> {
+    let request: CloudflareObservationReadRequest = decode_provider_request(&request, 1_024)?;
+    if request.schema_version != 1 {
+        return Err("CLOUDFLARE_INPUT_REJECTED".to_owned());
+    }
+    let value = host
+        .read_cloudflare_observation(DesktopCloudflareObservationReadRequest {
+            schema_version: request.schema_version,
+            entity_id: request.entity_id,
+        })
+        .map_err(|_| "CLOUDFLARE_OBSERVATION_UNAVAILABLE".to_owned())?;
+    serde_json::to_value(value).map_err(|_| "CLOUDFLARE_OBSERVATION_UNAVAILABLE".to_owned())
+}
+
+fn map_provider_submission(submission: ProviderSubmission) -> Result<(), String> {
+    match submission {
+        ProviderSubmission::Accepted => Ok(()),
+        ProviderSubmission::Busy => Err("CLOUDFLARE_BUSY".to_owned()),
+        ProviderSubmission::RateLimited => Err("CLOUDFLARE_RATE_LIMITED".to_owned()),
+        ProviderSubmission::Unavailable => Err("CLOUDFLARE_UNAVAILABLE".to_owned()),
+    }
+}
+
+fn validate_provider_schema_version(value: u8) -> Result<(), String> {
+    if value != 1 {
+        return Err("CLOUDFLARE_INPUT_REJECTED".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_cloudflare_connection_id(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 256
+        || value.bytes().any(|byte| !(0x21..=0x7e).contains(&byte))
+    {
+        return Err("CLOUDFLARE_INPUT_REJECTED".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_cloudflare_entity_id(value: &str) -> Result<(), String> {
+    if value.len() > 253 || value != value.to_ascii_lowercase() || !value.contains('.') {
+        return Err("CLOUDFLARE_INPUT_REJECTED".to_owned());
+    }
+    if value.split('.').any(|label| {
+        label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    }) {
+        return Err("CLOUDFLARE_INPUT_REJECTED".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicI64, Ordering};
-
-    use tempfile::tempdir;
-
     use super::*;
-    use crate::authorization::tests::{AcceptingVerifier, grant};
-    use crate::authorization::{
-        AuthorizationError, TrustedDeviceBinding, parse_canonical_utc,
-        verify_desktop_authorization_grant,
-    };
-    use crate::host_storage::{DatabaseKeyStore, HostStorageError};
 
-    struct TestKeyStore;
-
-    impl DatabaseKeyStore for TestKeyStore {
-        fn load(&self) -> Result<Option<[u8; 32]>, HostStorageError> {
-            Ok(Some([0x61; 32]))
-        }
-
-        fn generate_and_store(&self) -> Result<[u8; 32], HostStorageError> {
-            unreachable!("the deterministic test key already exists")
-        }
-    }
-
-    struct TestClock(AtomicI64);
-
-    impl TestClock {
-        fn new(now: i64) -> Self {
-            Self(AtomicI64::new(now))
-        }
-
-        fn set(&self, now: i64) {
-            self.0.store(now, Ordering::Relaxed);
-        }
-    }
-
-    impl TrustedClock for TestClock {
-        fn unix_seconds(&self) -> Result<i64, AuthorizationError> {
-            Ok(self.0.load(Ordering::Relaxed))
-        }
+    #[test]
+    fn cloudflare_identifiers_are_bounded_before_closed_unavailability() {
+        assert!(validate_cloudflare_connection_id("connection-1").is_ok());
+        assert!(validate_cloudflare_connection_id("").is_err());
+        assert!(validate_cloudflare_connection_id("line\nbreak").is_err());
+        assert!(validate_cloudflare_entity_id("example.com").is_ok());
+        assert!(validate_cloudflare_entity_id("Example.com").is_err());
+        assert!(validate_cloudflare_entity_id("-bad.example").is_err());
     }
 
     #[test]
-    fn cloud_transport_is_not_required_for_local_business_read_and_write() {
-        let directory = tempdir().unwrap();
-        let storage = HostStorageBootstrap::initialize(directory.path(), &TestKeyStore).unwrap();
-        let clock = Arc::new(TestClock::new(
-            parse_canonical_utc("2026-08-29T18:00:00Z").unwrap(),
-        ));
-        let runtime = LocalBusinessRuntime::with_clock(storage, clock.clone());
+    fn provider_submission_maps_the_real_queue_outcome() {
         assert_eq!(
-            runtime.status().state,
-            LocalBusinessState::AuthorizationRequired
-        );
-        let authorization = verify_desktop_authorization_grant(
-            &grant(serde_json::json!({})),
-            &TrustedDeviceBinding {
-                account_id: "account-local",
-                device_id: "device-local",
-                account_security_epoch: 4,
-                lease_epoch: 7,
-            },
-            clock.unix_seconds().unwrap(),
-            &AcceptingVerifier,
-        )
-        .unwrap();
-        runtime
-            .activate_authorized_workspace(authorization)
-            .unwrap();
-        runtime
-            .upsert_domain_asset(LocalDomainAssetUpsertRequest {
-                mutation_id: "mutation-local".to_owned(),
-                created_at: "2026-08-29T18:00:00Z".to_owned(),
-                asset: LocalDomainAssetWrite {
-                    entity_id: "domain-local.test".to_owned(),
-                    note: Some("committed without cloud".to_owned()),
-                    portfolio_id: None,
-                    tags: vec![],
-                    target_price: None,
-                },
-            })
-            .unwrap();
-        assert_eq!(runtime.read_portfolio().unwrap().domains.len(), 1);
-        assert_eq!(runtime.status().state, LocalBusinessState::Ready);
-
-        let mismatched_workspace = verify_desktop_authorization_grant(
-            &grant(serde_json::json!({"workspace": {"workspaceId": "workspace-other"}})),
-            &TrustedDeviceBinding {
-                account_id: "account-local",
-                device_id: "device-local",
-                account_security_epoch: 4,
-                lease_epoch: 7,
-            },
-            clock.unix_seconds().unwrap(),
-            &AcceptingVerifier,
-        )
-        .unwrap();
-        assert_eq!(
-            runtime
-                .activate_authorized_workspace(mismatched_workspace)
-                .unwrap_err(),
-            BusinessDatabaseError::WorkspaceRejected
-        );
-
-        clock.set(parse_canonical_utc("2026-08-30T00:00:00Z").unwrap());
-        assert_eq!(
-            runtime.status().state,
-            LocalBusinessState::AuthorizationRequired
+            map_provider_submission(ProviderSubmission::Accepted),
+            Ok(())
         );
         assert_eq!(
-            runtime.read_portfolio().unwrap_err(),
-            "LOCAL_AUTHORIZATION_REQUIRED"
+            map_provider_submission(ProviderSubmission::Busy),
+            Err("CLOUDFLARE_BUSY".to_owned())
         );
         assert_eq!(
-            runtime
-                .upsert_domain_asset(LocalDomainAssetUpsertRequest {
-                    mutation_id: "mutation-expired".to_owned(),
-                    created_at: "2026-08-30T00:00:00Z".to_owned(),
-                    asset: LocalDomainAssetWrite {
-                        entity_id: "blocked.test".to_owned(),
-                        note: None,
-                        portfolio_id: None,
-                        tags: vec![],
-                        target_price: None,
-                    },
-                })
-                .unwrap_err(),
-            "LOCAL_AUTHORIZATION_REQUIRED"
+            map_provider_submission(ProviderSubmission::RateLimited),
+            Err("CLOUDFLARE_RATE_LIMITED".to_owned())
         );
-    }
-
-    #[test]
-    fn runtime_starts_locked_and_exposes_no_database_identity() {
-        let runtime = LocalBusinessRuntime::default();
         assert_eq!(
-            serde_json::to_value(runtime.status()).unwrap(),
-            serde_json::json!({"schemaVersion": 1, "state": "authorization_required"})
+            map_provider_submission(ProviderSubmission::Unavailable),
+            Err("CLOUDFLARE_UNAVAILABLE".to_owned())
         );
     }
 }

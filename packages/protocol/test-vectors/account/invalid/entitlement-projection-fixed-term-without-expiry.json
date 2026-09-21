@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "state": "active",
+  "licenseId": "license-10-year",
+  "plan": "ten-year",
+  "entitlementKind": "fixed_term",
+  "entitlementRevision": 1,
+  "commercialExpiresAt": null,
+  "offlineGraceUntil": "2036-08-16T11:00:00Z",
+  "credentialRefreshDueAt": "2026-08-14T00:00:00Z",
+  "deviceLimit": 2,
+  "activeDeviceLimit": 1,
+  "standbyCloudRead": true,
+  "featureEntitlements": ["feature:a", "feature:b"],
+  "versionEntitlement": { "kind": "subscription_supported" },
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

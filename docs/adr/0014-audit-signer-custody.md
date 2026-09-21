@@ -1,12 +1,13 @@
-# ADR-0014：服务器审计签名使用不可导出的受管 KMS/HSM 密钥
+# ADR-0014：服务器审计签名使用目的隔离的 OpenBao Transit 密钥
 
 状态：Accepted production security design; no production signer is provisioned.
 
 ## 决策
 
-每个生产环境的 `user_audit`、`staff_audit` 与 `service_audit` 目的各使用独立、不可导出的
-受管 KMS/HSM 非对称签名密钥。KMS/HSM 必须支持当前审计签名 transcript 所需的算法和可验证
-公钥；私钥不能导出到应用、CI、开发者工作站、配置、日志或数据库。
+每个生产环境的 `user_audit`、`staff_audit` 与 `service_audit` 目的各使用独立、自托管
+OpenBao Transit Ed25519 key。key 必须不可导出、不可明文备份且不可由应用删除；私钥不能进入
+应用、CI、开发者工作站、配置、日志或数据库。平台和认证规则由
+[ADR-0021](0021-self-hosted-openbao-transit-signing.md) 统一定义。
 
 审计应用身份只可对其被分配的键执行签名，且只能接收已规范化的审计 transcript。它不能
 创建、删除、导出或重新授权密钥，也不能把签名接口变成通用签名服务。Security Custodian
@@ -20,10 +21,10 @@
 ## 理由
 
 审计签名需要可验证的独立密钥边界，但应用服务器不应拥有可复制的根秘密。不可导出的
-KMS/HSM、最小签名权限和职责分离能把密钥泄露、部署误操作和单人权限滥用限制在可审计的
-边界内。
+OpenBao Transit key、最小签名权限和职责分离能把密钥泄露、部署误操作和单人权限滥用限制在
+可审计的边界内。
 
 ## 当前实现
 
-M013 已接入 Cloud 迁移目录，但默认生产签名构造仍拒绝。本 ADR 不声明 KMS/HSM、生产键、
+M013 已接入 Cloud 迁移目录，但默认生产签名构造仍拒绝。本 ADR 不声明 OpenBao 集群、生产键、
 批准、轮换、托管数据库或部署已经存在。

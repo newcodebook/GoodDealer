@@ -50,15 +50,15 @@ function Dashboard({go}){
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                   <span style={{fontSize:16,fontWeight:600,color:"var(--text-1)"}}>年付 License</span>
-                  <Badge tone="gold">PROFESSIONAL</Badge>
+                  <Badge tone="gold">单一功能档位</Badge>
                   <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:7,fontSize:12,color:"var(--text-2)",whiteSpace:"nowrap"}}>自动续费 <Switch checked={true} onChange={()=>{}}/></span>
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-3)",marginBottom:6,fontFamily:"var(--font-mono)"}}><span>2025-12-31</span><span>本期已用 63% · 剩余 136 天</span><span>2026-12-31</span></div>
                 <ProgressBar value={63} height={6}/>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"12px 24px",marginTop:14}}>
-                  <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">年费</span><Money amount={299} size={15}/></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">年费</span><Money amount={98} size={15}/></div>
                   <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">下次扣款</span><span style={{fontFamily:"var(--font-mono)",fontSize:13,color:"var(--text-1)"}}>2026-12-31</span></div>
-                  <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">支付方式</span><span style={{fontSize:13,color:"var(--text-1)"}}>Visa · 4242</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">支付方式</span><span style={{fontSize:13,color:"var(--text-1)"}}>Stripe 托管付款</span></div>
                   <div style={{display:"flex",flexDirection:"column",gap:3,whiteSpace:"nowrap"}}><span className="gd-t-label">设备额度</span><span style={{fontSize:13,color:"var(--text-1)"}}>2 台 · 单活动</span></div>
                 </div>
               </div>

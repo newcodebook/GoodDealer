@@ -1,10 +1,11 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "mutationId": "mutation-5",
   "workspaceId": "workspace-a",
   "workspaceSchemaVersion": 1,
   "entityType": "domain_asset",
   "entityId": "example.com",
+  "operationKind": "upsert",
   "baseServerRevision": 4,
   "changedFields": [
     {

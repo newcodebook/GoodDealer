@@ -23,7 +23,7 @@ are linked rather than duplicated here.
 
 ## Boundaries
 
-- Does NOT handle: Hosted PostgreSQL operation, production KMS/HSM signer custody, deployment, real Cloudflare execution, native signing/notarization, durable archival, independent review, release issuance, or Gate closure. (see: docs/VERIFICATION.md)
+- Does NOT handle: Hosted PostgreSQL operation, provisioned production OpenBao signer custody, deployment, real Cloudflare execution, native signing/notarization, durable archival, independent review, release issuance, or Gate closure. (see: docs/VERIFICATION.md)
 - Does NOT handle: Treating local source, fixtures, tests, visual evidence, generated reports, or a decision document as proof of an external qualification. (see: docs/VERIFICATION.md)
 - Does NOT handle: Treating uncomposed feature or visual-fixture source as a supported product path. (see: docs/ENGINEERING_STRUCTURE.md)
 
@@ -34,7 +34,7 @@ are linked rather than duplicated here.
 
 ## Open Questions
 
-- [ ] Which environment-specific provider, KMS/HSM, native-artifact, and release-record details will the accountable external owners record when qualification begins? (open since: 2026-08)
+- [ ] Which environment-specific provider, OpenBao cluster/keys/workload identity/seal, native-artifact, and release-record details will the accountable external owners record when qualification begins? (open since: 2026-08)
 
 ## Local implementation versus external qualification
 
@@ -47,7 +47,7 @@ integrator are present. This permission does not authorize real external effects
 | Local implementation evidence | The specifically tested Desktop, Host, Cloud API, persistence, protocol, or UI boundary. | Deployment, hosted database operation, real provider behavior, native qualification, release, or Gate closure. |
 | External qualification evidence | Only the observed environment, provider, final native artifact, release, or approval fact. | A different environment, unobserved provider behavior, or a broader future capability. |
 
-Hosted PostgreSQL, production signer custody, KMS/HSM, deployment, real Cloudflare execution,
+Hosted PostgreSQL, provisioned production OpenBao signer custody, deployment, real Cloudflare execution,
 native signing/notarization, archival, independent review, release issuance, and Gate closure remain
 external qualifications. They constrain only their matching external claims, not local implementation
 within the accepted scope. See [verification](docs/VERIFICATION.md) for the exact evidence taxonomy.
@@ -56,22 +56,29 @@ within the accepted scope. See [verification](docs/VERIFICATION.md) for the exac
 
 The current source does **not** support a customer-readiness claim:
 
-- Desktop Tauri exposes exactly three narrow local-business commands: authorization-aware status,
-  local Portfolio read, and local DomainAsset upsert. Renderer supplies no database path, key,
-  workspace selector, Provider account, or Cloud Repository.
+- Desktop Tauri registers 19 named commands spanning authorization-aware local business reads/writes,
+  conflict and sync status, fail-closed backup surfaces, Desktop authentication, and Cloudflare
+  activation/observation. The Renderer composes these only through narrow adapters plus
+  `DesktopShell`/`DesktopRouter`; it supplies no database path, key, workspace selector, Provider
+  account identity, unrestricted network target, or Cloud Repository.
 - `local-storage` owns the production SQLCipher active workspace, local business transaction,
   Provider-connection local-only storage, and secret-free Sync Outbox.
-- `secure-host-core` contains a private Cloudflare Zone/DNS read Service with a credential fence,
-  hardened fixed-authority transport, and GoodDealer-owned endpoint/wire definitions. It
-  has no native secret provisioning, Tauri command, Cloud route, or customer-reachable composition.
-- Cloud owns the literal M001–M014 migration catalog, including account/default-workspace and
-  domain-asset sync-replica foundations. The connection-keyed Cloudflare observation migration was
-  removed because third-party account bindings are local-only. Modules, contracts, UI primitives, i18n
-  copy, migrations, and local tests do not by themselves establish a customer-operable API or
-  provider observation.
+- `secure-host-core` contains the Cloudflare Zone/DNS read Service, credential fence, hardened
+  fixed-authority transport, and GoodDealer-owned endpoint/wire definitions. Native owns one-time
+  Token intake and custody; the production Renderer exposes activation, status, recovery guidance,
+  and stored read-only DNS observation without receiving the Token or making Provider requests.
+- Cloud owns one literal ordered catalog with 22 migrations. The established M001–M017, M019 and
+  M020 sequence is followed by `202609140001-sync-v2-ledger`,
+  `202609150001-workspace-checkpoint-v2`, and
+  `202609150002-cloudflare-dns-observation`; there is no M018 compatibility migration. The
+  Cloudflare observation schema contains only the allowlisted business observation and connection
+  reference—third-party account bindings and credentials remain local-only. Source migrations and
+  local tests do not establish that a shared database has applied the catalog or that a Provider is
+  customer-operable.
 
-Any future production composition must add an explicit capability allowlist and fresh reachability
-evidence. Existing local modules and tests remain implementation evidence, not customer readiness.
+The production composition must preserve its explicit capability allowlist and refresh reachability
+evidence whenever commands, routes, adapters, or manifests change. Existing local modules and tests
+remain implementation evidence, not customer readiness.
 
 ## Runtime and design boundaries
 
@@ -97,6 +104,8 @@ evidence. Existing local modules and tests remain implementation evidence, not c
 - [Decision register](docs/OPEN_DECISIONS.md)
 - [Production operations](docs/PRODUCTION_OPERATIONS.md)
 - [Local development environment](docs/LOCAL_ENVIRONMENT.md)
+- [Shared Cloud development environment](docs/DEVELOPMENT_CLOUD.md)
+- [Development OpenBao operations](docs/DEVELOPMENT_OPENBAO.md)
 - [Security model](docs/SECURITY.md)
 - [Release identity](release/README.md)
 

@@ -34,13 +34,31 @@ describe("account activation HTTP route", () => {
     const app = createPublicHttp({
       sessions: new StaticPublicSessionVerifier([
         { sessionId: "web-session", accountId: "account-web", clientKind: "account_web" },
-        { sessionId: "desktop-session", accountId: "account-desktop", clientKind: "desktop" },
       ]),
+      desktopAccessTokens: {
+        async verifyAccessToken(token) {
+          return token === "desktop-access-token"
+            ? { accountId: "account-desktop", sessionId: "desktop-session", clientKind: "desktop" }
+            : null;
+        },
+      },
       preAuthRateLimit: rateLimitPolicy(60_000, 100),
       sessionRateLimit: rateLimitPolicy(60_000, 100),
       now: () => new Date("2026-08-29T00:00:00Z"),
       correlationIds: () => "activation-correlation",
-      ports: { accountActivation: { activate } },
+      ports: {
+        accountActivation: { activate },
+        desktopAuthorization: { issue: async () => null },
+        commercialCheckout: {
+          createCheckout: async () => null,
+          readStatus: async () => null,
+          cancelSubscription: async () => null,
+          confirmFixedTerm: async () => null,
+          requestFirstPurchaseRefund: async () => null,
+          readFirstPurchaseRefundStatus: async () => null,
+          claimApprovalRedirect: async () => null,
+        },
+      },
     });
     apps.push(app);
     return { app, activate };
@@ -108,7 +126,7 @@ describe("account activation HTTP route", () => {
     const desktopResult = await desktop.app.inject({
       method: "POST",
       url: ACCOUNT_ACTIVATION_ROUTE,
-      headers: { cookie: "gd_session=desktop-session" },
+      headers: { authorization: "Bearer desktop-access-token" },
       payload: { schemaVersion: 1 },
     });
     expect(desktopResult.statusCode).toBe(404);

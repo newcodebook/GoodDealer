@@ -22,6 +22,32 @@ export interface PostgresReaderCursorSnapshot {
   readonly continuationTokenDigest: Uint8Array | null;
 }
 
+export interface PostgresPendingDeliverySnapshot {
+  readonly generation: number;
+  readonly fromServerRevisionExclusive: number;
+  readonly throughServerRevisionInclusive: number;
+  readonly targetServerRevision: number;
+  readonly pageLimit: number;
+  readonly pageDigest: Uint8Array;
+  readonly nextCursorDigest: Uint8Array | null;
+  readonly predecessorConfirmationDigest: Uint8Array | null;
+  readonly confirmationTokenDigest: Uint8Array;
+  readonly expiresAt: string;
+  readonly expired: boolean;
+}
+
+export interface NewPostgresPendingDelivery {
+  readonly fromServerRevisionExclusive: number;
+  readonly throughServerRevisionInclusive: number;
+  readonly targetServerRevision: number;
+  readonly pageLimit: number;
+  readonly pageDigest: Uint8Array;
+  readonly nextCursorDigest: Uint8Array | null;
+  readonly predecessorConfirmationDigest: Uint8Array | null;
+  readonly confirmationTokenDigest: Uint8Array;
+  readonly expiresAt: string;
+}
+
 export interface ReaderCursorDeviceRemovalPort {
   retireForDeviceRemoval(transaction: TenantTransaction, deviceId: string): Promise<void>;
 }
@@ -67,6 +93,117 @@ implements ReaderCursorDeviceRemovalPort, ReaderCursorCompactionWatermarkPort {
       [transaction.scope.accountId, transaction.scope.workspaceId, deviceId, atRevision, leaseTtlSeconds],
     );
     return parseRequiredRow(result.rows[0]);
+  }
+
+  async readDeliveryExpiry(transaction: TenantTransaction, ttlSeconds: number): Promise<string> {
+    assertTtl(ttlSeconds);
+    const result = await transaction.query<{ expires_at: string }>(
+      `SELECT to_char(
+         (transaction_timestamp() + ($1 * interval '1 second')) AT TIME ZONE 'UTC',
+         'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+       ) AS expires_at`,
+      [ttlSeconds],
+    );
+    return canonicalUtcTimestamp.parse(result.rows[0]?.expires_at);
+  }
+
+  async lockPendingDelivery(
+    transaction: TenantTransaction,
+    cursor: PostgresReaderCursorSnapshot,
+  ): Promise<PostgresPendingDeliverySnapshot | null> {
+    const result = await transaction.query<StoredPendingDeliveryRow>(
+      `SELECT cursor_generation, from_server_revision_exclusive,
+              through_server_revision_inclusive, target_server_revision, page_limit,
+              page_digest, next_cursor_digest, predecessor_confirmation_digest,
+              confirmation_token_digest,
+              to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS expires_at,
+              transaction_timestamp() >= expires_at AS expired
+       FROM workspace_reader_pending_deliveries
+       WHERE account_id=$1 AND workspace_id=$2 AND device_id=$3
+       FOR UPDATE`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, cursor.deviceId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    const pending = parsePendingDelivery(row);
+    if (pending.generation !== cursor.generation) {
+      throw new TypeError("pending delivery generation does not match its reader cursor");
+    }
+    return pending;
+  }
+
+  async insertPendingDelivery(
+    transaction: TenantTransaction,
+    cursor: PostgresReaderCursorSnapshot,
+    value: NewPostgresPendingDelivery,
+  ): Promise<PostgresPendingDeliverySnapshot> {
+    assertPendingDelivery(value, cursor);
+    const result = await transaction.query<StoredPendingDeliveryRow>(
+      `INSERT INTO workspace_reader_pending_deliveries (
+         account_id, workspace_id, device_id, cursor_generation,
+         from_server_revision_exclusive, through_server_revision_inclusive,
+         target_server_revision, page_limit, page_digest, next_cursor_digest,
+         predecessor_confirmation_digest, confirmation_token_digest, expires_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::timestamptz)
+       RETURNING cursor_generation, from_server_revision_exclusive,
+         through_server_revision_inclusive, target_server_revision, page_limit,
+         page_digest, next_cursor_digest, predecessor_confirmation_digest,
+         confirmation_token_digest,
+         to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS expires_at,
+         transaction_timestamp() >= expires_at AS expired`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, cursor.deviceId, cursor.generation,
+        value.fromServerRevisionExclusive, value.throughServerRevisionInclusive,
+        value.targetServerRevision, value.pageLimit, Buffer.from(value.pageDigest),
+        nullableBuffer(value.nextCursorDigest), nullableBuffer(value.predecessorConfirmationDigest),
+        Buffer.from(value.confirmationTokenDigest), value.expiresAt],
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new TypeError("pending delivery insert returned no row");
+    return parsePendingDelivery(row);
+  }
+
+  async confirmPendingDelivery(
+    transaction: TenantTransaction,
+    cursor: PostgresReaderCursorSnapshot,
+    pending: PostgresPendingDeliverySnapshot,
+    confirmationTokenDigest: Uint8Array,
+    leaseTtlSeconds: number,
+  ): Promise<PostgresReaderCursorSnapshot> {
+    assertDigest(confirmationTokenDigest, "confirmation token digest");
+    assertTtl(leaseTtlSeconds);
+    if (pending.generation !== cursor.generation || pending.fromServerRevisionExclusive !== cursor.readThroughServerRevision) {
+      throw new TypeError("pending delivery cannot advance this reader cursor");
+    }
+    const deleted = await transaction.query(
+      `DELETE FROM workspace_reader_pending_deliveries
+       WHERE account_id=$1 AND workspace_id=$2 AND device_id=$3
+         AND cursor_generation=$4 AND confirmation_token_digest=$5
+         AND transaction_timestamp() < expires_at`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, cursor.deviceId,
+        cursor.generation, Buffer.from(confirmationTokenDigest)],
+    );
+    if (deleted.rowCount !== 1) throw new TypeError("pending delivery confirmation compare-and-set lost");
+    const continuation = pending.nextCursorDigest;
+    const result = await transaction.query<StoredReaderCursorRow>(
+      `UPDATE workspace_reader_cursors
+       SET row_version=row_version+1,
+           read_through_server_revision=$4,
+           lease_expires_at=transaction_timestamp() + ($5 * interval '1 second'),
+           pinned_page_target_server_revision=$6,
+           next_server_revision=$7,
+           continuation_token_digest=$8
+       WHERE account_id=$1 AND workspace_id=$2 AND device_id=$3
+         AND cursor_generation=$9 AND row_version=$10 AND status='active'
+         AND read_through_server_revision=$11
+       RETURNING ${RETURNING_COLUMNS}`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, cursor.deviceId,
+        pending.throughServerRevisionInclusive, leaseTtlSeconds,
+        continuation === null ? null : pending.targetServerRevision,
+        continuation === null ? null : pending.throughServerRevisionInclusive + 1,
+        nullableBuffer(continuation), cursor.generation, cursor.rowVersion,
+        pending.fromServerRevisionExclusive],
+    );
+    return parseUpdatedRow(result.rows[0], "reader cursor confirmation compare-and-set lost");
   }
 
   async reopenAfterRebootstrap(
@@ -255,6 +392,71 @@ interface StoredReaderCursorRow {
   readonly pinned_page_target_server_revision: string | null;
   readonly next_server_revision: string | null;
   readonly continuation_token_digest: Buffer | null;
+}
+
+interface StoredPendingDeliveryRow {
+  readonly cursor_generation: string;
+  readonly from_server_revision_exclusive: string;
+  readonly through_server_revision_inclusive: string;
+  readonly target_server_revision: string;
+  readonly page_limit: number;
+  readonly page_digest: Buffer;
+  readonly next_cursor_digest: Buffer | null;
+  readonly predecessor_confirmation_digest: Buffer | null;
+  readonly confirmation_token_digest: Buffer;
+  readonly expires_at: string;
+  readonly expired: boolean;
+}
+
+function parsePendingDelivery(row: StoredPendingDeliveryRow): PostgresPendingDeliverySnapshot {
+  const pageDigest = parseBinaryDigest(row.page_digest, "stored pending page digest");
+  const nextCursorDigest = row.next_cursor_digest === null ? null : parseBinaryDigest(row.next_cursor_digest, "stored pending cursor digest");
+  const predecessor = row.predecessor_confirmation_digest === null
+    ? null : parseBinaryDigest(row.predecessor_confirmation_digest, "stored predecessor confirmation digest");
+  const confirmation = parseBinaryDigest(row.confirmation_token_digest, "stored confirmation token digest");
+  return {
+    generation: parsePositiveSafeInteger(row.cursor_generation, "pending delivery generation"),
+    fromServerRevisionExclusive: parseRevision(row.from_server_revision_exclusive, "pending delivery from revision"),
+    throughServerRevisionInclusive: parseRevision(row.through_server_revision_inclusive, "pending delivery through revision"),
+    targetServerRevision: parseRevision(row.target_server_revision, "pending delivery target revision"),
+    pageLimit: row.page_limit,
+    pageDigest, nextCursorDigest, predecessorConfirmationDigest: predecessor,
+    confirmationTokenDigest: confirmation,
+    expiresAt: canonicalUtcTimestamp.parse(row.expires_at),
+    expired: row.expired === true,
+  };
+}
+
+function assertPendingDelivery(value: NewPostgresPendingDelivery, cursor: PostgresReaderCursorSnapshot): void {
+  assertRevision(value.fromServerRevisionExclusive, "pending delivery from revision");
+  assertRevision(value.throughServerRevisionInclusive, "pending delivery through revision");
+  assertRevision(value.targetServerRevision, "pending delivery target revision");
+  if (!Number.isSafeInteger(value.pageLimit) || value.pageLimit < 1 || value.pageLimit > 256) {
+    throw new TypeError("pending delivery page limit is malformed");
+  }
+  if (value.fromServerRevisionExclusive > value.throughServerRevisionInclusive ||
+      value.throughServerRevisionInclusive > value.targetServerRevision ||
+      value.fromServerRevisionExclusive !== cursor.readThroughServerRevision) {
+    throw new TypeError("pending delivery revision bounds are invalid");
+  }
+  assertDigest(value.pageDigest, "pending page digest");
+  assertDigest(value.confirmationTokenDigest, "confirmation token digest");
+  if (value.nextCursorDigest !== null) assertDigest(value.nextCursorDigest, "pending cursor digest");
+  if (value.predecessorConfirmationDigest !== null) assertDigest(value.predecessorConfirmationDigest, "predecessor confirmation digest");
+  canonicalUtcTimestamp.parse(value.expiresAt);
+}
+
+function nullableBuffer(value: Uint8Array | null): Buffer | null {
+  return value === null ? null : Buffer.from(value);
+}
+
+function assertDigest(value: Uint8Array, label: string): void {
+  if (value.byteLength !== 32) throw new TypeError(`${label} is malformed`);
+}
+
+function parseBinaryDigest(value: Buffer, label: string): Uint8Array {
+  assertDigest(value, label);
+  return new Uint8Array(value);
 }
 
 function parseStoredRow(row: StoredReaderCursorRow): PostgresReaderCursorSnapshot {

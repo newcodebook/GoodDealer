@@ -82,7 +82,7 @@ describe("runtime presentation boundary corpus", () => {
       {
         reason: "device_removed",
         accountDisplay: "masked@example.com",
-        plan: { kind: "lifetime", planId: "lifetime" },
+        plan: { kind: "fixed_term", planId: "ten-year" },
         deviceDisplay: "Main Mac",
         removedAt: timestamp,
         availableActions: ["switch_account", "quit"],
@@ -114,8 +114,8 @@ describe("runtime presentation boundary corpus", () => {
     });
     expect(projectLockedAccountViewModel({
       ...fixtures[0],
-      plan: { kind: "lifetime", planId: "lifetime" },
-    })).toEqual({ ok: false, issue: "invalid_state" });
+      plan: { kind: "fixed_term", planId: "ten-year" },
+    })).toMatchObject({ ok: true });
   });
 
   it("covers all five activation steps with Host identity and Cloud lease authority", () => {

@@ -1,7 +1,7 @@
 import type {
   AccountGateStatus,
-  AccountLockReason,
   AccountRejection,
+  AccountRestrictionReason,
   AccountSessionClientKind,
   AccountSessionList,
   AccountSessionSummary,
@@ -9,6 +9,7 @@ import type {
   AuthSessionState,
   AuthSessionStatus,
   EntitlementProjection,
+  LocalAccessCapability,
 } from "@gooddealer/protocol/account";
 import type {
   ActiveDeviceLeaseStatus,
@@ -30,11 +31,12 @@ export type AccountSurface =
 
 export interface AccountSurfaceView {
   surface: AccountSurface;
-  lockReason: AccountLockReason | null;
+  restrictionReason: AccountRestrictionReason | null;
   capabilities: readonly CloudScope[];
 }
 
 export interface AuthSurfaceView extends AccountSurfaceView {
+  localCapabilities: readonly LocalAccessCapability[];
   authState: AuthSessionState;
   accountId: string | null;
   sessionId: string | null;
@@ -108,20 +110,24 @@ export function projectAuthSurface(
 ): AuthSurfaceView {
   const sessionUnavailable = auth.state === "signed_out" || auth.state === "revoked";
   const sessionRestricted = auth.state === "refresh_required" || auth.state === "reauth_required";
-  const surface = sessionUnavailable || gate.outcome === "locked"
+  const surface = sessionUnavailable || gate.accessMode === "security_locked"
     ? "locked"
-    : sessionRestricted && (account.surface === "active" || account.surface === "activating")
+    : gate.accessMode === "commercial_read_only" || gate.accessMode === "standby_read_only" ||
+        sessionRestricted && (account.surface === "active" || account.surface === "activating")
       ? "standby_read_only"
       : account.surface;
 
   return {
     surface,
-    lockReason: gate.lockReason,
+    restrictionReason: gate.restrictionReason,
     capabilities: sessionUnavailable
       ? []
+      : gate.accessMode === "commercial_read_only"
+        ? account.capabilities.filter((capability) => capability === "account:manage")
       : surface === "active"
         ? [...account.capabilities]
         : account.capabilities.filter((capability) => !isActiveOnlyCapability(capability)),
+    localCapabilities: sessionUnavailable ? [] : [...gate.capabilities],
     authState: auth.state,
     accountId: auth.accountId,
     sessionId: auth.sessionId,

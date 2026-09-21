@@ -3,13 +3,17 @@
 ## 适用范围
 
 本文件定义首发生产运行的目标责任和控制面。它不是部署记录，也不声明某个云账户、区域、
-KMS/HSM、数据库或监控系统已经创建。
+OpenBao 集群、数据库或监控系统已经创建。
 
 ## 运行模型
 
-首发采用一个受管生产区域。Cloud 服务、数据库、审计签名 KMS/HSM 与运行监控必须位于同一
+首发采用一个受管生产区域。Cloud 服务、数据库、自托管 OpenBao Transit 与运行监控必须位于同一
 获批区域；生产、预发布与开发使用隔离的身份、数据、密钥和网络边界。生产数据库只经 Cloud
 拥有模块访问，客户端和静态网站没有直接数据库凭据或网络路径。
+
+Account Web 的浏览器 custody namespace HMAC key 属于环境隔离边界：生产必须使用独立于开发、
+预发布和任何备份的全新 32-byte 随机密钥。该密钥不得从源码、构件或客户端派生，也不得在环境
+迁移时复用；发布前需由 Security Custodian 验证其独立性并记录轮换/撤销计划。
 
 实际托管商、区域、环境账户和不可变基础设施版本由 Data Governance Owner 与 Platform
 Operations Owner 在环境创建时记录。它们不是源码常量，也不能由测试、营销部署工作流或
@@ -20,7 +24,7 @@ Operations Owner 在环境创建时记录。它们不是源码常量，也不能
 | 角色 | 责任 | 不得单独完成 |
 | --- | --- | --- |
 | Platform Operations Owner | 基础设施、部署、监控、备份恢复演练、事件协调。 | 创建/授权审计签名键并自行批准客户发行。 |
-| Security Custodian | KMS/HSM 策略、密钥轮换、安全告警与安全事件。 | 单独部署生产服务或自行批准客户发行。 |
+| Security Custodian | OpenBao 策略、Transit key 轮换、seal/HSM（如使用）、安全告警与安全事件。 | 单独部署生产服务或自行批准客户发行。 |
 | Data Governance Owner | 数据区域、保留、删除、导出和适用通知义务。 | 绕过服务器端租户隔离或将数据移至未获批区域。 |
 | Product Owner | 首发范围、客户承诺和发行批准。 | 以产品批准代替安全、运营或独立审查证据。 |
 
@@ -43,5 +47,6 @@ Operations Owner 在环境创建时记录。它们不是源码常量，也不能
 
 ## 当前状态
 
-没有生产部署、实际托管商、数据区域、KMS/HSM、归档、监控、事件演练或已发行构件。上述
+没有生产部署、实际基础设施提供商、合格 live merchant/self-managed Provider worker、数据区域、OpenBao 集群/生产
+key/workload identity、归档、监控、事件演练或已发行构件。上述
 模型只为后续本地功能和 Cloud API 开发提供最终运行边界。

@@ -1,0 +1,38 @@
+{
+  "validRequests": [
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "123e4567-e89b-42d3-a456-426614174000",
+      "entityId": "example.com",
+      "leaseEpoch": 7,
+      "sourceSequence": 1,
+      "observedAt": "2026-09-15T00:00:00Z",
+      "availability": "available",
+      "zoneStatus": "active",
+      "counts": { "a": 1, "aaaa": 0, "cname": 2, "txt": 3, "proxied": 1 }
+    },
+    {
+      "schemaVersion": 1,
+      "providerKind": "cloudflare",
+      "observationCapability": "dns",
+      "observationId": "123e4567-e89b-42d3-a456-426614174001",
+      "entityId": "unavailable.example",
+      "leaseEpoch": 7,
+      "sourceSequence": 4096,
+      "observedAt": "2026-09-15T00:00:01Z",
+      "availability": "unavailable",
+      "zoneStatus": "unknown",
+      "counts": { "a": null, "aaaa": null, "cname": null, "txt": null, "proxied": null }
+    }
+  ],
+  "invalidRequests": [
+    { "schemaVersion": 1, "providerKind": "cloudflare", "observationCapability": "dns", "observationId": "obs-secret", "entityId": "domain", "leaseEpoch": 7, "sourceSequence": 1, "observedAt": "2026-09-15T00:00:00Z", "availability": "available", "zoneStatus": "active", "counts": { "a": 0, "aaaa": 0, "cname": 0, "txt": 0, "proxied": 0 }, "token": "secret" },
+    { "schemaVersion": 1, "providerKind": "cloudflare", "observationCapability": "dns", "observationId": "obs-zone", "entityId": "domain", "leaseEpoch": 7, "sourceSequence": 1, "observedAt": "2026-09-15T00:00:00Z", "availability": "available", "zoneStatus": "active", "counts": { "a": 0, "aaaa": 0, "cname": 0, "txt": 0, "proxied": 0 }, "zoneId": "0123456789abcdef0123456789abcdef" },
+    { "schemaVersion": 1, "providerKind": "cloudflare", "observationCapability": "dns", "observationId": "obs-mixed", "entityId": "domain", "leaseEpoch": 7, "sourceSequence": 1, "observedAt": "2026-09-15T00:00:00Z", "availability": "unavailable", "zoneStatus": "unknown", "counts": { "a": 0, "aaaa": null, "cname": null, "txt": null, "proxied": null } }
+  ],
+  "validAcks": [
+    { "schemaVersion": 1, "accepted": true, "observationId": "123e4567-e89b-42d3-a456-426614174000", "leaseEpoch": 7, "sourceSequence": 1, "canonicalRequestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "observationSequence": 1, "disposition": "current" }
+  ]
+}

@@ -107,7 +107,7 @@ describe("DesktopRouter", () => {
           availableRouteIds: ["portfolio.list", "portfolio.detail"],
           defaultRouteId: "portfolio.list",
         }}
-        requestedRoute={{ id: "portfolio.detail", domainId: "domain-1", workspaceId: "attacker" }}
+        requestedRoute={{ id: "portfolio.detail", domainId: "example.test", workspaceId: "attacker" }}
         routeRenderers={{
           "portfolio.list": () => <p>validated default route</p>,
           "portfolio.detail": renderDetail,

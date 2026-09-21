@@ -12,10 +12,12 @@
     "./execution-events": "./src/execution-events/index.ts",
     "./recovery": "./src/recovery/index.ts",
     "./connectors": "./src/connectors/index.ts",
+    "./workspace-observations/cloudflare-dns": "./src/workspace-observations/cloudflare-dns.ts",
     "./admin": "./src/admin/index.ts",
     "./jobs": "./src/jobs/index.ts"
   },
   "scripts": {
+    "generate:native-cloud-corpus": "esbuild scripts/generate-native-cloud-wire-corpus.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-native-cloud-corpus.mjs && node /tmp/gooddealer-native-cloud-corpus.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

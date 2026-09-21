@@ -13,55 +13,232 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import test from "node:test";
 
-const expectedBaseSourceFiles = [
-  "backup_operation.rs",
-  "cloudflare_credential.rs",
-  "cloudflare_operation.rs",
+const expectedSourceFiles = [
+  "cloudflare_capture.rs",
+  "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
-  "cloudflare_transport.rs",
+  "desktop_authorization_verifier.rs",
+  "desktop_device_identity.rs",
+  "desktop_oauth.rs",
   "lib.rs",
-  "sealed_credential.rs",
-  "sealed_host_state.rs",
-  "sealed_initialization.rs",
-  "sealed_key.rs",
-  "sealed_runtime.rs",
-  "sealed_secure_http.rs",
-  "sealed_session.rs",
+  "local_workspace_binding.rs",
 ];
-const expectedBasePublicExports = [
-  "ActiveBackupOperation",
-  "BackupArtifactAdmission",
-  "BackupExportOperation",
-  "BackupOperationError",
-  "CloudflareContractError",
-  "CloudflareDnsRecord",
-  "CloudflareObservationError",
-  "CloudflareObservationErrorCode",
-  "CloudflareObservationResult",
-  "CloudflareObservationSubmitRequest",
+const expectedCloudflareCaptureExports = [
+  "CloudflareCandidate",
+  "CloudflareCapture",
+  "CloudflareCaptureError",
+];
+const expectedCloudflareKeychainExports = [
+  "CloudflareCredentialProvisionPlan",
+  "CloudflareCredentialPublicKind",
+  "CloudflareCredentialRecoveryPlan",
+  "CloudflareCustodyComparison",
+  "CloudflareKeychainError",
+  "CloudflareKeychainGuard",
+  "CloudflarePrewriteFailure",
+  "CloudflarePrewriteInspection",
+  "inspect_cloudflare_recovery_guarded",
+  "publish_cloudflare_candidate_guarded",
+];
+const expectedCloudflareProviderExports = [
+  "CloudflareCredentialObservationPlan",
+  "CloudflareProviderClient",
+  "CloudflareProviderError",
+  "CloudflareProviderGuard",
+  "CloudflareProviderObservation",
+  "CloudflareProviderRecord",
+  "CloudflareProviderZone",
+  "CloudflareProviderZoneStatus",
   "CloudflareRecordType",
-  "CloudflareUnavailableObservationCode",
-  "CloudflareZoneMetadata",
-  "CloudflareZoneReadIntent",
-  "CloudflareZoneStatus",
-  "SealedBackupFrame",
-  "SecureHost",
 ];
-const localDatabaseKeySourceFile = "local_database_key.rs";
-const expectedLocalDatabaseKeyExports = [
-  "LocalDatabaseKeyError",
-  "LocalDatabaseKeyMaterial",
-  "generate_local_database_key",
-  "load_local_database_key",
+const desktopAuthorizationSourceFile = "desktop_authorization_verifier.rs";
+const desktopDeviceIdentitySourceFile = "desktop_device_identity.rs";
+const desktopOAuthSourceFile = "desktop_oauth.rs";
+const localWorkspaceBindingSourceFile = "local_workspace_binding.rs";
+const expectedDesktopAuthorizationExports = [
+  "AuthorizationVerificationKeyError",
+  "DesktopAuthorizationCredentialPurpose",
+  "DesktopAuthorizationVerificationKey",
+  "DesktopAuthorizationVerifier",
+  "parse_desktop_authorization_verifier_registry",
 ];
-const expectedLocalDatabaseKeyPublicItems = [
-  "LocalDatabaseKeyError",
-  "LocalDatabaseKeyMaterial",
-  "copy_for_sqlcipher",
-  "generate_local_database_key",
-  "load_local_database_key",
+const expectedDesktopAuthorizationPublicItems = [
+  "AuthorizationVerificationKeyError",
+  "DesktopAuthorizationCredentialPurpose",
+  "DesktopAuthorizationVerificationKey",
+  "DesktopAuthorizationVerifier",
+  "new",
+  "new",
+  "parse_desktop_authorization_verifier_registry",
+  "verify",
+];
+const expectedDesktopDeviceIdentityExports = [
+  "DESKTOP_DEVICE_PROOF_DOMAIN",
+  "DesktopDeviceIdentity",
+  "DesktopDeviceIdentityError",
+  "DesktopDeviceProofTranscript",
+  "load_or_create_desktop_device_identity",
+];
+const expectedDesktopDeviceIdentityPublicItems = [
+  "DESKTOP_DEVICE_PROOF_DOMAIN",
+  "DesktopDeviceIdentity",
+  "DesktopDeviceIdentityError",
+  "DesktopDeviceProofTranscript",
+  "device_id",
+  "from_test_material",
+  "key_id",
+  "load_or_create_desktop_device_identity",
+  "public_key_base64url",
+  "sign_login_proof",
+];
+const expectedDesktopOAuthExports = [
+  "DesktopAccessToken",
+  "DesktopAuthorizationCodeExchange",
+  "DesktopOAuthAttempt",
+  "DesktopOAuthContinuation",
+  "DesktopOAuthError",
+  "DesktopRefreshRequestId",
+  "DesktopRefreshToken",
+  "clear_desktop_refresh_request_id",
+  "clear_desktop_refresh_token",
+  "load_desktop_refresh_request_id",
+  "load_desktop_refresh_token",
+  "store_desktop_refresh_request_id",
+  "store_desktop_refresh_token",
+];
+const expectedDesktopOAuthPublicItems = [
+  "DesktopAccessToken",
+  "DesktopAuthorizationCodeExchange",
+  "DesktopOAuthAttempt",
+  "DesktopOAuthContinuation",
+  "DesktopOAuthError",
+  "DesktopRefreshRequestId",
+  "DesktopRefreshToken",
+  "authorization_url",
+  "begin",
+  "clear_desktop_refresh_request_id",
+  "clear_desktop_refresh_token",
+  "advance",
+  "expose",
+  "expose",
+  "expose",
+  "expose",
+  "generate",
+  "load_desktop_refresh_request_id",
+  "load_desktop_refresh_token",
+  "new",
+  "new",
+  "store_desktop_refresh_request_id",
+  "store_desktop_refresh_token",
+];
+const expectedLocalWorkspaceBindingExports = [
+  "LocalWorkspaceBindingError",
+  "VerifiedLocalWorkspaceBinding",
+  "VerifiedLocalWorkspaceBindingParams",
+  "clear_verified_local_workspace_binding",
+  "load_verified_local_workspace_binding",
+  "store_verified_local_workspace_binding",
+];
+const expectedLocalWorkspaceBindingPublicItems = [
+  "LocalWorkspaceBindingError",
+  "VerifiedLocalWorkspaceBinding",
+  "account_id",
+  "account_security_epoch",
+  "allows_local_read",
+  "allows_refresh_retry",
+  "capability",
+  "clear_verified_local_workspace_binding",
+  "device_id",
+  "entitlement_projection_digest",
+  "entitlement_revision",
+  "commercial_expires_at",
+  "lease_epoch",
+  "load_verified_local_workspace_binding",
+  "new",
+  "retryable_locked",
+  "security_locked",
+  "store_verified_local_workspace_binding",
+  "trusted_time_floor",
+  "with_trusted_time_floor",
+  "workspace_id",
+  "VerifiedLocalWorkspaceBindingParams",
 ];
 const repositoryCoreRoot = resolve(import.meta.dirname, "../crates/secure-host-core");
+const repositoryLocalStorageRoot = resolve(import.meta.dirname, "../crates/local-storage");
+const expectedLocalStorageExportModules = [
+  "active_workspace::business",
+  "active_workspace::business",
+  "portfolio_projection",
+  "application_root",
+  "backup",
+  "backup",
+  "desktop_business_runtime",
+  "desktop_native_cloud",
+  "desktop_sync_runtime",
+];
+const expectedLocalStoragePublicExports = [
+  "AssetLibraryReadSnapshot",
+  "AssetLibraryRow",
+  "AssetLibraryWindow",
+  "CloudflareDnsRecordWrite",
+  "DesktopApplicationRoot",
+  "DesktopApplicationRootError",
+  "DesktopAssetLibraryReadRequest",
+  "DesktopBackupError",
+  "DesktopBackupExportStatus",
+  "DesktopBackupRestoreStatus",
+  "DesktopCheckpointExchange",
+  "DesktopCloudflareActivationAdmission",
+  "DesktopCloudflareCheckedObservation",
+  "DesktopCloudflareConnectionRead",
+  "DesktopCloudflareCustodyComparison",
+  "DesktopCloudflareEnvelopeKind",
+  "DesktopCloudflareKeychainPlan",
+  "DesktopCloudflarePrewriteFailure",
+  "DesktopCloudflareObservationRead",
+  "DesktopCloudflareObservationReadRequest",
+  "DesktopCloudflareObservationRecord",
+  "DesktopCloudflareProjectionClaim",
+  "DesktopCloudflareProjectionDisposition",
+  "DesktopCloudflareProjectionWork",
+  "DesktopCloudflareRecoveryHandle",
+  "DesktopCloudflareRecoveryPlan",
+  "DesktopCloudflareRecoveryScan",
+  "DesktopCloudflareResolution",
+  "DesktopConflict",
+  "DesktopConflictCenterView",
+  "DesktopConflictFreshness",
+  "DesktopConflictResolutionReceipt",
+  "DesktopConflictResolveRequest",
+  "DesktopDomainAssetDeleteRequest",
+  "DesktopDomainAssetEditRequest",
+  "DesktopDomainAssetWrite",
+  "DesktopDomainDetailReadRequest",
+  "DesktopHostAuthorizationStatus",
+  "DesktopLocalBusinessState",
+  "DesktopLocalBusinessStatus",
+  "DesktopLocalHost",
+  "DesktopLocalHostError",
+  "DesktopVerifiedBackupArtifact",
+  "DesktopNativeCloudAdmission",
+  "DesktopSyncCheckpointDisposition",
+  "DesktopSyncPullDisposition",
+  "DesktopSyncPullExchange",
+  "DesktopSyncPushClaim",
+  "DesktopSyncPushDisposition",
+  "DesktopSyncPushWork",
+  "DesktopSyncSnapshotView",
+  "DesktopSyncTransportState",
+  "DomainAssetMutationReceipt",
+  "DomainDetailAsset",
+  "DomainDetailReadSnapshot",
+  "Money",
+  "PortfolioReadFreshness",
+  "InspectingCloudflareProvision",
+  "MarkedCloudflareProvision",
+  "PreparedCloudflareObservation",
+  "PreparedCloudflareProvision",
+].sort();
 
 export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot } = {}) {
   const errors = [];
@@ -79,12 +256,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   }
 
   const observedFiles = listRegularFiles(sourceRoot, errors).sort();
-  const localDatabaseKeyIntegrated = observedFiles.includes(localDatabaseKeySourceFile);
-  const expectedSourceFiles = [
-    ...expectedBaseSourceFiles,
-    ...(localDatabaseKeyIntegrated ? [localDatabaseKeySourceFile] : []),
-  ].sort();
-  if (!sameArray(observedFiles, expectedSourceFiles)) {
+  if (!sameArray(observedFiles, [...expectedSourceFiles].sort())) {
     errors.push(`secure-host-core source allowlist differs: ${observedFiles.join(", ")}`);
   }
 
@@ -92,69 +264,105 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(backup_operation|cloudflare_operation|local_database_key)::[\t ]*\{([\s\S]*?)\};/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
-    "backup_operation",
-    "cloudflare_operation",
-    ...(localDatabaseKeyIntegrated ? ["local_database_key"] : []),
+    "cloudflare_capture",
+    "cloudflare_keychain",
+    "cloudflare_provider",
+    "desktop_authorization_verifier",
+    "desktop_device_identity",
+    "desktop_oauth",
+    "local_workspace_binding",
   ];
   if (!sameArray(exportMatches.map((match) => match[1]), expectedExportModules)) {
     errors.push("secure-host-core direct capability export blocks are missing, reordered, or duplicated");
     return errors;
   }
   const exported = exportMatches
-    .flatMap((match) => match[2].split(","))
+    .flatMap((match) => (match[2] ?? match[3]).split(","))
     .map((value) => value.trim())
     .filter(Boolean)
     .sort();
   const expectedPublicExports = [
-    ...expectedBasePublicExports,
-    ...(localDatabaseKeyIntegrated ? expectedLocalDatabaseKeyExports : []),
+    ...expectedCloudflareCaptureExports,
+    ...expectedCloudflareKeychainExports,
+    ...expectedCloudflareProviderExports,
+    ...expectedDesktopAuthorizationExports,
+    ...expectedDesktopDeviceIdentityExports,
+    ...expectedDesktopOAuthExports,
+    ...expectedLocalWorkspaceBindingExports,
   ].sort();
   if (!sameArray(exported, expectedPublicExports)) {
     errors.push(`secure-host-core public exports differ: ${exported.join(", ")}`);
   }
   const remainingSource = libSource.replace(exportPattern, "");
-  if (/\bpub(?:\s*\([^)]*\))?\s+(?:use|mod|struct|enum|trait|fn|type|const|static)\b/u.test(remainingSource)) {
+  if (/\bpub\s+(?:use|mod|struct|enum|trait|fn|type|const|static)\b/u.test(remainingSource)) {
     errors.push("secure-host-core exposes a public item outside the exact capability export blocks");
   }
-  if (localDatabaseKeyIntegrated) {
-    const keySource = readRegularFile(resolve(sourceRoot, localDatabaseKeySourceFile), errors);
-    if (keySource !== null) validateLocalDatabaseKeySurface(keySource, errors);
+  const exactPublicItemSurfaces = [
+    [desktopAuthorizationSourceFile, expectedDesktopAuthorizationPublicItems, "desktop authorization"],
+    [desktopOAuthSourceFile, expectedDesktopOAuthPublicItems, "desktop OAuth"],
+    [desktopDeviceIdentitySourceFile, expectedDesktopDeviceIdentityPublicItems, "desktop device identity"],
+    [localWorkspaceBindingSourceFile, expectedLocalWorkspaceBindingPublicItems, "local workspace binding"],
+  ];
+  for (const [path, expected, label] of exactPublicItemSurfaces) {
+    const source = readRegularFile(resolve(sourceRoot, path), errors);
+    if (source !== null) validateExactPublicItems(source, expected, label, errors);
   }
   return errors;
 }
 
-function validateLocalDatabaseKeySurface(source, errors) {
-  const publicItems = [...source.matchAll(
-    /\bpub(?:\s*\([^)]*\))?\s+(?:const|enum|fn|mod|static|struct|trait|type|use)\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
-  )]
-    .map((match) => match[1])
+export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalStorageRoot } = {}) {
+  const errors = [];
+  const libPath = resolve(storageRoot, "src/lib.rs");
+  if (pathState(libPath) !== "file") {
+    errors.push("local-storage public surface source must be a regular file");
+    return errors;
+  }
+  const libSource = readRegularFile(libPath, errors, storageRoot);
+  if (libSource === null) return errors;
+  const bracedExportPattern = /^[\t ]*pub[\t ]+use[\t ]+([A-Za-z_][A-Za-z0-9_:]*)::[\t ]*\{([\s\S]*?)\};/gmu;
+  const singleExportPattern = /^[\t ]*pub[\t ]+use[\t ]+([A-Za-z_][A-Za-z0-9_:]*)::([A-Za-z_][A-Za-z0-9_]*)[\t ]*;/gmu;
+  const exportMatches = [
+    ...[...libSource.matchAll(bracedExportPattern)].map((match) => ({
+      index: match.index,
+      module: match[1],
+      exports: match[2].split(","),
+    })),
+    ...[...libSource.matchAll(singleExportPattern)].map((match) => ({
+      index: match.index,
+      module: match[1],
+      exports: [match[2]],
+    })),
+  ].sort((left, right) => left.index - right.index);
+  if (!sameArray(exportMatches.map(({ module }) => module), expectedLocalStorageExportModules)) {
+    errors.push("local-storage direct public export blocks are missing, reordered, or duplicated");
+    return errors;
+  }
+  const exported = exportMatches
+    .flatMap(({ exports }) => exports)
+    .map((value) => value.trim())
+    .filter(Boolean)
     .sort();
-  if (!sameArray(publicItems, expectedLocalDatabaseKeyPublicItems)) {
-    errors.push(`local database key public items differ: ${publicItems.join(", ")}`);
+  if (!sameArray(exported, expectedLocalStoragePublicExports)) {
+    errors.push(`local-storage public exports differ: ${exported.join(", ")}`);
   }
-  if (!/pub enum LocalDatabaseKeyError\s*\{\s*Unavailable,\s*Rejected,\s*RandomUnavailable,?\s*\}/u.test(source)) {
-    errors.push("local database key errors must remain an exact selector-free set");
+  const remainingSource = libSource
+    .replace(bracedExportPattern, "")
+    .replace(singleExportPattern, "");
+  if (/\bpub\s+(?:use|mod|struct|enum|trait|fn|type|const|static)\b/u.test(remainingSource)) {
+    errors.push("local-storage exposes a public item outside the exact aggregate export blocks");
   }
-  if (!/pub struct LocalDatabaseKeyMaterial\(Zeroizing<\[u8; DATABASE_KEY_BYTES\]>\);/u.test(source)) {
-    errors.push("local database key material must remain fixed-length and zeroizing");
-  }
-  if (!/pub fn copy_for_sqlcipher\(&self\) -> \[u8; DATABASE_KEY_BYTES\]/u.test(source)) {
-    errors.push("local database key bytes may cross only the fixed SQLCipher composition method");
-  }
-  if (!/pub fn load_local_database_key\(\) -> Result<Option<LocalDatabaseKeyMaterial>, LocalDatabaseKeyError>/u.test(source)) {
-    errors.push("local database key load operation must remain selector-free and fixed-purpose");
-  }
-  if (!/pub fn generate_local_database_key\(\) -> Result<LocalDatabaseKeyMaterial, LocalDatabaseKeyError>/u.test(source)) {
-    errors.push("local database key generation must remain selector-free and fixed-purpose");
-  }
-  if (!/formatter\.write_str\("LocalDatabaseKeyMaterial\(\[REDACTED\]\)"\)/u.test(source)) {
-    errors.push("local database key Debug output must remain redacted");
-  }
-  if (/\b(?:Deserialize|Serialize|tauri|workspace[_A-Z]?id|account[_A-Z]?id|tenant|connection[_A-Z]?id|provider|selector|secret)\b/iu.test(source)) {
-    errors.push("local database key surface exposes serialization, IPC, tenant, Provider, or selector vocabulary");
+  return errors;
+}
+
+function validateExactPublicItems(source, expected, label, errors) {
+  const publicItems = [...source.matchAll(
+    /\bpub(?:\s*\([^)]*\))?\s+(?:(?:const\s+)?fn|const|enum|mod|static|struct|trait|type|use)\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
+  )].map((match) => match[1]).sort();
+  if (!sameArray(publicItems, [...expected].sort())) {
+    errors.push(`${label} public items differ: ${publicItems.join(", ")}`);
   }
 }
 
@@ -190,11 +398,11 @@ function listRegularFiles(root, errors) {
   return files;
 }
 
-function readRegularFile(path, errors) {
+function readRegularFile(path, errors, ownerRoot = repositoryCoreRoot) {
   try {
     return lstatSync(path).isFile() ? readFileSync(path, "utf8") : null;
   } catch (error) {
-    errors.push(`secure-host-core source file is unreadable: ${relative(repositoryCoreRoot, path)}`);
+    errors.push(`surface source file is unreadable: ${relative(ownerRoot, path)}`);
     return null;
   }
 }
@@ -203,40 +411,47 @@ function sameArray(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function writeFixture(root, { localDatabaseKey = true } = {}) {
+function writeFixture(root) {
   mkdirSync(join(root, "src"), { recursive: true });
-  writeFileSync(
-    join(root, "src/lib.rs"),
-    `#![forbid(unsafe_code)]\n\nmod backup_operation;\nmod cloudflare_credential;\nmod cloudflare_operation;\nmod cloudflare_provider;\nmod cloudflare_transport;\n${localDatabaseKey ? "mod local_database_key;\n" : ""}mod sealed_credential;\nmod sealed_host_state;\nmod sealed_initialization;\nmod sealed_key;\nmod sealed_runtime;\nmod sealed_secure_http;\nmod sealed_session;\n\npub use backup_operation::{\n    ActiveBackupOperation, BackupArtifactAdmission, BackupExportOperation, BackupOperationError,\n    SealedBackupFrame, SecureHost,\n};\npub use cloudflare_operation::{\n    CloudflareContractError, CloudflareDnsRecord, CloudflareObservationError,\n    CloudflareObservationErrorCode, CloudflareObservationResult,\n    CloudflareObservationSubmitRequest, CloudflareRecordType, CloudflareUnavailableObservationCode,\n    CloudflareZoneMetadata, CloudflareZoneReadIntent, CloudflareZoneStatus,\n};\n${localDatabaseKey ? "pub use local_database_key::{\n    LocalDatabaseKeyError, LocalDatabaseKeyMaterial, generate_local_database_key,\n    load_local_database_key,\n};\n" : ""}`,
-  );
-  for (const path of expectedBaseSourceFiles.filter((path) => path !== "lib.rs")) {
-    writeFileSync(join(root, "src", path), "// sealed module\n");
-  }
-  if (localDatabaseKey) {
+  for (const path of expectedSourceFiles) {
     writeFileSync(
-      join(root, "src", localDatabaseKeySourceFile),
-      `use std::fmt::{Debug, Formatter};\nuse zeroize::Zeroizing;\nconst DATABASE_KEY_BYTES: usize = 32;\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum LocalDatabaseKeyError { Unavailable, Rejected, RandomUnavailable }\npub struct LocalDatabaseKeyMaterial(Zeroizing<[u8; DATABASE_KEY_BYTES]>);\nimpl LocalDatabaseKeyMaterial {\n    pub fn copy_for_sqlcipher(&self) -> [u8; DATABASE_KEY_BYTES] { *self.0 }\n}\nimpl Debug for LocalDatabaseKeyMaterial {\n    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {\n        formatter.write_str("LocalDatabaseKeyMaterial([REDACTED])")\n    }\n}\npub fn load_local_database_key() -> Result<Option<LocalDatabaseKeyMaterial>, LocalDatabaseKeyError> { todo!() }\npub fn generate_local_database_key() -> Result<LocalDatabaseKeyMaterial, LocalDatabaseKeyError> { todo!() }\n`,
+      join(root, "src", path),
+      readFileSync(resolve(repositoryCoreRoot, "src", path), "utf8"),
     );
   }
 }
 
-function useFixture(t, options) {
+function useFixture(t) {
   const root = mkdtempSync(join(tmpdir(), "gooddealer-secure-host-core-"));
-  writeFixture(root, options);
+  writeFixture(root);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+function useLocalStorageFixture(t) {
+  const root = mkdtempSync(join(tmpdir(), "gooddealer-local-storage-surface-"));
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(
+    join(root, "src/lib.rs"),
+    readFileSync(resolve(repositoryLocalStorageRoot, "src/lib.rs"), "utf8"),
+  );
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
 
 test("the repository Core surface is the exact staged native capability allowlist", () => {
   assert.deepEqual(secureHostCoreFinalSurfaceErrors(), []);
+  assert.deepEqual(localStorageFinalSurfaceErrors(), []);
 });
 
-test("accepts both the pre-integration surface and the exact local database key capability", (t) => {
+test("accepts the exact staged native capability surface", (t) => {
   assert.deepEqual(secureHostCoreFinalSurfaceErrors({ coreRoot: useFixture(t) }), []);
-  assert.deepEqual(
-    secureHostCoreFinalSurfaceErrors({ coreRoot: useFixture(t, { localDatabaseKey: false }) }),
-    [],
-  );
+  assert.deepEqual(localStorageFinalSurfaceErrors({ storageRoot: useLocalStorageFixture(t) }), []);
+  const missingFileFixture = useFixture(t);
+  rmSync(join(missingFileFixture, "src", "cloudflare_capture.rs"));
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: missingFileFixture }).some(
+    (error) => error.includes("allowlist"),
+  ));
 });
 
 test("rejects a recreated generated directory or dangling symbolic link", (t) => {
@@ -257,59 +472,70 @@ test("rejects extra source files and public exports", (t) => {
   const exportFixture = useFixture(t);
   writeFileSync(join(exportFixture, "src", "lib.rs"), "\npub fn unreviewed() {}\n", { flag: "a" });
   assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: exportFixture }).some((error) => error.includes("outside")));
-});
 
-test("rejects local database key surface broadening and sensitive selectors", (t) => {
-  const extraExportFixture = useFixture(t);
-  const extraExportPath = join(extraExportFixture, "src", "lib.rs");
+  const rawProviderExportFixture = useFixture(t);
+  const rawProviderExportPath = join(rawProviderExportFixture, "src", "lib.rs");
   writeFileSync(
-    extraExportPath,
-    readFileSync(extraExportPath, "utf8").replace(
-      "    load_local_database_key,\n};",
-      "    load_local_database_key, export_local_database_key_secret,\n};",
+    rawProviderExportPath,
+    readFileSync(rawProviderExportPath, "utf8").replace(
+      "    CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType,\n};",
+      "    CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType, CloudflareProviderTransport,\n};",
     ),
   );
-  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: extraExportFixture }).some(
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: rawProviderExportFixture }).some(
     (error) => error.includes("public exports differ"),
   ));
 
-  const extraItemFixture = useFixture(t);
+  const missingStorageExportFixture = useLocalStorageFixture(t);
+  const missingStorageExportPath = join(missingStorageExportFixture, "src/lib.rs");
   writeFileSync(
-    join(extraItemFixture, "src", localDatabaseKeySourceFile),
-    "\npub fn expose_key() -> Vec<u8> { vec![] }\n",
-    { flag: "a" },
-  );
-  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: extraItemFixture }).some(
-    (error) => error.includes("public items differ"),
-  ));
-
-  const selectorFixture = useFixture(t);
-  const selectorPath = join(selectorFixture, "src", localDatabaseKeySourceFile);
-  writeFileSync(
-    selectorPath,
-    readFileSync(selectorPath, "utf8").replace("RandomUnavailable }", "RandomUnavailable, WorkspaceSelector }"),
-  );
-  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: selectorFixture }).some(
-    (error) => error.includes("selector"),
-  ));
-
-  const serializationFixture = useFixture(t);
-  const serializationPath = join(serializationFixture, "src", localDatabaseKeySourceFile);
-  writeFileSync(serializationPath, `${readFileSync(serializationPath, "utf8")}\nuse serde::Serialize;\n`);
-  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: serializationFixture }).some(
-    (error) => error.includes("serialization"),
-  ));
-
-  const disclosureFixture = useFixture(t);
-  const disclosurePath = join(disclosureFixture, "src", localDatabaseKeySourceFile);
-  writeFileSync(
-    disclosurePath,
-    readFileSync(disclosurePath, "utf8").replace(
-      "LocalDatabaseKeyMaterial([REDACTED])",
-      "LocalDatabaseKeyMaterial({:?})",
+    missingStorageExportPath,
+    readFileSync(missingStorageExportPath, "utf8").replace(
+      "    DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,\n",
+      "    DesktopCloudflareObservationReadRequest,\n",
     ),
   );
-  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: disclosureFixture }).some(
-    (error) => error.includes("redacted"),
+  assert.ok(localStorageFinalSurfaceErrors({ storageRoot: missingStorageExportFixture }).some(
+    (error) => error.includes("public exports differ"),
+  ));
+});
+
+test("rejects recreated database-key capability source or export", (t) => {
+  const extraFileFixture = useFixture(t);
+  writeFileSync(join(extraFileFixture, "src", "local_database_key.rs"), "// forbidden\n");
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: extraFileFixture }).some(
+    (error) => error.includes("allowlist"),
+  ));
+
+  const extraExportFixture = useFixture(t);
+  writeFileSync(
+    join(extraExportFixture, "src", "lib.rs"),
+    "\npub use cloudflare_provider::LocalDatabaseKeyMaterial;\n",
+    { flag: "a" },
+  );
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: extraExportFixture }).some(
+    (error) => error.includes("outside")
+      || error.includes("public exports differ")
+      || error.includes("export blocks"),
+  ));
+
+  const rawStorageExportFixture = useLocalStorageFixture(t);
+  const rawStorageExportPath = join(rawStorageExportFixture, "src/lib.rs");
+  writeFileSync(
+    rawStorageExportPath,
+    `${readFileSync(rawStorageExportPath, "utf8")}\npub use active_workspace::business::BusinessDatabase;\n`,
+  );
+  assert.ok(localStorageFinalSurfaceErrors({ storageRoot: rawStorageExportFixture }).some(
+    (error) => error.includes("export blocks"),
+  ));
+
+  const publicBackupModuleFixture = useLocalStorageFixture(t);
+  const publicBackupModulePath = join(publicBackupModuleFixture, "src/lib.rs");
+  writeFileSync(
+    publicBackupModulePath,
+    `${readFileSync(publicBackupModulePath, "utf8")}\npub mod public_backup_capability;\n`,
+  );
+  assert.ok(localStorageFinalSurfaceErrors({ storageRoot: publicBackupModuleFixture }).some(
+    (error) => error.includes("outside"),
   ));
 });

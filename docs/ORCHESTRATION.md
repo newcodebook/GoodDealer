@@ -75,7 +75,7 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
    当前入口和共享面，运行适用检查、术语/文档扫描、链接扫描和 `git diff --check`。之前的 PASS
    不能替代这次新鲜验证；只有此步骤完成才可作出 Task Frame 中允许的完成声明。
 
-“并行”只描述本地实现的调度，不取消真正的本地依赖，也不让 Cloudflare、部署、KMS/HSM、原生
+“并行”只描述本地实现的调度，不取消真正的本地依赖，也不让 Cloudflare、部署、生产 OpenBao custody、原生
 签名、公证、发行或 Gate 资格成为本地代码的替代物。
 
 ## 共享面和收敛规则
@@ -109,13 +109,17 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 
 ## 当前源码范围与声明控制
 
-当前 Desktop production 入口只使用窄本地业务 adapter；Tauri 精确注册三个本地业务命令，策略
-测试拒绝任何清单漂移。Cloud 的公开业务路由和周期作业为空，真实授权注入、同步、Provider 和
-发行仍未完成，因此产品 readiness 声明仍不成立。
+当前 Desktop Renderer production 入口只使用窄本地业务和认证 adapter。Tauri 已精确注册具名本地业务、
+备份、认证与 Cloudflare 命令，manifest/capability/adapter 策略测试拒绝清单漂移；Cloudflare 命令尚未
+暴露给 Renderer adapter。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
+operation/inbox/reconciliation/due-authority/release。共享开发环境已部署 systemd self-hosted worker 和
+Stripe test-mode Provider；生产 worker、live Provider、完整 Renderer 旅程和发行仍未完成，因此产品
+readiness 声明仍不成立。
 
-`secure-host-core` 的私有 Cloudflare Zone/DNS 只读 Service 是本地实现证据，不是已组合能力。
-后续 Desktop/Host/Cloud 整合者必须增加显式 capability allowlist 并重新检查入口、注册表和
-可达性；不得把未组合 feature、视觉资料或已删除 connector 路径恢复为兼容、过渡或 fixture 路线。
+`secure-host-core` 的私有 Cloudflare Zone/DNS 只读 Service 已组合进 Native ProviderLane，但 Host 组合
+不等于客户旅程或真实 Provider 资格。后续 Desktop 整合者必须增加严格 Renderer adapter、保持显式
+capability allowlist，并重新检查入口、注册表和可达性；不得把未组合 feature、视觉资料或已删除
+connector 路径恢复为兼容、过渡或 fixture 路线。
 
 ## 证据、文档扫描与升级
 

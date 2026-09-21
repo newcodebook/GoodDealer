@@ -25,20 +25,46 @@ export const CLOUD_BOUNDARY_EVIDENCE_DEFAULTS = Object.freeze({
     "cloud-entrypoints-public",
     "cloud-entrypoints-admin",
     "cloud-entrypoints-jobs",
+    "cloud-licensing-commercial-checkout",
     "protocol-wire",
   ]),
   requiredReviewerRole: "Security Reviewer",
 });
 
 export const CLOUD_BOUNDARY_SCOPE =
-  "Cloud entrypoint boundary only: two isolated Fastify composition roots, an exact public account-activation allowlist once its application port is integrated, no admin business route, a framework-independent jobs composition with no registered periodic job, an explicit test-support public session verifier, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. Account activation must use public protocol schemas, authenticate before parsing, derive account scope from the verified account_web principal, and reject tenant selectors. No other production Endpoint Registry, real credentials, external network, Staff AuditEvent chain, job runtime, proxy-derived client-IP policy, production per-IP/device/account budgets, or cross-instance rate-limit consistency.";
+  "Cloud entrypoint boundary only: two isolated Fastify composition roots, an exact public account-activation, fail-closed Desktop Grant, and account-scoped billing allowlist, no admin business route, a framework-independent jobs composition that registers only the five durable Licensing commercial jobs, an explicit test-support public session verifier, and layered single-process pre-auth request.ip plus verified gd_session rate-limit buckets. Account activation and billing derive scope from the verified account_web principal; Grant issuance accepts only a desktop principal and rejects until device-session binding and signing custody are composed. All routes use public protocol schemas and reject caller-selected tenant authority. No live provider, production scheduler/worker, production payment credentials, tax qualification, Staff AuditEvent chain, proxy-derived client-IP policy, production per-IP/device/account budgets, or cross-instance rate-limit consistency are claimed.";
+
+const approvedPeriodicJobs = [
+  { jobName: "commercial-provider-operation", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-inbox", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-reconciliation", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-due-authority", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-release", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+];
 
 const publicBoundaryRouteTable = [
   "GET /v1/boundary/identity",
   "POST /v1/boundary/validate",
 ];
 const accountActivationRoute = "POST /v1/account/activation";
-const integratedPublicRouteTable = [...publicBoundaryRouteTable, accountActivationRoute];
+const desktopAuthorizationGrantRoute = "POST /v1/devices/authorization-grant";
+const billingCheckoutRoute = "POST /v1/account/billing/checkout";
+const billingStatusRoute = "GET /v1/account/billing/status";
+const billingSubscriptionCancelRoute = "POST /v1/account/billing/subscription/cancel";
+const billingFixedTermConfirmRoute = "POST /v1/account/billing/fixed-term/confirm";
+const billingFirstPurchaseRefundRoute = "POST /v1/account/billing/first-purchase-refund";
+const billingFirstPurchaseRefundStatusRoute = "POST /v1/account/billing/first-purchase-refund/status";
+const integratedPublicRouteTable = [
+  ...publicBoundaryRouteTable,
+  accountActivationRoute,
+  desktopAuthorizationGrantRoute,
+  billingCheckoutRoute,
+  billingStatusRoute,
+  billingSubscriptionCancelRoute,
+  billingFixedTermConfirmRoute,
+  billingFirstPurchaseRefundRoute,
+  billingFirstPurchaseRefundStatusRoute,
+];
 const adminRouteTable = [
   "GET /admin/v1/boundary/identity",
   "POST /admin/v1/boundary/validate",
@@ -67,16 +93,20 @@ export const CLOUD_BOUNDARY_REQUIRED_INPUTS = Object.freeze([
   "apps/cloud/src/entrypoints/adapter/schema.ts",
   "apps/cloud/src/entrypoints/adapter/surface.ts",
   "apps/cloud/src/entrypoints/ports/public-session.ts",
+  "apps/cloud/src/entrypoints/ports/desktop-authorization.ts",
   "apps/cloud/src/entrypoints/ports/staff-session.ts",
   "apps/cloud/test/support/public-session.ts",
   "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/src/entrypoints/routes/admin/boundary.ts",
   "apps/cloud/test/entrypoints/error-identity-matrix.test.ts",
+  "apps/cloud/test/entrypoints/desktop-authorization-route.test.ts",
+  "apps/cloud/test/entrypoints/billing-route.test.ts",
   "apps/cloud/test/entrypoints/jobs-composition.test.ts",
   "apps/cloud/test/entrypoints/rate-limit-boundary.test.ts",
   "apps/cloud/test/entrypoints/route-adapter-types.test.ts",
   "apps/cloud/test/entrypoints/schema-adapter.test.ts",
   "packages/protocol/src/wire/transport-error.ts",
+  "packages/protocol/src/account/billing.ts",
 ]);
 
 let hooksRegistered = false;
@@ -190,6 +220,50 @@ export function sourceDefinesSafeAccountActivationRoute(source) {
     && /accountActivation\.activate\(request,\s*principal\)/.test(cleanSource);
 }
 
+export function sourceDefinesSafeDesktopAuthorizationRoute(source) {
+  const cleanSource = withoutComments(source);
+  return /from\s+["']@gooddealer\/protocol\/devices["']/.test(cleanSource)
+    && /request:\s*desktopAuthorizationGrantRequestSchema\b/.test(cleanSource)
+    && /response:\s*desktopAuthorizationGrantSchema\b/.test(cleanSource)
+    && /path:\s*DESKTOP_AUTHORIZATION_GRANT_ROUTE\b/.test(cleanSource)
+    && /DESKTOP_AUTHORIZATION_GRANT_ROUTE\s*=\s*["']\/v1\/devices\/authorization-grant["']/.test(cleanSource)
+    && /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*["']desktop["']/.test(cleanSource)
+    && /desktopAuthorization\.issue\(request,\s*principal\)/.test(cleanSource);
+}
+
+export function sourceDefinesSafeBillingRoutes(source) {
+  const cleanSource = withoutComments(source);
+  const accountWebAuthorizers = cleanSource.match(
+    /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*["']account_web["']/g,
+  ) ?? [];
+  return /from\s+["']@gooddealer\/protocol\/account["']/.test(cleanSource)
+    && /BILLING_CHECKOUT_ROUTE\s*=\s*["']\/v1\/account\/billing\/checkout["']/.test(cleanSource)
+    && /BILLING_STATUS_ROUTE\s*=\s*["']\/v1\/account\/billing\/status["']/.test(cleanSource)
+    && /BILLING_SUBSCRIPTION_CANCEL_ROUTE\s*=\s*["']\/v1\/account\/billing\/subscription\/cancel["']/.test(cleanSource)
+    && /BILLING_FIXED_TERM_CONFIRM_ROUTE\s*=\s*["']\/v1\/account\/billing\/fixed-term\/confirm["']/.test(cleanSource)
+    && /BILLING_FIRST_PURCHASE_REFUND_REQUEST_ROUTE\s*=\s*[\s\S]*?["']\/v1\/account\/billing\/first-purchase-refund["']/.test(cleanSource)
+    && /BILLING_FIRST_PURCHASE_REFUND_STATUS_ROUTE\s*=\s*[\s\S]*?["']\/v1\/account\/billing\/first-purchase-refund\/status["']/.test(cleanSource)
+    && /request:\s*billingCheckoutCreateRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingCheckoutCreateResponseSchema\b/.test(cleanSource)
+    && /request:\s*billingStatusReadRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingStatusReadResponseSchema\b/.test(cleanSource)
+    && /request:\s*billingSubscriptionCancelRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingSubscriptionCancelResponseSchema\b/.test(cleanSource)
+    && /request:\s*billingFixedTermConfirmRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingFixedTermConfirmResponseSchema\b/.test(cleanSource)
+    && /request:\s*billingFirstPurchaseRefundRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingFirstPurchaseRefundRequestResponseSchema\b/.test(cleanSource)
+    && /request:\s*billingFirstPurchaseRefundStatusReadRequestSchema\b/.test(cleanSource)
+    && /response:\s*billingFirstPurchaseRefundStatusReadResponseSchema\b/.test(cleanSource)
+    && accountWebAuthorizers.length === 7
+    && /commercialCheckout\.createCheckout\(request,\s*principal\)/.test(cleanSource)
+    && /commercialCheckout\.readStatus\(principal\)/.test(cleanSource)
+    && /commercialCheckout\.cancelSubscription\(request,\s*principal\)/.test(cleanSource)
+    && /commercialCheckout\.confirmFixedTerm\(request,\s*principal\)/.test(cleanSource)
+    && /commercialCheckout\.requestFirstPurchaseRefund\(request,\s*principal\)/.test(cleanSource)
+    && /commercialCheckout\.readFirstPurchaseRefundStatus\(request,\s*principal\)/.test(cleanSource);
+}
+
 /**
  * Persistence evidence needs the exact public business-route allowlist, not the historical
  * assumption that every business route is absent. Keep that observation anchored to the same
@@ -198,13 +272,16 @@ export function sourceDefinesSafeAccountActivationRoute(source) {
 export function sourceDefinesExactAccountActivationBusinessRoute(source) {
   const cleanSource = withoutComments(source);
   const factoryStart = cleanSource.indexOf("export function createPublicBusinessRoutes");
-  if (factoryStart < 0 || !sourceDefinesSafeAccountActivationRoute(cleanSource)) return false;
+  if (
+    factoryStart < 0
+    || !sourceDefinesSafeAccountActivationRoute(cleanSource)
+    || !sourceDefinesSafeDesktopAuthorizationRoute(cleanSource)
+    || !sourceDefinesSafeBillingRoutes(cleanSource)
+  ) return false;
   const factorySource = cleanSource.slice(factoryStart);
-  return /:\s*readonly\s*\[\s*PublicRoute<AccountActivationRequest,\s*AccountActivationResponse>\s*\]\s*\{/u
-    .test(factorySource)
-    && (factorySource.match(/\bconst\s+\w+Route\s*:\s*PublicRoute</gu) ?? []).length === 1
-    && (factorySource.match(/\bpath\s*:/gu) ?? []).length === 1
-    && /return\s*\[\s*accountActivationRoute\s*\]\s*;/u.test(factorySource);
+  return (factorySource.match(/\bconst\s+\w+Route\s*:\s*PublicRoute(?:<|\s*\n)/gu) ?? []).length === 8
+    && (factorySource.match(/\bpath\s*:/gu) ?? []).length === 8
+    && /return\s*\[\s*accountActivationRoute,\s*desktopAuthorizationRoute,\s*billingCheckoutRoute,\s*billingStatusRoute,\s*billingCancellationRoute,\s*billingFixedTermConfirmRoute,\s*billingFirstPurchaseRefundRoute,\s*billingFirstPurchaseRefundStatusRoute,?\s*\]\s*;/u.test(factorySource);
 }
 
 export function sourceRegistersModuleRoute(source) {
@@ -535,9 +612,11 @@ function staticBoundaryEvidence(runtime) {
     adminBusinessRoutesRegistered:
       runtime.adminBusinessRoutes.length !== 0
       || entrypointSources.some(({ source }) => sourceRegistersAdminBusinessRoute(source)),
-    periodicJobsRegistered:
-      runtime.periodicJobs.length !== 0
-      || entrypointSources.some(({ source }) => sourceSchedulesPeriodicJob(source)),
+    periodicJobsRegistered: runtime.periodicJobs.length > 0,
+    periodicJobRegistry: runtime.periodicJobs.map((job) => ({ ...job })),
+    periodicJobsExactlyApproved:
+      JSON.stringify(runtime.periodicJobs) === JSON.stringify(approvedPeriodicJobs)
+      && entrypointSources.some(({ source }) => sourceSchedulesPeriodicJob(source)),
     publicRootImportsStaffSurface:
       publicRoot === undefined || sourceCrossesSurfaceImport(publicRoot.path, publicRoot.source),
     adminRootImportsPublicSurface:
@@ -574,12 +653,13 @@ async function observeAccountActivation(url, integrationRequired, invocations) {
       desktopPrincipalRejected: null,
     };
   }
-  const request = async (cookie, payload) => {
+  const request = async (cookie, payload, authorization = null) => {
     const response = await fetch(`${url}/v1/account/activation`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         ...(cookie === null ? {} : { cookie: `gd_session=${cookie}` }),
+        ...(authorization === null ? {} : { authorization }),
       },
       body: JSON.stringify(payload),
     });
@@ -594,7 +674,7 @@ async function observeAccountActivation(url, integrationRequired, invocations) {
     }));
   }
   const unauthenticated = await request(null, { schemaVersion: 1, workspaceId: "client-selected" });
-  const desktop = await request("activation-desktop-session", { schemaVersion: 1 });
+  const desktop = await request(null, { schemaVersion: 1 }, "Bearer activation-desktop-token");
   const invocation = invocations[0];
   return {
     state: "integrated",
@@ -630,7 +710,7 @@ function requirementMapping() {
     r0_09: [
       { requirement: "independent-public-admin-session-scope-route-composition-roots", fields: ["runtimeIsolation", "cookieNamesDisjoint", "routeTables"], produced: true },
       { requirement: "public-session-rejected-on-admin-route", fields: ["errorIdentityMatrix.M7", "errorIdentityMatrix.M8"], produced: true },
-      { requirement: "admin-business-routes-and-periodic-jobs-unregistered", fields: ["adminBusinessRoutesRegistered", "periodicJobsRegistered"], produced: true },
+      { requirement: "admin-routes-unregistered-and-periodic-jobs-exactly-allowlisted", fields: ["adminBusinessRoutesRegistered", "periodicJobsRegistered", "periodicJobsExactlyApproved", "periodicJobRegistry"], produced: true },
       { requirement: "live-cloud-integration", fields: ["runtimeIsolation", "errorIdentityMatrix"], produced: true },
       { requirement: "audit-event-chain-and-head-cas", fields: [], produced: false, reason: "AuditSinkPort records are boundary observations, not an AuditEvent chain." },
       { requirement: "tenant-job-envelope-fan-out-and-replay-matrix", fields: [], produced: false, reason: "P0-31 job runtime is outside this slice." },
@@ -686,10 +766,28 @@ export async function collectCloudBoundaryReport(options = {}) {
             return { schemaVersion: 1, state: "active" };
           },
         },
+        desktopAuthorization: {
+          issue: async () => null,
+        },
+        commercialCheckout: {
+          createCheckout: async () => null,
+          readStatus: async () => null,
+          cancelSubscription: async () => null,
+          confirmFixedTerm: async () => null,
+        },
       }
     : [];
   const publicApp = runtime.createPublicHttp({
     sessions: new runtime.StaticPublicSessionVerifier(publicSessions),
+    desktopAccessTokens: {
+      verifyAccessToken: async (token) => token === "activation-desktop-token"
+        ? {
+            accountId: "activation-account-desktop",
+            sessionId: "activation-desktop-session",
+            clientKind: "desktop",
+          }
+        : null,
+    },
     preAuthRateLimit: runtime.rateLimitPolicy(1_000, 100),
     sessionRateLimit: runtime.rateLimitPolicy(1_000, 100),
     now: () => new Date("2026-08-15T00:00:00.000Z"),
@@ -865,7 +963,9 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.fixtureOnly === true
     && accountActivationBoundaryPasses
     && report.adminBusinessRoutesRegistered === false
-    && report.periodicJobsRegistered === false
+    && report.periodicJobsRegistered === true
+    && report.periodicJobsExactlyApproved === true
+    && JSON.stringify(report.periodicJobRegistry) === JSON.stringify(approvedPeriodicJobs)
     && report.publicRootImportsStaffSurface === false
     && report.adminRootImportsPublicSurface === false
     && report.jobsImportGraphReachesHttpFramework === false

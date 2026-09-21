@@ -75,10 +75,13 @@ export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-step
 export {
   DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID,
   DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
+  DESKTOP_AUTHORIZATION_GRANT_SIGNATURE_DOMAIN,
   desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantSchema,
+  encodeDesktopAuthorizationGrantSignatureTranscript,
 } from "./authorization-grant";
 export type {
   DesktopAuthorizationGrant,
   DesktopAuthorizationGrantRequest,
+  DesktopCommercialAuthority,
 } from "./authorization-grant";

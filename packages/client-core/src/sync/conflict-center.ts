@@ -11,12 +11,12 @@ const safeDisplayTextSchema = z
     "display text contains control characters",
   );
 const revisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-const valueHashSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+const positiveSafeIntegerSchema = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+const valueHashSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const canonicalUtcTimestampSchema = z.iso.datetime({ offset: false, precision: 0 });
 
 export const conflictQuerySourceSchema = z.enum([
   "active_local",
-  "standby_cloud",
   "local_continuation",
 ]);
 export const conflictRiskSchema = z.enum(["normal", "high", "safety_priority"]);
@@ -27,6 +27,7 @@ export const conflictStatusSchema = z.enum([
   "resolved_local",
   "resolved_remote",
 ]);
+export const conflictCandidateKindSchema = z.enum(["field_conflict", "delete_conflict"]);
 export const conflictResolutionChoiceSchema = z.enum([
   "keep_local",
   "accept_remote",
@@ -39,7 +40,8 @@ const availableResolutionSchema = z
   .object({
     state: z.literal("available"),
     candidateId: identifierSchema,
-    expectedRevision: revisionSchema,
+    expectedRevision: positiveSafeIntegerSchema,
+    expectedCandidateVersion: positiveSafeIntegerSchema,
     expectedCurrentValueHash: valueHashSchema,
     choices: z.array(conflictResolutionChoiceSchema).min(1).max(2),
   })
@@ -53,6 +55,7 @@ const availableResolutionSchema = z
 export const conflictItemSchema = z
   .object({
     candidateId: identifierSchema,
+    candidateKind: conflictCandidateKindSchema.default("field_conflict"),
     entityDisplay: safeDisplayTextSchema,
     fieldDisplay: safeDisplayTextSchema,
     group: conflictGroupSchema,
@@ -76,9 +79,14 @@ export const conflictItemSchema = z
       if (item.status !== "pending") {
         context.addIssue({ code: "custom", path: ["resolutionAdmission"], message: "only pending conflicts can be resolved" });
       }
+      if (item.candidateKind === "delete_conflict" &&
+          (admission.choices.length !== 1 || admission.choices[0] !== "accept_remote")) {
+        context.addIssue({ code: "custom", path: ["resolutionAdmission", "choices"], message: "delete conflicts allow accept_remote only" });
+      }
       if (
         admission.candidateId !== item.candidateId ||
         admission.expectedRevision !== item.comparisonServerRevision ||
+        admission.expectedCandidateVersion < 1 ||
         admission.expectedCurrentValueHash !== item.currentValueHash
       ) {
         context.addIssue({ code: "custom", path: ["resolutionAdmission"], message: "resolution admission must bind the compared value" });
@@ -90,7 +98,7 @@ export const conflictCenterViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
     kind: z.literal("conflict_center"),
-    workspaceId: identifierSchema,
+    readGeneration: revisionSchema,
     candidateSetVersion: revisionSchema,
     freshness: z
       .object({
@@ -106,6 +114,18 @@ export const conflictCenterViewModelSchema = z
     const ids = view.conflicts.map(({ candidateId }) => candidateId);
     if (new Set(ids).size !== ids.length) {
       context.addIssue({ code: "custom", path: ["conflicts"], message: "conflict candidate ids must be unique" });
+    }
+    if (
+      view.candidateSetVersion === 0 &&
+      view.conflicts.some((item) =>
+        item.status === "pending" && item.resolutionAdmission.state === "available"
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["candidateSetVersion"],
+        message: "an actionable conflict set requires a positive version",
+      });
     }
     view.conflicts.forEach((item, index) => {
       if (item.comparisonServerRevision > view.freshness.serverRevision) {
@@ -123,12 +143,21 @@ export const conflictCenterViewModelSchema = z
 export const conflictResolutionIntentSchema = z
   .object({
     schemaVersion: z.literal(1),
-    workspaceId: identifierSchema,
-    candidateSetVersion: revisionSchema,
+    expectedReadGeneration: revisionSchema,
+    candidateSetVersion: positiveSafeIntegerSchema,
     candidateId: identifierSchema,
-    expectedRevision: revisionSchema,
+    expectedRevision: positiveSafeIntegerSchema,
+    expectedCandidateVersion: positiveSafeIntegerSchema,
     expectedCurrentValueHash: valueHashSchema,
     choice: conflictResolutionChoiceSchema,
+  })
+  .strict();
+
+export const conflictResolutionReceiptSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    readGeneration: revisionSchema,
+    enqueuedForSync: z.boolean(),
   })
   .strict();
 
@@ -140,6 +169,7 @@ export type ConflictResolutionChoice = z.infer<typeof conflictResolutionChoiceSc
 export type ConflictItem = z.infer<typeof conflictItemSchema>;
 export type ConflictCenterViewModel = z.infer<typeof conflictCenterViewModelSchema>;
 export type ConflictResolutionIntent = z.infer<typeof conflictResolutionIntentSchema>;
+export type ConflictResolutionReceipt = z.infer<typeof conflictResolutionReceiptSchema>;
 
 export interface ConflictQueryBoundary {
   getConflictCenter(): Promise<unknown>;
@@ -150,13 +180,48 @@ export interface ConflictQueryPort {
 }
 
 export interface ConflictResolvePort {
-  resolveConflict(intent: ConflictResolutionIntent): Promise<void>;
+  resolveConflict(intent: ConflictResolutionIntent): Promise<ConflictResolutionReceipt>;
 }
 
 export function parseConflictCenterViewModel(input: unknown): ConflictCenterViewModel {
-  const parsed = conflictCenterViewModelSchema.safeParse(input);
+  const parsed = conflictCenterViewModelSchema.safeParse(copyConflictWire(input));
   if (!parsed.success) throw new TypeError("invalid conflict center projection");
   return parsed.data;
+}
+
+export function parseConflictResolutionReceipt(input: unknown): ConflictResolutionReceipt {
+  const parsed = conflictResolutionReceiptSchema.safeParse(copyConflictWire(input));
+  if (!parsed.success) throw new TypeError("invalid conflict resolution receipt");
+  return parsed.data;
+}
+
+function copyConflictWire(input: unknown, depth = 0, budget = { nodes: 0 }): unknown {
+  budget.nodes += 1;
+  if (depth > 8 || budget.nodes > 12_000) throw new TypeError("invalid conflict center projection");
+  if (input === null || typeof input !== "object") return input;
+  if (Object.getPrototypeOf(input) !== Object.prototype && !Array.isArray(input)) {
+    throw new TypeError("invalid conflict center projection");
+  }
+  if (Object.getOwnPropertySymbols(input).length !== 0) throw new TypeError("invalid conflict center projection");
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  if (Array.isArray(input)) {
+    if (Object.keys(descriptors).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/u.test(key))) {
+      throw new TypeError("invalid conflict center projection");
+    }
+    const copied: unknown[] = [];
+    for (let index = 0; index < input.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (descriptor === undefined || !("value" in descriptor)) throw new TypeError("invalid conflict center projection");
+      copied.push(copyConflictWire(descriptor.value, depth + 1, budget));
+    }
+    return copied;
+  }
+  const copied: Record<string, unknown> = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!("value" in descriptor)) throw new TypeError("invalid conflict center projection");
+    copied[key] = copyConflictWire(descriptor.value, depth + 1, budget);
+  }
+  return copied;
 }
 
 export class ValidatingConflictQueryPort implements ConflictQueryPort {
@@ -177,29 +242,22 @@ export function createConflictResolutionIntent(
   choice: ConflictResolutionChoice,
 ): ConflictResolutionIntent | null {
   if (view.freshness.source !== "active_local") return null;
+  if (!positiveSafeIntegerSchema.safeParse(view.candidateSetVersion).success) return null;
   const item = view.conflicts.find((candidate) => candidate.candidateId === candidateId);
   if (item?.status !== "pending" || item.resolutionAdmission.state !== "available") return null;
+  if (
+    !positiveSafeIntegerSchema.safeParse(item.resolutionAdmission.expectedRevision).success ||
+    !positiveSafeIntegerSchema.safeParse(item.resolutionAdmission.expectedCandidateVersion).success
+  ) return null;
   if (!item.resolutionAdmission.choices.includes(choice)) return null;
   return conflictResolutionIntentSchema.parse({
     schemaVersion: 1,
-    workspaceId: view.workspaceId,
+    expectedReadGeneration: view.readGeneration,
     candidateSetVersion: view.candidateSetVersion,
     candidateId: item.resolutionAdmission.candidateId,
     expectedRevision: item.resolutionAdmission.expectedRevision,
+    expectedCandidateVersion: item.resolutionAdmission.expectedCandidateVersion,
     expectedCurrentValueHash: item.resolutionAdmission.expectedCurrentValueHash,
     choice,
-  });
-}
-
-export function createLowRiskConflictResolutionIntents(
-  view: ConflictCenterViewModel,
-  group: ConflictGroup,
-  choice: ConflictResolutionChoice,
-): readonly ConflictResolutionIntent[] {
-  if (view.freshness.source !== "active_local") return [];
-  return view.conflicts.flatMap((item) => {
-    if (item.group !== group || item.risk !== "normal") return [];
-    const intent = createConflictResolutionIntent(view, item.candidateId, choice);
-    return intent === null ? [] : [intent];
   });
 }

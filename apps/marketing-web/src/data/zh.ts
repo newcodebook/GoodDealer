@@ -30,7 +30,7 @@ export const meta: PageMeta = {
       offers: [
         { "@type": "Offer", price: "9.80", priceCurrency: "USD", name: "月付" },
         { "@type": "Offer", price: "98.00", priceCurrency: "USD", name: "年付" },
-        { "@type": "Offer", price: "498.00", priceCurrency: "USD", name: "终身买断" },
+        { "@type": "Offer", price: "498.00", priceCurrency: "USD", name: "10 年特惠授权" },
       ],
     },
     {
@@ -79,10 +79,10 @@ export const meta: PageMeta = {
         },
         {
           "@type": "Question",
-          name: "买断之后还会扣费吗？",
+          name: "10 年特惠授权会自动续费吗？",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "终身买断一次付费，不再扣费，包含所有未来大版本更新。月付和年付可随时取消，到期后不再续费。",
+            text: "不会。10 年特惠授权一次预付 10 年，到期后不自动续费；月付和年付可随时取消，到期后不再续费。",
           },
         },
       ],
@@ -149,17 +149,17 @@ export const data: MkData = {
   plans: [
     { key: "monthly", name: "月付", price: 9.8, unit: "/月", period: "按月续费 · 随时取消", cta: "选择月付" },
     { key: "annual", name: "年付", price: 98, unit: "/年", sub: "≈ $8.2/月 · 省 17%", period: "按年续费 · 随时取消", cta: "选择年付", popular: true },
-    { key: "lifetime", name: "终身", price: 498, unit: "一次性", sub: "含所有未来大版本", period: "永久买断 · 不再扣费", cta: "选择终身", gold: true },
+    { key: "ten-year", name: "10 年特惠", price: 498, unit: "/10 年", sub: "一次预付 · 固定 10 年", period: "不自动续费 · 到期可续购", cta: "选择 10 年", gold: true },
   ],
   planFeatures: ["完整功能 · 资产库 · 销售 · DNS · 批量操作", "最多两台电脑 · 一台操作", "平台密码始终留在本地", "14 天全额退款"],
-  planNote: "三个档位功能完全一样，区别只在时长——月付、年付或一次买断。结账由 Paddle 处理，GoodDealer 不接触你的卡号。",
+  planNote: "三个方案功能完全一样，区别只在时长——月付、年付或一次预付 10 年。结账由 Stripe 安全处理，GoodDealer 不接触你的卡号。",
   faq: [
     { q: "会自动监控售出并自动下架吗？", a: "不会。首版软件不会在后台自动运行。当你主动刷新，或其他操作过程中发现域名已售出时，软件会生成跨平台下架清单，由你逐次确认后执行。" },
     { q: "平台账号密码和 API Key 会上传吗？", a: "不会。平台账号资料、连接名称、密码、API Key 和登录会话始终留在你的电脑上，GoodDealer 云端和运营后台都无法读取；云端只保存允许同步的域名、价格等业务副本。" },
     { q: "能绑定几台设备？", a: "最多两台电脑，任何时候只有一台能执行操作，另一台只能查看。换第三台需先解绑旧设备；如果解绑的是正在操作的那台，新设备需要等旧设备完成当前操作后才能接管。" },
     { q: "支持哪些注册商与平台？", a: "正式发布目标覆盖大部分主流注册商、销售平台和 DNS 服务商，包括 Spaceship、Namecheap、Dynadot、阿里云、Cloudflare、Atom、Spaceship SellerHub 与 Afternic。每项集成只有通过兼容性与安全门禁后才会开放；暂未接入的注册商可通过导入文件补充。" },
     { q: "有纯本地、不联网的模式吗？", a: "没有永久纯本地模式：云同步会自动复制允许同步的业务副本，供另一台电脑恢复和查看。但桌面客户端始终先把业务变更写入本机加密数据库；完成账号与设备授权后，在已验证的离线授权窗口内仍可继续本地业务，网络恢复后再同步排队变更。平台账号资料、密码、API Key 和浏览器会话只留在本机。" },
-    { q: "买断之后还会扣费吗？", a: "终身买断一次付费，不再扣费，包含所有未来大版本更新。月付和年付可随时取消，到期后不再续费。" },
+    { q: "10 年特惠授权会自动续费吗？", a: "不会。10 年特惠授权一次预付 10 年，到期后不自动续费；月付和年付可随时取消，到期后不再续费。" },
   ],
   download: {
     title: "在你的电脑上开始",
@@ -231,7 +231,7 @@ export const data: MkData = {
   },
   // ui — component-level strings (section headers, eyebrows, diagram labels, animation captions).
   ui: {
-    shell: { login: "登录", download: "下载", footerLegal: "Paddle 为 Merchant of Record，结账不接触卡号", footerLang: "中文优先 · English 其次" },
+    shell: { login: "登录", download: "下载", footerLegal: "结账由 Stripe 安全处理，GoodDealer 不接触卡号", footerLang: "中文优先 · English 其次" },
     hero: { eyebrowSub: "域名资产管理", titleBefore: "分散在多个注册商\n与平台的域名，", titleGold: "一处掌控" },
     benefits: { tag: "功能亮点", tagSub: "你得到什么", h2: "多注册商域名，统一批量管理", lead: "不再在注册商和销售平台之间来回切换——筛选、改价、上架、验证，一处完成。", from: "从", to: "到" },
     pillars: { tag: "核心场景", tagSub: "四项核心能力", h2: "从资产库到批量操作", lead: "注册商、DNS、销售平台各管各的；GoodDealer 把它们统一成一张可以批量操作、先看后改的域名总表。" },
@@ -272,7 +272,7 @@ export const data: MkData = {
       arrow: { label: "只同步业务数据", sub: "不含密码" },
       cloudNode: { title: "GoodDealer 云端", sub: "供第二台设备查看", items: ["域名 · 价格 · 上架状态", "操作记录（不含密码）"] },
     },
-    pricing: { tag: "定价", tagSub: "月付 · 年付 · 买断", h2: "选一个时长，功能完全一样", popular: "最受欢迎", oneTime: "一次买断" },
+    pricing: { tag: "定价", tagSub: "月付 · 年付 · 10 年", h2: "选一个时长，功能完全一样", popular: "最受欢迎", oneTime: "一次预付" },
     faq: { tag: "常见问题", tagSub: "边界与承诺", h2: "把边界说清楚" },
     download: { tag: "下载", tagSub: "macOS · Windows" },
   },

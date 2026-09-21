@@ -60,11 +60,10 @@ export interface BootstrapDeviceCursorPort {
   insertNextGeneration(transaction: TenantTransaction, deviceId: string, atRevision: number): Promise<number>;
 }
 
-/** Production entitlement persistence is intentionally unavailable in this Phase 0 slice. */
+/** Licensing owns the current commercial deadline; devices receive no payment evidence. */
 export interface ActiveEntitlementDeadlinePort {
   lockCurrent(transaction: TenantTransaction): Promise<{
     readonly active: true;
-    readonly securityDeadline: string;
     readonly entitlementDeadline: string;
   } | null>;
 }

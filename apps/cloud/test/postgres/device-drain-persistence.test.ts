@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runCloudMigrations, TenantTransactionRunner, type TenantTransaction } from "../../src/db/index";
 import { cloudMigrations } from "../../src/db/migrations";
+import { clearLicensingTestData } from "../support/postgres-fixture";
 import { PostgresWorkspaceDeviceAuditDrainLedger } from "../../src/modules/audit/index";
 import {
   PostgresDeviceDrainTransition,
@@ -578,13 +579,22 @@ function consumeDrainProof(transaction: TenantTransaction) {
 }
 
 async function resetAndSeed(): Promise<void> {
+  await clearLicensingTestData(ownerPool);
   await ownerPool.query(`TRUNCATE
     workspace_device_cursors, workspace_device_audit_drain_seals, workspace_device_audit_drain_records,
     workspace_device_audit_drain_heads, execution_fact_drain_seals, execution_fact_drain_records,
     execution_fact_drain_heads, mutation_drain_seals, mutation_drain_records, mutation_drain_heads,
+    device_bootstrap_activation_attempts, device_bootstrap_step_nonces, device_bootstrap_authorities,
     device_bootstrap_steps, device_bootstrap_capabilities, device_drain_proofs, device_active_leases,
-    device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges,
-    device_signing_keys, device_bindings, device_account_states, workspace_revisions, identity_accounts CASCADE`);
+    device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges, device_login_challenges,
+    device_signing_keys, device_bindings, device_account_states`);
+  await ownerPool.query(
+    "DELETE FROM workspace_revisions WHERE account_id = $1 AND workspace_id = $2",
+    [scope.accountId, scope.workspaceId],
+  );
+  await ownerPool.query("DELETE FROM workspace_account_bindings");
+  await ownerPool.query("DELETE FROM workspace_workspaces");
+  await ownerPool.query("DELETE FROM identity_accounts");
   await withOwnerTenant(scope, async (transaction) => {
     await transaction.query(`INSERT INTO identity_accounts
       (account_id, email_normalized, password_policy_id, password_hash_phc)
@@ -614,10 +624,11 @@ async function resetAndSeed(): Promise<void> {
       VALUES ($1, $2, 'old-workflow', 1, 'activated', transaction_timestamp())`, [scope.accountId, scope.workspaceId]);
     await transaction.query(`INSERT INTO device_active_leases
       (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
-       offline_execute_until, signed_envelope)
+       offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
       VALUES ($1, 1, 'device-old', 'old-lease-jti', transaction_timestamp() - interval '10 minutes',
        transaction_timestamp() - interval '9 minutes', transaction_timestamp() + interval '5 minutes',
-       transaction_timestamp() + interval '1 hour', decode('01', 'hex'))`, [scope.accountId]);
+       transaction_timestamp() + interval '1 hour', decode('01', 'hex'),
+       jsonb_build_object('fixture', 'device-drain'), pg_catalog.sha256(decode('01', 'hex')))`, [scope.accountId]);
     await transaction.query(`SELECT public.workspace_mutation_drain_append_record(
       $1::text, 1::bigint, 1::bigint, $2::bytea
     )`, ["device-old", mutationFixtureEnvelope]);

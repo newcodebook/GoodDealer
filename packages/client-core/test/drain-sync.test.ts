@@ -34,12 +34,13 @@ function digest(bytes: Uint8Array): Uint8Array {
 const sha256: Sha256Port = { digest: async (bytes) => digest(bytes) };
 
 const mutation = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   mutationId: "mutation-5",
   workspaceId: "workspace-a",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset",
   entityId: "example.com",
+  operationKind: "upsert",
   baseServerRevision: 4,
   changedFields: [{ fieldPath: "note", value: "Priority portfolio" }],
   sourceDeviceId: "device-a",

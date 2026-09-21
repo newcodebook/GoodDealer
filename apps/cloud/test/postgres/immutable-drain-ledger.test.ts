@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runCloudMigrations, TenantTransactionRunner, type TenantTransaction } from "../../src/db/index";
 import { cloudMigrations } from "../../src/db/migrations";
+import { clearLicensingTestData } from "../support/postgres-fixture";
 
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 1 });
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 8 });
@@ -67,13 +68,16 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await clearLicensingTestData(ownerPool);
   await ownerPool.query(`TRUNCATE
+    workspace_account_bindings, workspace_workspaces,
     workspace_device_audit_drain_seals, workspace_device_audit_drain_records,
     workspace_device_audit_drain_heads, execution_fact_drain_seals, execution_fact_drain_records,
     execution_fact_drain_heads, mutation_drain_seals, mutation_drain_records, mutation_drain_heads,
     device_drain_proofs, device_active_leases, device_lease_epoch_allocations,
     device_switch_workflows, device_signing_keys, device_bindings, device_account_states,
-    identity_account_security_states, identity_accounts CASCADE`);
+    identity_account_security_states CASCADE`);
+  await ownerPool.query("DELETE FROM identity_accounts");
   await seedDrainAuthority();
 });
 
@@ -157,7 +161,13 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       { name: "gooddealer_cloud_owner", superuser: false, bypassRls: false, createRole: false, createDb: false, replication: false },
     ]);
 
-    const memberships = await ownerPool.query(`
+    const memberships = await ownerPool.query<{
+      member: string;
+      role: string;
+      adminOption: boolean;
+      inheritOption: boolean;
+      setOption: boolean;
+    }>(`
       SELECT member_role.rolname AS member, granted_role.rolname AS role,
              membership.admin_option AS "adminOption", membership.inherit_option AS "inheritOption",
              membership.set_option AS "setOption"
@@ -167,7 +177,50 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       WHERE member_role.rolname IN ('gooddealer_cloud_app', 'gooddealer_cloud_owner')
          OR granted_role.rolname IN ('gooddealer_cloud_app', 'gooddealer_cloud_owner')
       ORDER BY member, role`);
-    expect(memberships.rows).toEqual([]);
+    expect(memberships.rows).toEqual([
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_identity_definer",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_identity_owner",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_licensing_command_definer",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_licensing_ingress_definer",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_licensing_owner",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+      {
+        member: "gooddealer_cloud_owner",
+        role: "gd_licensing_worker_definer",
+        adminOption: false,
+        inheritOption: false,
+        setOption: true,
+      },
+    ]);
 
     expect(await readEffectiveDefaultAclFacts(ownerPool)).toEqual(safeDefaultAclFacts);
 
@@ -260,6 +313,14 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
   it("resists a hostile search path because the allowlisted routine remains catalog-first and schema-qualified", async () => {
     await transactions.withTenant(scope, async (transaction) => {
       await transaction.query("SET LOCAL search_path = pg_temp, public");
+      const tempPrivilege = await transaction.query<{ allowed: boolean }>(
+        "SELECT has_database_privilege(current_user, current_database(), 'TEMP') AS allowed",
+      );
+      if (tempPrivilege.rows[0]?.allowed !== true) {
+        await expect(transaction.query("CREATE TEMPORARY TABLE mutation_drain_records (source_device_id text)"))
+          .rejects.toMatchObject({ code: "42501" });
+        return;
+      }
       await transaction.query("CREATE TEMPORARY TABLE mutation_drain_records (source_device_id text)");
       const state = await transaction.query<{
         contiguous_received_through: string;
@@ -430,10 +491,11 @@ async function seedDrainAuthority(): Promise<void> {
     [scope.accountId, scope.workspaceId]);
     await transaction.query(`INSERT INTO device_active_leases
       (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
-       offline_execute_until, signed_envelope)
+       offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
       VALUES ($1, 1, $2, 'immutable-ledger-lease', transaction_timestamp() - interval '10 minutes',
         transaction_timestamp() - interval '9 minutes', transaction_timestamp() + interval '5 minutes',
-        transaction_timestamp() + interval '1 hour', decode('01', 'hex'))`,
+        transaction_timestamp() + interval '1 hour', decode('01', 'hex'),
+        jsonb_build_object('fixture', 'immutable-drain'), pg_catalog.sha256(decode('01', 'hex')))`,
     [scope.accountId, sourceDeviceId]);
   });
 }

@@ -5,12 +5,17 @@ import { AccountTransactionRunner, runCloudMigrations, TenantTransactionRunner }
 import { cloudMigrations } from "../../src/db/migrations";
 import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 import { createPostgresCloudPublicHttp } from "../../src/entrypoints/http";
+import { DenyingDesktopAccessTokenVerifier } from "../../src/entrypoints/ports/public-session";
+import { DenyingDesktopAuthorizationGrantSigner } from "../../src/modules/devices/authorization-grant-issuer";
+import { DenyingActiveDeviceLeaseVerifier } from "../../src/modules/devices/active-device-lease-verifier";
+import { CommercialCheckoutCatalog } from "../../src/modules/licensing/commercial-checkout";
 import {
   activateAccount,
   activationIdentityFor,
   type AuthenticatedSubjectRevalidationPort,
 } from "../../src/modules/identity/index";
 import { activationTenantScope } from "../../src/modules/workspace/tenant-scope";
+import { clearLicensingTestData } from "../support/postgres-fixture";
 
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 1 });
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 8 });
@@ -35,8 +40,11 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await clearLicensingTestData(ownerPool);
   await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces, workspace_revisions,
-    identity_account_security_states, identity_accounts CASCADE`);
+    device_account_states,
+    identity_account_security_states CASCADE`);
+  await ownerPool.query("DELETE FROM identity_accounts");
 });
 
 afterAll(async () => Promise.all([ownerPool.end(), appPool.end(), reusePool.end()]));
@@ -45,6 +53,7 @@ describe("PostgreSQL account activation", () => {
   it("composes the authenticated HTTP route through PostgreSQL activation and default-workspace repositories", async () => {
     const identity = activationIdentityFor(subject);
     const app = createPostgresCloudPublicHttp({
+      allowSelectorOnlyIdentityTestHarness: true,
       pool: appPool,
       identity: {
         async readSessionVerification(sessionId) {
@@ -64,6 +73,34 @@ describe("PostgreSQL account activation", () => {
           return principal.accountId === identity.accountId ? subject : null;
         },
       },
+      desktopAuthorizationSigner: new DenyingDesktopAuthorizationGrantSigner(),
+      activeDeviceLeaseVerifier: new DenyingActiveDeviceLeaseVerifier(),
+      desktopAccessTokens: new DenyingDesktopAccessTokenVerifier(),
+      commercialCheckoutCatalog: new CommercialCheckoutCatalog([]),
+      commercialCheckoutGateways: [
+        {
+          provider: "stripe",
+          create: async () => { throw new Error("not exercised"); },
+          reconcileCheckout: async () => { throw new Error("not exercised"); },
+          prepareSubscriptionCancellation: async () => { throw new Error("not exercised"); },
+          cancelSubscription: async () => { throw new Error("not exercised"); },
+          confirmFixedTerm: async () => { throw new Error("not exercised"); },
+          captureFixedTerm: async () => { throw new Error("not exercised"); },
+          recover: async () => { throw new Error("not exercised"); },
+          readApprovalUrl: async () => { throw new Error("not exercised"); },
+        },
+        {
+          provider: "paypal",
+          create: async () => { throw new Error("not exercised"); },
+          reconcileCheckout: async () => { throw new Error("not exercised"); },
+          prepareSubscriptionCancellation: async () => { throw new Error("not exercised"); },
+          cancelSubscription: async () => { throw new Error("not exercised"); },
+          confirmFixedTerm: async () => { throw new Error("not exercised"); },
+          captureFixedTerm: async () => { throw new Error("not exercised"); },
+          recover: async () => { throw new Error("not exercised"); },
+          readApprovalUrl: async () => { throw new Error("not exercised"); },
+        },
+      ],
       preAuthRateLimit: rateLimitPolicy(60_000, 10),
       sessionRateLimit: rateLimitPolicy(60_000, 10),
       now: () => new Date("2026-08-29T00:00:00Z"),
@@ -94,26 +131,52 @@ describe("PostgreSQL account activation", () => {
     const first = await activateAccount(appPool, verified, { schemaVersion: 1 });
     const second = await activateAccount(appPool, verified, { schemaVersion: 1 });
     expect(second).toEqual(first);
-    const counts = await ownerPool.query<{ accounts: string; workspaces: string; bindings: string; revisions: string }>(
+    const counts = await ownerPool.query<{
+      accounts: string;
+      deviceStates: string;
+      workspaces: string;
+      bindings: string;
+      revisions: string;
+    }>(
       `SELECT (SELECT count(*) FROM identity_accounts)::text AS accounts,
+       (SELECT count(*) FROM device_account_states)::text AS "deviceStates",
        (SELECT count(*) FROM workspace_workspaces)::text AS workspaces,
        (SELECT count(*) FROM workspace_account_bindings)::text AS bindings,
        (SELECT count(*) FROM workspace_revisions)::text AS revisions`,
     );
-    expect(counts.rows[0]).toEqual({ accounts: "1", workspaces: "1", bindings: "1", revisions: "1" });
+    expect(counts.rows[0]).toEqual({
+      accounts: "1",
+      deviceStates: "1",
+      workspaces: "1",
+      bindings: "1",
+      revisions: "1",
+    });
   });
 
   it.each(["account", "workspace", "binding", "initial-record"] as const)("rolls back after %s with zero residue", async (point) => {
     await expect(activateAccount(appPool, verified, { schemaVersion: 1 }, (actual) => {
       if (actual === point) throw new Error(`fault-${point}`);
     })).rejects.toThrow(`fault-${point}`);
-    const residue = await ownerPool.query<{ accounts: string; workspaces: string; bindings: string; revisions: string }>(
+    const residue = await ownerPool.query<{
+      accounts: string;
+      deviceStates: string;
+      workspaces: string;
+      bindings: string;
+      revisions: string;
+    }>(
       `SELECT (SELECT count(*) FROM identity_accounts)::text AS accounts,
+       (SELECT count(*) FROM device_account_states)::text AS "deviceStates",
        (SELECT count(*) FROM workspace_workspaces)::text AS workspaces,
        (SELECT count(*) FROM workspace_account_bindings)::text AS bindings,
        (SELECT count(*) FROM workspace_revisions)::text AS revisions`,
     );
-    expect(residue.rows[0]).toEqual({ accounts: "0", workspaces: "0", bindings: "0", revisions: "0" });
+    expect(residue.rows[0]).toEqual({
+      accounts: "0",
+      deviceStates: "0",
+      workspaces: "0",
+      bindings: "0",
+      revisions: "0",
+    });
   });
 
   it("enforces composite ownership, one default, and forced RLS", async () => {

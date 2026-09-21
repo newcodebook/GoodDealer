@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "accessMode": "security_locked",
+  "restrictionReason": "device_removed",
+  "capabilities": [],
+  "accountCheck": "pass",
+  "deviceBindingCheck": "pass",
+  "entitlementCheck": "pass",
+  "activeLeaseCheck": "pass",
+  "localIntegrityCheck": "pass",
+  "accountSecurityState": "normal",
+  "trustedTimeState": "trusted",
+  "evaluatedAt": "2026-08-13T11:00:00Z"
+}

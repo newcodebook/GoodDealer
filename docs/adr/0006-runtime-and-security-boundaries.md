@@ -10,12 +10,14 @@
 
 ## 当前结构
 
-- `apps/desktop` 是静态 Tauri/React 基线，没有业务命令、Host 组合或业务渲染。
-- `apps/cloud` 拥有模块化持久化和边界入口；公共业务路由与周期作业为空。
+- `apps/desktop` 拥有 Tauri/React 本地业务组合、SQLCipher Repository、Native OAuth 与脱敏 IPC。
+- `apps/cloud` 拥有模块化持久化、公共业务/OAuth/webhook 边界入口，以及 Licensing provider inbox/
+  reconciliation 两个窄周期作业定义；通用 job runtime 不解释这些领域 payload。
 - `packages/protocol`、`client-core`、`cloud-client`、`ui` 和 `i18n` 各自拥有严格合同、
   模型、展示或文案，不拥有生产组合。
-- `secure-host-core` 仅公开窄备份操作，`local-storage` 没有 Core 备份权威，`automation-host`
-  不可用。
+- `secure-host-core` 公开 OAuth custody、授权验证与非秘密 Cloudflare 观察合同，不包含备份实现或依赖；
+  `local-storage` 的 Desktop Local Host 独占备份 authority、GDBK/KEK、native handle/journal、投影、
+  candidate 和 restore，`automation-host` 不可用。
 
 ## 后果
 

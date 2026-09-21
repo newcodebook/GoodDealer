@@ -1,336 +1,168 @@
 /**
- * Evidence producer for WP-4 jobs slice.
+ * Local evidence producer for the durable Licensing periodic-job composition.
  *
- * Runs the negative matrix and reports results with 4 segments:
- * cross-tenant, replay, idempotency, lease-contention.
- * Asserts periodicJobsRegistered === false.
+ * This exercises scheduler registration and application-port dispatch with in-memory fakes. It
+ * does not observe a production scheduler/worker, provider network, production deployment, or release state.
  *
  * Usage: node scripts/collect-jobs-report.mjs <output-path>
  */
 
-import { existsSync, writeFileSync } from "node:fs";
-import { registerHooks } from "node:module";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { registerHooks, stripTypeScriptTypes } from "node:module";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(import.meta.dirname, "..");
 const outputPath = process.argv[2] ?? resolve(root, ".artifacts/wp4/jobs/jobs-report.json");
 
-// ---------------------------------------------------------------------------
-// TypeScript hooks — same pattern as collect-cloud-boundary-report.mjs
-// ---------------------------------------------------------------------------
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if ((specifier.startsWith("./") || specifier.startsWith("../"))
+        && !/\.[a-z0-9]+$/iu.test(specifier) && context.parentURL !== undefined) {
+      const candidate = new URL(`${specifier}.ts`, context.parentURL);
+      if (existsSync(fileURLToPath(candidate))) return nextResolve(candidate.href, context);
+    }
+    return nextResolve(specifier, context);
+  },
+  load(url, context, nextLoad) {
+    if (url.startsWith("file:") && url.endsWith(".ts")) {
+      return {
+        format: "module",
+        shortCircuit: true,
+        source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), "utf8"), { mode: "transform" }),
+      };
+    }
+    return nextLoad(url, context);
+  },
+});
 
-let hooksRegistered = false;
+const jobs = await import(pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/jobs.ts")));
+const licensingMigrationSource = readFileSync(resolve(
+  root,
+  "apps/cloud/src/modules/licensing/migrations/202608200015-commercial-entitlements.ts",
+), "utf8");
+const reconciliationServiceSource = readFileSync(resolve(
+  root,
+  "apps/cloud/src/modules/licensing/payment-webhook-service.ts",
+), "utf8");
+const expectedJobs = [
+  { jobName: "commercial-provider-operation", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-inbox", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-reconciliation", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-due-authority", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+  { jobName: "commercial-provider-release", cron: "* * * * *", targetModule: "licensing", payloadVersion: 1 },
+];
 
-function registerTypeScriptHooks() {
-  if (hooksRegistered) return;
-  registerHooks({
-    resolve(specifier, context, nextResolve) {
-      if (
-        (specifier.startsWith("./") || specifier.startsWith("../"))
-        && !/\.[a-z0-9]+$/i.test(specifier)
-        && context.parentURL !== undefined
-      ) {
-        const candidate = new URL(`${specifier}.ts`, context.parentURL);
-        if (existsSync(fileURLToPath(candidate))) return nextResolve(candidate.href, context);
-      }
-      return nextResolve(specifier, context);
+const scheduled = [];
+const calls = [];
+const observations = [];
+const composition = jobs.createJobsComposition({
+  scheduler: {
+    async schedulePeriodic(spec) {
+      scheduled.push({ ...spec });
+      return { scheduled: true };
     },
-  });
-  hooksRegistered = true;
+  },
+  ports: {
+    commercialProvider: {
+      async processNextOperation(workerId) {
+        calls.push({ kind: "operation", workerId });
+        return { status: "confirmed" };
+      },
+      async processNextInbox(workerId, leaseExpiresAt) {
+        calls.push({ kind: "inbox", workerId, leaseExpiresAt });
+        return { status: "applied" };
+      },
+      async processNextReconciliation(workerId, leaseExpiresAt) {
+        calls.push({ kind: "reconciliation", workerId, leaseExpiresAt });
+        return { status: "reconciled" };
+      },
+      async processNextDueAuthority(workerId) {
+        calls.push({ kind: "due_authority", workerId });
+        return { status: "applied" };
+      },
+      async processNextRelease(workerId) {
+        calls.push({ kind: "release", workerId });
+        return { status: "released" };
+      },
+    },
+  },
+  tenants: { create(tenantId) { return { tenantId }; } },
+  now: () => new Date("2026-09-02T12:00:00.000Z"),
+  observe(event) { observations.push({ ...event }); },
+});
+
+await composition.start();
+await composition.start();
+await composition.run("commercial-provider-operation", "worker-operation");
+await composition.run("commercial-provider-inbox", "worker-inbox");
+await composition.run("commercial-provider-reconciliation", "worker-reconciliation");
+await composition.run("commercial-due-authority", "worker-due");
+await composition.run("commercial-provider-release", "worker-release");
+await composition.stop();
+
+const registrationResults = [
+  { vector: "exact-job-registry", passed: JSON.stringify(jobs.periodicJobs) === JSON.stringify(expectedJobs) },
+  { vector: "schedule-each-job-once", passed: JSON.stringify(scheduled) === JSON.stringify(expectedJobs) },
+  { vector: "framework-independent-composition", passed: composition.transport === "framework-independent" },
+];
+const dispatchResults = [
+  { vector: "provider-operation-port", passed: calls[0]?.kind === "operation" && calls[0]?.workerId === "worker-operation" },
+  { vector: "durable-inbox-port", passed: calls[1]?.kind === "inbox" && calls[1]?.workerId === "worker-inbox" },
+  { vector: "reconciliation-port", passed: calls[2]?.kind === "reconciliation" && calls[2]?.workerId === "worker-reconciliation" },
+  { vector: "due-authority-port", passed: calls[3]?.kind === "due_authority" && calls[3]?.workerId === "worker-due" },
+  { vector: "release-port", passed: calls[4]?.kind === "release" && calls[4]?.workerId === "worker-release" },
+  { vector: "bounded-observation", passed: observations.map(({ outcome }) => outcome).join(",") === "confirmed,applied,reconciled,applied,released" },
+];
+
+const unavailable = jobs.createJobsComposition();
+let unavailableStartRejected = false;
+let stoppedRunRejected = false;
+try { await unavailable.start(); } catch { unavailableStartRejected = true; }
+try { await composition.run("commercial-provider-inbox", "stopped-worker"); } catch { stoppedRunRejected = true; }
+const failClosedResults = [
+  { vector: "missing-dependencies-rejected", passed: unavailableStartRejected },
+  { vector: "stopped-composition-rejects-run", passed: stoppedRunRejected },
+];
+const durabilityResults = [
+  {
+    vector: "overlap-leasing-skip-locked",
+    passed: (licensingMigrationSource.match(/FOR UPDATE SKIP LOCKED/gu) ?? []).length >= 2
+      && /lease_expires_at\s*<=\s*transaction_timestamp\(\)/u.test(licensingMigrationSource),
+  },
+  {
+    vector: "failed-provider-read-reschedules",
+    passed: /repository\.failBoundWork\(/u.test(reconciliationServiceSource)
+      && /status: "retry_scheduled"/u.test(reconciliationServiceSource),
+  },
+  {
+    vector: "provider-side-effect-idempotency-is-operation-owned",
+    passed: /UNIQUE\s*\(provider,\s*provider_idempotency_key\)/u.test(licensingMigrationSource)
+      && /provider_dispatch_permits/u.test(licensingMigrationSource),
+  },
+];
+
+function segment(results) {
+  return { passed: results.every(({ passed }) => passed), count: results.length, results };
 }
-
-registerTypeScriptHooks();
-
-// ---------------------------------------------------------------------------
-// Load runtime modules via pathToFileURL
-// ---------------------------------------------------------------------------
-
-const protocol = await import(
-  pathToFileURL(resolve(root, "packages/protocol/src/jobs/index.ts"))
-);
-const jobRuntime = await import(
-  pathToFileURL(resolve(root, "apps/cloud/src/modules/job-runtime/index.ts"))
-);
-const jobs = await import(
-  pathToFileURL(resolve(root, "apps/cloud/src/entrypoints/jobs.ts"))
-);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const baseTime = new Date("2026-01-15T10:00:00.000Z");
-function timeOffset(ms) {
-  return new Date(baseTime.getTime() + ms);
-}
-
-function tenant(overrides) {
-  return {
-    accountId: overrides?.accountId ?? "acct-001",
-    workspaceId: overrides?.workspaceId ?? "ws-001",
-  };
-}
-
-function envelope(overrides) {
-  return {
-    schemaVersion: protocol.TENANT_JOB_SCHEMA_VERSION,
-    envelopeId: "env-001",
-    tenant: tenant(),
-    jobKind: "workspace_maintenance",
-    idempotencyKey: "idem-001",
-    leaseEpoch: 1,
-    attempt: 1,
-    enqueuedAt: "2026-01-15T10:00:00Z",
-    payload: { targetEntity: "entity-001" },
-    ...overrides,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Segment 1: Cross-tenant isolation
-// ---------------------------------------------------------------------------
-
-function runCrossTenantSegment() {
-  const results = [];
-  const { JobIdempotencyStore, JobQuarantineLedger } = jobRuntime;
-
-  // N-04: cross-tenant violation — invalid tenant rejected at schema level
-  const r1 = protocol.tenantJobEnvelopeSchema.safeParse(
-    envelope({ tenant: { accountId: "", workspaceId: "ws-001" } }),
-  );
-  results.push({ vector: "N-04-invalid-tenant", passed: !r1.success });
-
-  // N-05: dual-tenant same literal ID → independent composite keys
-  const keyA = protocol.buildJobIdempotencyKey(
-    { accountId: "acct-A", workspaceId: "ws-shared" },
-    "workspace_maintenance",
-    "idem-shared",
-  );
-  const keyB = protocol.buildJobIdempotencyKey(
-    { accountId: "acct-B", workspaceId: "ws-shared" },
-    "workspace_maintenance",
-    "idem-shared",
-  );
-  results.push({ vector: "N-05-dual-tenant-independence", passed: keyA !== keyB });
-
-  // N-14: cross-tenant quarantine read → invisible
-  const ledger = new JobQuarantineLedger();
-  ledger.quarantine(
-    tenant({ accountId: "acct-A" }),
-    "workspace_maintenance",
-    "part-001",
-    "unknown_envelope",
-    baseTime,
-  );
-  const visibleToB = ledger.listForTenant(tenant({ accountId: "acct-B" }));
-  results.push({ vector: "N-14-cross-tenant-quarantine-invisible", passed: visibleToB.length === 0 });
-
-  // Cross-tenant idempotency store isolation
-  const store = new JobIdempotencyStore();
-  const envelopeA = {
-    ...envelope(),
-    tenant: { accountId: "acct-A", workspaceId: "ws-001" },
-  };
-  const parsed = protocol.tenantJobEnvelopeSchema.parse(envelopeA);
-  store.record(parsed, "completed");
-  const envelopeB = {
-    ...envelope(),
-    tenant: { accountId: "acct-B", workspaceId: "ws-001" },
-  };
-  const parsedB = protocol.tenantJobEnvelopeSchema.parse(envelopeB);
-  const check = store.check(parsedB);
-  results.push({ vector: "cross-tenant-idempotency-isolation", passed: check.status === "new" });
-
-  const allPassed = results.every((r) => r.passed);
-  return { passed: allPassed, count: results.length, results };
-}
-
-// ---------------------------------------------------------------------------
-// Segment 2: Replay detection
-// ---------------------------------------------------------------------------
-
-function runReplaySegment() {
-  const results = [];
-  const { JobIdempotencyStore, JobLeaseRegistry, JobQuarantineLedger, submitEnvelope } = jobRuntime;
-
-  // N-06: replay same key same content → deduplicate
-  const registry = new JobLeaseRegistry();
-  const store = new JobIdempotencyStore();
-  const ledger = new JobQuarantineLedger();
-
-  const env = envelope();
-  const first = submitEnvelope(env, registry, store, ledger, baseTime);
-  const second = submitEnvelope(env, registry, store, ledger, baseTime);
-  results.push({
-    vector: "N-06-replay-same-content-dedup",
-    passed: first.accepted && second.accepted && second.deduplicated === true,
-  });
-
-  // N-01: unknown field → rejected
-  const r01 = submitEnvelope(
-    envelope({ extraSecret: "bad" }),
-    new JobLeaseRegistry(),
-    new JobIdempotencyStore(),
-    new JobQuarantineLedger(),
-    baseTime,
-  );
-  results.push({ vector: "N-01-unknown-field-rejected", passed: !r01.accepted });
-
-  // N-02: unknown jobKind → rejected
-  const r02 = submitEnvelope(
-    envelope({ jobKind: "nonexistent" }),
-    new JobLeaseRegistry(),
-    new JobIdempotencyStore(),
-    new JobQuarantineLedger(),
-    baseTime,
-  );
-  results.push({ vector: "N-02-unknown-jobKind-rejected", passed: !r02.accepted && r02.reason === "unknown_envelope" });
-
-  const allPassed = results.every((r) => r.passed);
-  return { passed: allPassed, count: results.length, results };
-}
-
-// ---------------------------------------------------------------------------
-// Segment 3: Idempotency
-// ---------------------------------------------------------------------------
-
-function runIdempotencySegment() {
-  const results = [];
-  const { JobIdempotencyStore, JobLeaseRegistry, JobQuarantineLedger, submitEnvelope } = jobRuntime;
-
-  // N-07: replay same key different content → quarantine idempotency_conflict
-  const registry = new JobLeaseRegistry();
-  const store = new JobIdempotencyStore();
-  const ledger = new JobQuarantineLedger();
-
-  submitEnvelope(envelope(), registry, store, ledger, baseTime);
-  const different = envelope({ payload: { targetEntity: "different-entity" } });
-  const r07 = submitEnvelope(different, registry, store, ledger, baseTime);
-  results.push({
-    vector: "N-07-idempotency-conflict",
-    passed: !r07.accepted && r07.reason === "idempotency_conflict" && r07.quarantined?.reason === "idempotency_conflict",
-  });
-
-  // N-03: payload schema invalid → quarantine
-  const r03 = submitEnvelope(
-    envelope({ payload: { targetEntity: "" } }),
-    new JobLeaseRegistry(),
-    new JobIdempotencyStore(),
-    new JobQuarantineLedger(),
-    baseTime,
-  );
-  results.push({ vector: "N-03-payload-invalid-quarantine", passed: !r03.accepted && r03.reason === "payload_schema_invalid" });
-
-  // N-12: max attempts exceeded → quarantine
-  const r12 = submitEnvelope(
-    envelope({ attempt: 6, idempotencyKey: "idem-max" }),
-    new JobLeaseRegistry(),
-    new JobIdempotencyStore(),
-    new JobQuarantineLedger(),
-    baseTime,
-  );
-  results.push({
-    vector: "N-12-max-attempts-quarantine",
-    passed: !r12.accepted && r12.reason === "max_attempts_exhausted",
-  });
-
-  const allPassed = results.every((r) => r.passed);
-  return { passed: allPassed, count: results.length, results };
-}
-
-// ---------------------------------------------------------------------------
-// Segment 4: Lease contention
-// ---------------------------------------------------------------------------
-
-function runLeaseContentionSegment() {
-  const results = [];
-  const { JobLeaseRegistry } = jobRuntime;
-
-  // N-08: lease contention — second acquire rejected
-  const registry = new JobLeaseRegistry();
-  registry.acquire(tenant(), "workspace_maintenance", "part-001", "worker-A", baseTime);
-  const contention = registry.acquire(tenant(), "workspace_maintenance", "part-001", "worker-B", baseTime);
-  results.push({
-    vector: "N-08-lease-contention",
-    passed: "rejected" in contention && contention.reason === "lease_contention",
-  });
-
-  // N-09: stale epoch — renew with wrong epoch rejected
-  const r09 = registry.renew("part-001", "worker-A", 999, baseTime);
-  results.push({
-    vector: "N-09-stale-epoch",
-    passed: "rejected" in r09 && r09.reason === "stale_lease_epoch",
-  });
-
-  // N-10: expired lease renewal rejected
-  const expiredTime = timeOffset(11 * 60 * 1000);
-  const r10 = registry.renew("part-001", "worker-A", 1, expiredTime);
-  results.push({
-    vector: "N-10-expired-lease-renewal",
-    passed: "rejected" in r10 && r10.reason === "expired_lease",
-  });
-
-  // N-11: epoch reuse — monotonic enforcement
-  const registry2 = new JobLeaseRegistry();
-  const first = registry2.acquire(tenant(), "workspace_maintenance", "mono-part", "worker-A", baseTime);
-  if (!("rejected" in first)) {
-    registry2.release("mono-part", "worker-A", first.leaseEpoch);
-    const later = timeOffset(11 * 60 * 1000);
-    const second = registry2.acquire(tenant(), "workspace_maintenance", "mono-part", "worker-B", later);
-    results.push({
-      vector: "N-11-epoch-monotonic",
-      passed: !("rejected" in second) && second.leaseEpoch > first.leaseEpoch,
-    });
-  }
-
-  // N-13: no active lease — renew for nonexistent partition
-  const r13 = registry.renew("nonexistent-partition", "worker-A", 1, baseTime);
-  results.push({
-    vector: "N-13-no-active-lease",
-    passed: "rejected" in r13 && r13.reason === "no_active_lease",
-  });
-
-  const allPassed = results.every((r) => r.passed);
-  return { passed: allPassed, count: results.length, results };
-}
-
-// ---------------------------------------------------------------------------
-// Assemble report
-// ---------------------------------------------------------------------------
-
-const crossTenant = runCrossTenantSegment();
-const replay = runReplaySegment();
-const idempotency = runIdempotencySegment();
-const leaseContention = runLeaseContentionSegment();
-
-// Assert periodicJobsRegistered === false
-const periodicJobsRegistered = jobs.periodicJobs.length > 0;
 
 const report = {
   schemaVersion: 1,
-  periodicJobsRegistered: periodicJobsRegistered,
-  crossTenant,
-  replay,
-  idempotency,
-  leaseContention,
+  fixtureOnly: true,
+  hostedSchedulerObserved: false,
+  liveProviderObserved: false,
+  productionDeploymentObserved: false,
+  registration: segment(registrationResults),
+  dispatch: segment(dispatchResults),
+  failClosed: segment(failClosedResults),
+  durability: segment(durabilityResults),
   generatedAt: new Date().toISOString(),
 };
 
-const allSegmentsPassed =
-  crossTenant.passed && replay.passed && idempotency.passed && leaseContention.passed;
-
-if (!allSegmentsPassed) {
-  console.error("FAIL: not all segments passed");
-  console.error(JSON.stringify(report, null, 2));
-  process.exitCode = 1;
-}
-
-if (periodicJobsRegistered) {
-  console.error("FAIL: periodicJobsRegistered must be false");
-  process.exitCode = 1;
-}
-
+mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 console.log(`Jobs evidence report written to ${outputPath}`);
 console.log(JSON.stringify(report, null, 2));
+if (![report.registration, report.dispatch, report.failClosed, report.durability].every(({ passed }) => passed)) {
+  process.exitCode = 1;
+}

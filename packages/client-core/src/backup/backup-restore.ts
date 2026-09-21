@@ -1,236 +1,208 @@
 import { z } from "zod";
 
-const identifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u);
-const safeDisplayTextSchema = z
+const MAXIMUM_WIRE_DEPTH = 6;
+const MAXIMUM_WIRE_ENTRIES = 128;
+const MAXIMUM_WIRE_STRING_LENGTH = 256;
+const FORBIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/u;
+
+const opaqueIdentifierSchema = z
   .string()
-  .trim()
-  .min(1)
-  .max(256)
-  .refine(
-    (value) => !/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value),
-    "display text contains control characters",
-  );
-const revisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+  .min(16)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u);
+const safeRevisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const positiveSafeIntegerSchema = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
-const digestSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+const candidateSetVersionSchema = positiveSafeIntegerSchema;
 const canonicalUtcTimestampSchema = z.iso.datetime({ offset: false, precision: 0 });
 
-export const backupSurfaceSchema = z.enum([
+export const backupOperationIdSchema = opaqueIdentifierSchema.brand<"BackupOperationId">();
+export const backupDialogIdSchema = opaqueIdentifierSchema.brand<"BackupDialogId">();
+export const backupArtifactIdSchema = opaqueIdentifierSchema.brand<"BackupArtifactId">();
+
+export const localBackupCommandNames = {
+  status: "local_backup_restore_status",
+  export: "local_backup_export",
+  selectArtifact: "local_backup_artifact_select",
+  beginRestore: "local_backup_restore_begin",
+} as const;
+
+export const backupAuthoritySchema = z.enum([
   "active",
-  "local_continuation",
-  "standby",
-  "locked",
-  "draining",
-  "isolated_recovery",
+  "verified_local_continuation",
+  "unavailable",
 ]);
-export const backupScopeItemSchema = z.enum([
-  "portfolio",
-  "listing_target_state",
-  "tags_cost_notes",
-  "redacted_execution_fact_summary",
+
+export const backupErrorCodeSchema = z.enum([
+  "BACKUP_ARTIFACT_REJECTED",
+  "BACKUP_KEY_UNAVAILABLE",
+  "BACKUP_CREDENTIALS_NOT_ALLOWED",
+  "BACKUP_AUTHORITY_REJECTED",
+  "BACKUP_OPERATION_REJECTED",
+  "BACKUP_CONFLICT_REJECTED",
+  "BACKUP_STORAGE_REJECTED",
+  "BACKUP_RESPONSE_REJECTED",
+  "LOCAL_AUTHORIZATION_REQUIRED",
+  "LOCAL_STORAGE_REJECTED",
+  "LOCAL_REVISION_REJECTED",
+  "LOCAL_RESPONSE_REJECTED",
 ]);
 
 const unavailableAdmissionSchema = z.object({ state: z.literal("unavailable") }).strict();
-const availableExportAdmissionSchema = z
+const availableAdmissionSchema = z
   .object({
     state: z.literal("available"),
-    operationId: identifierSchema,
+    operationId: backupOperationIdSchema,
   })
   .strict();
 
-export const redactedCredentialConnectionSchema = z
-  .object({
-    providerDisplay: safeDisplayTextSchema,
-    accountAlias: safeDisplayTextSchema,
-  })
-  .strict();
+const restoreAdmissionSchema = z.discriminatedUnion("state", [
+  unavailableAdmissionSchema,
+  z
+    .object({
+      state: z.literal("available"),
+      operationId: backupOperationIdSchema,
+      dialogId: backupDialogIdSchema,
+      expectedCurrentRevision: safeRevisionSchema,
+      candidateSetVersion: candidateSetVersionSchema,
+    })
+    .strict(),
+]);
 
-export const backupExportSummarySchema = z
+export const verifiedBackupArtifactSchema = z
   .object({
-    sourceDeviceDisplay: safeDisplayTextSchema,
+    state: z.literal("verified"),
+    artifactId: backupArtifactIdSchema,
+    createdAt: canonicalUtcTimestampSchema,
     backupSchemaVersion: positiveSafeIntegerSchema,
-    encryptionDisplay: safeDisplayTextSchema,
-    destinationKind: z.literal("user_selected_location"),
-    scope: z.array(backupScopeItemSchema).min(1).max(4),
-    credentialConnections: z.array(redactedCredentialConnectionSchema).max(64),
-    credentialsIncludedByDefault: z.literal(false),
+    compatibility: z.enum(["compatible", "unsupported_schema"]),
+    restoreAdmission: restoreAdmissionSchema,
   })
   .strict()
-  .superRefine((summary, context) => {
-    if (new Set(summary.scope).size !== summary.scope.length) {
-      context.addIssue({ code: "custom", path: ["scope"], message: "backup scope entries must be unique" });
-    }
-    const labels = summary.credentialConnections.map(
-      ({ providerDisplay, accountAlias }) => `${providerDisplay}\u0000${accountAlias}`,
-    );
-    if (new Set(labels).size !== labels.length) {
-      context.addIssue({ code: "custom", path: ["credentialConnections"], message: "redacted connections must be unique" });
+  .superRefine((artifact, context) => {
+    if (artifact.compatibility !== "compatible" && artifact.restoreAdmission.state === "available") {
+      context.addIssue({
+        code: "custom",
+        path: ["restoreAdmission"],
+        message: "an incompatible artifact cannot admit restore",
+      });
     }
   });
 
-export const internalRecoveryPointSchema = z
-  .object({
-    recoveryPointId: identifierSchema,
-    createdAt: canonicalUtcTimestampSchema,
-    backupSchemaVersion: positiveSafeIntegerSchema,
-    sizeBytes: positiveSafeIntegerSchema,
-    reason: z.literal("pre_restore"),
-  })
-  .strict();
-
-const verifiedArtifactBase = {
-  protection: z.literal("host_decrypted_and_manifest_verified"),
-  backupId: identifierSchema,
-  manifestDigest: digestSchema,
-  workspaceId: identifierSchema,
-  backupSchemaVersion: positiveSafeIntegerSchema,
-  backupCreatedAt: canonicalUtcTimestampSchema,
-  backupRevision: revisionSchema,
-} as const;
-
-const noArtifactSchema = z.object({ state: z.literal("none") }).strict();
-const unverifiedArtifactSchema = z.object({ state: z.literal("unverified") }).strict();
-const incompatibleArtifactSchema = z
-  .object({
-    state: z.literal("verified_incompatible"),
-    ...verifiedArtifactBase,
-    incompatibility: z.enum(["workspace_mismatch", "schema_unsupported", "manifest_mismatch"]),
-  })
-  .strict();
-const compatibleArtifactSchema = z
-  .object({
-    state: z.literal("verified_compatible"),
-    ...verifiedArtifactBase,
-    restoreAdmission: z.discriminatedUnion("state", [
-      unavailableAdmissionSchema,
-      z
-        .object({
-          state: z.literal("available"),
-          operationId: identifierSchema,
-          dialogBindingId: identifierSchema,
-          candidateSetVersion: revisionSchema,
-          expectedCurrentRevision: revisionSchema,
-        })
-        .strict(),
-    ]),
-  })
-  .strict();
-
 export const selectedBackupArtifactSchema = z.discriminatedUnion("state", [
-  noArtifactSchema,
-  unverifiedArtifactSchema,
-  incompatibleArtifactSchema,
-  compatibleArtifactSchema,
+  z.object({ state: z.literal("none") }).strict(),
+  z.object({ state: z.literal("inspecting") }).strict(),
+  z
+    .object({
+      state: z.literal("rejected"),
+      error: z.enum(["BACKUP_ARTIFACT_REJECTED", "BACKUP_KEY_UNAVAILABLE"]),
+    })
+    .strict(),
+  verifiedBackupArtifactSchema,
 ]);
 
 export const backupRestoreViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
-    kind: z.literal("backup_restore"),
-    workspaceId: identifierSchema,
-    surface: backupSurfaceSchema,
-    currentRevision: revisionSchema,
-    supportedBackupSchemaVersions: z.array(positiveSafeIntegerSchema).min(1).max(16),
-    exportSummary: backupExportSummarySchema,
+    kind: z.literal("local_backup_restore_status"),
+    authority: backupAuthoritySchema,
     exportAdmission: z.discriminatedUnion("state", [
       unavailableAdmissionSchema,
-      availableExportAdmissionSchema,
+      availableAdmissionSchema,
     ]),
     artifactSelectionAdmission: z.discriminatedUnion("state", [
       unavailableAdmissionSchema,
-      z.object({ state: z.literal("available"), operationId: identifierSchema }).strict(),
+      availableAdmissionSchema,
     ]),
     selectedArtifact: selectedBackupArtifactSchema,
-    recoveryPoints: z.array(internalRecoveryPointSchema).max(100),
+    error: backupErrorCodeSchema.nullable(),
   })
   .strict()
   .superRefine((view, context) => {
-    if (new Set(view.supportedBackupSchemaVersions).size !== view.supportedBackupSchemaVersions.length) {
-      context.addIssue({ code: "custom", path: ["supportedBackupSchemaVersions"], message: "supported schema versions must be unique" });
+    const canExportOrInspect = view.authority === "active" ||
+      view.authority === "verified_local_continuation";
+    if (!canExportOrInspect && view.exportAdmission.state === "available") {
+      context.addIssue({
+        code: "custom",
+        path: ["exportAdmission"],
+        message: "the current authority cannot export",
+      });
     }
-    const pointIds = view.recoveryPoints.map(({ recoveryPointId }) => recoveryPointId);
-    if (new Set(pointIds).size !== pointIds.length) {
-      context.addIssue({ code: "custom", path: ["recoveryPoints"], message: "recovery point ids must be unique" });
+    if (!canExportOrInspect && view.artifactSelectionAdmission.state === "available") {
+      context.addIssue({
+        code: "custom",
+        path: ["artifactSelectionAdmission"],
+        message: "the current authority cannot inspect artifacts",
+      });
     }
-    if (!canReadExportOrInspectBackup(view.surface)) {
-      if (view.exportAdmission.state === "available") {
-        context.addIssue({ code: "custom", path: ["exportAdmission"], message: "surface cannot export backups" });
-      }
-      if (view.artifactSelectionAdmission.state === "available") {
-        context.addIssue({ code: "custom", path: ["artifactSelectionAdmission"], message: "surface cannot select restore artifacts" });
-      }
+    if (
+      view.selectedArtifact.state === "verified" &&
+      view.selectedArtifact.restoreAdmission.state === "available" &&
+      view.authority !== "active"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["selectedArtifact", "restoreAdmission"],
+        message: "only active authority can restore",
+      });
     }
-    const artifact = view.selectedArtifact;
-    if (artifact.state === "verified_compatible") {
-      const compatible =
-        artifact.workspaceId === view.workspaceId &&
-        view.supportedBackupSchemaVersions.includes(artifact.backupSchemaVersion);
-      if (!compatible) {
-        context.addIssue({ code: "custom", path: ["selectedArtifact"], message: "compatible artifact identity must match workspace and schema" });
-      }
-      if (artifact.restoreAdmission.state === "available") {
-        if (!canRestoreBackup(view.surface)) {
-          context.addIssue({ code: "custom", path: ["selectedArtifact", "restoreAdmission"], message: "surface cannot start restore" });
-        }
-        if (artifact.restoreAdmission.expectedCurrentRevision !== view.currentRevision) {
-          context.addIssue({ code: "custom", path: ["selectedArtifact", "restoreAdmission", "expectedCurrentRevision"], message: "restore admission must bind current revision" });
-        }
-      }
-    }
-    if (artifact.state === "verified_incompatible") {
-      const workspaceMatches = artifact.workspaceId === view.workspaceId;
-      const schemaSupported = view.supportedBackupSchemaVersions.includes(artifact.backupSchemaVersion);
-      if (artifact.incompatibility === "workspace_mismatch" && workspaceMatches) {
-        context.addIssue({ code: "custom", path: ["selectedArtifact", "incompatibility"], message: "workspace mismatch requires a different workspace" });
-      }
-      if (artifact.incompatibility === "schema_unsupported" && schemaSupported) {
-        context.addIssue({ code: "custom", path: ["selectedArtifact", "incompatibility"], message: "unsupported schema must be outside the allowlist" });
-      }
+
+    const operationIds = [
+      view.exportAdmission.state === "available" ? view.exportAdmission.operationId : null,
+      view.artifactSelectionAdmission.state === "available"
+        ? view.artifactSelectionAdmission.operationId
+        : null,
+      view.selectedArtifact.state === "verified" &&
+      view.selectedArtifact.restoreAdmission.state === "available"
+        ? view.selectedArtifact.restoreAdmission.operationId
+        : null,
+    ].filter((operationId): operationId is BackupOperationId => operationId !== null);
+    if (new Set(operationIds).size !== operationIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["exportAdmission"],
+        message: "an operation cannot authorize more than one action",
+      });
     }
   });
 
 export const backupExportIntentSchema = z
   .object({
     schemaVersion: z.literal(1),
-    workspaceId: identifierSchema,
-    operationId: identifierSchema,
-    includePlatformCredentials: z.boolean(),
+    operationId: backupOperationIdSchema,
+    includePlatformCredentials: z.literal(false),
   })
   .strict();
 
 export const backupArtifactSelectionIntentSchema = z
   .object({
     schemaVersion: z.literal(1),
-    workspaceId: identifierSchema,
-    operationId: identifierSchema,
+    operationId: backupOperationIdSchema,
   })
   .strict();
 
+export const REQUIRED_BACKUP_RESTORE_CONFIRMATION = "RESTORE LOCAL BACKUP" as const;
+
 export const restoreConfirmationStateSchema = z
   .object({
-    operationId: identifierSchema,
-    dialogBindingId: identifierSchema,
-    backupId: identifierSchema,
-    manifestDigest: digestSchema,
-    workspaceId: identifierSchema,
-    candidateSetVersion: revisionSchema,
-    expectedCurrentRevision: revisionSchema,
-    confirmationText: z.string().max(256),
+    operationId: backupOperationIdSchema,
+    dialogId: backupDialogIdSchema,
+    artifactId: backupArtifactIdSchema,
+    expectedCurrentRevision: safeRevisionSchema,
+    candidateSetVersion: candidateSetVersionSchema,
+    confirmation: z.literal(REQUIRED_BACKUP_RESTORE_CONFIRMATION),
   })
   .strict();
 
 export const restoreWorkflowIntentSchema = restoreConfirmationStateSchema
-  .extend({
-    schemaVersion: z.literal(1),
-    confirmationText: z.string().min(1).max(256),
-  })
+  .extend({ schemaVersion: z.literal(1) })
   .strict();
 
-export type BackupSurface = z.infer<typeof backupSurfaceSchema>;
-export type BackupScopeItem = z.infer<typeof backupScopeItemSchema>;
-export type RedactedCredentialConnection = z.infer<typeof redactedCredentialConnectionSchema>;
-export type BackupExportSummary = z.infer<typeof backupExportSummarySchema>;
-export type InternalRecoveryPoint = z.infer<typeof internalRecoveryPointSchema>;
+export type BackupOperationId = z.infer<typeof backupOperationIdSchema>;
+export type BackupDialogId = z.infer<typeof backupDialogIdSchema>;
+export type BackupArtifactId = z.infer<typeof backupArtifactIdSchema>;
+export type BackupAuthority = z.infer<typeof backupAuthoritySchema>;
+export type BackupErrorCode = z.infer<typeof backupErrorCodeSchema>;
+export type VerifiedBackupArtifact = z.infer<typeof verifiedBackupArtifactSchema>;
 export type SelectedBackupArtifact = z.infer<typeof selectedBackupArtifactSchema>;
 export type BackupRestoreViewModel = z.infer<typeof backupRestoreViewModelSchema>;
 export type BackupExportIntent = z.infer<typeof backupExportIntentSchema>;
@@ -238,129 +210,275 @@ export type BackupArtifactSelectionIntent = z.infer<typeof backupArtifactSelecti
 export type RestoreConfirmationState = z.infer<typeof restoreConfirmationStateSchema>;
 export type RestoreWorkflowIntent = z.infer<typeof restoreWorkflowIntentSchema>;
 
-export interface BackupRestoreQueryBoundary {
-  getBackupRestore(): Promise<unknown>;
+export interface BackupRestoreStatusBoundary {
+  getBackupRestoreStatus(): Promise<unknown>;
 }
 
-export interface BackupRestoreQueryPort {
-  getBackupRestore(): Promise<BackupRestoreViewModel>;
+export interface BackupRestoreStatusPort {
+  getBackupRestoreStatus(): Promise<BackupRestoreViewModel>;
 }
 
-export interface BackupExportPort {
+export interface BackupCommandPort {
   exportBackup(intent: BackupExportIntent): Promise<void>;
-}
-
-export interface BackupArtifactSelectionPort {
   selectBackupArtifact(intent: BackupArtifactSelectionIntent): Promise<void>;
-}
-
-export interface RecoveryWorkflowPort {
   beginRestore(intent: RestoreWorkflowIntent): Promise<void>;
 }
 
 export function parseBackupRestoreViewModel(input: unknown): BackupRestoreViewModel {
-  const parsed = backupRestoreViewModelSchema.safeParse(input);
-  if (!parsed.success) throw new TypeError("invalid backup and restore projection");
+  let copied: unknown;
+  try {
+    copied = copyBackupWireValue(input);
+  } catch {
+    throw new TypeError("invalid local backup response");
+  }
+  const parsed = backupRestoreViewModelSchema.safeParse(copied);
+  if (!parsed.success) throw new TypeError("invalid local backup response");
   return parsed.data;
 }
 
-export class ValidatingBackupRestoreQueryPort implements BackupRestoreQueryPort {
-  readonly #boundary: BackupRestoreQueryBoundary;
+export function parseRestoreConfirmationState(input: unknown): RestoreConfirmationState {
+  let copied: unknown;
+  try {
+    copied = copyBackupWireValue(input);
+  } catch {
+    throw new TypeError("invalid local backup confirmation");
+  }
+  const parsed = restoreConfirmationStateSchema.safeParse(copied);
+  if (!parsed.success) throw new TypeError("invalid local backup confirmation");
+  return parsed.data;
+}
 
-  constructor(boundary: BackupRestoreQueryBoundary) {
+export function toBackupErrorCode(input: unknown): BackupErrorCode {
+  const parsed = backupErrorCodeSchema.safeParse(input);
+  return parsed.success ? parsed.data : "BACKUP_RESPONSE_REJECTED";
+}
+
+export class ValidatingBackupRestoreStatusPort implements BackupRestoreStatusPort {
+  readonly #boundary: BackupRestoreStatusBoundary;
+
+  constructor(boundary: BackupRestoreStatusBoundary) {
     this.#boundary = boundary;
   }
 
-  async getBackupRestore(): Promise<BackupRestoreViewModel> {
-    return parseBackupRestoreViewModel(await this.#boundary.getBackupRestore());
+  async getBackupRestoreStatus(): Promise<BackupRestoreViewModel> {
+    return parseBackupRestoreViewModel(await this.#boundary.getBackupRestoreStatus());
   }
 }
 
 export function createBackupExportIntent(
-  view: BackupRestoreViewModel,
+  viewInput: unknown,
   includePlatformCredentials: boolean,
 ): BackupExportIntent | null {
-  if (view.exportAdmission.state !== "available") return null;
-  if (!canReadExportOrInspectBackup(view.surface)) return null;
+  if (includePlatformCredentials !== false) return null;
+  const view = parseBackupRestoreViewModel(viewInput);
+  if (view.exportAdmission.state !== "available" || !canExportOrInspect(view.authority)) return null;
   return backupExportIntentSchema.parse({
     schemaVersion: 1,
-    workspaceId: view.workspaceId,
     operationId: view.exportAdmission.operationId,
-    includePlatformCredentials,
+    includePlatformCredentials: false,
   });
 }
 
 export function createBackupArtifactSelectionIntent(
-  view: BackupRestoreViewModel,
+  viewInput: unknown,
 ): BackupArtifactSelectionIntent | null {
-  if (view.artifactSelectionAdmission.state !== "available") return null;
-  if (!canReadExportOrInspectBackup(view.surface)) return null;
+  const view = parseBackupRestoreViewModel(viewInput);
+  if (
+    view.artifactSelectionAdmission.state !== "available" ||
+    !canExportOrInspect(view.authority)
+  ) return null;
   return backupArtifactSelectionIntentSchema.parse({
     schemaVersion: 1,
-    workspaceId: view.workspaceId,
     operationId: view.artifactSelectionAdmission.operationId,
   });
 }
 
-export function requiredRestoreConfirmationText(backupId: string): string {
-  return `RESTORE ${identifierSchema.parse(backupId)}`;
-}
-
 export function bindRestoreConfirmation(
-  view: BackupRestoreViewModel,
-  confirmationText: string,
+  viewInput: unknown,
+  confirmationInput: unknown,
 ): RestoreConfirmationState | null {
-  if (!canRestoreBackup(view.surface)) return null;
-  const artifact = view.selectedArtifact;
-  if (artifact.state !== "verified_compatible" || artifact.restoreAdmission.state !== "available") return null;
+  if (confirmationInput !== REQUIRED_BACKUP_RESTORE_CONFIRMATION) return null;
+  const view = parseBackupRestoreViewModel(viewInput);
+  if (view.authority !== "active" || view.selectedArtifact.state !== "verified") return null;
+  const admission = view.selectedArtifact.restoreAdmission;
+  if (view.selectedArtifact.compatibility !== "compatible" || admission.state !== "available") {
+    return null;
+  }
   return restoreConfirmationStateSchema.parse({
-    operationId: artifact.restoreAdmission.operationId,
-    dialogBindingId: artifact.restoreAdmission.dialogBindingId,
-    backupId: artifact.backupId,
-    manifestDigest: artifact.manifestDigest,
-    workspaceId: view.workspaceId,
-    candidateSetVersion: artifact.restoreAdmission.candidateSetVersion,
-    expectedCurrentRevision: artifact.restoreAdmission.expectedCurrentRevision,
-    confirmationText,
+    operationId: admission.operationId,
+    dialogId: admission.dialogId,
+    artifactId: view.selectedArtifact.artifactId,
+    expectedCurrentRevision: admission.expectedCurrentRevision,
+    candidateSetVersion: admission.candidateSetVersion,
+    confirmation: confirmationInput,
   });
 }
 
 export function createRestoreWorkflowIntent(
-  view: BackupRestoreViewModel,
-  confirmation: RestoreConfirmationState | null,
+  viewInput: unknown,
+  confirmationInput: unknown,
 ): RestoreWorkflowIntent | null {
-  if (!canRestoreBackup(view.surface)) return null;
-  const artifact = view.selectedArtifact;
-  if (confirmation === null || artifact.state !== "verified_compatible") return null;
-  const admission = artifact.restoreAdmission;
-  if (admission.state !== "available") return null;
-  const expected = {
-    operationId: admission.operationId,
-    dialogBindingId: admission.dialogBindingId,
-    backupId: artifact.backupId,
-    manifestDigest: artifact.manifestDigest,
-    workspaceId: view.workspaceId,
-    candidateSetVersion: admission.candidateSetVersion,
-    expectedCurrentRevision: admission.expectedCurrentRevision,
-  };
+  const view = parseBackupRestoreViewModel(viewInput);
+  if (view.authority !== "active" || view.selectedArtifact.state !== "verified") return null;
+  const admission = view.selectedArtifact.restoreAdmission;
+  if (view.selectedArtifact.compatibility !== "compatible" || admission.state !== "available") {
+    return null;
+  }
+
+  let confirmation: RestoreConfirmationState;
+  try {
+    confirmation = parseRestoreConfirmationState(confirmationInput);
+  } catch {
+    return null;
+  }
   if (
-    confirmation.operationId !== expected.operationId ||
-    confirmation.dialogBindingId !== expected.dialogBindingId ||
-    confirmation.backupId !== expected.backupId ||
-    confirmation.manifestDigest !== expected.manifestDigest ||
-    confirmation.workspaceId !== expected.workspaceId ||
-    confirmation.candidateSetVersion !== expected.candidateSetVersion ||
-    confirmation.expectedCurrentRevision !== expected.expectedCurrentRevision ||
-    confirmation.confirmationText !== requiredRestoreConfirmationText(artifact.backupId)
+    confirmation.operationId !== admission.operationId ||
+    confirmation.dialogId !== admission.dialogId ||
+    confirmation.artifactId !== view.selectedArtifact.artifactId ||
+    confirmation.expectedCurrentRevision !== admission.expectedCurrentRevision ||
+    confirmation.candidateSetVersion !== admission.candidateSetVersion
   ) return null;
-  return restoreWorkflowIntentSchema.parse({ schemaVersion: 1, ...expected, confirmationText: confirmation.confirmationText });
+
+  return restoreWorkflowIntentSchema.parse({ schemaVersion: 1, ...confirmation });
 }
 
-function canReadExportOrInspectBackup(surface: BackupSurface): boolean {
-  return surface === "active" || surface === "local_continuation";
+/**
+ * Renderer-local request and replay fence. It never derives Host authority and never invokes IPC.
+ */
+export class BackupIntentSession {
+  #latestRequest = 0;
+  #acceptedRequest = 0;
+  #view: BackupRestoreViewModel | null = null;
+  readonly #consumedOperationIds = new Set<BackupOperationId>();
+
+  beginStatusRequest(): number {
+    this.#latestRequest += 1;
+    this.#view = null;
+    return this.#latestRequest;
+  }
+
+  acceptStatusResponse(request: number, input: unknown): BackupRestoreViewModel | null {
+    if (
+      !Number.isSafeInteger(request) ||
+      request <= 0 ||
+      request !== this.#latestRequest ||
+      request === this.#acceptedRequest
+    ) return null;
+    this.#view = parseBackupRestoreViewModel(input);
+    this.#acceptedRequest = request;
+    return this.#view;
+  }
+
+  invalidate(): void {
+    this.#latestRequest += 1;
+    this.#view = null;
+  }
+
+  createExportIntent(includePlatformCredentials: boolean): BackupExportIntent | null {
+    if (this.#view === null) return null;
+    const intent = createBackupExportIntent(this.#view, includePlatformCredentials);
+    return intent === null || !this.#consume(intent.operationId) ? null : intent;
+  }
+
+  createArtifactSelectionIntent(): BackupArtifactSelectionIntent | null {
+    if (this.#view === null) return null;
+    const intent = createBackupArtifactSelectionIntent(this.#view);
+    return intent === null || !this.#consume(intent.operationId) ? null : intent;
+  }
+
+  bindRestoreConfirmation(input: unknown): RestoreConfirmationState | null {
+    return this.#view === null ? null : bindRestoreConfirmation(this.#view, input);
+  }
+
+  createRestoreIntent(confirmation: unknown): RestoreWorkflowIntent | null {
+    if (this.#view === null) return null;
+    const intent = createRestoreWorkflowIntent(this.#view, confirmation);
+    return intent === null || !this.#consume(intent.operationId) ? null : intent;
+  }
+
+  #consume(operationId: BackupOperationId): boolean {
+    if (this.#consumedOperationIds.has(operationId)) return false;
+    // An unexpectedly long-lived UI session fails closed instead of forgetting replay history.
+    if (this.#consumedOperationIds.size >= 128) {
+      this.invalidate();
+      return false;
+    }
+    this.#consumedOperationIds.add(operationId);
+    return true;
+  }
 }
 
-/** Current LocalContinuation remains read/export-only until Sunset authority is delivered. */
-function canRestoreBackup(surface: BackupSurface): boolean {
-  return surface === "active";
+function canExportOrInspect(authority: BackupAuthority): boolean {
+  return authority === "active" || authority === "verified_local_continuation";
+}
+
+function copyBackupWireValue(input: unknown): unknown {
+  let entries = 0;
+  const seen = new Set<object>();
+
+  const copy = (value: unknown, depth: number): unknown => {
+    entries += 1;
+    if (depth > MAXIMUM_WIRE_DEPTH || entries > MAXIMUM_WIRE_ENTRIES) {
+      throw new TypeError("invalid local backup response");
+    }
+    if (value === null || typeof value === "boolean") return value;
+    if (typeof value === "number") {
+      if (!Number.isSafeInteger(value)) throw new TypeError("invalid local backup response");
+      return value;
+    }
+    if (typeof value === "string") {
+      if (value.length > MAXIMUM_WIRE_STRING_LENGTH || FORBIDDEN_TEXT.test(value)) {
+        throw new TypeError("invalid local backup response");
+      }
+      return value;
+    }
+    if (typeof value !== "object") throw new TypeError("invalid local backup response");
+    if (seen.has(value)) throw new TypeError("invalid local backup response");
+    seen.add(value);
+
+    try {
+      const prototype = Object.getPrototypeOf(value);
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      const keys = Reflect.ownKeys(descriptors);
+      if (Array.isArray(value)) {
+        if (prototype !== Array.prototype || value.length > 32) {
+          throw new TypeError("invalid local backup response");
+        }
+        if (
+          keys.some((key) =>
+            typeof key !== "string" || (key !== "length" && !/^(0|[1-9][0-9]*)$/u.test(key))
+          )
+        ) throw new TypeError("invalid local backup response");
+        const result: unknown[] = [];
+        for (let index = 0; index < value.length; index += 1) {
+          const descriptor = descriptors[String(index)];
+          if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) {
+            throw new TypeError("invalid local backup response");
+          }
+          result.push(copy(descriptor.value, depth + 1));
+        }
+        return result;
+      }
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new TypeError("invalid local backup response");
+      }
+      if (keys.some((key) => typeof key !== "string")) {
+        throw new TypeError("invalid local backup response");
+      }
+      const result: Record<string, unknown> = Object.create(null);
+      for (const key of keys) {
+        if (typeof key !== "string") throw new TypeError("invalid local backup response");
+        const descriptor = descriptors[key];
+        if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) {
+          throw new TypeError("invalid local backup response");
+        }
+        result[key] = copy(descriptor.value, depth + 1);
+      }
+      return result;
+    } finally {
+      seen.delete(value);
+    }
+  };
+
+  return copy(input, 0);
 }

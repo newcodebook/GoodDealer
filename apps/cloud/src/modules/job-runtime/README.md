@@ -1,5 +1,26 @@
 # Job Runtime
 
+## Role
+
+Cloud infrastructure capability for durable job envelopes, leases, idempotency, quarantine, and replay control.
+
+## Owns
+
+- Generic persistence and lifecycle contracts for future tenant-scoped jobs.
+- Registration and dispatch of the fixed periodic commercial-job allowlist.
+
+## Touchpoints
+
+- Dispatches the five composed periodic jobs through narrow Licensing-owned ports.
+- Uses Cloud database infrastructure for persistence without owning pools or migration execution.
+- Requires each target capability to own payload meaning, authorization, results, and side effects.
+
+## Change Guide
+
+- Add a job kind only with an identified capability owner, strict schema, trusted scope, and idempotency rules.
+- Keep arbitrary payload interpretation, credentials, and external execution out of this module.
+- Verify persistence, job composition, and repository policy tests when the allowlist or lifecycle changes.
+
 ## Purpose
 
 The job-runtime module owns future tenant job-envelope persistence, lease timing, idempotency,
@@ -12,7 +33,7 @@ semantics.
 - MUST: Derive future tenant scope from a trusted transaction boundary, never caller-selected data.
 - MUST: Preserve immutable canonical request bytes and bounded digests across retry, conflict, and quarantine handling.
 - MUST: Let the target capability own payload decoding, authorization, result handling, and any external idempotency contract.
-- MUST: Keep production definitions, application ports, scheduler composition, and periodic jobs empty until a concrete target capability is approved and composed.
+- MUST: Keep generic job-runtime payload interpretation out of production composition. The only periodic definitions are the five narrow Licensing-owned commercial jobs: provider operation, provider inbox, reconciliation, due authority, and provider release.
 
 ## Boundaries
 
@@ -24,7 +45,7 @@ semantics.
 
 - **Tenant substitution**: Tenant authority must be derived from the trusted transaction boundary. Verified by: job-runtime persistence tests.
 - **Replay substitution**: A future replay path must retain original canonical bytes and resolve authorization through the owning target capability. Verified by: job-runtime persistence tests.
-- **Composition bypass**: Empty production registries prevent implicit scheduling. Verified by: `../../../../../scripts/jobs-persistence-evidence-policy.test.mjs`.
+- **Composition bypass**: The exact periodic-job allowlist and narrow application ports prevent an arbitrary payload executor from reaching production composition. Verified by: `../../../../../scripts/jobs-evidence-policy.test.mjs` and `../../../test/entrypoints/jobs-composition.test.ts`.
 
 ## Contracts
 
@@ -33,19 +54,24 @@ semantics.
 
 ## Open Questions
 
-- [ ] Which target capability, scheduler owner, and deployment composition will approve the first production job kind? (open since: 2026-08)
+- [ ] Which production hosts, failover topology, monitoring thresholds and workload credentials will qualify the self-managed scheduler and worker? (open since: 2026-09)
 
 ## Current composition
 
-`periodicJobs` is an exact empty tuple. `createJobsComposition()` returns a framework-independent
-composition with `periodicJobsRegistered: false` and does not call a scheduler. No production job
-definition or handler is registered.
+`periodicJobs` contains exactly `commercial-provider-operation`, `commercial-provider-inbox`,
+`commercial-provider-reconciliation`, `commercial-due-authority`, and
+`commercial-provider-release`, all targeting Licensing once per minute.
+`createJobsComposition()` remains framework-independent: startup registers those definitions through
+`JobSchedulerPort`, and execution calls only the corresponding narrow `CommercialProviderJobPort`
+method with a worker identity. Missing dependencies,
+denied scheduling, invalid time, and execution before startup fail closed.
 
 ## Future integration contract
 
-A future job kind needs a specific owning capability, strict input schema, trusted tenant boundary,
+Any additional job kind needs a specific owning capability, strict input schema, trusted tenant boundary,
 authorization revalidation, immutable request semantics, idempotency rules, quarantine behavior,
 and negative tests. Only then may an application owner decide whether to compose it into a scheduler.
 
-Repository evidence does not establish a deployed scheduler, a production job, a provider result,
-or Gate closure.
+Repository evidence establishes the five job definitions and dispatch contract. The shared development
+systemd worker additionally establishes bounded execution in that one environment; neither establishes
+production scheduler/worker qualification, a live provider result, or Gate closure.

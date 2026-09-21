@@ -556,15 +556,17 @@ function sliceEvidenceValid(sliceEvidence) {
     return Boolean(
       sliceEvidence.present &&
         report?.schemaVersion === 1 &&
-        report.periodicJobsRegistered === false &&
-        report.crossTenant?.passed === true &&
-        report.replay?.passed === true &&
-        report.idempotency?.passed === true &&
-        report.leaseContention?.passed === true &&
-        report.crossTenant?.count > 0 &&
-        report.replay?.count > 0 &&
-        report.idempotency?.count > 0 &&
-        report.leaseContention?.count > 0,
+        report.fixtureOnly === true &&
+        report.hostedSchedulerObserved === false &&
+        report.liveProviderObserved === false &&
+        report.registration?.passed === true &&
+        report.dispatch?.passed === true &&
+        report.failClosed?.passed === true &&
+        report.durability?.passed === true &&
+        report.registration?.count > 0 &&
+        report.dispatch?.count > 0 &&
+        report.failClosed?.count > 0 &&
+        report.durability?.count > 0,
     );
   }
   return Boolean(
@@ -747,7 +749,7 @@ function profileDefinition(profile, slice, reportPath) {
     return {
       resolvedProfile: "wp4-jobs",
       applicability:
-        "Fixture-only TenantJobEnvelope, Lease, Idempotency and Quarantine evidence; no periodic Job, real credential, scheduler, network, or production Route.",
+        "Local fixture evidence for the exact five durable Licensing commercial periodic jobs, scheduler registration contract, and application-port dispatch; no production scheduler/worker, live provider, production deployment, or release-readiness claim.",
       commands: [
         {
           id: "protocol-typecheck",

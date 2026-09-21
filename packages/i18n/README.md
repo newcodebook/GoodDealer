@@ -1,5 +1,26 @@
 # @gooddealer/i18n
 
+## Role
+
+Presentation infrastructure for typed GoodDealer copy and deterministic locale-aware formatting.
+
+## Owns
+
+- Structurally aligned `zh-CN` and `en-US` copy dictionaries and locale types.
+- Deterministic date, number, and money formatters.
+
+## Touchpoints
+
+- Supplies non-authoritative copy and formatting to application and UI consumers through the package root.
+- Describes product states owned by application and domain modules without granting those states.
+- Uses brand references only as design input and has no runtime access to hosts, storage, or networks.
+
+## Change Guide
+
+- Update all supported locale dictionaries and copy types together.
+- Keep business decisions, routing, authorization, and availability claims in their owning modules.
+- Verify package typecheck, copy tests, and formatter tests after changes.
+
 ## Purpose
 
 This package owns typed `zh-CN` and `en-US` copy plus deterministic `Intl` date, number, and money
@@ -13,6 +34,9 @@ cannot make those states available or authoritative.
 - MUST: Keep copy separate from rendering, routing, authorization, network access, secrets, and business state.
 - MUST: Treat brand references as design input only; production source does not import `brand/`.
 - MUST: Not make a copy key, fixture phrase, or presentation name evidence of product composition.
+- MUST: Keep sync and conflict wording non-authoritative: `sync.conflicts` is an independent route, but
+  localized copy cannot grant it. Copy may describe a read-only view or unavailable resolution; it must not
+  imply Cloud ACK, manual-sync control, browser online detection, or a deprecated customer diagnostic status.
 
 ## Boundaries
 

@@ -24,17 +24,18 @@ describe("LicensingFixtureService", () => {
     expect(projection.featureEntitlements).toEqual(["platform.read", "workspace.read"]);
   });
 
-  it("projects the lifetime path without a commercial expiry", () => {
+  it("projects the 10-year fixed-term path with a commercial expiry", () => {
     const service = new LicensingFixtureService({
       ...subscription("active"),
-      licenseId: "fixture-license-lifetime",
-      entitlementKind: "lifetime",
-      commercialExpiresAt: null,
+      licenseId: "fixture-license-ten-year",
+      entitlementKind: "fixed_term",
+      commercialExpiresAt: "2036-01-01T00:00:00Z",
+      offlineGraceUntil: "2036-01-04T00:00:00Z",
     });
     expect(entitlementProjectionSchema.parse(service.getProjection("2026-01-01T00:00:00Z"))).toMatchObject({
-      entitlementKind: "lifetime",
-      commercialExpiresAt: null,
-      allMajorVersions: true,
+      entitlementKind: "fixed_term",
+      commercialExpiresAt: "2036-01-01T00:00:00Z",
+      versionEntitlement: { kind: "subscription_supported" },
     });
   });
 

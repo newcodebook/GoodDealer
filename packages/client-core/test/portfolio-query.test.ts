@@ -27,6 +27,7 @@ function result(source: "active_local" | "standby_cloud"): PortfolioQueryResult 
     domains: projectionVector.rows,
     freshness: {
       source,
+      readOnlyReason: source === "active_local" ? null : "standby",
       serverRevision: 7,
       lastReplicationActivityAt: timestamp,
       lastSuccessfulProviderObservationAt: "2026-08-15T11:59:00Z",

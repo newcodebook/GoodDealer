@@ -100,6 +100,10 @@ export const repositoryTopology = Object.freeze([
     sourceRoots: ["scripts"],
     publicEntrypoints: [
       publicEntrypoint("structure-tests", "scripts/*.test.mjs"),
+      publicEntrypoint(
+        "generate-brand-design-system-bundle",
+        "scripts/generate-brand-design-system-bundle.mjs",
+      ),
       publicEntrypoint("check-repository-topology", "scripts/check-repository-topology.mjs"),
       publicEntrypoint("check-workspace", "scripts/check-workspace.mjs"),
       publicEntrypoint("check-boundaries", "scripts/check-boundaries.mjs"),
@@ -124,7 +128,7 @@ export const repositoryTopology = Object.freeze([
       ),
       publicEntrypoint("collect-release-identity", "scripts/collect-release-identity.mjs"),
     ],
-    externalDependencies: ["@types/node", "ajv", "typescript", "vitest"],
+    externalDependencies: ["@types/node", "ajv", "esbuild", "typescript", "vitest"],
   }),
   topologyUnit({
     id: "release-engineering",
@@ -150,13 +154,17 @@ export const repositoryTopology = Object.freeze([
     runtime: "browser",
     trustDomain: "account-web",
     manifest: { ecosystem: "pnpm", path: "apps/account-web/package.json", identity: "@gooddealer/account-web" },
-    sourceRoots: ["src"],
-    publicEntrypoints: [publicEntrypoint("application", "src/index.ts")],
+    sourceRoots: ["src", "test", "scripts"],
+    publicEntrypoints: [
+      publicEntrypoint("application", "src/index.ts"),
+      publicEntrypoint("browser", "src/browser.ts"),
+    ],
     workspaceImports: [
       workspaceImport("@gooddealer/cloud-client", "Account web's typed Cloud client boundary."),
       workspaceImport("@gooddealer/protocol", "Account web's public account wire contracts.", ["./account"]),
     ],
     protocolSubpaths: ["./account"],
+    externalDependencies: ["esbuild"],
   }),
   topologyUnit({
     id: "admin-web",
@@ -182,7 +190,21 @@ export const repositoryTopology = Object.freeze([
     sourceRoots: ["src", "test"],
     publicEntrypoints: [
       publicEntrypoint("public-http", "src/entrypoints/http.ts"),
+      publicEntrypoint("identity-http", "src/entrypoints/identity-http.ts"),
+      publicEntrypoint("desktop-oauth-http", "src/entrypoints/desktop-oauth-http.ts"),
       publicEntrypoint("admin-http", "src/entrypoints/admin-http.ts"),
+      publicEntrypoint("payment-webhook-http", "src/entrypoints/payment-webhook-http.ts"),
+      publicEntrypoint("commercial-providers", "src/entrypoints/commercial-providers.ts"),
+      publicEntrypoint("openbao-transit-signer", "src/entrypoints/openbao-transit-signer.ts"),
+      publicEntrypoint("openbao-approle-token-source", "src/entrypoints/openbao-approle-token-source.ts"),
+      publicEntrypoint("openbao-authority-keyring", "src/entrypoints/openbao-authority-keyring.ts"),
+      publicEntrypoint("desktop-authorization-registry", "src/entrypoints/desktop-authorization-registry.ts"),
+      publicEntrypoint("development-migrate", "src/entrypoints/development-migrate.ts"),
+      publicEntrypoint("development-server", "src/entrypoints/development-server.ts"),
+      publicEntrypoint("development-identity-server", "src/entrypoints/development-identity-server.ts"),
+      publicEntrypoint("development-commercial-config", "src/entrypoints/development-commercial-config.ts"),
+      publicEntrypoint("development-provider-worker", "src/entrypoints/development-provider-worker.ts"),
+      publicEntrypoint("self-hosted-periodic-scheduler", "src/entrypoints/self-hosted-periodic-scheduler.ts"),
       publicEntrypoint("jobs", "src/entrypoints/jobs.ts"),
       publicEntrypoint("postgres-tests", "vitest.postgres.config.ts"),
     ],
@@ -197,6 +219,7 @@ export const repositoryTopology = Object.freeze([
         "./recovery",
         "./wire",
         "./workspace",
+        "./workspace-observations/cloudflare-dns",
       ]),
     ],
     protocolSubpaths: [
@@ -209,8 +232,17 @@ export const repositoryTopology = Object.freeze([
       "./recovery",
       "./wire",
       "./workspace",
+      "./workspace-observations/cloudflare-dns",
     ],
-    externalDependencies: ["@node-rs/argon2", "@types/pg", "fastify", "pg"],
+    externalDependencies: [
+      "@node-rs/argon2",
+      "@paypal/paypal-server-sdk",
+      "@types/pg",
+      "fastify",
+      "pg",
+      "stripe",
+      "tsx",
+    ],
   }),
   topologyUnit({
     id: "desktop",
@@ -358,7 +390,7 @@ export const repositoryTopology = Object.freeze([
     runtime: "host-independent-typescript",
     trustDomain: "shared-wire-contracts",
     manifest: { ecosystem: "pnpm", path: "packages/protocol/package.json", identity: "@gooddealer/protocol" },
-    sourceRoots: ["src", "test"],
+    sourceRoots: ["scripts", "src", "test"],
     publicEntrypoints: [
       publicEntrypoint("./account", "src/account/index.ts", true),
       publicEntrypoint("./audit", "src/audit/index.ts", true),
@@ -370,6 +402,11 @@ export const repositoryTopology = Object.freeze([
       publicEntrypoint("./recovery", "src/recovery/index.ts", true),
       publicEntrypoint("./wire", "src/wire/index.ts", true),
       publicEntrypoint("./workspace", "src/workspace/index.ts", true),
+      publicEntrypoint(
+        "./workspace-observations/cloudflare-dns",
+        "src/workspace-observations/cloudflare-dns.ts",
+        true,
+      ),
     ],
     externalDependencies: ["zod"],
   }),
@@ -406,17 +443,23 @@ export const repositoryTopology = Object.freeze([
       publicEntrypoint("public-surface-test", "tests/public_surface.rs"),
     ],
     externalDependencies: [
+      "base64",
       "chacha20poly1305",
       "flate2",
+      "fs2",
       "futures-util",
       "getrandom",
       "hmac",
+      "libc",
       "rcgen",
       "reqwest",
+      "ring",
+      "rustix",
       "security-framework",
       "serde",
       "serde_json",
       "sha2",
+      "tempfile",
       "tokio",
       "tokio-rustls",
       "url",
@@ -431,19 +474,28 @@ export const repositoryTopology = Object.freeze([
     runtime: "rust-host",
     trustDomain: "local-storage",
     manifest: { ecosystem: "cargo", path: "crates/local-storage/Cargo.toml", identity: "gooddealer-local-storage" },
-    sourceRoots: ["examples", "src"],
+    sourceRoots: ["examples", "src", "tests"],
     publicEntrypoints: [
       publicEntrypoint("lib", "src/lib.rs"),
       publicEntrypoint("backup-evidence", "examples/backup_evidence.rs"),
       publicEntrypoint("sqlcipher-evidence", "examples/sqlcipher_evidence.rs"),
+      publicEntrypoint("public-surface-test", "tests/public_surface.rs"),
     ],
     externalDependencies: [
+      "base64",
       "chacha20poly1305",
+      "fs2",
+      "getrandom",
+      "libc",
+      "ring",
+      "rustix",
       "rusqlite",
+      "security-framework",
       "serde",
       "serde_json",
       "sha2",
       "tempfile",
+      "zeroize",
     ],
   }),
   topologyUnit({
@@ -477,11 +529,23 @@ export const repositoryTopology = Object.freeze([
       rustDependency("gooddealer-local-storage", "Local encrypted storage boundary."),
       rustDependency(
         "gooddealer-secure-host-core",
-        "Native keychain, CSPRNG, and zeroizing local-database key custody.",
-        "crates/secure-host-core/src/local_database_key.rs",
+        "Native OAuth, device identity, authorization verification, and Cloudflare Provider custody.",
+        "crates/secure-host-core/src/cloudflare_keychain.rs",
       ),
     ],
-    externalDependencies: ["serde", "serde_json", "tauri", "tauri-build", "tempfile"],
+    externalDependencies: [
+      "reqwest",
+      "serde",
+      "serde_json",
+      "tauri",
+      "tauri-build",
+      "tauri-plugin-deep-link",
+      "tauri-plugin-opener",
+      "tauri-plugin-single-instance",
+      "tokio",
+      "url",
+      "zeroize",
+    ],
   }),
 ]);
 
@@ -975,6 +1039,8 @@ function configuredApplicationEntrypoints(root, unit) {
   }
   const indexSource = resolve(unitRoot, "src/index.ts");
   if (existsSync(indexSource)) entrypoints.push("src/index.ts");
+  const browserSource = resolve(unitRoot, "src/browser.ts");
+  if (existsSync(browserSource)) entrypoints.push("src/browser.ts");
   const cloudEntrypoints = resolve(unitRoot, "src/entrypoints");
   if (existsSync(cloudEntrypoints)) {
     for (const file of readdirSync(cloudEntrypoints, { withFileTypes: true })) {
@@ -990,7 +1056,10 @@ function configuredApplicationEntrypoints(root, unit) {
       const source = match[1];
       if (!source.startsWith("/")) continue;
       const target = normalizePath(relative(unitRoot, resolve(htmlDirectory, `.${source}`)));
-      entrypoints.push(target);
+      // A root-relative browser URL may name an emitted bundle that is absent
+      // from source control. Source entrypoints are catalogued separately; only
+      // treat an HTML target as source when that repository file exists.
+      if (existsSync(resolve(unitRoot, target))) entrypoints.push(target);
     }
   }
   const pagesDirectory = resolve(unitRoot, "src/pages");

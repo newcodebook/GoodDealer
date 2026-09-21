@@ -37,7 +37,7 @@ Cloud 表原先的 Portfolio 命名容易被误用为 Desktop Repository。显�
   各自产品决定、能力合同和资格。
 - Provider 观察必须先写本地。允许字段通过重新构造的脱敏值进入 Outbox，不能序列化本地连接行。
 - Operation history 区分失败、可重试、等待远端和结果未知；结果未知不能自动重放。
-- 密封 Provider 凭据只由本地 `provider_credential_versions` 持有，账号元数据行不得复制凭据字节。
+- Provider token 只由操作系统 Keychain 持有；本地数据库仅保存非秘密 connection anchor、轮换 intent、代次高水位、授权快照摘要与激活证明，任何账号元数据或 Cloud 投影不得包含凭据字节。
 - 未拥有严格 wire/materializer/secret/recovery 验收的 Cloud 副本表不得授予 application role DML。
 - Cloud application role 的写权限按列授予；Restore Candidate 证据列不可变，生命周期只能通过
   status/version/updated-at 的数据库状态图和下一版本 CAS 更新；Checkpoint 使用同样的 DDL CAS。

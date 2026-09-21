@@ -385,7 +385,7 @@ describe("P17 canonical byte layouts", () => {
       proofTranscript: digest(encodeDrainProofSignatureTranscript(proof)),
       proofDigestInput: digest(encodeDrainProofDigestInput(proof)),
     }).toEqual({
-      mutationEnvelope: "UOKWHc4HbPwEcAL65ZqsBZNzHhBQMqMyTiqu0I8P_4g",
+      mutationEnvelope: "bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac",
       executionFactTranscript: "3pNPc2ckw_aEBcDuCi4SLjSNCyU5iq8T6E3yuuWOQ9A",
       executionFactEnvelope: "ZJVnUm-9bcVTZLXRcDGd2LjUq2CU4Z131DeiZzysqNI",
       accountAuditTranscript: "AO_KE_einS6zs8tNRUU5aaT-Pomp4wOnK4YmbsFJYUI",
@@ -425,6 +425,7 @@ describe("P17 canonical byte layouts", () => {
       "workspaceSchemaVersion",
       "entityType",
       "entityId",
+      "operationKind",
       "baseServerRevision",
       "changedFields",
       "sourceDeviceId",
@@ -642,7 +643,7 @@ describe("P17-INV-8 pre-existing workspace corpus remains unchanged", () => {
 
   it("represents deletion explicitly and rejects ambiguous upsert/delete payloads", () => {
     const base = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       mutationId: "mutation-delete",
       workspaceId: "workspace-delete",
       workspaceSchemaVersion: 1,

@@ -15,6 +15,7 @@ import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
 import { runCloudMigrations, TenantTransactionRunner, type TenantTransaction } from "../../src/db/index";
 import { checkedCloudMigrationCatalog, cloudMigrations } from "../../src/db/migrations";
+import { clearLicensingTestData } from "../support/postgres-fixture";
 import {
   BOOTSTRAP_CAPABILITY_KEY_PURPOSE,
   BootstrapCapabilityVerifier,
@@ -142,10 +143,13 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
 
   beforeEach(async () => {
     fixture = signedFixture();
-    await ownerPool.query(`TRUNCATE device_bootstrap_activation_attempts, device_bootstrap_step_nonces,
+    await clearLicensingTestData(ownerPool);
+    await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
+      device_bootstrap_activation_attempts, device_bootstrap_step_nonces,
       device_bootstrap_authorities, device_bootstrap_steps, device_bootstrap_capabilities,
       device_lease_epoch_allocations, device_switch_workflows, device_signing_keys, device_bindings,
-      device_account_states, workspace_revisions, identity_accounts CASCADE`);
+      device_account_states, workspace_revisions CASCADE`);
+    await ownerPool.query("DELETE FROM identity_accounts");
     await seedBootstrap(scope, fixture);
   });
 
@@ -213,7 +217,7 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
       transactions,
       accountSecurity: new PostgresIdentityAccountSecurityStatePort(),
       entitlement: { async lockCurrent() {
-        return { active: true as const, securityDeadline: canonicalTime(new Date(Date.now() + 86_400_000)),
+        return { active: true as const,
           entitlementDeadline: canonicalTime(new Date(Date.now() + 86_400_000)) };
       } },
       signer: new DenyingActiveDeviceLeaseSigner(),
@@ -372,7 +376,6 @@ async function terminalizeAuthority(
 
 function activeEntitlement() {
   return { async lockCurrent() { return { active: true as const,
-    securityDeadline: canonicalTime(new Date(Date.now() + 86_400_000)),
     entitlementDeadline: canonicalTime(new Date(Date.now() + 86_400_000)) }; } };
 }
 

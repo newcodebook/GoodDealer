@@ -307,6 +307,13 @@ describe("the observed 16-row error identity matrix", () => {
       { method: "GET", path: "/v1/boundary/identity" },
       { method: "POST", path: "/v1/boundary/validate" },
       { method: "POST", path: "/v1/account/activation" },
+      { method: "POST", path: "/v1/devices/authorization-grant" },
+      { method: "POST", path: "/v1/account/billing/checkout" },
+      { method: "GET", path: "/v1/account/billing/status" },
+      { method: "POST", path: "/v1/account/billing/subscription/cancel" },
+      { method: "POST", path: "/v1/account/billing/fixed-term/confirm" },
+      { method: "POST", path: "/v1/account/billing/first-purchase-refund" },
+      { method: "POST", path: "/v1/account/billing/first-purchase-refund/status" },
     ]);
     expect(adminRoutes).toEqual([
       { method: "GET", path: "/admin/v1/boundary/identity" },
@@ -335,10 +342,11 @@ describe("the observed 16-row error identity matrix", () => {
   });
 
   it("maps every frozen account rejection code without a fallback", () => {
-    expect(accountRejectionCodeSchema.options).toHaveLength(20);
+    expect(accountRejectionCodeSchema.options).toHaveLength(23);
     expect(accountRejectionCodeSchema.options.map(accountRejectionStatus)).toEqual([
       401, 429, 403, 403, 403, 409, 409, 401, 401, 409,
-      403, 403, 409, 409, 409, 403, 409, 409, 409, 400,
+      403, 403, 409, 409, 409, 403, 409, 409, 409, 409,
+      409, 409, 400,
     ]);
   });
 

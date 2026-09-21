@@ -2,7 +2,7 @@
 
 ## 产品定位
 
-GoodDealer 是本地优先的 Desktop 域名资产管理产品。用户登录 GoodDealer 账号并获得订阅与设备
+GoodDealer 是本地优先的 Desktop 域名资产管理产品。用户登录 GoodDealer 账号并获得商业与设备
 授权后，业务数据、业务事务、任务和 Provider 操作在本地客户端完成；Cloud 提供账号控制面和
 脱敏数据同步/恢复，不是 Desktop 的业务数据库。
 
@@ -12,7 +12,18 @@ GoodDealer 是本地优先的 Desktop 域名资产管理产品。用户登录 Go
 - 本地 SQLCipher 中可读写的域名资产资料、状态与历史。
 - 本地 Secure Host 使用用户本地保存的 Cloudflare 账号和最小 Token 读取 Zone/DNS。
 - 本地结果立即可见；网络恢复后异步同步允许字段。
-- 订阅、Entitlement、设备绑定和 Lease/Epoch 继续由 Cloud 授权。
+- 商业计划、Entitlement、设备绑定和 Lease/Epoch 继续由 Cloud 授权。
+
+## 首发商业计划
+
+- 所有付费方案提供相同功能权益：USD 9.80 月付、USD 98 年付、USD 498 的 10 年固定期限预付。
+- 月付和年付自动续费并可随时取消；取消后使用到已付周期结束。10 年方案不自动续费且不是永久买断。
+- 首发结账只展示 Stripe；PayPal adapter 作为可选扩展能力保留，但未配置时不得出现在 catalog、
+  客户界面或发行资格中。同一账号任何时候最多有一个正在创建、待批准或有效的支付 Provider。
+- 不提供免费试用。每账号终身唯一的首次 settled acquisition 从 Provider 结算时间起 336 小时内可
+  全额退款；续费不重置或新增窗口，退款请求接受即进入商业只读。
+- 优惠不可叠加，由 GoodDealer 服务端统一校验并映射到两家 Provider 的受控对象。
+- 标价不含适用税费；只有已经完成支付与税务合规准备的国家或地区可以进入结账。
 
 ## 产品不变量
 

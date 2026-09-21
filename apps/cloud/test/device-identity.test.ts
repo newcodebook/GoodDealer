@@ -39,11 +39,11 @@ describe("Cloud device identity ingress", () => {
     }
   });
 
-  it("accepts coherent lifetime and grace entitlement payloads", () => {
+  it("accepts coherent fixed-term and grace entitlement payloads", () => {
     expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement.json")).success).toBe(true);
     expect(entitlementEnvelopeSchema.safeParse(vector("valid/entitlement-grace.json")).success).toBe(true);
     expect(
-      entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-lifetime-expiry.json")).success,
+      entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-fixed-term-without-expiry.json")).success,
     ).toBe(false);
     expect(
       entitlementEnvelopeSchema.safeParse(vector("invalid/entitlement-missing-commercial-expiry.json")).success,

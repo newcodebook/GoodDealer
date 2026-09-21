@@ -1,9 +1,11 @@
 import { copyPlainRecord, hasExactKeys } from "./presentation-input";
+import { canonicalDomainNameSchema } from "@gooddealer/client-core";
 
 export const appRouteIds = [
   "portfolio.list",
   "portfolio.detail",
   "dns.health",
+  "sync.conflicts",
   "settings",
 ] as const;
 
@@ -32,9 +34,7 @@ export function parseAppRoute(value: unknown): AppRoute | null {
     if (
       !hasExactKeys(record, ["id", "domainId"]) ||
       typeof domainId !== "string" ||
-      domainId.length === 0 ||
-      domainId.length > 128 ||
-      /[\u0000-\u001f\u007f-\u009f]/u.test(domainId)
+      !canonicalDomainNameSchema.safeParse(domainId).success
     ) {
       return null;
     }

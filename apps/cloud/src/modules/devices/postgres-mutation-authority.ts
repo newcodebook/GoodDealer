@@ -25,7 +25,9 @@ export class PostgresMutationAuthority implements TransactionalMutationAuthority
     );
     if (binding.rows[0]?.status !== "bound") return false;
 
-    const lease = await transaction.query<{ device_id: string; lease_epoch: string }>(
+    // Current lease establishes transport authority; the submitted epoch is only immutable
+    // provenance and may be an offline-valid historical lease after natural rotation.
+    const lease = await transaction.query<{ device_id: string }>(
       `SELECT lease.device_id, lease.lease_epoch
        FROM device_active_leases lease
        JOIN device_lease_epoch_allocations allocation
@@ -38,8 +40,19 @@ export class PostgresMutationAuthority implements TransactionalMutationAuthority
       [transaction.scope.accountId, transaction.scope.workspaceId],
     );
     const held = lease.rows[0];
-    return held !== undefined && held.device_id === input.sourceDeviceId &&
-      Number(held.lease_epoch) === input.activeLeaseEpoch;
+    if (held === undefined || held.device_id !== input.sourceDeviceId) return false;
+    const historical = await transaction.query(
+      `SELECT 1
+       FROM device_active_leases lease
+       JOIN device_lease_epoch_allocations allocation
+         ON allocation.account_id = lease.account_id AND allocation.lease_epoch = lease.lease_epoch
+       WHERE lease.account_id = $1 AND lease.device_id = $2 AND lease.lease_epoch = $3
+         AND allocation.workspace_id = $4
+         AND allocation.status = 'activated'
+       FOR UPDATE OF lease`,
+      [transaction.scope.accountId, input.sourceDeviceId, input.activeLeaseEpoch, transaction.scope.workspaceId],
+    );
+    return historical.rowCount === 1;
   }
 }
 

@@ -11,6 +11,7 @@ import {
   PostgresIdentityAuthenticationRepository,
   hashFixturePassword,
 } from "../../src/modules/identity/index";
+import { clearLicensingTestData } from "../support/postgres-fixture";
 
 const ownerUrl = requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL");
 const appUrl = requiredEnvironment("GOODDEALER_POSTGRES_APP_URL");
@@ -34,9 +35,13 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await clearLicensingTestData(ownerPool);
   await ownerPool.query(
-    "TRUNCATE identity_credential_jtis, identity_refresh_families, identity_auth_sessions, identity_account_security_states, identity_accounts CASCADE",
+    `TRUNCATE workspace_account_bindings, workspace_workspaces,
+      identity_credential_jtis, identity_refresh_families, identity_auth_sessions,
+      identity_account_security_states CASCADE`,
   );
+  await ownerPool.query("DELETE FROM identity_accounts");
   await seedAccount("account-a", "a@example.com");
   await seedAccount("account-b", "b@example.com");
 });
@@ -78,7 +83,7 @@ describe("PostgreSQL identity authentication persistence", () => {
     expect(residue.rows[0]).toEqual({ account_id: null, login_email: null, workspace_id: null });
   });
 
-  it("commits one of two prepared rotations and treats the loser as a non-revoking conflict", async () => {
+  it("commits one of two differently identified prepared rotations and atomically revokes on the loser", async () => {
     await issue("account-a", "session-a", "family-a", "access-a0", "refresh-a0");
     const snapshot = {
       accountId: "account-a",
@@ -87,24 +92,76 @@ describe("PostgreSQL identity authentication persistence", () => {
       presentedRefreshJti: "refresh-a0",
       accountSecurityEpoch: 1,
     } as const;
-    const [first, second] = await Promise.all([repository.prepareRefresh(snapshot), repository.prepareRefresh(snapshot)]);
+    const [first, second] = await Promise.all([
+      repository.prepareRefresh(snapshot, "request-a1"),
+      repository.prepareRefresh(snapshot, "request-a2"),
+    ]);
     if (first.status !== "ready" || second.status !== "ready") throw new Error("refresh preparation failed");
     const results = await Promise.all([
       repository.commitRefresh(first.preparation, next("a1")),
       repository.commitRefresh(second.preparation, next("a2")),
     ]);
     expect(results.filter(({ status }) => status === "rotated")).toHaveLength(1);
-    expect(results.filter(({ status }) => status === "refresh_rotation_conflict")).toHaveLength(1);
-    let currentRefreshJti = "";
+    expect(results.filter(({ status }) => status === "refresh_reuse_detected")).toHaveLength(1);
     await transactions.withAccount("account-a", async (transaction) => {
-      const family = await transaction.query<{ state: string; generation: string; current_refresh_jti: string }>(
-        "SELECT state, generation, current_refresh_jti FROM identity_refresh_families WHERE family_id = 'family-a'",
+      const family = await transaction.query<{ state: string; generation: string }>(
+        "SELECT state, generation FROM identity_refresh_families WHERE family_id = 'family-a'",
       );
-      expect(family.rows[0]).toMatchObject({ state: "active", generation: "1" });
-      currentRefreshJti = family.rows[0]?.current_refresh_jti ?? "";
+      expect(family.rows[0]).toEqual({ state: "revoked", generation: "1" });
+      const session = await transaction.query<{ revoked: boolean }>(
+        "SELECT revoked_at IS NOT NULL AS revoked FROM identity_auth_sessions WHERE session_id = 'session-a'",
+      );
+      expect(session.rows).toEqual([{ revoked: true }]);
     });
+  });
 
-    const collisionPreparation = await repository.prepareRefresh({ ...snapshot, presentedRefreshJti: currentRefreshJti });
+  it("keeps the family active when concurrent preparations share one request identity", async () => {
+    await issue("account-a", "session-a", "family-a", "access-a0", "refresh-a0");
+    const snapshot = {
+      accountId: "account-a",
+      sessionId: "session-a",
+      familyId: "family-a",
+      presentedRefreshJti: "refresh-a0",
+      accountSecurityEpoch: 1,
+    } as const;
+    const [first, second] = await Promise.all([
+      repository.prepareRefresh(snapshot, "request-a1"),
+      repository.prepareRefresh(snapshot, "request-a1"),
+    ]);
+    if (first.status !== "ready" || second.status !== "ready") throw new Error("refresh preparation failed");
+    const results = await Promise.all([
+      repository.commitRefresh(first.preparation, next("same")),
+      repository.commitRefresh(second.preparation, next("same")),
+    ]);
+    expect(results.filter(({ status }) => status === "rotated")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "refresh_rotation_conflict")).toHaveLength(1);
+    await transactions.withAccount("account-a", async (transaction) => {
+      const family = await transaction.query<{ state: string; generation: string }>(
+        "SELECT state, generation FROM identity_refresh_families WHERE family_id = 'family-a'",
+      );
+      expect(family.rows[0]).toEqual({ state: "active", generation: "1" });
+      const presented = await transaction.query<{ rotation_request_id: string; resulting_generation: string }>(
+        `SELECT rotation_request_id, resulting_generation FROM identity_credential_jtis
+          WHERE jti = 'refresh-a0'`,
+      );
+      expect(presented.rows).toEqual([{ rotation_request_id: "request-a1", resulting_generation: "1" }]);
+    });
+  });
+
+  it("rolls a credential collision back without consuming the current refresh token", async () => {
+    await issue("account-a", "session-a", "family-a", "access-a0", "refresh-a0");
+    const snapshot = {
+      accountId: "account-a",
+      sessionId: "session-a",
+      familyId: "family-a",
+      presentedRefreshJti: "refresh-a0",
+      accountSecurityEpoch: 1,
+    } as const;
+    const currentRefreshJti = "refresh-a0";
+    const collisionPreparation = await repository.prepareRefresh(
+      snapshot,
+      "request-collision",
+    );
     if (collisionPreparation.status !== "ready") throw new Error("collision preparation failed");
     await expect(repository.commitRefresh(collisionPreparation.preparation, {
       ...next("collision"), accessJti: "access-a0",
@@ -113,7 +170,7 @@ describe("PostgreSQL identity authentication persistence", () => {
       const family = await transaction.query<{ generation: string; current_refresh_jti: string }>(
         "SELECT generation, current_refresh_jti FROM identity_refresh_families WHERE family_id = 'family-a'",
       );
-      expect(family.rows[0]).toEqual({ generation: "1", current_refresh_jti: currentRefreshJti });
+      expect(family.rows[0]).toEqual({ generation: "0", current_refresh_jti: currentRefreshJti });
     });
   });
 
@@ -123,18 +180,18 @@ describe("PostgreSQL identity authentication persistence", () => {
     const prepared = await repository.prepareRefresh({
       accountId: "account-a", sessionId: "session-a", familyId: "family-a",
       presentedRefreshJti: "refresh-a0", accountSecurityEpoch: 1,
-    });
+    }, "request-a1");
     if (prepared.status !== "ready") throw new Error("refresh preparation failed");
     await expect(repository.commitRefresh(prepared.preparation, next("a1"))).resolves.toMatchObject({ status: "rotated" });
 
     await expect(repository.prepareRefresh({
       accountId: "account-a", sessionId: "session-b", familyId: "family-b",
       presentedRefreshJti: "refresh-a0", accountSecurityEpoch: 1,
-    })).resolves.toEqual({ status: "invalid_credentials" });
+    }, "request-b1")).resolves.toEqual({ status: "invalid_credentials" });
     await expect(repository.prepareRefresh({
       accountId: "account-a", sessionId: "session-a", familyId: "family-a",
       presentedRefreshJti: "refresh-a0", accountSecurityEpoch: 1,
-    })).resolves.toEqual({ status: "refresh_reuse_detected" });
+    }, "request-reuse")).resolves.toEqual({ status: "refresh_reuse_detected" });
 
     await transactions.withAccount("account-a", async (transaction) => {
       const families = await transaction.query<{ family_id: string; state: string }>(
@@ -154,7 +211,7 @@ describe("PostgreSQL identity authentication persistence", () => {
     const prepared = await repository.prepareRefresh({
       accountId: "account-a", sessionId: "session-a", familyId: "family-a",
       presentedRefreshJti: "refresh-a0", accountSecurityEpoch: 1,
-    });
+    }, "request-stale");
     if (prepared.status !== "ready") throw new Error("refresh preparation failed");
     await expect(repository.advanceSecurityEpoch("account-a", "recovery_pending")).resolves.toBe(2);
     await expect(repository.commitRefresh(prepared.preparation, next("stale")))
@@ -194,7 +251,7 @@ async function seedAccount(accountId: string, email: string): Promise<void> {
 async function issue(accountId: string, sessionId: string, familyId: string, accessJti: string, refreshJti: string) {
   await expect(repository.issueInitial({
     accountId, expectedEpoch: 1, sessionId, familyId, accessJti, refreshJti,
-    deviceId: `device-${sessionId}`, rememberDevice: true,
+    deviceId: `device-${sessionId}`, authMethod: "password", rememberDevice: true,
     accessExpiresAt: future, refreshExpiresAt: future,
   })).resolves.toBe("issued");
 }

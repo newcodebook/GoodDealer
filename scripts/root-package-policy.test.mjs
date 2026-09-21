@@ -21,6 +21,13 @@ test("PostgreSQL integration uses the root local environment contract", () => {
   );
 });
 
+test("platform-neutral validation builds the deployable Account Web bundle first", () => {
+  assert.match(
+    packageManifest.scripts["check:platform-neutral"],
+    /^pnpm --filter @gooddealer\/account-web build && /u,
+  );
+});
+
 test("rejects added selectors and removed check stages", () => {
   const selectorMutation = structuredClone(packageManifest);
   selectorMutation.scripts["historical-selector"] = "node scripts/not-admitted.mjs";

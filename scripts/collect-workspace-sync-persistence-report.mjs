@@ -13,6 +13,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "runs qualifying evidence only on PostgreSQL 18.6",
     "matches the shared domain-asset corpus digest through the real PostgreSQL projection",
     "keeps a failing post-catalog migration and its ledger row atomic",
+    "preserves v1 checkpoint rows while enabling v2 through an append-only migration",
     "rejects unknown, non-prefix, owner, and checksum drift before the next migration executes",
     "isolates identical literal ids and clears scope across pooled commit and rollback reuse",
     "rejects invalid scope before acquiring a pool connection",
@@ -45,6 +46,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "persists strict receipts, replay fields, and the Drain head in one transaction",
     "persists an explicit DomainAsset deletion without manufacturing changed fields",
     "orchestrates authority, Drain, revision, state, receipt, and replay atomically without production composition",
+    "rejects a poison item without persisting any prefix of the v2 batch",
     "rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry",
     "rejects expired Lease authority at the database-time boundary before mutation state changes",
     "binds direct app drain routines to the current active device Lease and proof-only sealing",
@@ -58,6 +60,8 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "rolls every mutation table and Drain head back on injected faults",
   ],
   "test/postgres/workspace-reader-cursor-persistence.test.ts": [
+    "keeps v2 delivery pending until confirm and byte-replays both lost responses",
+    "maps v2 token tamper, expiry, wrong device, and range/predecessor mismatch uniformly",
     "pins the first-page head and gives one concurrent CAS presentation a single winner",
     "rejects stale generation, row version, and continuation token without reading a page",
     "uses database transaction time and retires at the exact TTL boundary",
@@ -71,7 +75,8 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
   ],
   "test/postgres/workspace-checkpoint-persistence.test.ts": [
     "uses compound tenant keys with forced RLS on every checkpoint-owned table",
-    "builds immutable snapshots and permits only verified publication",
+  "builds immutable snapshots and permits only verified publication",
+  "reads a persisted v1 checkpoint as the public v2 descriptor",
     "serializes checkpoint build before concurrent persisted ingest",
     "rejects immutable checkpoint identifier and pin binding mismatches",
     "rejects secret-bearing and cross-workspace checkpoint snapshots before storage",
@@ -100,10 +105,13 @@ export const WORKSPACE_SYNC_TABLES = Object.freeze([
   "workspace_checkpoint_entity_digests",
   "workspace_checkpoint_pins",
   "workspace_checkpoints",
+  "workspace_device_mutation_heads",
+  "workspace_device_mutation_sequence_ledger",
   "workspace_mutation_fields",
   "workspace_mutation_receipts",
   "workspace_mutations",
   "workspace_reader_cursors",
+  "workspace_reader_pending_deliveries",
 ]);
 
 const REQUIRED_MIGRATIONS = [
@@ -115,6 +123,8 @@ const optionalMigration = discoverCatalogRecoveryMigration();
 export const WORKSPACE_SYNC_LEDGER_MIGRATIONS = Object.freeze([
   ...REQUIRED_MIGRATIONS,
   ...(optionalMigration === null ? [] : [[optionalMigration.id, optionalMigration.owner]]),
+  ["202609140001-sync-v2-ledger", "workspace/mutations"],
+  ["202609150001-workspace-checkpoint-v2", "workspace/checkpoints"],
 ]);
 
 const BASE_INPUT_PATHS = [
@@ -135,6 +145,7 @@ const BASE_INPUT_PATHS = [
   "apps/cloud/src/modules/workspace/cursors/postgres-reader-cursor-service.ts",
   "apps/cloud/src/modules/workspace/checkpoints/index.ts",
   "apps/cloud/src/modules/workspace/checkpoints/migrations/202608200010-workspace-checkpoints.ts",
+  "apps/cloud/src/modules/workspace/checkpoints/migrations/202609150001-workspace-checkpoint-v2.ts",
   "apps/cloud/src/modules/workspace/checkpoints/postgres-ports.ts",
   "apps/cloud/src/modules/workspace/checkpoints/postgres-repository.ts",
   "apps/cloud/src/modules/workspace/checkpoints/postgres-service.ts",

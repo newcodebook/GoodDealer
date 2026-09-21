@@ -52,6 +52,9 @@ export async function activateAccount(
 ): Promise<ActivationResult> {
   parseActivationIntent(intentValue);
   const subject = parseAuthenticatedSubject(await subjectPort.revalidate());
+  // Pre-session activation is the narrow Identity-owned exception to transaction capabilities:
+  // both selectors are derived from the freshly revalidated stable subject, never from a route,
+  // principal account id, cookie field, or caller-selected workspace.
   const ids = activationIdentityFor(subject);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -82,6 +85,10 @@ export async function activateAccount(
         fault?.("account");
       }
       await client.query("INSERT INTO identity_account_security_states (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING", [ids.accountId]);
+      await client.query(
+        "INSERT INTO device_account_states (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING",
+        [ids.accountId],
+      );
 
       const workspace = await client.query(
         "SELECT workspace_id, account_id FROM workspace_workspaces WHERE workspace_id = $1",

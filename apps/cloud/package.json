@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "migrate:development": "tsx --env-file=../../.env.local src/entrypoints/development-migrate.ts",
+    "start:development": "tsx --env-file=../../.env.local src/entrypoints/development-server.ts",
+    "start:identity:development": "tsx --env-file=../../.env.local src/entrypoints/development-identity-server.ts",
+    "start:provider-worker:development": "tsx --env-file=../../.env.local src/entrypoints/development-provider-worker.ts",
+    "fixture:webhook-verifier": "tsx test/fixtures/payment-webhook-verifier-fixture.ts",
+    "desktop-registry": "tsx src/entrypoints/development-server.ts --print-desktop-registry",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --exclude test/postgres/**/*.test.ts",
     "test:postgres": "node --env-file-if-exists=../../.env.local ../../node_modules/vitest/vitest.mjs run --config vitest.postgres.config.ts"
@@ -11,10 +17,13 @@
   "dependencies": {
     "@gooddealer/protocol": "workspace:*",
     "@node-rs/argon2": "2.1.0",
+    "@paypal/paypal-server-sdk": "2.5.0",
     "fastify": "5.12.1",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "stripe": "22.6.0"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "tsx": "4.20.6"
   }
 }

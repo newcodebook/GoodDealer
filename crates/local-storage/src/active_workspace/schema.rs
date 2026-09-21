@@ -1,7 +1,34 @@
 pub(crate) const ACTIVE_SCHEMA_MIGRATION_ID: i64 = 202_608_280_001;
 pub(crate) const ACTIVE_SCHEMA_MIGRATION_OWNER: &str = "active-workspace/schema";
 pub(crate) const ACTIVE_SCHEMA_MIGRATION_SQL: &str = include_str!("schema.sql");
-
+pub(crate) const SYNC_V2_MIGRATION_ID: i64 = 202_609_140_001;
+pub(crate) const SYNC_V2_MIGRATION_OWNER: &str = "active-workspace/sync";
+pub(crate) const SYNC_V2_MIGRATION_SQL: &str = include_str!("sync_v2.sql");
+pub(crate) const SYNC_V3_MIGRATION_ID: i64 = 202_609_150_002;
+pub(crate) const SYNC_V3_MIGRATION_OWNER: &str = "active-workspace/conflict-recovery";
+pub(crate) const SYNC_V3_MIGRATION_SQL: &str = include_str!("sync_v3.sql");
+pub(crate) const SYNC_V4_MIGRATION_ID: i64 = 202_609_150_003;
+pub(crate) const SYNC_V4_MIGRATION_OWNER: &str = "active-workspace/rebootstrap-provenance";
+pub(crate) const SYNC_V4_MIGRATION_SQL: &str = include_str!("sync_v4.sql");
+pub(crate) const SYNC_V5_MIGRATION_ID: i64 = 202_609_160_001;
+pub(crate) const SYNC_V5_MIGRATION_OWNER: &str = "active-workspace/native-cloud-checkpoint";
+pub(crate) const SYNC_V5_MIGRATION_SQL: &str = include_str!("sync_v5.sql");
+pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
+pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
+pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V2";
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_FINGERPRINT: &str =
+    "0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec";
+#[cfg(test)]
+pub(crate) const CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST: &[&str] = &[
+    "cloudflare_credential_intent_immutable",
+    "cloudflare_credential_intent_phase_edges",
+    "cloudflare_credential_ledger_no_delete",
+    "cloudflare_credential_ledger_no_update",
+];
+pub(crate) const CLOUDFLARE_V2_MIGRATION_ID: i64 = 202_609_150_005;
+pub(crate) const CLOUDFLARE_V2_MIGRATION_OWNER: &str = "active-workspace/cloudflare-observation";
+pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2.sql");
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     (
@@ -80,6 +107,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "observed_at",
             "provider_version_token",
             "normalized_evidence_sha256",
+            "cloudflare_zone_status",
         ],
     ),
     (
@@ -107,6 +135,8 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "local_commit_sequence",
             "sync_state",
             "updated_at",
+            "provenance",
+            "freshness",
         ],
     ),
     (
@@ -162,7 +192,6 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "connection_id",
             "provider_kind",
             "display_label",
-            "provider_account_id",
             "active_credential_changed_at",
             "lifecycle_status",
             "capabilities_json",
@@ -171,6 +200,176 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "validation_status",
             "revoked_at",
             "deleted_at",
+            "connection_incarnation_id",
+            "credential_use_state",
+            "active_credential_generation",
+            "active_credential_scope_digest",
+            "active_credential_zone_digest",
+            "active_credential_public_proof",
+        ],
+    ),
+    (
+        "cloudflare_credential_schema_guard",
+        &["singleton", "schema_epoch", "schema_fingerprint"],
+    ),
+    (
+        "cloudflare_credential_roots",
+        &[
+            "workspace_id",
+            "connection_incarnation_id",
+            "logical_connection_id",
+            "highest_resolved_generation",
+            "head_ledger_generation",
+            "known_envelope_kind",
+            "known_envelope_generation",
+            "known_scope_digest",
+            "known_zone_digest",
+            "known_public_proof",
+            "retired_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "cloudflare_credential_generation_ledger",
+        &[
+            "workspace_id",
+            "connection_incarnation_id",
+            "generation",
+            "result",
+            "operation_kind",
+            "target_envelope_kind",
+            "scope_digest",
+            "zone_digest",
+            "target_public_proof",
+            "source_intent_id",
+            "burn_reason",
+            "created_at",
+        ],
+    ),
+    (
+        "cloudflare_credential_intents",
+        &[
+            "workspace_id",
+            "connection_incarnation_id",
+            "intent_id",
+            "operation_kind",
+            "expected_head_generation",
+            "target_generation",
+            "target_envelope_kind",
+            "scope_digest",
+            "zone_digest",
+            "target_public_proof",
+            "prepared_authority_snapshot_digest",
+            "staged_batch_id",
+            "staged_observation_digest",
+            "marker_base_recorded",
+            "marker_base_envelope_kind",
+            "marker_base_generation",
+            "marker_base_scope_digest",
+            "marker_base_zone_digest",
+            "marker_base_public_proof",
+            "phase",
+            "terminal_reason",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "cloudflare_dns_staged_batches",
+        &[
+            "workspace_id",
+            "connection_incarnation_id",
+            "staged_batch_id",
+            "source_intent_id",
+            "observation_id",
+            "observation_run_id",
+            "entity_id",
+            "lease_epoch",
+            "scope_digest",
+            "zone_digest",
+            "observation_digest",
+            "observed_at",
+            "zone_name_ascii",
+            "authoritative_nameservers_json",
+            "dnssec_status",
+            "observation_availability",
+            "cloudflare_zone_status",
+            "provider_version_token",
+            "visibility",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "cloudflare_dns_staged_records",
+        &[
+            "workspace_id",
+            "staged_batch_id",
+            "record_key",
+            "record_type",
+            "owner_name_ascii",
+            "ttl_seconds",
+            "priority",
+            "canonical_value",
+            "proxied",
+        ],
+    ),
+    (
+        "native_cloud_checkpoint_state",
+        &[
+            "workspace_id",
+            "checkpoint_due",
+            "checkpoint_id",
+            "checkpoint_schema_version",
+            "through_server_revision",
+            "workspace_schema_version",
+            "checkpoint_digest",
+            "checked_at",
+        ],
+    ),
+    (
+        "cloudflare_dns_projection_heads",
+        &[
+            "workspace_id",
+            "entity_id",
+            "lease_epoch",
+            "source_sequence",
+            "observation_id",
+            "observed_at",
+            "projection_digest",
+            "updated_at",
+        ],
+    ),
+    (
+        "cloudflare_dns_projection_outbox",
+        &[
+            "workspace_id",
+            "observation_id",
+            "entity_id",
+            "lease_epoch",
+            "source_sequence",
+            "observed_at",
+            "projection_json",
+            "canonical_request_digest",
+            "state",
+            "delivery_owner",
+            "delivery_lease_expires_at",
+            "delivery_attempt_fence",
+            "next_attempt_at",
+            "last_error_code",
+            "observation_sequence",
+            "disposition",
+            "acknowledged_at",
+        ],
+    ),
+    (
+        "cloudflare_dns_source_heads",
+        &[
+            "workspace_id",
+            "entity_id",
+            "lease_epoch",
+            "source_sequence",
+            "updated_at",
         ],
     ),
     (
@@ -304,23 +503,6 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "provider_credential_versions",
-        &[
-            "workspace_id",
-            "connection_id",
-            "credential_version",
-            "credential_kind",
-            "seal_format",
-            "key_version",
-            "sealed_credential",
-            "state",
-            "created_at",
-            "last_validated_at",
-            "validation_status",
-            "retired_at",
-        ],
-    ),
-    (
         "provider_observation_runs",
         &[
             "workspace_id",
@@ -382,6 +564,18 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "created_at",
             "resolved_at",
             "resolution_value_json",
+            "candidate_version",
+            "parent_candidate_version",
+            "remote_source_device_id",
+            "remote_mutation_digest",
+            "remote_order_server_revision",
+            "remote_order_source_device_id",
+            "remote_order_mutation_id",
+            "local_value_hash",
+            "remote_value_hash",
+            "resolution_id",
+            "choice_digest",
+            "gc_eligible_at",
         ],
     ),
     (
@@ -402,6 +596,8 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "received_at",
             "applied_at",
             "rejection_code",
+            "wire_schema_version",
+            "wire_mutation_digest",
         ],
     ),
     (
@@ -428,6 +624,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "next_attempt_at",
             "last_error_code",
             "server_revision",
+            "delivery_owner",
+            "delivery_lease_expires_at",
+            "delivery_attempt_fence",
+            "wire_schema_version",
+            "wire_mutation_digest",
         ],
     ),
     (
@@ -442,6 +643,21 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sync_asset_provenance",
+        &[
+            "workspace_id",
+            "entity_id",
+            "root_provenance",
+            "replicated_server_revision",
+            "freshness",
+            "updated_at",
+        ],
+    ),
+    (
+        "sync_conflict_capacity",
+        &["workspace_id", "open_count", "open_bytes"],
+    ),
+    (
         "sync_reader_state",
         &[
             "workspace_id",
@@ -454,6 +670,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "checkpoint_through_server_revision",
             "status",
             "updated_at",
+            "confirmation_token",
+            "last_page_digest",
+            "anti_rollback_server_revision_floor",
+            "anti_rollback_schema_version_floor",
+            "row_version",
         ],
     ),
     (
@@ -467,6 +688,43 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "deleted_at",
             "purge_after",
             "state",
+            "barrier_state",
+            "order_server_revision",
+            "order_source_device_id",
+            "order_mutation_id",
+        ],
+    ),
+    (
+        "sync_resolution_receipts",
+        &[
+            "workspace_id",
+            "resolution_id",
+            "conflict_id",
+            "candidate_version",
+            "choice",
+            "choice_digest",
+            "outbox_mutation_id",
+            "resolved_at",
+            "candidate_set_version",
+            "remote_server_revision",
+            "current_value_hash",
+        ],
+    ),
+    (
+        "sync_rebootstrap_journal",
+        &[
+            "workspace_id",
+            "journal_id",
+            "slot_id",
+            "publication_sequence",
+            "manifest_digest",
+            "authority_digest",
+            "floor_digest",
+            "binding_digest",
+            "state",
+            "failure_code",
+            "created_at",
+            "updated_at",
         ],
     ),
 ];

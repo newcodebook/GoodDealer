@@ -14,7 +14,8 @@ import {
   domainAssetTagsSchema,
 } from "./domain-asset-fields";
 
-export const WORKSPACE_SYNC_SCHEMA_VERSION = 1 as const;
+/** Current production workspace sync wire. Version 1 is intentionally not accepted. */
+export const WORKSPACE_SYNC_SCHEMA_VERSION = 2 as const;
 export const MAX_MUTATIONS_PER_PAGE = 256 as const;
 
 /** A SHA-256 value encoded as unpadded base64url. */
@@ -66,7 +67,7 @@ const submittedSyncMutationSuffixFields = {
   workspaceSchemaVersion: safePositiveInteger,
   entityType: z.literal("domain_asset"),
   entityId: domainAssetIdSchema,
-  operationKind: z.enum(["upsert", "delete"]).optional(),
+  operationKind: z.enum(["upsert", "delete"]),
   deletedAt: canonicalUtcTimestamp.optional(),
   baseServerRevision: serverRevisionSchema,
   changedFields: changedFieldsSchema,
@@ -77,13 +78,13 @@ const submittedSyncMutationSuffixFields = {
 
 function validateSubmittedSyncMutation(
   mutation: {
-    operationKind?: "upsert" | "delete" | undefined;
+    operationKind: "upsert" | "delete";
     deletedAt?: string | undefined;
     changedFields: readonly unknown[];
   },
   context: z.RefinementCtx,
 ) {
-  const operationKind = mutation.operationKind ?? "upsert";
+  const operationKind = mutation.operationKind;
   if (operationKind === "upsert") {
     if (mutation.changedFields.length === 0) {
       context.addIssue({ code: "custom", path: ["changedFields"], message: "upsert requires changed fields" });
@@ -250,12 +251,22 @@ export const mutationPageSchema = z
 export function encodeMutationPageDigestInput(value: unknown): Uint8Array {
   const parsed = mutationPageSchema.parse(value);
   const { pageDigest: _pageDigest, ...digestInput } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-PAGE-V1", digestInput);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-PAGE-V2", digestInput);
 }
 
 export function encodeWorkspaceEntityDigestsInput(value: unknown): Uint8Array {
   const parsed = workspaceEntityDigestsSchema.parse(value);
-  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V1", parsed);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V2", parsed);
+}
+
+/**
+ * Canonical Cloud idempotency transcript for a Host-projected mutation.
+ * Workspace identity is deliberately excluded; tenant scope comes from the bearer session.
+ * The strict v2 shape requires operationKind so one semantic mutation has one transcript.
+ */
+export function encodeSubmittedSyncMutationDigestInput(value: unknown): Uint8Array {
+  const parsed = tenantNeutralSubmittedSyncMutationSchema.parse(value);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-V2", parsed);
 }
 
 export type WorkspaceRevision = z.infer<typeof serverRevisionSchema>;

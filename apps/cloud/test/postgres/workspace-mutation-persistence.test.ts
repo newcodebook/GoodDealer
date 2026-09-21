@@ -62,10 +62,11 @@ beforeEach(async () => {
       [scope.accountId, scope.workspaceId]);
       await transaction.query(`INSERT INTO device_active_leases
         (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
-         offline_execute_until, signed_envelope)
+         offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
         VALUES ($1, 1, 'device-1', $2, transaction_timestamp() - interval '2 minutes',
           transaction_timestamp() - interval '1 minute', transaction_timestamp() + interval '5 minutes',
-          transaction_timestamp() + interval '1 hour', decode('01', 'hex'))`,
+          transaction_timestamp() + interval '1 hour', decode('01', 'hex'),
+          jsonb_build_object('fixture', 'workspace-mutation'), pg_catalog.sha256(decode('01', 'hex')))`,
       [scope.accountId, `mutation-lease-${scope.accountId}`]);
     });
   }
@@ -215,7 +216,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
 
   it("persists an explicit DomainAsset deletion without manufacturing changed fields", async () => {
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mutationId: "mutation-delete",
       workspaceId: scopeA.workspaceId,
       workspaceSchemaVersion: 1,
@@ -264,7 +265,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       mutations,
     });
     const mutation = submitted("mutation-service", 1, 0);
-    const request = { schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [mutation] };
+    const request = pushRequest(mutation);
     await expect(service.ingest(scopeA, request)).resolves.toMatchObject({
       accepted: true,
       assignments: [{ mutationId: mutation.mutationId, serverRevision: 1, duplicate: false }],
@@ -275,6 +276,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       assignments: [{ serverRevision: 1, duplicate: true }],
       headRevision: 1,
     });
+    const replayState = await readGlobalHead(scopeA);
+    expect(replayState).toEqual({ contiguous: "1", highest: "1", rowVersion: "2", ledger: "1" });
     const state = await transactions.withTenant(scopeA, async (transaction) => {
       const head = await revisions.read(transaction);
       const rows = await portfolio.captureSnapshot(transaction);
@@ -296,6 +299,36 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(getterCalls).toBe(0);
   });
 
+  it("rejects a poison item without persisting any prefix of the v2 batch", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const good = submitted("poison-prefix-good", 1, 0);
+    const poison = submittedSyncMutationSchema.parse({
+      ...submitted("poison-unknown-entity", 2, 0),
+      entityId: "unknown.test",
+    });
+
+    await expect(service.ingest(scopeA, pushRequest(good, poison))).resolves.toMatchObject({
+      accepted: false,
+      code: "MUTATION_ENTITY_UNKNOWN",
+    });
+    const state = await transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      revision: string; receipts: string; replay: string; ledger: string; heads: string; drain: string;
+    }>(`
+      SELECT
+        (SELECT server_revision::text FROM workspace_revisions) AS revision,
+        (SELECT count(*)::text FROM workspace_mutation_receipts) AS receipts,
+        (SELECT count(*)::text FROM workspace_mutations) AS replay,
+        (SELECT count(*)::text FROM workspace_device_mutation_sequence_ledger) AS ledger,
+        (SELECT count(*)::text FROM workspace_device_mutation_heads) AS heads,
+        (SELECT count(*)::text FROM mutation_drain_records) AS drain`));
+    expect(state.rows[0]).toEqual({
+      revision: "0", receipts: "0", replay: "0", ledger: "0", heads: "0", drain: "0",
+    });
+  });
+
   it("rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry", async () => {
     let withTenantCalls = 0;
     let getterCalls = 0;
@@ -313,7 +346,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       mutations,
     });
     const mutation = submitted("strict-wire", 1, 0);
-    const request = { schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [mutation] };
+    const request = pushRequest(mutation);
 
     const hiddenRoot = Object.defineProperty({ ...request }, "hidden", { value: true });
     const hiddenMutation = Object.defineProperty({ ...mutation }, "hidden", { value: true });
@@ -378,12 +411,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     ));
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
     const expiredMutation = submitted("mutation-expired-lease", 1, 0);
-    await expect(service.ingest(scopeA, {
-      schemaVersion: 1,
-      workspaceId: scopeA.workspaceId,
-      ...domain(),
-      mutations: [expiredMutation],
-    })).resolves.toMatchObject({ accepted: false, code: "MUTATION_DEVICE_NOT_ACTIVE" });
+    await expect(service.ingest(scopeA, pushRequest(expiredMutation)))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_DEVICE_NOT_ACTIVE" });
 
     await transactions.withTenant(scopeA, async (transaction) => {
       const counts = await transaction.query<{
@@ -411,12 +440,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       [scopeA.accountId],
     ));
     const futureMutation = submitted("mutation-future-lease", 1, 0);
-    await expect(service.ingest(scopeA, {
-      schemaVersion: 1,
-      workspaceId: scopeA.workspaceId,
-      ...domain(),
-      mutations: [futureMutation],
-    })).resolves.toMatchObject({ accepted: true, headRevision: 1 });
+    await expect(service.ingest(scopeA, pushRequest(futureMutation)))
+      .resolves.toMatchObject({ accepted: true, headRevision: 1 });
   });
 
   it("binds direct app drain routines to the current active device Lease and proof-only sealing", async () => {
@@ -586,12 +611,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       await blocker.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scopeA.workspaceId]);
       await blocker.query("SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE", [scopeA.accountId]);
 
-      ingestAttempt = ingest.ingest(scopeA, {
-        schemaVersion: 1,
-        workspaceId: scopeA.workspaceId,
-        ...domain(),
-        mutations: [submitted("mutation-race", 1, 0)],
-      });
+      ingestAttempt = ingest.ingest(scopeA, pushRequest(submitted("mutation-race", 1, 0)));
       await waitForBlockedTransactions(blocker, 1);
       drainAttempt = drain.commit({
         ...scopeA,
@@ -684,9 +704,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       fault(point) { if (point === "after_materialization") throw new Error("materialization-fault"); },
     });
     const mutation = submitted("mutation-service-fault", 1, 0);
-    await expect(service.ingest(scopeA, {
-      schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [mutation],
-    })).rejects.toThrow("materialization-fault");
+    await expect(service.ingest(scopeA, pushRequest(mutation))).rejects.toThrow("materialization-fault");
     const state = await transactions.withTenant(scopeA, async (transaction) => ({
       head: await revisions.read(transaction),
       rows: await portfolio.captureSnapshot(transaction),
@@ -709,7 +727,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     }));
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
     const duplicate = submitted("concurrent-duplicate", 1, 0);
-    const duplicateRequest = { schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [duplicate] };
+    const duplicateRequest = pushRequest(duplicate);
     const duplicateResults = await Promise.all([
       service.ingest(scopeA, duplicateRequest),
       service.ingest(scopeA, duplicateRequest),
@@ -722,9 +740,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       submitted("same-field-a", 2, 1),
       submitted("same-field-b", 3, 1),
     ];
-    const sameFieldResults = await Promise.all(sameField.map((mutation) => service.ingest(scopeA, {
-      schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [mutation],
-    })));
+    const sameFieldResults = await Promise.all(sameField.map((mutation) =>
+      service.ingest(scopeA, pushRequest(mutation))));
     expect(sameFieldResults.filter((result) => result.accepted)).toHaveLength(1);
     expect(sameFieldResults.filter((result) => !result.accepted && result.code === "MUTATION_FIELD_STALE"))
       .toHaveLength(1);
@@ -735,9 +752,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       ...submitted("different-field", 4, 1),
       changedFields: [{ fieldPath: "tags", value: ["safe"] }],
     });
-    await expect(service.ingest(scopeA, {
-      schemaVersion: 1, workspaceId: scopeA.workspaceId, ...domain(), mutations: [differentField],
-    })).resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    await expect(service.ingest(scopeA, pushRequest(differentField)))
+      .resolves.toMatchObject({ accepted: true, headRevision: 3 });
   });
 
   it("keeps receipts and Drain evidence permanently when replay rows are compacted", async () => {
@@ -750,7 +766,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
            workspace_schema_version, through_server_revision, checkpoint_digest,
            capture_codec, capture_schema_version, status,
            verified_at, published_at
-         ) VALUES ($1, $2, 'mutation-compaction-authority', 1, 1, 1,
+         ) VALUES ($1, $2, 'mutation-compaction-authority', 2, 1, 1,
            decode(repeat('00', 32), 'hex'), 'domain-asset-projection-v1', 1,
            'available', transaction_timestamp(), transaction_timestamp())`,
         [transaction.scope.accountId, transaction.scope.workspaceId],
@@ -778,6 +794,9 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     let head = await readHead(scopeA);
     expect(head).toMatchObject({ contiguous: "0", highest: "2" });
     expect(head.digest.toString("base64url")).toBe(DRAIN_STREAM_GENESIS_DIGEST);
+    expect(await readGlobalHead(scopeA)).toEqual({
+      contiguous: "0", highest: "2", rowVersion: "2", ledger: "1",
+    });
 
     const first = submitted("mutation-first", 1, 0);
     await append(scopeA, first, 2);
@@ -790,6 +809,9 @@ describe("PostgreSQL workspace Mutation persistence", () => {
         .digest();
     }
     expect(head.digest.equals(digest)).toBe(true);
+    expect(await readGlobalHead(scopeA)).toEqual({
+      contiguous: "2", highest: "2", rowVersion: "3", ledger: "2",
+    });
   });
 
   it("isolates identical ids and rejects forged tenant writes", async () => {
@@ -870,18 +892,26 @@ describe("PostgreSQL workspace Mutation persistence", () => {
 
 function submitted(mutationId: string, deviceMutationSequence: number, baseServerRevision: number) {
   return submittedSyncMutationSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId,
     workspaceId: "same-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "asset-1.test",
+    operationKind: "upsert",
     baseServerRevision,
     changedFields: [{ fieldPath: "note", value: `note-${mutationId}` }],
     sourceDeviceId: "device-1",
     activeLeaseEpoch: 1,
     deviceMutationSequence,
   });
+}
+
+function pushRequest(...mutations: ReturnType<typeof submitted>[]) {
+  return {
+    schemaVersion: 2 as const,
+    mutations: mutations.map(({ workspaceId: _workspaceId, ...mutation }) => mutation),
+  };
 }
 
 function domain() {
@@ -910,6 +940,27 @@ async function readHead(scope: WorkspaceTenantScope): Promise<{ contiguous: stri
     );
     const row = result.rows[0];
     if (row === undefined) throw new TypeError("test mutation Drain head is absent");
+    return row;
+  });
+}
+
+async function readGlobalHead(scope: WorkspaceTenantScope): Promise<{
+  contiguous: string;
+  highest: string;
+  rowVersion: string;
+  ledger: string;
+}> {
+  return transactions.withTenant(scope, async (transaction) => {
+    const result = await transaction.query<{
+      contiguous: string; highest: string; rowVersion: string; ledger: string;
+    }>(`
+      SELECT head.contiguous_received_through::text AS contiguous,
+             head.highest_received_sequence::text AS highest,
+             head.row_version::text AS "rowVersion",
+             (SELECT count(*)::text FROM workspace_device_mutation_sequence_ledger) AS ledger
+      FROM workspace_device_mutation_heads AS head`);
+    const row = result.rows[0];
+    if (row === undefined) throw new TypeError("test global mutation head is absent");
     return row;
   });
 }

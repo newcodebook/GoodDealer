@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   ValidatingPortfolioPresentationPort,
@@ -13,6 +13,8 @@ import {
   domainDetailViewModelSchema,
   type AssetLibraryRow,
   type PortfolioPlanPort,
+  localDomainAssetEditRequestSchema,
+  localDomainAssetMutationReceiptSchema,
 } from "./index";
 
 const timestamp = "2026-08-17T05:00:00Z";
@@ -20,6 +22,7 @@ const timestamp = "2026-08-17T05:00:00Z";
 function freshness(source: "active_local" | "standby_cloud") {
   return {
     source,
+    readOnlyReason: source === "active_local" ? null : "standby",
     serverRevision: 12,
     lastReplicationActivityAt: timestamp,
     lastSuccessfulProviderObservationAt: timestamp,
@@ -29,22 +32,23 @@ function freshness(source: "active_local" | "standby_cloud") {
 
 function row(index: number): AssetLibraryRow {
   return {
-    id: `asset-${index.toString().padStart(5, "0")}`,
+    id: `domain-${index}.com`,
     domain: `domain-${index}.com`,
     tags: ["portfolio-main"],
     registrar: "Spaceship",
-    dnsProvider: "Cloudflare",
-    platforms: ["Atom"],
-    status: "synced",
+    lifecycleStatus: "active",
+    syncStatus: "clean",
     targetPrice: { currency: "USD", amount: "1200" },
     expiresOn: "2027-03-14",
+    assetVersion: index + 1,
   };
 }
 
 function library(source: "active_local" | "standby_cloud", rows: readonly AssetLibraryRow[], totalRows = rows.length) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
     kind: "asset_library",
+    readGeneration: 1,
     freshness: freshness(source),
     totalRows,
     totalValue: { currency: "USD", amount: "284120" },
@@ -145,6 +149,15 @@ describe("canonical domain names and CSV import", () => {
 });
 
 describe("portfolio presentation contracts", () => {
+  it("strictly validates local edit requests and durable receipts", () => {
+    const request = { mutationId: "m-1", expectedReadGeneration: 4, expectedAssetVersion: 2, asset: { entityId: "example.test", note: null, portfolioId: null, tags: [], targetPrice: null } };
+    expect(localDomainAssetEditRequestSchema.safeParse(request).success).toBe(true);
+    expect(localDomainAssetEditRequestSchema.safeParse({ ...request, createdAt: timestamp }).success).toBe(false);
+    const receipt = { schemaVersion: 1, disposition: "replayed", operation: "edit", mutationId: "m-1", entityId: "example.test", localCommitSequence: 3, deviceMutationSequence: 2, baseServerRevision: 0, activeLeaseEpoch: 7, committedAt: timestamp, readGeneration: 5 };
+    expect(localDomainAssetMutationReceiptSchema.safeParse(receipt).success).toBe(true);
+    expect(localDomainAssetMutationReceiptSchema.safeParse({ ...receipt, databasePath: "/private" }).success).toBe(false);
+  });
+
   it("makes Active/Standby provenance and canEdit inseparable", () => {
     expect(dataFreshnessSchema.parse(freshness("active_local"))).toMatchObject({ canEdit: true });
     expect(dataFreshnessSchema.parse(freshness("standby_cloud"))).toMatchObject({ canEdit: false });
@@ -153,12 +166,12 @@ describe("portfolio presentation contracts", () => {
 
   it("exposes at most 200 visible rows for a 10,000-asset library", () => {
     const rows = Array.from({ length: 10_000 }, (_, index) => row(index));
-    const window = createAssetLibraryWindow(rows, { startIndex: 4_950, size: 100 });
+    const window = createAssetLibraryWindow(rows, { startIndex: 4_950, size: 100, query: "" });
     const parsed = assetLibraryViewModelSchema.parse({ ...library("active_local", window.rows, 10_000), window });
     expect(parsed.totalRows).toBe(10_000);
     expect(parsed.window).toMatchObject({ startIndex: 4_950 });
     expect(parsed.window.rows).toHaveLength(100);
-    expect(() => createAssetLibraryWindow(rows, { startIndex: 0, size: 201 })).toThrow();
+    expect(() => createAssetLibraryWindow(rows, { startIndex: 0, size: 201, query: "" })).toThrow();
   });
 
   it("accepts active, standby, and empty states but rejects leaked fields and duplicate visible domains", () => {
@@ -167,21 +180,27 @@ describe("portfolio presentation contracts", () => {
     expect(assetLibraryViewModelSchema.safeParse(library("active_local", [], 0)).success).toBe(true);
     expect(assetLibraryViewModelSchema.safeParse({ ...library("active_local", [row(1)]), credentialRef: "secret" }).success).toBe(false);
     expect(assetLibraryViewModelSchema.safeParse(library("active_local", [row(1), { ...row(2), domain: row(1).domain }])).success).toBe(false);
+    expect(assetLibraryViewModelSchema.safeParse({ ...library("active_local", [row(1)]), freshness: { ...freshness("active_local"), readOnlyReason: undefined } }).success).toBe(false);
+    const { lifecycleStatus: _lifecycleStatus, ...missingLifecycle } = row(2);
+    expect(assetLibraryViewModelSchema.safeParse(library("active_local", [missingLifecycle as AssetLibraryRow])).success).toBe(false);
   });
 
   it.each(["normal", "conflict", "sold"] as const)("supports DomainDetail %s state", (state) => {
     const asset = {
       ...row(1),
-      status: state === "sold" ? "sold" as const : state === "conflict" ? "conflict" as const : "synced" as const,
+      lifecycleStatus: state === "sold" ? "sold" as const : "active" as const,
+      syncStatus: state === "conflict" ? "conflicted" as const : "clean" as const,
       acquiredOn: "2024-03-14",
+      portfolioId: null,
       acquisitionCost: { currency: "USD", amount: "800" },
       autoRenew: false,
       registrarLock: true,
       note: null,
     };
     expect(domainDetailViewModelSchema.safeParse({
-      schemaVersion: 1,
+      schemaVersion: 3,
       kind: "domain_detail",
+      readGeneration: 1,
       freshness: freshness("active_local"),
       state,
       asset,
@@ -192,26 +211,72 @@ describe("portfolio presentation contracts", () => {
   it("validates unknown boundary output before it reaches a presentation", async () => {
     const validLibrary = { ...library("active_local", [row(1)]), window: { startIndex: 0, size: 50, rows: [row(1)] } };
     const validDetail = {
-      schemaVersion: 1,
+      schemaVersion: 3,
       kind: "domain_detail",
+      readGeneration: 1,
       freshness: freshness("active_local"),
       state: "normal",
-      asset: { ...row(1), acquiredOn: null, acquisitionCost: null, autoRenew: false, registrarLock: true, note: null },
+      asset: { ...row(1), portfolioId: null, acquiredOn: null, acquisitionCost: null, autoRenew: false, registrarLock: true, note: null },
       conflictFields: [],
     };
     const port = new ValidatingPortfolioPresentationPort({
       loadAssetLibrary: async () => structuredClone(validLibrary),
       loadDomainDetail: async () => structuredClone(validDetail),
     });
-    await expect(port.loadAssetLibrary({ startIndex: 0, size: 50 })).resolves.toEqual(validLibrary);
-    await expect(port.loadDomainDetail("asset-1")).resolves.toEqual(validDetail);
+    await expect(port.loadAssetLibrary({ startIndex: 0, size: 50, query: "" })).resolves.toEqual(validLibrary);
+    await expect(port.loadDomainDetail("example.test")).resolves.toEqual(validDetail);
 
     const rejecting = new ValidatingPortfolioPresentationPort({
       loadAssetLibrary: async () => ({ ...validLibrary, unknown: true }),
       loadDomainDetail: async () => ({ ...validDetail, unknown: true }),
     });
-    await expect(rejecting.loadAssetLibrary({ startIndex: 0, size: 50 })).rejects.toThrow();
-    await expect(rejecting.loadDomainDetail("asset-1")).rejects.toThrow();
+    await expect(rejecting.loadAssetLibrary({ startIndex: 0, size: 50, query: "" })).rejects.toThrow();
+    await expect(rejecting.loadDomainDetail("example.test")).rejects.toThrow();
+  });
+
+  it("rejects invalid query/window input before invoking the boundary", async () => {
+    const loadAssetLibrary = vi.fn(async () => library("active_local", [], 0));
+    const port = new ValidatingPortfolioPresentationPort({
+      loadAssetLibrary,
+      loadDomainDetail: vi.fn(),
+    });
+
+    await expect(port.loadAssetLibrary({ startIndex: 0, size: 25, query: "bad/query" })).rejects.toThrow();
+    await expect(port.loadAssetLibrary({ startIndex: 0, size: 201, query: "valid" })).rejects.toThrow();
+    expect(loadAssetLibrary).not.toHaveBeenCalled();
+  });
+
+  it("copies hostile wire records without invoking accessors", async () => {
+    const getter = vi.fn(() => library("active_local", [], 0).kind);
+    const hostile = Object.defineProperty(
+      { ...library("active_local", [], 0) },
+      "kind",
+      { enumerable: true, get: getter },
+    );
+    const port = new ValidatingPortfolioPresentationPort({
+      loadAssetLibrary: async () => hostile,
+      loadDomainDetail: vi.fn(),
+    });
+
+    await expect(port.loadAssetLibrary({ startIndex: 0, size: 25, query: "" })).rejects.toThrow();
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("rejects prototype, symbol, and sparse-array wire payloads", async () => {
+    const valid = library("active_local", [row(1)]);
+    const inherited = Object.assign(Object.create({ credentialRef: "canary" }), valid);
+    const symbolic = Object.assign(structuredClone(valid), { [Symbol("secret")]: "canary" });
+    const sparseRows = new Array<AssetLibraryRow>(2);
+    sparseRows[1] = row(1);
+    const sparse = { ...valid, window: { ...valid.window, rows: sparseRows } };
+
+    for (const hostile of [inherited, symbolic, sparse]) {
+      const port = new ValidatingPortfolioPresentationPort({
+        loadAssetLibrary: async () => hostile,
+        loadDomainDetail: vi.fn(),
+      });
+      await expect(port.loadAssetLibrary({ startIndex: 0, size: 25, query: "" })).rejects.toThrow();
+    }
   });
 
   it("exposes planning but no execution method", () => {

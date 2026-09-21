@@ -1,17 +1,43 @@
 import { z } from "zod";
 
 import { csvImportPreviewSchema } from "./csv-import";
-import { assetLibraryViewModelSchema, assetLibraryWindowRequestSchema, domainDetailViewModelSchema } from "./view-models";
+import {
+  assetLibraryWindowRequestSchema,
+  parseAssetLibraryViewModel,
+  parseDomainDetailViewModel,
+} from "./view-models";
+
+export function parseAssetLibraryQuery(input: unknown): string {
+  if (typeof input !== "string" || new TextEncoder().encode(input).length > 64 || !/^[\x20-\x7e]*$/u.test(input)) throw new TypeError("asset query is invalid");
+  const normalized = input.replace(/^ +| +$/gu, "").toLowerCase();
+  if (!/^[a-z0-9.-]*$/u.test(normalized)) throw new TypeError("asset query is invalid");
+  return normalized;
+}
 
 export interface PortfolioPresentationPort {
-  loadAssetLibrary(request: { readonly startIndex: number; readonly size: number }): Promise<unknown>;
+  loadAssetLibrary(request: { readonly startIndex: number; readonly size: number; readonly query: string }): Promise<unknown>;
   loadDomainDetail(assetId: string): Promise<unknown>;
 }
 
 export interface ValidatedPortfolioPresentationPort {
-  loadAssetLibrary(request: { readonly startIndex: number; readonly size: number }): Promise<z.infer<typeof assetLibraryViewModelSchema>>;
-  loadDomainDetail(assetId: string): Promise<z.infer<typeof domainDetailViewModelSchema>>;
+  loadAssetLibrary(request: { readonly startIndex: number; readonly size: number; readonly query: string }): Promise<ReturnType<typeof parseAssetLibraryViewModel>>;
+  loadDomainDetail(assetId: string): Promise<ReturnType<typeof parseDomainDetailViewModel>>;
 }
+
+const mutationIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/u);
+const editableAssetSchema = z.object({
+  entityId: z.string().min(3).max(253),
+  note: z.string().max(10_000).nullable(),
+  portfolioId: z.string().max(128).nullable(),
+  tags: z.array(z.string().min(1).max(64)).max(128),
+  targetPrice: z.object({ currency: z.string().regex(/^[A-Z]{3}$/u), amount: z.string() }).strict().nullable(),
+}).strict();
+export const localDomainAssetEditRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), asset: editableAssetSchema }).strict();
+export const localDomainAssetDeleteRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), entityId: z.string().min(3).max(253) }).strict();
+export const localDomainAssetMutationReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), operation: z.enum(["edit", "delete"]), mutationId: mutationIdSchema, entityId: z.string().min(3).max(253), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), deviceMutationSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), baseServerRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), activeLeaseEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), committedAt: z.iso.datetime(), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
+export type LocalDomainAssetEditRequest = z.infer<typeof localDomainAssetEditRequestSchema>;
+export type LocalDomainAssetDeleteRequest = z.infer<typeof localDomainAssetDeleteRequestSchema>;
+export type LocalDomainAssetMutationReceipt = z.infer<typeof localDomainAssetMutationReceiptSchema>;
 
 export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPresentationPort {
   readonly #boundary: PortfolioPresentationPort;
@@ -20,9 +46,10 @@ export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPr
     this.#boundary = boundary;
   }
 
-  async loadAssetLibrary(request: { readonly startIndex: number; readonly size: number }) {
-    const parsedRequest = assetLibraryWindowRequestSchema.parse(request);
-    const result = assetLibraryViewModelSchema.parse(await this.#boundary.loadAssetLibrary(parsedRequest));
+  async loadAssetLibrary(request: { readonly startIndex: number; readonly size: number; readonly query: string }) {
+    const parsedRequest = assetLibraryWindowRequestSchema.parse({ ...request, query: parseAssetLibraryQuery(request.query) });
+    const boundaryRequest = { startIndex: parsedRequest.startIndex, size: parsedRequest.size, query: parsedRequest.query };
+    const result = parseAssetLibraryViewModel(await this.#boundary.loadAssetLibrary(boundaryRequest));
     if (result.window.startIndex !== parsedRequest.startIndex || result.window.size !== parsedRequest.size || result.window.rows.length > parsedRequest.size) {
       throw new TypeError("portfolio boundary returned a different visible window");
     }
@@ -30,8 +57,8 @@ export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPr
   }
 
   async loadDomainDetail(assetId: string) {
-    if (assetId.length === 0 || assetId.length > 128) throw new TypeError("asset id is invalid");
-    return domainDetailViewModelSchema.parse(await this.#boundary.loadDomainDetail(assetId));
+    if (!/^(?=.{3,253}$)(?=.*\.)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(assetId)) throw new TypeError("asset id is invalid");
+    return parseDomainDetailViewModel(await this.#boundary.loadDomainDetail(assetId));
   }
 }
 

@@ -133,9 +133,28 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     });
   });
 
+  it("reads a persisted v1 checkpoint as the public v2 descriptor", async () => {
+    await seedWorkspace(tenantA, initialRows, 0);
+    await ownerPool.query(
+      `INSERT INTO workspace_checkpoints (
+         account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
+         through_server_revision, checkpoint_digest, capture_codec, capture_schema_version,
+         status, verified_at, published_at
+       ) VALUES ($1, $2, 'legacy-v1', 1, 1, 0, decode(repeat('33', 32), 'hex'),
+                 'domain-asset-projection-v1', 1, 'available', transaction_timestamp(), transaction_timestamp())`,
+      [tenantA.accountId, tenantA.workspaceId],
+    );
+    await transactions.withTenant(tenantA, async (transaction) => {
+      const latest = await checkpoints.readLatestAvailable(transaction);
+      expect(latest?.descriptor.schemaVersion).toBe(2);
+      expect(latest?.descriptor.checkpointId).toBe("legacy-v1");
+    });
+  });
+
   it("serializes checkpoint build before concurrent persisted ingest", async () => {
     const persistedMutations = new PostgresWorkspaceMutationRepository();
     await seedWorkspace(tenantA, initialRows, 0);
+    await seedActiveMutationDrainDomain(tenantA, "concurrent-build-device");
     let announceCapture!: () => void;
     let releaseCapture!: () => void;
     let announceIngestAttempt!: () => void;
@@ -161,25 +180,25 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     const build = coordinated.build(tenantA, "before-concurrent-ingest", 0);
     await captureStarted;
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mutationId: "concurrent-build-mutation",
       workspaceId: tenantA.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "a.test",
+      operationKind: "upsert",
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note", value: "after-build" }],
       sourceDeviceId: "concurrent-build-device",
       activeLeaseEpoch: 1,
       deviceMutationSequence: 1,
     });
-    await seedActiveMutationDrainDomain(tenantA, mutation.sourceDeviceId);
     const ingest = transactions.withTenant(tenantA, async (transaction) => {
+      announceIngestAttempt();
       const lock = await persistedMutations.lockDrainDomain(transaction, {
         sourceDeviceId: mutation.sourceDeviceId,
         activeLeaseEpoch: mutation.activeLeaseEpoch,
       });
-      announceIngestAttempt();
       await persistedMutations.appendAccepted(transaction, lock, [{ mutation, serverRevision: 1 }]);
       await transaction.query(
         `UPDATE workspace_revisions SET server_revision = 1
@@ -266,7 +285,7 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     await expect(secretBearing.build(tenantA, "secret-bearing", 0)).rejects.toThrow();
     await transactions.withTenant(tenantA, async (transaction) => {
       await expect(checkpoints.createBuilding(transaction, {
-        schemaVersion: 1,
+        schemaVersion: 2,
         checkpointId: "cross-workspace",
         workspaceId: "another-workspace",
         workspaceSchemaVersion: 1,
@@ -412,12 +431,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     await seedWorkspace(tenantA, [{ ...initialRows[0]!, note: "accepted" }], 0);
     const persistentMutations = new PostgresWorkspaceMutationRepository();
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mutationId: "compaction-rollback-mutation",
       workspaceId: tenantA.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "a.test",
+      operationKind: "upsert",
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note", value: "accepted" }],
       sourceDeviceId: "device-a",
@@ -643,12 +663,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
 
 describe("deterministic checkpoint rebuild", () => {
   const mutation = (revision: number, note: string): SyncMutation => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: `mutation-${revision}`,
     workspaceId: tenantA.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    operationKind: "upsert",
     baseServerRevision: revision - 1,
     changedFields: [{ fieldPath: "note", value: note }],
     sourceDeviceId: "device-a",
@@ -711,12 +732,13 @@ function checkpointServiceWithWatermarks(
 async function seedReplayMutation(): Promise<void> {
   await seedWorkspace(tenantA, [{ ...initialRows[0]!, note: "accepted" }], 0);
   const mutation = submittedSyncMutationSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: "mutation-1",
     workspaceId: tenantA.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    operationKind: "upsert",
     baseServerRevision: 0,
     changedFields: [{ fieldPath: "note", value: "accepted" }],
     sourceDeviceId: "device-a",
@@ -816,14 +838,16 @@ async function seedActiveMutationDrainDomain(
     [scope.accountId, scope.workspaceId, `checkpoint-drain-${sourceDeviceId}`]);
     await transaction.query(`INSERT INTO device_active_leases
       (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
-       offline_execute_until, signed_envelope)
+       offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
       VALUES ($1, 1, $2, $3, transaction_timestamp() - interval '2 minutes',
         transaction_timestamp() - interval '1 minute', transaction_timestamp() + interval '5 minutes',
-        transaction_timestamp() + interval '1 hour', decode('01', 'hex'))
+        transaction_timestamp() + interval '1 hour', decode('01', 'hex'),
+        jsonb_build_object('fixture', 'workspace-checkpoint'), pg_catalog.sha256(decode('01', 'hex')))
       ON CONFLICT (account_id, lease_epoch) DO UPDATE
         SET device_id = EXCLUDED.device_id, jti = EXCLUDED.jti, issued_at = EXCLUDED.issued_at,
             renew_after = EXCLUDED.renew_after, online_expires_at = EXCLUDED.online_expires_at,
             offline_execute_until = EXCLUDED.offline_execute_until, signed_envelope = EXCLUDED.signed_envelope,
+            wire_envelope = EXCLUDED.wire_envelope, signer_receipt_digest = EXCLUDED.signer_receipt_digest,
             released_at = NULL, release_reason = NULL`,
     [scope.accountId, sourceDeviceId, `checkpoint-drain-lease-${scope.accountId}-${sourceDeviceId}`]);
   });
@@ -836,12 +860,13 @@ async function advanceWorkspaceWithPersistedMutation(
   note: string,
 ): Promise<void> {
   const mutation = submittedSyncMutationSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId,
     workspaceId: scope.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    operationKind: "upsert",
     baseServerRevision: 0,
     changedFields: [{ fieldPath: "note", value: note }],
     sourceDeviceId: `${scope.accountId}-device`,

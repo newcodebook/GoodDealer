@@ -1,9 +1,9 @@
-// 账单与发票 Billing — payment method, invoice ledger (real DS Table), download receipts.
-const {Panel:BPanel,Badge:BBadge,Button:BBtn,Money:BMoney,Table:BTable,Dialog:BDlg,Input:BInput,IconButton:BIcon}=window.GoodDealerDesignSystem_b5b0b6;
+// 账单与发票 Billing — hosted-provider payment management, invoice ledger, download receipts.
+const {Panel:BPanel,Badge:BBadge,Button:BBtn,Money:BMoney,Table:BTable,Dialog:BDlg,IconButton:BIcon}=window.GoodDealerDesignSystem_b5b0b6;
 
 function Billing(){
   const D=window.GD_ACCOUNT;const I=window.GDI;const MetricStrip=window.GDMetricStrip;
-  const [dlg,setDlg]=React.useState(null); // pay | invoice
+  const [dlg,setDlg]=React.useState(null); // provider | invoice
   const [inv,setInv]=React.useState(null);
   const total=D.invoices.reduce((s,i)=>s+i.amount,0);
   const thisYear=D.invoices.filter(i=>i.date>="2025-12-01").reduce((s,i)=>s+i.amount,0);
@@ -11,18 +11,18 @@ function Billing(){
     <MetricStrip metrics={[
       {label:"本账期支出",value:"$"+thisYear.toFixed(2),tone:"gold",meta:"2026 年付 License"},
       {label:"累计支出",value:"$"+total.toFixed(2),tone:"gold",meta:D.invoices.length+" 张发票"},
-      {label:"下次扣款",value:"2026-12-31",mono:true,meta:"$299.00 · 自动续费"},
-      {label:"支付方式",value:"Visa · 4242",meta:"有效期 12/28"},
+      {label:"下次扣款",value:"2026-12-31",mono:true,meta:"$98.00 · 自动续费"},
+      {label:"付款渠道",value:"Stripe",meta:"Provider 托管"},
       {label:"账单状态",value:"正常",tone:"success",meta:"无欠费"},
     ]}/>
     <div style={{padding:18,display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-        <BPanel title="支付方式" actions={<BBtn size="sm" onClick={()=>setDlg("pay")}>更换</BBtn>}>
+        <BPanel title="付款渠道" actions={<BBtn size="sm" onClick={()=>setDlg("provider")}>管理</BBtn>}>
           <div style={{display:"flex",alignItems:"center",gap:14}}>
             <div style={{width:56,height:36,flex:"none",borderRadius:6,background:"linear-gradient(135deg,var(--gd-panel-raised),var(--gd-ink))",border:"1px solid var(--gd-line-strong)",display:"flex",alignItems:"center",justifyContent:"center"}}><I.CreditCard size={20} style={{color:"var(--gd-gold)"}}/></div>
             <div style={{flex:1,display:"flex",flexDirection:"column",gap:3}}>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:14,color:"var(--text-1)",letterSpacing:"0.06em"}}>···· ···· ···· 4242</span>
-              <span style={{fontSize:11,color:"var(--text-3)"}}>Visa · 有效期 12/28 · LI XINGHANG</span>
+              <span style={{fontSize:14,color:"var(--text-1)"}}>Stripe 托管付款方式</span>
+              <span style={{fontSize:11,color:"var(--text-3)"}}>付款资料只在 Stripe 托管页面中管理</span>
             </div>
             <BBadge tone="success" dot>默认</BBadge>
           </div>
@@ -51,13 +51,12 @@ function Billing(){
           rows={D.invoices}/>
       </BPanel>
     </div>
-    <BDlg open={dlg==="pay"} onClose={()=>setDlg(null)} title="更换支付方式" width={440}
-      footer={<><BBtn onClick={()=>setDlg(null)}>取消</BBtn><BBtn variant="primary" onClick={()=>setDlg(null)}>保存支付方式</BBtn></>}>
+    <BDlg open={dlg==="provider"} onClose={()=>setDlg(null)} title="管理付款渠道" width={440}
+      footer={<BBtn onClick={()=>setDlg(null)}>关闭</BBtn>}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <BInput label="卡号" mono placeholder="4242 4242 4242 4242"/>
-        <div style={{display:"flex",gap:10}}><BInput label="有效期" mono placeholder="12 / 28"/><BInput label="CVC" mono placeholder="···"/></div>
-        <BInput label="持卡人" placeholder="LI XINGHANG"/>
-        <span style={{fontSize:11,color:"var(--text-3)"}}>支付由第三方处理，GoodDealer 不存储完整卡号。</span>
+        <div style={{padding:"12px 14px",border:"1px solid var(--gd-line-strong)",borderRadius:7,background:"var(--gd-panel-raised)",fontSize:12,color:"var(--text-2)",lineHeight:1.6}}>GoodDealer 不采集卡号、安全码或付款账户资料。选择渠道后会离开本页，在 Provider 托管页面完成管理。</div>
+        <BBtn variant="primary" icon={<I.ExternalLink size={13}/>}>前往 Stripe</BBtn>
+        <span style={{fontSize:11,color:"var(--text-3)"}}>首发付款由 Stripe 托管；同一账号一次只能占用一个付款 Provider。</span>
       </div>
     </BDlg>
     <BDlg open={dlg==="invoice"} onClose={()=>setDlg(null)} title={inv?inv.id:""} width={480}

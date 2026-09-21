@@ -14,6 +14,7 @@ import {
   sourceDeclaresHandWrittenJsonSchema,
   sourceDefinesExactAccountActivationBusinessRoute,
   sourceDefinesSafeAccountActivationRoute,
+  sourceDefinesSafeBillingRoutes,
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
   sourceSchedulesPeriodicJob,
@@ -35,6 +36,8 @@ test("WP-4 cloud-boundary evidence is independently runnable", () => {
   assert.match(collector, /resolvedProfile: "wp4-cloud-boundary"/);
   assert.match(collector, /id: "cloud-boundary-report"/);
   assert.match(workflow, /--profile quality --slice cloud-boundary/);
+  assert.match(workflow, /--profile quality --slice jobs/);
+  assert.match(workflow, /\.artifacts\/wp4\/jobs/);
   assert.match(workflow, new RegExp(CLOUD_BOUNDARY_ARTIFACT_DIRECTORY.replaceAll("/", "\\/")));
   assert.doesNotMatch(workflow, /windows-2025|macos-15/);
 });
@@ -58,7 +61,7 @@ test("admin business-route policy accepts only the frozen boundary allowlist", (
   assert.equal(sourceRegistersAdminBusinessRoute('path: "/admin/v1/accounts"'), true);
 });
 
-test("periodic-job policy accepts the empty tuple and rejects registration", () => {
+test("periodic-job source detector distinguishes empty and registered compositions", () => {
   assert.equal(sourceSchedulesPeriodicJob("export const periodicJobs: readonly [] = [];"), false);
   assert.equal(sourceSchedulesPeriodicJob("scheduler.schedulePeriodic(spec);"), true);
   assert.equal(sourceSchedulesPeriodicJob('const periodicJobs = [{ cron: "0 * * * *" }];'), true);
@@ -158,11 +161,34 @@ test("account activation policy requires public schemas, principal authorization
   );
 });
 
-test("account activation business-route allowlist is exact and rejects a second route", () => {
+test("public business-route allowlist is exact and rejects an undeclared ninth route", () => {
   const exactFactory = `
-    import { accountActivationRequestSchema, accountActivationResponseSchema } from "@gooddealer/protocol/account";
+    import {
+      accountActivationRequestSchema,
+      accountActivationResponseSchema,
+      billingCheckoutCreateRequestSchema,
+      billingCheckoutCreateResponseSchema,
+      billingStatusReadRequestSchema,
+      billingStatusReadResponseSchema,
+      billingSubscriptionCancelRequestSchema,
+      billingSubscriptionCancelResponseSchema,
+      billingFixedTermConfirmRequestSchema,
+      billingFixedTermConfirmResponseSchema,
+      billingFirstPurchaseRefundRequestSchema,
+      billingFirstPurchaseRefundRequestResponseSchema,
+      billingFirstPurchaseRefundStatusReadRequestSchema,
+      billingFirstPurchaseRefundStatusReadResponseSchema,
+    } from "@gooddealer/protocol/account";
+    import { desktopAuthorizationGrantRequestSchema, desktopAuthorizationGrantSchema } from "@gooddealer/protocol/devices";
     export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
-    export function createPublicBusinessRoutes(ports): readonly [PublicRoute<AccountActivationRequest, AccountActivationResponse>] {
+    export const DESKTOP_AUTHORIZATION_GRANT_ROUTE = "/v1/devices/authorization-grant" as const;
+    export const BILLING_CHECKOUT_ROUTE = "/v1/account/billing/checkout" as const;
+    export const BILLING_STATUS_ROUTE = "/v1/account/billing/status" as const;
+    export const BILLING_SUBSCRIPTION_CANCEL_ROUTE = "/v1/account/billing/subscription/cancel" as const;
+    export const BILLING_FIXED_TERM_CONFIRM_ROUTE = "/v1/account/billing/fixed-term/confirm" as const;
+    export const BILLING_FIRST_PURCHASE_REFUND_REQUEST_ROUTE = "/v1/account/billing/first-purchase-refund" as const;
+    export const BILLING_FIRST_PURCHASE_REFUND_STATUS_ROUTE = "/v1/account/billing/first-purchase-refund/status" as const;
+    export function createPublicBusinessRoutes(ports): readonly PublicRoute<any, any>[] {
       const accountActivationRoute: PublicRoute<AccountActivationRequest, AccountActivationResponse> = {
         path: ACCOUNT_ACTIVATION_ROUTE,
         request: accountActivationRequestSchema,
@@ -170,14 +196,83 @@ test("account activation business-route allowlist is exact and rejects a second 
         authorize: (principal) => principal.clientKind === "account_web",
         invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
       };
-      return [accountActivationRoute];
+      const desktopAuthorizationRoute: PublicRoute<
+        DesktopAuthorizationGrantRequest,
+        DesktopAuthorizationGrant
+      > = {
+        path: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
+        request: desktopAuthorizationGrantRequestSchema,
+        response: desktopAuthorizationGrantSchema,
+        authorize: (principal) => principal.clientKind === "desktop",
+        invoke: async (request, principal) => ports.desktopAuthorization.issue(request, principal),
+      };
+      const billingCheckoutRoute: PublicRoute<BillingCheckoutCreateRequest, BillingCheckoutCreateResponse> = {
+        path: BILLING_CHECKOUT_ROUTE,
+        request: billingCheckoutCreateRequestSchema,
+        response: billingCheckoutCreateResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.commercialCheckout.createCheckout(request, principal),
+      };
+      const billingStatusRoute: PublicRoute<Record<string, never>, BillingStatusReadResponse> = {
+        path: BILLING_STATUS_ROUTE,
+        request: billingStatusReadRequestSchema,
+        response: billingStatusReadResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (_request, principal) => ports.commercialCheckout.readStatus(principal),
+      };
+      const billingCancellationRoute: PublicRoute<BillingSubscriptionCancelRequest, BillingSubscriptionCancelResponse> = {
+        path: BILLING_SUBSCRIPTION_CANCEL_ROUTE,
+        request: billingSubscriptionCancelRequestSchema,
+        response: billingSubscriptionCancelResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.commercialCheckout.cancelSubscription(request, principal),
+      };
+      const billingFixedTermConfirmRoute: PublicRoute<BillingFixedTermConfirmRequest, BillingFixedTermConfirmResponse> = {
+        path: BILLING_FIXED_TERM_CONFIRM_ROUTE,
+        request: billingFixedTermConfirmRequestSchema,
+        response: billingFixedTermConfirmResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.commercialCheckout.confirmFixedTerm(request, principal),
+      };
+      const billingFirstPurchaseRefundRoute: PublicRoute<BillingFirstPurchaseRefundRequest, BillingFirstPurchaseRefundRequestResponse> = {
+        path: BILLING_FIRST_PURCHASE_REFUND_REQUEST_ROUTE,
+        request: billingFirstPurchaseRefundRequestSchema,
+        response: billingFirstPurchaseRefundRequestResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.commercialCheckout.requestFirstPurchaseRefund(request, principal),
+      };
+      const billingFirstPurchaseRefundStatusRoute: PublicRoute<BillingFirstPurchaseRefundStatusReadRequest, BillingFirstPurchaseRefundStatusReadResponse> = {
+        path: BILLING_FIRST_PURCHASE_REFUND_STATUS_ROUTE,
+        request: billingFirstPurchaseRefundStatusReadRequestSchema,
+        response: billingFirstPurchaseRefundStatusReadResponseSchema,
+        authorize: (principal) => principal.clientKind === "account_web",
+        invoke: async (request, principal) => ports.commercialCheckout.readFirstPurchaseRefundStatus(request, principal),
+      };
+      return [
+        accountActivationRoute,
+        desktopAuthorizationRoute,
+        billingCheckoutRoute,
+        billingStatusRoute,
+        billingCancellationRoute,
+        billingFixedTermConfirmRoute,
+        billingFirstPurchaseRefundRoute,
+        billingFirstPurchaseRefundStatusRoute,
+      ];
     }
   `;
+  assert.equal(sourceDefinesSafeBillingRoutes(exactFactory), true);
   assert.equal(sourceDefinesExactAccountActivationBusinessRoute(exactFactory), true);
   assert.equal(
     sourceDefinesExactAccountActivationBusinessRoute(exactFactory.replace(
-      "return [accountActivationRoute];",
-      'const recoveryRoute: PublicRoute<unknown, unknown> = { path: "/v1/recovery" }; return [accountActivationRoute, recoveryRoute];',
+      "return [",
+      'const recoveryRoute: PublicRoute<unknown, unknown> = { path: "/v1/recovery" }; return [recoveryRoute,',
+    )),
+    false,
+  );
+  assert.equal(
+    sourceDefinesSafeBillingRoutes(exactFactory.replace(
+      "createCheckout(request, principal)",
+      "createCheckout(request, request.accountId)",
     )),
     false,
   );
@@ -240,7 +335,9 @@ test("cloud boundary report observes real roots and fails closed on policy mutat
             },
           },
       { ...report, adminBusinessRoutesRegistered: true },
-      { ...report, periodicJobsRegistered: true },
+      { ...report, periodicJobsRegistered: false },
+      { ...report, periodicJobsExactlyApproved: false },
+      { ...report, periodicJobRegistry: [...report.periodicJobRegistry, { jobName: "unapproved" }] },
       { ...report, publicRootImportsStaffSurface: true },
       { ...report, adminRootImportsPublicSurface: true },
       { ...report, jobsImportGraphReachesHttpFramework: true },

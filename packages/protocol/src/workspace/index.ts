@@ -17,6 +17,7 @@ export {
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   encodeMutationPageDigestInput,
+  encodeSubmittedSyncMutationDigestInput,
   encodeWorkspaceEntityDigestsInput,
   mutationCursorSchema,
   mutationPageSchema,
@@ -46,6 +47,9 @@ export {
   WORKSPACE_SYNC_PUSH_OPERATION_ID,
   workspaceCheckpointReadRequestSchema,
   workspaceCheckpointReadResponseSchema,
+  workspaceRebootstrapRequestSchema,
+  rebootstrapPlanSchema,
+  encodeRebootstrapPlanDigestInput,
   workspaceMutationAcknowledgementSchema,
   workspaceMutationPullRejectionCodeSchema,
   workspaceMutationPullRequestSchema,
@@ -53,11 +57,14 @@ export {
   workspaceMutationPushRejectionCodeSchema,
   workspaceMutationPushRequestSchema,
   workspaceMutationPushResponseSchema,
+  pendingDeliverySchema,
   workspaceSyncOperationSchema,
 } from "./sync-transport";
 export type {
   WorkspaceCheckpointReadRequest,
   WorkspaceCheckpointReadResponse,
+  WorkspaceRebootstrapRequest,
+  RebootstrapPlan,
   WorkspaceMutationAcknowledgement,
   WorkspaceMutationPullRejectionCode,
   WorkspaceMutationPullRequest,
@@ -65,6 +72,7 @@ export type {
   WorkspaceMutationPushRejectionCode,
   WorkspaceMutationPushRequest,
   WorkspaceMutationPushResponse,
+  PendingDelivery,
   WorkspaceSyncOperation,
 } from "./sync-transport";
 

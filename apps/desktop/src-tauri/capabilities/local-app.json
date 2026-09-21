@@ -1,12 +1,28 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "local-app",
-  "description": "Local application shell with narrow local-business commands.",
+  "description": "Local application shell with narrow business and authentication commands.",
   "webviews": ["local-app"],
   "permissions": [
     "core:default",
+    "allow-cloudflare-connection-activate",
+    "allow-cloudflare-connection-status",
+    "allow-cloudflare-observation-read",
+    "allow-cloudflare-zone-observe",
+    "allow-local-backup-restore-status",
+    "allow-local-backup-export",
+    "allow-local-backup-artifact-select",
+    "allow-local-backup-restore-begin",
     "allow-local-business-status",
-    "allow-local-portfolio-read",
-    "allow-local-domain-asset-upsert"
+    "allow-local-asset-library-read",
+    "allow-local-domain-detail-read",
+    "allow-local-domain-asset-edit",
+    "allow-local-domain-asset-delete",
+    "allow-local-conflict-center-read",
+    "allow-local-conflict-resolve",
+    "allow-local-sync-status",
+    "allow-desktop-authentication-status",
+    "allow-desktop-authentication-begin",
+    "allow-desktop-authentication-refresh"
   ]
 }

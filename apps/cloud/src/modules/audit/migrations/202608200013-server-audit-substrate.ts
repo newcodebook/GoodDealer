@@ -3,7 +3,7 @@ import type { CloudMigration } from "../../../db/index";
 /**
  * Catalog-integrated M013 audit repository foundation. The app role is
  * deliberately granted neither table DML nor append execution: the production Audit Service
- * signer remains denying until a custodian-backed KMS/HSM and rotation authority exist.
+ * signer remains denying until a custodian-backed OpenBao Transit and rotation authority exist.
  */
 export const serverAuditSubstrateMigration: CloudMigration = {
   id: "202608200013-server-audit-substrate",

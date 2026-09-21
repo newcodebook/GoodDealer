@@ -45,7 +45,7 @@ function Devices(){
       {label:"活动设备 Active",value:active?active.name:"—",tone:"gold",meta:active?"持有执行权":"无"},
       {label:"当前 Epoch",value:active?"Epoch "+active.epoch:"—",tone:"gold",mono:true,meta:"每次移交 +1"},
       {label:"待命 Standby",value:devices.some(d=>d.state==="standby")?"1 台":"0 台",meta:"蓝空心 · 无执行权"},
-      {label:"License 额度",value:"2 台",meta:"Professional"},
+      {label:"License 额度",value:"2 台",meta:"所有付费期限"},
     ]}/>
     <div style={{padding:18,display:"flex",flexDirection:"column",gap:14,maxWidth:1040}}>
       <DPanel flush title="设备与执行权（ActiveDeviceLease）" actions={active&&<span style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--gd-gold)"}}>Epoch {active.epoch}</span>}>

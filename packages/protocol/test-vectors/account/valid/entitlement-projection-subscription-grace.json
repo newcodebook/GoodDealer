@@ -14,6 +14,6 @@
   "featureEntitlements": [
     "feature:a"
   ],
-  "allMajorVersions": false,
+  "versionEntitlement": { "kind": "subscription_supported" },
   "evaluatedAt": "2026-08-13T11:00:00Z"
 }

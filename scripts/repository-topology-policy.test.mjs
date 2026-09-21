@@ -48,7 +48,7 @@ function fixtureTopology() {
       runtime: "browser",
       trustDomain: "fixture-app",
       manifest: { ecosystem: "pnpm", path: "apps/app/package.json", identity: "@gooddealer/app" },
-      sourceRoots: ["src"],
+      sourceRoots: ["src", "test"],
       publicEntrypoints: [entrypoint("application", "src/index.ts")],
       workspaceImports: [
         workspaceImport("@gooddealer/library", "Fixture application library contract."),
@@ -177,6 +177,7 @@ function createFixture() {
     "apps/app/src/index.ts",
     'import { library } from "@gooddealer/library";\nimport { wire } from "@gooddealer/protocol/wire";\nexport const app = [library, wire];\n',
   );
+  writeFile(root, "apps/app/test/application.test.ts", "export {};\n");
   writeFile(root, "scripts/fixture-tooling.mjs", "export {};\n");
   writeJson(root, "packages/browser-automation/package.json", {
     name: "@gooddealer/browser-automation",
@@ -242,6 +243,7 @@ test("the production catalog covers the current repository inventory", () => {
   assert.equal(repositoryTopology.length, 18);
   const protocol = repositoryTopology.find((unit) => unit.manifest.identity === "@gooddealer/protocol");
   const cloud = repositoryTopology.find((unit) => unit.id === "cloud");
+  const accountWeb = repositoryTopology.find((unit) => unit.id === "account-web");
   const browserAutomation = repositoryTopology.find(
     (unit) => unit.manifest.identity === "@gooddealer/browser-automation",
   );
@@ -252,7 +254,13 @@ test("the production catalog covers the current repository inventory", () => {
   const repositoryTooling = repositoryTopology.find((unit) => unit.id === "repository-tooling");
   const releaseEngineering = repositoryTopology.find((unit) => unit.id === "release-engineering");
   assert.ok(protocol.publicEntrypoints.some((entry) => entry.id === "./wire"));
+  assert.deepEqual(protocol.sourceRoots, ["scripts", "src", "test"]);
   assert.ok(protocol.publicEntrypoints.some((entry) => entry.id === "./jobs"));
+  assert.ok(protocol.publicEntrypoints.some(
+    (entry) => entry.id === "./workspace-observations/cloudflare-dns"
+      && entry.target === "src/workspace-observations/cloudflare-dns.ts"
+      && entry.exported,
+  ));
   assert.ok(
     protocol.publicEntrypoints.some(
       (entry) => entry.id === "./audit" && entry.target === "src/audit/index.ts" && entry.exported,
@@ -263,7 +271,13 @@ test("the production catalog covers the current repository inventory", () => {
   );
   assert.ok(cloudProtocolImport.allowedSubpaths.includes("./audit"));
   assert.ok(cloud.protocolSubpaths.includes("./audit"));
+  assert.ok(cloud.protocolSubpaths.includes("./workspace-observations/cloudflare-dns"));
   assert.deepEqual(cloudProtocolImport.allowedSubpaths, cloud.protocolSubpaths);
+  assert.deepEqual(accountWeb.sourceRoots, ["src", "test", "scripts"]);
+  assert.deepEqual(accountWeb.publicEntrypoints, [
+    entrypoint("application", "src/index.ts"),
+    entrypoint("browser", "src/browser.ts"),
+  ]);
   assert.deepEqual(
     browserAutomation.publicEntrypoints.map((entry) => entry.id).sort(),
     ["./contracts", "./probe-runtime", "./recipes", "./test-kit"],
@@ -275,23 +289,30 @@ test("the production catalog covers the current repository inventory", () => {
     entrypoint("public-surface-test", "tests/public_surface.rs"),
   ]);
   assert.deepEqual(automationHost.rustDependencies, []);
+  assert.deepEqual(localStorage.sourceRoots, ["examples", "src", "tests"]);
   assert.deepEqual(localStorage.publicEntrypoints, [
     entrypoint("lib", "src/lib.rs"),
     entrypoint("backup-evidence", "examples/backup_evidence.rs"),
     entrypoint("sqlcipher-evidence", "examples/sqlcipher_evidence.rs"),
+    entrypoint("public-surface-test", "tests/public_surface.rs"),
   ]);
   assert.deepEqual(localStorage.rustDependencies, []);
   assert.deepEqual(localStorage.externalDependencies, [
+    "base64",
     "chacha20poly1305",
+    "fs2",
+    "getrandom",
+    "libc",
+    "ring",
+    "rustix",
     "rusqlite",
+    "security-framework",
     "serde",
     "serde_json",
     "sha2",
     "tempfile",
+    "zeroize",
   ]);
-  assert.equal(localStorage.externalDependencies.includes("getrandom"), false);
-  assert.equal(localStorage.externalDependencies.includes("security-framework"), false);
-  assert.equal(localStorage.externalDependencies.includes("zeroize"), false);
   assert.deepEqual(
     desktopTauriHost.rustDependencies.map(({ crate }) => crate),
     ["gooddealer-local-storage", "gooddealer-secure-host-core"],
@@ -300,14 +321,20 @@ test("the production catalog covers the current repository inventory", () => {
     desktopTauriHost.rustDependencies.find(
       ({ crate }) => crate === "gooddealer-secure-host-core",
     ).integrationMarker,
-    "crates/secure-host-core/src/local_database_key.rs",
+    "crates/secure-host-core/src/cloudflare_keychain.rs",
   );
   assert.deepEqual(desktopTauriHost.externalDependencies, [
+    "reqwest",
     "serde",
     "serde_json",
     "tauri",
     "tauri-build",
-    "tempfile",
+    "tauri-plugin-deep-link",
+    "tauri-plugin-opener",
+    "tauri-plugin-single-instance",
+    "tokio",
+    "url",
+    "zeroize",
   ]);
   assert.equal(secureHostCore.externalDependencies.includes("getrandom"), true);
   assert.equal(secureHostCore.externalDependencies.includes("security-framework"), true);
@@ -481,6 +508,30 @@ test("rejects an uncatalogued source root and application entrypoint", (t) => {
   const mutatedTopology = structuredClone(topology);
   mutatedTopology.find((unit) => unit.id === "fixture-app").publicEntrypoints = [];
   assert.match(policyErrorText(root, mutatedTopology), /observed application entrypoint is not catalogued/u);
+});
+
+test("catalogues browser source without mistaking its emitted bundle for repository source", (t) => {
+  const { root, topology } = useFixture(t);
+  writeFile(root, "apps/app/src/browser.ts", "export const browser = true;\n");
+  writeFile(
+    root,
+    "apps/app/public/index.html",
+    '<!doctype html><script type="module" src="/app.js"></script>\n',
+  );
+  topology.find((unit) => unit.id === "fixture-app").publicEntrypoints.push(
+    entrypoint("browser", "src/browser.ts"),
+  );
+  assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
+});
+
+test("requires an application test root to remain explicitly catalogued", (t) => {
+  const { root, topology } = useFixture(t);
+  const mutatedTopology = structuredClone(topology);
+  mutatedTopology.find((unit) => unit.id === "fixture-app").sourceRoots = ["src"];
+  assert.match(
+    policyErrorText(root, mutatedTopology),
+    /apps\/app\/test\/application\.test\.ts: source file is outside catalogued source roots or entrypoints/u,
+  );
 });
 
 test("rejects a root-level source outside catalogued repository-tooling roots", (t) => {

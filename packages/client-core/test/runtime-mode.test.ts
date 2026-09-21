@@ -44,7 +44,7 @@ import {
 
 const timestamp = "2026-08-13T12:00:00Z";
 
-const gateOutcomes = ["locked", "standby_eligible", "active_eligible"] as const;
+const gateModes = ["security_locked", "commercial_read_only", "standby_read_only", "active"] as const;
 
 const authStates = [
   "signed_out",
@@ -54,15 +54,30 @@ const authStates = [
   "revoked",
 ] as const satisfies readonly AuthSessionState[];
 
-function gate(outcome: (typeof gateOutcomes)[number]): AccountGateStatus {
+function gate(accessMode: (typeof gateModes)[number]): AccountGateStatus {
+  const active = accessMode === "active";
+  const commercial = accessMode === "commercial_read_only";
+  const securityLocked = accessMode === "security_locked";
   return {
-    schemaVersion: 1,
-    outcome,
-    lockReason: outcome === "locked" ? "offline_lease_expired" : null,
-    accountCheck: outcome === "locked" ? "fail" : "pass",
+    schemaVersion: 2,
+    accessMode,
+    restrictionReason: active
+      ? null
+      : commercial
+        ? "entitlement_expired"
+        : securityLocked
+          ? "account_security_locked"
+          : "offline_lease_expired",
+    capabilities: active
+      ? ["local:export", "local:read", "provider:execute", "sync:replicate", "workspace:mutate"]
+      : securityLocked
+        ? []
+        : ["local:export", "local:read"],
+    accountCheck: securityLocked ? "fail" : "pass",
     deviceBindingCheck: "pass",
-    entitlementCheck: "pass",
-    activeLeaseCheck: outcome === "active_eligible" ? "pass" : "fail",
+    entitlementCheck: commercial ? "fail" : "pass",
+    activeLeaseCheck: active ? "pass" : "fail",
+    localIntegrityCheck: "pass",
     accountSecurityState: "normal",
     trustedTimeState: "trusted",
     evaluatedAt: timestamp,
@@ -102,7 +117,7 @@ function authStatus(state: AuthSessionState): AuthSessionStatus {
 
 const activeAccountSurface = {
   surface: "active",
-  lockReason: null,
+  restrictionReason: null,
   capabilities: [
     "account:manage",
     "operation:approve",
@@ -115,7 +130,7 @@ const activeAccountSurface = {
 
 const standbyAccountSurface = {
   surface: "standby_read_only",
-  lockReason: null,
+  restrictionReason: null,
   capabilities: ["account:manage", "workspace:read"],
 } as const satisfies AccountSurfaceView;
 
@@ -196,10 +211,11 @@ describe("runtime-mode read-only ports", () => {
 
 function expectedAuthSurface(
   accountSurface: AccountSurface,
-  outcome: (typeof gateOutcomes)[number],
+  accessMode: (typeof gateModes)[number],
   state: AuthSessionState,
 ): AccountSurface {
-  if (state === "signed_out" || state === "revoked" || outcome === "locked") return "locked";
+  if (state === "signed_out" || state === "revoked" || accessMode === "security_locked") return "locked";
+  if (accessMode === "commercial_read_only" || accessMode === "standby_read_only") return "standby_read_only";
   if (
     (state === "refresh_required" || state === "reauth_required") &&
     (accountSurface === "active" || accountSurface === "activating")
@@ -211,13 +227,13 @@ function expectedAuthSurface(
 
 describe("projectAuthSurface", () => {
   for (const state of authStates) {
-    for (const outcome of gateOutcomes) {
+    for (const accessMode of gateModes) {
       for (const account of authAccountSurfaces) {
-        it(`projects ${state} / ${outcome} / ${account.surface} restrictively`, () => {
-          const projectedGate = gate(outcome);
+        it(`projects ${state} / ${accessMode} / ${account.surface} restrictively`, () => {
+          const projectedGate = gate(accessMode);
           const auth = authStatus(state);
           const result = projectAuthSurface(account, projectedGate, auth);
-          const expected = expectedAuthSurface(account.surface, outcome, state);
+          const expected = expectedAuthSurface(account.surface, accessMode, state);
 
           expect(result.surface).toBe(expected);
           expect(result.authState).toBe(state);
@@ -227,10 +243,22 @@ describe("projectAuthSurface", () => {
 
           if (state === "signed_out" || state === "revoked") {
             expect(result.capabilities).toEqual([]);
+            expect(result.localCapabilities).toEqual([]);
+          } else if (accessMode === "commercial_read_only") {
+            expect(result.capabilities).toEqual(
+              account.capabilities.filter((capability) => capability === "account:manage"),
+            );
+            expect(result.localCapabilities).toEqual(["local:export", "local:read"]);
           } else if (expected === "active") {
             expect(result.capabilities).toEqual(activeAccountSurface.capabilities);
+            expect(result.localCapabilities).toEqual(projectedGate.capabilities);
           } else {
-            expect(result.capabilities).toEqual(standbyAccountSurface.capabilities);
+            expect(result.capabilities).toEqual(
+              account.capabilities.filter((capability) =>
+                !["operation:approve", "workspace:mutate", "platform:read", "platform:write"].includes(capability),
+              ),
+            );
+            expect(result.localCapabilities).toEqual(projectedGate.capabilities);
           }
         });
       }
@@ -238,7 +266,7 @@ describe("projectAuthSurface", () => {
   }
 
   it("does not turn access expiry into a locked surface", () => {
-    const projectedGate = gate("active_eligible");
+    const projectedGate = gate("active");
 
     expect(projectAuthSurface(activeAccountSurface, projectedGate, authStatus("refresh_required"))).toMatchObject({
       surface: "standby_read_only",
@@ -250,7 +278,7 @@ describe("projectAuthSurface", () => {
     const now = vi.spyOn(Date, "now").mockImplementation(() => {
       throw new Error("projectAuthSurface must not read the wall clock");
     });
-    const projectedGate = gate("active_eligible");
+    const projectedGate = gate("active");
     const before = authStatus("authenticated");
     const after = {
       ...before,
@@ -352,7 +380,7 @@ describe("projectSessionInventory", () => {
     expect(projection).toBeDefined();
     expect(projection).not.toMatch(/\bDate\b|Date\.now|Date\.parse|getTime|performance\.now/);
     expect(projection).not.toMatch(/accessToken|refreshToken|password|passphrase|secret|credential|\bjti\b/i);
-    expect(projection).not.toMatch(/\.role\b|\.scopes\b|\blease\b|\.outcome\b/);
+    expect(projection).not.toMatch(/\.role\b|\.scopes\b|\blease\b/);
     expect(projection).not.toMatch(/(?:createdAt|lastSeenAt|revokedAt)\s*[<>]=?/);
   });
 });

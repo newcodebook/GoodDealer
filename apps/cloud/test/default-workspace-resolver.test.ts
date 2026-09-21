@@ -41,6 +41,27 @@ describe("PostgresDefaultWorkspaceTenantResolver", () => {
     expect(calls[0]?.sql).toMatch(/LIMIT 2/u);
   });
 
+  it("locks the exact binding inside a caller-owned final account transaction", async () => {
+    const { calls, resolver } = resolverWithRows([{ account_id: "account-a", workspace_id: "workspace-a" }]);
+    const transaction = {
+      accountId: "account-a",
+      query: async (sql: string, values?: readonly unknown[]) => {
+        calls.push({ accountId: "account-a", sql, values });
+        return { rows: [{ account_id: "account-a", workspace_id: "workspace-a" }] } as never;
+      },
+    };
+    await expect(resolver.resolveLocked(transaction))
+      .resolves.toEqual({ accountId: "account-a", workspaceId: "workspace-a" });
+    expect(calls).toHaveLength(3);
+    expect(calls[0]?.sql).not.toMatch(/FOR SHARE/u);
+    expect(calls[0]?.values).toEqual(["account-a"]);
+    expect(calls[1]?.sql).toMatch(/set_config\('gooddealer\.workspace_id'/u);
+    expect(calls[1]?.values).toEqual(["workspace-a"]);
+    expect(calls[2]?.sql).toMatch(/workspace_id = \$2/u);
+    expect(calls[2]?.sql).toMatch(/FOR SHARE/u);
+    expect(calls[2]?.values).toEqual(["account-a", "workspace-a"]);
+  });
+
   it.each([
     ["missing", []],
     ["duplicate", [

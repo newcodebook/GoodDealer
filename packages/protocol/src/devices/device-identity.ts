@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { versionEntitlementSchema } from "../account/entitlement-projection";
+
 import {
   base64Url,
   canonicalUtcTimestamp,
@@ -144,29 +146,21 @@ export const entitlementEnvelopeSchema = z
         entitlementRevision: safePositiveInteger,
         paymentWatermark: identifier,
         plan: identifier,
-        entitlementKind: z.enum(["subscription", "lifetime"]),
+        entitlementKind: z.enum(["subscription", "fixed_term"]),
         commercialExpiresAt: canonicalUtcTimestamp.nullable(),
         offlineGraceUntil: canonicalUtcTimestamp,
         deviceLimit: z.literal(2),
         activeDeviceLimit: z.literal(1),
         standbyCloudRead: z.literal(true),
         featureEntitlements: z.array(identifier).max(128),
-        allMajorVersions: z.boolean(),
+        versionEntitlement: versionEntitlementSchema,
       })
       .strict()
       .superRefine((payload, context) => {
-        const validLifetime =
-          payload.entitlementKind === "lifetime" &&
-          payload.commercialExpiresAt === null &&
-          payload.allMajorVersions;
-        const validSubscription =
-          payload.entitlementKind === "subscription" &&
-          payload.commercialExpiresAt !== null &&
-          !payload.allMajorVersions;
-        if (!validLifetime && !validSubscription) {
+        if (payload.commercialExpiresAt === null) {
           context.addIssue({
             code: "custom",
-            message: "entitlement kind, commercial expiry, and major-version scope must agree",
+            message: "commercial term entitlements require an expiry",
           });
         }
       }),

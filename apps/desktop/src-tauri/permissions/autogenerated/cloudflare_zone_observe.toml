@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloudflare-zone-observe"
+description = "Enables the cloudflare_zone_observe command without any pre-configured scope."
+commands.allow = ["cloudflare_zone_observe"]
+
+[[permission]]
+identifier = "deny-cloudflare-zone-observe"
+description = "Denies the cloudflare_zone_observe command without any pre-configured scope."
+commands.deny = ["cloudflare_zone_observe"]

@@ -93,8 +93,12 @@ export type {
 export {
   ValidatingPortfolioPresentationPort,
   ValidatingPortfolioPlanPort,
+  parseAssetLibraryQuery,
   csvImportPlanRequestSchema,
   portfolioPlanReceiptSchema,
+  localDomainAssetEditRequestSchema,
+  localDomainAssetDeleteRequestSchema,
+  localDomainAssetMutationReceiptSchema,
 } from "./ports";
 export type {
   CsvImportPlanRequest,
@@ -103,26 +107,34 @@ export type {
   PortfolioPlanReceipt,
   PortfolioPresentationPort,
   ValidatedPortfolioPresentationPort,
+  LocalDomainAssetEditRequest,
+  LocalDomainAssetDeleteRequest,
+  LocalDomainAssetMutationReceipt,
 } from "./ports";
 
 export {
   assetLibraryRowSchema,
   assetLibraryViewModelSchema,
   assetLibraryWindowRequestSchema,
-  assetStatusSchema,
+  lifecycleStatusSchema,
+  syncStatusSchema,
   canonicalMoneyViewSchema,
   createAssetLibraryWindow,
   domainDetailStateSchema,
   domainDetailViewModelSchema,
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
+  copyPlainData,
 } from "./view-models";
 export type {
   AssetLibraryRow,
   AssetLibraryViewModel,
   AssetLibraryWindowRequest,
-  AssetStatus,
+  LifecycleStatus,
+  SyncStatus,
   CanonicalMoneyView,
   DomainDetailState,
   DomainDetailViewModel,
+  PortfolioReadErrorCode,
+  PortfolioReadState,
 } from "./view-models";

@@ -6,7 +6,7 @@ import {
 import type { CheckpointDescriptor, MutationPage } from "@gooddealer/protocol/workspace";
 
 import type { ActiveDeviceLeaseClaims } from "./lease-lifecycle";
-import type { TenantTransaction } from "../../db/index";
+import type { AccountTransaction, TenantTransaction } from "../../db/index";
 import type { WorkspaceTenantScope } from "../workspace/tenant-scope";
 
 export interface DeviceLoginEligibilityPort {
@@ -15,6 +15,49 @@ export interface DeviceLoginEligibilityPort {
     readonly deviceId: string;
     readonly accountSecurityEpoch: number;
   }): Promise<{ readonly eligible: boolean }>;
+}
+
+export interface DeviceLoginChallenge {
+  readonly challengeId: string;
+  readonly accountId: string;
+  readonly deviceId: string;
+  readonly keyId: string;
+  readonly nonceDigest: string;
+  readonly expiresAt: string;
+}
+
+/**
+ * Devices owns proof-of-possession and first binding. Identity supplies its already-open account
+ * transaction so consuming a proof and issuing the OAuth code commit atomically.
+ */
+export interface DeviceLoginProofPort extends DeviceLoginEligibilityPort {
+  issueLoginChallenge(transaction: AccountTransaction, input: {
+    readonly accountId: string;
+    readonly deviceId: string;
+    readonly keyId: string;
+    readonly publicKey: string;
+    readonly codeChallenge: string;
+    readonly clientId: string;
+    readonly redirectUri: string;
+    readonly accountSecurityEpoch: number;
+    readonly accountSessionDigest: string;
+    readonly enrollmentAuthorizedUntil: Date | null;
+    readonly evaluatedAt: Date;
+  }): Promise<{ readonly issued: true; readonly challenge: DeviceLoginChallenge }
+    | { readonly issued: false }>;
+  verifyAndConsumeLoginProof(transaction: AccountTransaction, input: {
+    readonly accountId: string;
+    readonly deviceId: string;
+    readonly keyId: string;
+    readonly publicKey: string;
+    readonly challengeId: string;
+    readonly signature: string;
+    readonly codeChallenge: string;
+    readonly clientId: string;
+    readonly redirectUri: string;
+    readonly accountSecurityEpoch: number;
+    readonly accountSessionDigest: string;
+  }): Promise<{ readonly verified: boolean }>;
 }
 
 /** Production stays closed until persistent device binding and Lease evidence exists. */

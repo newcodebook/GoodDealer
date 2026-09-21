@@ -1,4 +1,5 @@
 import {
+  WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   DOMAIN_ASSET_CHECKPOINT_PARTITION_ROWS,
   domainAssetCheckpointPartitionId,
@@ -41,6 +42,20 @@ export interface CheckpointCompactionBounds {
 export type CheckpointSupersedeResult = "superseded" | "pinned" | "last-usable" | "cas-lost";
 
 export class PostgresCheckpointRepository {
+  async readLatestAvailable(transaction: TenantTransaction): Promise<PersistentCheckpoint | null> {
+    const result = await transaction.query<CheckpointRow>(
+      `SELECT checkpoint_id, schema_version, workspace_schema_version, through_server_revision,
+              checkpoint_digest, status, row_version
+         FROM workspace_checkpoints
+        WHERE account_id=$1 AND workspace_id=$2 AND status='available'
+        ORDER BY through_server_revision DESC, checkpoint_id COLLATE "C" DESC
+        LIMIT 1`,
+      [transaction.scope.accountId, transaction.scope.workspaceId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : parseCheckpointRow(row, transaction.scope.workspaceId);
+  }
+
   async createBuilding(
     transaction: TenantTransaction,
     descriptorValue: unknown,
@@ -374,9 +389,13 @@ interface SnapshotRow {
 
 function parseCheckpointRow(row: CheckpointRow, workspaceId: string): PersistentCheckpoint {
   if (!isCheckpointStatus(row.status)) throw new TypeError("stored checkpoint status is malformed");
+  // M021 keeps historical v1 rows readable while the public checkpoint contract remains v2.
+  const schemaVersion = row.schema_version === 1 || row.schema_version === WORKSPACE_SYNC_SCHEMA_VERSION
+    ? WORKSPACE_SYNC_SCHEMA_VERSION
+    : row.schema_version;
   return {
     descriptor: checkpointDescriptorSchema.parse({
-      schemaVersion: row.schema_version,
+      schemaVersion,
       checkpointId: row.checkpoint_id,
       workspaceId,
       workspaceSchemaVersion: parsePositiveSafeInteger(row.workspace_schema_version, "workspace schema version"),

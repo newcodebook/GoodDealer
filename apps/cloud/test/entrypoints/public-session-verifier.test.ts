@@ -57,11 +57,15 @@ describe("CloudPublicSessionVerifier", () => {
       new IdentityAccountSessionVerifier(identity),
     );
 
-    await expect(verifier.verify("web-session-live", evaluatedAt)).resolves.toEqual({
+    const web = await verifier.verify("web-session-live", evaluatedAt);
+    expect(web).toEqual({
       accountId: "internal-fixture-account",
       sessionId: "web-session-live",
       clientKind: "account_web",
     });
+    expect(web?.transactionCredential).toEqual(new TextEncoder().encode("web-session-live"));
+    expect(Object.keys(web ?? {})).not.toContain("transactionCredential");
+    expect(JSON.stringify(web)).not.toContain("transactionCredential");
     await expect(verifier.verify(null, evaluatedAt)).resolves.toBeNull();
     await expect(verifier.verify("unknown-session", evaluatedAt)).resolves.toBeNull();
 

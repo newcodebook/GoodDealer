@@ -129,4 +129,5 @@ repo 无任何字体文件。当前 CDN 替代：General Sans（Fontshare，bran
 - `ui_kits/desktop/` — 桌面客户端 UI kit（接入 Onboarding / 资产库 / 域名详情 / 批量差异预览 / 续费 / 同步中心·Outbox / 销售管理·议价交割 / DNS 与验证 / 冲突中心 / 人工任务 / 操作历史·回滚 / 设置·设备门禁）
 - `ui_kits/account-web/` — 用户后台 UI kit（`apps/account-web`，云端/账户侧 Web）：概览 / 订阅与许可 / 设备 / 账单发票 / 安全 / 云端数据只读 / 账户设置 / 下载客户端。Web-native 全屏壳层，运营密度
 - `ui_kits/admin-web/` — 管理员后台 UI kit（`apps/admin-web`，运营方内部控制台）：运营概览 / 客户 / 许可与订阅 / 设备舰队 / 计费营收 / 同步与基础设施 / 支持工单 / 审计日志 / 系统配置 / 公告。分组侧栏 + Production 环境标 + 系统健康状态栏
+- `_ds_bundle.js` — 由 `_ds_manifest.json` 中的组件与三套 `ui_kits/` 的 `.jsx` / `data.js` 权威源确定性生成；页面在本地源之前加载它。修改源后运行 `pnpm brand:bundle`，用 `pnpm brand:bundle --check` 验证一致性；不要直接编辑生成物
 - `SKILL.md` — agent 使用指南

@@ -130,27 +130,41 @@ describe("the pre-auth address-bucketed rate-limit boundary", () => {
     expect(second.statusCode).toBe(429);
   });
 
-  it("keeps nine spoofed client-identity inputs in the exhausted socket-address bucket", async () => {
-    const app = publicApp(60_000, 2, 100);
-    const url = await app.listen({ host: "127.0.0.1", port: 0 });
-    const vectors: readonly Record<string, string>[] = [
-      {},
-      { "x-forwarded-for": "203.0.113.1" },
-      { "x-forwarded-for": "203.0.113.2, 198.51.100.7" },
-      { "x-real-ip": "203.0.113.3" },
-      { forwarded: "for=203.0.113.4" },
-      { "x-client-ip": "203.0.113.5" },
-      { "true-client-ip": "203.0.113.6" },
-      { "cf-connecting-ip": "203.0.113.7" },
-      { cookie: "gd_session=rotate-1" },
-      { cookie: "gd_session=rotate-2", "x-forwarded-for": "203.0.113.8" },
-      { "x-rate-limit-key": "chosen" },
-    ];
-    const statuses: number[] = [];
-    for (const headers of vectors) {
-      statuses.push((await fetch(`${url}/v1/boundary/identity`, { headers })).status);
-    }
-    expect(statuses).toEqual([401, 401, 429, 429, 429, 429, 429, 429, 429, 429, 429]);
+  it("uses the one-hop client address supplied by the trusted loopback proxy", async () => {
+    const app = publicApp(60_000, 1, 100);
+    const request = (client: string) => app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": client },
+    });
+    expect((await request("203.0.113.1")).statusCode).toBe(401);
+    expect((await request("203.0.113.1")).statusCode).toBe(429);
+    expect((await request("203.0.113.2")).statusCode).toBe(401);
+  });
+
+  it("does not let an added leftmost forwarding value select the trusted-proxy bucket", async () => {
+    const app = publicApp(60_000, 1, 100);
+    const request = (forwarded: string) => app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": forwarded },
+    });
+    expect((await request("203.0.113.10, 198.51.100.7")).statusCode).toBe(401);
+    expect((await request("203.0.113.11, 198.51.100.7")).statusCode).toBe(429);
+  });
+
+  it("ignores forwarding headers received from an untrusted socket peer", async () => {
+    const app = publicApp(60_000, 1, 100);
+    const request = (forwarded: string) => app.inject({
+      method: "GET",
+      url: "/v1/boundary/identity",
+      remoteAddress: "198.51.100.9",
+      headers: { "x-forwarded-for": forwarded },
+    });
+    expect((await request("203.0.113.20")).statusCode).toBe(401);
+    expect((await request("203.0.113.21")).statusCode).toBe(429);
   });
 
   it("authenticates before JSON Schema validation and leaks no validation details", async () => {

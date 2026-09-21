@@ -13,6 +13,28 @@ export const denyingPublicApplicationPorts: PublicApplicationPorts = {
       return null;
     },
   },
+  desktopAuthorization: {
+    async issue() {
+      return null;
+    },
+  },
+  commercialCheckout: {
+    async createCheckout() {
+      return null;
+    },
+    async readStatus() {
+      return null;
+    },
+    async cancelSubscription() {
+      return null;
+    },
+    async confirmFixedTerm() {
+      return null;
+    },
+    async requestFirstPurchaseRefund() { return null; },
+    async readFirstPurchaseRefundStatus() { return null; },
+    async claimApprovalRedirect() { return null; },
+  },
 };
 
 export interface StaticPublicSession {

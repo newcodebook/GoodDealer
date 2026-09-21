@@ -4,12 +4,12 @@
   "workspaceSchemaVersion": 1,
   "targetServerRevision": 4,
   "checkpointDescriptor": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "checkpointId": "checkpoint-fixture-1",
     "workspaceId": "workspace-fixture-1",
     "workspaceSchemaVersion": 1,
     "throughServerRevision": 2,
-    "checkpointDigest": "11ls6sbrtLxiKOBhu8lMW86UaQnTbM6AmVIr8ADqBJI"
+    "checkpointDigest": "xn2aIfsOBBRpSpcOLscO9TzEuqCuHb1EBM79Lt3CpLc"
   },
   "checkpointSnapshot": {
     "schemaVersion": 1,
@@ -21,8 +21,13 @@
         "entityId": "a.test",
         "note": "checkpoint note",
         "portfolioId": "portfolio-1",
-        "tags": ["listed"],
-        "targetPrice": { "currency": "USD", "amount": "1000" }
+        "tags": [
+          "listed"
+        ],
+        "targetPrice": {
+          "currency": "USD",
+          "amount": "1000"
+        }
       },
       {
         "entityId": "b.test",
@@ -37,13 +42,13 @@
     {
       "cursor": null,
       "page": {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "workspaceId": "workspace-fixture-1",
         "fromServerRevisionExclusive": 2,
         "throughServerRevisionInclusive": 4,
         "mutations": [
           {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "mutationId": "mutation-3",
             "workspaceId": "workspace-fixture-1",
             "workspaceSchemaVersion": 1,
@@ -51,30 +56,40 @@
             "entityId": "a.test",
             "baseServerRevision": 2,
             "changedFields": [
-              { "fieldPath": "note", "value": "rebuilt note" },
-              { "fieldPath": "tags", "value": ["priority", "sale"] }
+              {
+                "fieldPath": "note",
+                "value": "rebuilt note"
+              },
+              {
+                "fieldPath": "tags",
+                "value": [
+                  "priority",
+                  "sale"
+                ]
+              }
             ],
             "sourceDeviceId": "device-source-1",
             "activeLeaseEpoch": 11,
             "deviceMutationSequence": 3,
-            "serverRevision": 3
+            "serverRevision": 3,
+            "operationKind": "upsert"
           }
         ],
         "returnedThroughServerRevision": 3,
         "nextCursor": "after-3",
-        "pageDigest": "99EkVtVesfFpHE1acbNtZN1j-8o2Gpka7MYMG3CpUgs"
+        "pageDigest": "xa1EroUm-4rmYcOqpXXdYYfqdHjsRfR0-HoExEASqTo"
       }
     },
     {
       "cursor": "after-3",
       "page": {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "workspaceId": "workspace-fixture-1",
         "fromServerRevisionExclusive": 3,
         "throughServerRevisionInclusive": 4,
         "mutations": [
           {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "mutationId": "mutation-4",
             "workspaceId": "workspace-fixture-1",
             "workspaceSchemaVersion": 1,
@@ -82,18 +97,28 @@
             "entityId": "b.test",
             "baseServerRevision": 2,
             "changedFields": [
-              { "fieldPath": "portfolioId", "value": "portfolio-2" },
-              { "fieldPath": "targetPrice", "value": { "currency": "USD", "amount": "2500" } }
+              {
+                "fieldPath": "portfolioId",
+                "value": "portfolio-2"
+              },
+              {
+                "fieldPath": "targetPrice",
+                "value": {
+                  "currency": "USD",
+                  "amount": "2500"
+                }
+              }
             ],
             "sourceDeviceId": "device-source-1",
             "activeLeaseEpoch": 11,
             "deviceMutationSequence": 4,
-            "serverRevision": 4
+            "serverRevision": 4,
+            "operationKind": "upsert"
           }
         ],
         "returnedThroughServerRevision": 4,
         "nextCursor": null,
-        "pageDigest": "u2vTWkXhceGK0VSJWbGuVvSFg9HQrXACpWHK-K_HOAM"
+        "pageDigest": "OU_pckYOviuE1gJycxi7C5O9_jexcvSiE45uneRAd8Q"
       }
     }
   ],
@@ -103,15 +128,24 @@
         "entityId": "a.test",
         "note": "rebuilt note",
         "portfolioId": "portfolio-1",
-        "tags": ["priority", "sale"],
-        "targetPrice": { "currency": "USD", "amount": "1000" }
+        "tags": [
+          "priority",
+          "sale"
+        ],
+        "targetPrice": {
+          "currency": "USD",
+          "amount": "1000"
+        }
       },
       {
         "entityId": "b.test",
         "note": null,
         "portfolioId": "portfolio-2",
         "tags": [],
-        "targetPrice": { "currency": "USD", "amount": "2500" }
+        "targetPrice": {
+          "currency": "USD",
+          "amount": "2500"
+        }
       }
     ],
     "entityDigests": [
@@ -121,6 +155,6 @@
         "digest": "LjNHbM6LGrhGrAMRK8LmWm5Efp40SXMeLSz_2jNqAL4"
       }
     ],
-    "digest": "KKcxhttPl1t74QQoOOfVpgwb6EIe-6jhxD9yd96E6zY"
+    "digest": "SLyNpM66wd9nqIN3Mt5p49CQevBzfP2_1dzQjexXBf4"
   }
 }

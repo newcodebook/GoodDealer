@@ -32,7 +32,7 @@ const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const checkpoint: CheckpointDescriptor = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
@@ -42,12 +42,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number): SyncMutation {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-1",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
     sourceDeviceId: "device-a",
@@ -142,7 +143,7 @@ function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain =
     ? `bootstrap-after-${returnedThroughServerRevision}`
     : null;
   const draft = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     workspaceId: "workspace-1",
     fromServerRevisionExclusive: request.fromServerRevisionExclusive,
     throughServerRevisionInclusive: request.throughServerRevisionInclusive,

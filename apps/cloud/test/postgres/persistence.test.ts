@@ -14,6 +14,7 @@ import {
   TenantTransactionRunner,
 } from "../../src/db/index";
 import { checkedCloudMigrationCatalog, cloudMigrations } from "../../src/db/migrations";
+import { workspaceCheckpointV2Migration } from "../../src/modules/workspace/checkpoints/migrations/202609150001-workspace-checkpoint-v2";
 import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
 import {
   PostgresPortfolioMutationService,
@@ -95,7 +96,7 @@ describe("PostgreSQL tenant persistence", () => {
   });
 
   it("keeps a failing post-catalog migration and its ledger row atomic", async () => {
-    const failingId = "202608210001-failing-probe";
+    const failingId = "202609050001-failing-probe";
     await expect(runCloudMigrations(ownerPool, [
       ...cloudMigrations,
       {
@@ -112,11 +113,53 @@ describe("PostgreSQL tenant persistence", () => {
     expect(rolledBack.rows).toEqual([{ name: null, ledger_count: "0" }]);
   });
 
+  it("preserves v1 checkpoint rows while enabling v2 through an append-only migration", async () => {
+    await ownerPool.query("BEGIN");
+    try {
+      await ownerPool.query(`
+        ALTER TABLE workspace_checkpoints
+          DROP CONSTRAINT workspace_checkpoints_schema_version_check;
+        ALTER TABLE workspace_checkpoints
+          ADD CONSTRAINT workspace_checkpoints_schema_version_check CHECK (schema_version = 1);
+        INSERT INTO workspace_revisions (account_id, workspace_id, workspace_schema_version)
+          VALUES ('migration-account', 'migration-workspace', 1);
+        INSERT INTO workspace_checkpoints (
+          account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
+          through_server_revision, checkpoint_digest, capture_codec, capture_schema_version, status
+        ) VALUES (
+          'migration-account', 'migration-workspace', 'checkpoint-v1', 1, 1,
+          0, decode(repeat('11', 32), 'hex'), 'domain-asset-projection-v1', 1, 'building'
+        );
+      `);
+      await ownerPool.query(workspaceCheckpointV2Migration.sql);
+      await ownerPool.query(`
+        INSERT INTO workspace_checkpoints (
+          account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
+          through_server_revision, checkpoint_digest, capture_codec, capture_schema_version, status
+        ) VALUES (
+          'migration-account', 'migration-workspace', 'checkpoint-v2', 2, 1,
+          0, decode(repeat('22', 32), 'hex'), 'domain-asset-projection-v1', 1, 'building'
+        )
+      `);
+      const rows = await ownerPool.query<{ checkpoint_id: string; schema_version: number }>(
+        `SELECT checkpoint_id, schema_version FROM workspace_checkpoints
+         WHERE account_id = 'migration-account' AND workspace_id = 'migration-workspace'
+         ORDER BY checkpoint_id`,
+      );
+      expect(rows.rows).toEqual([
+        { checkpoint_id: "checkpoint-v1", schema_version: 1 },
+        { checkpoint_id: "checkpoint-v2", schema_version: 2 },
+      ]);
+    } finally {
+      await ownerPool.query("ROLLBACK");
+    }
+  });
+
   it("rejects unknown, non-prefix, owner, and checksum drift before the next migration executes", async () => {
-    const terminal = checkedCloudMigrationCatalog[13];
-    if (terminal === undefined) throw new Error("M014 is unexpectedly absent");
+    const terminal = checkedCloudMigrationCatalog.at(-1);
+    if (terminal === undefined) throw new Error("terminal migration is unexpectedly absent");
     const nextMigration = {
-      id: "202608210001-drift-probe",
+      id: "202609150002-drift-probe",
       owner: "test/probe",
       sql: "CREATE TABLE migration_drift_probe (id integer)",
     } as const;
@@ -181,8 +224,9 @@ describe("PostgreSQL tenant persistence", () => {
     }
 
     try {
-      await expect(runCloudMigrations(ownerPool, catalogWithProbe)).resolves.toHaveLength(15);
-      await expect(runCloudMigrations(ownerPool, catalogWithProbe)).resolves.toHaveLength(15);
+      const expectedCatalogLength = cloudMigrations.length + 1;
+      await expect(runCloudMigrations(ownerPool, catalogWithProbe)).resolves.toHaveLength(expectedCatalogLength);
+      await expect(runCloudMigrations(ownerPool, catalogWithProbe)).resolves.toHaveLength(expectedCatalogLength);
       const exactPrefix = await ownerPool.query<{ name: string | null; ledger_count: string }>(
         `SELECT to_regclass('migration_drift_probe')::text AS name,
                 (SELECT count(*)::text FROM gooddealer_cloud_migrations WHERE id = $1) AS ledger_count`,

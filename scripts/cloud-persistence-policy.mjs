@@ -3,7 +3,7 @@ export function cloudPersistenceBoundaryErrors(localPath, source) {
   const isDbInfrastructure = localPath.startsWith("apps/cloud/src/db/");
   const isCatalog = localPath === "apps/cloud/src/db/migrations.ts";
   const ownsBusinessTable = /\b(?:workspace_revisions|workspace_workspaces|workspace_account_bindings|portfolio_domain_assets|portfolio_projection_state|workspace_replica_[a-z_]+|identity_accounts|identity_account_security_states|identity_auth_sessions|identity_refresh_families|identity_credential_jtis|workspace_mutation_receipts|workspace_mutations|workspace_mutation_fields|workspace_reader_cursors|workspace_checkpoints|workspace_checkpoint_entity_digests|workspace_checkpoint_domain_assets|workspace_checkpoint_pins|restore_candidate_requests|restore_candidates|tenant_jobs)\b/u.test(source);
-  const isOwnedCapabilityMigration = /apps\/cloud\/src\/modules\/(?:identity|devices|execution-ledger|audit|recovery|job-runtime|workspace\/(?:revisions|mutations|cursors|checkpoints|default-workspace|state\/portfolio))\/migrations\//u.test(localPath);
+  const isOwnedCapabilityMigration = /apps\/cloud\/src\/modules\/(?:identity|devices|execution-ledger|audit|recovery|job-runtime|licensing|workspace\/(?:revisions|mutations|cursors|checkpoints|default-workspace|sync|state\/portfolio))\/migrations\//u.test(localPath);
 
   if (isDbInfrastructure && !isCatalog && ownsBusinessTable) {
     errors.push("db infrastructure cannot own or query workspace capability tables");

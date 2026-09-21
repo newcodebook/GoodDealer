@@ -21,6 +21,7 @@ const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_P
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 8 });
 const transactions = new TenantTransactionRunner(appPool);
 const cursors = new PostgresReaderCursorRepository();
+const tokenKey = Buffer.alloc(32, 7);
 let pages: DenseTestPages;
 let service: PostgresReaderCursorService;
 
@@ -30,7 +31,7 @@ const otherScope = { accountId: "reader-account-other", workspaceId: scope.works
 beforeAll(async () => {
   pages = new DenseTestPages();
   service = new PostgresReaderCursorService({
-    transactions, revisions: new TestRevisionLock(), cursors, pages, leaseTtlSeconds: 60,
+    transactions, revisions: new TestRevisionLock(), cursors, pages, leaseTtlSeconds: 60, tokenKey,
   });
   await runCloudMigrations(ownerPool, cloudMigrations);
 });
@@ -47,6 +48,77 @@ afterAll(async () => {
 });
 
 describe("PostgreSQL ReaderCursor persistence", () => {
+  it("keeps v2 delivery pending until confirm and byte-replays both lost responses", async () => {
+    await service.open(scope, { deviceId: "reader-v2", atRevision: 0 });
+    const initialRequest = {
+      schemaVersion: 2 as const,
+      afterServerRevision: 0,
+      cursor: null,
+      confirm: null,
+      pageLimit: 1,
+    };
+    const first = await service.pullV2(scope, "reader-v2", initialRequest);
+    expect(first).toMatchObject({
+      accepted: true,
+      confirmedThrough: 0,
+      pendingDelivery: { fromServerRevisionExclusive: 0, throughServerRevisionInclusive: 1, targetServerRevision: 3 },
+    });
+    if (!first.accepted) throw new Error("first v2 page failed");
+    const pendingCursor = await transactions.withTenant(scope, (transaction) => cursors.lock(transaction, "reader-v2"));
+    expect(pendingCursor).toMatchObject({ readThroughServerRevision: 0, rowVersion: 1 });
+
+    const replay = await service.pullV2(scope, "reader-v2", initialRequest);
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(first));
+
+    const confirmRequest = {
+      schemaVersion: 2 as const,
+      afterServerRevision: first.page.returnedThroughServerRevision,
+      cursor: first.page.nextCursor,
+      confirm: first.confirmToken,
+      pageLimit: 1,
+    };
+    const second = await service.pullV2(scope, "reader-v2", confirmRequest);
+    expect(second).toMatchObject({
+      accepted: true,
+      confirmedThrough: 1,
+      pendingDelivery: {
+        fromServerRevisionExclusive: 1,
+        throughServerRevisionInclusive: 2,
+        targetServerRevision: 3,
+      },
+    });
+    const lostConfirmReplay = await service.pullV2(scope, "reader-v2", confirmRequest);
+    expect(JSON.stringify(lostConfirmReplay)).toBe(JSON.stringify(second));
+  });
+
+  it("maps v2 token tamper, expiry, wrong device, and range/predecessor mismatch uniformly", async () => {
+    await service.open(scope, { deviceId: "reader-v2-negative", atRevision: 0 });
+    await service.open(scope, { deviceId: "reader-v2-other", atRevision: 0 });
+    const request = { schemaVersion: 2 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 1 };
+    const first = await service.pullV2(scope, "reader-v2-negative", request);
+    if (!first.accepted) throw new Error("negative fixture page failed");
+    const conflict = { accepted: false, code: "READER_CURSOR_STALE_PRESENTATION" } as const;
+    const validConfirm = {
+      schemaVersion: 2 as const,
+      afterServerRevision: 1,
+      cursor: first.page.nextCursor,
+      confirm: first.confirmToken,
+      pageLimit: 1,
+    };
+    const tamperedConfirm = `${first.confirmToken.slice(0, -1)}${first.confirmToken.endsWith("A") ? "B" : "A"}`;
+    await expect(service.pullV2(scope, "reader-v2-negative", {
+      ...validConfirm, confirm: tamperedConfirm,
+    })).resolves.toEqual(conflict);
+    await expect(service.pullV2(scope, "reader-v2-negative", {
+      ...validConfirm, afterServerRevision: 0,
+    })).resolves.toEqual(conflict);
+    await expect(service.pullV2(scope, "reader-v2-other", validConfirm)).resolves.toEqual(conflict);
+    await transactions.withTenant(scope, (transaction) => transaction.query(
+      `UPDATE workspace_reader_pending_deliveries
+       SET expires_at=transaction_timestamp() WHERE device_id='reader-v2-negative'`,
+    ));
+    await expect(service.pullV2(scope, "reader-v2-negative", request)).resolves.toEqual(conflict);
+  });
   it("pins the first-page head and gives one concurrent CAS presentation a single winner", async () => {
     const opened = await service.open(scope, { deviceId: "reader-one", atRevision: 0 });
     expect(opened).toMatchObject({ accepted: true, presentation: { generation: 1, rowVersion: 1, continuationToken: null } });
@@ -154,6 +226,7 @@ describe("PostgreSQL ReaderCursor persistence", () => {
       cursors,
       pages,
       leaseTtlSeconds: 60,
+      tokenKey,
     });
     let getterCalls = 0;
 
@@ -325,12 +398,13 @@ class DenseTestPages implements ReaderMutationPageQueryPort {
     const nextRevision = input.fromServerRevisionExclusive + 1;
     const terminal = nextRevision >= input.throughServerRevisionInclusive;
     const mutations = input.fromServerRevisionExclusive === input.throughServerRevisionInclusive ? [] : [{
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       mutationId: `mutation-${nextRevision}`,
       workspaceId: transaction.scope.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset" as const,
       entityId: "asset-one.test",
+      operationKind: "upsert" as const,
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note" as const, value: `revision-${nextRevision}` }],
       sourceDeviceId: "writer-one",
@@ -340,7 +414,7 @@ class DenseTestPages implements ReaderMutationPageQueryPort {
     }];
     const returnedThroughServerRevision = mutations[0]?.serverRevision ?? input.fromServerRevisionExclusive;
     const unsigned: MutationPage = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       workspaceId: transaction.scope.workspaceId,
       fromServerRevisionExclusive: input.fromServerRevisionExclusive,
       throughServerRevisionInclusive: input.throughServerRevisionInclusive,

@@ -28,6 +28,10 @@ export interface PasswordHashPort {
   checkPasswordHash(candidate: ConsumeOncePassword, storedPhc: string): Promise<PasswordHashResult>;
 }
 
+export interface PasswordCreationPort {
+  hashPassword(candidate: ConsumeOncePassword): Promise<StoredPasswordHash>;
+}
+
 /**
  * Owns the only zeroable copy identity creates. The source JavaScript string has already
  * existed in the caller/parser heap and cannot be reliably overwritten by JavaScript.
@@ -69,7 +73,7 @@ export class ConsumeOncePassword {
 }
 
 /** Explicit opt-in verifier. Production composition continues to construct DenyingPasswordHashPort. */
-export class Argon2idPasswordHashVerifier implements PasswordHashPort {
+export class Argon2idPasswordHashVerifier implements PasswordHashPort, PasswordCreationPort {
   async checkPasswordHash(candidate: ConsumeOncePassword, storedPhc: string): Promise<PasswordHashResult> {
     const phc = isArgon2idV1Phc(storedPhc) ? storedPhc : ARGON2ID_V1_DECOY_PHC;
     try {
@@ -79,6 +83,11 @@ export class Argon2idPasswordHashVerifier implements PasswordHashPort {
       return { verified: false, reason: "invalid_credentials" };
     }
   }
+
+  async hashPassword(candidate: ConsumeOncePassword): Promise<StoredPasswordHash> {
+    const phc = await candidate.consume((bytes) => hash(bytes, { ...argon2Options(), salt: randomBytes(16) }));
+    return { policyId: ARGON2ID_V1_POLICY.id, phc };
+  }
 }
 
 /** Closed production default; it consumes and zeroes candidate bytes without granting authority. */
@@ -87,13 +96,14 @@ export class DenyingPasswordHashPort implements PasswordHashPort {
     await candidate.consume(async () => undefined);
     return { verified: false, reason: "password_verification_disabled" };
   }
+
+
 }
 
 export async function hashFixturePassword(value: unknown): Promise<StoredPasswordHash> {
   const candidate = ConsumeOncePassword.fromUnknown(value);
   if (candidate === null) return Promise.reject();
-  const phc = await candidate.consume((bytes) => hash(bytes, { ...argon2Options(), salt: randomBytes(16) }));
-  return { policyId: ARGON2ID_V1_POLICY.id, phc };
+  return new Argon2idPasswordHashVerifier().hashPassword(candidate);
 }
 
 export function isArgon2idV1Phc(value: unknown): value is string {

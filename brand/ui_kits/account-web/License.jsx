@@ -1,10 +1,10 @@
-// 订阅与许可 License — plan, billing cycle, ownership/license certificate, tier upgrade.
+// 订阅与许可 License — one feature tier with monthly, annual, and 10-year fixed terms.
 const {Panel:LPanel,Badge:LBadge,Button:LBtn,Money:LMoney,ProgressBar:LProg,Switch:LSwitch,Dialog:LDlg,Input:LInput,StatusDot:LDot}=window.GoodDealerDesignSystem_b5b0b6;
 
-const TIERS=[
-  {k:"Starter",price:99,domains:"至 200 域名",devices:"1 台设备",feats:["单注册商连接","基础同步","操作历史"]},
-  {k:"Professional",price:299,domains:"无限域名",devices:"2 台设备 · 单活动",feats:["全部平台连接","批量执行 · 差异预览","冲突中心 · 回滚","议价交割闭环"]},
-  {k:"Portfolio",price:899,domains:"无限域名 · 多 Workspace",devices:"5 台设备",feats:["Professional 全部","多 Workspace 隔离","团队席位","优先支持 · SLA"]},
+const TERMS=[
+  {k:"月付",price:9.8,unit:"/月",domains:"完整功能",devices:"2 台设备 · 单活动",feats:["按月续费","随时取消"]},
+  {k:"年付",price:98,unit:"/年",domains:"完整功能",devices:"2 台设备 · 单活动",feats:["按年续费","约省 17%"]},
+  {k:"10 年固定期",price:498,unit:"/10 年",domains:"完整功能",devices:"2 台设备 · 单活动",feats:["一次预付 10 年","不自动续费 · 非永久"]},
 ];
 
 function Feat({on,children}){
@@ -15,24 +15,24 @@ function Feat({on,children}){
 
 function License(){
   const D=window.GD_ACCOUNT;const I=window.GDI;const MetricStrip=window.GDMetricStrip;
-  const [autoRenew,setAutoRenew]=React.useState(D.plan.autoRenew);
+  const [autoRenew,setAutoRenew]=React.useState(D.license.autoRenew);
   const [dlg,setDlg]=React.useState(null); // pay | upgrade | cancel
   const [target,setTarget]=React.useState(null);
   return <div data-screen-label="订阅与许可" style={{display:"flex",flexDirection:"column",minHeight:0}}>
     <MetricStrip metrics={[
-      {label:"当前方案",value:"Professional",tone:"gold",meta:"年付 License"},
-      {label:"年费",value:"$299.00",tone:"gold",meta:"下次扣款 2026-12-31"},
+      {label:"当前期限",value:"年付",tone:"gold",meta:"单一功能档位"},
+      {label:"年费",value:"$98.00",tone:"gold",meta:"下次扣款 2026-12-31"},
       {label:"本期剩余",value:"136 天",tone:"warning",meta:"已用 63%"},
       {label:"所有权验证",value:"已验证",tone:"success",meta:"本地密钥签发"},
       {label:"设备额度",value:"2 台",meta:"单活动执行权"},
     ]}/>
     <div style={{padding:18,display:"grid",gridTemplateColumns:"1fr 320px",gap:14,alignItems:"start"}}>
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
-        <LPanel title="当前方案" actions={<span style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"var(--text-2)"}}>自动续费 <LSwitch checked={autoRenew} onChange={()=>setAutoRenew(v=>!v)}/></span>}>
+        <LPanel title="当前付费期限" actions={<span style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"var(--text-2)"}}>自动续费 <LSwitch checked={autoRenew} onChange={()=>setAutoRenew(v=>!v)}/></span>}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
             <span style={{fontSize:20,fontWeight:600,color:"var(--text-1)"}}>年付 License</span>
-            <LBadge tone="gold">PROFESSIONAL</LBadge>
-            <LMoney amount={299} size={15}/><span style={{fontSize:12,color:"var(--text-3)"}}>/ 年</span>
+            <LBadge tone="gold">ANNUAL</LBadge>
+            <LMoney amount={98} size={15}/><span style={{fontSize:12,color:"var(--text-3)"}}>/ 年</span>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-3)",marginBottom:6,fontFamily:"var(--font-mono)"}}><span>2025-12-31 开始</span><span>剩余 136 天</span><span>2026-12-31 续费</span></div>
           <LProg value={63} height={6}/>
@@ -44,8 +44,8 @@ function License(){
               </div>)}
           </div>
           <div style={{display:"flex",gap:9,marginTop:14,paddingTop:14,borderTop:"1px solid var(--gd-line)"}}>
-            <LBtn size="sm" variant="primary" onClick={()=>{setTarget(TIERS[2]);setDlg("upgrade");}}>升级到 Portfolio</LBtn>
-            <LBtn size="sm" onClick={()=>setDlg("pay")}>更换支付方式</LBtn>
+            <LBtn size="sm" variant="primary" onClick={()=>{setTarget(TERMS[0]);setDlg("upgrade");}}>切换计费周期</LBtn>
+            <LBtn size="sm" onClick={()=>setDlg("pay")}>管理支付方式</LBtn>
             <LBtn size="sm" variant="ghost" onClick={()=>setDlg("cancel")} icon={<I.Ban size={13}/>}>取消续订</LBtn>
           </div>
         </LPanel>
@@ -56,7 +56,7 @@ function License(){
               <p style={{fontSize:12,color:"var(--text-2)",lineHeight:1.6,margin:"0 0 12px"}}>License 由本地密钥签发并绑定 Workspace 所有权，凭据永不上云。证书用于设备门禁与离线校验。</p>
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"var(--gd-ink)",border:"1px solid var(--gd-line-strong)",borderRadius:5,fontFamily:"var(--font-mono)",fontSize:12}}>
                 <span style={{color:"var(--text-3)"}}>License Key</span>
-                <span style={{color:"var(--gd-gold)",letterSpacing:"0.02em"}}>GD-PRO-8F2A-C91D-··· ·-4E7B</span>
+                <span style={{color:"var(--gd-gold)",letterSpacing:"0.02em"}}>GD-LIC-8F2A-C91D-··· ·-4E7B</span>
                 <LBtn size="sm" variant="ghost" icon={<I.Copy size={13}/>} style={{marginLeft:"auto"}}>复制</LBtn>
               </div>
               <div style={{display:"flex",gap:9,marginTop:12}}><LBtn size="sm" variant="ghost" icon={<I.Download size={13}/>}>下载证书</LBtn><LBtn size="sm" variant="ghost" icon={<I.RefreshCw size={13}/>}>轮换密钥</LBtn></div>
@@ -65,18 +65,18 @@ function License(){
         </LPanel>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
-        <LPanel flush title="方案对比">
-          {TIERS.map(t=>{const cur=t.k==="Professional";return <div key={t.k} style={{padding:"13px 16px",borderBottom:"1px solid var(--gd-line)",background:cur?"linear-gradient(90deg,rgba(212,164,55,0.05),transparent 60%)":"transparent"}}>
+        <LPanel flush title="付费期限对比">
+          {TERMS.map(t=>{const cur=t.k==="年付";return <div key={t.k} style={{padding:"13px 16px",borderBottom:"1px solid var(--gd-line)",background:cur?"linear-gradient(90deg,rgba(212,164,55,0.05),transparent 60%)":"transparent"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               <span style={{fontSize:13,fontWeight:600,color:"var(--text-1)"}}>{t.k}</span>
               {cur&&<LBadge tone="gold">当前</LBadge>}
-              <span style={{marginLeft:"auto",display:"flex",alignItems:"baseline",gap:3}}><LMoney amount={t.price} size={13} tone={cur?"gold":"body"}/><span style={{fontSize:10,color:"var(--text-3)"}}>/年</span></span>
+              <span style={{marginLeft:"auto",display:"flex",alignItems:"baseline",gap:3}}><LMoney amount={t.price} size={13} tone={cur?"gold":"body"}/><span style={{fontSize:10,color:"var(--text-3)"}}>{t.unit}</span></span>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:5}}>
               <Feat on>{t.domains}</Feat><Feat on>{t.devices}</Feat>
               {t.feats.slice(0,2).map(f=><Feat key={f} on>{f}</Feat>)}
             </div>
-            {!cur&&<LBtn size="sm" variant={t.price>299?"primary":"ghost"} style={{width:"100%",marginTop:10}} onClick={()=>{setTarget(t);setDlg("upgrade");}}>{t.price>299?"升级":"降级"}到 {t.k}</LBtn>}
+            {!cur&&<LBtn size="sm" variant={t.k==="10 年固定期"?"primary":"ghost"} style={{width:"100%",marginTop:10}} onClick={()=>{setTarget(t);setDlg("upgrade");}}>选择 {t.k}</LBtn>}
           </div>;})}
         </LPanel>
         <LPanel title="本月用量">
@@ -89,23 +89,22 @@ function License(){
         </LPanel>
       </div>
     </div>
-    <LDlg open={dlg==="pay"} onClose={()=>setDlg(null)} title="更换支付方式" width={440}
-      footer={<><LBtn onClick={()=>setDlg(null)}>取消</LBtn><LBtn variant="primary" onClick={()=>setDlg(null)}>保存支付方式</LBtn></>}>
+    <LDlg open={dlg==="pay"} onClose={()=>setDlg(null)} title="Stripe 托管付款" width={440}
+      footer={<LBtn onClick={()=>setDlg(null)}>关闭</LBtn>}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <LInput label="卡号" mono placeholder="4242 4242 4242 4242"/>
-        <div style={{display:"flex",gap:10}}><LInput label="有效期" mono placeholder="12 / 28"/><LInput label="CVC" mono placeholder="···"/></div>
-        <LInput label="持卡人" placeholder="LI XINGHANG"/>
-        <span style={{fontSize:11,color:"var(--text-3)"}}>支付由第三方处理，GoodDealer 不存储完整卡号。</span>
+        <LBtn variant="primary" icon={<I.ExternalLink size={13}/>}>Stripe 托管结账</LBtn>
+        <LInput label="优惠码（可选）" mono placeholder="LAUNCH"/>
+        <span style={{fontSize:11,color:"var(--text-3)",lineHeight:1.55}}>首发付款由 Stripe 托管；税费由托管结账显示。GoodDealer 不采集卡号或付款账户资料。无免费试用；每账号首次付费购买可在付款后 14 天内全额退款，续费不重置窗口。</span>
       </div>
     </LDlg>
     <LDlg open={dlg==="upgrade"} onClose={()=>setDlg(null)} title={target?`切换到 ${target.k}`:""} width={460}
-      footer={<><LBtn onClick={()=>setDlg(null)}>取消</LBtn><LBtn variant="primary" onClick={()=>setDlg(null)}>{target&&target.price>299?"升级":"确认切换"}到 {target&&target.k} · ${target&&target.price}/年</LBtn></>}>
+      footer={<><LBtn onClick={()=>setDlg(null)}>取消</LBtn><LBtn variant="primary" onClick={()=>setDlg(null)}>选择 {target&&target.k} · ${target&&target.price}{target&&target.unit}</LBtn></>}>
       {target&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <span style={{fontSize:13}}>从 <b>Professional · $299/年</b> 切换到 <b style={{color:"var(--gd-gold)"}}>{target.k} · ${target.price}/年</b>。</span>
+        <span style={{fontSize:13}}>从 <b>年付 · $98/年</b> 切换到 <b style={{color:"var(--gd-gold)"}}>{target.k} · ${target.price}{target.unit}</b>。</span>
         <div style={{border:"1px solid var(--gd-line-strong)",borderRadius:7,background:"var(--gd-panel)",padding:"12px 14px",display:"flex",flexDirection:"column",gap:7,fontSize:12,color:"var(--text-2)"}}>
           {target.feats.map(f=><Feat key={f} on>{f}</Feat>)}
         </div>
-        <span style={{fontSize:11,color:"var(--text-3)"}}>{target.price>299?"立即生效，按剩余天数补差价 $"+Math.round((target.price-299)*136/365)+"。":"下个账单周期生效，本期不退款。"}</span>
+        <span style={{fontSize:11,color:"var(--text-3)"}}>当前期限先取消续费并使用到已付周期结束，之后才能通过新的付款渠道或期限购买。</span>
       </div>}
     </LDlg>
     <LDlg open={dlg==="cancel"} onClose={()=>setDlg(null)} title="取消续订" width={440} danger

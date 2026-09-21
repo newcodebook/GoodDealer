@@ -16,8 +16,10 @@ test("capability-owned migrations stay accepted while misplaced business SQL is 
     "apps/cloud/src/modules/workspace/mutations/migrations/202608200009-workspace-mutation-log.ts",
     "apps/cloud/src/modules/workspace/cursors/migrations/202608200005-device-cursors.ts",
     "apps/cloud/src/modules/workspace/checkpoints/migrations/202608200010-workspace-checkpoints.ts",
+    "apps/cloud/src/modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation.ts",
     "apps/cloud/src/modules/recovery/migrations/202608200011-restore-candidate-foundation.ts",
     "apps/cloud/src/modules/job-runtime/migrations/202608200012-job-runtime.ts",
+    "apps/cloud/src/modules/licensing/migrations/202608200015-commercial-entitlements.ts",
     "apps/cloud/src/modules/workspace/default-workspace/migrations/202608200014-account-default-workspace.ts",
     "apps/cloud/src/modules/workspace/state/portfolio/migrations/202608200002-business-replica-model.ts",
   ]) {
@@ -27,6 +29,13 @@ test("capability-owned migrations stay accepted while misplaced business SQL is 
     cloudPersistenceBoundaryErrors(
       "apps/cloud/src/modules/workspace/read/migrations/misplaced.ts",
       "CREATE TABLE workspace_replica_domain_assets (id text)",
+    ),
+    ["workspace business migrations must remain under their owning capability module"],
+  );
+  assert.deepEqual(
+    cloudPersistenceBoundaryErrors(
+      "apps/cloud/src/modules/workspace/sync-shadow/migrations/misplaced.ts",
+      "REFERENCES workspace_revisions",
     ),
     ["workspace business migrations must remain under their owning capability module"],
   );

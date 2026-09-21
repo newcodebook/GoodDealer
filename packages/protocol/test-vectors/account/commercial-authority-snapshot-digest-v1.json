@@ -1,0 +1,22 @@
+{
+  "snapshot": {
+    "sourceEventId": "payment-event-2",
+    "sourceRevision": 2,
+    "occurredAt": "2026-08-29T00:00:00Z",
+    "state": "active",
+    "licenseId": "license-pro",
+    "plan": "pro",
+    "entitlementKind": "subscription",
+    "commercialExpiresAt": "2026-09-30T00:00:00Z",
+    "offlineGraceUntil": "2026-10-03T00:00:00Z",
+    "credentialRefreshDueAt": "2026-09-01T00:00:00Z",
+    "featureEntitlements": [
+      "cloudflare:dns:observe",
+      "feature:portfolio"
+    ],
+    "versionEntitlement": {
+      "kind": "subscription_supported"
+    }
+  },
+  "sha256Hex": "4d57f83aeaf0480dbf56f81ef78ff9781a1129ac30b1693b934279dd30ce22ed"
+}

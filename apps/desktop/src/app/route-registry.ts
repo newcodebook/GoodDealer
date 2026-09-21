@@ -21,6 +21,7 @@ export const appRouteRegistry = {
   "portfolio.list": route("portfolio.list", "assetLibrary"),
   "portfolio.detail": route("portfolio.detail", "domainDetail"),
   "dns.health": route("dns.health", "dnsVerification"),
+  "sync.conflicts": route("sync.conflicts", "conflictCenter"),
   settings: route("settings", "settings"),
 } as const satisfies Readonly<Record<AppRouteId, AppRouteDefinition>>;
 
