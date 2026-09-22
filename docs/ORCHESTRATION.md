@@ -28,7 +28,7 @@
 | 字段 | 必须写明的内容 |
 | --- | --- |
 | 目标与允许声明 | 要实现的 [路线图](ROADMAP.md) 能力、可由本地证据支持的精确声明，以及不允许的可用性/发行声明。 |
-| 固定范围与非目标 | 仅限账户激活与个人默认工作区、资产只读投影、Cloudflare API-only Zone/DNS 只读观察；以及所有适用排除项。 |
+| 固定范围与非目标 | 域名 Provider 能力以 ADR-0024 的 capability manifest 为准；当前生产只读观察已组合，DNS/DNSSEC/Registrar/监控写入需逐项接线和资格化；非域名产品、浏览器和多工作区排除。 |
 | 拥有 runtime 与信任域 | Desktop 展示、最小 Host/秘密保管、Cloud 身份/授权/API、持久化或连接器中的唯一负责人。 |
 | 合同与输入 | 已冻结的公开合同、声明导出、从 `unknown` 验证的位置、服务器端范围来源和错误/脱敏规则。 |
 | 源码现状 | 被检查的入口、当前未组合状态或已知范围缺陷；不得用目标设计替换该快照。 |
@@ -104,20 +104,20 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 - **没有凭空的视觉设计权威。** 设计参考可以被有意地移植为已公开的 UI/i18n 资源，但构建者不得
   发明未被任务或已拥有设计资料要求的视觉系统（no invented visual design），更不能把视觉决定
   当作产品、授权或外部事实。
-- **固定排除项仍失败关闭。** v1 没有浏览器、写入、市场/注册商、团队/多工作区、CSV import、
-  凭据迁移或任何外部 mutation；手工说明不构成浏览器或执行旁路。
+- **未获准能力仍失败关闭。** v1 没有浏览器、非域名 Provider 产品、团队/多工作区、CSV import
+  或凭据迁移；域名写入和 Registrar 能力只有在 manifest、审批、对账和资格完成后才可执行。
 
 ## 当前源码范围与声明控制
 
-当前 Desktop Renderer production 入口只使用窄本地业务和认证 adapter。Tauri 已精确注册具名本地业务、
-备份、认证与 Cloudflare 命令，manifest/capability/adapter 策略测试拒绝清单漂移；Cloudflare 命令尚未
-暴露给 Renderer adapter。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
+当前 Desktop Renderer production 入口使用窄本地业务、认证及 Cloudflare adapter。Tauri 已精确注册具名本地业务、
+备份、认证与 Cloudflare 命令，manifest/capability/adapter 策略测试拒绝清单漂移；Cloudflare 激活、
+状态、观察和读取已进入 Renderer。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
 operation/inbox/reconciliation/due-authority/release。共享开发环境已部署 systemd self-hosted worker 和
-Stripe test-mode Provider；生产 worker、live Provider、完整 Renderer 旅程和发行仍未完成，因此产品
+Stripe test-mode Provider；生产 worker、live Provider、全系统 V1 验收和发行仍未完成，因此产品
 readiness 声明仍不成立。
 
 `secure-host-core` 的私有 Cloudflare Zone/DNS 只读 Service 已组合进 Native ProviderLane，但 Host 组合
-不等于客户旅程或真实 Provider 资格。后续 Desktop 整合者必须增加严格 Renderer adapter、保持显式
+不等于真实 Provider 资格。后续 Desktop 整合者必须扩展严格 Renderer adapter、保持显式
 capability allowlist，并重新检查入口、注册表和可达性；不得把未组合 feature、视觉资料或已删除
 connector 路径恢复为兼容、过渡或 fixture 路线。
 

@@ -12,9 +12,10 @@
 | 账户接入 | 激活账户并建立其个人默认工作区访问。 | identity / account web. | 账户与默认工作区原子创建、服务器端范围和可观察会话生命周期。 |
 | 资产查看 | 查看有来源、版本和时间的域名资料。 | workspace read / desktop. | 真实共享投影、严格读取协议和脱敏展示。 |
 | 资产编辑 | 提交有明确差异的资料变更。 | workspace mutation / operations. | 计划、授权、幂等、冲突和审计。 |
-| Cloudflare 只读连接 | 配置一个明确 Zone 的 Cloudflare 最小 Token 并读取 DNS 观察。 | connector / Secure Host. | `Zone:Read`/`DNS:Read` 范围、受限 custody、严格网络边界和真实观察。 |
-| DNS 观察 | 读取明确 Zone 的 DNS 资料并呈现来源与时间。 | verification / Cloudflare connector. | Cloudflare 只读合同、最小 Token、外部观察和失败处理。 |
-| 批量变更 | 未来审阅影响后执行受限操作。 | operations / connector. | 不属于首发；需新的提供商能力、预览、明确结果和可追溯审计。 |
+| Cloudflare 域名连接 | 配置明确 Zone/注册商资源并按能力读取或管理域名资产。 | connector / Secure Host. | capability manifest、最小权限、绑定代次、严格网络边界和逐项资格。 |
+| DNS/DNSSEC 管理 | 读取、变更 DNS 与 DNSSEC，并在提交后重新观察确认。 | operations / connector. | 单项计划、前置条件、Lease fence、未知结果对账和脱敏历史。 |
+| Registrar 生命周期 | 注册、续费、联系人/隐私、转入/转出和转移状态。 | operations / connector. | 资金单项确认；Provider 页面回跳只触发对账，不代表成功。 |
+| 批量变更 | 在逐项结果和风险预览下执行域名能力批量操作。 | operations / connector. | 逐项幂等、部分成功、未知结果和可验证补偿；不能假设 Provider 原子成功。 |
 | 多设备共享 | 在同一账户的授权客户端间读取个人工作区资料。 | identity / workspace sync. | 服务器端范围、版本、冲突和并发副作用控制；不形成跨账户共享。 |
 | 本地数据保护 | 在安全前提下导出或恢复受限资料。 | local backup / recovery. | 安全 SQLite、Host 组合、原生故障验证和恢复规则。 |
 | 商业授权 | 管理未来计划、付款和权益。 | account / commercial domain. | 服务端权威、合规资料和外部运营证据。 |

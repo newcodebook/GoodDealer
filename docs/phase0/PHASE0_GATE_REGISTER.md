@@ -13,7 +13,7 @@
 | 资格 ID / 范围 | 必须取得的外部证据 | 授权的主张 | 未来责任人 | 不是本地实现阻塞项？ | 当前 closure 状态 |
 | --- | --- | --- | --- | --- | --- |
 | **Q-AUDIT：生产 OpenBao custody** | 最终环境的自托管 OpenBao 集群、不可导出 Transit key、workload identity、目的隔离、公钥批准、seal 策略、轮换演练和独立审查。 | 生产审计签名 custody 已存在且按 ADR-0014/0021 运行。 | Security Custodian 与 Platform Operations Owner。 | 是；不阻止本地业务、账号控制面或同步恢复工作。 | 未记录 closure。 |
-| **Q-CF：Cloudflare 只读提供商资格** | 条款审查、最小 `Zone:Read`/`DNS:Read` Token 指南、受控测试 Zone 的真实观察、速率/错误/移除行为和独立安全审查。 | Cloudflare API-only Zone/DNS 只读观察可作为真实提供商能力或客户可用性的一部分主张。 | 未来 Cloudflare 能力所有者与 Security Custodian。 | 是；不阻止 C1/D1/V1 的本地只读合同实现与汇合。 | 未记录 closure。 |
+| **Q-CF：Cloudflare 逐项 Provider 资格** | 对每项域名能力完成条款、最小权限、受控资源、限流/错误、撤销/未知结果对账、资金确认和独立安全审查。 | 仅已取得对应证据的 Cloudflare 域名能力可声明真实可用；只读 Zone/DNS 证据不能授权写入或 Registrar。 | Cloudflare 能力所有者与 Security Custodian。 | 是；不阻止 C1/D1/V1 的本地合同实现与汇合。 | 未记录 closure。 |
 | **Q-OPS：受管生产运行与部署** | 获批区域中的受管 PostgreSQL、部署、监控、环境隔离和相关运行证据。 | 已部署 Cloud 控制面与同步副本在指定环境可用。 | Data Governance Owner 与 Platform Operations Owner。 | 是；不阻止本地业务库或 Cloud 控制面/同步实现。 | 未记录 closure。 |
 | **Q-NATIVE：原生 Desktop 构件资格** | 最终构件的签名/公证、目标平台证据和构件归档。 | 指定原生构件已完成其签名/公证或平台资格。 | Platform Operations Owner。 | 是；不阻止 Desktop 本地 UI、窄 Host 接线或本地测试。 | 未记录 closure。 |
 | **Q-REL：`1.0.0` / `stable` 客户发行** | 干净最终构件、签名/公证、受控归档、适用的提供商资格、独立审查和 ADR-0018 所列四角色批准。 | `1.0.0` / `stable` 已作为公开客户发行建立。 | Product Owner；与其余 ADR-0018 责任人共同批准。 | 是；不阻止任何已定范围本地工作包开始、继续或汇合。 | 未记录 closure。 |
@@ -24,4 +24,4 @@
 
 ## 保留的历史仓库证据
 
-以下内容因审计/基础记录目的保留为**历史仓库证据**，不是外部资格也不是当前产品可用性：M013 迁移目录记录及其校验和、固定不可用的本地备份证据、仓库策略/测试输出，以及 `unissued` release 请求。这些记录不关闭任何 Gate，不阻止已定范围的本地实现，也不改变浏览器、提供商写入、市场/注册商、团队/多工作区、凭据迁移、CSV 导入或外部变更的 v1 排除状态。
+以下内容因审计/基础记录目的保留为**历史仓库证据**，不是外部资格也不是当前产品可用性：M013 迁移目录记录及其校验和、固定不可用的本地备份证据、仓库策略/测试输出，以及 `unissued` release 请求。这些记录不关闭任何 Gate，不阻止已定范围的本地实现。域名 Provider 写入与注册商属于首发目标但仍需逐项资格；浏览器自动化、非域名市场连接、团队/多工作区、凭据迁移与 CSV 导入仍排除。

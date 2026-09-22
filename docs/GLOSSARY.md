@@ -16,7 +16,8 @@
 | `signing_key_transition_id` | 首个进入新签名密钥边界的记录携带的签名规范字段，用于连接既有链连续性。 |
 | 个人默认工作区 | 账户完成验证并激活时原子创建的唯一首发 Workspace；其范围由服务器端绑定导出。 |
 | Host-owned SQLite 源能力 | 与 Rust 所有者已打开 SQLite 连接绑定的一次性不透明备份源；不是路径、VFS 名称或文件身份字符串。 |
-| Cloudflare 只读连接 | 首发唯一提供商能力；仅为明确 Zone 使用 `Zone:Read`、`DNS:Read` Token 读取 Zone/DNS 观察。 |
+| Cloudflare 域名 Provider | 首发目标覆盖域名相关能力；当前生产仅有明确 Zone 的 `Zone:Read`、`DNS:Read` 只读观察，其他能力仍不可执行。 |
+| Provider 资金确认 | 一笔计划项、一份 Host 报价、一次用户确认；Provider 页面返回只表示待对账，不是支付或执行成功。 |
 | 首发浏览器排除 | 首发不嵌入或自动化浏览器，也不以浏览器作为 API 回退的产品边界。 |
 | 单区域生产模型 | 首发 Cloud、数据库、自托管 OpenBao Transit 与监控同处一个获批区域，环境之间严格隔离。 |
 | Secure Host | 公开 Desktop OAuth/授权验证与非秘密 Cloudflare 观察类型的 Rust 边界；不包含备份实现或依赖。Token、PKCE、Credential Fence、Provider wire、endpoint 和 Transport 保持私有。 |

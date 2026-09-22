@@ -12,12 +12,12 @@
 
 | 主题 | 当前结论 | 外部资格边界 |
 | --- | --- | --- |
-| v1 范围与本地协调 | Cloud 账号/授权控制面、本地域名资产业务库、脱敏同步恢复和 Host-local Cloudflare API-only read 按各自合同汇合。 | 外部资格不是这些本地工作启动、继续或本地验收的前提。 |
+| v1 范围与本地协调 | Cloud 账号/授权控制面、本地域名资产业务库、脱敏同步恢复和 Host-local 域名 Provider capability 按各自合同汇合；当前只有 Cloudflare API-only read 已组合。 | 外部资格不是本地合同实现启动、继续或本地验收的前提。 |
 | 当前组合 | Cloud public composition 已注册账号激活、Desktop Grant 与六条账号 billing 路径，共八条公共业务路径；Desktop OAuth 和支付 webhook 使用独立入口。Desktop Native 已组合 Keychain device/refresh custody、PKCE、challenge/PoP、access/refresh、Bearer Grant 拉取、Grant/Lease 双重验签与本地 runtime 激活。共享开发环境已部署 Account Web、Stripe test-mode Checkout/webhook、开发 OpenBao signer 与 self-hosted worker；生产 Provider/worker/signer 和客户发行仍未组合或资格化。 | 本地与共享开发证据只证明这些精确边界，不证明客户可用、生产部署、生产 OpenBao custody、原生签名/公证、live 提供商资格、发行或 Gate closure。 |
 | A：账户/个人默认工作区 | ADR-0013 的服务器导出范围和原子创建约束由 A1 实现，并在 D1/V1 汇合；不扩展到团队、多工作区、所有权转移或凭据迁移。 | `Q-OPS` 只在声称受管/已部署账户能力时适用。 |
 | P：本地域名资产 | 本地 SQLCipher 是读写权威；业务事务与 secret-free Outbox 原子提交，Cloud 仅是同步恢复副本。 | `Q-OPS` 只在声称已部署同步服务时适用。 |
-| C：Cloudflare 只读观察 | Provider 账号、账号 metadata、Token 与执行全在本地 Host；Cloud Observation client/repository 已移除，M002 只保留脱敏副本。 | `Q-CF` 只在声称真实提供商观察/可用性时适用。 |
-| Desktop 源图范围一致性 | 当前 Renderer 入口只使用窄本地业务与认证 adapter；Tauri 精确注册具名本地业务、备份、认证和 Cloudflare 命令，没有通用数据库、Provider 网络或 Cloud Repository 命令。Cloudflare Host 命令尚未进入 Renderer adapter。 | 本地范围控制和 Native 组合不证明 Renderer 旅程、真实 Provider 或产品就绪。 |
+| C：域名 Provider 能力 | Provider 账号、资源身份、Token 与执行全在本地 Host；Cloud 只保存允许字段和脱敏观察/结果摘要。当前 Cloudflare 只有 Zone/DNS read 已组合，DNSSEC、Registrar、写入和监控按 ADR-0024 逐项推进。 | `Q-CF` 按能力限制真实 Provider 执行/可用性主张；只读证据不能授权写入或 Registrar。 |
+| Desktop 源图范围一致性 | 当前 Renderer 入口使用窄本地业务、认证和 Cloudflare adapter；Tauri 精确注册具名本地业务、备份、认证和 Cloudflare 命令，没有通用数据库、Provider 网络或 Cloud Repository 命令。Cloudflare 激活、状态、观察和读取已进入 Renderer 客户路径。 | 本地范围控制和 Native/Renderer 组合不证明真实 Provider 或产品就绪。 |
 | 外部运行与发行 | 托管数据库、生产 OpenBao signer custody、部署、原生构件资格、提供商资格和 `1.0.0` / `stable` 发行仍未由本台账宣称。 | 各项只授权其精确外部/公开主张，责任人和证据见 Gate 台账。 |
 
 ## 保留的仓库历史证据

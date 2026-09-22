@@ -33,8 +33,8 @@ Cloud 表原先的 Portfolio 命名容易被误用为 Desktop Repository。显�
 
 ## 约束
 
-- Schema 覆盖未来能力不等于启用这些能力；Provider 写入、市场/Registrar、团队和多工作区仍需
-  各自产品决定、能力合同和资格。
+- Schema 覆盖目标能力不等于启用这些能力；域名 Provider 写入和 Registrar 已纳入首发目标，
+  仍需逐项能力合同、资金确认与资格。市场连接、团队和多工作区仍需另行产品决定。
 - Provider 观察必须先写本地。允许字段通过重新构造的脱敏值进入 Outbox，不能序列化本地连接行。
 - Operation history 区分失败、可重试、等待远端和结果未知；结果未知不能自动重放。
 - Provider token 只由操作系统 Keychain 持有；本地数据库仅保存非秘密 connection anchor、轮换 intent、代次高水位、授权快照摘要与激活证明，任何账号元数据或 Cloud 投影不得包含凭据字节。

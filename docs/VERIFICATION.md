@@ -31,7 +31,7 @@
 | 首切片共享合同 | `@gooddealer/protocol` 与 `@gooddealer/cloud-client` 已公开 tenant-neutral 激活、整体签名授权 Grant v3、Mutation ACK、Pull Cursor、Checkpoint 与恢复输入合同。 | 合同、fail-closed Grant route、OpenBao adapter 与本地验签不证明生产 OpenBao custody 或发行资格。 |
 | Cloudflare Secure Host | `secure-host-core` 已实现私有 Zone/DNS 只读 Service、固定 `api.cloudflare.com` 的加固 HTTPS Transport、v3 完整公开元组信封与 exact-base/explicit-target Keychain 发布；Tauri 已组合独立 ProviderLane、原生秘密录入和 stored observation，Renderer 已组合 activation/status/recovery/read-only observation。Activation 只把 Host durable prewrite handle 交给 Secure Host；prewrite COMMIT 原子 deny use，之后取消不再中断。Exact B 才能 marker/write，mismatch/malformed/unreadable 与 orphan 都在不推进 ledger/head 的前提下 sticky remediation。其 crate 不包含备份实现或依赖。 | Renderer 组合与本地测试不证明真实 Cloudflare、目标平台签名/Keychain 构件或提供商资格；完成这些外部证据前不能声明客户可用。 |
 | GDBK backup/restore | `gooddealer-local-storage` 的 `DesktopLocalHost` 独占 authority continuity、strict GDBK v1、allowlisted projection、isolated candidate、guarded current-DB honest replay；client-core 合同、Desktop raw-wire adapter 和仅在 `cfg(test)` 编译的 continuity/rebootstrap runtime/custody/database 状态机已在私有开发组合中验证。 | true-create-only fake 只证明私有协议；生产不保留 recovery shell，只保留 fixed-resource residue absence gate，且缺少 picker/handle、真实 KEK、独立 non-rollbackable anchor、true create-only slot custody、safe `SQLITE_FCNTL_HAS_MOVED`/custody VFS、durable filesystem 与签名目标平台故障资格。备份、continuity、rebootstrap 均为 `unavailable`，不能声明恢复或灾难恢复可用。 |
-| 已接受目标 | ADR-0013、连接器规范和 ADR-0017 固定个人默认工作区、Cloudflare API-only 只读观察和无浏览器。 | 决定约束不等于实际账户、资产读取或提供商观察。 |
+| 已接受目标 | ADR-0013、ADR-0024、连接器规范和 ADR-0017 固定个人默认工作区、域名 Provider capability manifest、资金单项确认和无嵌入式/自动化浏览器。 | 决定约束不等于实际资产或 Provider 能力已执行。 |
 
 Desktop production 图的范围控制由源码测试持续验证；后续组合任何 feature、Host 或 connector 时必须
 更新当前态并重新执行 production-entrypoint reachability 检查，不得恢复已删除的 connector 注册、
@@ -59,8 +59,8 @@ publication；同时运行 client-core 357 tests、Desktop 99 tests 与 producti
    `accountId`、`workspaceId`。
 3. 展示层没有秘密、直接持久化、直接网络/提供商权威或通过 callback/fixture 获得的结果。
 4. 对应的正向垂直测试和负向控制都已实际运行，并记录准确命令、退出状态和适用范围。
-5. 本地路径没有引入浏览器、写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 或任何
-   compatibility/transition/fallback 路径。
+5. 本地路径没有引入嵌入式/自动化浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移、CSV import
+   或任何 compatibility/transition/fallback 路径；域名写入和 Registrar 能力必须经过具名审批和资格。
 6. 所有共享入口、公开导出、协议、迁移和当前文档由具名整合负责人重新检查。
 
 账户、授权和同步实现必须采用[首切片共享合同](FIRST_SLICE_SHARED_CONTRACT.md)的 operation id、schema、
@@ -88,6 +88,10 @@ boundary schema 和认证语义；六条业务 route 使用 protocol public sche
 | **本地域名资产读写** | list/detail/edit 使用本地 Query/Command；显示本地提交和待同步状态。 | Host 拥有路径和密钥，只公开具名命令。 | Cloud 只接收字段白名单 Mutation 并返回 ACK/Cursor。 | 本地业务表与 Outbox 原子提交；Pull 经本地事务合并。 | Cloud transport 缺失仍可读写、原子回滚、空副本 no-op、Pull 不回声 Outbox。 | 未授权、路径/密钥/租户注入、秘密字段、Cloud 空副本删除和直接 Cloud Query 均失败关闭。 | Cloud 部署只授权同步服务主张；本地行为不依赖该资格。 |
 | **Secret-free 同步与 Conflict Center** | `SyncSnapshot` 同时展示 SQLite durable counts 与 Native transport；`sync.conflicts` 在 Active 可 resolve，在 commercial read-only/Standby 只读，locked/retryable/security/recovery route-free。receipt 只表示本地提交，不表示 Cloud ACK。 | Native 固定 Cloud origin，串行化 Push/ACK/Pull/Checkpoint 并按 `RecoveryRequired > SecurityBlocked > AuthorizationBlocked > Retryable > Valid > NotAttempted` 聚合；Host 唯一推进 `readGeneration`，resolve 要求 `current == expected`，成功严格返回 `expected + 1`，随后只发布 generation-stable 全量重读。 | 服务端从认证主体派生工作区，严格解析 Mutation/ACK/Cursor/Checkpoint；RLS 与 capability façade 不接受客户端租户扩张。 | 本地业务写与 Outbox 原子提交；Inbox/materializer、conflict、tombstone、receipt、cursor/checkpoint 和 visible-generation 更新遵守事务边界，Cloud 只保存 allowlisted replica。 | Push/ACK/Pull/Checkpoint、重启从 `checking`、空副本 no-op、精确幂等重放、冲突 CAS、原子 publication，以及当前独立 evaluator 的五项 mutation controls。 | 中间 generation 变化、提交失败后增代、`expected + 2` 重放、未知 IPC 字段、Push auth/retryable/security 被 Pull success 掩盖、取消/drain 后 late success、秘密/Provider identity 同步和 Cloud 空副本删除均被拒绝。 | live PostgreSQL 并发/RLS、容量、长稳和受控故障只授权对应同步运行资格；局部 evaluator 不等于全系统 V1 或生产 Cloud。 |
 | **Cloudflare API-only Zone/DNS 只读观察** | 显示本地保存的连接状态和本地 Provider 观察。 | 本地 Host 独占第三方账号、Provider Account ID、别名、Token 和 HTTPS read。 | 无 Cloud Observation submit/read；Cloud 不调用 Provider。 | Provider 账号和密封凭据只写本地；允许的业务字段经 DomainAsset Outbox 同步。 | no-secret Mutation、无 Cloud connection persistence、Host read allowlist 和本地结果持久化测试。 | 账号 metadata/Token 泄漏、Cloud Provider 调用、DNS 写、浏览器 fallback 和任意网络均被拒绝。 | 条款、最小 Token、受控 Zone 和独立审查才授权真实 Provider 可用性。 |
+
+新增域名能力的验收还必须覆盖：Host-owned 报价与单项确认、Grant/Lease/凭据代次即时复验、
+计划摘要与资源绑定、未知结果对账、批量逐项结果和 Provider 页面回跳不构成成功。当前只有
+上述只读观察实现；目标能力不得借现有只读证据获得执行许可。
 
 ## 非 V1 主路径：GDBK 与 rebootstrap
 
@@ -134,17 +138,17 @@ current-DB replay 和私有测试协议，但生产 capability 统一保持 `una
 | 授权与租户 | 客户端或缓存不能创建、选择、替换或扩大 Account/Workspace 范围；所有读取首先由服务器端绑定授权。 |
 | 协议 | 未知、缺失、类型错误或与请求不一致的 wire 数据从 `unknown` 拒绝，不能隐式 fallback。 |
 | 秘密与外部效果 | 秘密不进入普通应用状态、Cloud、日志、错误、审计或夹具；外部动作没有明确最小权限合同时不得发生。 |
-| v1 排除项 | 浏览器、提供商写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 和所有外部 mutation 没有可达产品路径。 |
+| v1 排除项 | 嵌入式/自动化浏览器、非域名 Provider 产品、市场连接、团队/多工作区、凭据迁移和 CSV import 没有可达产品路径；未资格化的域名外部 mutation 同样不可达。 |
 | 视觉与夹具 | `brand/`、视觉 fixture/gallery、样例数据和 disabled 控件只能用于展示 QA，不能证明状态、授权或外部结果。生产 UI 只消费 `@gooddealer/ui` public exports、声明的 tokens/assets 与 `@gooddealer/i18n` public exports。 |
 | 过渡面 | 不存在旧路由、双 data/session 路径、兼容 API、别名、临时 adapter、迁移桥或浏览器/提供商 fallback。 |
-| 当前 Desktop 图 | production 入口只允许具名本地业务 adapter；任何新增命令需同步 manifest、handler、capability、adapter 与策略测试。 |
+| 当前 Desktop 图 | production 入口只允许具名本地业务、认证、同步与 Cloudflare adapter；任何新增命令需同步 manifest、handler、capability、adapter 与策略测试。 |
 
 ## 外部资格不是本地完成门槛
 
 | 外部资格 | 所需证据 | 它限制的声明 | 它不限制的工作 |
 | --- | --- | --- | --- |
 | Cloud 部署与托管数据库 | 已批准环境、迁移应用、运行监控和运行时观察。 | 已部署服务、托管数据和客户可用 Cloud API。 | 已冻结合同下的本地身份、投影、API 和持久化实现。 |
-| Cloudflare 资格 | 条款、最小 Token 指南、受控 Zone 观察、限流/错误/移除验证和独立安全审查。 | 真实提供商观察或连接器可用性。 | API-only 只读合同、秘密隔离、脱敏投影和失败关闭的本地测试。 |
+| Cloudflare 资格 | 按能力完成条款、最小权限、受控资源、限流/错误/移除、资金确认、未知结果对账和独立安全审查。 | 仅对应能力的真实 Provider 执行或客户可用性。 | capability 合同、秘密隔离、脱敏投影和失败关闭的本地测试。 |
 | 原生资格 | 最终平台构件、签名/公证或 Windows/macOS 观察。 | 原生已签名/已公证或可交付客户端。 | Tauri/React/Host 的本地受限实现和测试。 |
 | 发行与 Gate | 干净构件、持久归档、独立审查和 ADR-0018 所需批准。 | `1.0.0` / `stable`、客户发行和 Gate closure。 | 已接受 v1 范围内的本地工作包和垂直验收。 |
 

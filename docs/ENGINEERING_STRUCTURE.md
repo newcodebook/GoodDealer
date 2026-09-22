@@ -60,7 +60,8 @@ crates/
 
 ## v1 的本地组合规则
 
-v1 只有账户激活/个人默认工作区、资产只读投影和 Cloudflare API-only Zone/DNS 只读观察。
+v1 的 Provider 目标是域名资产生命周期能力；当前源码已组合的 Provider 能力仍只有 Cloudflare
+API-only Zone/DNS 只读观察，其余 DNS/DNSSEC/Registrar/监控能力必须按具名 capability 逐项接线。
 这些工作可在相互独立的 Desktop 展示、Host 合同准备、Cloud API 和持久化领域中并行进行，
 但每一条垂直路径都必须满足自己的真实本地依赖。具体验收行在 [验证边界](VERIFICATION.md)，
 本文件不重复能力矩阵。
@@ -80,7 +81,8 @@ v1 只有账户激活/个人默认工作区、资产只读投影和 Cloudflare A
    别名、深层 import 或临时共享 UI 路径。
 5. 没有兼容/过渡接口、双 data/session 路径、旧路由、迁移桥、通用 adapter、提供商 fallback 或
    浏览器 fallback。夹具、gallery、样例数据和视觉 callback 不得进入生产依赖图，也不授予权威。
-6. v1 不组合浏览器、写入、市场/注册商、团队/多工作区、凭据迁移、CSV import 或任何外部 mutation。
+6. v1 不组合浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移或 CSV import；域名 Provider
+   写入、Registrar 和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
 
 ## Current source state：Desktop 与 Cloudflare 组合边界
 

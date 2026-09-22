@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "../wire/index";
+import {
+  domainProviderFinancialConfirmationSchema,
+  domainProviderFinancialQuoteSchema,
+  domainProviderHandoffReturnSchema,
+} from "./domain-capabilities";
 
 export const CONNECTORS_PROTOCOL_VERSION = 1 as const;
 export const CLOUDFLARE_PROVIDER_KIND = "cloudflare" as const;
@@ -215,6 +220,34 @@ export function copyUntrustedCloudflareWire(input: unknown): unknown {
   const serialized = JSON.stringify(copied);
   if (serialized === undefined || utf8Encoder.encode(serialized).byteLength > MAX_WIRE_BYTES) throw new TypeError("invalid Cloudflare wire value");
   return copied;
+}
+
+export {
+  DOMAIN_PROVIDER_CAPABILITY_CATALOG_VERSION,
+  DOMAIN_PROVIDER_OPERATION_SCHEMA_VERSION,
+  domainProviderCapabilityCatalog,
+  domainProviderCapabilityIdSchema,
+  domainProviderFinancialConfirmationSchema,
+  domainProviderFinancialQuoteSchema,
+  domainProviderHandoffReturnSchema,
+} from "./domain-capabilities";
+export type {
+  DomainProviderCapabilityId,
+  DomainProviderFinancialConfirmation,
+  DomainProviderFinancialQuote,
+  DomainProviderHandoffReturn,
+} from "./domain-capabilities";
+
+export function parseDomainProviderFinancialConfirmation(value: unknown) {
+  return domainProviderFinancialConfirmationSchema.parse(copyUntrustedCloudflareWire(value));
+}
+
+export function parseDomainProviderFinancialQuote(value: unknown) {
+  return domainProviderFinancialQuoteSchema.parse(copyUntrustedCloudflareWire(value));
+}
+
+export function parseDomainProviderHandoffReturn(value: unknown) {
+  return domainProviderHandoffReturnSchema.parse(copyUntrustedCloudflareWire(value));
 }
 
 function isIpv4(input: string): boolean {
