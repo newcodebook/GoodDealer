@@ -11,6 +11,8 @@ import {
   PostgresIdentitySessionVerificationReader,
 } from "../modules/identity/index";
 import { createIdentityHttp } from "./identity-http";
+import { IdentityBoundaryTelemetry } from "./identity-telemetry";
+import { rateLimitPolicy } from "./adapter/rate-limit";
 import { CloudPublicSessionVerifier } from "./ports/public-session";
 
 const pool = createCloudDatabasePool({ connectionString: required("GOODDEALER_POSTGRES_APP_URL"), max: 8 });
@@ -21,6 +23,7 @@ const keyId = optional("GOODDEALER_IDENTITY_OUTBOX_KEY_ID") ?? "development-v1";
 const identity = new PostgresIdentitySessionVerificationReader(pool);
 const accounts = new IdentityAccountAccessService(repository, new Argon2idPasswordHashVerifier(), {
   verificationPepper: key("GOODDEALER_IDENTITY_VERIFICATION_PEPPER"), outboxKey, outboxKeyId: keyId,
+  accountOrigin: optional("GOODDEALER_ACCOUNT_ORIGIN") ?? "https://account.gooddealer.com",
 });
 const app = createIdentityHttp({
   accounts,
@@ -28,11 +31,17 @@ const app = createIdentityHttp({
   allowedOrigins: [optional("GOODDEALER_ACCOUNT_ORIGIN") ?? "https://account.gooddealer.com"],
   now: () => new Date(),
   accountNamespaceKey,
+  rateLimit: rateLimitPolicy(60_000, 30),
+  observer: new IdentityBoundaryTelemetry((event) => {
+    process.stdout.write(`${JSON.stringify(event)}\n`);
+  }),
 });
 const worker = new IdentityEmailOutboxWorker(repository, new LoopbackSmtpEmailDelivery({
   host: "127.0.0.1", port: port(optional("GOODDEALER_MAILPIT_SMTP_PORT") ?? "1025"),
   from: optional("GOODDEALER_IDENTITY_FROM_EMAIL") ?? "account@development.gooddealer.invalid",
-}), outboxKey, keyId);
+}), outboxKey, keyId, () => new Date(), { observe: (event) => {
+  process.stdout.write(`${JSON.stringify({ event: "identity_email_delivery", ...event })}\n`);
+} });
 
 await app.ready();
 const server = createServer((request, response) => app.routing(request, response));

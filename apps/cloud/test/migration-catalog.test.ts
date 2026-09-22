@@ -12,6 +12,9 @@ import { desktopRefreshIdempotencyMigration } from "../src/modules/identity/migr
 import { desktopLoginAuthorityMigration } from "../src/modules/devices/migrations/202608200017-desktop-login-authority";
 import { identityTransactionCapabilityMigration } from "../src/modules/identity/migrations/202608200019-transaction-capability";
 import { accountAccessMigration } from "../src/modules/identity/migrations/202609040001-account-access";
+import { accountRecoveryMigration } from "../src/modules/identity/migrations/202609210001-account-recovery";
+import { commercialEntitlementSnapshotMigration } from "../src/modules/licensing/migrations/202609220001-commercial-entitlement-snapshot";
+import { accountDefaultWorkspaceCapabilityPolicyMigration } from "../src/modules/workspace/default-workspace/migrations/202609220002-account-default-workspace-capability-policy";
 import { businessReplicaModelMigration } from "../src/modules/workspace/state/portfolio/migrations/202608200002-business-replica-model";
 import { workspaceCheckpointV2Migration } from "../src/modules/workspace/checkpoints/migrations/202609150001-workspace-checkpoint-v2";
 import { cloudflareDnsObservationMigration } from "../src/modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";
@@ -90,7 +93,7 @@ const expectedCatalog = [
   {
     id: "202608200015-commercial-entitlements",
     owner: "licensing",
-    checksum: "026d23a0eeddad81b0624fc9fe9186546056e12ad752c477f5ee2a5307edf8a9",
+    checksum: "dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e",
   },
   {
     id: "202608200016-desktop-refresh-idempotency",
@@ -105,7 +108,7 @@ const expectedCatalog = [
   {
     id: "202608200019-transaction-capability",
     owner: "identity",
-    checksum: "e364ac4cc2ac5a944d5c2b12b75e17d46286641814ec5dbd12d9ee28f735107b",
+    checksum: "5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9",
   },
   {
     id: "202609040001-account-access",
@@ -127,6 +130,21 @@ const expectedCatalog = [
     owner: "workspace/sync",
     checksum: "36b2b252e011adbf01753de3ece59ea44dd630ae93a5be8e57cdbe1618418f38",
   },
+  {
+    id: "202609210001-account-recovery",
+    owner: "identity",
+    checksum: "612ccc2efb56cd36666fd41f235abec3740e52df220bd121d15b0bddf64525b3",
+  },
+  {
+    id: "202609220001-commercial-entitlement-snapshot",
+    owner: "licensing",
+    checksum: "f78b527a82590eb95c01c56be4c5064a1215561452ae36b36319f865d280baa1",
+  },
+  {
+    id: "202609220002-account-default-workspace-capability-policy",
+    owner: "workspace/default-workspace",
+    checksum: "e35c43c0daab0ffcb2f5998a9f7287f1e0cf5a46caa4f729274cbe0d3a5c2ecb",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -134,7 +152,7 @@ const expectedMigrationFiles = expectedCatalog.map(
 ).sort();
 
 describe("Cloud migration catalog", () => {
-  it("keeps the frozen prefix and terminal account-access migration as literal imports rather than discovery", () => {
+  it("keeps the frozen prefix and terminal account-recovery migration as literal imports rather than discovery", () => {
     const source = readFileSync(new URL("../src/db/migrations.ts", import.meta.url), "utf8")
       .replaceAll("\r\n", "\n");
 
@@ -150,9 +168,12 @@ describe("Cloud migration catalog", () => {
     expect(source).toContain(
       "  commercialEntitlementsMigration,\n  desktopRefreshIdempotencyMigration,\n"
       + "  desktopLoginAuthorityMigration,\n  identityTransactionCapabilityMigration,\n  accountAccessMigration,\n"
-      + "  syncV2LedgerMigration,\n  workspaceCheckpointV2Migration,\n  cloudflareDnsObservationMigration,\n];",
+      + "  syncV2LedgerMigration,\n  workspaceCheckpointV2Migration,\n  cloudflareDnsObservationMigration,\n"
+      + "  accountRecoveryMigration,\n  commercialEntitlementSnapshotMigration,\n"
+      + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
+    expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
     expect(source).not.toMatch(/(?:import\.meta\.glob|readdir|glob\(|import\(|sort\()/u);
   });
 
@@ -162,7 +183,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(22);
+    expect(checkedCloudMigrationCatalog).toHaveLength(25);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);
@@ -216,12 +237,17 @@ describe("Cloud migration catalog", () => {
       desktopLoginAuthorityMigration,
       identityTransactionCapabilityMigration,
       accountAccessMigration,
+      accountRecoveryMigration,
     ];
-    const indexes = [1, 12, 13, 14, 15, 16, 17, 18];
+    const indexes = [1, 12, 13, 14, 15, 16, 17, 18, 22];
     for (const [offset, migration] of finalSources.entries()) {
       expect(createHash("sha256").update(migration.sql, "utf8").digest("hex"))
         .toBe(expectedCatalog[indexes[offset]!]?.checksum);
     }
+    expect(createHash("sha256").update(commercialEntitlementSnapshotMigration.sql, "utf8").digest("hex"))
+      .toBe(expectedCatalog[23]?.checksum);
+    expect(createHash("sha256").update(accountDefaultWorkspaceCapabilityPolicyMigration.sql, "utf8").digest("hex"))
+      .toBe(expectedCatalog[24]?.checksum);
   });
 
   it("keeps the durable M003 and M004 prefix byte-identical while evolving through M016 and M017", () => {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { commercialEntitlementsMigration } from "../src/modules/licensing/migrations/202608200015-commercial-entitlements";
+import { commercialEntitlementSnapshotMigration } from "../src/modules/licensing/migrations/202609220001-commercial-entitlement-snapshot";
 
 describe("greenfield commercial entitlement migration", () => {
-  const sql = commercialEntitlementsMigration.sql;
+  const sql = `${commercialEntitlementsMigration.sql}\n${commercialEntitlementSnapshotMigration.sql}`;
 
   it("owns the normalized commercial aggregate, evidence, authority, and job model", () => {
     for (const relation of [

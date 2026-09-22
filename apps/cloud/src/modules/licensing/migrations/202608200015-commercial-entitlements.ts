@@ -462,21 +462,6 @@ export const commercialEntitlementsMigration: CloudMigration = {
       RETURN QUERY SELECT p.commercial_expires_at,p.state IN ('active','grace') AND p.commercial_expires_at>transaction_timestamp()
         FROM licensing_private.account_entitlement_projections p WHERE p.account_id=a FOR UPDATE; END $f$;
 
-    CREATE FUNCTION licensing_api.read_authoritative_entitlement_snapshot()
-      RETURNS TABLE(source_event_id text,source_revision bigint,occurred_at timestamptz,state text,
-        license_id text,plan text,entitlement_kind text,commercial_expires_at timestamptz,
-        offline_grace_until timestamptz,credential_refresh_due_at timestamptz,
-        feature_entitlements text[],trusted_now timestamptz)
-      LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,licensing_private SET row_security=on AS $f$
-    DECLARE a text; BEGIN a:=coalesce(identity_private.current_transaction_account('devices_account'),
-      identity_private.current_transaction_account('identity_account'));
-      IF a IS NULL THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='account transaction capability is unavailable'; END IF;
-      RETURN QUERY SELECT p.right_id::text,p.authority_revision,p.updated_at,p.state,p.right_id::text,
-        p.plan,p.purchase_kind,p.commercial_expires_at,p.commercial_expires_at,p.commercial_expires_at,
-        p.feature_entitlements,clock_timestamp()
-        FROM licensing_private.account_entitlement_projections p WHERE p.account_id=a FOR UPDATE;
-    END $f$;
-
     CREATE FUNCTION licensing_ingress_api.receive_authenticated_receipt(p_provider licensing_private.commercial_provider,p_event_id text,
       p_digest bytea,p_event_type text,p_kind text,p_resource_kind text,p_resource_id text,p_ignored_reason text,p_occurred_at timestamptz,p_evidence text)
       RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,licensing_private SET row_security=on AS $f$
@@ -2144,7 +2129,6 @@ export const commercialEntitlementsMigration: CloudMigration = {
     ALTER FUNCTION licensing_api.reserve_purchase(text,licensing_private.commercial_provider,licensing_private.purchase_kind,text,text,text,bigint,text,bytea) OWNER TO gd_licensing_command_definer;
     ALTER FUNCTION licensing_api.read_billing_status() OWNER TO gd_licensing_command_definer;
     ALTER FUNCTION licensing_api.read_entitlement_deadline() OWNER TO gd_licensing_command_definer;
-    ALTER FUNCTION licensing_api.read_authoritative_entitlement_snapshot() OWNER TO gd_licensing_command_definer;
     ALTER FUNCTION licensing_api.request_cancellation(text,uuid,bytea) OWNER TO gd_licensing_command_definer;
     ALTER FUNCTION licensing_api.request_first_purchase_refund(text,uuid,bytea) OWNER TO gd_licensing_command_definer;
     ALTER FUNCTION licensing_api.read_first_purchase_refund_status(uuid) OWNER TO gd_licensing_command_definer;

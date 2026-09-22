@@ -1,11 +1,12 @@
 import type { Pool } from "pg";
 
-import { AccountTransactionRunner, PreAuthEmailTransactionRunner } from "../../db/index";
+import { AccountTransactionRunner, PreAuthEmailTransactionRunner, type DatabaseQuery } from "../../db/index";
 import {
   type IdentityAccountAccessRecord,
   type IdentityAccountAccessRepository,
   type RegistrationWrite,
   type SealedEmailEnvelope,
+  type VerificationDeliveryWrite,
 } from "./account-access";
 import { PostgresIdentityAuthenticationRepository } from "./postgres-authentication-repository";
 
@@ -83,10 +84,11 @@ export class PostgresIdentityAccountAccessRepository implements IdentityAccountA
         );
         await transaction.query(
           `INSERT INTO identity_email_outbox
-             (outbox_id, account_id, key_id, nonce, ciphertext, authentication_tag)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [write.outboxId, accountId, write.envelope.keyId, Buffer.from(write.envelope.nonce),
-            Buffer.from(write.envelope.ciphertext), Buffer.from(write.envelope.authenticationTag)],
+             (outbox_id, account_id, purpose, challenge_digest, key_id, nonce, ciphertext, authentication_tag)
+           VALUES ($1, $2, 'registration', $3, $4, $5, $6, $7)`,
+          [write.outboxId, accountId, Buffer.from(write.challengeDigest), write.envelope.keyId,
+            Buffer.from(write.envelope.nonce), Buffer.from(write.envelope.ciphertext),
+            Buffer.from(write.envelope.authenticationTag)],
         );
         return "queued";
       });
@@ -97,6 +99,35 @@ export class PostgresIdentityAccountAccessRepository implements IdentityAccountA
       }
       throw error;
     }
+  }
+
+  async resendRegistration(
+    write: VerificationDeliveryWrite,
+    now: Date,
+  ): Promise<"queued" | "cooldown" | "unavailable"> {
+    const account = await this.findExactAccount(write.emailNormalized);
+    if (account === null || account.emailVerified) return "unavailable";
+    return this.#transactions.withAccount(account.accountId, async (transaction) => {
+      const challenge = await transaction.query<{ blocked: boolean }>(
+        `SELECT consumed_at IS NULL AND resend_available_at > $2 AS blocked
+           FROM identity_registration_challenges WHERE account_id = $1 FOR UPDATE`,
+        [account.accountId, now],
+      );
+      const current = challenge.rows[0];
+      if (current === undefined) return "unavailable";
+      if (current.blocked) return "cooldown";
+      await transaction.query(
+        `UPDATE identity_registration_challenges
+            SET challenge_digest = $2, expires_at = $3, resend_available_at = $4,
+                failed_attempts = 0, consumed_at = NULL, updated_at = $5
+          WHERE account_id = $1`,
+        [account.accountId, Buffer.from(write.challengeDigest), write.challengeExpiresAt,
+          write.resendAvailableAt, now],
+      );
+      await supersedePendingEmail(transaction, account.accountId, "registration");
+      await insertEmail(transaction, account.accountId, write);
+      return "queued";
+    });
   }
 
   async verifyRegistration(input: { emailNormalized: string; challengeDigest: Uint8Array; now: Date }) {
@@ -136,6 +167,7 @@ export class PostgresIdentityAccountAccessRepository implements IdentityAccountA
         `INSERT INTO workspace_revisions (account_id, workspace_id, workspace_schema_version)
          VALUES ($1, $2, 1)`, [account.accountId, accepted.workspace_id],
       );
+      await supersedePendingEmail(transaction, account.accountId, "registration");
       return { status: "verified" as const, account: { ...account, emailVerified: true } };
     });
   }
@@ -156,11 +188,114 @@ export class PostgresIdentityAccountAccessRepository implements IdentityAccountA
     return issued === "issued" ? "issued" : "conflict";
   }
 
-  async claimEmail(): Promise<{ outboxId: string; accountId: string; envelope: SealedEmailEnvelope } | null> {
+  async requestPasswordReset(
+    write: VerificationDeliveryWrite,
+    now: Date,
+  ): Promise<"queued" | "cooldown" | "unavailable"> {
+    const account = await this.findExactAccount(write.emailNormalized);
+    if (account === null || !account.emailVerified) return "unavailable";
+    return this.#transactions.withAccount(account.accountId, async (transaction) => {
+      const current = await transaction.query<{ blocked: boolean }>(
+        `SELECT consumed_at IS NULL AND resend_available_at > $2 AS blocked
+           FROM identity_password_reset_challenges WHERE account_id = $1 FOR UPDATE`,
+        [account.accountId, now],
+      );
+      if (current.rows[0]?.blocked === true) return "cooldown";
+      await transaction.query(
+        `INSERT INTO identity_password_reset_challenges
+           (account_id, challenge_digest, expires_at, resend_available_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)
+         ON CONFLICT (account_id) DO UPDATE SET
+           challenge_digest = excluded.challenge_digest,
+           expires_at = excluded.expires_at,
+           resend_available_at = excluded.resend_available_at,
+           failed_attempts = 0, consumed_at = NULL, updated_at = excluded.updated_at`,
+        [account.accountId, Buffer.from(write.challengeDigest), write.challengeExpiresAt,
+          write.resendAvailableAt, now],
+      );
+      await supersedePendingEmail(transaction, account.accountId, "password_reset");
+      await insertEmail(transaction, account.accountId, write);
+      return "queued";
+    });
+  }
+
+  async resetPassword(input: {
+    emailNormalized: string;
+    challengeDigest: Uint8Array;
+    password: { policyId: "argon2id-v1"; phc: string };
+    now: Date;
+  }): Promise<"completed" | "invalid"> {
+    const account = await this.findExactAccount(input.emailNormalized);
+    if (account === null || !account.emailVerified) return "invalid";
+    return this.#transactions.withAccount(account.accountId, async (transaction) => {
+      const challenge = await transaction.query<{ valid: boolean }>(
+        `UPDATE identity_password_reset_challenges
+            SET failed_attempts = failed_attempts + 1, updated_at = transaction_timestamp(),
+                consumed_at = CASE WHEN challenge_digest = $2 AND expires_at > $3
+                                      AND consumed_at IS NULL AND failed_attempts < 6
+                                   THEN transaction_timestamp() ELSE consumed_at END
+          WHERE account_id = $1 AND consumed_at IS NULL AND failed_attempts < 6
+          RETURNING challenge_digest = $2 AND expires_at > $3 AND consumed_at IS NOT NULL AS valid`,
+        [account.accountId, Buffer.from(input.challengeDigest), input.now],
+      );
+      if (challenge.rows[0]?.valid !== true) return "invalid";
+      const updated = await transaction.query(
+        `UPDATE identity_accounts
+            SET password_policy_id = $2, password_hash_phc = $3, updated_at = transaction_timestamp()
+          WHERE account_id = $1 AND email_verified_at IS NOT NULL`,
+        [account.accountId, input.password.policyId, input.password.phc],
+      );
+      if (updated.rowCount !== 1) return "invalid";
+      await transaction.query(
+        `UPDATE identity_account_security_states
+            SET account_security_epoch = account_security_epoch + 1,
+                session_list_revision = session_list_revision + 1,
+                status = 'normal', updated_at = transaction_timestamp()
+          WHERE account_id = $1`,
+        [account.accountId],
+      );
+      await revokeAllSessions(transaction, account.accountId, "password_reset");
+      await supersedePendingEmail(transaction, account.accountId, "password_reset");
+      return "completed";
+    });
+  }
+
+  revokeAccountWebSession(input: { accountId: string; sessionId: string; now: Date }): Promise<void> {
+    return this.#transactions.withAccount(input.accountId, async (transaction) => {
+      const revoked = await transaction.query<{ session_id: string }>(
+        `UPDATE identity_auth_sessions
+            SET revoked_at = coalesce(revoked_at, $3), revocation_reason = coalesce(revocation_reason, 'account_web_logout')
+          WHERE account_id = $1 AND session_id = $2 AND client_kind = 'account_web'
+          RETURNING session_id`,
+        [input.accountId, input.sessionId, input.now],
+      );
+      if (revoked.rowCount === 0) return;
+      await transaction.query(
+        `UPDATE identity_refresh_families
+            SET state = 'revoked', revoked_at = coalesce(revoked_at, $3),
+                revocation_reason = coalesce(revocation_reason, 'account_web_logout')
+          WHERE account_id = $1 AND session_id = $2`,
+        [input.accountId, input.sessionId, input.now],
+      );
+      await transaction.query(
+        `UPDATE identity_credential_jtis SET state = 'revoked'
+          WHERE account_id = $1 AND session_id = $2`,
+        [input.accountId, input.sessionId],
+      );
+      await transaction.query(
+        `UPDATE identity_account_security_states
+            SET session_list_revision = session_list_revision + 1, updated_at = $2
+          WHERE account_id = $1`,
+        [input.accountId, input.now],
+      );
+    });
+  }
+
+  async claimEmail(now: Date): Promise<{ outboxId: string; accountId: string; envelope: SealedEmailEnvelope } | null> {
     const result = await this.pool.query<{
       outbox_id: string; account_id: string; key_id: string; nonce: Buffer;
       ciphertext: Buffer; authentication_tag: Buffer;
-    }>("SELECT * FROM identity_claim_email_outbox()");
+    }>("SELECT * FROM identity_claim_email_outbox($1)", [now]);
     const row = result.rows[0];
     return row === undefined ? null : {
       outboxId: row.outbox_id,
@@ -174,19 +309,86 @@ export class PostgresIdentityAccountAccessRepository implements IdentityAccountA
     };
   }
 
-  completeEmail(accountId: string, outboxId: string, delivered: boolean, now: Date): Promise<void> {
+  completeEmail(accountId: string, outboxId: string, delivered: boolean, now: Date):
+  Promise<"sent" | "retry_scheduled" | "failed"> {
     return this.#transactions.withAccount(accountId, async (transaction) => {
-      const result = await transaction.query(
+      const result = await transaction.query<{ state: "pending" | "sent" | "failed" }>(
         delivered
           ? `UPDATE identity_email_outbox SET state = 'sent', sent_at = $3, locked_until = NULL
-               WHERE account_id = $1 AND outbox_id = $2 AND state = 'sending'`
-          : `UPDATE identity_email_outbox SET state = 'pending', available_at = $3 + interval '1 minute', locked_until = NULL
-               WHERE account_id = $1 AND outbox_id = $2 AND state = 'sending'`,
+               WHERE account_id = $1 AND outbox_id = $2 AND state = 'sending' RETURNING state`
+          : `UPDATE identity_email_outbox
+                SET state = CASE WHEN attempts >= 20 THEN 'failed' ELSE 'pending' END,
+                    available_at = $3::timestamptz + CASE
+                      WHEN attempts <= 1 THEN interval '1 minute'
+                      WHEN attempts = 2 THEN interval '2 minutes'
+                      WHEN attempts = 3 THEN interval '5 minutes'
+                      WHEN attempts = 4 THEN interval '15 minutes'
+                      ELSE interval '1 hour' END,
+                    locked_until = NULL, last_failure_at = $3,
+                    failed_at = CASE WHEN attempts >= 20 THEN $3 ELSE NULL END
+               WHERE account_id = $1 AND outbox_id = $2 AND state = 'sending' RETURNING state`,
         [accountId, outboxId, now],
       );
       if (result.rowCount !== 1) throw new Error("identity email completion conflict");
+      const state = result.rows[0]?.state;
+      if (state === "sent") return "sent";
+      if (state === "failed") return "failed";
+      if (state === "pending") return "retry_scheduled";
+      throw new Error("identity email completion state is invalid");
     });
   }
+}
+
+async function insertEmail(
+  transaction: DatabaseQuery,
+  accountId: string,
+  write: VerificationDeliveryWrite,
+): Promise<void> {
+  await transaction.query(
+    `INSERT INTO identity_email_outbox
+       (outbox_id, account_id, purpose, challenge_digest, key_id, nonce, ciphertext, authentication_tag)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [write.outboxId, accountId, write.purpose, Buffer.from(write.challengeDigest), write.envelope.keyId,
+      Buffer.from(write.envelope.nonce), Buffer.from(write.envelope.ciphertext),
+      Buffer.from(write.envelope.authenticationTag)],
+  );
+}
+
+async function supersedePendingEmail(
+  transaction: DatabaseQuery,
+  accountId: string,
+  purpose: VerificationDeliveryWrite["purpose"],
+): Promise<void> {
+  await transaction.query(
+    `UPDATE identity_email_outbox SET state = 'superseded', locked_until = NULL
+      WHERE account_id = $1 AND purpose = $2 AND state = 'pending'`,
+    [accountId, purpose],
+  );
+}
+
+async function revokeAllSessions(
+  transaction: DatabaseQuery,
+  accountId: string,
+  reason: string,
+): Promise<void> {
+  await transaction.query(
+    `UPDATE identity_auth_sessions
+        SET revoked_at = coalesce(revoked_at, transaction_timestamp()),
+            revocation_reason = coalesce(revocation_reason, $2)
+      WHERE account_id = $1`,
+    [accountId, reason],
+  );
+  await transaction.query(
+    `UPDATE identity_refresh_families
+        SET state = 'revoked', revoked_at = coalesce(revoked_at, transaction_timestamp()),
+            revocation_reason = coalesce(revocation_reason, $2)
+      WHERE account_id = $1`,
+    [accountId, reason],
+  );
+  await transaction.query(
+    "UPDATE identity_credential_jtis SET state = 'revoked' WHERE account_id = $1",
+    [accountId],
+  );
 }
 
 function isUniqueViolation(error: unknown): boolean {

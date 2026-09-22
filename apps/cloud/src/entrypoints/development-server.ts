@@ -14,6 +14,8 @@ import {
   IdentityAccountSessionVerifier,
   IdentityEmailOutboxWorker,
   LoopbackSmtpEmailDelivery,
+  ResendEmailDelivery,
+  type EmailDeliveryPort,
   PostgresIdentityAccountAccessRepository,
 } from "../modules/identity/index";
 import { AccountTransactionRunner } from "../db/index";
@@ -22,6 +24,7 @@ import { createPostgresDesktopOAuthHttp } from "./desktop-oauth-http";
 import { createPostgresCloudPublicHttp } from "./http";
 import { createPostgresPaymentWebhookHttp } from "./payment-webhook-http";
 import { createIdentityHttp } from "./identity-http";
+import { IdentityBoundaryTelemetry } from "./identity-telemetry";
 import { CloudPublicSessionVerifier } from "./ports/public-session";
 import { readStripeTestProviderComposition } from "./development-commercial-config";
 import { OpenBaoAppRoleTokenSource } from "./openbao-approle-token-source";
@@ -104,24 +107,30 @@ async function startDevelopmentServer(): Promise<void> {
       verificationPepper: requiredBase64UrlKey("GOODDEALER_IDENTITY_VERIFICATION_PEPPER"),
       outboxKey: identityOutboxKey,
       outboxKeyId: optionalEnvironment("GOODDEALER_IDENTITY_OUTBOX_KEY_ID") ?? "development-v1",
+      accountOrigin: optionalEnvironment("GOODDEALER_ACCOUNT_ORIGIN") ?? "https://account.gooddealer.com",
     },
   );
+  const emailDelivery = identityEmailDelivery();
   const identityHttp = createIdentityHttp({
     accounts: identityAccess,
     sessions: new CloudPublicSessionVerifier(new IdentityAccountSessionVerifier(identity)),
     allowedOrigins: [optionalEnvironment("GOODDEALER_ACCOUNT_ORIGIN") ?? "https://account.gooddealer.com"],
     now: () => new Date(),
     accountNamespaceKey,
+    rateLimit: rateLimitPolicy(60_000, 30),
+    observer: new IdentityBoundaryTelemetry((event) => {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
+    }),
   });
   const emailWorker = new IdentityEmailOutboxWorker(
     identityAccessRepository,
-    new LoopbackSmtpEmailDelivery({
-      host: "127.0.0.1",
-      port: boundedPort(optionalEnvironment("GOODDEALER_MAILPIT_SMTP_PORT") ?? "1025"),
-      from: optionalEnvironment("GOODDEALER_IDENTITY_FROM_EMAIL") ?? "account@development.gooddealer.invalid",
-    }),
+    emailDelivery,
     identityOutboxKey,
     optionalEnvironment("GOODDEALER_IDENTITY_OUTBOX_KEY_ID") ?? "development-v1",
+    () => new Date(),
+    { observe: (event) => {
+      process.stdout.write(`${JSON.stringify({ event: "identity_email_delivery", ...event })}\n`);
+    } },
   );
   const rateLimit = rateLimitPolicy(60_000, 120);
   const publicHttp = createPostgresCloudPublicHttp({
@@ -204,6 +213,40 @@ async function startDevelopmentServer(): Promise<void> {
     server.listen(port, host, resolve);
   });
   process.stdout.write(`GoodDealer development Cloud listening on http://${host}:${port}\n`);
+}
+
+function identityEmailDelivery(): EmailDeliveryPort {
+  const deployment = optionalEnvironment("GOODDEALER_DEPLOYMENT_ENV") ?? "development";
+  const provider = optionalEnvironment("GOODDEALER_EMAIL_PROVIDER") ?? "mailpit";
+  if (deployment === "staging" && provider !== "resend") {
+    throw new TypeError("staging requires GOODDEALER_EMAIL_PROVIDER=resend");
+  }
+  if (provider === "resend") {
+    if (deployment !== "staging") throw new TypeError("Resend email provider is only allowed in staging composition");
+    const origin = requiredEnvironment("GOODDEALER_ACCOUNT_ORIGIN");
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" || parsed.origin !== origin || parsed.username !== "" || parsed.password !== "") {
+      throw new TypeError("staging Account Web origin must be an exact HTTPS origin");
+    }
+    const from = requiredEnvironment("GOODDEALER_IDENTITY_FROM_EMAIL");
+    if (!from.toLowerCase().endsWith("@gooddealer.com")) {
+      throw new TypeError("staging Resend sender must belong to gooddealer.com");
+    }
+    const names = ["GOODDEALER_RESEND_API_KEY", "RESEND_API_KEY"] as const;
+    const configured = names.map((name) => optionalEnvironment(name)).filter((value): value is string => value !== undefined);
+    const apiKey = configured[0];
+    if (apiKey === undefined || (configured.length > 1 && apiKey !== configured[1])) {
+      throw new TypeError("Resend email provider requires one consistent secret-custody key");
+    }
+    return new ResendEmailDelivery({ apiKey, from });
+  }
+  if (provider !== "mailpit") throw new TypeError("identity email provider is invalid");
+  if (deployment !== "development") throw new TypeError("Mailpit is only allowed in development composition");
+  return new LoopbackSmtpEmailDelivery({
+    host: "127.0.0.1",
+    port: boundedPort(optionalEnvironment("GOODDEALER_MAILPIT_SMTP_PORT") ?? "1025"),
+    from: optionalEnvironment("GOODDEALER_IDENTITY_FROM_EMAIL") ?? "account@development.gooddealer.invalid",
+  });
 }
 
 function requiredBase64UrlKey(name: string): Buffer {

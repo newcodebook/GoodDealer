@@ -15,7 +15,7 @@
         <span class="brand-mark">GD</span>
         <span>GoodDealer</span>
       </a>
-      <span class="environment">DEVELOPMENT · STRIPE TEST MODE</span>
+      <span class="environment">ACCOUNT WEB ENVIRONMENT</span>
     </header>
     <main>
       <section id="access-panel" class="access-panel" aria-labelledby="access-title">
@@ -32,11 +32,21 @@
           <label for="password">密码</label>
           <input id="password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="1024" required>
           <button id="access-submit" type="submit">登录</button>
+          <button id="forgot-password" class="secondary-action" type="button">忘记密码</button>
         </form>
         <form id="verify-form" class="access-form" aria-labelledby="register-tab" hidden>
           <label for="verification-code">邮箱验证码</label>
           <input id="verification-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
-          <button type="submit">验证并登录</button>
+          <button type="submit">验证邮箱</button>
+          <button id="resend-verification" class="secondary-action" type="button">重新发送验证码</button>
+        </form>
+        <form id="reset-form" class="access-form" aria-label="重置密码" hidden>
+          <label for="reset-code">密码重置验证码</label>
+          <input id="reset-code" name="reset-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+          <label for="new-password">新密码</label>
+          <input id="new-password" name="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+          <button type="submit">设置新密码</button>
+          <button id="reset-cancel" class="secondary-action" type="button">返回登录</button>
         </form>
         <section class="notice" id="access-notice" hidden aria-live="polite"></section>
       </section>
@@ -47,6 +57,7 @@
         <h1>选择你的授权期限</h1>
         <p class="lede">三种期限，同一套完整能力。付款资料始终由支付 Provider 托管，GoodDealer 不接触卡号或安全码。</p>
         <div id="session-state" class="session-state" role="status">正在读取账户状态…</div>
+        <button id="logout" class="secondary-action" type="button">安全退出</button>
       </section>
 
       <section class="plans" aria-label="GoodDealer plans">

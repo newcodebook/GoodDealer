@@ -372,7 +372,7 @@ function interceptClient(client: PoolClient, afterQuery: (sql: string) => Promis
 }
 
 function assertConsolidatedCatalog(): void {
-  expect(cloudMigrations).toHaveLength(22);
+  expect(cloudMigrations).toHaveLength(23);
   expect([cloudMigrations[0], cloudMigrations[1], cloudMigrations[13], cloudMigrations[14]].map(
     (migration) => migration === undefined ? undefined : { id: migration.id, owner: migration.owner },
   )).toEqual([

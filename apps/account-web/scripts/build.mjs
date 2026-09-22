@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,3 +19,15 @@ await build({
   target: ["es2022"],
 });
 await cp(join(packageRoot, "public"), output, { recursive: true });
+const environment = process.env.GOODDEALER_ACCOUNT_WEB_ENVIRONMENT ?? "development";
+const environmentLabels = {
+  development: "DEVELOPMENT · STRIPE TEST MODE",
+  staging: "STAGING · TEST TRANSACTIONS",
+  production: "PRODUCTION",
+};
+if (!Object.hasOwn(environmentLabels, environment)) {
+  throw new TypeError("GOODDEALER_ACCOUNT_WEB_ENVIRONMENT is invalid");
+}
+const htmlPath = join(output, "index.html");
+const html = await readFile(htmlPath, "utf8");
+await writeFile(htmlPath, html.replace("ACCOUNT WEB ENVIRONMENT", environmentLabels[environment]), "utf8");

@@ -29,14 +29,14 @@ Desktop / developer
 | 公网 origin | `https://api.gooddealer.com`；Cloudflare 橙云开启。 |
 | VPS | `207.180.208.139`；同机还运行其他业务，禁止覆盖全局 Nginx、Docker 或防火墙配置。 |
 | Cloud 服务 | `gooddealer-cloud-development.service`；专用 `gooddealer` 用户；只监听 `127.0.0.1:3100`。 |
-| Account Web | `https://account.gooddealer.com`；静态文件位于 `/var/www/account.gooddealer.com`，同源 `/v1/*` 与 `/billing/approval/*` 代理到 Cloud。开发注册、邮箱验证、密码登录和真实 Cookie session 已组合；这不构成公开客户注册或生产邮件资格。 |
+| Account Web | `https://account.gooddealer.com`；静态文件位于 `/var/www/account.gooddealer.com`，同源 `/v1/*` 与 `/billing/approval/*` 代理到 Cloud。当前 release 以 staging 组合部署注册、Resend 验证邮件、密码登录、session discovery、恢复和服务端退出；真实无数据库权限测试用户已走通完整旅程。 |
 | Provider worker | `gooddealer-provider-worker-development.service`；专用 Unix/数据库身份；每 5 秒有界 drain provider operation、receipt、reconciliation、due-authority 与 release 作业。 |
 | 开发邮件 | `gooddealer-mailpit-development.service`；无持久数据库，SMTP/API 分别只监听 `127.0.0.1:1025` 与 `127.0.0.1:8025`，不经 Nginx 或 Cloudflare 暴露。 |
 | Migration 服务 | `gooddealer-cloud-development-migrate.service`；专用 `gooddealer-migrator` 用户；按发布运行的 oneshot，常态为 `inactive`。 |
 | Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 指向当前版本。 |
-| Node/pnpm | Node `24.18.1`、pnpm `11.25.0`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；release identity 会记录这组精确工具链。VPS 当前安装的 pnpm 为 `11.18.0`，需升级到 `11.25.0` 后才能通过发布校验。 |
+| Node/pnpm | Node `24.18.1`、pnpm `11.25.0`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。 |
 | PostgreSQL | `gooddealer-postgres-development` 容器；PostgreSQL `18.4`；只映射 `127.0.0.1:55433`。该版本低于仓库锁定的 18.6 资格版本，只是开发运行事实。 |
-| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。共享数据库最后记录的核验点是 19 条 migration（M001–M017、M019、M020）、五池和对应 grant；仓库当前 22 项 catalog 的后三项尚未在本文中取得共享环境应用证据。 |
+| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。当前 ledger 为 25 条有序 migration，包含 account recovery、commercial entitlement snapshot 和 default-workspace capability policy；五池与对应 grant 已核验。 |
 | PostgreSQL 持久卷 | `gooddealer-postgres-development-data`；禁止因测试、发布或排障重建。 |
 | Nginx 站点 | `/etc/nginx/conf.d/api.gooddealer.com.conf`；只拥有该域名，不得修改其他站点。 |
 | Account Nginx 站点 | `/etc/nginx/conf.d/account.gooddealer.com.conf`；Cloudflare origin lock、HSTS、CSP 与 `no-store` 已启用。 |
@@ -44,18 +44,25 @@ Desktop / developer
 | OpenBao | `openbao.service`；仅 `127.0.0.1:8200`，不经过 Nginx、不开放公网域名。 |
 
 Cloud 当前使用 [`apps/cloud/src/entrypoints/development-server.ts`](../apps/cloud/src/entrypoints/development-server.ts)
-作为开发组合根。它把 Desktop OAuth 与公共 Cloud route 放在同一端口，并要求普通 App、Account
+作为现有 API 组合根。它把 Identity、Desktop OAuth 与公共 Cloud route 放在同一端口，并要求普通 App、Account
 API、Identity capability issuer、Provider ingress、Provider worker 五个相互隔离的 runtime pool。独立的
 [`development-migrate.ts`](../apps/cloud/src/entrypoints/development-migrate.ts) 由 oneshot 服务以
 `gooddealer-migrator` 身份和 Owner URL 应用迁移；Owner 凭据不进入常驻 Cloud 进程。仓库当前
-greenfield catalog 当前有 22 项：M001–M017、M019 后接 M020，再依次包含
+greenfield catalog 当前有 25 项：M001–M017、M019 后接 M020，再依次包含
 `202609140001-sync-v2-ledger`、`202609150001-workspace-checkpoint-v2` 和
-`202609150002-cloudflare-dns-observation`。M015 已是规范化商业 baseline，不存在 M018 compatibility
+`202609150002-cloudflare-dns-observation`、`202609210001-account-recovery`、
+`202609220001-commercial-entitlement-snapshot` 和
+`202609220002-account-default-workspace-capability-policy`。M015 已是规范化商业 baseline，不存在 M018 compatibility
 migration；M019 前必须由角色管理员运行受控 role provisioning，M020 增加 Account access challenge
-与加密邮件 outbox。共享开发数据库只记录了应用到 M020 的 19 项 ledger、五池和角色/grant 核验；
-在只读核对并按正常 migrator 应用后三项之前，不得声称该环境与当前 catalog 一致。
+与加密邮件 outbox；后续 migration 分别增加密码恢复、challenge-bound outbox、Session 撤销、商业权威读取 façade
+和默认个人工作区 capability policy。当前 staging 数据库已通过正常 migrator 应用完整 catalog；不得通过修改 ledger
+或 checksum alias 绕过漂移检查。
 开发组合根已装配独立 Identity ingress、Argon2id 账号访问服务、loopback Mailpit outbox worker，以及
 Stripe 官方 SDK 的 test-mode catalog、Checkout、webhook 和退款 adapter；PayPal 保持失败关闭。
+同一 API 组合根只有在 `GOODDEALER_DEPLOYMENT_ENV=staging`、
+`GOODDEALER_EMAIL_PROVIDER=resend`、`GOODDEALER_RESEND_API_KEY` 由 secret custody 注入、
+`GOODDEALER_IDENTITY_FROM_EMAIL` 为已验证 Resend 发件地址且 `GOODDEALER_ACCOUNT_ORIGIN` 为精确 HTTPS
+origin 时才允许 Resend；任何缺失都会在启动时失败关闭。API key 不进入仓库、普通环境示例、日志或数据库。
 独立的 self-hosted Provider worker 执行持久化作业，不依赖第三方 scheduler 服务。
 
 Nginx 443 只接受 Cloudflare 官方代理网段的连接，且以连接对端地址判定来源；直接访问源站或伪造
@@ -118,13 +125,13 @@ docker exec gooddealer-postgres-development \
   -c 'SELECT count(*) FROM gooddealer_cloud_migrations'
 ```
 
-当前共享开发数据库最后记录的从空库应用证据覆盖到 M020 的 19 条 migration，并核验 Identity
+当前共享 staging 数据库从空库应用证据覆盖完整 25 条 migration，并核验 Identity
 capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 SQL 的预期 checksum 是
 `dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e`，M019 的预期 checksum 是
 `5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9`，其 closed purpose allowlist 包含
-`refund_request`。当前源码 catalog 应有 22 个条目：M001–M017、M019、M020 以及上述三个同步/观察
-migration。每次部署必须先只读核验完整有序 ledger；发现仅有 19 项时只能通过受限 migrator 正常应用
-缺失项，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
+`refund_request`。当前源码 catalog 应有 25 个条目：M001–M017、M019、M020、上述三个同步/观察
+migration、`202609210001-account-recovery`、`202609220001-commercial-entitlement-snapshot` 和
+`202609220002-account-default-workspace-capability-policy`。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
 roles/memberships、同步 v2 ledger/checkpoint/Cloudflare observation schema 与五个 runtime 登录身份
 取得不含业务行和秘密的结构快照。
 
@@ -173,9 +180,9 @@ curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
 
 当前预期依次为 `401`、`400`、`401`。这些状态是失败关闭证据，不是故障。不能在共享环境中创建
 伪造 session、device binding、Entitlement 或 refresh token 来制造 `200`。共享开发环境另以一次性
-开发账号完成注册 `202`、loopback Mailpit 捕获、验证 `200`、host-only Secure/HttpOnly/SameSite=Lax
-Cookie、session `200`、billing status `200` 和密码重新登录后的 session `200`；这组开发冒烟不授权
-公开客户注册或生产邮件声明。完整 Desktop OAuth/Grant 正向验收仍需受控身份和真实设备流程。
+staging 测试账号完成注册 `202`、Resend 实际投递、验证 `200`、host-only Secure/HttpOnly/SameSite=Lax
+Cookie、session `200`、刷新后的 session discovery `200` 和退出后的旧 session `401`；这组 staging 冒烟不授权
+生产邮件、公开客户注册或 live 商业声明。完整 Desktop OAuth/Grant 正向验收仍需受控身份和真实设备流程。
 
 源站封闭必须另外验证，强制把域名解析到源站 IP 后预期 `403`；带伪造
 `CF-Connecting-IP` 的同类请求也必须是 `403`。Cloudflare 官方 CIDR 变化时必须从官方端点更新
@@ -249,7 +256,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
   workload identity。
 - 已用 Cloudflare 官方 IP allowlist 封闭 443 源站，但尚未启用 Authenticated Origin Pulls，且网段
   更新仍依赖人工维护；该开发源站不能被称为生产网络边界。
-- 开发注册/验证/登录页面和 loopback Mailpit 已部署，但没有生产 transactional-email Provider、发件域名、
+- staging 注册/验证/登录页面和已验证 Resend transactional-email Provider 已部署，但没有生产邮件、
   反滥用容量或公开客户注册资格；也没有任何 live-mode 商户、税务/销售地区资格、退款生产资格、
   完整客户管理网页或受控数据导出流程。Stripe test-mode Checkout、webhook 与由 Account Web 发起、
   Cloud worker 执行的首购退款仅是开发集成证据。

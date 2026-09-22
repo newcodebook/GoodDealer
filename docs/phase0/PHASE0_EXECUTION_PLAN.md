@@ -29,9 +29,10 @@ S0 --> L1 --> D1 --> V1
  `--> C1 --> L1
 ```
 
-Cloud 的有序目录包含 M001–M017、M019 与 M020；M015 是规范化商业领域的 greenfield baseline，M016
+Cloud 的有序目录包含 25 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery 及后续 account capability migrations）；M015 是规范化商业领域的 greenfield baseline，M016
 增加 Identity refresh recovery，M017 增加 Devices 登录授权加固，M019 增加 Identity transaction
-capability，M020 增加 Account access challenge 和加密邮件 outbox；
+capability，M020 增加 Account access challenge 和加密邮件 outbox，M023 增加密码恢复、challenge-bound
+dead-letter outbox 和 Session 撤销；
 不存在 M018 compatibility migration。当前 M002 是无 Provider 连接身份的显式业务
 副本 schema；连接键控的 Cloud Observation client 和 Repository不存在。Desktop 正常 Query 不经过 Cloud。
 

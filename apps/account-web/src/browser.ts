@@ -108,13 +108,20 @@ const accessPanel = requiredElement("access-panel");
 const billingPanel = requiredElement("billing-panel");
 const accessForm = requiredForm("access-form");
 const verifyForm = requiredForm("verify-form");
+const resetForm = requiredForm("reset-form");
 const accessNotice = requiredElement("access-notice");
 const emailInput = requiredInput("email");
 const passwordInput = requiredInput("password");
 const codeInput = requiredInput("verification-code");
+const resetCodeInput = requiredInput("reset-code");
+const newPasswordInput = requiredInput("new-password");
 const loginTab = requiredButton("login-tab");
 const registerTab = requiredButton("register-tab");
 const accessSubmit = requiredButton("access-submit");
+const forgotPassword = requiredButton("forgot-password");
+const resendVerification = requiredButton("resend-verification");
+const resetCancel = requiredButton("reset-cancel");
+const logout = requiredButton("logout");
 const sessionState = requiredElement("session-state");
 const notice = requiredElement("notice");
 const refundPanel = requiredElement("refund-panel");
@@ -141,6 +148,11 @@ loginTab.addEventListener("click", () => setAccessMode("login"));
 registerTab.addEventListener("click", () => setAccessMode("register"));
 accessForm.addEventListener("submit", (event) => { event.preventDefault(); void submitAccess(); });
 verifyForm.addEventListener("submit", (event) => { event.preventDefault(); void submitVerification(); });
+resetForm.addEventListener("submit", (event) => { event.preventDefault(); void completePasswordReset(); });
+forgotPassword.addEventListener("click", () => { void requestPasswordReset(); });
+resendVerification.addEventListener("click", () => { void resendRegistration(); });
+resetCancel.addEventListener("click", () => setAccessMode("login"));
+logout.addEventListener("click", () => { void submitLogout(); });
 refundSubmit.addEventListener("click", () => { void submitRefund(); });
 window.addEventListener("storage", (event) => {
   const context = activeBillingContext;
@@ -401,12 +413,17 @@ async function submitAccess(): Promise<void> {
       return;
     }
     if (accessMode === "register") {
+      if (await readIdentityStatus(response, ["accepted"]) !== "accepted") {
+        throw new TypeError("Identity registration response is invalid");
+      }
       accessForm.hidden = true;
       verifyForm.hidden = false;
-      showAccessNotice("验证码已进入开发邮件收件箱。请输入 6 位验证码。", false);
+      showAccessNotice("如果该邮箱可以注册，验证邮件会很快送达。请输入 6 位验证码。", false);
       codeInput.focus();
       return;
     }
+    const value = await readIdentityStatus(response, ["authenticated"]);
+    if (value !== "authenticated") throw new TypeError("Identity login response is invalid");
     await enterBilling();
   } catch {
     showAccessNotice("账户服务暂时不可用，请稍后重试。", true);
@@ -427,7 +444,10 @@ async function submitVerification(): Promise<void> {
       showAccessNotice("验证码无效、已过期或尝试次数已用尽。", true);
       return;
     }
-    await enterBilling();
+    const value = await readIdentityStatus(response, ["verified"]);
+    if (value !== "verified") throw new TypeError("Identity verification response is invalid");
+    setAccessMode("login");
+    showAccessNotice("邮箱验证完成。请使用刚才设置的密码登录。", false);
   } catch {
     showAccessNotice("验证服务暂时不可用，请稍后重试。", true);
   } finally {
@@ -440,6 +460,114 @@ async function identityPost(path: string, body: Record<string, string>): Promise
     method: "POST", credentials: "same-origin", redirect: "error",
     headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
+}
+
+async function resendRegistration(): Promise<void> {
+  setAccessDisabled(true);
+  try {
+    const response = await identityPost("/v1/identity/registration/resend", { email: emailInput.value });
+    if (!response.ok) {
+      showAccessNotice(response.status === 429 ? "请求过于频繁，请稍后再试。" : "请检查邮箱格式。", true);
+      return;
+    }
+    if (await readIdentityStatus(response, ["accepted"]) !== "accepted") {
+      throw new TypeError("Identity resend response is invalid");
+    }
+    showAccessNotice("如果该邮箱仍待验证，新的验证码会很快送达。", false);
+  } catch {
+    showAccessNotice("验证邮件服务暂时不可用，请稍后重试。", true);
+  } finally {
+    setAccessDisabled(false);
+  }
+}
+
+async function requestPasswordReset(): Promise<void> {
+  if (!emailInput.checkValidity()) {
+    emailInput.reportValidity();
+    return;
+  }
+  setAccessDisabled(true);
+  try {
+    const response = await identityPost("/v1/identity/password-reset", { email: emailInput.value });
+    if (!response.ok) {
+      showAccessNotice(response.status === 429 ? "请求过于频繁，请稍后再试。" : "请检查邮箱格式。", true);
+      return;
+    }
+    if (await readIdentityStatus(response, ["accepted"]) !== "accepted") {
+      throw new TypeError("Identity password reset response is invalid");
+    }
+    accessForm.hidden = true;
+    verifyForm.hidden = true;
+    resetForm.hidden = false;
+    showAccessNotice("如果该邮箱属于已验证账户，密码重置邮件会很快送达。", false);
+    resetCodeInput.focus();
+  } catch {
+    showAccessNotice("密码恢复服务暂时不可用，请稍后重试。", true);
+  } finally {
+    setAccessDisabled(false);
+  }
+}
+
+async function completePasswordReset(): Promise<void> {
+  setAccessDisabled(true);
+  try {
+    const response = await identityPost("/v1/identity/password-reset/complete", {
+      email: emailInput.value,
+      code: resetCodeInput.value,
+      password: newPasswordInput.value,
+    });
+    resetCodeInput.value = "";
+    newPasswordInput.value = "";
+    if (!response.ok) {
+      showAccessNotice("验证码无效、已过期或尝试次数已用尽。", true);
+      return;
+    }
+    if (await readIdentityStatus(response, ["completed"]) !== "completed") {
+      throw new TypeError("Identity password reset completion response is invalid");
+    }
+    setAccessMode("login");
+    showAccessNotice("密码已更新，所有旧会话均已失效。请重新登录。", false);
+  } catch {
+    showAccessNotice("密码恢复服务暂时不可用，请稍后重试。", true);
+  } finally {
+    setAccessDisabled(false);
+  }
+}
+
+async function submitLogout(): Promise<void> {
+  invalidateBillingContext();
+  logout.disabled = true;
+  try {
+    const response = await identityPost("/v1/identity/logout", {});
+    if (!response.ok || await readIdentityStatus(response, ["signed_out"]) !== "signed_out") {
+      throw new TypeError("Identity logout response is invalid");
+    }
+    accessPanel.hidden = false;
+    billingPanel.hidden = true;
+    setAccessMode("login");
+    showAccessNotice("已安全退出。", false);
+  } catch {
+    showNotice("暂时无法确认服务端退出结果，请重试。", true);
+    await initialize();
+  } finally {
+    logout.disabled = false;
+  }
+}
+
+async function readIdentityStatus<const Status extends string>(
+  response: Response,
+  accepted: readonly Status[],
+): Promise<Status | null> {
+  let value: unknown;
+  try { value = await response.json() as unknown; } catch { return null; }
+  if (typeof value !== "object" || value === null || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== 1 || keys[0] !== "status") return null;
+  const descriptor = Object.getOwnPropertyDescriptor(value, "status");
+  if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true
+    || typeof descriptor.value !== "string" || !accepted.includes(descriptor.value as Status)) return null;
+  return descriptor.value as Status;
 }
 
 /** Invalidate all browser-side account authority before a request that may replace the session cookie. */
@@ -468,6 +596,7 @@ function setAccessMode(mode: "login" | "register"): void {
   passwordInput.autocomplete = mode === "login" ? "current-password" : "new-password";
   accessForm.hidden = false;
   verifyForm.hidden = true;
+  resetForm.hidden = true;
   loginTab.setAttribute("aria-selected", mode === "login" ? "true" : "false");
   registerTab.setAttribute("aria-selected", mode === "register" ? "true" : "false");
   accessForm.setAttribute("aria-labelledby", mode === "login" ? "login-tab" : "register-tab");
@@ -475,7 +604,8 @@ function setAccessMode(mode: "login" | "register"): void {
 }
 
 function setAccessDisabled(disabled: boolean): void {
-  for (const control of [emailInput, passwordInput, codeInput, loginTab, registerTab, accessSubmit]) {
+  for (const control of [emailInput, passwordInput, codeInput, resetCodeInput, newPasswordInput,
+    loginTab, registerTab, accessSubmit, forgotPassword, resendVerification, resetCancel]) {
     control.disabled = disabled;
   }
 }

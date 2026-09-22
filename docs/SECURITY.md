@@ -14,7 +14,7 @@
 | Local data | SQLCipher 业务表和 secret-free Outbox 原子提交；Provider 账号及密封凭据只写本地且不生成 Mutation。 |
 | Local backup | `gooddealer-local-storage` 的 `DesktopLocalHost` 独占严格 GDBK v1、Backup KEK、allowlisted projection、隔离 candidate、诚实业务恢复及严格 client/IPC 合同；完整 continuity/rebootstrap runtime/custody/database 协议仅在 `cfg(test)` 编译，私有开发 E2E 只证明该协议。生产只保留 fixed-resource residue absence gate，且 native picker/handle、真实 KEK、独立 non-rollbackable anchor、true create-only slot key、safe active-database move detection 和目标平台故障资格未完成，备份、continuity、rebootstrap 均为 `unavailable`。 |
 | Browser | 自动化宿主报告不可用；没有浏览器会话、远程页面桥接或执行组合。 |
-| Cloud | 公共边界含账号激活、Desktop Grant 与账号 billing 路由；另有隔离的 Identity、Desktop OAuth 和支付 webhook 入口。Identity 源码组合注册、邮箱验证、密码登录、真实 Account Web session 与加密邮件 outbox；生产邮件和公开注册仍未资格化。生产 PostgreSQL 组合从会话推导租户、设备与工作区并失败关闭。 |
+| Cloud | 公共边界含账号激活、Desktop Grant 与账号 billing 路由；另有隔离的 Identity、Desktop OAuth 和支付 webhook 入口。Identity 源码组合注册、邮箱验证/重发、密码登录/恢复、session discovery、服务端退出与加密邮件 outbox；生产邮件、隔离 staging 和公开注册仍未资格化。生产 PostgreSQL 组合从会话推导租户、设备与工作区并失败关闭。 |
 | Release | 未发布请求只能做严格验证，不能产生签名、发行或 Gate 结论。 |
 
 ## 已接受的目标安全架构
@@ -52,7 +52,9 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
 - Account Web 明文密码只进入独立 Identity ingress 的有界解析和一次性可清零容器，不进入共享
   协议、日志、错误或持久化。邮箱验证码只保存带独立 server pepper 的 HMAC digest；durable email
   outbox 使用独立 AES-256-GCM key 加密收件人和正文。开发 SMTP 只允许 loopback Mailpit，生产
-  transport 未资格化时保持拒绝。
+  transport 未资格化时保持拒绝。注册与恢复 challenge 使用不同 HMAC purpose；重发会使旧待发邮件
+  失效，失败投递按有界退避重试并进入 durable terminal state。密码恢复推进 Security Epoch 并撤销
+  全部 Session；登录先撤销已呈现的有效旧 Session，退出撤销精确 family。
 - Desktop 设备 Ed25519 seed、Device ID 与 Key ID 使用独立 Keychain item。Cloud challenge 只持久化
   nonce digest 和 Account Web session digest，并把账户、设备、key、PKCE、固定 client/redirect、
   期限绑定进签名 transcript；首次 binding 仅接受五分钟内由密码/Passkey 创建的 Web 会话，且

@@ -14,11 +14,14 @@ import { restoreCandidateFoundationMigration } from "../modules/recovery/migrati
 import { jobRuntimeMigration } from "../modules/job-runtime/migrations/202608200012-job-runtime";
 import { serverAuditSubstrateMigration } from "../modules/audit/migrations/202608200013-server-audit-substrate";
 import { accountDefaultWorkspaceMigration } from "../modules/workspace/default-workspace/migrations/202608200014-account-default-workspace";
+import { accountDefaultWorkspaceCapabilityPolicyMigration } from "../modules/workspace/default-workspace/migrations/202609220002-account-default-workspace-capability-policy";
 import { commercialEntitlementsMigration } from "../modules/licensing/migrations/202608200015-commercial-entitlements";
+import { commercialEntitlementSnapshotMigration } from "../modules/licensing/migrations/202609220001-commercial-entitlement-snapshot";
 import { desktopRefreshIdempotencyMigration } from "../modules/identity/migrations/202608200016-desktop-refresh-idempotency";
 import { desktopLoginAuthorityMigration } from "../modules/devices/migrations/202608200017-desktop-login-authority";
 import { identityTransactionCapabilityMigration } from "../modules/identity/migrations/202608200019-transaction-capability";
 import { accountAccessMigration } from "../modules/identity/migrations/202609040001-account-access";
+import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";
 import { syncV2LedgerMigration } from "../modules/workspace/mutations/migrations/202609140001-sync-v2-ledger";
 import { buildMigrationCatalog, type CloudMigration } from "./index";
 
@@ -46,6 +49,9 @@ export const cloudMigrations: readonly CloudMigration[] = [
   syncV2LedgerMigration,
   workspaceCheckpointV2Migration,
   cloudflareDnsObservationMigration,
+  accountRecoveryMigration,
+  commercialEntitlementSnapshotMigration,
+  accountDefaultWorkspaceCapabilityPolicyMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

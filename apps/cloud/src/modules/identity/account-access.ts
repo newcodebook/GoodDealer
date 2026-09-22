@@ -19,6 +19,7 @@ export interface IdentityAccountAccessRecord {
 }
 
 export interface RegistrationWrite {
+  readonly purpose: "registration";
   readonly accountId: string;
   readonly workspaceId: string;
   readonly emailNormalized: string;
@@ -30,15 +31,38 @@ export interface RegistrationWrite {
   readonly envelope: SealedEmailEnvelope;
 }
 
+export interface VerificationDeliveryWrite {
+  readonly purpose: "registration" | "password_reset";
+  readonly emailNormalized: string;
+  readonly challengeDigest: Uint8Array;
+  readonly challengeExpiresAt: Date;
+  readonly resendAvailableAt: Date;
+  readonly outboxId: string;
+  readonly envelope: SealedEmailEnvelope;
+}
+
+export interface PresentedAccountWebSession {
+  readonly accountId: string;
+  readonly sessionId: string;
+}
+
 export interface IdentityAccountAccessRepository {
   findExactAccount(emailNormalized: string): Promise<IdentityAccountAccessRecord | null>;
   requestRegistration(write: RegistrationWrite, now: Date): Promise<"queued" | "cooldown" | "already_verified">;
+  resendRegistration(write: VerificationDeliveryWrite, now: Date): Promise<"queued" | "cooldown" | "unavailable">;
   verifyRegistration(input: {
     readonly emailNormalized: string;
     readonly challengeDigest: Uint8Array;
     readonly now: Date;
   }): Promise<{ readonly status: "verified"; readonly account: IdentityAccountAccessRecord }
     | { readonly status: "invalid" }>;
+  requestPasswordReset(write: VerificationDeliveryWrite, now: Date): Promise<"queued" | "cooldown" | "unavailable">;
+  resetPassword(input: {
+    readonly emailNormalized: string;
+    readonly challengeDigest: Uint8Array;
+    readonly password: StoredPasswordHash;
+    readonly now: Date;
+  }): Promise<"completed" | "invalid">;
   issueAccountWebSession(input: {
     readonly accountId: string;
     readonly expectedEpoch: number;
@@ -48,12 +72,18 @@ export interface IdentityAccountAccessRepository {
     readonly refreshJti: string;
     readonly expiresAt: Date;
   }): Promise<"issued" | "conflict">;
+  revokeAccountWebSession(input: PresentedAccountWebSession & { readonly now: Date }): Promise<void>;
   claimEmail(now: Date): Promise<{
     readonly outboxId: string;
     readonly accountId: string;
     readonly envelope: SealedEmailEnvelope;
   } | null>;
-  completeEmail(accountId: string, outboxId: string, delivered: boolean, now: Date): Promise<void>;
+  completeEmail(accountId: string, outboxId: string, delivered: boolean, now: Date):
+    Promise<"sent" | "retry_scheduled" | "failed">;
+}
+
+export interface IdentityEmailDeliveryObserver {
+  observe(event: { readonly outcome: "sent" | "retry_scheduled" | "failed" }): void | Promise<void>;
 }
 
 export interface SealedEmailEnvelope {
@@ -70,11 +100,15 @@ export interface AccountAccessConfiguration {
   readonly now?: () => Date;
   readonly ids?: () => string;
   readonly codes?: () => string;
+  readonly accountOrigin: string;
 }
 
 export type AccountAccessResult =
   | { readonly status: "accepted" }
   | { readonly status: "invalid" }
+  | { readonly status: "verified" }
+  | { readonly status: "completed" }
+  | { readonly status: "signed_out" }
   | { readonly status: "authenticated"; readonly sessionCredential: string; readonly expiresAt: Date };
 
 export class IdentityAccountAccessService {
@@ -86,6 +120,7 @@ export class IdentityAccountAccessService {
   readonly #now: () => Date;
   readonly #ids: () => string;
   readonly #codes: () => string;
+  readonly #accountOrigin: string;
 
   constructor(repository: IdentityAccountAccessRepository, passwords: PasswordHashPort & PasswordCreationPort,
     configuration: AccountAccessConfiguration) {
@@ -101,6 +136,7 @@ export class IdentityAccountAccessService {
     this.#now = configuration.now ?? (() => new Date());
     this.#ids = configuration.ids ?? randomUUID;
     this.#codes = configuration.codes ?? (() => randomInt(0, 1_000_000).toString().padStart(6, "0"));
+    this.#accountOrigin = parseAccountOrigin(configuration.accountOrigin);
   }
 
   async requestRegistration(emailValue: unknown, passwordValue: unknown): Promise<AccountAccessResult> {
@@ -109,24 +145,23 @@ export class IdentityAccountAccessService {
     if (emailNormalized === null || password === null || !passwordPolicy(passwordValue)) return { status: "invalid" };
     const stored = await this.#passwords.hashPassword(password);
     const now = this.#now();
-    const code = this.#codes();
-    if (!/^\d{6}$/u.test(code)) throw new Error("verification code generator failed");
-    const message: IdentityEmailMessage = {
-      to: emailNormalized,
-      subject: "GoodDealer 邮箱验证码",
-      text: `你的 GoodDealer 验证码是：${code}\n\n验证码 15 分钟内有效。若非本人操作，请忽略此邮件。`,
-    };
+    const delivery = this.#verificationDelivery(emailNormalized, "registration", now);
     await this.#repository.requestRegistration({
       accountId: `acct_${this.#ids()}`,
       workspaceId: `ws_${this.#ids()}`,
-      emailNormalized,
       password: stored,
-      challengeDigest: challengeDigest(this.#pepper, emailNormalized, code),
-      challengeExpiresAt: new Date(now.getTime() + 15 * 60_000),
-      resendAvailableAt: new Date(now.getTime() + 60_000),
-      outboxId: this.#ids(),
-      envelope: sealEmail(this.#outboxKey, this.#outboxKeyId, message),
+      ...delivery,
     }, now);
+    return { status: "accepted" };
+  }
+
+  async resendRegistration(emailValue: unknown): Promise<AccountAccessResult> {
+    const emailNormalized = normalizeEmail(emailValue);
+    if (emailNormalized === null) return { status: "invalid" };
+    const now = this.#now();
+    await this.#repository.resendRegistration(
+      this.#verificationDelivery(emailNormalized, "registration", now), now,
+    );
     return { status: "accepted" };
   }
 
@@ -138,14 +173,15 @@ export class IdentityAccountAccessService {
     const now = this.#now();
     const verified = await this.#repository.verifyRegistration({
       emailNormalized,
-      challengeDigest: challengeDigest(this.#pepper, emailNormalized, codeValue),
+      challengeDigest: challengeDigest(this.#pepper, "registration", emailNormalized, codeValue),
       now,
     });
     if (verified.status !== "verified") return { status: "invalid" };
-    return this.#issueSession(verified.account, now);
+    return { status: "verified" };
   }
 
-  async login(emailValue: unknown, passwordValue: unknown): Promise<AccountAccessResult> {
+  async login(emailValue: unknown, passwordValue: unknown,
+    presentedSession?: PresentedAccountWebSession): Promise<AccountAccessResult> {
     const emailNormalized = normalizeEmail(emailValue);
     const candidate = ConsumeOncePassword.fromUnknown(passwordValue);
     if (emailNormalized === null || candidate === null) return { status: "invalid" };
@@ -155,7 +191,41 @@ export class IdentityAccountAccessService {
       ? account.storedPasswordHash.phc : ARGON2ID_V1_DECOY_PHC;
     const checked = await this.#passwords.checkPasswordHash(candidate, phc);
     if (!checked.verified || account === null || !account.emailVerified) return { status: "invalid" };
+    if (presentedSession !== undefined) {
+      await this.#repository.revokeAccountWebSession({ ...presentedSession, now: this.#now() });
+    }
     return this.#issueSession(account, this.#now());
+  }
+
+  async requestPasswordReset(emailValue: unknown): Promise<AccountAccessResult> {
+    const emailNormalized = normalizeEmail(emailValue);
+    if (emailNormalized === null) return { status: "invalid" };
+    const now = this.#now();
+    await this.#repository.requestPasswordReset(
+      this.#verificationDelivery(emailNormalized, "password_reset", now), now,
+    );
+    return { status: "accepted" };
+  }
+
+  async resetPassword(emailValue: unknown, codeValue: unknown, passwordValue: unknown): Promise<AccountAccessResult> {
+    const emailNormalized = normalizeEmail(emailValue);
+    const password = ConsumeOncePassword.fromUnknown(passwordValue);
+    if (emailNormalized === null || typeof codeValue !== "string" || !/^\d{6}$/u.test(codeValue)
+      || password === null || !passwordPolicy(passwordValue)) return { status: "invalid" };
+    const now = this.#now();
+    const stored = await this.#passwords.hashPassword(password);
+    const result = await this.#repository.resetPassword({
+      emailNormalized,
+      challengeDigest: challengeDigest(this.#pepper, "password_reset", emailNormalized, codeValue),
+      password: stored,
+      now,
+    });
+    return result === "completed" ? { status: "completed" } : { status: "invalid" };
+  }
+
+  async logout(presentedSession: PresentedAccountWebSession): Promise<AccountAccessResult> {
+    await this.#repository.revokeAccountWebSession({ ...presentedSession, now: this.#now() });
+    return { status: "signed_out" };
   }
 
   async #issueSession(account: IdentityAccountAccessRecord, now: Date): Promise<AccountAccessResult> {
@@ -175,24 +245,64 @@ export class IdentityAccountAccessService {
     }
     throw new Error("account web session allocation failed");
   }
+
+  #verificationDelivery<Purpose extends "registration" | "password_reset">(
+    emailNormalized: string,
+    purpose: Purpose,
+    now: Date,
+  ): VerificationDeliveryWrite & { readonly purpose: Purpose } {
+    const code = this.#codes();
+    if (!/^\d{6}$/u.test(code)) throw new Error("verification code generator failed");
+    const registration = purpose === "registration";
+    const message: IdentityEmailMessage = {
+      to: emailNormalized,
+      subject: registration ? "GoodDealer 邮箱验证码" : "GoodDealer 密码重置验证码",
+      text: registration
+        ? `你的 GoodDealer 验证码是：${code}\n\n打开 ${this.#accountOrigin} 完成验证。验证码 15 分钟内有效且只能使用一次；如多次请求，请使用最新验证码。若非本人操作，请忽略此邮件。`
+        : `你的 GoodDealer 密码重置验证码是：${code}\n\n打开 ${this.#accountOrigin} 完成密码重置。验证码 15 分钟内有效且只能使用一次；如多次请求，请使用最新验证码。若非本人操作，请忽略此邮件。`,
+    };
+    return {
+      purpose,
+      emailNormalized,
+      challengeDigest: challengeDigest(this.#pepper, purpose, emailNormalized, code),
+      challengeExpiresAt: new Date(now.getTime() + 15 * 60_000),
+      resendAvailableAt: new Date(now.getTime() + 60_000),
+      outboxId: this.#ids(),
+      envelope: sealEmail(this.#outboxKey, this.#outboxKeyId, message),
+    };
+  }
 }
 
 export class IdentityEmailOutboxWorker {
   constructor(private readonly repository: IdentityAccountAccessRepository,
     private readonly delivery: EmailDeliveryPort, private readonly key: Uint8Array,
-    private readonly keyId: string, private readonly now: () => Date = () => new Date()) {}
+    private readonly keyId: string, private readonly now: () => Date = () => new Date(),
+    private readonly observer?: IdentityEmailDeliveryObserver) {}
 
   async runOnce(): Promise<boolean> {
     const item = await this.repository.claimEmail(this.now());
     if (item === null) return false;
     try {
-      await this.delivery.deliver(openEmail(this.key, this.keyId, item.envelope));
-      await this.repository.completeEmail(item.accountId, item.outboxId, true, this.now());
+      await this.delivery.deliver({
+        idempotencyKey: item.outboxId,
+        message: openEmail(this.key, this.keyId, item.envelope),
+      });
+      const outcome = await this.repository.completeEmail(item.accountId, item.outboxId, true, this.now());
+      await this.#observe(outcome);
     } catch (error) {
-      await this.repository.completeEmail(item.accountId, item.outboxId, false, this.now());
+      const outcome = await this.repository.completeEmail(item.accountId, item.outboxId, false, this.now());
+      await this.#observe(outcome);
       throw error;
     }
     return true;
+  }
+
+  async #observe(outcome: "sent" | "retry_scheduled" | "failed"): Promise<void> {
+    try {
+      await this.observer?.observe({ outcome });
+    } catch {
+      // Delivery state is already durable; telemetry cannot change or replay it.
+    }
   }
 }
 
@@ -208,8 +318,22 @@ function passwordPolicy(value: unknown): boolean {
   return typeof value === "string" && value.length >= 12 && new TextEncoder().encode(value).length <= 1_024;
 }
 
-function challengeDigest(pepper: Uint8Array, email: string, code: string): Uint8Array {
-  return createHmac("sha256", pepper).update("GOODDEALER-EMAIL-VERIFY-V1\0").update(email).update("\0").update(code).digest();
+function challengeDigest(
+  pepper: Uint8Array,
+  purpose: "registration" | "password_reset",
+  email: string,
+  code: string,
+): Uint8Array {
+  return createHmac("sha256", pepper).update("GOODDEALER-IDENTITY-CHALLENGE-V2\0")
+    .update(purpose).update("\0").update(email).update("\0").update(code).digest();
+}
+
+function parseAccountOrigin(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.origin !== value || url.username !== "" || url.password !== "") {
+    throw new TypeError("Identity account origin must be an exact HTTPS origin");
+  }
+  return value;
 }
 
 function sealEmail(key: Uint8Array, keyId: string, message: IdentityEmailMessage): SealedEmailEnvelope {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createIdentityHttp } from "../../src/entrypoints/identity-http";
+import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 
 const expiresAt = new Date("2026-10-04T00:00:00Z");
 const origin = "https://account.gooddealer.com";
@@ -14,10 +15,12 @@ describe("Identity HTTP ingress", () => {
   function create(overrides: Record<string, unknown> = {}, accountId = "account-a") {
     const accounts = {
       requestRegistration: vi.fn(async () => ({ status: "accepted" as const })),
-      verifyRegistration: vi.fn(async () => ({
-        status: "authenticated" as const, sessionCredential: "fresh-session", expiresAt,
-      })),
+      resendRegistration: vi.fn(async () => ({ status: "accepted" as const })),
+      verifyRegistration: vi.fn(async () => ({ status: "verified" as const })),
       login: vi.fn(async () => ({ status: "authenticated" as const, sessionCredential: "fresh-session", expiresAt })),
+      requestPasswordReset: vi.fn(async () => ({ status: "accepted" as const })),
+      resetPassword: vi.fn(async () => ({ status: "completed" as const })),
+      logout: vi.fn(async () => ({ status: "signed_out" as const })),
       ...overrides,
     };
     const app = createIdentityHttp({
@@ -70,11 +73,11 @@ describe("Identity HTTP ingress", () => {
     expect(accounts.login).not.toHaveBeenCalled();
   });
 
-  it("replaces any presented session with a fresh secure host-only cookie", async () => {
-    const { app } = create();
+  it("replaces and revokes a presented session with a fresh secure host-only cookie", async () => {
+    const { app, accounts } = create();
     const response = await app.inject({
       method: "POST", url: "/v1/identity/login",
-      headers: { origin, cookie: "gd_session=attacker-fixed" },
+      headers: { origin, cookie: "gd_session=replacement-session" },
       payload: { email: "owner@example.com", password: "correct horse battery staple" },
     });
     expect(response.statusCode).toBe(200);
@@ -82,6 +85,77 @@ describe("Identity HTTP ingress", () => {
       "gd_session=fresh-session; Path=/; Expires=Sun, 04 Oct 2026 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax",
     );
     expect(response.headers["set-cookie"]).not.toContain("Domain=");
+    expect(accounts.login).toHaveBeenCalledWith("owner@example.com", "correct horse battery staple", {
+      accountId: "account-a", sessionId: "replacement-session",
+    });
+  });
+
+  it("verifies without creating a session, supports enumeration-safe resend and password recovery", async () => {
+    const { app, accounts } = create();
+    const verify = await app.inject({ method: "POST", url: "/v1/identity/registration/verify", headers: { origin },
+      payload: { email: "owner@example.com", code: "123456" } });
+    expect(verify.statusCode).toBe(200);
+    expect(verify.json()).toEqual({ status: "verified" });
+    expect(verify.headers["set-cookie"]).toBeUndefined();
+    const resend = await app.inject({ method: "POST", url: "/v1/identity/registration/resend", headers: { origin },
+      payload: { email: "owner@example.com" } });
+    expect(resend.statusCode).toBe(202);
+    expect(resend.json()).toEqual({ status: "accepted" });
+    const requested = await app.inject({ method: "POST", url: "/v1/identity/password-reset", headers: { origin },
+      payload: { email: "owner@example.com" } });
+    expect(requested.statusCode).toBe(202);
+    const completed = await app.inject({ method: "POST", url: "/v1/identity/password-reset/complete", headers: { origin },
+      payload: { email: "owner@example.com", code: "123456", password: "replacement horse battery staple" } });
+    expect(completed.statusCode).toBe(200);
+    expect(completed.json()).toEqual({ status: "completed" });
+    expect(accounts.resendRegistration).toHaveBeenCalledTimes(1);
+    expect(accounts.requestPasswordReset).toHaveBeenCalledTimes(1);
+    expect(accounts.resetPassword).toHaveBeenCalledTimes(1);
+  });
+
+  it("revokes logout server-side, clears the host-only cookie, and remains idempotent", async () => {
+    const { app, accounts } = create();
+    const response = await app.inject({ method: "POST", url: "/v1/identity/logout",
+      headers: { origin, cookie: "gd_session=fresh-session" }, payload: {} });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "signed_out" });
+    expect(response.headers["set-cookie"]).toBe(
+      "gd_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+    );
+    expect(accounts.logout).toHaveBeenCalledWith({ accountId: "account-a", sessionId: "fresh-session" });
+    const repeated = await app.inject({ method: "POST", url: "/v1/identity/logout", headers: { origin }, payload: {} });
+    expect(repeated.statusCode).toBe(200);
+    expect(accounts.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it("rate-limits state-changing access by trusted client address without observing credentials", async () => {
+    const observations: unknown[] = [];
+    const accounts = {
+      requestRegistration: vi.fn(async () => ({ status: "accepted" as const })),
+      login: vi.fn(async () => ({ status: "authenticated" as const, sessionCredential: "fresh-session", expiresAt })),
+    };
+    const app = createIdentityHttp({
+      accounts: accounts as never,
+      sessions: { cookieName: "gd_session", async verify() { return null; } },
+      allowedOrigins: [origin], now: () => new Date("2026-09-04T00:00:00Z"),
+      accountNamespaceKey: namespaceKey,
+      rateLimit: rateLimitPolicy(60_000, 1),
+      observer: { observe(event) { observations.push(event); } },
+    });
+    apps.push(app);
+    const request = { method: "POST" as const, url: "/v1/identity/registration", headers: { origin },
+      payload: { email: "owner@example.com", password: "correct horse battery staple" } };
+    expect((await app.inject(request)).statusCode).toBe(202);
+    const limited = await app.inject(request);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ status: "rate_limited" });
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect((await app.inject({
+      method: "POST", url: "/v1/identity/login", headers: { origin },
+      payload: { email: "owner@example.com", password: "correct horse battery staple" },
+    })).statusCode).toBe(200);
+    expect(JSON.stringify(observations)).not.toContain("owner@example.com");
+    expect(JSON.stringify(observations)).not.toContain("correct horse");
   });
 
   it("maps unknown, unverified, and wrong-password login outcomes to one response", async () => {

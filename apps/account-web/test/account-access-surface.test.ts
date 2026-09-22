@@ -13,12 +13,28 @@ describe("Account Web access surface", () => {
     expect(browser).not.toMatch(/(?:localStorage|sessionStorage)\.setItem\([^\n]*(?:password|code)/u);
     expect(browser).toContain('passwordInput.value = ""');
     expect(browser).toContain('codeInput.value = ""');
+    expect(browser).toContain('resetCodeInput.value = ""');
+    expect(browser).toContain('newPasswordInput.value = ""');
   });
 
   it("uses only same-origin credentialed Identity requests", () => {
     expect(browser).toContain('credentials: "same-origin"');
     expect(browser).toContain('redirect: "error"');
     expect(browser).not.toMatch(/https?:\/\//u);
+  });
+
+  it("strictly parses every successful Identity mutation and exposes recovery, resend, and logout", () => {
+    for (const path of [
+      "/v1/identity/registration/resend",
+      "/v1/identity/password-reset",
+      "/v1/identity/password-reset/complete",
+      "/v1/identity/logout",
+    ]) expect(browser).toContain(path);
+    expect(browser).toContain("readIdentityStatus(response");
+    expect(html).toContain('id="resend-verification"');
+    expect(html).toContain('id="reset-form"');
+    expect(html).toContain('id="logout"');
+    expect(browser).toContain("accountNamespaceFence.clear()");
   });
 
   it("exposes a server-correlated first-purchase refund surface", () => {

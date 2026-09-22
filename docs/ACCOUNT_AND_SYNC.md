@@ -12,11 +12,15 @@ Desktop 从本地 SQLCipher 读取并向本地 SQLCipher 提交业务事务。
 
 ## Desktop 登录会话
 
-Account Web 的注册、邮箱验证、密码登录和会话查询由独立 Identity ingress 处理。明文密码与验证码
+Account Web 的注册、邮箱验证/重发、密码登录/恢复、会话查询和退出由独立 Identity ingress 处理。明文密码与验证码
 不进入共享协议、浏览器持久状态或日志；密码使用固定 Argon2id 策略，未知账号也执行同参数 decoy
-检查。验证码只以 server-peppered digest 保存，邮件内容以 AES-256-GCM 加密进入 durable outbox。
-验证成功的同一事务会创建个人默认 Workspace、default-owner binding 和初始 revision，再签发新的
-Account Web session。开发邮件只投递到 loopback Mailpit；生产邮件 Provider 和公开注册资格保持关闭。
+检查。验证码只以 server-peppered digest 保存，邮件内容以 AES-256-GCM 加密进入 durable outbox；worker
+只领取当前、未过期且仍有尝试预算的 challenge，并向 transport 传递稳定 outbox 幂等键。
+验证成功的同一事务会激活账户并创建个人默认 Workspace、default-owner binding、初始 revision 和
+device state；验证不创建 Session，用户必须显式登录。登录在签发新 Session 前撤销已呈现的有效旧
+Session，退出立即撤销精确 family。密码恢复使用独立 challenge，在替换 hash 时推进 Security Epoch
+并撤销全部旧 Session。开发邮件只投递到 loopback Mailpit；生产邮件 Provider、隔离 staging 和公开
+注册资格保持关闭。
 完整边界见 [ADR-0022](adr/0022-account-identity-and-email-delivery.md)。
 
 Account Web 继续使用 `gd_session` Cookie。Desktop 不复用该 Cookie：Native Host 通过系统浏览器

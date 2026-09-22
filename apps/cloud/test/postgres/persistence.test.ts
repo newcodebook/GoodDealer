@@ -159,7 +159,7 @@ describe("PostgreSQL tenant persistence", () => {
     const terminal = checkedCloudMigrationCatalog.at(-1);
     if (terminal === undefined) throw new Error("terminal migration is unexpectedly absent");
     const nextMigration = {
-      id: "202609150002-drift-probe",
+      id: "202609220001-drift-probe",
       owner: "test/probe",
       sql: "CREATE TABLE migration_drift_probe (id integer)",
     } as const;

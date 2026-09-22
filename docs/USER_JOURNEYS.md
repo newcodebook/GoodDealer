@@ -30,6 +30,15 @@
 
 ## 当前组合
 
+账户接入当前源码已覆盖同源注册、验证重发、15 分钟/六次/单次使用 challenge、验证事务内账户激活与
+个人默认工作区创建、显式密码登录、旧 Web Session 轮换、刷新后的 session discovery、服务端退出，
+以及独立密码恢复 challenge、Security Epoch 推进和全部旧 Session 撤销。加密邮件 outbox 只领取绑定
+当前、未过期且仍有尝试预算的 challenge digest 消息，每次投递携带稳定幂等键，临时失败按有界退避重试，第二十次失败进入 durable terminal state；
+HTTP 只观察脱敏 operation/outcome 标签。以上是当前源码和本地 PostgreSQL 证据。公网
+Resend 控制台已确认 `gooddealer.com` 为 Verified 域名；源码将 staging 发件地址固定约束在该域名下。
+`account.gooddealer.com` 当前以 fail-closed staging 组合运行：Resend 使用已验证的 `gooddealer.com`
+发件域名和 secret custody，账户 API 仍是同源 `/v1/*`；无数据库或开发工具权限的测试用户已完成注册、真实邮件验证、登录、刷新恢复和退出。该证据授权 staging 旅程可用，但不等于公开注册或生产资格。
+
 Cloud 已组合账号激活、Desktop Grant、账号 billing、Desktop OAuth 与支付 webhook 边界；周期
 作业精确包含 Licensing provider operation/inbox/reconciliation/due-authority/release，共享开发环境由
 systemd self-hosted worker 执行。Desktop 主应用已组合授权门禁、本地资产 list/detail/edit/delete、

@@ -191,6 +191,7 @@ export const repositoryTopology = Object.freeze([
     publicEntrypoints: [
       publicEntrypoint("public-http", "src/entrypoints/http.ts"),
       publicEntrypoint("identity-http", "src/entrypoints/identity-http.ts"),
+      publicEntrypoint("identity-telemetry", "src/entrypoints/identity-telemetry.ts"),
       publicEntrypoint("desktop-oauth-http", "src/entrypoints/desktop-oauth-http.ts"),
       publicEntrypoint("admin-http", "src/entrypoints/admin-http.ts"),
       publicEntrypoint("payment-webhook-http", "src/entrypoints/payment-webhook-http.ts"),

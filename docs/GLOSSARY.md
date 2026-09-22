@@ -5,7 +5,7 @@
 | 术语 | 含义 |
 | --- | --- |
 | M013 | 已显式接入 Cloud 迁移目录的服务器审计基础，标识为 `202608200013-server-audit-substrate`。 |
-| Cloud 中央迁移目录 | Cloud 唯一、字面有序的 M001–M017、M019、M020 目录；M015 是规范化商业领域的 greenfield baseline，M019 建立 Identity transaction capability，M020 建立 Account access challenge 和加密邮件 outbox，M018 不存在。 |
+| Cloud 中央迁移目录 | Cloud 唯一、字面有序的 25 项 migration 目录；M015 是规范化商业领域的 greenfield baseline，M019 建立 Identity transaction capability，M020 建立 Account access challenge 和加密邮件 outbox，后续 recovery、commercial entitlement snapshot 与 default-workspace capability migrations 建立恢复、权威读取和个人工作区能力，M018 不存在。 |
 | CommercialProviderSlot | 每账号唯一的 Provider/付款排他槽位；持有不等于授予商业权利。 |
 | CommercialAuthority | 唯一可以选择 `CommercialRight` 并推进派生 Entitlement 投影的账号级权威。 |
 | ProviderBinding | 服务器创建的全局唯一 Provider resource 到账号/本地聚合绑定；Provider payload metadata 不能替代它成为租户权威。 |

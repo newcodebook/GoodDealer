@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { identityTransactionCapabilityMigration } from "../src/modules/identity/migrations/202608200019-transaction-capability";
+import { accountDefaultWorkspaceCapabilityPolicyMigration } from "../src/modules/workspace/default-workspace/migrations/202609220002-account-default-workspace-capability-policy";
 
 describe("Identity transaction capability migration", () => {
-  const sql = identityTransactionCapabilityMigration.sql;
+  const sql = `${identityTransactionCapabilityMigration.sql}\n${accountDefaultWorkspaceCapabilityPolicyMigration.sql}`;
   const provisioning = readFileSync(
     new URL("../scripts/provision-identity-capability-roles.sql", import.meta.url),
     "utf8",

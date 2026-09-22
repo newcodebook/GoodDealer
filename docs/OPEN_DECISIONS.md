@@ -20,7 +20,7 @@
 | 浏览器产品范围 | 首发产品不包含嵌入式浏览器、DOM 自动化、Cookie/Profile custody、自动登录、下载或上传。需要网页操作时由用户在自己的浏览器中完成；未来引入任何受控浏览器能力必须有新的 ADR。 | [ADR-0017](adr/0017-v1-excludes-browser-automation.md) |
 | 运营与首发 Release | 生产采用单区域、受管服务的运行模型，生产、预发布和开发环境严格隔离。首个公开客户发行目标为 `1.0.0` 的 `stable` 渠道，且只在完整首发范围、外部资格和独立批准均具备时发出。 | [ADR-0018](adr/0018-production-operations-and-stable-release.md) |
 | 商业计划与支付 | 同一功能档位提供 USD 9.80 月付、USD 98 年付和 USD 498 的 10 年固定期限预付授权；无免费试用；每账号终身唯一的首次 settled acquisition 有 336 小时全额退款窗口，续费不重置，接受即只读；首发只开放 Stripe，PayPal 是不参与首发资格的可选扩展能力；每账号最多一个有效 Provider；优惠不可叠加并由服务端统一映射；价格未含税且只开放合规销售地区。 | [ADR-0020](adr/0020-commercial-entitlement-and-local-access.md) |
-| Account Web 身份与邮件 | 注册、邮箱验证、密码登录和会话查询使用独立 Identity ingress；共享协议不承载秘密。验证码只存 peppered digest，邮件加密进入 durable outbox；开发投递只允许 loopback Mailpit，生产邮件资格完成前保持关闭。 | [ADR-0022](adr/0022-account-identity-and-email-delivery.md) |
+| Account Web 身份与邮件 | 注册、邮箱验证/重发、密码登录/恢复、会话查询和退出使用独立 Identity ingress；共享协议不承载秘密。用途隔离的验证码只存 peppered digest，邮件加密进入 durable outbox；登录轮换与退出服务端撤销 Session，密码恢复推进 Security Epoch 并撤销旧会话。开发投递只允许 loopback Mailpit，生产邮件资格完成前保持关闭。 | [ADR-0022](adr/0022-account-identity-and-email-delivery.md) |
 
 ## 仅在真实发布时实例化的外部输入
 
@@ -36,10 +36,11 @@
 
 ## 当前仓库基础
 
-- Cloud 的唯一中央目录按字面顺序注册 M001–M017、M019 后接 M020；M002 拥有不含 Provider 连接身份的
+- Cloud 的唯一中央目录按字面顺序注册 25 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery 及后续 account capability migrations）；M002 拥有不含 Provider 连接身份的
   `workspace_replica_*` 完整副本 schema，M015 是规范化商业领域 greenfield baseline，M016 增加
   Identity refresh recovery，M017 增加 Devices 登录授权加固，M019 建立 Identity transaction
-  capability，M020 建立注册 challenge、加密邮件 outbox 和 Identity worker claim；不存在 M018 compatibility migration。
+  capability，M020 建立注册 challenge、加密邮件 outbox 和 Identity worker claim；M023 增加密码恢复、
+  challenge-bound outbox、bounded dead-letter 和安全 Session 撤销；不存在 M018 compatibility migration。
 - Secure Host 公开非秘密 Cloudflare 观察类型（以及 OAuth/授权验签），不包含备份实现或依赖。Local
   SQLCipher key 与 backup 的 authority continuity、GDBK/KEK、rollback-anchor capability、native
   handle/journal、projection、candidate 和 restore 全部由 `local-storage` 的 `DesktopLocalHost` 私有拥有。
@@ -49,10 +50,9 @@
 - Desktop 已有具名本地业务、备份和认证命令、完整 SQLCipher 业务 schema、macOS
   Keychain 数据库/device/refresh custody、Native PKCE、带近期 Web 重新认证与同会话约束的首次设备注册、Bearer Grant 拉取与
   build-pinned Grant/Lease 公钥 registry；各后续旅程 Repository 和完整业务 UI 尚待组合。Cloud 已有账号激活、Desktop Grant、billing、OAuth 与
-  webhook 边界；独立 Identity 注册/验证/登录 ingress、真实 Account Web session 和 loopback Mailpit
-  开发组合已随授权开发组合根部署到 `api.gooddealer.com` / `account.gooddealer.com`，并通过公网注册、
-  邮件捕获、验证、session 与 billing 冒烟；生产邮件和公开客户注册仍未资格化。
-- Browser 自动化不可用，release 请求未发布且不具资格。
+  webhook 边界；独立 Identity 注册/验证/登录 ingress、真实 Account Web session 和 staging Resend
+  组合已部署到 `api.gooddealer.com` / `account.gooddealer.com`。无数据库权限测试用户已完成注册、验证、登录、刷新恢复和退出；生产邮件和公开客户注册仍未资格化。
+- staging release 已发布并通过真实浏览器旅程；生产发布仍需独立资格与外部配置。
 - 隔离开发 VPS 已提供 OpenBao 2.6.2 Transit/TLS/AppRole/audit 集成目标；其单节点、手动 unseal
   和仓库外恢复材料只适用于开发，不能替代生产 OpenBao 或 HSM 资格。
 

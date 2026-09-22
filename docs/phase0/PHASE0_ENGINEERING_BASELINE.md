@@ -15,7 +15,7 @@ Phase 0 保留严格协议、模块边界、秘密隔离、失败关闭和可审
 | --- | --- | --- |
 | 依赖、工具链与生成来源 | 清单、锁文件、声明的导出和生成来源受仓库检查约束。 | 某个环境已部署或某个构件已发布。 |
 | 模块/信任边界 | 应用入口保持薄；领域只经声明的公共合同交互；不可信数据从 `unknown` 验证。 | 客户、提供商或原生运行时已可用。 |
-| Cloud 迁移目录 | 中央目录按字面顺序注册 M001–M017、M019 后接 M020；M015 是规范化商业领域 greenfield baseline，M019 建立 Identity transaction capability，M020 建立 Account access challenge 和加密邮件 outbox，不存在 M018 compatibility migration。 | Cloud 是 Desktop 正常业务 Repository，或受管部署已存在。 |
+| Cloud 迁移目录 | 中央目录按字面顺序注册 25 项 migration；M015 是规范化商业领域 greenfield baseline，M019 建立 Identity transaction capability，M020 建立 Account access challenge 和加密邮件 outbox，后续 migrations 建立 recovery challenge、commercial entitlement snapshot 和 default-workspace capability policy，不存在 M018 compatibility migration。 | Cloud 是 Desktop 正常业务 Repository，或受管部署已存在。 |
 | Secure Host 与本地秘密 | Host 只暴露经拥有者批准的窄操作；秘密不进入普通 TypeScript、日志、错误或非秘密持久化。 | 存在通用网络/文件/数据库权威，或 Cloudflare Token 已被实际使用。 |
 | Browser | 浏览器自动化不属于四项 v1 能力；保留的不可用证据只说明其记录的仓库状态。 | 浏览器仍是明确排除的能力，不构成 Provider 或备份回退。 |
 | GDBK 备份与恢复 | `gooddealer-local-storage` 的 `DesktopLocalHost` 独占 SQLCipher key、authority continuity、strict GDBK v1、Backup KEK、rollback-anchor capability、native handle/journal、allowlisted candidate/诚实恢复；client-core/Desktop 合同和仅在 `cfg(test)` 编译的 continuity/rebootstrap 协议已组合，生产只保留 fixed-resource residue absence gate。 | 产品备份/恢复/continuity/rebootstrap 已可用，或私有 fake、普通 Keychain/upsert、retained-fd 检查已证明生产 create-only、monotonicity、同 UID swap 防护或目标平台资格。 |

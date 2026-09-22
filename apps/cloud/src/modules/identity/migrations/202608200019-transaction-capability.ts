@@ -530,23 +530,6 @@ export const identityTransactionCapabilityMigration: CloudMigration = {
     END;
     $policies$;
 
-    -- Default Workspace discovery is an account-scoped read. The capability role must be able
-    -- to resolve that single binding before it can install the tenant selector used by the
-    -- locked authorization query; this policy grants no general Workspace scan or write access.
-    CREATE POLICY workspace_account_bindings_default_owner_capability_select
-      ON public.workspace_account_bindings
-      FOR SELECT
-      TO gd_account_api
-      USING (
-        current_setting('gooddealer.capability_purpose', true) IN ('devices_account', 'workspace_tenant')
-        AND
-        current_setting('gooddealer.account_id', true) ~ '^[!-~]{1,160}$'
-        AND account_id = current_setting('gooddealer.account_id', true)
-        AND owner_kind = 'account'
-        AND role = 'default_owner'
-        AND is_default = true
-      );
-
     SET LOCAL ROLE gd_identity_owner;
     ALTER DEFAULT PRIVILEGES IN SCHEMA identity_private REVOKE ALL ON TABLES FROM PUBLIC;
     ALTER DEFAULT PRIVILEGES IN SCHEMA identity_private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
