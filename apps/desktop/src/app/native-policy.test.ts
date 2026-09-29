@@ -19,6 +19,7 @@ describe("Desktop native policy", () => {
     expect(main).not.toMatch(/local_portfolio_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_edit/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
+    expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
     expect(handlers).toMatch(/fn cloudflare_connection_status/u);
     expect(handlers).toMatch(/fn cloudflare_observation_read/u);
@@ -64,6 +65,7 @@ describe("Desktop native policy", () => {
       "allow-local-domain-detail-read",
       "allow-local-domain-asset-edit",
       "allow-local-domain-asset-delete",
+      "allow-local-domain-asset-provider-bind",
       "allow-local-conflict-center-read",
       "allow-local-conflict-resolve",
       "allow-local-sync-status",
@@ -102,6 +104,7 @@ describe("Desktop native policy", () => {
       "allow-local-domain-detail-read",
       "allow-local-domain-asset-edit",
       "allow-local-domain-asset-delete",
+      "allow-local-domain-asset-provider-bind",
       "allow-local-conflict-center-read",
       "allow-local-conflict-resolve",
       "allow-local-sync-status",

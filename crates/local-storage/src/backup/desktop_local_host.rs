@@ -36,6 +36,7 @@ use crate::desktop_business_runtime::DesktopBusinessRuntime;
 use crate::desktop_business_runtime::{
     BusinessMutationContext, DesktopAssetLibraryReadRequest, DesktopConflictCenterView,
     DesktopConflictResolveRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest,
 };
 use crate::desktop_sync_runtime::{
@@ -2192,6 +2193,28 @@ impl DesktopLocalHost {
         }
         self.with_authorized_business(false, |runtime, _, _, _| {
             runtime.read_cloudflare_observation(&request.entity_id)
+        })
+    }
+
+    /// Binds one existing asset to the latest Host-verified Cloudflare Zone observation.
+    ///
+    /// The Renderer supplies only the asset and an expected local generation. Connection and
+    /// Provider resource identity are recovered from Host-local observation evidence.
+    pub fn bind_domain_asset_provider(
+        &self,
+        request: DesktopDomainAssetProviderBindingRequest,
+    ) -> Result<DesktopDomainAssetProviderBindingReceipt, DesktopLocalHostError> {
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let context = BusinessMutationContext::new(
+                authority.device_id.clone(),
+                authority.lease_epoch,
+                format_timestamp(
+                    current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+                ),
+            )?;
+            runtime.bind_domain_asset_provider_guarded(request, &context, || {
+                self.require_business_commit_fence(captured_epoch, authority)
+            })
         })
     }
 

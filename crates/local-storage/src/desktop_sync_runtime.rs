@@ -1055,7 +1055,8 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
         | BusinessDatabaseError::AssetNotFound
         | BusinessDatabaseError::AssetDeleted
         | BusinessDatabaseError::SecretInSyncPayload
-        | BusinessDatabaseError::SequenceExhausted => DesktopSyncError::InvalidInput,
+        | BusinessDatabaseError::SequenceExhausted
+        | BusinessDatabaseError::ProviderBindingUnavailable => DesktopSyncError::InvalidInput,
         BusinessDatabaseError::StorageRejected => DesktopSyncError::StorageRejected,
     }
 }

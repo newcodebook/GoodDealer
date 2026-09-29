@@ -6,9 +6,11 @@ use gooddealer_local_storage::{
     AssetLibraryReadSnapshot, DesktopAssetLibraryReadRequest, DesktopBackupError,
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest, DesktopDomainDetailReadRequest,
-    DesktopLocalBusinessStatus, DesktopLocalHost, DesktopSyncSnapshotView,
-    DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
+    DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
+    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt,
+    DomainDetailReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -85,6 +87,16 @@ pub(crate) fn local_domain_asset_delete(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainAssetMutationReceipt, String> {
     host.delete_domain_asset(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_domain_asset_provider_bind(
+    request: DesktopDomainAssetProviderBindingRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopDomainAssetProviderBindingReceipt, String> {
+    host.bind_domain_asset_provider(request)
         .map_err(|error| error.to_string())
 }
 

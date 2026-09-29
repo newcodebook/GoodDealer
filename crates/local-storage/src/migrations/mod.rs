@@ -5,9 +5,11 @@ use crate::active_workspace::schema::{
     ACTIVE_SCHEMA_MIGRATION_ID, ACTIVE_SCHEMA_MIGRATION_OWNER, ACTIVE_SCHEMA_MIGRATION_SQL,
     CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
     CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
-    SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER, SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID,
-    SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL, SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER,
-    SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID, SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
+    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
+    SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
+    SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
+    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +60,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: SYNC_V5_MIGRATION_ID,
         owner: SYNC_V5_MIGRATION_OWNER,
         sql: SYNC_V5_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: DOMAIN_PROVIDER_BINDING_MIGRATION_ID,
+        owner: DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
+        sql: DOMAIN_PROVIDER_BINDING_MIGRATION_SQL,
     },
 ];
 
@@ -311,7 +318,7 @@ mod tests {
 
     #[test]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 7);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 8);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -336,8 +343,72 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 43);
-        assert!(business_index_count >= 22);
+        assert_eq!(table_count, 44);
+        assert!(business_index_count >= 24);
+
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,
+                  next_device_mutation_sequence,created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,0,1,2,
+                         '2026-09-29T00:00:00Z','2026-09-29T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO local_provider_connections
+                 (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at)
+                 VALUES ('workspace-local','connection-1','cloudflare','Primary','2026-09-29T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
+                 VALUES ('workspace-local','example.com','active','2026-09-29T00:00:00Z','2026-09-29T00:00:00Z',1)",
+                [],
+            )
+            .unwrap();
+            connection
+            .execute(
+                "INSERT INTO domain_asset_provider_bindings
+                 (workspace_id,entity_id,connection_id,provider_kind,resource_kind,
+                  resource_binding_digest,observation_digest,resource_label,binding_generation,
+                  local_commit_sequence,validation_status,created_at,updated_at)
+                 VALUES ('workspace-local','example.com','connection-1','cloudflare','zone',
+                  ?1,?2,'example.com',1,1,'unverified',
+                  '2026-09-29T00:00:00Z','2026-09-29T00:00:00Z')",
+                rusqlite::params!["a".repeat(64), "b".repeat(64)],
+            )
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "UPDATE domain_asset_provider_bindings
+                 SET connection_id='connection-2' WHERE workspace_id='workspace-local'
+                   AND entity_id='example.com' AND resource_kind='zone'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(connection
+            .execute(
+                "DELETE FROM domain_asset_provider_bindings
+                 WHERE workspace_id='workspace-local' AND entity_id='example.com' AND resource_kind='zone'",
+                [],
+            )
+            .is_err());
+        assert!(connection
+            .execute(
+                "UPDATE domain_asset_provider_bindings SET validation_status='verified'
+                 WHERE workspace_id='workspace-local' AND entity_id='example.com' AND resource_kind='zone'",
+                [],
+            )
+            .is_err());
 
         let cloudflare_credential_triggers = connection
             .prepare(

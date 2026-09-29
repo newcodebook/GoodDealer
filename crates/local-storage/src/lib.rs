@@ -164,8 +164,10 @@ pub use desktop_business_runtime::{
     DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,
     DesktopCloudflareObservationRecord, DesktopConflict, DesktopConflictCenterView,
     DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest, DesktopDomainAssetWrite,
-    DesktopDomainDetailReadRequest, DesktopSyncSnapshotView, DesktopSyncTransportState,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
+    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopSyncSnapshotView,
+    DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

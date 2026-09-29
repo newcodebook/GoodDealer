@@ -10,6 +10,8 @@ import {
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
+  localDomainAssetProviderBindingRequestSchema,
+  localDomainAssetProviderBindingReceiptSchema,
   parseConflictCenterViewModel,
   parseConflictResolutionReceipt,
   parseSyncSnapshotViewModel,
@@ -21,6 +23,8 @@ import {
   type LocalDomainAssetEditRequest,
   type LocalDomainAssetDeleteRequest,
   type LocalDomainAssetMutationReceipt,
+  type LocalDomainAssetProviderBindingRequest,
+  type LocalDomainAssetProviderBindingReceipt,
   type AssetLibraryViewModel,
   type DomainDetailViewModel,
   type ValidatedPortfolioPresentationPort,
@@ -43,6 +47,8 @@ export interface LocalBusinessPort {
   status(): Promise<LocalBusinessStatus>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
+  /** Optional until the asset-detail UI exposes the explicit bind action. */
+  bindDomainAssetProvider?(request: LocalDomainAssetProviderBindingRequest): Promise<LocalDomainAssetProviderBindingReceipt>;
 }
 
 export interface LocalConflictPort {
@@ -100,6 +106,7 @@ const commands = {
   readDomainDetail: "local_domain_detail_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
+  bindDomainAssetProvider: "local_domain_asset_provider_bind",
   conflictCenter: "local_conflict_center_read",
   resolveConflict: "local_conflict_resolve",
   localSyncStatus: "local_sync_status",
@@ -231,6 +238,10 @@ export function createLocalBusinessPort(): LocalBusinessPort {
     async deleteDomainAsset(request) {
       const parsed = localDomainAssetDeleteRequestSchema.parse(request);
       return localDomainAssetMutationReceiptSchema.parse(await invoke(commands.deleteDomainAsset, { request: parsed }));
+    },
+    async bindDomainAssetProvider(request) {
+      const parsed = localDomainAssetProviderBindingRequestSchema.parse(request);
+      return localDomainAssetProviderBindingReceiptSchema.parse(await invoke(commands.bindDomainAssetProvider, { request: parsed }));
     },
   };
 }

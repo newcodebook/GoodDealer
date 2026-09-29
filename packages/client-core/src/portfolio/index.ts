@@ -99,6 +99,8 @@ export {
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
+  localDomainAssetProviderBindingRequestSchema,
+  localDomainAssetProviderBindingReceiptSchema,
 } from "./ports";
 export type {
   CsvImportPlanRequest,
@@ -110,6 +112,8 @@ export type {
   LocalDomainAssetEditRequest,
   LocalDomainAssetDeleteRequest,
   LocalDomainAssetMutationReceipt,
+  LocalDomainAssetProviderBindingRequest,
+  LocalDomainAssetProviderBindingReceipt,
 } from "./ports";
 
 export {

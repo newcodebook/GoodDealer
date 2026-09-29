@@ -13,6 +13,11 @@ pub(crate) const SYNC_V4_MIGRATION_SQL: &str = include_str!("sync_v4.sql");
 pub(crate) const SYNC_V5_MIGRATION_ID: i64 = 202_609_160_001;
 pub(crate) const SYNC_V5_MIGRATION_OWNER: &str = "active-workspace/native-cloud-checkpoint";
 pub(crate) const SYNC_V5_MIGRATION_SQL: &str = include_str!("sync_v5.sql");
+pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_ID: i64 = 202_609_290_001;
+pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER: &str =
+    "active-workspace/domain-provider-binding";
+pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_SQL: &str =
+    include_str!("domain_provider_binding.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
@@ -159,6 +164,26 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
             "deleted_at",
             "local_commit_sequence",
+        ],
+    ),
+    (
+        "domain_asset_provider_bindings",
+        &[
+            "workspace_id",
+            "entity_id",
+            "connection_id",
+            "provider_kind",
+            "resource_kind",
+            "resource_binding_digest",
+            "observation_digest",
+            "resource_label",
+            "binding_generation",
+            "local_commit_sequence",
+            "validation_status",
+            "verified_at",
+            "last_observed_at",
+            "created_at",
+            "updated_at",
         ],
     ),
     (

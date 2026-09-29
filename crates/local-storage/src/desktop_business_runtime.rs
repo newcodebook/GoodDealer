@@ -81,6 +81,15 @@ pub struct DesktopDomainAssetDeleteRequest {
     pub(crate) entity_id: String,
 }
 
+/// Binds one existing asset to the latest Host-verified Cloudflare Zone observation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopDomainAssetProviderBindingRequest {
+    pub(crate) schema_version: u8,
+    pub(crate) expected_read_generation: u64,
+    pub(crate) entity_id: String,
+}
+
 /// Inputs for one conflict resolution CAS operation.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -311,6 +320,24 @@ pub struct DesktopCloudflareObservationRecord {
     pub classification: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopDomainAssetProviderBindingReceipt {
+    pub schema_version: u8,
+    pub disposition: &'static str,
+    pub entity_id: String,
+    pub provider_kind: String,
+    pub resource_kind: String,
+    pub resource_binding_digest: String,
+    pub resource_label: String,
+    pub binding_generation: u64,
+    pub validation_status: String,
+    pub verified_at: String,
+    pub last_observed_at: String,
+    pub local_commit_sequence: u64,
+    pub read_generation: u64,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopDomainAssetWrite {
@@ -433,6 +460,47 @@ impl DesktopBusinessRuntime {
         let mut value = self.database.read_cloudflare_observation(entity_id)?;
         value.read_generation = self.read_generation;
         Ok(value)
+    }
+
+    pub(crate) fn bind_domain_asset_provider_guarded(
+        &mut self,
+        request: DesktopDomainAssetProviderBindingRequest,
+        context: &BusinessMutationContext,
+        commit_fence: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<DesktopDomainAssetProviderBindingReceipt, BusinessDatabaseError> {
+        if request.schema_version != 1 || request.expected_read_generation > MAX_SAFE_INTEGER {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        let same_generation = request.expected_read_generation == self.read_generation;
+        if same_generation && !self.has_read_generation_capacity() {
+            return Err(BusinessDatabaseError::SequenceExhausted);
+        }
+        let allow_new = same_generation;
+        let receipt = self.database.bind_latest_cloudflare_zone(
+            &request.entity_id,
+            allow_new,
+            self.has_read_generation_capacity(),
+            &context.committed_at,
+            commit_fence,
+        )?;
+        if receipt.disposition == "committed" {
+            self.bump_read_generation_after_preflight();
+        }
+        Ok(DesktopDomainAssetProviderBindingReceipt {
+            schema_version: 1,
+            disposition: receipt.disposition,
+            entity_id: receipt.entity_id,
+            provider_kind: receipt.provider_kind,
+            resource_kind: receipt.resource_kind,
+            resource_binding_digest: receipt.resource_binding_digest,
+            resource_label: receipt.resource_label,
+            binding_generation: receipt.binding_generation,
+            validation_status: receipt.validation_status,
+            verified_at: receipt.verified_at,
+            last_observed_at: receipt.last_observed_at,
+            local_commit_sequence: receipt.local_commit_sequence,
+            read_generation: self.read_generation,
+        })
     }
 
     pub(crate) fn edit_domain_asset_guarded(

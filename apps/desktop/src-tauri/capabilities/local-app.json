@@ -18,6 +18,7 @@
     "allow-local-domain-detail-read",
     "allow-local-domain-asset-edit",
     "allow-local-domain-asset-delete",
+    "allow-local-domain-asset-provider-bind",
     "allow-local-conflict-center-read",
     "allow-local-conflict-resolve",
     "allow-local-sync-status",

@@ -177,6 +177,23 @@ pub struct CloudflareConnectionObservationAdmission {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DomainProviderBindingReceipt {
+    pub disposition: &'static str,
+    pub entity_id: String,
+    pub connection_id: String,
+    pub provider_kind: String,
+    pub resource_kind: String,
+    pub resource_binding_digest: String,
+    pub observation_digest: String,
+    pub resource_label: String,
+    pub binding_generation: u64,
+    pub validation_status: String,
+    pub verified_at: String,
+    pub last_observed_at: String,
+    pub local_commit_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudflareDnsRecordWrite {
     pub record_key: String,
     pub record_type: String,
@@ -574,6 +591,7 @@ pub enum BusinessDatabaseError {
     MutationStale,
     AssetDeleted,
     SequenceExhausted,
+    ProviderBindingUnavailable,
 }
 
 impl Display for BusinessDatabaseError {
@@ -594,6 +612,7 @@ impl Display for BusinessDatabaseError {
             Self::MutationStale => "LOCAL_MUTATION_STALE_AUTHORITY",
             Self::AssetDeleted => "LOCAL_ASSET_DELETED",
             Self::SequenceExhausted => "LOCAL_MUTATION_SEQUENCE_EXHAUSTED",
+            Self::ProviderBindingUnavailable => "LOCAL_PROVIDER_BINDING_UNAVAILABLE",
         })
     }
 }
@@ -1042,6 +1061,259 @@ pub(crate) fn verify_rebootstrap_recovery_read_only(
 }
 
 impl BusinessDatabase {
+    /// Binds an existing local asset to the latest Host-verified Cloudflare Zone observation.
+    ///
+    /// The Provider resource digest and connection are read from the local staged observation;
+    /// callers cannot provide either value. A binding identity is immutable, so credential or
+    /// resource drift fails closed until an explicit replacement workflow is implemented.
+    pub(crate) fn bind_latest_cloudflare_zone(
+        &mut self,
+        entity_id: &str,
+        allow_new: bool,
+        sequence_available: bool,
+        committed_at: &str,
+        commit_fence: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<DomainProviderBindingReceipt, BusinessDatabaseError> {
+        validate_domain_asset_id(entity_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_timestamp(Some(committed_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let latest: Option<(String, String, String, String, i64, String)> = transaction
+            .query_row(
+                "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
+                        c.active_credential_generation,b.observed_at
+                   FROM cloudflare_dns_staged_batches b
+                   JOIN domain_assets a
+                     ON a.workspace_id=b.workspace_id
+                    AND a.entity_id=b.entity_id
+                   JOIN cloudflare_credential_roots r
+                     ON r.workspace_id=b.workspace_id
+                    AND r.connection_incarnation_id=b.connection_incarnation_id
+                   JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id
+                    AND c.connection_id=r.logical_connection_id
+                  WHERE b.workspace_id=?1
+                    AND b.entity_id=?2
+                    AND b.entity_id=b.zone_name_ascii
+                    AND a.deleted_at IS NULL
+                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
+                    AND b.visibility='committed'
+                    AND b.observation_availability='available'
+                    AND b.cloudflare_zone_status IN ('active','pending')
+                    AND r.retired_at IS NULL
+                    AND r.known_envelope_kind='active'
+                    AND r.known_envelope_generation=c.active_credential_generation
+                    AND r.known_zone_digest=b.zone_digest
+                    AND c.provider_kind='cloudflare'
+                    AND c.lifecycle_status='active'
+                    AND c.validation_status='valid'
+                    AND c.credential_use_state='active'
+                    AND c.active_credential_generation IS NOT NULL
+                    AND c.active_credential_zone_digest=b.zone_digest
+                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
+                   LIMIT 1",
+                params![self.workspace_id, entity_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let Some((
+            connection_id,
+            resource_binding_digest,
+            observation_digest,
+            resource_label,
+            generation,
+            observed_at,
+        )) = latest
+        else {
+            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
+        };
+        let binding_generation =
+            u64::try_from(generation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        validate_sha256_hex(&resource_binding_digest)?;
+        validate_sha256_hex(&observation_digest)?;
+        validate_local_text(&connection_id)?;
+        validate_domain_asset_id(&resource_label)
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        if resource_label != entity_id {
+            return Err(BusinessDatabaseError::MutationConflict);
+        }
+        let existing: Option<(
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        )> = transaction
+            .query_row(
+                "SELECT connection_id,provider_kind,resource_binding_digest,observation_digest,
+                        binding_generation,resource_label,validation_status,verified_at,last_observed_at
+                   FROM domain_asset_provider_bindings
+                  WHERE workspace_id=?1 AND entity_id=?2 AND resource_kind='zone'",
+                params![self.workspace_id, entity_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if let Some((
+            old_connection,
+            old_provider,
+            old_digest,
+            old_observation,
+            old_generation,
+            old_label,
+            old_status,
+            old_verified_at,
+            old_last_observed_at,
+        )) = existing
+        {
+            if old_connection != connection_id
+                || old_provider != "cloudflare"
+                || old_digest != resource_binding_digest
+                || old_label != resource_label
+            {
+                return Err(BusinessDatabaseError::MutationConflict);
+            }
+            let old_generation = u64::try_from(old_generation)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            if binding_generation < old_generation {
+                return Err(BusinessDatabaseError::MutationConflict);
+            }
+            if old_observation == observation_digest
+                && old_generation == binding_generation
+                && old_status == "verified"
+            {
+                let local_commit_sequence: i64 = transaction
+                    .query_row(
+                        "SELECT local_commit_sequence
+                           FROM domain_asset_provider_bindings
+                          WHERE workspace_id=?1 AND entity_id=?2 AND resource_kind='zone'",
+                        params![self.workspace_id, entity_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+                commit_fence()?;
+                transaction
+                    .commit()
+                    .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+                return Ok(DomainProviderBindingReceipt {
+                    disposition: "replayed",
+                    entity_id: entity_id.to_owned(),
+                    connection_id,
+                    provider_kind: "cloudflare".to_owned(),
+                    resource_kind: "zone".to_owned(),
+                    resource_binding_digest,
+                    observation_digest,
+                    resource_label,
+                    binding_generation,
+                    validation_status: "verified".to_owned(),
+                    verified_at: old_verified_at.ok_or(BusinessDatabaseError::StorageRejected)?,
+                    last_observed_at: old_last_observed_at
+                        .ok_or(BusinessDatabaseError::StorageRejected)?,
+                    local_commit_sequence: u64::try_from(local_commit_sequence)
+                        .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+                });
+            }
+            if !allow_new {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
+        } else if !allow_new {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        if !sequence_available {
+            return Err(BusinessDatabaseError::SequenceExhausted);
+        }
+        let local_commit_sequence: i64 = transaction
+            .query_row(
+                "UPDATE active_workspace_metadata
+                    SET local_commit_sequence=local_commit_sequence+1,updated_at=?1
+                  WHERE singleton=1
+                RETURNING local_commit_sequence",
+                [committed_at],
+                |row| row.get(0),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction
+            .execute(
+                "INSERT INTO domain_asset_provider_bindings
+                 (workspace_id,entity_id,connection_id,provider_kind,resource_kind,
+                  resource_binding_digest,observation_digest,resource_label,binding_generation,
+                  local_commit_sequence,validation_status,verified_at,last_observed_at,created_at,updated_at)
+                 VALUES (?1,?2,?3,'cloudflare','zone',?4,?5,?6,?7,?8,'verified',?9,?10,?9,?9)
+                 ON CONFLICT(workspace_id,entity_id,resource_kind) DO UPDATE SET
+                   observation_digest=excluded.observation_digest,
+                   resource_label=excluded.resource_label,
+                   binding_generation=excluded.binding_generation,
+                   local_commit_sequence=excluded.local_commit_sequence,
+                   validation_status='verified',
+                   verified_at=excluded.verified_at,
+                   last_observed_at=excluded.last_observed_at,
+                   updated_at=excluded.updated_at",
+                params![
+                    self.workspace_id,
+                    entity_id,
+                    connection_id,
+                    resource_binding_digest,
+                    observation_digest,
+                    resource_label,
+                    generation,
+                    local_commit_sequence,
+                    committed_at,
+                    observed_at,
+                ],
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        commit_fence()?;
+        transaction
+            .commit()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok(DomainProviderBindingReceipt {
+            disposition: "committed",
+            entity_id: entity_id.to_owned(),
+            connection_id,
+            provider_kind: "cloudflare".to_owned(),
+            resource_kind: "zone".to_owned(),
+            resource_binding_digest,
+            observation_digest,
+            resource_label,
+            binding_generation,
+            validation_status: "verified".to_owned(),
+            verified_at: committed_at.to_owned(),
+            last_observed_at: observed_at,
+            local_commit_sequence: u64::try_from(local_commit_sequence)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        })
+    }
+
     pub(crate) fn workspace_id(&self) -> &str {
         &self.workspace_id
     }

@@ -6,6 +6,7 @@ import {
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
 } from "./view-models";
+import { canonicalDomainNameSchema } from "./domain-name";
 
 export function parseAssetLibraryQuery(input: unknown): string {
   if (typeof input !== "string" || new TextEncoder().encode(input).length > 64 || !/^[\x20-\x7e]*$/u.test(input)) throw new TypeError("asset query is invalid");
@@ -34,10 +35,14 @@ const editableAssetSchema = z.object({
 }).strict();
 export const localDomainAssetEditRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), asset: editableAssetSchema }).strict();
 export const localDomainAssetDeleteRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), entityId: z.string().min(3).max(253) }).strict();
+export const localDomainAssetProviderBindingRequestSchema = z.object({ schemaVersion: z.literal(1), expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), entityId: canonicalDomainNameSchema }).strict();
 export const localDomainAssetMutationReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), operation: z.enum(["edit", "delete"]), mutationId: mutationIdSchema, entityId: z.string().min(3).max(253), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), deviceMutationSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), baseServerRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), activeLeaseEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), committedAt: z.iso.datetime(), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
+export const localDomainAssetProviderBindingReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), entityId: canonicalDomainNameSchema, providerKind: z.literal("cloudflare"), resourceKind: z.literal("zone"), resourceBindingDigest: z.string().regex(/^[0-9a-f]{64}$/u), resourceLabel: canonicalDomainNameSchema, bindingGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), validationStatus: z.literal("verified"), verifiedAt: z.iso.datetime(), lastObservedAt: z.iso.datetime(), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
 export type LocalDomainAssetEditRequest = z.infer<typeof localDomainAssetEditRequestSchema>;
 export type LocalDomainAssetDeleteRequest = z.infer<typeof localDomainAssetDeleteRequestSchema>;
+export type LocalDomainAssetProviderBindingRequest = z.infer<typeof localDomainAssetProviderBindingRequestSchema>;
 export type LocalDomainAssetMutationReceipt = z.infer<typeof localDomainAssetMutationReceiptSchema>;
+export type LocalDomainAssetProviderBindingReceipt = z.infer<typeof localDomainAssetProviderBindingReceiptSchema>;
 
 export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPresentationPort {
   readonly #boundary: PortfolioPresentationPort;
