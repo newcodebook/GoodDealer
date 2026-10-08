@@ -44,6 +44,44 @@ export type LocalDomainAssetProviderBindingRequest = z.infer<typeof localDomainA
 export type LocalDomainAssetMutationReceipt = z.infer<typeof localDomainAssetMutationReceiptSchema>;
 export type LocalDomainAssetProviderBindingReceipt = z.infer<typeof localDomainAssetProviderBindingReceiptSchema>;
 
+/**
+ * Narrow local capability for associating an existing asset with Host-verified Provider
+ * evidence. This deliberately is separate from the read-only presentation/query ports.
+ */
+export interface PortfolioProviderBindingPort {
+  bindDomainAssetProvider(request: LocalDomainAssetProviderBindingRequest): Promise<LocalDomainAssetProviderBindingReceipt>;
+}
+
+export interface PortfolioProviderBindingBoundary {
+  bindDomainAssetProvider(request: LocalDomainAssetProviderBindingRequest): Promise<unknown>;
+}
+
+/** Validates both sides of the local binding boundary before the result reaches the UI. */
+export class ValidatingPortfolioProviderBindingPort implements PortfolioProviderBindingPort {
+  readonly #boundary: PortfolioProviderBindingBoundary;
+
+  constructor(boundary: PortfolioProviderBindingBoundary) {
+    this.#boundary = boundary;
+  }
+
+  async bindDomainAssetProvider(request: LocalDomainAssetProviderBindingRequest) {
+    const parsedRequest = localDomainAssetProviderBindingRequestSchema.parse(request);
+    const receipt = localDomainAssetProviderBindingReceiptSchema.parse(
+      await this.#boundary.bindDomainAssetProvider(parsedRequest),
+    );
+    if (receipt.entityId !== parsedRequest.entityId || receipt.resourceLabel !== parsedRequest.entityId) {
+      throw new TypeError("provider binding receipt entity does not match the request");
+    }
+    if (receipt.disposition === "committed" && receipt.readGeneration !== parsedRequest.expectedReadGeneration + 1) {
+      throw new TypeError("provider binding receipt generation does not advance exactly once");
+    }
+    if (receipt.disposition === "replayed" && receipt.readGeneration < parsedRequest.expectedReadGeneration) {
+      throw new TypeError("provider binding replay regressed the read generation");
+    }
+    return receipt;
+  }
+}
+
 export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPresentationPort {
   readonly #boundary: PortfolioPresentationPort;
 

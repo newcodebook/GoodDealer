@@ -1189,6 +1189,160 @@ mod tests {
     }
 
     #[test]
+    fn provider_binding_host_generation_receipt_and_rollback() {
+        let (_directory, mut runtime) = runtime();
+        runtime
+            .database
+            .seed_verified_cloudflare_binding_for_test("example.com");
+        let context =
+            BusinessMutationContext::new("device-one".into(), 1, "2026-09-16T12:01:00Z".into())
+                .unwrap();
+        let request = |generation| DesktopDomainAssetProviderBindingRequest {
+            schema_version: 1,
+            expected_read_generation: generation,
+            entity_id: "example.com".into(),
+        };
+        let before = runtime.database.provider_binding_snapshot_for_test();
+        assert_eq!(
+            runtime
+                .bind_domain_asset_provider_guarded(request(1), &context, || Ok(()))
+                .unwrap_err(),
+            BusinessDatabaseError::MutationStale
+        );
+        assert_eq!(
+            runtime
+                .bind_domain_asset_provider_guarded(request(0), &context, || Err(
+                    BusinessDatabaseError::MutationStale
+                ))
+                .unwrap_err(),
+            BusinessDatabaseError::MutationStale
+        );
+        assert_eq!(
+            runtime.database.provider_binding_snapshot_for_test(),
+            before
+        );
+        assert_eq!(runtime.read_generation(), 0);
+        let receipt = runtime
+            .bind_domain_asset_provider_guarded(request(0), &context, || Ok(()))
+            .unwrap();
+        assert_eq!(receipt.disposition, "committed");
+        assert_eq!(receipt.read_generation, 1);
+        let wire = serde_json::to_value(&receipt).unwrap();
+        assert_eq!(wire.as_object().unwrap().len(), 13);
+        for secret in [
+            "connectionId",
+            "observationDigest",
+            "credentialRef",
+            "workspaceId",
+            "token",
+        ] {
+            assert!(wire.get(secret).is_none());
+        }
+        let after = runtime.database.provider_binding_snapshot_for_test();
+        let replay = runtime
+            .bind_domain_asset_provider_guarded(request(0), &context, || Ok(()))
+            .unwrap();
+        assert_eq!(replay.disposition, "replayed");
+        assert_eq!(replay.read_generation, 1);
+        assert_eq!(runtime.database.provider_binding_snapshot_for_test(), after);
+        // Unrelated intervening local publications do not freeze the replay receipt generation.
+        runtime.read_generation = 7;
+        assert_eq!(
+            runtime
+                .bind_domain_asset_provider_guarded(request(0), &context, || Ok(()))
+                .unwrap()
+                .read_generation,
+            7
+        );
+        assert_eq!(runtime.database.provider_binding_snapshot_for_test(), after);
+        runtime.read_generation = MAX_SAFE_INTEGER;
+        assert_eq!(
+            runtime
+                .bind_domain_asset_provider_guarded(request(MAX_SAFE_INTEGER), &context, || Ok(()))
+                .unwrap_err(),
+            BusinessDatabaseError::SequenceExhausted
+        );
+        assert_eq!(runtime.database.provider_binding_snapshot_for_test(), after);
+    }
+
+    #[test]
+    fn provider_binding_invalid_schema_and_generation_fail_without_writes() {
+        let (_directory, mut runtime) = runtime();
+        let context =
+            BusinessMutationContext::new("device-one".into(), 1, "2026-09-16T12:01:00Z".into())
+                .unwrap();
+        let before = runtime.database.provider_binding_snapshot_for_test();
+        for (schema_version, expected_read_generation) in
+            [(0, 0), (2, 0), (1, MAX_SAFE_INTEGER + 1)]
+        {
+            let request = DesktopDomainAssetProviderBindingRequest {
+                schema_version,
+                expected_read_generation,
+                entity_id: "example.com".into(),
+            };
+            assert_eq!(
+                runtime
+                    .bind_domain_asset_provider_guarded(request, &context, || panic!(
+                        "invalid request reached fence"
+                    ))
+                    .unwrap_err(),
+                BusinessDatabaseError::MutationStale
+            );
+            assert_eq!(
+                runtime.database.provider_binding_snapshot_for_test(),
+                before
+            );
+            assert_eq!(runtime.read_generation(), 0);
+        }
+    }
+
+    #[test]
+    fn provider_binding_wire_is_exact_and_rejects_unknown_or_legacy_fields() {
+        let valid = r#"{
+            "schemaVersion":1,
+            "expectedReadGeneration":0,
+            "entityId":"example.com"
+        }"#;
+        let request: DesktopDomainAssetProviderBindingRequest =
+            serde_json::from_str(valid).expect("wire");
+        assert_eq!(request.schema_version, 1);
+        assert_eq!(request.entity_id, "example.com");
+
+        for field in [
+            "accountId",
+            "workspaceId",
+            "connectionId",
+            "credentialRef",
+            "token",
+            "resourceId",
+            "unknown",
+        ] {
+            let injected = valid.replace(
+                "\"entityId\":\"example.com\"",
+                &format!("\"entityId\":\"example.com\",\"{field}\":\"x\""),
+            );
+            assert!(
+                serde_json::from_str::<DesktopDomainAssetProviderBindingRequest>(&injected)
+                    .is_err()
+            );
+        }
+        let missing_schema = valid.replace("\"schemaVersion\":1,", "");
+        assert!(
+            serde_json::from_str::<DesktopDomainAssetProviderBindingRequest>(&missing_schema)
+                .is_err()
+        );
+        for generation in ["-1", "1.5", "18446744073709551616", "null"] {
+            let invalid = valid.replace(
+                "\"expectedReadGeneration\":0",
+                &format!("\"expectedReadGeneration\":{generation}"),
+            );
+            assert!(
+                serde_json::from_str::<DesktopDomainAssetProviderBindingRequest>(&invalid).is_err()
+            );
+        }
+    }
+
+    #[test]
     fn conflict_resolution_id_is_stable_across_lease_renewal() {
         let request: DesktopConflictResolveRequest = serde_json::from_str(
             r#"{

@@ -212,6 +212,8 @@ const expectedLocalStoragePublicExports = [
   "DesktopConflictResolveRequest",
   "DesktopDomainAssetDeleteRequest",
   "DesktopDomainAssetEditRequest",
+  "DesktopDomainAssetProviderBindingReceipt",
+  "DesktopDomainAssetProviderBindingRequest",
   "DesktopDomainAssetWrite",
   "DesktopDomainDetailReadRequest",
   "DesktopHostAuthorizationStatus",

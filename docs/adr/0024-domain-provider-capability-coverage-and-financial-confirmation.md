@@ -33,6 +33,11 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
 `secure-host-core` 私有 Service 拥有；本地计划和操作复用 `local-storage` 已有
 `operation_plans`、`operation_attempts` 和 `operation_results`，不得另建通用 Provider 代理。
 
+现有资产的本地 Provider 绑定由 `local-storage` 从已提交且已验证的 Zone 观察派生并原子持久化；它不是 Provider API
+写入，也不创建资产。`client-core` 提供必需的窄 `PortfolioProviderBindingPort`，边界返回 `unknown` 并由唯一 validating wrapper
+验证请求、回执、实体相关性及代次。首次提交严格返回 expected + 1；重放允许返回后续提交后的当前 Host 代次，但不得低于 expected。Desktop
+具体适配器实现该窄端口；宽泛的注入式 `LocalBusinessPort` 保留可选绑定方法，直到资产详情 UI 暴露绑定动作，避免要求只读适配器实现写能力。当前没有绑定 UI 动作。
+
 本决策扩大目标范围，不自动开放任何新执行路径。当前 Cloudflare Host 仍只实现 Zone/DNS
 只读观察，新增写入、Registrar 和监控命令必须分别完成具名权限、生产组合、受控测试和资格审查。
 当前协议中的覆盖目录仅用于阻止遗漏和标明不可执行状态，还不是完成资格审查的 Provider-specific

@@ -1061,6 +1061,39 @@ pub(crate) fn verify_rebootstrap_recovery_read_only(
 }
 
 impl BusinessDatabase {
+    #[cfg(test)]
+    pub(crate) fn provider_binding_snapshot_for_test(&self) -> Vec<Vec<Vec<String>>> {
+        [
+            "domain_asset_provider_bindings",
+            "active_workspace_metadata",
+            "sync_outbox",
+            "sync_outbox_fields",
+            "cloudflare_dns_projection_outbox",
+        ]
+        .iter()
+        .map(|table| {
+            let mut statement = self
+                .store
+                .raw_connection()
+                .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                .unwrap();
+            let columns = statement.column_count();
+            statement
+                .query_map([], |row| {
+                    (0..columns)
+                        .map(|column| {
+                            row.get::<_, rusqlite::types::Value>(column)
+                                .map(|value| format!("{value:?}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        })
+        .collect()
+    }
+
     /// Binds an existing local asset to the latest Host-verified Cloudflare Zone observation.
     ///
     /// The Provider resource digest and connection are read from the local staged observation;
@@ -7554,6 +7587,204 @@ mod tests {
             })
             .unwrap();
         assert_eq!(new_entity.source_sequence, 1);
+    }
+
+    fn binding_database() -> BusinessDatabase {
+        let mut database = database();
+        database
+            .upsert_domain_asset(
+                "binding-seed",
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "example.com".to_owned(),
+                    note: None,
+                    portfolio_id: None,
+                    tags: vec![],
+                    target_price: None,
+                },
+            )
+            .unwrap();
+        database.seed_verified_cloudflare_binding_for_test("example.com");
+        database
+    }
+
+    #[test]
+    fn provider_binding_rejections_are_zero_write() {
+        let cases = [
+            (
+                "unavailable observation",
+                "UPDATE cloudflare_dns_staged_batches SET observation_availability='unavailable'",
+            ),
+            (
+                "uncommitted observation",
+                "UPDATE cloudflare_dns_staged_batches SET visibility='staged'",
+            ),
+            (
+                "tombstoned asset",
+                "UPDATE domain_assets SET lifecycle_status='archived',deleted_at='2026-08-28T00:00:00Z' WHERE entity_id='example.com'",
+            ),
+            (
+                "wrong workspace asset",
+                "UPDATE domain_assets SET workspace_id='workspace-other' WHERE entity_id='example.com'",
+            ),
+            (
+                "inactive connection",
+                "UPDATE local_provider_connections SET lifecycle_status='invalid'",
+            ),
+            (
+                "remediation credential",
+                "UPDATE local_provider_connections SET credential_use_state='remediation_required'",
+            ),
+            (
+                "resource mismatch",
+                "UPDATE cloudflare_dns_staged_batches SET zone_name_ascii='other.test'",
+            ),
+            (
+                "zone mismatch",
+                "UPDATE local_provider_connections SET active_credential_zone_digest='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+            ),
+            (
+                "generation mismatch",
+                "UPDATE cloudflare_credential_roots SET known_envelope_generation=2,highest_resolved_generation=2,head_ledger_generation=2",
+            ),
+        ];
+        for (label, mutation) in cases {
+            let mut database = binding_database();
+            // Corrupt the otherwise genuine fixture after provisioning to exercise the query filters.
+            database
+                .store
+                .fixture_connection()
+                .execute_batch(
+                    "PRAGMA foreign_keys=OFF; DROP TRIGGER cloudflare_dns_staged_batch_immutable;",
+                )
+                .unwrap();
+            database
+                .store
+                .fixture_connection()
+                .execute_batch(mutation)
+                .unwrap();
+            let before = database.provider_binding_snapshot_for_test();
+            assert_eq!(
+                database
+                    .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+                Err(BusinessDatabaseError::ProviderBindingUnavailable),
+                "{label}"
+            );
+            assert_eq!(
+                database.provider_binding_snapshot_for_test(),
+                before,
+                "{label}"
+            );
+        }
+        for (allow_new, sequence_available, error) in [
+            (false, true, BusinessDatabaseError::MutationStale),
+            (true, false, BusinessDatabaseError::SequenceExhausted),
+        ] {
+            let mut database = binding_database();
+            let before = database.provider_binding_snapshot_for_test();
+            assert_eq!(
+                database.bind_latest_cloudflare_zone(
+                    "example.com",
+                    allow_new,
+                    sequence_available,
+                    TIMESTAMP,
+                    || Ok(())
+                ),
+                Err(error)
+            );
+            assert_eq!(database.provider_binding_snapshot_for_test(), before);
+        }
+    }
+
+    #[test]
+    fn provider_binding_commit_replay_conflict_and_fence_are_atomic() {
+        let mut database = binding_database();
+        let before = database.provider_binding_snapshot_for_test();
+        let sequence_before: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM active_workspace_metadata",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            database.bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Err(
+                BusinessDatabaseError::MutationStale
+            )),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        assert_eq!(database.provider_binding_snapshot_for_test(), before);
+        let committed = database
+            .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(()))
+            .unwrap();
+        assert_eq!(committed.disposition, "committed");
+        let after = database.provider_binding_snapshot_for_test();
+        assert_eq!(after[0].len(), 1);
+        assert_eq!(&after[2..], &before[2..]);
+        let old_sequence: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_asset_provider_bindings",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_sequence, sequence_before + 1);
+        assert_eq!(
+            committed.local_commit_sequence,
+            u64::try_from(old_sequence).unwrap()
+        );
+        let replay = database
+            .bind_latest_cloudflare_zone("example.com", false, false, TIMESTAMP, || Ok(()))
+            .unwrap();
+        assert_eq!(replay.disposition, "replayed");
+        assert_eq!(
+            replay.local_commit_sequence,
+            committed.local_commit_sequence
+        );
+        assert_eq!(database.provider_binding_snapshot_for_test(), after);
+        // A matching observation does not excuse a changed immutable binding identity.
+        database
+            .store
+            .fixture_connection()
+            .execute_batch("DROP TRIGGER cloudflare_dns_staged_batch_immutable;")
+            .unwrap();
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE cloudflare_dns_staged_batches SET zone_digest=?1",
+                ["f".repeat(64)],
+            )
+            .unwrap();
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE cloudflare_credential_roots SET known_zone_digest=?1",
+                ["f".repeat(64)],
+            )
+            .unwrap();
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET active_credential_zone_digest=?1",
+                ["f".repeat(64)],
+            )
+            .unwrap();
+        let conflict_before = database.provider_binding_snapshot_for_test();
+        assert_eq!(
+            database.bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(
+            database.provider_binding_snapshot_for_test(),
+            conflict_before
+        );
     }
 
     #[test]

@@ -73,6 +73,8 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `local_domain_detail_read`
 - `local_domain_asset_edit`
 - `local_domain_asset_delete`
+- `local_domain_asset_provider_bind`
+- `local_sync_status`
 - `local_conflict_center_read`
 - `local_conflict_resolve`
 - `local_backup_restore_status`
@@ -127,6 +129,17 @@ resolution requires the exact current Host `readGeneration` and returns exactly 
 only an identical replay may reuse that receipt. After success, Renderer reads business status, Asset Library,
 Conflict Center, and `SyncSnapshot` between matching Host status generations and publishes the complete bundle
 in one state update; a torn read is retried and never partially published.
+
+## Local Provider binding
+
+`local_domain_asset_provider_bind` persists an immutable association for an existing asset from
+committed Host-verified Cloudflare Zone evidence. It performs no Provider API write and exposes no
+credential or resource selector. The concrete adapter implements the required narrow
+`PortfolioProviderBindingPort` through its validating wrapper. The broad injected
+`LocalBusinessPort` retains an optional binding method until the asset-detail UI exposes a bind
+action; read-only adapters need not supply write capabilities. No bind action is currently exposed.
+First commit advances Host generation once; replay may return the current generation after
+intervening commits.
 
 ## Native storage identity
 

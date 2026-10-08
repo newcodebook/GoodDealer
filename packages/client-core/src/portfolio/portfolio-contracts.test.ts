@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   ValidatingPortfolioPresentationPort,
   ValidatingPortfolioPlanPort,
+  ValidatingPortfolioProviderBindingPort,
   assetLibraryViewModelSchema,
   buildCsvImportPreview,
   canonicalMoneyViewSchema,
@@ -15,6 +16,7 @@ import {
   type PortfolioPlanPort,
   localDomainAssetEditRequestSchema,
   localDomainAssetMutationReceiptSchema,
+  type PortfolioProviderBindingPort,
 } from "./index";
 
 const timestamp = "2026-08-17T05:00:00Z";
@@ -60,6 +62,56 @@ function library(source: "active_local" | "standby_cloud", rows: readonly AssetL
 }
 
 describe("canonical domain names and CSV import", () => {
+  const bindingRequest = { schemaVersion: 1 as const, expectedReadGeneration: 4, entityId: "example.test" };
+  const bindingReceipt = {
+    schemaVersion: 1, disposition: "committed", entityId: "example.test",
+    providerKind: "cloudflare", resourceKind: "zone", resourceBindingDigest: "a".repeat(64),
+    resourceLabel: "example.test", bindingGeneration: 2, validationStatus: "verified",
+    verifiedAt: timestamp, lastObservedAt: timestamp, localCommitSequence: 8, readGeneration: 5,
+  } as const;
+
+  it("keeps provider binding as a narrow validated write capability", async () => {
+    const boundary = vi.fn(async () => bindingReceipt);
+    const port = new ValidatingPortfolioProviderBindingPort({ bindDomainAssetProvider: boundary });
+    await expect(port.bindDomainAssetProvider(bindingRequest)).resolves.toEqual(bindingReceipt);
+    expect(boundary).toHaveBeenCalledWith(bindingRequest);
+    expectTypeOf<keyof PortfolioProviderBindingPort>().toEqualTypeOf<"bindDomainAssetProvider">();
+  });
+
+  it("rejects authority selectors before invoking the binding boundary", async () => {
+    const boundary = vi.fn(async () => bindingReceipt);
+    const port = new ValidatingPortfolioProviderBindingPort({ bindDomainAssetProvider: boundary });
+    for (const field of ["workspaceId", "connectionId", "credentialRef", "resourceId", "providerToken", "extra"]) {
+      await expect(port.bindDomainAssetProvider({ ...bindingRequest, [field]: "canary" } as never)).rejects.toThrow();
+    }
+    for (const invalid of [
+      { ...bindingRequest, schemaVersion: 2 }, { ...bindingRequest, expectedReadGeneration: -1 },
+      { ...bindingRequest, expectedReadGeneration: Number.MAX_SAFE_INTEGER + 1 },
+    ]) await expect(port.bindDomainAssetProvider(invalid as never)).rejects.toThrow();
+    expect(boundary).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed, uncorrelated and incorrectly advancing binding receipts", async () => {
+    for (const invalid of [
+      { ...bindingReceipt, deviceSecret: "canary" }, { ...bindingReceipt, providerToken: "canary" },
+      { ...bindingReceipt, entityId: "other.test" }, { ...bindingReceipt, resourceLabel: "other.test" },
+      { ...bindingReceipt, readGeneration: 4 }, { ...bindingReceipt, readGeneration: 6 },
+      { ...bindingReceipt, disposition: "replayed", readGeneration: 3 },
+      { ...bindingReceipt, schemaVersion: 2 }, { ...bindingReceipt, bindingGeneration: 0 },
+    ]) {
+      const port = new ValidatingPortfolioProviderBindingPort({ bindDomainAssetProvider: async () => invalid });
+      await expect(port.bindDomainAssetProvider(bindingRequest)).rejects.toThrow();
+    }
+  });
+
+  it("accepts replay at the expected generation and after intervening Host commits", async () => {
+    for (const readGeneration of [4, 5, 9]) {
+      const receipt = { ...bindingReceipt, disposition: "replayed", readGeneration };
+      const port = new ValidatingPortfolioProviderBindingPort({ bindDomainAssetProvider: async () => receipt });
+      await expect(port.bindDomainAssetProvider(bindingRequest)).resolves.toEqual(receipt);
+    }
+  });
+
   it("accepts canonical money and rejects ambiguous decimal spellings", () => {
     expect(canonicalMoneyViewSchema.safeParse({ currency: "USD", amount: "11.5" }).success).toBe(true);
     expect(canonicalMoneyViewSchema.safeParse({ currency: "usd", amount: "11.5" }).success).toBe(false);

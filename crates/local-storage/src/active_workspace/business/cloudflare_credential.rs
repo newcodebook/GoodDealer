@@ -1745,6 +1745,14 @@ fn optional_i64(value: Option<u64>) -> Result<Option<i64>, BusinessDatabaseError
     value.map(to_i64).transpose()
 }
 
+/// Reuses the credential protocol fixture so binding tests consume genuinely committed evidence.
+#[cfg(test)]
+impl BusinessDatabase {
+    pub(crate) fn seed_verified_cloudflare_binding_for_test(&mut self, entity_id: &str) {
+        tests::seed_binding(self, entity_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -1836,6 +1844,23 @@ mod tests {
             zone_digest: Some(input.zone_digest.clone()),
             public_proof: Some(input.target_public_proof.clone()),
         }
+    }
+
+    pub(super) fn seed_binding(database: &mut BusinessDatabase, entity_id: &str) {
+        let mut staged = stage(1);
+        staged.entity_id = entity_id.to_owned();
+        staged.zone_name_ascii = entity_id.to_owned();
+        staged.records[0].owner_name_ascii = entity_id.to_owned();
+        staged.observation_digest = staged_observation_digest(&staged).unwrap();
+        let input = preparation(1, staged);
+        let result = provision(
+            database,
+            &input,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&input)),
+        );
+        assert_eq!(result, CloudflareCredentialResolution::Confirmed);
     }
 
     fn revoke_preparation(

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { appManifestCommands, capabilityCommands, handlerCommands } from "./tauri-command-policy.mjs";
 
 import {
   BROWSER_RUNTIME_INPUT_PATHS,
@@ -19,6 +20,16 @@ test("the retired browser selector is absent", () => {
 test("automation-host evidence accepts EngineUnavailable beside only reviewed local-business commands", () => {
   const report = collectBrowserRuntimeFoundationReport();
   assert.equal(browserRuntimeFoundationReportPassesPolicy(report), true);
+  assert.deepEqual(report.desktop.commands, appManifestCommands(readFileSync(new URL("../apps/desktop/src-tauri/build.rs", import.meta.url), "utf8")));
+  assert.deepEqual(report.desktop.capabilityCommands, capabilityCommands(JSON.parse(readFileSync(new URL("../apps/desktop/src-tauri/capabilities/local-app.json", import.meta.url), "utf8"))));
+  assert.deepEqual(report.desktop.handlers, handlerCommands(readFileSync(new URL("../apps/desktop/src-tauri/src/main.rs", import.meta.url), "utf8")));
+  for (const field of ["commands", "capabilityCommands", "handlers"]) {
+    for (const command of ["local_domain_asset_provider_bind", "local_sync_status", "local_backup_export"]) {
+      const omitted = structuredClone(report);
+      omitted.desktop[field] = omitted.desktop[field].filter((value) => value !== command);
+      assert.equal(browserRuntimeFoundationReportPassesPolicy(omitted), false);
+    }
+  }
 
   const mutations = [
     (value) => { value.engineInstantiated = true; },

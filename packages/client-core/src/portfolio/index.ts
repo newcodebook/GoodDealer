@@ -92,6 +92,7 @@ export type {
 
 export {
   ValidatingPortfolioPresentationPort,
+  ValidatingPortfolioProviderBindingPort,
   ValidatingPortfolioPlanPort,
   parseAssetLibraryQuery,
   csvImportPlanRequestSchema,
@@ -114,6 +115,8 @@ export type {
   LocalDomainAssetMutationReceipt,
   LocalDomainAssetProviderBindingRequest,
   LocalDomainAssetProviderBindingReceipt,
+  PortfolioProviderBindingPort,
+  PortfolioProviderBindingBoundary,
 } from "./ports";
 
 export {

@@ -6,10 +6,11 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const reviewedDesktopCommands = Object.freeze(["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_backup_artifact_select", "local_backup_export", "local_backup_restore_begin", "local_backup_restore_status", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_asset_provider_bind", "local_domain_detail_read", "local_sync_status"]);
 const expectedDesktopObservation = Object.freeze({
-  commands: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
-  capabilityCommands: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
-  handlers: ["cloudflare_connection_activate", "cloudflare_connection_status", "cloudflare_observation_read", "cloudflare_zone_observe", "desktop_authentication_begin", "desktop_authentication_refresh", "desktop_authentication_status", "local_asset_library_read", "local_business_status", "local_conflict_center_read", "local_conflict_resolve", "local_domain_asset_delete", "local_domain_asset_edit", "local_domain_detail_read"],
+  commands: reviewedDesktopCommands,
+  capabilityCommands: reviewedDesktopCommands,
+  handlers: reviewedDesktopCommands,
   adapter: "cloudflare-connection-and-observation",
 });
 const testGroups = Object.freeze([

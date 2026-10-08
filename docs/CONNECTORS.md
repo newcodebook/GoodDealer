@@ -49,7 +49,7 @@ Cloudflare 以外的所有提供商能力也同样不可执行。
 HTTPS Transport，以及自主维护的私有 endpoint、查询参数和 Provider wire；
 `packages/connectors/cloudflare` 只公开 Host-local 非秘密领域合同。Cloud 中连接键控的 Observation
 Repository 已移除，M002 仅存允许字段的脱敏副本，`cloud-client` 也不再公开 Cloudflare Observation submit/read。
-Desktop 已组合用户触发的原生 Token 激活、状态、观察和本地读取，但缺少真实受控 Provider
+Desktop 已组合用户触发的原生 Token 激活、状态、观察、本地读取，以及从已提交且已验证的 Zone 观察派生的现有资产本地绑定。绑定仅持久化本地关联，不创建资产、不执行 Provider API 写入；绑定 UI、完整 Grant/Lease 能力门禁和原子撤销仍待完成。缺少真实受控 Provider
 资格，因此不能声称客户环境中的读取、写入或 Registrar 能力可用。协议覆盖目录与单项资金
 确认引用已定义，仍不可执行；Provider-specific 最小权限及未知结果对账资格尚需逐项确证。
 

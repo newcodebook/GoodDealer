@@ -10,8 +10,8 @@ import {
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
-  localDomainAssetProviderBindingRequestSchema,
-  localDomainAssetProviderBindingReceiptSchema,
+  ValidatingPortfolioProviderBindingPort,
+  type PortfolioProviderBindingPort,
   parseConflictCenterViewModel,
   parseConflictResolutionReceipt,
   parseSyncSnapshotViewModel,
@@ -226,7 +226,12 @@ export function createDesktopAuthenticationPort(): DesktopAuthenticationPort {
 }
 
 /** The adapter exposes only named local business capabilities; it has no path, key, SQL, or Cloud API. */
-export function createLocalBusinessPort(): LocalBusinessPort {
+export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProviderBindingPort {
+  const providerBinding = new ValidatingPortfolioProviderBindingPort({
+    async bindDomainAssetProvider(request) {
+      return invoke(commands.bindDomainAssetProvider, { request });
+    },
+  });
   return {
     async status() {
       return parseStatus(await invoke(commands.status));
@@ -240,8 +245,7 @@ export function createLocalBusinessPort(): LocalBusinessPort {
       return localDomainAssetMutationReceiptSchema.parse(await invoke(commands.deleteDomainAsset, { request: parsed }));
     },
     async bindDomainAssetProvider(request) {
-      const parsed = localDomainAssetProviderBindingRequestSchema.parse(request);
-      return localDomainAssetProviderBindingReceiptSchema.parse(await invoke(commands.bindDomainAssetProvider, { request: parsed }));
+      return providerBinding.bindDomainAssetProvider(request);
     },
   };
 }

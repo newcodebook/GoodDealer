@@ -21,6 +21,7 @@ const reviewedCommands = [
   "local_conflict_resolve",
   "local_domain_asset_delete",
   "local_domain_asset_edit",
+  "local_domain_asset_provider_bind",
   "local_domain_detail_read",
   "local_sync_status",
 ];

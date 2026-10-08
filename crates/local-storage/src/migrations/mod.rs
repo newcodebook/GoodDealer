@@ -606,4 +606,111 @@ mod tests {
                 .any(|name| name.contains("key") || name.contains("path"))
         );
     }
+
+    #[test]
+    fn provider_binding_append_migration_preserves_existing_business_rows() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gooddealer_active_migrations (
+                   id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+                   applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 ) STRICT;",
+            )
+            .unwrap();
+        let target_index = super::ACTIVE_MIGRATIONS
+            .iter()
+            .position(|migration| {
+                migration.id
+                    == crate::active_workspace::schema::DOMAIN_PROVIDER_BINDING_MIGRATION_ID
+            })
+            .expect("binding migration registered");
+        for migration in &super::ACTIVE_MIGRATIONS[..target_index] {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,17,23,29,?1,?1)",
+                ["2026-09-15T00:00:00Z"],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
+                 VALUES ('workspace-local','binding-survives.test','active',?1,?1,23)",
+                ["2026-09-15T00:00:00Z"],
+            )
+            .unwrap();
+        let snapshot = |connection: &Connection| {
+            ["domain_assets", "active_workspace_metadata"].map(|table| {
+                let mut statement = connection
+                    .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                    .unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            })
+        };
+        let before = snapshot(&connection);
+        let prior = super::read_applied(&connection).unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT entity_id FROM domain_assets WHERE entity_id='binding-survives.test'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "binding-survives.test"
+        );
+        assert_eq!(
+            &super::read_applied(&connection).unwrap()[..target_index],
+            prior.as_slice()
+        );
+        assert_eq!(snapshot(&connection), before);
+        let applied = super::read_applied(&connection).unwrap();
+        assert_eq!(
+            applied
+                .iter()
+                .filter(|row| row.0
+                    == crate::active_workspace::schema::DOMAIN_PROVIDER_BINDING_MIGRATION_ID)
+                .count(),
+            1
+        );
+        run_active_migrations(&mut connection).unwrap();
+        assert_eq!(super::read_applied(&connection).unwrap(), applied);
+        assert_eq!(snapshot(&connection), before);
+        verify_active_manifest(&connection).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+        assert!(connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='domain_asset_provider_bindings'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap() == 1);
+    }
 }

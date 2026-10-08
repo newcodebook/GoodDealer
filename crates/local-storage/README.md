@@ -185,6 +185,18 @@ the required create-only slot record with all custody attributes, and the pinned
 so retained-fd identity and ciphertext evidence must not be described as resistance to same-UID active-path
 swap-and-swap-back side effects.
 
+## Local Provider Binding
+
+The append-only Domain Provider binding migration adds immutable workspace-owned bindings without
+changing existing business rows or metadata. Binding derives the connection, resource digest and
+credential generation from committed verified Zone observations. Unavailable evidence, stale
+generations, tombstoned assets, inactive/remediation credentials, immutable conflicts, exhausted
+counters and a rejected Host fence roll back without binding, metadata or Outbox writes. First
+commit advances the Host generation once; exact replay advances neither counters nor generation and
+may report the current generation. Binding persists a local association only; asset creation,
+Provider API writes, full Grant/Lease capability gates, revocation and controlled native/Zone
+qualification remain pending.
+
 ## Backup and Restore Contract
 
 `DesktopLocalHost` is the only public backup facade. It owns the authoritative `BusinessDatabase`, private

@@ -32,6 +32,7 @@ function createFixture() {
     "local_sync_status",
     "local_domain_asset_edit",
     "local_domain_asset_delete",
+    "local_domain_asset_provider_bind",
     "local_asset_library_read",
     "local_domain_detail_read",
   ];

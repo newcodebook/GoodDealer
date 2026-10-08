@@ -80,6 +80,12 @@ transaction and Outbox enqueue/replay only; it never means Cloud acknowledged th
 intent carries the exact projection `readGeneration`; a first successful receipt is accepted only at
 `expectedReadGeneration + 1`, and only a fully identical replay may return the same receipt.
 
+The required narrow `PortfolioProviderBindingPort` binds an existing local asset using Host-verified
+evidence. Its boundary returns `unknown`; the validating wrapper rejects unknown request/receipt
+fields, mismatched entities, a first receipt other than `expectedReadGeneration + 1`, and replay
+below the expected generation. Replay may report the current Host generation after intervening
+commits. This local persistence capability does not create assets or write Provider APIs.
+
 ## Backup Contracts
 
 The backup module owns only strict, host-independent redacted presentation and intent contracts.
