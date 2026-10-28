@@ -3,10 +3,12 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const entrypoint = (name: string) => new URL(`../../src/entrypoints/${name}`, import.meta.url);
+const readSource = async (name: string) =>
+  (await readFile(entrypoint(name), "utf8")).replaceAll("\r\n", "\n");
 
 describe("development Cloud process credential boundaries", () => {
   it("keeps schema-owner credentials and migrations out of the long-running server", async () => {
-    const server = await readFile(entrypoint("development-server.ts"), "utf8");
+    const server = await readSource("development-server.ts");
     expect(server).not.toContain("GOODDEALER_POSTGRES_OWNER_URL");
     expect(server).not.toContain("runCloudMigrations");
     expect(server).toContain("GOODDEALER_POSTGRES_APP_URL");
@@ -18,14 +20,14 @@ describe("development Cloud process credential boundaries", () => {
   });
 
   it("gives the finite migration entrypoint only the schema-owner credential", async () => {
-    const migrator = await readFile(entrypoint("development-migrate.ts"), "utf8");
+    const migrator = await readSource("development-migrate.ts");
     expect(migrator).toContain("GOODDEALER_POSTGRES_OWNER_URL");
     expect(migrator).toContain("runCloudMigrations");
     expect(migrator).not.toContain("GOODDEALER_POSTGRES_APP_URL");
   });
 
   it("composes public billing with credential-derived Identity and provider-worker pools only", async () => {
-    const http = await readFile(entrypoint("http.ts"), "utf8");
+    const http = await readSource("http.ts");
     expect(http).toContain("new IdentityCapabilityTransactionRunner(accountApiPool, identityCapabilityIssuerPool)");
     expect(http).toContain("new ProviderDispatchExecutor(");
     expect(http).toContain("providerWorkerPool");
@@ -34,7 +36,7 @@ describe("development Cloud process credential boundaries", () => {
   });
 
   it("composes Desktop entitlement reads through the Identity capability runner", async () => {
-    const oauth = await readFile(entrypoint("desktop-oauth-http.ts"), "utf8");
+    const oauth = await readSource("desktop-oauth-http.ts");
     expect(oauth).toContain(
       "new IdentityCapabilityTransactionRunner(\n    deps.accountApiPool,\n    deps.identityCapabilityIssuerPool,\n  )",
     );
