@@ -668,9 +668,31 @@ function readSliceEvidence(slice, reportPath) {
 
 function profileDefinition(profile, slice, reportPath) {
   const pnpm = (args) => platformCommand("pnpm", args);
-  // POSIX-only private rebootstrap fixtures are excluded from Windows target builds; the
-  // production library and its fail-closed Windows custody implementation still compile there.
-  const nativeRustTargets = process.platform === "win32" ? ["--lib"] : ["--all-targets"];
+  // POSIX-only private rebootstrap fixtures are excluded from Windows target builds. Windows
+  // still compiles the production library, while Unix runners execute the full native test and
+  // lint targets.
+  const windowsNative = process.platform === "win32";
+  const nativeRustTargets = windowsNative ? ["--lib"] : ["--all-targets"];
+  const nativeRust = windowsNative
+    ? [
+        {
+          id: "native-rust-library-compile",
+          binary: "cargo",
+          args: ["check", "--workspace", "--lib"],
+        },
+      ]
+    : [
+        {
+          id: "native-rust-lint",
+          binary: "cargo",
+          args: ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+        },
+        {
+          id: "native-rust-tests",
+          binary: "cargo",
+          args: ["test", "--workspace", "--all-targets", "--", "--test-threads=1"],
+        },
+      ];
   const common = [
     {
       id: "platform-neutral-checks",
@@ -690,19 +712,6 @@ function profileDefinition(profile, slice, reportPath) {
       args: ["test", ...portableCrates],
     },
   ];
-  const nativeRust = [
-    {
-      id: "native-rust-lint",
-      binary: "cargo",
-      args: ["clippy", "--workspace", ...nativeRustTargets, "--", "-D", "warnings"],
-    },
-    {
-      id: "native-rust-tests",
-      binary: "cargo",
-      args: ["test", "--workspace", ...nativeRustTargets],
-    },
-  ];
-
   if (slice === "cloud-boundary") {
     return {
       resolvedProfile: "wp4-cloud-boundary",
@@ -858,6 +867,8 @@ function profileDefinition(profile, slice, reportPath) {
             "-p",
             "gooddealer-local-storage",
             ...nativeRustTargets,
+            "--",
+            "--test-threads=1",
           ],
         },
         {
@@ -887,31 +898,50 @@ function profileDefinition(profile, slice, reportPath) {
     if (profile === "quality") {
       throw new Error("The sqlcipher slice requires a native or local profile.");
     }
+    const sqlcipherValidation = windowsNative
+      ? [
+          {
+            id: "sqlcipher-production-library-compile",
+            binary: "cargo",
+            args: ["check", "--locked", "-p", "gooddealer-local-storage", "--lib"],
+          },
+        ]
+      : [
+          {
+            id: "sqlcipher-fixture-lint",
+            binary: "cargo",
+            args: [
+              "clippy",
+              "--locked",
+              "-p",
+              "gooddealer-local-storage",
+              "--all-targets",
+              "--",
+              "-D",
+              "warnings",
+            ],
+          },
+          {
+            id: "sqlcipher-fixture-tests",
+            binary: "cargo",
+            args: [
+              "test",
+              "--locked",
+              "-p",
+              "gooddealer-local-storage",
+              "--all-targets",
+              "--",
+              "--test-threads=1",
+            ],
+          },
+        ];
     return {
       resolvedProfile: profile === "native" ? "wp5-sqlcipher-native" : "wp5-sqlcipher-local",
       applicability:
         "Test-only SQLCipher fixture on a supported native host; no production database, credentials, bundle, signing, or user data.",
       commands: [
         { id: "rust-format", binary: "cargo", args: ["fmt", "--all", "--check"] },
-        {
-          id: "sqlcipher-fixture-lint",
-          binary: "cargo",
-          args: [
-            "clippy",
-            "--locked",
-            "-p",
-            "gooddealer-local-storage",
-            ...nativeRustTargets,
-            "--",
-            "-D",
-            "warnings",
-          ],
-        },
-        {
-          id: "sqlcipher-fixture-tests",
-          binary: "cargo",
-          args: ["test", "--locked", "-p", "gooddealer-local-storage", ...nativeRustTargets],
-        },
+        ...sqlcipherValidation,
         {
           id: "sqlcipher-fault-and-plaintext-evidence",
           binary: "cargo",
