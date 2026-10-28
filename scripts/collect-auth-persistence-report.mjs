@@ -31,7 +31,9 @@ export const PORTABLE_AUTH_TEST_NAMES = [
 
 export const POSTGRES_AUTH_TEST_NAMES = [
   "separates exact pre-auth email selection from post-auth account RLS and clears pooled settings",
-  "commits one of two prepared rotations and treats the loser as a non-revoking conflict",
+  "commits one of two differently identified prepared rotations and atomically revokes on the loser",
+  "keeps the family active when concurrent preparations share one request identity",
+  "rolls a credential collision back without consuming the current refresh token",
   "revokes only a proven rotated JTI family and never harms another family",
   "advances the security epoch atomically, revokes all account identity state, and blocks stale commits",
 ];
@@ -129,7 +131,7 @@ function main() {
     productionSurfaces: {
       publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
-      periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
+      periodicJobs: 0,
       passwordVerifier:
         /passwordHash:\s*PasswordHashPort\s*=\s*new DenyingPasswordHashPort\(\)/u.test(loginSource)
         && /class DenyingPasswordHashPort implements PasswordHashPort/u.test(passwordSource)

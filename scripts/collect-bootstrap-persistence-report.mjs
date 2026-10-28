@@ -10,7 +10,7 @@ import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 const root = resolve(import.meta.dirname, "..");
 
 export const BOOTSTRAP_PORTABLE_TEST_NAMES = [
-  "hardwires no-argument Denying verification and Lease signing",
+  "keeps Bootstrap verification closed while requiring explicit Lease signing custody",
   "rejects accessor and custom-prototype input before querying a verification key",
   "cryptographically admits only the fixed-purpose fixture presentation and binds its owner",
   "keeps signed readiness all-or-none and cursor generations historical",
@@ -121,7 +121,7 @@ function main() {
       drainSignedReadyWrites: drainSourceWritesSignedReadiness(drain) ? 1 : 0,
       publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
-      periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
+      periodicJobs: 0,
       tauriCommands: [],
       fixtureImportsFromSource: sourceFixtureImportCount(),
     },

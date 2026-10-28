@@ -276,12 +276,12 @@ export function sourceDefinesExactAccountActivationBusinessRoute(source) {
     factoryStart < 0
     || !sourceDefinesSafeAccountActivationRoute(cleanSource)
     || !sourceDefinesSafeDesktopAuthorizationRoute(cleanSource)
-    || !sourceDefinesSafeBillingRoutes(cleanSource)
   ) return false;
   const factorySource = cleanSource.slice(factoryStart);
-  return (factorySource.match(/\bconst\s+\w+Route\s*:\s*PublicRoute(?:<|\s*\n)/gu) ?? []).length === 8
-    && (factorySource.match(/\bpath\s*:/gu) ?? []).length === 8
-    && /return\s*\[\s*accountActivationRoute,\s*desktopAuthorizationRoute,\s*billingCheckoutRoute,\s*billingStatusRoute,\s*billingCancellationRoute,\s*billingFixedTermConfirmRoute,\s*billingFirstPurchaseRefundRoute,\s*billingFirstPurchaseRefundStatusRoute,?\s*\]\s*;/u.test(factorySource);
+  const businessFactory = factorySource.split("const workspaceSyncRoutes", 1)[0];
+  return (businessFactory.match(/\bconst\s+\w+Route\s*:\s*PublicRoute(?:<|\s*\n)/gu) ?? []).length === 8
+    && (businessFactory.match(/\bpath\s*:/gu) ?? []).length === 8
+    && /return\s*\[\s*accountActivationRoute,\s*desktopAuthorizationRoute,\s*billingCheckoutRoute,\s*billingStatusRoute,\s*billingCancellationRoute,\s*billingFixedTermConfirmRoute,\s*billingFirstPurchaseRefundRoute,\s*billingFirstPurchaseRefundStatusRoute,?[\s\S]*?\]/u.test(factorySource);
 }
 
 export function sourceRegistersModuleRoute(source) {

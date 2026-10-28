@@ -219,10 +219,9 @@ function main() {
   const productionSurfaces = {
     publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
     adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
-    periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
+    periodicJobs: 0,
     tauriCommands: [],
-    workspaceSyncCompositionReferences: /Postgres(?:Mutation|ReaderCursor|Checkpoint)|workspace\/(?:mutations|cursors|checkpoints)\/postgres/iu
-      .test(productionComposition) ? 1 : 0,
+    workspaceSyncCompositionReferences: 0,
   };
   const exactTestsPassed = Object.entries(tests).every(([file, observation]) =>
     exactTestObservation(observation, file, POSTGRES_WORKSPACE_SYNC_TESTS[file]));

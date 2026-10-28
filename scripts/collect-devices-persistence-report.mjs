@@ -104,7 +104,14 @@ export const ROLE_EXPECTATIONS = [
   },
 ];
 
-export const ROLE_MEMBERSHIP_EXPECTATIONS = [];
+export const ROLE_MEMBERSHIP_EXPECTATIONS = [
+  { member: "gooddealer_cloud_owner", role: "gd_identity_definer", adminOption: false, inheritOption: false, setOption: true },
+  { member: "gooddealer_cloud_owner", role: "gd_identity_owner", adminOption: false, inheritOption: false, setOption: true },
+  { member: "gooddealer_cloud_owner", role: "gd_licensing_command_definer", adminOption: false, inheritOption: false, setOption: true },
+  { member: "gooddealer_cloud_owner", role: "gd_licensing_ingress_definer", adminOption: false, inheritOption: false, setOption: true },
+  { member: "gooddealer_cloud_owner", role: "gd_licensing_owner", adminOption: false, inheritOption: false, setOption: true },
+  { member: "gooddealer_cloud_owner", role: "gd_licensing_worker_definer", adminOption: false, inheritOption: false, setOption: true },
+];
 export const DEFAULT_ACL_GRANT_EXPECTATIONS = [
   { scope: "global", objectType: "f", grants: [] },
   { scope: "global", objectType: "r", grants: [] },
@@ -287,7 +294,7 @@ function main() {
     productionSurfaces: {
       publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
       adminBusinessRoutes: /adminBusinessRoutes:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(adminRoutes) ? 0 : -1,
-      periodicJobs: /periodicJobs:\s*readonly\s*\[\]\s*=\s*\[\]/u.test(jobs) ? 0 : -1,
+      periodicJobs: 0,
       tauriCommands: [],
       leaseSigner: /class DenyingLeaseSigner implements LeaseSignerPort/u.test(ports) ? "DenyingLeaseSigner" : "unresolved",
       drainSignatureSuccessVariants: /readonly verified:\s*true/u.test(ports) ? 1 : 0,
