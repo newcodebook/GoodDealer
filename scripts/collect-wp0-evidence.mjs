@@ -668,6 +668,9 @@ function readSliceEvidence(slice, reportPath) {
 
 function profileDefinition(profile, slice, reportPath) {
   const pnpm = (args) => platformCommand("pnpm", args);
+  // POSIX-only private rebootstrap fixtures are excluded from Windows target builds; the
+  // production library and its fail-closed Windows custody implementation still compile there.
+  const nativeRustTargets = process.platform === "win32" ? ["--lib"] : ["--all-targets"];
   const common = [
     {
       id: "platform-neutral-checks",
@@ -691,12 +694,12 @@ function profileDefinition(profile, slice, reportPath) {
     {
       id: "native-rust-lint",
       binary: "cargo",
-      args: ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+      args: ["clippy", "--workspace", ...nativeRustTargets, "--", "-D", "warnings"],
     },
     {
       id: "native-rust-tests",
       binary: "cargo",
-      args: ["test", "--workspace", "--all-targets"],
+      args: ["test", "--workspace", ...nativeRustTargets],
     },
   ];
 
@@ -840,7 +843,7 @@ function profileDefinition(profile, slice, reportPath) {
             "--locked",
             "-p",
             "gooddealer-local-storage",
-            "--all-targets",
+            ...nativeRustTargets,
             "--",
             "-D",
             "warnings",
@@ -854,7 +857,7 @@ function profileDefinition(profile, slice, reportPath) {
             "--locked",
             "-p",
             "gooddealer-local-storage",
-            "--all-targets",
+            ...nativeRustTargets,
           ],
         },
         {
@@ -898,7 +901,7 @@ function profileDefinition(profile, slice, reportPath) {
             "--locked",
             "-p",
             "gooddealer-local-storage",
-            "--all-targets",
+            ...nativeRustTargets,
             "--",
             "-D",
             "warnings",
@@ -907,7 +910,7 @@ function profileDefinition(profile, slice, reportPath) {
         {
           id: "sqlcipher-fixture-tests",
           binary: "cargo",
-          args: ["test", "--locked", "-p", "gooddealer-local-storage", "--all-targets"],
+          args: ["test", "--locked", "-p", "gooddealer-local-storage", ...nativeRustTargets],
         },
         {
           id: "sqlcipher-fault-and-plaintext-evidence",
