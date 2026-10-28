@@ -13,7 +13,14 @@ button { font: inherit; }
 .design-host-nav button:hover { background: var(--gd-panel-raised); color: var(--text-1); }
 .design-host-nav button[aria-current="page"] { background: var(--gd-panel-raised); box-shadow: inset 2px 0 var(--gd-gold); color: var(--text-1); }
 .design-host-tags { display: inline-flex; gap: var(--space-1); }
-.design-host-stage { overflow: auto; min-width: 0; padding: var(--space-6); background: var(--gd-ink); }
+.design-host-main { display: flex; overflow: hidden; flex-direction: column; min-width: 0; min-height: 0; background: var(--gd-ink); }
+.design-host-variants { display: flex; flex: none; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
+.design-host-stage { display: flex; overflow: auto; flex: 1; min-width: 0; min-height: 0; }
+.design-host-stage--page { padding: var(--space-6); }
+/* App screens sit on a dark desktop with a margin, so the window chrome reads as a native window. */
+.design-host-stage--app { padding: var(--space-4); background: var(--gd-ink); }
+.design-host-platform { margin-left: auto; }
+.design-host-screen { display: flex; flex: 1; min-width: 0; min-height: 0; }
 
 .design-foundation { display: grid; gap: var(--space-4); max-width: 1080px; }
 .design-foundation-roles { display: grid; gap: var(--space-3); }

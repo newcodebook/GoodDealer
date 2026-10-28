@@ -1,0 +1,20 @@
+.asset-library { display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
+.asset-library .gd-toolbar .gd-field:first-child { width: 210px; }
+.asset-library-body { position: relative; display: flex; flex: 1; min-height: 0; }
+.asset-library-body > .gd-table-shell { flex: 1; min-height: 0; border: none; border-radius: 0; }
+.asset-library-domain { color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-xs); }
+.asset-library-tags { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.asset-library-expiring { color: var(--gd-warning); }
+.asset-library-gold { color: var(--gd-gold); }
+.asset-library-faint { color: var(--text-3); }
+.asset-library-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.asset-library-readonly { margin: 0; padding: 6px var(--space-3); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
+.asset-library-state { margin: auto; }
+.asset-library-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); margin: auto; text-align: center; }
+.asset-library-empty p { margin: 0; }
+/* Full-width flex host centres the content-sized BatchBar (brand LAYOUT ROBUSTNESS rule); it floats
+   above the pagination footer instead of covering it. */
+.asset-library-batch { position: absolute; z-index: 5; right: 0; bottom: 56px; left: 0; display: flex; justify-content: center; pointer-events: none; }
+.asset-library-batch > * { pointer-events: auto; }
+.asset-library-edit { display: flex; flex-direction: column; gap: 10px; }
+.asset-library-edit-diff { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: var(--text-sm); }

@@ -394,3 +394,10 @@ function parseAuthenticationStatus(value: unknown): DesktopAuthenticationStatus 
   ) throw new TypeError("invalid Desktop authentication status");
   return value;
 }
+
+export {
+  createDesktopWindowControlsPort,
+  detectDesktopWindowPlatform,
+  type DesktopWindowControlsPort,
+  type DesktopWindowPlatform,
+} from "./window-controls";

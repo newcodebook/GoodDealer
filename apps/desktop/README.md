@@ -143,6 +143,17 @@ app (plus `data:` images), and `connect-src` admits only Tauri IPC. No remote or
 wildcard is allowed. Tauri's automatic nonce injection is disabled for `style-src` only, because a
 nonce would void `'unsafe-inline'` for React style attributes. Verified by `src/app/native-policy.test.ts`.
 
+## Native window
+
+The window title bar is drawn by the Renderer's `DesktopShell` and differs per platform. Windows and
+Linux run undecorated (`tauri.conf.json` `decorations: false`), so the shell draws minimize / maximize /
+close and marks its title bar with `data-tauri-drag-region`; the capability admits only
+`core:window:allow-start-dragging`, `-minimize`, `-toggle-maximize`, and `-close` for that. macOS merges
+`tauri.macos.conf.json`, which keeps native traffic lights over an overlay title bar (`titleBarStyle:
+Overlay`, `hiddenTitle`, `trafficLightPosition`); the shell reserves their inset and draws no controls.
+The macOS patch may change only title-bar presentation, verified by `src/app/native-policy.test.ts`.
+The traffic-light position and undecorated resizing still need checking on each target platform.
+
 ## Local Provider binding
 
 `local_domain_asset_provider_bind` persists an immutable association for an existing asset from

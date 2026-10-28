@@ -14,8 +14,8 @@ export interface PresentationCopyInventoryEntry {
  * from the brand are explicit docs-authoritative states or security corrections.
  */
 export const presentationCopyInventory = {
-  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 57, exactBrandCopyKeys: 22 },
-  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 33, exactBrandCopyKeys: 33 },
+  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 67, exactBrandCopyKeys: 27 },
+  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 48, exactBrandCopyKeys: 37 },
   batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 54, exactBrandCopyKeys: 54 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 18, exactBrandCopyKeys: 18 },
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 32, exactBrandCopyKeys: 32 },
@@ -30,6 +30,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 550 as const;
-export const reconciledExactBrandCopyKeyCount = 444 as const;
+export const reconciledLocaleKeyCount = 575 as const;
+export const reconciledExactBrandCopyKeyCount = 453 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 55 as const;

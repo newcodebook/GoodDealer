@@ -8,6 +8,14 @@ import type { ReactNode } from "react";
 export type ScreenBacking = "host" | "mock";
 export type ScreenStatus = "planned" | "designed";
 
+export type DesignWindowPlatform = "macos" | "windows" | "linux";
+
+export interface ScreenRenderContext {
+  readonly variant: string;
+  readonly platform: DesignWindowPlatform;
+  readonly navigate: (screenId: string) => void;
+}
+
 export interface DesignScreen {
   readonly id: string;
   readonly group: string;
@@ -16,7 +24,10 @@ export interface DesignScreen {
   readonly kitSource: string;
   readonly backing: ScreenBacking;
   readonly status: ScreenStatus;
-  readonly render?: () => ReactNode;
+  /** "app" screens fill the stage edge to edge inside the window chrome; "page" screens are padded. */
+  readonly layout?: "app" | "page";
+  readonly variants?: readonly { readonly id: string; readonly label: string }[];
+  readonly render?: (context: ScreenRenderContext) => ReactNode;
 }
 
 export const screenGroups = ["基础", "门禁", "资产", "DNS", "变现", "同步", "运营", "设置"] as const;

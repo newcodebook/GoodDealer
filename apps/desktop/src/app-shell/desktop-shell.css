@@ -1,0 +1,62 @@
+.gd-desktop-shell { display: flex; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.gd-desktop-shell > .gd-window { flex: 1; min-width: 760px; }
+.gd-desktop-shell .gd-appshell { width: 100%; }
+
+.gd-desktop-shell-title { color: var(--text-1); font-size: var(--text-md); font-weight: var(--weight-semibold); white-space: nowrap; }
+.gd-desktop-shell-crumb { color: var(--text-3); font-size: var(--text-xs); white-space: nowrap; }
+
+.gd-desktop-shell-command {
+  display: flex;
+  align-items: center;
+  width: 300px;
+  height: var(--control-md);
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 10px;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--gd-ink);
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.gd-desktop-shell-command:hover { border-color: var(--gd-line-hover); }
+.gd-desktop-shell-command span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-desktop-shell-command kbd {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-xs);
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.gd-desktop-shell-trust {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 0;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  border-top: 1px solid var(--gd-line);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.3;
+}
+.gd-desktop-shell-trust img { opacity: .85; }
+
+.gd-desktop-shell-faint { color: var(--text-3); }
+.gd-desktop-shell-pending { color: var(--gd-blue); }
+.gd-desktop-shell-active { color: var(--gd-gold); }
+.gd-desktop-shell-device { display: inline-flex; align-items: center; gap: 6px; }
+
+@keyframes gd-desktop-shell-spin { to { transform: rotate(360deg); } }
+.gd-desktop-shell-spin { animation: gd-desktop-shell-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .gd-desktop-shell-spin { animation: none; } }
+
+/* Space reserved under the macOS traffic lights (tauri.macos.conf.json trafficLightPosition). The
+   framed design host draws stand-in lights; a real overlay window leaves the inset empty. */
+.gd-desktop-shell-traffic { display: inline-flex; flex: none; align-items: center; width: 64px; gap: var(--space-2); }
+.gd-desktop-shell-traffic i { width: 12px; height: 12px; border-radius: 50%; background: var(--gd-line-strong); }

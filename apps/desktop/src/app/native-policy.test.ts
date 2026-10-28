@@ -52,6 +52,10 @@ describe("Desktop native policy", () => {
     expect(capability.webviews).toEqual(["local-app"]);
     expect(capability.permissions).toEqual([
       "core:default",
+      "core:window:allow-start-dragging",
+      "core:window:allow-minimize",
+      "core:window:allow-toggle-maximize",
+      "core:window:allow-close",
       "allow-cloudflare-connection-activate",
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",
@@ -100,6 +104,28 @@ describe("Desktop native policy", () => {
     // Tauri nonces would void 'unsafe-inline' for React style attributes; scripts keep its hashes.
     expect(dangerousDisableAssetCspModification).toEqual(["style-src"]);
     expect(Object.values(csp).join(" ")).not.toMatch(/https:|wss?:|\*|'unsafe-eval'/u);
+  });
+
+  it("draws its own title bar on Windows and Linux and overlays it under macOS traffic lights", () => {
+    type WindowConfig = Readonly<Record<string, unknown>>;
+    const base = JSON.parse(readNativeSource("tauri.conf.json")) as { readonly app: { readonly windows: readonly WindowConfig[] } };
+    const macos = JSON.parse(readNativeSource("tauri.macos.conf.json")) as Readonly<Record<string, unknown>> & { readonly app: { readonly windows: readonly WindowConfig[] } };
+    const [window] = base.app.windows;
+    const [macWindow] = macos.app.windows;
+
+    expect(window).toMatchObject({ label: "local-app", decorations: false, shadow: true });
+    // The macOS patch may only change title-bar presentation; size, label, and resizing stay shared.
+    expect(Object.keys(macos).sort()).toEqual(["$schema", "app"]);
+    expect(Object.keys(macos.app)).toEqual(["windows"]);
+    expect(macos.app.windows).toHaveLength(1);
+    const { shadow: _shadow, decorations: _decorations, ...shared } = window ?? {};
+    expect(macWindow).toEqual({
+      ...shared,
+      decorations: true,
+      titleBarStyle: "Overlay",
+      hiddenTitle: true,
+      trafficLightPosition: { x: 14, y: 19 },
+    });
   });
 
   it("has local storage but no browser dependency", () => {
