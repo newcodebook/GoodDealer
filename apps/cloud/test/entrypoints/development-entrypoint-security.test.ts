@@ -30,7 +30,7 @@ describe("development Cloud process credential boundaries", () => {
     expect(http).toContain("new ProviderDispatchExecutor(");
     expect(http).toContain("providerWorkerPool");
     expect(http).toContain("new CommercialCheckoutApplicationService(\n      identityTransactions,");
-    expect(http).not.toContain("new CommercialCheckoutApplicationService(\n        accountTransactions,");
+    expect(http).not.toContain("new CommercialCheckoutApplicationService(\n      accountTransactions,");
   });
 
   it("composes Desktop entitlement reads through the Identity capability runner", async () => {
