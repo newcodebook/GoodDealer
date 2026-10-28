@@ -161,7 +161,21 @@ function exactReplayAudit(value) {
 function exactInputs(value) { return Array.isArray(value) && value.length === JOBS_PERSISTENCE_INPUT_PATHS.length
   && new Set(value.map(({ path }) => path)).size === value.length
   && value.every(({ path, sha256: digest }, index) => path === JOBS_PERSISTENCE_INPUT_PATHS[index] && /^[0-9a-f]{64}$/u.test(digest) && digest === sha256(read(path))); }
-function observeVitest() { const result = JSON.parse(run("pnpm", ["--filter","@gooddealer/cloud","exec","vitest","run","--config","vitest.postgres.config.ts","test/postgres/job-runtime-persistence.test.ts","--reporter=json"]));
+
+function parseVitestJson(output) {
+  for (const line of output.split(/\r?\n/u).reverse()) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{")) continue;
+    try {
+      const value = JSON.parse(candidate);
+      if (value && typeof value === "object" && "testResults" in value) return value;
+    } catch {
+      // Vitest and pnpm may prefix the JSON payload with informational output.
+    }
+  }
+  throw new Error("Vitest JSON reporter returned no JSON payload");
+}
+function observeVitest() { const result = parseVitestJson(run("pnpm", ["--filter","@gooddealer/cloud","exec","vitest","run","--config","vitest.postgres.config.ts","test/postgres/job-runtime-persistence.test.ts","--reporter=json"]));
   if (result.success !== true || result.testResults?.length !== 1) throw new Error("targeted jobs Vitest evidence is incomplete"); const testResult=result.testResults[0];
   return { file:String(testResult.name).split("/apps/cloud/").at(-1),success:result.success,total:result.numTotalTests,passed:result.numPassedTests,failed:result.numFailedTests,names:testResult.assertionResults.map(({title})=>title) }; }
 function queryJson(url,sql){return JSON.parse(psql(url,sql));}

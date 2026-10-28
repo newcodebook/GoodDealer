@@ -384,8 +384,22 @@ function exactInputs(value) {
       && /^[0-9a-f]{64}$/u.test(digest) && digest === sha256(read(path)));
 }
 
+
+function parseVitestJson(output) {
+  for (const line of output.split(/\r?\n/u).reverse()) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{")) continue;
+    try {
+      const value = JSON.parse(candidate);
+      if (value && typeof value === "object" && "testResults" in value) return value;
+    } catch {
+      // Vitest and pnpm may prefix the JSON payload with informational output.
+    }
+  }
+  throw new Error("Vitest JSON reporter returned no JSON payload");
+}
 function observeVitest() {
-  const result = JSON.parse(run("pnpm", ["--filter", "@gooddealer/cloud", "exec", "vitest", "run",
+  const result = parseVitestJson(run("pnpm", ["--filter", "@gooddealer/cloud", "exec", "vitest", "run",
     "--config", "vitest.postgres.config.ts", ...POSTGRES_DRAIN_TEST_FILES.map(({ file }) => file), "--reporter=json"]));
   if (result.success !== true || result.testResults?.length !== POSTGRES_DRAIN_TEST_FILES.length) {
     throw new Error("targeted Vitest evidence is incomplete");

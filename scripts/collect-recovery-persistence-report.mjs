@@ -366,12 +366,26 @@ function reportContainsConnectionMaterial(value) {
   return /postgres(?:ql)?:\/\//iu.test(serialized) || /"(?:password|ownerUrl|appUrl)"\s*:/iu.test(serialized);
 }
 
+
+function parseVitestJson(output) {
+  for (const line of output.split(/\r?\n/u).reverse()) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{")) continue;
+    try {
+      const value = JSON.parse(candidate);
+      if (value && typeof value === "object" && "testResults" in value) return value;
+    } catch {
+      // Vitest and pnpm may prefix the JSON payload with informational output.
+    }
+  }
+  throw new Error("Vitest JSON reporter returned no JSON payload");
+}
 function observeVitest(file, config = null) {
   const args = ["--filter", "@gooddealer/cloud", "exec", "vitest", "run"];
   if (config !== null) args.push("--config", config);
   args.push(file, "--reporter=json");
   const output = run("pnpm", args);
-  const parsed = JSON.parse(output);
+  const parsed = parseVitestJson(output);
   const names = parsed?.testResults?.flatMap((result) => result.assertionResults?.map(({ title }) => title));
   if (!Array.isArray(names) || parsed.success !== true) {
     throw new Error(`targeted recovery Vitest evidence is incomplete: ${file}`);

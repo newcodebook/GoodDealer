@@ -239,8 +239,22 @@ function exactJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+
+function parseVitestJson(output) {
+  for (const line of output.split(/\r?\n/u).reverse()) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{")) continue;
+    try {
+      const value = JSON.parse(candidate);
+      if (value && typeof value === "object" && "testResults" in value) return value;
+    } catch {
+      // Vitest and pnpm may prefix the JSON payload with informational output.
+    }
+  }
+  throw new Error("Vitest JSON reporter returned no JSON payload");
+}
 function observeVitest(arguments_) {
-  const result = JSON.parse(run("pnpm", ["--filter", "@gooddealer/cloud", "exec", "vitest", "run", ...arguments_, "--reporter=json"]));
+  const result = parseVitestJson(run("pnpm", ["--filter", "@gooddealer/cloud", "exec", "vitest", "run", ...arguments_, "--reporter=json"]));
   if (result.success !== true || result.testResults?.length !== 1) throw new Error("targeted Vitest evidence is incomplete");
   const testResult = result.testResults[0];
   return {
