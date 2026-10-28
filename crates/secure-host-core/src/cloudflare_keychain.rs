@@ -396,7 +396,7 @@ fn load_unlocked(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn admit_loaded_envelope(
     bytes: &[u8],
     attribute_verification: Result<(), CloudflareKeychainError>,
