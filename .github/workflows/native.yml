@@ -47,6 +47,12 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Normalize Windows checkout line endings
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git checkout-index --all --force
       - name: Initialize WP-0 evidence
         env:
           WP0_GITHUB_TOKEN: ${{ github.token }}
