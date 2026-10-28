@@ -472,6 +472,10 @@ impl BackupKekRegistry {
         Ok(bytes)
     }
 
+    #[allow(
+        dead_code,
+        reason = "private custody decoder is retained for qualified native composition"
+    )]
     fn decode_custody(
         bytes: &[u8],
         anchor: Option<&BackupKekRollbackAnchor>,

@@ -41,15 +41,9 @@ const DATABASE_KEY_ACCOUNT: &str = "active-workspace-sqlcipher-v1";
     expect(dead_code, reason = "native production residue account service")
 )]
 const REBOOTSTRAP_KEY_SERVICE: &str = "com.gooddealer.desktop.rebootstrap";
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "native production Keychain identifier")
-)]
+#[allow(dead_code, reason = "native production Keychain identifier")]
 const DEVICE_IDENTITY_SERVICE: &str = "com.gooddealer.desktop.local-host-binding";
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "native production Keychain identifier")
-)]
+#[allow(dead_code, reason = "native production Keychain identifier")]
 const DEVICE_IDENTITY_ACCOUNT: &str = "local-host-binding-v1";
 const MAX_DEVICE_IDENTITY_BYTES: usize = 512;
 #[cfg(test)]
@@ -3710,7 +3704,7 @@ impl DesktopContinuityReceiptStore {
                 if !rustix::fs::FileType::from_raw_mode(metadata.st_mode as _).is_file()
                     || metadata.st_nlink != 1
                     || metadata.st_uid != rustix::process::geteuid().as_raw()
-                    || u32::from(metadata.st_mode) & 0o077 != 0
+                    || metadata.st_mode & 0o077 != 0
                 {
                     return Err(DesktopCustodyError::Rejected);
                 }
@@ -3938,6 +3932,9 @@ fn add_untrusted_named_entry_snapshot(
     };
     digest.update([1]);
     digest.update(u64::from(metadata.st_mode).to_be_bytes());
+    #[cfg(target_os = "linux")]
+    digest.update(metadata.st_dev.to_be_bytes());
+    #[cfg(target_os = "macos")]
     digest.update(
         u64::try_from(metadata.st_dev)
             .map_err(|_| DesktopCustodyError::Rejected)?
@@ -4312,13 +4309,16 @@ fn ensure_named_identity(
     let metadata = rustix::fs::statat(directory, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)
         .map_err(|_| DesktopCustodyError::StorageRejected)?;
     #[cfg(unix)]
+    #[cfg(target_os = "linux")]
+    let actual_dev = metadata.st_dev;
+    #[cfg(target_os = "macos")]
     let actual_dev = u64::try_from(metadata.st_dev).map_err(|_| DesktopCustodyError::Rejected)?;
     if !rustix::fs::FileType::from_raw_mode(metadata.st_mode as _).is_file()
         || actual_dev != expected.dev
         || metadata.st_ino as u64 != expected.ino
         || metadata.st_nlink != 1
         || metadata.st_uid != rustix::process::geteuid().as_raw()
-        || u32::from(metadata.st_mode) & 0o077 != 0
+        || metadata.st_mode & 0o077 != 0
     {
         return Err(DesktopCustodyError::Rejected);
     }
@@ -4666,13 +4666,16 @@ fn ensure_named_file_identity(
     let is_regular = rustix::fs::FileType::from_raw_mode(metadata.st_mode as _).is_file();
     #[cfg(not(unix))]
     let is_regular = false;
+    #[cfg(target_os = "linux")]
+    let metadata_dev = metadata.st_dev;
+    #[cfg(target_os = "macos")]
     let metadata_dev = u64::try_from(metadata.st_dev).map_err(|_| DesktopCustodyError::Rejected)?;
     if !is_regular
         || metadata_dev != identity.dev
         || metadata.st_ino as u64 != identity.ino
         || metadata.st_nlink != 1
         || metadata.st_uid != rustix::process::geteuid().as_raw()
-        || u32::from(metadata.st_mode) & 0o077 != 0
+        || metadata.st_mode & 0o077 != 0
     {
         return Err(DesktopCustodyError::Rejected);
     }
