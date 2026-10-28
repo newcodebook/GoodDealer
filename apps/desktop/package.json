@@ -6,9 +6,11 @@
   "scripts": {
     "build": "vite build",
     "icon:generate": "tauri icon ../../packages/ui/src/assets/logo/mark.svg --output src-tauri/icons --ios-color '#0A0B0F'",
-    "test": "vitest run src",
-    "typecheck": "tsc -p tsconfig.json",
-    "tauri": "tauri"
+    "test": "vitest run src visual-fixtures",
+    "typecheck": "tsc -p tsconfig.json && tsc -p visual-fixtures/tsconfig.json",
+    "tauri": "tauri",
+    "visual:dev": "vite --config vite.visual.config.ts",
+    "visual:build": "vite build --config vite.visual.config.ts"
   },
   "dependencies": {
     "@gooddealer/client-core": "workspace:*",

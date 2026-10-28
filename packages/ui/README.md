@@ -30,7 +30,11 @@ business state, network access, Tauri integration, or fixture authority.
 ## Principles
 
 - MUST: Import and export supported components, icons, and public types through the package root.
-- MUST: Resolve presentation colors through the exported token layer.
+- MUST: Resolve presentation colors and font families through the exported token layer; only
+  `src/tokens/` spells concrete values (enforced by `scripts/brand-adherence-policy.mjs`).
+- MUST: Never load fonts from a runtime CDN. Sans text (Latin and CJK) uses the platform system faces
+  named in `--font-sans`; JetBrains Mono, the only bundled face, comes from
+  `@fontsource-variable/jetbrains-mono` (OFL-1.1) so numerals render identically on every platform.
 - MUST: Keep behavior generic, DOM-native, accessible, and independent of product authority.
 - MUST: Port design-reference decisions deliberately without importing `brand/` at runtime.
 - MUST: Keep gallery and fixture data outside production consumer graphs.
@@ -58,7 +62,9 @@ Consumers import components, icons, and types only from `@gooddealer/ui`, tokens
 component source, component CSS, internal tokens, or `brand/` directly.
 
 The package provides generic primitives for buttons, input controls, navigation, overlays, status,
-surfaces, tables, desktop presentation patterns, and accessible SVG icons. Those primitives can
+surfaces, tables, desktop presentation patterns, and accessible icons. Icons are a curated set of
+Lucide glyphs wrapped with the brand size and stroke; add a named wrapper in
+`src/components/icon/icon.tsx` rather than importing `lucide-react` from an application. Those primitives can
 support future product flows but do not supply their data or permissions.
 
 ## Verification

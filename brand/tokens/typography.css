@@ -1,7 +1,7 @@
-/* GoodDealer — typography tokens. Geometric sans + mono numerals + CJK. */
+/* GoodDealer — typography tokens. Platform system sans (Latin first, then CJK) + JetBrains Mono numerals. */
 :root{
---font-sans:"General Sans","MiSans","HarmonyOS Sans","Noto Sans SC",-apple-system,"Segoe UI",sans-serif;
---font-mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans","Noto Sans CJK SC","Source Han Sans SC",Ubuntu,Cantarell,sans-serif;
+--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 /* Scale — desktop-density app; 13px is body default */
 --text-2xs:11px; /* table headers, badges — uppercase, tracked */
 --text-xs:12px; /* secondary, cell meta */

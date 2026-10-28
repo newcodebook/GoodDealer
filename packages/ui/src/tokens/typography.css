@@ -1,7 +1,10 @@
-/* GoodDealer — typography tokens. Geometric sans + mono numerals + CJK. */
+/* GoodDealer — typography tokens. Platform system sans for Latin + CJK, bundled mono numerals.
+   Sans order is Latin faces first, then CJK, so Latin and digits resolve to SF Pro / Segoe UI while
+   Han glyphs fall through to PingFang SC / Microsoft YaHei UI / Noto Sans CJK SC. Faces are named
+   explicitly instead of `system-ui`, which on zh-CN Windows can resolve Latin to YaHei. */
 :root{
---font-sans:"General Sans","MiSans","HarmonyOS Sans","Noto Sans SC",-apple-system,"Segoe UI",sans-serif;
---font-mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans","Noto Sans CJK SC","Source Han Sans SC",Ubuntu,Cantarell,sans-serif;
+--font-mono:"JetBrains Mono Variable",ui-monospace,SFMono-Regular,Menlo,monospace;
 /* Scale — desktop-density app; 13px is body default */
 --text-2xs:11px; /* table headers, badges — uppercase, tracked */
 --text-xs:12px; /* secondary, cell meta */

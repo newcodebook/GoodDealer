@@ -43,8 +43,8 @@
         "message": "Raw px value — use a design-system spacing token via var()."
       },
       {
-        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:General Sans|JetBrains Mono|Noto Sans SC))/i]",
-        "message": "Font not provided by the design system. Available: General Sans, JetBrains Mono, Noto Sans SC."
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!var\\(--font-|['\\\"]?JetBrains Mono)/i]",
+        "message": "Font not provided by the design system. Use var(--font-sans) (platform system faces) or var(--font-mono) (JetBrains Mono)."
       },
       {
         "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute > JSXIdentifier[name!=/^(?:tone|dot|mono|children|key|ref|className|style|children)$/]",
@@ -501,9 +501,7 @@
       "--gd-motion-active": "other"
     },
     "fontFamilies": [
-      "General Sans",
-      "JetBrains Mono",
-      "Noto Sans SC"
+      "JetBrains Mono"
     ]
   }
 }

@@ -6,6 +6,9 @@ Customer Desktop application that composes the Renderer and native Host around t
 
 ## Owns
 
+- The mock design host in `visual-fixtures/` (`pnpm --filter @gooddealer/desktop visual:dev`), which
+  renders every Desktop screen from typed mock data, including capabilities without a Host port. It
+  is a separate Vite root outside the production graph and grants no authority.
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
   startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
@@ -132,6 +135,13 @@ resolution requires the exact current Host `readGeneration` and returns exactly 
 only an identical replay may reuse that receipt. After success, Renderer reads business status, Asset Library,
 Conflict Center, and `SyncSnapshot` between matching Host status generations and publishes the complete bundle
 in one state update; a torn read is retried and never partially published.
+
+## WebView content security policy
+
+`tauri.conf.json` sets a self-only CSP: scripts, styles, fonts, and images load only from the bundled
+app (plus `data:` images), and `connect-src` admits only Tauri IPC. No remote origin, `unsafe-eval`, or
+wildcard is allowed. Tauri's automatic nonce injection is disabled for `style-src` only, because a
+nonce would void `'unsafe-inline'` for React style attributes. Verified by `src/app/native-policy.test.ts`.
 
 ## Local Provider binding
 

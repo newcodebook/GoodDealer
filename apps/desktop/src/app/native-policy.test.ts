@@ -76,6 +76,32 @@ describe("Desktop native policy", () => {
     expect(existsSync(fileURLToPath(new URL("../../src-tauri/capabilities/remote-browser.json", import.meta.url)))).toBe(false);
   });
 
+  it("confines the WebView to bundled assets and Tauri IPC through a self-only CSP", () => {
+    const configuration = JSON.parse(readNativeSource("tauri.conf.json")) as {
+      readonly app: { readonly security: {
+        readonly csp: Readonly<Record<string, string>>;
+        readonly dangerousDisableAssetCspModification: readonly string[];
+      } };
+    };
+    const { csp, dangerousDisableAssetCspModification } = configuration.app.security;
+
+    expect(csp).toEqual({
+      "default-src": "'self'",
+      "script-src": "'self'",
+      "style-src": "'self' 'unsafe-inline'",
+      "font-src": "'self'",
+      "img-src": "'self' data:",
+      "connect-src": "ipc: http://ipc.localhost",
+      "object-src": "'none'",
+      "base-uri": "'none'",
+      "form-action": "'none'",
+      "frame-ancestors": "'none'",
+    });
+    // Tauri nonces would void 'unsafe-inline' for React style attributes; scripts keep its hashes.
+    expect(dangerousDisableAssetCspModification).toEqual(["style-src"]);
+    expect(Object.values(csp).join(" ")).not.toMatch(/https:|wss?:|\*|'unsafe-eval'/u);
+  });
+
   it("has local storage but no browser dependency", () => {
     const manifest = readNativeSource("Cargo.toml");
     expect(manifest).toMatch(/gooddealer-local-storage/u);
