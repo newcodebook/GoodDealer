@@ -1,21 +1,15 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AssetLibraryViewModel, DomainDetailViewModel, LocalDomainAssetMutationReceipt } from "@gooddealer/client-core";
+
+import { LocalReadError } from "../adapters/tauri";
 import {
-  AuthenticationRequired,
-  authenticationLocksRuntime,
-  createAuthenticationStatusCoordinator,
+  createPortfolioMutationController,
   createPortfolioReadController,
+  createPortfolioReadCoordinator,
   presentAssetLibraryRead,
   presentPortfolioReadError,
-  createPortfolioReadCoordinator,
-  createPortfolioMutationController,
-  readLocalBusinessView,
-  synchronizeAfterAuthentication,
-} from "../app";
-import { LocalReadError } from "../adapters/tauri";
-import type { AssetLibraryViewModel, DomainDetailViewModel } from "@gooddealer/client-core";
-import type { LocalDomainAssetMutationReceipt } from "@gooddealer/client-core";
+} from "./portfolio-controllers";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -66,7 +60,7 @@ function receipt(operation: "edit" | "delete", entityId: string, readGeneration:
   };
 }
 
-describe("Desktop authorization recovery actions", () => {
+describe("Desktop portfolio read and mutation fences", () => {
   it("rejects stale detail and query responses after navigation, lock, or unmount", () => {
     const coordinator = createPortfolioReadCoordinator();
     coordinator.acceptHostGeneration(4);
@@ -255,104 +249,5 @@ describe("Desktop authorization recovery actions", () => {
 
     expect(status).toHaveBeenCalledOnce();
     expect(accept).not.toHaveBeenCalled();
-  });
-  it("requires a new sign-in when the authorization-code Grant never committed refresh custody", () => {
-    const html = renderToStaticMarkup(<AuthenticationRequired status="authorization_failed" />);
-
-    expect(html).toContain("Sign in again");
-    expect(html).not.toContain("Retry authorization");
-  });
-
-  it("offers refresh retry only after Native retained a rotated refresh credential", () => {
-    const html = renderToStaticMarkup(<AuthenticationRequired status="authorization_retryable" />);
-
-    expect(html).toContain("Retry authorization");
-    expect(html).toContain("Sign in again");
-  });
-
-  it("reloads the activated local workspace after Native reports authenticated", async () => {
-    const synchronize = vi.fn(async () => undefined);
-
-    await synchronizeAfterAuthentication("authenticated", synchronize);
-
-    expect(synchronize).toHaveBeenCalledOnce();
-  });
-
-  it("reloads locked local business state for retryable authorization changes", async () => {
-    const synchronize = vi.fn(async () => undefined);
-
-    await synchronizeAfterAuthentication("authorization_retryable", synchronize);
-
-    expect(synchronize).toHaveBeenCalledOnce();
-  });
-
-  it("classifies both Native lock events for immediate Portfolio eviction", () => {
-    expect(authenticationLocksRuntime("authorization_failed")).toBe(true);
-    expect(authenticationLocksRuntime("authorization_retryable")).toBe(true);
-    expect(authenticationLocksRuntime("authenticated")).toBe(false);
-  });
-
-  it("discards an older authentication snapshot after a newer event arrives", async () => {
-    const accepted: string[] = [];
-    const statuses = createAuthenticationStatusCoordinator(async (status) => {
-      accepted.push(status);
-    });
-    const acceptSnapshot = statuses.beginSnapshot();
-
-    await statuses.acceptEvent("authenticated");
-    await acceptSnapshot("pending");
-
-    expect(accepted).toEqual(["authenticated"]);
-  });
-
-  it("accepts the subscribed authentication snapshot when no event supersedes it", async () => {
-    const accepted: string[] = [];
-    const statuses = createAuthenticationStatusCoordinator(async (status) => {
-      accepted.push(status);
-    });
-    const acceptSnapshot = statuses.beginSnapshot();
-
-    await acceptSnapshot("signed_out");
-
-    expect(accepted).toEqual(["signed_out"]);
-  });
-
-  it("reads Portfolio only after the refreshed business status grants local read", async () => {
-    const status = {
-      schemaVersion: 2 as const,
-      state: "active" as const,
-      capabilities: ["local:read", "workspace:mutate"] as const,
-      readGeneration: 1,
-    };
-    const portfolio = { schemaVersion: 3, kind: "asset_library", readGeneration: 1,
-      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 0, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      totalRows: 0, totalValue: null, expiringWithin60Days: 0, conflictCount: 0, listingCount: 0,
-      window: { startIndex: 0, size: 25, rows: [] } } as const;
-    const port = {
-      status: vi.fn(async () => status),
-      editDomainAsset: vi.fn(), deleteDomainAsset: vi.fn(),
-    };
-    const reads = { loadAssetLibrary: vi.fn(async () => portfolio), loadDomainDetail: vi.fn() };
-
-    await expect(readLocalBusinessView(port, reads)).resolves.toEqual({
-      status,
-      portfolio,
-    });
-    expect(reads.loadAssetLibrary).toHaveBeenCalledOnce();
-  });
-
-  it("does not read Portfolio while the refreshed business state remains locked", async () => {
-    const status = {
-      schemaVersion: 2 as const,
-      state: "security_locked" as const,
-      capabilities: [] as const,
-      readGeneration: 2,
-    };
-    const port = {
-      status: vi.fn(async () => status),
-      editDomainAsset: vi.fn(), deleteDomainAsset: vi.fn(),
-    };
-
-    await expect(readLocalBusinessView(port)).resolves.toEqual({ status, portfolio: null });
   });
 });

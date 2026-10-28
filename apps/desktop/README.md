@@ -6,7 +6,9 @@ Customer Desktop application that composes the Renderer and native Host around t
 
 ## Owns
 
-- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters.
+- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
+  layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
+  startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
 ## Touchpoints
@@ -59,8 +61,9 @@ JSON connection/entity lookup hints, reject duplicate and unknown fields before 
 the isolated user-triggered Provider lane. Native composition captures the credential, observes the fixed
 Zone/DNS endpoint set, asks `DesktopLocalHost` to derive the complete durable operation, publishes the
 Secure Host envelope under exact-base Keychain CAS, and commits observations locally before waking the
-projection lane. The production Renderer now composes activation, bounded status, observation enqueue,
-and committed local observation reads. Production-provider qualification remains separate, so this source
+projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
+observation enqueue, and committed local observation reads; it is not composed into the production
+root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
 composition is not a customer-availability claim. Revoke/deactivate remains intentionally unavailable until
 a Host-owned atomic custody and fencing capability is delivered.
 

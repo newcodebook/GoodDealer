@@ -8,9 +8,6 @@
     "icon:generate": "tauri icon ../../packages/ui/src/assets/logo/mark.svg --output src-tauri/icons --ios-color '#0A0B0F'",
     "test": "vitest run src",
     "typecheck": "tsc -p tsconfig.json",
-    "visual:build": "vite build --config vite.visual.config.ts",
-    "visual:test": "vitest run visual-fixtures",
-    "visual:typecheck": "tsc -p visual-fixtures/tsconfig.json",
     "tauri": "tauri"
   },
   "dependencies": {

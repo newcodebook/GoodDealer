@@ -252,12 +252,10 @@ export const repositoryTopology = Object.freeze([
     runtime: "tauri-webview",
     trustDomain: "desktop-presentation",
     manifest: { ecosystem: "pnpm", path: "apps/desktop/package.json", identity: "@gooddealer/desktop" },
-    sourceRoots: ["src", "visual-fixtures"],
+    sourceRoots: ["src"],
     publicEntrypoints: [
       publicEntrypoint("production-ui", "src/main.tsx"),
-      publicEntrypoint("visual-fixtures", "visual-fixtures/main.tsx"),
       publicEntrypoint("vite", "vite.config.ts"),
-      publicEntrypoint("visual-vite", "vite.visual.config.ts"),
     ],
     workspaceImports: [
       workspaceImport("@gooddealer/client-core", "Host-independent desktop capability contracts."),
