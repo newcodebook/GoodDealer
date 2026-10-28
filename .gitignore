@@ -7,6 +7,7 @@ dist/
 dist-visual/
 target/
 .artifacts/
+apps/cloud/.vitest/
 /apps/desktop/src-tauri/gen/schemas/windows-schema.json
 .DS_Store
 *.log
