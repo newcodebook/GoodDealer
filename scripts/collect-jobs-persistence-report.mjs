@@ -173,7 +173,11 @@ function parseVitestJson(output) {
       // Vitest and pnpm may prefix the JSON payload with informational output.
     }
   }
-  throw new Error("Vitest JSON reporter returned no JSON payload");
+  try {
+    return JSON.parse(readFileSync(resolve(root, "apps/cloud/.vitest/json/output.json"), "utf8"));
+  } catch {
+    throw new Error("Vitest JSON reporter returned no JSON payload");
+  }
 }
 function observeVitest() { const result = parseVitestJson(run("pnpm", ["--filter","@gooddealer/cloud","exec","vitest","run","--config","vitest.postgres.config.ts","test/postgres/job-runtime-persistence.test.ts","--reporter=json"]));
   if (result.success !== true || result.testResults?.length !== 1) throw new Error("targeted jobs Vitest evidence is incomplete"); const testResult=result.testResults[0];

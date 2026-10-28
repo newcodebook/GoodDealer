@@ -15,7 +15,7 @@ import { clearLicensingTestData } from "../support/postgres-fixture";
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 1 });
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 4 });
 const repository = new PostgresIdentityAccountAccessRepository(appPool);
-const now = new Date("2026-09-04T00:00:00Z");
+const now = new Date("2099-09-04T00:00:00Z");
 
 beforeAll(async () => { await runCloudMigrations(ownerPool, cloudMigrations); });
 beforeEach(async () => {
@@ -68,7 +68,7 @@ describe("PostgreSQL account access", () => {
     await expect(new PostgresIdentitySessionVerificationReader(appPool)
       .readSessionVerification(authenticated.sessionCredential)).resolves.toMatchObject({
         clientKind: "account_web", familyState: "active", currentAccountSecurityEpoch: 1,
-        expiresAt: "2026-10-04T00:00:00Z",
+        expiresAt: "2099-10-04T00:00:00Z",
       });
     const workspace = await ownerPool.query<{ bindings: string; revisions: string }>(
       `SELECT

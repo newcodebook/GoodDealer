@@ -378,7 +378,11 @@ function parseVitestJson(output) {
       // Vitest and pnpm may prefix the JSON payload with informational output.
     }
   }
-  throw new Error("Vitest JSON reporter returned no JSON payload");
+  try {
+    return JSON.parse(readFileSync(resolve(root, "apps/cloud/.vitest/json/output.json"), "utf8"));
+  } catch {
+    throw new Error("Vitest JSON reporter returned no JSON payload");
+  }
 }
 function observeVitest(file, config = null) {
   const args = ["--filter", "@gooddealer/cloud", "exec", "vitest", "run"];
