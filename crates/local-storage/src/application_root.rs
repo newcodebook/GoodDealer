@@ -60,28 +60,32 @@ impl DesktopApplicationRoot {
         }
         validate_owner_and_mode(&metadata)?;
         #[cfg(unix)]
-        let directory = File::from(
-            rustix::fs::openat(
-                rustix::fs::CWD,
-                path,
-                rustix::fs::OFlags::RDONLY
-                    | rustix::fs::OFlags::DIRECTORY
-                    | rustix::fs::OFlags::NOFOLLOW
-                    | rustix::fs::OFlags::CLOEXEC,
-                rustix::fs::Mode::empty(),
-            )
-            .map_err(|_| DesktopApplicationRootError::StorageRejected)?,
-        );
+        {
+            let directory = File::from(
+                rustix::fs::openat(
+                    rustix::fs::CWD,
+                    path,
+                    rustix::fs::OFlags::RDONLY
+                        | rustix::fs::OFlags::DIRECTORY
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::CLOEXEC,
+                    rustix::fs::Mode::empty(),
+                )
+                .map_err(|_| DesktopApplicationRootError::StorageRejected)?,
+            );
+            let identity = directory_identity(&directory)?;
+            let root = Self {
+                path: path.to_path_buf(),
+                directory,
+                identity,
+            };
+            root.verify_identity()?;
+            Ok(root)
+        }
         #[cfg(not(unix))]
-        return Err(DesktopApplicationRootError::Rejected);
-        let identity = directory_identity(&directory)?;
-        let root = Self {
-            path: path.to_path_buf(),
-            directory,
-            identity,
-        };
-        root.verify_identity()?;
-        Ok(root)
+        {
+            Err(DesktopApplicationRootError::Rejected)
+        }
     }
 
     #[allow(
