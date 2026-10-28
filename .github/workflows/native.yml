@@ -62,14 +62,14 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.25.0
+        run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Remove partial pinned Rust toolchain from runner image
         continue-on-error: true
-        run: rustup toolchain uninstall 1.97.1
+        run: rustup toolchain uninstall 1.99.1
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy --force
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --force
       - name: Run native gates and collect WP-0 evidence
         env:
           WP0_GITHUB_TOKEN: ${{ github.token }}

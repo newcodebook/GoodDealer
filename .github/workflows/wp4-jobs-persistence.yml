@@ -44,7 +44,7 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - run: npm install --global pnpm@11.25.0
+      - run: npm install --global pnpm@12.16.1
       - run: pnpm install --frozen-lockfile
       - name: Create non-privileged roles
         run: |

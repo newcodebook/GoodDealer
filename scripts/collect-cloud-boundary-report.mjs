@@ -7,7 +7,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { registerHooks, stripTypeScriptTypes } from "node:module";
+import { registerHooks } from "node:module";
+
+// Node 26 removed the transform mode of its built-in type stripping; esbuild lowers parameter
+// properties and other non-erasable TypeScript syntax that strip-only mode rejects.
+import { transformSync } from "esbuild";
 import { dirname, extname, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -399,7 +403,7 @@ function registerTypeScriptHooks() {
         return {
           format: "module",
           shortCircuit: true,
-          source: stripTypeScriptTypes(source, { mode: "transform" }),
+          source: transformSync(source, { loader: "ts", format: "esm" }).code,
         };
       }
       return nextLoad(url, context);

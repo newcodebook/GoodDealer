@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -145,7 +145,7 @@ function stripeEvent(id: string, resourceId: string, created: number) {
 }
 
 function paypalCorpus(
-  privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"],
+  privateKey: KeyObject,
   webhookId: string,
   evaluatedAt: Date,
 ): SignedWebhookRequestCorpus {

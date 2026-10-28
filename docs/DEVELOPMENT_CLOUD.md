@@ -34,7 +34,7 @@ Desktop / developer
 | 开发邮件 | `gooddealer-mailpit-development.service`；无持久数据库，SMTP/API 分别只监听 `127.0.0.1:1025` 与 `127.0.0.1:8025`，不经 Nginx 或 Cloudflare 暴露。 |
 | Migration 服务 | `gooddealer-cloud-development-migrate.service`；专用 `gooddealer-migrator` 用户；按发布运行的 oneshot，常态为 `inactive`。 |
 | Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 指向当前版本。 |
-| Node/pnpm | Node `24.18.1`、pnpm `11.25.0`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。 |
+| Node/pnpm | Node `26.12.1`、pnpm `12.16.1`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。 |
 | PostgreSQL | `gooddealer-postgres-development` 容器；PostgreSQL `18.4`；只映射 `127.0.0.1:55433`。该版本低于仓库锁定的 18.6 资格版本，只是开发运行事实。 |
 | 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。当前 ledger 为 25 条有序 migration，包含 account recovery、commercial entitlement snapshot 和 default-workspace capability policy；五池与对应 grant 已核验。 |
 | PostgreSQL 持久卷 | `gooddealer-postgres-development-data`；禁止因测试、发布或排障重建。 |
@@ -196,7 +196,7 @@ Ed25519 复验，同时只输出布尔结果。不得直接输出短期 token、
 
 共享 VPS 目前是人工发布，没有仓库内可重复部署脚本。Agent 不得把下列规则自行解释为发布授权：
 
-1. 发布前使用仓库锁定的 Node `24.18.1` 运行根 `pnpm check`，并确认 `git diff --check` 通过。
+1. 发布前使用仓库锁定的 Node `26.12.1` 运行根 `pnpm check`，并确认 `git diff --check` 通过。
 2. 先只读检查目标 release id、Cloud 端口、systemd unit 和 `current` 链接；目标必须不存在。
 3. 复制到新的 `/opt/gooddealer-development/releases/<release-id>`，明确排除 `.git`、`.env*`、
    `.specability`、`node_modules`、`target`、本机恢复材料和所有秘密。

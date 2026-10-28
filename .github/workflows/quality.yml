@@ -39,20 +39,20 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.25.0
+        run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Remove partial pinned Rust toolchain from runner image
         continue-on-error: true
-        run: rustup toolchain uninstall 1.97.1
+        run: rustup toolchain uninstall 1.99.1
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy --force
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --force
       - name: Restore pinned Rust dependency auditor
         id: cargo-audit-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-${{ runner.os }}-${{ runner.arch }}-0.22.2-rust-1.97.1
+          key: cargo-audit-${{ runner.os }}-${{ runner.arch }}-0.22.2-rust-1.99.1
       - name: Install pinned Rust dependency auditor
         if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --version 0.22.2 --locked

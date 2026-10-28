@@ -51,9 +51,9 @@ jobs:
           package-manager-cache: false
       - name: Install pinned Rust toolchain
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
-          rustup default 1.97.1
-      - run: npm install --global pnpm@11.25.0
+          rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.99.1
+      - run: npm install --global pnpm@12.16.1
       - run: pnpm install --frozen-lockfile
       - name: Create non-privileged roles
         run: |
