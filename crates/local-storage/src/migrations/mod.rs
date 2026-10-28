@@ -317,6 +317,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the manifest test intentionally enumerates the complete schema in one proof"
+    )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
         assert_eq!(super::ACTIVE_MIGRATIONS.len(), 8);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
@@ -373,7 +377,7 @@ mod tests {
                 [],
             )
             .unwrap();
-            connection
+        connection
             .execute(
                 "INSERT INTO domain_asset_provider_bindings
                  (workspace_id,entity_id,connection_id,provider_kind,resource_kind,
@@ -608,6 +612,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the append-migration test keeps before/after invariants in one transaction proof"
+    )]
     fn provider_binding_append_migration_preserves_existing_business_rows() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -705,12 +713,12 @@ mod tests {
                 .unwrap(),
             0
         );
-        assert!(connection
+        assert_eq!(connection
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='domain_asset_provider_bindings'",
                 [],
                 |row| row.get::<_, i64>(0),
             )
-            .unwrap() == 1);
+            .unwrap(), 1);
     }
 }

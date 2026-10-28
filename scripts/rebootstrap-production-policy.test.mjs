@@ -411,18 +411,18 @@ test("production rebootstrap is absent and fail-closed before every persistent e
 
 test("rejects a production runtime module, import, field, or initializer", (t) => {
   const module = fixture(t);
-  mutate(module, libraryPath, "#[cfg(test)]\nmod rebootstrap_runtime;", "mod rebootstrap_runtime;");
+  mutate(module, libraryPath, "#[cfg_attr(not(unix), cfg(any()))]\n#[cfg(test)]\nmod rebootstrap_runtime;", "mod rebootstrap_runtime;");
   assert.ok(rebootstrapProductionPolicyErrors({ root: module }).some((error) => error.includes("entire rebootstrap_runtime")));
 
   const field = fixture(t);
-  mutate(field, localHostPath, "    #[cfg(test)]\n    rebootstrap_runtime: Option<RebootstrapRuntime>,", "    rebootstrap_runtime: Option<RebootstrapRuntime>,");
+  mutate(field, localHostPath, "    #[cfg_attr(not(unix), cfg(any()))]\n    #[cfg(test)]\n    rebootstrap_runtime: Option<RebootstrapRuntime>,", "    rebootstrap_runtime: Option<RebootstrapRuntime>,");
   assert.ok(rebootstrapProductionPolicyErrors({ root: field }).some((error) => error.includes("runtime field")));
 
   const quarantineField = fixture(t);
   mutate(
     quarantineField,
     localHostPath,
-    "    #[cfg(test)]\n    rebootstrap_quarantine_custody: Option<TestRebootstrapQuarantineCustody>,",
+    "    #[cfg_attr(not(unix), cfg(any()))]\n    #[cfg(test)]\n    rebootstrap_quarantine_custody: Option<TestRebootstrapQuarantineCustody>,",
     "    rebootstrap_quarantine_custody: Option<TestRebootstrapQuarantineCustody>,",
   );
   assert.ok(rebootstrapProductionPolicyErrors({ root: quarantineField }).some(
@@ -430,15 +430,15 @@ test("rejects a production runtime module, import, field, or initializer", (t) =
   ));
 
   const caller = fixture(t);
-  mutate(caller, localHostPath, "    #[cfg(test)]\n    fn restart_host_without_authority_for_test(", "    fn restart_host_without_authority_for_test(");
+  mutate(caller, localHostPath, "    #[cfg_attr(not(unix), cfg(any()))]\n    #[cfg(test)]\n    fn restart_host_without_authority_for_test(", "    fn restart_host_without_authority_for_test(");
   assert.ok(rebootstrapProductionPolicyErrors({ root: caller }).some((error) => error.includes("callers must be test-only")));
 });
 
 test("rejects parsing, locking, inspection, or effects before production Unavailable", (t) => {
   const root = fixture(t);
   mutate(root, localHostPath,
-    "        Err(DesktopLocalHostError::Unavailable)\n    }\n\n    #[cfg(test)]\n    pub(crate) fn apply_rebootstrap_plan(",
-    "        let _ = RebootstrapPlan::parse(_checkpoint_wire, _plan_wire);\n        let _guard = self.operation_selection.lock();\n        Err(DesktopLocalHostError::Unavailable)\n    }\n\n    #[cfg(test)]\n    pub(crate) fn apply_rebootstrap_plan(");
+    "        Err(DesktopLocalHostError::Unavailable)\n    }\n\n    #[cfg_attr(not(unix), cfg(any()))]\n    #[cfg(test)]\n    pub(crate) fn apply_rebootstrap_plan(",
+    "        let _ = RebootstrapPlan::parse(_checkpoint_wire, _plan_wire);\n        let _guard = self.operation_selection.lock();\n        Err(DesktopLocalHostError::Unavailable)\n    }\n\n    #[cfg_attr(not(unix), cfg(any()))]\n    #[cfg(test)]\n    pub(crate) fn apply_rebootstrap_plan(");
   const errors = rebootstrapProductionPolicyErrors({ root });
   assert.ok(errors.some((error) => error.includes("immediately return Unavailable") || error.includes("precede parsing")), errors.join("\n"));
 });

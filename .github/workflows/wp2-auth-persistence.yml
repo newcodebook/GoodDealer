@@ -31,12 +31,16 @@ jobs:
       PGPASSWORD: postgres
       GOODDEALER_POSTGRES_OWNER_URL: postgresql://gooddealer_cloud_owner:owner-test-only@localhost:5432/postgres
       GOODDEALER_POSTGRES_APP_URL: postgresql://gooddealer_cloud_app:app-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_ACCOUNT_API_URL: postgresql://gd_account_api:account-api-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_IDENTITY_ISSUER_URL: postgresql://gd_identity_capability_issuer:identity-issuer-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_PROVIDER_INGRESS_URL: postgresql://gd_provider_ingress:provider-ingress-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_PROVIDER_WORKER_URL: postgresql://gd_provider_worker:provider-worker-test-only@localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
@@ -49,9 +53,19 @@ jobs:
           CREATE ROLE gooddealer_cloud_app LOGIN PASSWORD 'app-test-only' NOSUPERUSER NOBYPASSRLS;
           ALTER DATABASE postgres OWNER TO gooddealer_cloud_owner;
           SQL
+      - name: Provision capability roles
+        run: |
+          psql --host localhost --username postgres --dbname postgres --set ON_ERROR_STOP=1 \
+            --file apps/cloud/scripts/provision-identity-capability-roles.sql
+          psql --host localhost --username postgres --dbname postgres --set ON_ERROR_STOP=1 <<'SQL'
+          ALTER ROLE gd_identity_capability_issuer PASSWORD 'identity-issuer-test-only';
+          ALTER ROLE gd_account_api PASSWORD 'account-api-test-only';
+          ALTER ROLE gd_provider_ingress PASSWORD 'provider-ingress-test-only';
+          ALTER ROLE gd_provider_worker PASSWORD 'provider-worker-test-only';
+          SQL
       - name: Run exact PostgreSQL auth persistence evidence
         run: pnpm evidence:wp2:auth-persistence
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: wp2-auth-persistence-${{ github.run_id }}-${{ github.run_attempt }}-evidence

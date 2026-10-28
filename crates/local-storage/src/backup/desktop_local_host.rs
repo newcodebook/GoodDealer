@@ -12,10 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 use sha2::{Digest, Sha256};
 
 use super::super::desktop_custody::DesktopProductionCustody;
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 use super::super::desktop_custody::{
     TestRebootstrapCrashBoundary, TestRebootstrapKeyStore, TestRebootstrapQuarantineCustody,
@@ -28,6 +30,7 @@ use super::authority::{
 };
 use super::container::{BackupContainerError, BackupContainerHost, ExportRequest};
 use super::continuity::{BarrierReason, ContinuityManager, VerifiedLocalContinuation};
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 use super::continuity::{ContinuityBinding, ContinuityReceiptV1, ReceiptState, StartupContinuity};
 use super::source::IsolatedBackupCandidate;
@@ -43,6 +46,7 @@ use crate::desktop_sync_runtime::{
     DesktopSyncCommitGuard, DesktopSyncError, DesktopSyncRejectBatch, DesktopSyncRejectDisposition,
     DesktopSyncRunAdmission, DesktopSyncRuntime,
 };
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 use crate::rebootstrap_runtime::{
     RebootstrapCheckpoint, RebootstrapPlan, RebootstrapRuntime, RebootstrapSlot,
@@ -98,6 +102,7 @@ pub enum DesktopLocalBusinessState {
 /// This is deliberately test-only: production cannot select a protocol phase or enable the
 /// rebootstrap capability. Returning at one of these boundaries drops every in-memory linear
 /// capability, exactly as a process crash would.
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RebootstrapCrashBoundary {
@@ -126,6 +131,7 @@ enum RebootstrapCrashBoundary {
     Completed,
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RebootstrapRestartDisposition {
@@ -369,6 +375,7 @@ struct AdmittedBackupHandle {
     identity: NativeFileIdentity,
     size: u64,
     digest: [u8; 32],
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     file: std::fs::File,
 }
@@ -396,6 +403,7 @@ struct NativeFileIdentity {
 
 enum NativeBackupComposition {
     Unavailable,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     Development(DevelopmentNativeBackup),
 }
@@ -404,6 +412,7 @@ impl NativeBackupComposition {
     const fn is_qualified(&self) -> bool {
         match self {
             Self::Unavailable => false,
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(_) => true,
         }
@@ -419,6 +428,7 @@ impl NativeBackupComposition {
                 let _ = (operation_id, artifact);
                 Err(DesktopBackupError::StorageRejected)
             }
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(native) => native.stage_publication(operation_id, artifact),
         }
@@ -430,6 +440,7 @@ impl NativeBackupComposition {
                 let _ = staged;
                 Err(DesktopBackupError::StorageRejected)
             }
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(native) => native.mark_available(staged),
         }
@@ -438,6 +449,7 @@ impl NativeBackupComposition {
     fn select(&self) -> Result<AdmittedBackupHandle, DesktopBackupError> {
         match self {
             Self::Unavailable => Err(DesktopBackupError::StorageRejected),
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(native) => native.select(),
         }
@@ -449,6 +461,7 @@ impl NativeBackupComposition {
                 let _ = handle;
                 Err(DesktopBackupError::StorageRejected)
             }
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(native) => native.read(handle),
         }
@@ -459,6 +472,7 @@ impl NativeBackupComposition {
             Self::Unavailable => {
                 let _ = staged;
             }
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             Self::Development(native) => native.quarantine(staged),
         }
@@ -473,12 +487,14 @@ struct StagedPublication {
     token: String,
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 struct DevelopmentNativeBackup {
     root: std::path::PathBuf,
     available: Vec<String>,
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 impl DevelopmentNativeBackup {
     fn new(root: std::path::PathBuf) -> Result<Self, DesktopBackupError> {
@@ -558,6 +574,7 @@ impl DevelopmentNativeBackup {
         self.select_with_hooks(|_| {}, |_, _| {})
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn select_with_hooks<Before, After>(
         &self,
@@ -813,6 +830,7 @@ impl DevelopmentNativeBackup {
     }
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn open_native_read(path: &std::path::Path) -> Result<std::fs::File, DesktopBackupError> {
     let mut options = std::fs::OpenOptions::new();
@@ -827,6 +845,7 @@ fn open_native_read(path: &std::path::Path) -> Result<std::fs::File, DesktopBack
         .map_err(|_| DesktopBackupError::ArtifactRejected)
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn read_native_file(
     file: &std::fs::File,
@@ -856,6 +875,7 @@ fn read_native_file(
     Ok(bytes)
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn read_bounded_journal(
     file: &std::fs::File,
@@ -868,6 +888,7 @@ fn read_bounded_journal(
     read_native_file(file, expected_size)
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn validate_native_metadata(metadata: &std::fs::Metadata) -> Result<(), DesktopBackupError> {
     if !metadata.file_type().is_file() {
@@ -886,6 +907,7 @@ fn validate_native_metadata(metadata: &std::fs::Metadata) -> Result<(), DesktopB
     Ok(())
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn native_file_identity(metadata: &std::fs::Metadata) -> NativeFileIdentity {
     #[cfg(unix)]
@@ -1065,6 +1087,7 @@ impl PrivateBackupAuthority {
         self.generation != 0 && now >= self.trusted_time_floor && now < self.execute_before
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn binding(&self) -> super::container::BindingDigests {
         let account = digest_component(b"account", self.account_id.as_bytes());
@@ -1105,18 +1128,25 @@ pub struct DesktopLocalHost {
     /// The aggregate, not Desktop composition, owns the database and sync coordinator together.
     runtime_state: Mutex<Option<DesktopRuntimeState>>,
     /// Private crash-recovery state machine. It never owns a database, path, key, or writer.
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     rebootstrap_runtime: Option<RebootstrapRuntime>,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     rebootstrap_quarantine_custody: Option<TestRebootstrapQuarantineCustody>,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     rebootstrap_test_executor_enabled: bool,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     development_installation_binding: Option<[u8; 32]>,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     business_commit_transition_epoch: AtomicU64,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     restore_precommit_transition_epoch: AtomicU64,
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     restore_postcommit_transition_epoch: AtomicU64,
 }
@@ -1566,18 +1596,25 @@ impl DesktopLocalHost {
             operation_selection: Mutex::new(BackupOperationState::default()),
             authority_publication: Mutex::new(BackupAuthorityPublicationState::default()),
             runtime_state: Mutex::new(None),
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             rebootstrap_runtime: None,
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             rebootstrap_quarantine_custody: None,
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             rebootstrap_test_executor_enabled: false,
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             development_installation_binding: None,
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             business_commit_transition_epoch: AtomicU64::new(0),
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             restore_precommit_transition_epoch: AtomicU64::new(0),
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             restore_postcommit_transition_epoch: AtomicU64::new(0),
         }
@@ -1681,6 +1718,7 @@ impl DesktopLocalHost {
                     DesktopLocalHostError::Unavailable,
                 ));
             }
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             {
                 None
@@ -1706,6 +1744,7 @@ impl DesktopLocalHost {
                 )
             })?
         } else {
+            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             {
                 authority
@@ -2200,6 +2239,11 @@ impl DesktopLocalHost {
     ///
     /// The Renderer supplies only the asset and an expected local generation. Connection and
     /// Provider resource identity are recovered from Host-local observation evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority, protocol, or storage error when the binding cannot be admitted
+    /// or the final commit fence fails.
     pub fn bind_domain_asset_provider(
         &self,
         request: DesktopDomainAssetProviderBindingRequest,
@@ -2329,6 +2373,7 @@ impl DesktopLocalHost {
             })
             .transpose()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        #[cfg_attr(not(unix), cfg(any()))]
         #[cfg(test)]
         let installation_binding =
             production_installation_binding.or(self.development_installation_binding);
@@ -2429,6 +2474,7 @@ impl DesktopLocalHost {
         captured_epoch: u64,
         authority: &PrivateBackupAuthority,
     ) -> Result<(), BusinessDatabaseError> {
+        #[cfg_attr(not(unix), cfg(any()))]
         #[cfg(test)]
         {
             let requested = self
@@ -2687,6 +2733,7 @@ impl DesktopLocalHost {
         Err(DesktopLocalHostError::Unavailable)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     pub(crate) fn apply_rebootstrap_plan(
         &self,
@@ -2703,6 +2750,7 @@ impl DesktopLocalHost {
         )
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn apply_rebootstrap_plan_until_for_test(
         &self,
@@ -2713,6 +2761,7 @@ impl DesktopLocalHost {
         self.apply_rebootstrap_plan_inner(checkpoint_wire, plan_wire, stop_after)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -3338,6 +3387,7 @@ impl DesktopLocalHost {
         Ok(())
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -3480,6 +3530,7 @@ impl DesktopLocalHost {
         })
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn development_with_rebootstrap_custody(
         root: &DesktopApplicationRoot,
@@ -3500,6 +3551,7 @@ impl DesktopLocalHost {
         )
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn development_with_rebootstrap_custody_and_store(
         root: &DesktopApplicationRoot,
@@ -3536,6 +3588,7 @@ impl DesktopLocalHost {
         Ok(host)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn restart_host_without_authority_for_test(
         root: DesktopApplicationRoot,
@@ -3558,6 +3611,7 @@ impl DesktopLocalHost {
         host
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn restart_rebootstrap_for_test(
         root: DesktopApplicationRoot,
@@ -3567,6 +3621,7 @@ impl DesktopLocalHost {
         Self::restart_rebootstrap_until_for_test(root, store, workspace_id, None)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -3844,6 +3899,7 @@ impl DesktopLocalHost {
         }
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     pub(crate) fn publish_transition_at_next_business_commit_for_test(
         &self,
@@ -3859,6 +3915,7 @@ impl DesktopLocalHost {
         Ok(requested)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn publish_transition_at_restore_precommit_for_test(
         &self,
@@ -3866,6 +3923,7 @@ impl DesktopLocalHost {
         self.schedule_restore_transition_for_test(&self.restore_precommit_transition_epoch)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn publish_transition_after_restore_commit_for_test(
         &self,
@@ -3873,6 +3931,7 @@ impl DesktopLocalHost {
         self.schedule_restore_transition_for_test(&self.restore_postcommit_transition_epoch)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn schedule_restore_transition_for_test(
         &self,
@@ -3888,6 +3947,7 @@ impl DesktopLocalHost {
         Ok(requested)
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn publish_scheduled_restore_transition_for_test(&self, hook: &AtomicU64) {
         let requested = hook.swap(0, Ordering::AcqRel);
@@ -3897,6 +3957,7 @@ impl DesktopLocalHost {
         }
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn renew_business_authority_for_test(
         &self,
@@ -3967,6 +4028,7 @@ impl DesktopLocalHost {
         Ok(())
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn request_security_lock_for_test(&self) -> Result<(), DesktopBackupError> {
         self.enter_security_lock().map_err(|error| match error {
@@ -3978,6 +4040,7 @@ impl DesktopLocalHost {
         })
     }
 
+    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn continuity_startup_for_test(&self) -> Result<StartupContinuity, DesktopBackupError> {
         let authority = self
@@ -4391,6 +4454,7 @@ impl DesktopLocalHost {
                         &mut authority_guard,
                         &restore_authority,
                         |(), _| {
+                            #[cfg_attr(not(unix), cfg(any()))]
                             #[cfg(test)]
                             self.publish_scheduled_restore_transition_for_test(
                                 &self.restore_precommit_transition_epoch,
@@ -4408,6 +4472,7 @@ impl DesktopLocalHost {
                             }
                         },
                     );
+                    #[cfg_attr(not(unix), cfg(any()))]
                     #[cfg(test)]
                     if result.is_ok() {
                         // The database callback has crossed SQLite COMMIT. Publishing a later
@@ -4488,6 +4553,7 @@ fn clear_operation_state(operation: &mut BackupOperationState) {
     operation.selection_consumed = true;
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn digest_component(label: &[u8], value: &[u8]) -> [u8; 32] {
     let mut digest = Sha256::new();
@@ -4518,6 +4584,7 @@ fn hex_digest(digest: &[u8; 32]) -> String {
     output
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn rebootstrap_binding_digest(authority: &PrivateBackupAuthority) -> String {
     let mut digest = Sha256::new();
@@ -4533,6 +4600,7 @@ fn rebootstrap_binding_digest(authority: &PrivateBackupAuthority) -> String {
     hex_digest(&digest.finalize().into())
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn rebootstrap_floor_digest(authority: &PrivateBackupAuthority) -> String {
     let mut digest = Sha256::new();
@@ -4673,6 +4741,7 @@ fn valid_opaque_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 mod tests {
     use super::*;

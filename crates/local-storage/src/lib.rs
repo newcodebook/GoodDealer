@@ -110,11 +110,19 @@
 mod active_workspace;
 mod application_root;
 mod desktop_business_runtime;
+// The custody implementation relies on descriptor-relative POSIX primitives (`openat`,
+// `renameat`, and `O_NOFOLLOW`) that do not exist on Windows. Keep that security boundary
+// explicitly fail-closed there instead of compiling a weaker path-based approximation.
+#[cfg(unix)]
+mod desktop_custody;
+#[cfg(windows)]
+#[path = "desktop_custody_windows.rs"]
 mod desktop_custody;
 mod desktop_native_cloud;
 mod desktop_sync_runtime;
 
 mod migrations;
+#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 mod rebootstrap_runtime;
 

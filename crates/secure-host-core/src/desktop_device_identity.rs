@@ -16,8 +16,11 @@ const KEYCHAIN_ACCOUNT: &str = "device-identity-v1";
 const BINDING_KEYCHAIN_SERVICE: &str = "com.gooddealer.desktop.local-host-binding";
 #[cfg(target_os = "macos")]
 const BINDING_KEYCHAIN_ACCOUNT: &str = "local-host-binding-v1";
+#[cfg(any(target_os = "macos", test))]
 const BINDING_SCHEMA_VERSION: u8 = 1;
+#[cfg(any(target_os = "macos", test))]
 const BINDING_DIGEST_DOMAIN: &[u8] = b"GOODDEALER/INSTALLATION-BINDING-V1\0";
+#[cfg(any(target_os = "macos", test))]
 const MAX_BINDING_BYTES: usize = 512;
 #[cfg(target_os = "macos")]
 const WHEN_UNLOCKED_THIS_DEVICE_ONLY_PROTECTION_DOMAIN: &str = "aku";
@@ -259,6 +262,10 @@ fn validate_device_binding(
 }
 
 #[cfg(not(target_os = "macos"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the cross-platform identity API preserves one fail-closed Result contract"
+)]
 fn ensure_device_binding(
     _identity: &DesktopDeviceIdentity,
 ) -> Result<(), DesktopDeviceIdentityError> {

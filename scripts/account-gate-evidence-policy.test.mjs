@@ -274,7 +274,7 @@ test("account gate vector counts parse only admitted bytes after a post-admissio
 });
 
 test("WP-2 workflow pins the evidence upload action", () => {
-  assert.match(workflow, /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7\.0\.1/);
+  assert.match(workflow, /actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7\.0\.2/);
 });
 
 test("account gate report carries the portable P0-23 query contract and fails closed on wiring drift", () => {

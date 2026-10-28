@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "@gooddealer/ui": "workspace:*",
-    "astro": "^7.2.7"
+    "astro": "^7.4.2"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
+    "@astrojs/check": "^0.9.12",
     "typescript": "6.0.3",
-    "wrangler": "^4.126.0"
+    "wrangler": "^4.153.0"
   }
 }

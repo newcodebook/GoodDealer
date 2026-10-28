@@ -1099,6 +1099,11 @@ impl BusinessDatabase {
     /// The Provider resource digest and connection are read from the local staged observation;
     /// callers cannot provide either value. A binding identity is immutable, so credential or
     /// resource drift fails closed until an explicit replacement workflow is implemented.
+    #[expect(
+        clippy::too_many_lines,
+        clippy::type_complexity,
+        reason = "the binding transaction keeps selection, replay, and commit-fence invariants together"
+    )]
     pub(crate) fn bind_latest_cloudflare_zone(
         &mut self,
         entity_id: &str,

@@ -5,7 +5,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const checkoutAction = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
-const setupNodeAction = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+const setupNodeAction = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
 export const MARKETING_ALLOWED_EXTERNAL_ORIGINS = Object.freeze([
   "https://fonts.googleapis.com",
   "https://cdn.fontshare.com",

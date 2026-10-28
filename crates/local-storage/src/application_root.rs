@@ -59,6 +59,7 @@ impl DesktopApplicationRoot {
             return Err(DesktopApplicationRootError::Rejected);
         }
         validate_owner_and_mode(&metadata)?;
+        #[cfg(unix)]
         let directory = File::from(
             rustix::fs::openat(
                 rustix::fs::CWD,
@@ -71,6 +72,8 @@ impl DesktopApplicationRoot {
             )
             .map_err(|_| DesktopApplicationRootError::StorageRejected)?,
         );
+        #[cfg(not(unix))]
+        return Err(DesktopApplicationRootError::Rejected);
         let identity = directory_identity(&directory)?;
         let root = Self {
             path: path.to_path_buf(),

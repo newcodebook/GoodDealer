@@ -4,7 +4,9 @@ use std::fmt;
 
 use zeroize::Zeroizing;
 
+#[cfg(any(target_os = "macos", test))]
 const MAX_OUTPUT_BYTES: usize = 8 * 1024;
+#[cfg(any(target_os = "macos", test))]
 const MAX_TOKEN_BYTES: usize = 512;
 #[cfg(target_os = "macos")]
 const STATIC_APPLESCRIPT: &str = r#"set zoneId to text returned of (display dialog "Cloudflare Zone ID" default answer "")
@@ -101,7 +103,7 @@ impl CloudflareCapture {
         guard()?;
         #[cfg(not(target_os = "macos"))]
         {
-            return Err(CloudflareCaptureError::Unavailable);
+            Err(CloudflareCaptureError::Unavailable)
         }
         #[cfg(target_os = "macos")]
         {
@@ -163,6 +165,7 @@ impl CloudflareCapture {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareCaptureError> {
     if bytes.len() > MAX_OUTPUT_BYTES {
         return Err(CloudflareCaptureError::OutputTooLarge);
@@ -186,6 +189,7 @@ fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareC
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_zone_id(value: &str) -> bool {
     value.len() == 32
         && value

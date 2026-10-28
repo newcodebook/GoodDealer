@@ -12,6 +12,7 @@ use crate::cloudflare_capture::CloudflareCandidate;
 const SERVICE: &str = "com.gooddealer.desktop.cloudflare.dns.v1";
 #[cfg(target_os = "macos")]
 const LOCK_DIRECTORY_PREFIX: &str = "app.gooddealer.desktop.cloudflare-dns-keychain-cas-v1";
+#[cfg(any(target_os = "macos", test))]
 const MAX_ENVELOPE_BYTES: usize = 2_048;
 #[cfg(target_os = "macos")]
 const WHEN_UNLOCKED_THIS_DEVICE_ONLY_PROTECTION_DOMAIN: &str = "aku";
@@ -57,6 +58,7 @@ pub(crate) struct CloudflareCredentialEnvelope {
     token: Option<Zeroizing<String>>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EnvelopeWireRef<'a> {
@@ -75,6 +77,7 @@ struct EnvelopeWireRef<'a> {
     token: Option<&'a str>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EnvelopeWire {
@@ -283,6 +286,7 @@ impl CloudflareCredentialEnvelope {
     pub(crate) fn zone_id(&self) -> &str {
         &self.zone_id
     }
+    #[cfg(any(target_os = "macos", test))]
     fn encode(&self) -> Result<Zeroizing<Vec<u8>>, CloudflareKeychainError> {
         self.validate()?;
         let wire = EnvelopeWireRef {
@@ -307,6 +311,7 @@ impl CloudflareCredentialEnvelope {
         }
         Ok(bytes)
     }
+    #[cfg(any(target_os = "macos", test))]
     fn decode(bytes: &[u8]) -> Result<Self, CloudflareKeychainError> {
         if bytes.len() > MAX_ENVELOPE_BYTES {
             return Err(CloudflareKeychainError::Malformed);
@@ -391,6 +396,7 @@ fn load_unlocked(
     }
 }
 
+#[cfg(target_os = "macos")]
 fn admit_loaded_envelope(
     bytes: &[u8],
     attribute_verification: Result<(), CloudflareKeychainError>,
@@ -575,6 +581,7 @@ fn validate_recovery_plan(
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn classify_recovery_custody(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     current: Result<Option<CloudflareCredentialEnvelope>, CloudflareKeychainError>,
@@ -598,6 +605,7 @@ fn classify_recovery_custody(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn recovery_tuple_matches_target(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,
@@ -611,6 +619,7 @@ fn recovery_tuple_matches_target(
         && credential_public_kind(envelope.state()) == plan.target_kind()
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn recovery_tuple_matches_base(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,
@@ -624,6 +633,7 @@ fn recovery_tuple_matches_base(
         && credential_public_kind(envelope.state()) == plan.expected_base_kind()
 }
 
+#[cfg(any(target_os = "macos", test))]
 const fn credential_public_kind(
     state: CloudflareCredentialState,
 ) -> CloudflareCredentialPublicKind {
@@ -757,6 +767,7 @@ fn validate_provision_plan(
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn matches_expected_base(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     current: Option<&CloudflareCredentialEnvelope>,
@@ -775,11 +786,13 @@ fn matches_expected_base(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 struct InspectedBase<'a, Inspecting> {
     current: Option<&'a CloudflareCredentialEnvelope>,
     handle: Inspecting,
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn publish_after_base<Plan, Inspecting, Marked, Resolved>(
     plan: &Plan,
     target: &CloudflareCredentialEnvelope,
@@ -827,6 +840,7 @@ where
     resolve_once(marked, comparison)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn matches_expected_tuple(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,

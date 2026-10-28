@@ -17,14 +17,14 @@
     "@gooddealer/client-core": "workspace:*",
     "@gooddealer/i18n": "workspace:*",
     "@gooddealer/ui": "workspace:*",
-    "@tauri-apps/api": "2.11.1",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "@tauri-apps/api": "2.12.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
-    "vite": "8.2.2"
+    "@tauri-apps/cli": "2.12.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "vite": "8.3.5"
   }
 }

@@ -462,6 +462,10 @@ impl DesktopBusinessRuntime {
         Ok(value)
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the runtime forwards the owned IPC request into the transaction boundary"
+    )]
     pub(crate) fn bind_domain_asset_provider_guarded(
         &mut self,
         request: DesktopDomainAssetProviderBindingRequest,
