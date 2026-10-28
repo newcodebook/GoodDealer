@@ -1,5 +1,7 @@
 import {
   parseAssetLibraryViewModel,
+  parseDomainDetailViewModel,
+  type DomainDetailViewModel,
   parseSyncSnapshotViewModel,
   type AssetLibraryRow,
   type AssetLibraryViewModel,
@@ -7,6 +9,7 @@ import {
 } from "@gooddealer/client-core";
 
 import type { AssetListingSummary, AssetSortKey, AssetStatusFilter } from "../../src/features/portfolio/asset-library";
+import type { DomainDetailSections } from "../../src/features/portfolio/domain-detail";
 import { assetRowStatus } from "../../src/features/portfolio/asset-library";
 
 /**
@@ -144,4 +147,68 @@ export function mockSyncSnapshot(pendingMutationCount: number, syncing: boolean)
     lastReplicationActivityAt: "2026-08-20T06:02:00Z",
     transportObservedAt: "2026-08-20T06:02:00Z",
   });
+}
+
+/** Detail projection for one mock asset; mirrors the kit's synthesized registration / DNS / history. */
+export function mockDomainDetail(record: MockAssetRecord, readOnlyReason: "standby" | null): DomainDetailViewModel {
+  const { row } = record;
+  const conflict = row.syncStatus === "conflicted";
+  const sold = row.lifecycleStatus === "sold";
+  const acquired = row.expiresOn === null ? null : `${Number(row.expiresOn.slice(0, 4)) - 2}${row.expiresOn.slice(4)}`;
+  return parseDomainDetailViewModel({
+    schemaVersion: 3,
+    kind: "domain_detail",
+    readGeneration: 41,
+    freshness: {
+      source: readOnlyReason === "standby" ? "standby_cloud" : "active_local",
+      readOnlyReason,
+      serverRevision: 8241,
+      lastReplicationActivityAt: "2026-08-20T06:02:00Z",
+      lastSuccessfulProviderObservationAt: "2026-08-20T05:48:00Z",
+      canEdit: readOnlyReason === null,
+    },
+    state: sold ? "sold" : conflict ? "conflict" : "normal",
+    asset: {
+      ...row,
+      acquiredOn: acquired,
+      acquisitionCost: row.targetPrice === null ? null : { currency: "USD", amount: String(Math.round(Number(row.targetPrice.amount) * 0.18)) },
+      autoRenew: true,
+      registrarLock: true,
+      note: null,
+      portfolioId: row.tags.find((tag) => tag.startsWith("portfolio")) ?? null,
+    },
+    conflictFields: conflict ? ["BIN", "Listing"] : [],
+  });
+}
+
+export function mockDomainSections(record: MockAssetRecord): DomainDetailSections {
+  const { row, listing } = record;
+  const registrar = (row.registrar ?? "registrar").toLowerCase();
+  const nameservers = listing.dnsProvider === "Cloudflare"
+    ? ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"]
+    : [`ns1.${registrar}.com`, `ns2.${registrar}.com`];
+  return {
+    listings: listing.platforms.map((platform, index) => ({
+      platform,
+      status: row.lifecycleStatus === "sold" && index === 0 ? "sold" : row.syncStatus === "pending" ? "pending" : "active",
+      price: row.targetPrice,
+      updatedLabel: index === 0 ? "14:02" : "07-28",
+    })),
+    dns: {
+      provider: listing.dnsProvider ?? "—",
+      nameservers,
+      records: [
+        { type: "A", host: "@", value: "185.199.108.153", ttl: "Auto" },
+        { type: "CNAME", host: "www", value: row.domain, ttl: "Auto" },
+        { type: "TXT", host: "_atomverify", value: "atom-verify=8f2a…", ttl: "3600" },
+        { type: "MX", host: "@", value: `10 mail.${row.domain}`, ttl: "3600" },
+      ],
+    },
+    ownership: { verified: true, txtHost: "_atomverify", lastVerifiedLabel: "07-30 09:11" },
+    history: [
+      { revision: "8,241", whenLabel: "今日 14:02", label: "批量改价 −8%", field: "BIN" },
+      { revision: "8,180", whenLabel: "07-30 09:11", label: "同步 · Atom", field: "Listing" },
+      { revision: "7,905", whenLabel: "07-14 16:40", label: "手动编辑", field: "标签" },
+    ],
+  };
 }

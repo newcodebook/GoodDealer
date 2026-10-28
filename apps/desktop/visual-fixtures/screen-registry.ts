@@ -38,7 +38,7 @@ export function plannedScreens(): readonly DesignScreen[] {
     { id: "onboarding", group: "门禁", title: "接入向导", kitSource: "Onboarding.jsx", backing: "mock", status: "planned" },
     { id: "asset-library", group: "资产", title: "资产库", kitSource: "AssetLibrary.jsx", backing: "host", status: "planned" },
     { id: "domain-detail", group: "资产", title: "域名详情", kitSource: "DomainDetail.jsx", backing: "host", status: "planned" },
-    { id: "batch-preview", group: "资产", title: "批量差异预览", kitSource: "BatchPreview.jsx", backing: "mock", status: "planned" },
+    { id: "batch-preview", group: "资产", title: "批量任务 · 差异预览", kitSource: "BatchPreview.jsx", backing: "mock", status: "planned" },
     { id: "renew-desk", group: "资产", title: "续费", kitSource: "RenewDesk.jsx", backing: "mock", status: "planned" },
     { id: "dns-verify", group: "DNS", title: "DNS 与验证", kitSource: "DnsVerify.jsx", backing: "host", status: "planned" },
     { id: "sales-desk", group: "变现", title: "销售管理", kitSource: "SalesDesk.jsx", backing: "mock", status: "planned" },

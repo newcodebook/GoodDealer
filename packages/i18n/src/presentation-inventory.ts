@@ -16,7 +16,7 @@ export interface PresentationCopyInventoryEntry {
 export const presentationCopyInventory = {
   shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 67, exactBrandCopyKeys: 27 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 48, exactBrandCopyKeys: 37 },
-  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 54, exactBrandCopyKeys: 54 },
+  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 88, exactBrandCopyKeys: 77 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 18, exactBrandCopyKeys: 18 },
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 32, exactBrandCopyKeys: 32 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 48, exactBrandCopyKeys: 33 },
@@ -25,11 +25,11 @@ export const presentationCopyInventory = {
   activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 51, exactBrandCopyKeys: 38 },
   dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 60, exactBrandCopyKeys: 32 },
   renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 15, exactBrandCopyKeys: 15 },
-  domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 37, exactBrandCopyKeys: 29 },
+  domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 62, exactBrandCopyKeys: 45 },
   signIn: { source: "SignIn.jsx", typedBoundary: "AuthGateViewModel", localeKeyCount: 57, exactBrandCopyKeys: 55, exactEnUSBrandCopyKeys: 55 },
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 575 as const;
-export const reconciledExactBrandCopyKeyCount = 453 as const;
+export const reconciledLocaleKeyCount = 634 as const;
+export const reconciledExactBrandCopyKeyCount = 492 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 55 as const;

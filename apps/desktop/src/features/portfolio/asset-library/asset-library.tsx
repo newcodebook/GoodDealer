@@ -1,7 +1,6 @@
 import type { AssetLibraryRow } from "@gooddealer/client-core";
-import { formatMoney, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
-  Badge,
   BatchBar,
   Button,
   Dialog,
@@ -18,7 +17,9 @@ import {
   UploadIcon,
   type TableColumn,
 } from "@gooddealer/ui";
-import { useState, type Key, type ReactNode } from "react";
+import { useState, type Key } from "react";
+
+import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
 
 import {
   assetRowStatus,
@@ -27,7 +28,6 @@ import {
   type AssetLibraryFilters,
   type AssetLibraryPresentation,
   type AssetListingSummary,
-  type AssetRowStatus,
   type AssetSortKey,
   type AssetStatusFilter,
 } from "./asset-library-contract";
@@ -68,14 +68,6 @@ function isStatusFilter(value: string): value is AssetStatusFilter {
   return (statusFilters as readonly string[]).includes(value);
 }
 
-function daysUntil(date: string, reference: string): number {
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${reference}T00:00:00Z`)) / 86_400_000);
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /** Asset Library: KPI ribbon, filter region, windowed asset table, and the floating batch action layer. */
 export function AssetLibrary({
   locale,
@@ -99,7 +91,6 @@ export function AssetLibrary({
   referenceDate = todayIso(),
 }: AssetLibraryProps) {
   const copy = getPresentationCopy(locale, "assetLibrary");
-  const shellCopy = getPresentationCopy(locale, "shell");
   const [pendingEdit, setPendingEdit] = useState<{ readonly row: AssetLibraryRow; readonly amount: string } | null>(null);
   const data = presentation.state === "ready" ? presentation.data : presentation.state === "invalid-query" ? presentation.data : null;
   const canEdit = data?.freshness.canEdit ?? false;
@@ -113,17 +104,7 @@ export function AssetLibrary({
     unlisted: copy.unlisted,
     sold: copy.sold,
   };
-  const statusBadge: Record<AssetRowStatus, ReactNode> = {
-    synced: <Badge tone="sync">SYNCED</Badge>,
-    pending: <Badge tone="warning" mono={false}>{copy.waitingProvider}</Badge>,
-    conflict: <Badge tone="danger" mono={false}>{copy.conflict}</Badge>,
-    unlisted: <Badge mono={false}>{copy.unlisted}</Badge>,
-    sold: <Badge tone="gold">SOLD</Badge>,
-    local: <Badge mono={false}>{shellCopy.unsynced}</Badge>,
-  };
-
-  // Narrow symbols keep the kit's "$284,120.00" instead of zh-CN's default "US$".
-  const money = (amount: string, currency: string) => formatMoney(locale, Number(amount), currency, { currencyDisplay: "narrowSymbol" });
+  const money = (amount: string, currency: string) => formatAssetMoney(locale, amount, currency);
 
   const columns: TableColumn<AssetLibraryRow>[] = [
     { key: "domain", label: copy.domain, sortable: true, priority: "essential", render: (row) => <span className="asset-library-domain">{row.domain}</span> },
@@ -151,7 +132,7 @@ export function AssetLibrary({
         },
       },
     ] : []),
-    { key: "status", label: copy.status, priority: "essential", render: (row) => statusBadge[assetRowStatus(row, listingSummaries?.get(row.id))] },
+    { key: "status", label: copy.status, priority: "essential", render: (row) => <AssetStatusBadge locale={locale} status={assetRowStatus(row, listingSummaries?.get(row.id))} /> },
     {
       key: "targetPrice",
       label: copy.bin,
