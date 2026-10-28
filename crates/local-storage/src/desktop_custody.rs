@@ -3941,7 +3941,7 @@ fn add_untrusted_named_entry_snapshot(
             .to_be_bytes(),
     );
     digest.update(metadata.st_ino.to_be_bytes());
-    digest.update(u64::from(metadata.st_nlink).to_be_bytes());
+    digest.update(metadata.st_nlink.to_be_bytes());
     digest.update(u64::from(metadata.st_uid).to_be_bytes());
     digest.update((metadata.st_size as i64).to_be_bytes());
     #[cfg(unix)]

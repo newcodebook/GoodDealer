@@ -44,28 +44,19 @@ const KEK_PURPOSE: &[u8] = b"GOODDEALER/BACKUP-KEK-V1";
 const KEK_REGISTRY_MAGIC: &[u8; 8] = b"GDBKKEK1";
 const KEK_REGISTRY_VERSION: u16 = 1;
 const KEK_REGISTRY_MAX_BYTES: usize = 512;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
-    )
+#[allow(
+    dead_code,
+    reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
 )]
 const KEK_ANCHOR_MAGIC: &[u8; 8] = b"GDBKANC1";
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
-    )
+#[allow(
+    dead_code,
+    reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
 )]
 const KEK_ANCHOR_VERSION: u16 = 1;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
-    )
+#[allow(
+    dead_code,
+    reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
 )]
 const KEK_ANCHOR_BYTES: usize = 8 + 2 + 8 + DIGEST_BYTES + DIGEST_BYTES;
 #[cfg(target_os = "macos")]
@@ -172,6 +163,10 @@ impl fmt::Debug for BackupKekRollbackAnchor {
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "the anchor wire format remains private until an independent monotonic adapter is qualified"
+)]
 impl BackupKekRollbackAnchor {
     #[cfg_attr(
         not(test),
@@ -924,12 +919,9 @@ impl BackupContainerHost {
     }
 
     /// Serializes a complete ciphertext artifact; the caller cannot select KEK material or nonce.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the unfenced export wrapper is retained for private backup protocol composition and tests"
-        )
+    #[allow(
+        dead_code,
+        reason = "production export remains unavailable until native custody is qualified"
     )]
     pub(super) fn export(
         &self,
