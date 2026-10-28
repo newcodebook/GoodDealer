@@ -139,30 +139,13 @@ describe("Desktop native policy", () => {
       string,
       { readonly webviews: readonly string[]; readonly permissions: readonly string[] }
     >;
+    const source = JSON.parse(readNativeSource("capabilities/local-app.json")) as {
+      readonly webviews: readonly string[];
+      readonly permissions: readonly string[];
+    };
+    // The generated file is a Tauri build output; it must match the reviewed source exactly.
     expect(Object.keys(generated)).toEqual(["local-app"]);
-    expect(generated["local-app"]?.webviews).toEqual(["local-app"]);
-    expect(generated["local-app"]?.permissions).toEqual([
-      "core:default",
-      "allow-cloudflare-connection-activate",
-      "allow-cloudflare-connection-status",
-      "allow-cloudflare-observation-read",
-      "allow-cloudflare-zone-observe",
-      "allow-local-backup-restore-status",
-      "allow-local-backup-export",
-      "allow-local-backup-artifact-select",
-      "allow-local-backup-restore-begin",
-      "allow-local-business-status",
-      "allow-local-asset-library-read",
-      "allow-local-domain-detail-read",
-      "allow-local-domain-asset-edit",
-      "allow-local-domain-asset-delete",
-      "allow-local-domain-asset-provider-bind",
-      "allow-local-conflict-center-read",
-      "allow-local-conflict-resolve",
-      "allow-local-sync-status",
-      "allow-desktop-authentication-status",
-      "allow-desktop-authentication-begin",
-      "allow-desktop-authentication-refresh",
-    ]);
+    expect(generated["local-app"]?.webviews).toEqual(source.webviews);
+    expect(generated["local-app"]?.permissions).toEqual(source.permissions);
   });
 });
