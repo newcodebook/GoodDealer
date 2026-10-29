@@ -18,6 +18,7 @@ import {
   Tag,
 } from "@gooddealer/ui";
 import keyholeUrl from "@gooddealer/ui/assets/icons/keyhole.svg";
+import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import { assetRowStatus, parseTargetPriceInput } from "../asset-library/asset-library-contract";
@@ -243,6 +244,7 @@ export function DomainDetail({
                   </div>
                 ) : (
                   <Table<DomainListing>
+                    {...shellTableLabels(locale)}
                     density="compact"
                     rowKey="platform"
                     columns={[
@@ -265,6 +267,7 @@ export function DomainDetail({
                 } : {})}
               >
                 <Table<DomainDnsRecord>
+                  {...shellTableLabels(locale)}
                   density="compact"
                   rowKey={(row) => `${row.type}:${row.host}:${row.value}`}
                   columns={[

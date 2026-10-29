@@ -11,3 +11,4 @@ export type {
   ShellWindowFrame,
   ShellWindowPlatform,
 } from "./shell-contract";
+export { shellTableLabels } from "./table-copy";

@@ -12,6 +12,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
+import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import { batchDetailMode, batchPhaseTone, type BatchJobSummary, type BatchPhase } from "./batch-operations-contract";
@@ -164,6 +165,7 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
       />
       <div className="batch-list-body">
         <Table<BatchJobSummary>
+          {...shellTableLabels(locale)}
           label={copy.title}
           density="regular"
           rowKey="id"

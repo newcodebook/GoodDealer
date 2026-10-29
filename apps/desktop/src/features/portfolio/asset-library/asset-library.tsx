@@ -17,6 +17,7 @@ import {
   UploadIcon,
   type TableColumn,
 } from "@gooddealer/ui";
+import { shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
 import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
@@ -274,6 +275,7 @@ export function AssetLibrary({
           </div>
         ) : (
           <Table<AssetLibraryRow>
+            {...shellTableLabels(locale)}
             label={copy.title}
             columns={columns}
             rows={data?.window.rows ?? []}

@@ -15,6 +15,7 @@ import {
   Table,
   Tabs,
 } from "@gooddealer/ui";
+import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import { batchDetailMode, type BatchExecutionProgress } from "./batch-operations-contract";
@@ -138,6 +139,7 @@ export function BatchDetail({
           ]}
         />
         <Table<BatchItem>
+          {...shellTableLabels(locale)}
           density="compact"
           rowKey="id"
           rows={visibleItems}

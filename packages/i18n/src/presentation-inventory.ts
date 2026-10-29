@@ -14,13 +14,13 @@ export interface PresentationCopyInventoryEntry {
  * from the brand are explicit docs-authoritative states or security corrections.
  */
 export const presentationCopyInventory = {
-  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 67, exactBrandCopyKeys: 27 },
+  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 70, exactBrandCopyKeys: 27 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 48, exactBrandCopyKeys: 37 },
   batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 139, exactBrandCopyKeys: 79 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
-  manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 32, exactBrandCopyKeys: 32 },
+  manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 54, exactBrandCopyKeys: 34 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 48, exactBrandCopyKeys: 33 },
-  operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 28, exactBrandCopyKeys: 28 },
+  operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 52, exactBrandCopyKeys: 40 },
   salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 60, exactBrandCopyKeys: 55 },
   activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 51, exactBrandCopyKeys: 38 },
   dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 64, exactBrandCopyKeys: 34 },
@@ -30,6 +30,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 730 as const;
-export const reconciledExactBrandCopyKeyCount = 509 as const;
+export const reconciledLocaleKeyCount = 779 as const;
+export const reconciledExactBrandCopyKeyCount = 523 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 55 as const;

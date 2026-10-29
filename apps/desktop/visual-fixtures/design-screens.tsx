@@ -4,6 +4,7 @@ import { AssetLibraryScreen, assetLibraryVariants, type AssetLibraryVariant } fr
 import { DomainDetailScreen, domainDetailVariants, type DomainDetailVariant } from "./screens/domain-detail-screen";
 import { ConflictScreen, DnsScreen, conflictVariants, dnsVariants } from "./screens/dns-conflict-screens";
 import { FoundationScreen } from "./screens/foundation-screen";
+import { HistoryScreen, TaskScreen, readOnlyVariants } from "./screens/operations-screens";
 import { RenewalScreen } from "./screens/renewal-screen";
 
 const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants" | "render">>> = {
@@ -35,6 +36,16 @@ const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants"
     layout: "app",
     variants: conflictVariants,
     render: ({ variant, platform, navigate }) => <ConflictScreen variant={variant} platform={platform} onNavigateScreen={navigate} />,
+  },
+  "history-log": {
+    layout: "app",
+    variants: readOnlyVariants,
+    render: ({ variant, platform, navigate }) => <HistoryScreen variant={variant} platform={platform} onNavigateScreen={navigate} />,
+  },
+  "task-inbox": {
+    layout: "app",
+    variants: readOnlyVariants,
+    render: ({ variant, platform, navigate }) => <TaskScreen variant={variant} platform={platform} onNavigateScreen={navigate} />,
   },
 };
 

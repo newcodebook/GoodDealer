@@ -17,6 +17,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
+import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import "./dns-verification.css";
@@ -174,6 +175,7 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       {readOnly ? <p className="dns-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
       <div className="dns-body">
         <Table<DnsVerificationRowViewModel>
+          {...shellTableLabels(locale)}
           label={copy.title}
           density="regular"
           rowKey="domainAssetId"
