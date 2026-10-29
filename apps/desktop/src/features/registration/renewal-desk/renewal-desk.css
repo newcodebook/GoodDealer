@@ -1,0 +1,31 @@
+.renewal-desk { display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
+.renewal-body { position: relative; display: flex; flex: 1; min-height: 0; }
+.renewal-body > .gd-table-shell { flex: 1; min-height: 0; border: none; border-radius: 0; }
+.renewal-readonly { margin: 0; padding: 6px var(--space-3); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
+.renewal-nowrap { white-space: nowrap; }
+.renewal-mono { font-family: var(--font-mono); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.renewal-muted { color: var(--text-2); }
+.renewal-faint { color: var(--text-3); font-size: var(--text-xs); }
+.renewal-danger { color: var(--gd-danger); }
+.renewal-warning { color: var(--gd-warning); }
+.renewal-success { color: var(--gd-success); }
+.renewal-gold { color: var(--gd-gold); }
+/* Payment amounts always show their currency symbol (ADR-0024 binds amount and currency). */
+.renewal-amount { font-size: 15px; }
+/* Full-width flex host centres the content-sized BatchBar (brand LAYOUT ROBUSTNESS rule). */
+.renewal-batch { position: absolute; z-index: 5; right: 0; bottom: 14px; left: 0; display: flex; justify-content: center; pointer-events: none; }
+.renewal-batch > * { pointer-events: auto; }
+.renewal-batch-term { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--text-xs); white-space: nowrap; }
+.renewal-dialog { display: flex; flex-direction: column; gap: var(--space-3); }
+.renewal-ledger { display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); font-size: var(--text-sm); }
+.renewal-ledger > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.renewal-ledger > div > span:first-child { color: var(--text-2); }
+.renewal-ledger-total { padding-top: 7px; border-top: 1px solid var(--gd-line); }
+.renewal-ledger-total > span:first-child { color: var(--text-1) !important; }
+.renewal-caution { display: flex; align-items: center; gap: var(--space-2); padding: 9px 12px; border: 1px solid var(--gd-warning); border-radius: var(--radius-md); background: var(--gd-warning-tint); font-size: var(--text-xs); }
+.renewal-caution svg { flex: none; color: var(--gd-warning); }
+.renewal-quote-steps { display: flex; gap: 4px; }
+.renewal-step { flex: 1; height: 3px; border-radius: 2px; background: var(--gd-line-strong); }
+.renewal-step--confirmed { background: var(--gd-gold); }
+.renewal-step--skipped { background: var(--text-3); }
+.renewal-step--current { background: var(--gd-blue); }

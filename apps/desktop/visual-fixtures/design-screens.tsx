@@ -3,6 +3,7 @@ import { BatchScreen, batchVariants, type BatchVariant } from "./screens/batch-s
 import { AssetLibraryScreen, assetLibraryVariants, type AssetLibraryVariant } from "./screens/asset-library-screen";
 import { DomainDetailScreen, domainDetailVariants, type DomainDetailVariant } from "./screens/domain-detail-screen";
 import { FoundationScreen } from "./screens/foundation-screen";
+import { RenewalScreen } from "./screens/renewal-screen";
 
 const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants" | "render">>> = {
   "asset-library": {
@@ -19,6 +20,10 @@ const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants"
     layout: "app",
     variants: batchVariants,
     render: ({ variant, platform, navigate }) => <BatchScreen variant={variant as BatchVariant} platform={platform} onNavigateScreen={navigate} />,
+  },
+  "renew-desk": {
+    layout: "app",
+    render: ({ platform, navigate }) => <RenewalScreen platform={platform} onNavigateScreen={navigate} />,
   },
 };
 

@@ -2,8 +2,9 @@ import { defaultLocale, getPresentationCopy } from "@gooddealer/i18n";
 import { Banner } from "@gooddealer/ui";
 import { useEffect, useMemo, useState } from "react";
 
-import { AssetLibrary, type AssetSortKey, type AssetStatusFilter } from "../../src/features/portfolio/asset-library";
+import { AssetLibrary, type AssetBatchAction, type AssetSortKey, type AssetStatusFilter } from "../../src/features/portfolio/asset-library";
 import type { AssetLibraryPresentation } from "../../src/features/portfolio/asset-library";
+import { MockBatchEdits } from "../mock/mock-batch-edits";
 import { MockShell, mockShellStatus } from "../mock/mock-shell";
 import type { DesignWindowPlatform } from "../screen-registry";
 import {
@@ -40,6 +41,7 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [unsynced, setUnsynced] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [batchAction, setBatchAction] = useState<AssetBatchAction | null>(null);
 
   // Local commits replicate asynchronously: the unsynced count rises, then drains on its own.
   useEffect(() => {
@@ -62,6 +64,14 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
   }, [variant, records, query, registrar, status, sort, pageWindow, standby]);
   const listingSummaries = useMemo(() => new Map(records.map(({ row, listing }) => [row.id, listing])), [records]);
   const resetPageWindow = () => setPageWindow((current) => ({ ...current, startIndex: 0 }));
+  const batchTargets = records.filter(({ row }) => selected.includes(row.id)).map(({ row }) => ({ id: row.id, domain: row.domain, targetPrice: row.targetPrice }));
+  // Local batch edits mark the touched rows pending and raise the unsynced count, as a Host commit would.
+  const commitSelected = (update: (record: MockAssetRecord) => MockAssetRecord) => {
+    setRecords((current) => current.map((record) => selected.includes(record.row.id) ? update({ ...record, row: { ...record.row, syncStatus: "pending" } }) : record));
+    setUnsynced((count) => count + selected.length);
+    setSelected([]);
+    setBatchAction(null);
+  };
 
   return (
     <MockShell
@@ -90,8 +100,8 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
         onOpenAsset={() => onNavigateScreen("domain-detail")}
         onRenew={() => onNavigateScreen("renew-desk")}
         onImportCsv={() => undefined}
-        onCreatePlan={() => onNavigateScreen("batch-preview")}
-        onBatchAction={() => onNavigateScreen("batch-preview")}
+        onCreatePlan={() => setBatchAction("price")}
+        onBatchAction={(action) => setBatchAction(action)}
         onTargetPriceCommit={(row, amount) => {
           setRecords((current) => current.map((record) => record.row.id === row.id
             ? { ...record, row: { ...record.row, targetPrice: { currency: row.targetPrice?.currency ?? "USD", amount }, syncStatus: "pending" } }
@@ -99,6 +109,20 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
           setUnsynced((count) => count + 1);
         }}
         referenceDate={mockReferenceDate}
+      />
+      <MockBatchEdits
+        locale={locale}
+        action={batchAction}
+        targets={batchTargets}
+        onClose={() => setBatchAction(null)}
+        onPlan={() => { setBatchAction(null); onNavigateScreen("batch-preview"); }}
+        onRecords={() => commitSelected((record) => record)}
+        onList={(change) => commitSelected((record) => ({
+          ...record,
+          listing: { ...record.listing, platforms: change.platforms },
+          row: change.price === null ? record.row : { ...record.row, targetPrice: { currency: "USD", amount: change.price } },
+        }))}
+        onDelist={() => commitSelected((record) => ({ ...record, listing: { ...record.listing, platforms: [] } }))}
       />
     </MockShell>
   );

@@ -3,6 +3,8 @@ import { Banner } from "@gooddealer/ui";
 import { useEffect, useMemo, useState } from "react";
 
 import { DomainDetail, type DomainDetailPresentation } from "../../src/features/portfolio/domain-detail";
+import type { AssetBatchAction } from "../../src/features/portfolio";
+import { MockBatchEdits } from "../mock/mock-batch-edits";
 import { MockShell, mockShellStatus } from "../mock/mock-shell";
 import {
   initialMockAssets,
@@ -48,6 +50,7 @@ export function DomainDetailScreen({ variant, platform, onNavigateScreen }: {
   });
   const [unsynced, setUnsynced] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [batchAction, setBatchAction] = useState<AssetBatchAction | null>(null);
   useEffect(() => {
     if (unsynced <= 0) return undefined;
     setSyncing(true);
@@ -84,13 +87,23 @@ export function DomainDetailScreen({ variant, platform, onNavigateScreen }: {
         })}
         onAutoRenewChange={() => setUnsynced((count) => count + 1)}
         onTransferLockChange={() => setUnsynced((count) => count + 1)}
-        onList={() => onNavigateScreen("batch-preview")}
+        onList={() => setBatchAction("list")}
         onDelist={() => commit({ ...record, listing: { ...record.listing, platforms: [] } })}
-        onChangeNameserver={() => onNavigateScreen("batch-preview")}
-        onEditRecords={() => onNavigateScreen("dns-verify")}
+        onChangeNameserver={() => setBatchAction("nameserver")}
+        onEditRecords={() => setBatchAction("records")}
         onOpenRegistrar={() => undefined}
         onOpenConflicts={() => onNavigateScreen("conflict-center")}
         referenceDate={mockReferenceDate}
+      />
+      <MockBatchEdits
+        locale={locale}
+        action={batchAction}
+        targets={[{ id: record.row.id, domain: record.row.domain, targetPrice: record.row.targetPrice }]}
+        onClose={() => setBatchAction(null)}
+        onPlan={() => { setBatchAction(null); onNavigateScreen("batch-preview"); }}
+        onRecords={() => { setBatchAction(null); setUnsynced((count) => count + 1); }}
+        onList={(change) => { setBatchAction(null); commit({ ...record, listing: { ...record.listing, platforms: change.platforms } }); }}
+        onDelist={() => { setBatchAction(null); commit({ ...record, listing: { ...record.listing, platforms: [] } }); }}
       />
     </MockShell>
   );
