@@ -12,3 +12,5 @@ export type {
   ShellWindowPlatform,
 } from "./shell-contract";
 export { shellTableLabels } from "./table-copy";
+export { NativeWindow } from "./native-window";
+export type { NativeWindowProps } from "./native-window";

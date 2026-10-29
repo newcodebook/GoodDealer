@@ -1,0 +1,44 @@
+.settings { display: flex; flex: 1; min-height: 0; height: 100%; }
+.settings-nav { display: flex; flex: none; flex-direction: column; width: 176px; padding: var(--space-2); gap: 2px; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+.settings-nav-item { height: 31px; padding: 0 10px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); cursor: pointer; font: inherit; font-size: var(--text-sm); text-align: left; transition: background var(--dur-fast), color var(--dur-fast); }
+.settings-nav-item:hover { color: var(--text-1); }
+.settings-nav-item--active { background: var(--gd-panel-raised); color: var(--text-1); }
+.settings-nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.settings-content { overflow: auto; flex: 1; min-width: 0; padding: var(--space-4); }
+.settings-column { display: flex; flex-direction: column; max-width: 760px; gap: 14px; }
+.settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.settings-row--end { justify-content: flex-end; margin-top: var(--space-3); }
+.settings-notes { display: flex; flex-direction: column; gap: 9px; }
+.settings-notes--inset { padding-top: var(--space-3); line-height: 1.6; }
+.settings-mono { font-family: var(--font-mono); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
+.settings-gold { flex: none; color: var(--gd-gold); }
+.settings-muted { flex: none; color: var(--text-2); }
+.settings-faint { color: var(--text-3); font-size: var(--text-xs); }
+.settings-success { color: var(--gd-success); }
+.settings-warning { color: var(--gd-warning); }
+.settings-sr { position: absolute; overflow: hidden; width: 1px; height: 1px; clip-path: inset(50%); white-space: nowrap; }
+@keyframes settings-spin { to { transform: rotate(360deg); } }
+.settings-spin { animation: settings-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .settings-spin { animation: none; } }
+.settings-conn, .settings-device { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--gd-line); }
+.settings-conn:last-child, .settings-device:last-child { border-bottom: none; }
+.settings-conn-name { overflow: hidden; flex: none; width: 112px; color: var(--text-1); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.settings-conn-badge { flex: none; width: 104px; }
+.settings-conn-meta, .settings-device-meta { overflow: hidden; flex: 1; min-width: 0; color: var(--text-2); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.settings-conn-time { flex: none; width: 80px; color: var(--text-3); font-family: var(--font-mono); font-size: var(--text-2xs); text-align: right; white-space: nowrap; }
+.settings-conn-action { display: flex; flex: none; justify-content: flex-end; width: 108px; }
+.settings-device { gap: 13px; padding: 13px 14px; }
+/* The lease holder's row carries a faint gold wash; gold stays reserved for the Active state. */
+.settings-device--active { background: linear-gradient(90deg, color-mix(in srgb, var(--gd-gold) 4%, transparent), transparent 40%); }
+.settings-device-id { display: flex; flex: none; flex-direction: column; width: 170px; min-width: 0; gap: 3px; }
+.settings-device-name { display: flex; align-items: center; gap: 7px; color: var(--text-1); font-size: var(--text-sm); white-space: nowrap; }
+.settings-self { flex: none; padding: 0 5px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-xs); color: var(--text-3); font-size: var(--text-2xs); line-height: 15px; }
+.settings-legend { display: flex; gap: 12px; padding: 11px 14px; border: 1px solid var(--gd-line); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-xs); line-height: 1.6; }
+.settings-legend img { flex: none; margin-top: 1px; }
+.settings-license { display: flex; align-items: flex-start; gap: 14px; }
+.settings-license img { flex: none; margin-top: 4px; opacity: .9; }
+.settings-license-body { flex: 1; min-width: 0; }
+.settings-dialog { display: flex; flex-direction: column; gap: var(--space-3); }
+.settings-steps { display: flex; flex-direction: column; gap: var(--space-2); padding: 11px 13px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-xs); line-height: 1.5; }
+.settings-steps b { color: var(--text-1); font-weight: var(--weight-medium); }
+.settings-ack { padding-top: 10px; border-top: 1px solid var(--gd-line); }

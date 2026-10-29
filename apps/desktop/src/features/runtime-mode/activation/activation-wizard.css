@@ -1,0 +1,56 @@
+.activation { display: flex; overflow: hidden; width: 860px; max-width: 100%; height: 560px; max-height: 100%; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-lg); background: var(--surface-app); box-shadow: var(--shadow-overlay); }
+.activation-steps { display: flex; flex: none; flex-direction: column; width: 180px; padding: 20px 16px; gap: 3px; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+.activation-brand { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 18px; padding: 0 4px; color: var(--text-1); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.activation-steps ol { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.activation-step { display: flex; align-items: center; gap: 10px; padding: var(--space-2) 4px; color: var(--text-1); font-size: var(--text-sm); }
+.activation-step--upcoming { color: var(--text-3); }
+.activation-step-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--gd-line-strong); border-radius: 50%; color: var(--text-3); font-family: var(--font-mono); font-size: var(--text-2xs); }
+.activation-step--current .activation-step-dot { border-color: var(--gd-gold); color: var(--gd-gold); }
+.activation-step--done .activation-step-dot { border-color: var(--gd-gold); background: var(--gd-gold); color: var(--gd-ink); }
+.activation-steps-note { margin: auto 0 0; padding: 0 4px; color: var(--text-3); font-size: 10px; line-height: 1.6; }
+.activation-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 22px 26px; gap: 14px; overflow-y: auto; }
+.activation-head h2 { margin: 0; color: var(--text-1); font-size: 17px; font-weight: var(--weight-semibold); }
+.activation-head p { margin: var(--space-1) 0 0; }
+.activation-welcome { display: flex; flex-direction: column; align-items: center; margin: auto 0; gap: var(--space-4); text-align: center; }
+.activation-welcome p { margin: 6px 0 0; }
+.activation-hero-title { margin: 0; color: var(--text-1); font-size: 22px; font-weight: var(--weight-semibold); letter-spacing: -.02em; }
+.activation-values { display: flex; gap: 10px; margin-top: var(--space-2); }
+.activation-value { display: flex; flex-direction: column; width: 150px; padding: 12px 13px; gap: 5px; border: 1px solid var(--gd-line); border-radius: 8px; background: var(--gd-panel); text-align: left; }
+.activation-value strong { color: var(--text-1); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.activation-value span { color: var(--text-3); font-size: var(--text-2xs); line-height: 1.5; }
+.activation-card { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid var(--gd-line); border-radius: 9px; background: var(--gd-panel); }
+.activation-device { flex-direction: row; align-items: flex-start; }
+.activation-device img { flex: none; }
+.activation-device-body { display: flex; flex: 1; flex-direction: column; gap: var(--space-3); }
+.activation-device-body .gd-field { max-width: 280px; }
+.activation-dim { opacity: .8; }
+.activation-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.activation-busy { display: inline-flex; align-items: center; gap: 6px; color: var(--gd-blue); font-size: var(--text-xs); }
+.activation-group { display: flex; flex-direction: column; gap: 7px; }
+.activation-providers { display: grid; gap: var(--space-2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.activation-provider { display: flex; align-items: center; width: 100%; gap: 11px; padding: 11px 13px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: inherit; cursor: pointer; font: inherit; text-align: left; transition: border-color var(--dur-fast), background var(--dur-fast); }
+.activation-provider:disabled { cursor: default; }
+.activation-provider:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.activation-provider--connected { border-color: var(--gd-success); background: var(--gd-success-tint); }
+.activation-provider--failed { border-color: var(--gd-danger); }
+.activation-provider-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.activation-provider-text strong { color: var(--text-1); font-size: var(--text-sm); font-weight: var(--weight-regular); }
+.activation-provider-text span { overflow: hidden; color: var(--text-3); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.activation-link { color: var(--gd-blue); font-size: var(--text-xs); }
+.activation-summary { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.activation-summary > div { display: flex; flex-direction: column; gap: 5px; padding: 14px; border: 1px solid var(--gd-line); border-radius: 8px; background: var(--gd-panel); }
+.activation-done { display: flex; flex-direction: column; align-items: center; margin: auto 0; gap: 14px; text-align: center; }
+.activation-done h2 { margin: 0; color: var(--text-1); font-size: 19px; font-weight: var(--weight-semibold); }
+.activation-done p { max-width: 460px; margin: 6px 0 0; }
+.activation-done-icon { display: inline-flex; align-items: center; justify-content: center; width: 60px; height: 60px; border: 1px solid var(--gd-success); border-radius: 50%; background: var(--gd-success-tint); color: var(--gd-success); }
+.activation-done-icon--pending { border-color: var(--gd-warning); background: var(--gd-warning-tint); color: var(--gd-warning); }
+.activation-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 16px; }
+.activation-spacer { flex: 1; }
+.activation-mono { font-family: var(--font-mono); font-size: var(--text-2xs); }
+.activation-faint { color: var(--text-3); font-size: var(--text-xs); }
+.activation-muted { color: var(--text-2); }
+.activation-gold { color: var(--gd-gold); }
+.activation-danger { color: var(--gd-danger); font-size: var(--text-xs); }
+@keyframes activation-spin { to { transform: rotate(360deg); } }
+.activation-spin { animation: activation-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .activation-spin { animation: none; } }

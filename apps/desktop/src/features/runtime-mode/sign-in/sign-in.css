@@ -1,0 +1,45 @@
+.signin-window { display: flex; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.signin-window > .gd-window { flex: 1; }
+.signin { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.signin-brand { position: relative; display: flex; overflow: hidden; flex: none; flex-direction: column; width: 380px; padding: 40px 40px 36px; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+/* The one brand-expressive moment of the gate: a faint gold halo behind the full-gradient mark. */
+.signin-brand-glow { position: absolute; top: 44%; left: 50%; width: 440px; height: 440px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--gd-gold) 13%, transparent), transparent 68%); pointer-events: none; transform: translate(-50%, -50%); }
+.signin-brand-mark { position: relative; display: flex; flex-direction: column; align-items: center; margin: auto 0; gap: 26px; text-align: center; }
+.signin-tagline { color: var(--text-2); font-size: 15px; letter-spacing: .05em; }
+.signin-brand-foot { position: relative; display: flex; flex-direction: column; gap: 14px; }
+.signin-rule { height: 1px; background: var(--gd-line); }
+.signin-trust { display: flex; align-items: flex-start; gap: 10px; color: var(--text-3); font-size: var(--text-xs); line-height: 1.55; }
+.signin-trust svg { flex: none; margin-top: 2px; color: var(--gd-gold); }
+.signin-quota { display: flex; align-items: center; gap: var(--space-2); color: var(--text-3); font-size: var(--text-2xs); }
+.signin-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; background: var(--gd-ink); }
+.signin-locale { display: flex; justify-content: flex-end; padding: var(--space-3) var(--space-4) 2px; }
+.signin-form { display: flex; overflow-y: auto; flex: 1; flex-direction: column; width: 100%; max-width: 440px; min-height: 0; margin: 0 auto; padding: 2px 40px 22px; gap: var(--space-3); }
+.signin-form header { margin-bottom: var(--space-1); }
+.signin-form header p { margin: 5px 0 0; }
+.signin-title { margin: 0; color: var(--text-1); font-size: var(--text-xl); font-weight: var(--weight-semibold); letter-spacing: -.02em; }
+.signin-mono { color: var(--text-1); font-family: var(--font-mono); }
+.signin-faint { color: var(--text-3); font-size: var(--text-xs); }
+.signin-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--text-xs); }
+.signin-terms { display: flex; align-items: flex-start; gap: 9px; color: var(--text-2); font-size: var(--text-xs); line-height: 1.5; }
+.signin-link { padding: 0; border: none; background: none; color: var(--text-link); cursor: pointer; font: inherit; }
+.signin-link:hover { text-decoration: underline; }
+.signin-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.signin-left { align-self: flex-start; font-size: var(--text-xs); }
+.signin-reveal { padding: 0; border: none; background: none; color: var(--text-3); cursor: pointer; font: inherit; font-size: var(--text-2xs); }
+.signin-error { margin: 0; color: var(--gd-danger); font-size: var(--text-xs); }
+.signin-divider { display: flex; align-items: center; gap: var(--space-3); color: var(--text-3); font-size: var(--text-2xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.signin-divider span { flex: 1; height: 1px; background: var(--gd-line); }
+.signin-alternatives { display: flex; flex-direction: column; gap: var(--space-2); }
+.signin-provider { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-sm); background: var(--gd-ink); color: var(--text-2); font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-semibold); }
+.signin-switch { margin: auto 0 0; padding-top: var(--space-2); color: var(--text-2); font-size: var(--text-sm); text-align: center; }
+.signin-code { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; border: none; }
+.signin-code-cells { display: flex; gap: var(--space-2); }
+.signin-code-cell { width: 42px; height: 50px; border: 1px solid var(--gd-line); border-radius: var(--radius-md); background: var(--gd-ink); color: var(--text-1); caret-color: var(--gd-blue); font-family: var(--font-mono); font-size: var(--text-xl); text-align: center; }
+.signin-code-cell:focus { border-color: var(--gd-blue); outline: none; }
+.signin-code-cell--error { border-color: var(--gd-danger); }
+.signin-sent { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: var(--space-3) 0; text-align: center; }
+.signin-sent strong { color: var(--text-1); font-size: var(--text-lg); }
+.signin-sent-icon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border: 1px solid var(--gd-success); border-radius: 50%; background: var(--gd-success-tint); color: var(--gd-success); }
+@keyframes signin-spin { to { transform: rotate(360deg); } }
+.signin-spin { animation: signin-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .signin-spin { animation: none; } }

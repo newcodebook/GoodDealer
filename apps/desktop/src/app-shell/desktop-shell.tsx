@@ -9,14 +9,13 @@ import {
   StatusBar,
   StatusDot,
   Toolbar,
-  WindowChrome,
   type CommandMenuItem,
   type NavigationRailSection,
 } from "@gooddealer/ui";
 import keyholeUrl from "@gooddealer/ui/assets/icons/keyhole.svg";
-import markUrl from "@gooddealer/ui/assets/logo/mark-16.svg";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
+import { NativeWindow } from "./native-window";
 import type { DesktopShellStatus, ShellCommand, ShellDevice, ShellNavigationSection, ShellWindowFrame } from "./shell-contract";
 import "./desktop-shell.css";
 
@@ -112,25 +111,10 @@ export function DesktopShell({
 
   return (
     <div ref={rootRef} className="gd-desktop-shell">
-      <WindowChrome
-        appName="GoodDealer"
-        mark={<img src={markUrl} width="16" height="16" alt="" />}
+      <NativeWindow
+        locale={locale}
+        windowFrame={windowFrame}
         context={`${copy.personalWorkspace} · ${title}`}
-        framed={windowFrame.framed}
-        controls={windowFrame.platform === "macos" ? "none" : "trailing"}
-        controlLabels={{ minimize: copy.minimizeWindow, maximize: copy.maximizeWindow, close: copy.closeWindow }}
-        onMinimize={windowFrame.onMinimize}
-        onToggleMaximize={windowFrame.onToggleMaximize}
-        onClose={windowFrame.onClose}
-        // Tauri starts a native window drag from elements carrying this marker.
-        titlebarAttributes={{ "data-tauri-drag-region": "" }}
-        {...(windowFrame.platform === "macos" ? {
-          leading: (
-            <span className="gd-desktop-shell-traffic" aria-hidden="true">
-              {windowFrame.framed ? <><i /><i /><i /></> : null}
-            </span>
-          ),
-        } : {})}
         footer={<ShellStatusBar locale={locale} status={status} width={width} />}
       >
         <AppShell
@@ -191,7 +175,7 @@ export function DesktopShell({
         >
           {children}
         </AppShell>
-      </WindowChrome>
+      </NativeWindow>
     </div>
   );
 }
