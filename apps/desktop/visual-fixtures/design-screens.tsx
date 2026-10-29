@@ -2,6 +2,7 @@ import { plannedScreens, type DesignScreen } from "./screen-registry";
 import { BatchScreen, batchVariants, type BatchVariant } from "./screens/batch-screen";
 import { AssetLibraryScreen, assetLibraryVariants, type AssetLibraryVariant } from "./screens/asset-library-screen";
 import { DomainDetailScreen, domainDetailVariants, type DomainDetailVariant } from "./screens/domain-detail-screen";
+import { ConflictScreen, DnsScreen, conflictVariants, dnsVariants } from "./screens/dns-conflict-screens";
 import { FoundationScreen } from "./screens/foundation-screen";
 import { RenewalScreen } from "./screens/renewal-screen";
 
@@ -24,6 +25,16 @@ const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants"
   "renew-desk": {
     layout: "app",
     render: ({ platform, navigate }) => <RenewalScreen platform={platform} onNavigateScreen={navigate} />,
+  },
+  "dns-verify": {
+    layout: "app",
+    variants: dnsVariants,
+    render: ({ variant, platform, navigate }) => <DnsScreen variant={variant} platform={platform} onNavigateScreen={navigate} />,
+  },
+  "conflict-center": {
+    layout: "app",
+    variants: conflictVariants,
+    render: ({ variant, platform, navigate }) => <ConflictScreen variant={variant} platform={platform} onNavigateScreen={navigate} />,
   },
 };
 
