@@ -29,12 +29,12 @@ Desktop / developer
 | 公网 origin | `https://api.gooddealer.com`；Cloudflare 橙云开启。 |
 | VPS | `207.180.208.139`；同机还运行其他业务，禁止覆盖全局 Nginx、Docker 或防火墙配置。 |
 | Cloud 服务 | `gooddealer-cloud-development.service`；专用 `gooddealer` 用户；只监听 `127.0.0.1:3100`。 |
-| Account Web | `https://account.gooddealer.com`；静态文件位于 `/var/www/account.gooddealer.com`，同源 `/v1/*` 与 `/billing/approval/*` 代理到 Cloud。当前 release 以 staging 组合部署注册、Resend 验证邮件、密码登录、session discovery、恢复和服务端退出；真实无数据库权限测试用户已走通完整旅程。 |
+| Account Web | `https://account.gooddealer.com`；静态文件位于 `/var/www/account.gooddealer.com`，同源 `/v1/*` 与 `/billing/approval/*` 代理到 Cloud，其余路径（含 `/billing/success`、`/billing/cancel`）回退到 `index.html`。自 release `20261031T150554Z-account-web-react` 起为 React + Vite 构建（`GOODDEALER_ACCOUNT_WEB_ENVIRONMENT=staging`），只组合 access 与 License；上一份静态构件保留为同目录 `.previous-<UTC>` 以便回滚。注册、Resend 验证邮件、密码登录、session discovery、恢复和服务端退出此前已由真实无数据库权限测试用户走通；新界面的真实账户旅程待复验。 |
 | Provider worker | `gooddealer-provider-worker-development.service`；专用 Unix/数据库身份；每 5 秒有界 drain provider operation、receipt、reconciliation、due-authority 与 release 作业。 |
 | 开发邮件 | `gooddealer-mailpit-development.service`；无持久数据库，SMTP/API 分别只监听 `127.0.0.1:1025` 与 `127.0.0.1:8025`，不经 Nginx 或 Cloudflare 暴露。 |
 | Migration 服务 | `gooddealer-cloud-development-migrate.service`；专用 `gooddealer-migrator` 用户；按发布运行的 oneshot，常态为 `inactive`。 |
 | Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 指向当前版本。 |
-| Node/pnpm | Node `26.12.1`、pnpm `12.16.1`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。 |
+| Node/pnpm | Node `26.12.1`、pnpm `12.16.1`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。systemd unit 固定调用 `/opt/gooddealer-development/runtime/node/bin/node`，该路径是指向 `runtime/node-26.12.1`（官方 tarball，按 `SHASUMS256.txt` 校验）的链接；Node 26 不再附带 corepack，pnpm 以 npm 安装在同一 runtime 内。上一版 `runtime/node-24.18.1` 保留，代码回滚到旧 release 时须同时把链接指回它。 |
 | PostgreSQL | `gooddealer-postgres-development` 容器；PostgreSQL `18.4`；只映射 `127.0.0.1:55433`。该版本低于仓库锁定的 18.6 资格版本，只是开发运行事实。 |
 | 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。当前 ledger 为 25 条有序 migration，包含 account recovery、commercial entitlement snapshot 和 default-workspace capability policy；五池与对应 grant 已核验。 |
 | PostgreSQL 持久卷 | `gooddealer-postgres-development-data`；禁止因测试、发布或排障重建。 |
