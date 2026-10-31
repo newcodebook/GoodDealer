@@ -97,9 +97,12 @@ export class PostgresDeviceLoginProof implements DeviceLoginProofPort {
     const nonceDigest = createHash("sha256").update(randomBytes(32)).digest();
     const ordinaryExpiry = input.evaluatedAt.getTime()
       + DESKTOP_DEVICE_LOGIN_CHALLENGE_TTL_SECONDS * 1_000;
-    const expiresAt = new Date(purpose === "enroll"
+    // The expiry crosses to Desktop as a canonical whole-second timestamp and is part of the signed
+    // proof transcript, which is rebuilt from the stored row. Flooring before storage keeps the
+    // callback, the row, and the transcript identical, and never extends the TTL or enrollment window.
+    const expiresAt = new Date(Math.floor((purpose === "enroll"
       ? Math.min(ordinaryExpiry, input.enrollmentAuthorizedUntil?.getTime() ?? Number.NEGATIVE_INFINITY)
-      : ordinaryExpiry);
+      : ordinaryExpiry) / 1_000) * 1_000);
     await transaction.query(
       `INSERT INTO device_login_challenges
          (account_id, challenge_id, device_id, purpose, key_id, proposed_public_key,
