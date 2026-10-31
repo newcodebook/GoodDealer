@@ -1,6 +1,7 @@
 import { getAccountCopy, type Locale } from "@gooddealer/i18n";
 import {
   AppShell,
+  Badge,
   DatabaseIcon,
   DownloadIcon,
   IconButton,
@@ -32,6 +33,8 @@ export interface AccountShellProps {
   readonly signingOut?: boolean;
   readonly onRefresh?: () => void;
   readonly refreshing?: boolean;
+  /** Non-production deployments name themselves so test payments are never mistaken for real ones. */
+  readonly environmentLabel?: string;
   readonly banner?: ReactNode;
   readonly status?: ReactNode;
   readonly children: ReactNode;
@@ -59,7 +62,7 @@ function useCompactRail(): boolean {
 
 /** Web-native account shell: brand sidebar, top bar, content, and an optional status bar. */
 export function AccountShell(props: AccountShellProps) {
-  const { locale, title, crumb, availableRouteIds, activeRouteId, onNavigate, onSignOut, signingOut, onRefresh, refreshing, banner, status, children } = props;
+  const { locale, title, crumb, availableRouteIds, activeRouteId, onNavigate, onSignOut, signingOut, onRefresh, refreshing, environmentLabel, banner, status, children } = props;
   const copy = getAccountCopy(locale, "accountShell");
   // A narrow rail collapses to icons with tooltips and aria labels instead of clipping the labels.
   const compact = useCompactRail();
@@ -115,11 +118,14 @@ export function AccountShell(props: AccountShellProps) {
           <header className="account-topbar">
             <h1 className="account-title">{title}</h1>
             {crumb === undefined ? null : <span className="account-crumb">{crumb}</span>}
-            {onRefresh === undefined ? null : (
+            {onRefresh === undefined && environmentLabel === undefined ? null : (
               <div className="account-topbar-actions">
-                <IconButton size="sm" label={copy.refresh} disabled={refreshing === true} onClick={onRefresh}>
-                  <RefreshCwIcon size={14} className={refreshing === true ? "account-spin" : undefined} />
-                </IconButton>
+                {environmentLabel === undefined ? null : <Badge tone="warning" mono={false}>{environmentLabel}</Badge>}
+                {onRefresh === undefined ? null : (
+                  <IconButton size="sm" label={copy.refresh} disabled={refreshing === true} onClick={onRefresh}>
+                    <RefreshCwIcon size={14} className={refreshing === true ? "account-spin" : undefined} />
+                  </IconButton>
+                )}
               </div>
             )}
           </header>

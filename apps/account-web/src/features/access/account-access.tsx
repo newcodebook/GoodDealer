@@ -1,5 +1,5 @@
 import { defaultLocale, getAccountCopy, supportedLocales, type AccountCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Button, CheckIcon, ExternalLinkIcon, Input, MailIcon, RefreshCwIcon, SegmentedControl, ShieldIcon, StatusDot } from "@gooddealer/ui";
+import { AlertTriangleIcon, Badge, Button, CheckIcon, ExternalLinkIcon, Input, MailIcon, RefreshCwIcon, SegmentedControl, ShieldIcon, StatusDot } from "@gooddealer/ui";
 import markUrl from "@gooddealer/ui/assets/logo/mark.svg";
 import { useState, type FormEvent } from "react";
 
@@ -17,6 +17,7 @@ export type AccountAccessNoticeKey = keyof Pick<
   | "rateLimited"
   | "serviceUnavailable"
   | "sessionInvalid"
+  | "sessionExpired"
   | "verificationSent"
   | "verificationResent"
   | "verified"
@@ -48,6 +49,8 @@ export interface AccountAccessProps {
   readonly onRequestReset: (email: string) => void;
   readonly onCompleteReset: (email: string, code: string, newPassword: string) => void;
   readonly onLocaleChange?: (locale: Locale) => void;
+  /** Non-production deployments name themselves so test payments are never mistaken for real ones. */
+  readonly environmentLabel?: string;
 }
 
 /**
@@ -56,7 +59,7 @@ export interface AccountAccessProps {
  * to Identity, so a password or code never outlives its request or reaches browser storage.
  */
 export function AccountAccess(props: AccountAccessProps) {
-  const { locale, step, notice, busy, desktopHandoff, onStepChange, onLocaleChange } = props;
+  const { locale, step, notice, busy, desktopHandoff, onStepChange, onLocaleChange, environmentLabel } = props;
   const copy = getAccountCopy(locale, "accountAccess");
   const [fields, setFields] = useState<AccessFields>({ email: "", password: "", code: "", newPassword: "" });
   const { email, password, code, newPassword } = fields;
@@ -109,7 +112,10 @@ export function AccountAccess(props: AccountAccessProps) {
       </aside>
       <main className="access-panel">
         <div className="access-topline">
-          <span className="access-context gd-t-meta">{copy.context}</span>
+          <span className="access-context-group">
+            <span className="access-context gd-t-meta">{copy.context}</span>
+            {environmentLabel === undefined ? null : <Badge tone="warning" mono={false}>{environmentLabel}</Badge>}
+          </span>
           {onLocaleChange === undefined ? null : (
             <SegmentedControl
               label={copy.languageLabel}

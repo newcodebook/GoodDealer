@@ -20,6 +20,8 @@ export const enUSAccount = {
     navigationLabel: "Account navigation",
     signOutUnconfirmed: "Could not confirm the server sign-out yet. Try again.",
     close: "Close",
+    environmentDevelopment: "Development · Stripe test mode",
+    environmentStaging: "Staging · test transactions",
   },
   accountAccess: {
     context: "GoodDealer account",
@@ -46,6 +48,7 @@ export const enUSAccount = {
     rateLimited: "Too many requests. Try again later.",
     serviceUnavailable: "The account service is temporarily unavailable. Try again later.",
     sessionInvalid: "The account session response was invalid. Sign in again.",
+    sessionExpired: "Your account session has expired. Sign in again.",
     verifyTitle: "Verify your email",
     verificationSent: "If this email can register, a verification email will arrive shortly. Enter the 6-digit code.",
     verificationCode: "Email verification code",
@@ -168,7 +171,7 @@ export const enUSAccount = {
     noticeCheckoutCancelled: "Payment cancelled. No new commercial access was created.",
     noticeCheckoutUnconfirmed: "The checkout outcome is not confirmed yet. Keep this page open; refreshing resumes with the same request identity.",
     noticeCancelUnconfirmed: "The cancellation outcome is not confirmed yet; refreshing continues confirming it.",
-    noticeSessionExpired: "Your account session has expired. Sign in again.",
+    noticeCheckoutRejected: "The checkout request was not accepted. Check the promo code and choose a term again.",
     noticeStatusUnavailable: "Billing status is temporarily unavailable. Try again later.",
   },
   accountDevices: {

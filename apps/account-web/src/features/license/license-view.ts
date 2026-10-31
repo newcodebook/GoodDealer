@@ -130,13 +130,11 @@ export interface RefundProgressView {
   /** `retry_wait` carries the earliest retry time; the message interpolates it. */
   readonly retryAfter: string | null;
   readonly canRetry: boolean;
+  /** Cloud is still working the refund; the page re-reads it on the bounded poll schedule. */
+  readonly shouldPoll: boolean;
 }
 
 /**
- * Temporary duplicate of `src/billing-refund-presentation.ts` `refundProgressPresentation`, which
- * still serves the vanilla production page with fixed Chinese text. Remove that function when the
- * production entry is ported to these React screens.
- *
  * Every accepted refund state keeps commercial access read-only; only `refunded` means the money
  * moved, and only an elapsed `retry_wait` re-enables the same request.
  */
@@ -145,17 +143,18 @@ export function refundProgressView(
   evaluatedAtMs: number,
 ): RefundProgressView {
   switch (response.state) {
-    case "refunded": return { messageKey: "refundDone", retryAfter: null, canRetry: false };
-    case "manual_resolution": return { messageKey: "refundManual", retryAfter: null, canRetry: false };
+    case "refunded": return { messageKey: "refundDone", retryAfter: null, canRetry: false, shouldPoll: false };
+    case "manual_resolution": return { messageKey: "refundManual", retryAfter: null, canRetry: false, shouldPoll: false };
     case "retry_wait": return {
       messageKey: "refundRetryWait",
       retryAfter: response.retryAfter,
       canRetry: Date.parse(response.retryAfter) <= evaluatedAtMs,
+      shouldPoll: true,
     };
     case "termination_pending":
-    case "termination_unknown": return { messageKey: "refundTerminating", retryAfter: null, canRetry: false };
+    case "termination_unknown": return { messageKey: "refundTerminating", retryAfter: null, canRetry: false, shouldPoll: true };
     case "refund_pending":
-    case "refund_unknown": return { messageKey: "refundPending", retryAfter: null, canRetry: false };
+    case "refund_unknown": return { messageKey: "refundPending", retryAfter: null, canRetry: false, shouldPoll: true };
   }
 }
 

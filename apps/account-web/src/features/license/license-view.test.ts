@@ -94,9 +94,12 @@ describe("refundProgressView", () => {
     for (const state of ["termination_pending", "termination_unknown", "refund_pending", "refund_unknown", "manual_resolution"] as const) {
       const response: BillingFirstPurchaseRefundAcceptedResponse = { ...accepted, state, retryable: false, retryAfter: null };
       expect(refundProgressView(response, now).canRetry).toBe(false);
+      expect(refundProgressView(response, now).shouldPoll, state).toBe(state !== "manual_resolution");
     }
-    expect(refundProgressView({ ...accepted, state: "refunded", retryable: false, retryAfter: null,
-      completedAt: "2026-10-30T00:00:00.000Z" }, now).messageKey).toBe("refundDone");
+    const refunded = refundProgressView({ ...accepted, state: "refunded", retryable: false, retryAfter: null,
+      completedAt: "2026-10-30T00:00:00.000Z" }, now);
+    expect(refunded.messageKey).toBe("refundDone");
+    expect(refunded.shouldPoll).toBe(false);
   });
 
   it("re-enables retry only after retryAfter has passed", () => {
@@ -104,7 +107,7 @@ describe("refundProgressView", () => {
       ...accepted, state: "retry_wait", retryable: true, retryAfter: "2026-10-31T00:05:00.000Z",
     };
     expect(refundProgressView(response, now)).toEqual({
-      messageKey: "refundRetryWait", retryAfter: "2026-10-31T00:05:00.000Z", canRetry: false,
+      messageKey: "refundRetryWait", retryAfter: "2026-10-31T00:05:00.000Z", canRetry: false, shouldPoll: true,
     });
     expect(refundProgressView(response, now + 5 * 60_000).canRetry).toBe(true);
   });

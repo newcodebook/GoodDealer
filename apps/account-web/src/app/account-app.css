@@ -1,0 +1,12 @@
+/* Document frame for the production page. Access pages scroll with the document on short or narrow
+   screens; the signed-in shell is pinned to the viewport and scrolls inside its content column. */
+html, body { margin: 0; background: var(--gd-ink); }
+#root { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+#root > .access { flex: 1; }
+#root > .account-shell { height: 100vh; height: 100dvh; }
+
+/* The first session read is a few hundred milliseconds; a blank ink surface avoids flashing a sign-in
+   form at a returning user who is about to land on the account. */
+.account-loading { flex: 1; background: var(--gd-ink); }
+.account-pending { padding: var(--space-4) 18px; }
+.account-pending:empty { padding: 0; }

@@ -154,10 +154,11 @@ export const repositoryTopology = Object.freeze([
     runtime: "browser",
     trustDomain: "account-web",
     manifest: { ecosystem: "pnpm", path: "apps/account-web/package.json", identity: "@gooddealer/account-web" },
-    sourceRoots: ["src", "test", "scripts", "visual-fixtures"],
+    sourceRoots: ["src", "test", "visual-fixtures"],
     publicEntrypoints: [
       publicEntrypoint("application", "src/index.ts"),
-      publicEntrypoint("browser", "src/browser.ts"),
+      publicEntrypoint("browser", "src/main.tsx"),
+      publicEntrypoint("vite", "vite.config.ts"),
       publicEntrypoint("visual-fixtures", "visual-fixtures/main.tsx"),
       publicEntrypoint("visual-vite", "vite.visual.config.ts"),
     ],
@@ -172,7 +173,7 @@ export const repositoryTopology = Object.freeze([
       ]),
     ],
     protocolSubpaths: ["./account"],
-    externalDependencies: ["@types/react", "@types/react-dom", "esbuild", "react", "react-dom", "vite"],
+    externalDependencies: ["@types/react", "@types/react-dom", "react", "react-dom", "vite"],
   }),
   topologyUnit({
     id: "admin-web",

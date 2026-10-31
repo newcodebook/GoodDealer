@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "vite build",
     "typecheck": "tsc -p tsconfig.json && tsc -p visual-fixtures/tsconfig.json",
     "test": "vitest run",
     "visual:dev": "vite --config vite.visual.config.ts",
@@ -21,7 +21,6 @@
   "devDependencies": {
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "esbuild": "0.28.2",
     "vite": "8.3.5"
   }
 }

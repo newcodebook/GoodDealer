@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 
 // The mock design host renders every Account Web screen from typed mock data. It is a separate
-// Vite root so its fixtures never enter the production bundle built by scripts/build.mjs.
+// Vite root so its fixtures never enter the production bundle built by vite.config.ts.
 const fixtureRoot = fileURLToPath(new URL("./visual-fixtures", import.meta.url));
 
 export default defineConfig({

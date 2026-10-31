@@ -45,7 +45,7 @@ export type LicenseNoticeKey = keyof Pick<
   | "noticeCheckoutCancelled"
   | "noticeCheckoutUnconfirmed"
   | "noticeCancelUnconfirmed"
-  | "noticeSessionExpired"
+  | "noticeCheckoutRejected"
   | "noticeStatusUnavailable"
 >;
 

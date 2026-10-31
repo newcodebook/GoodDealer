@@ -17,6 +17,8 @@ export const zhCNAccount = {
     navigationLabel: "账户导航",
     signOutUnconfirmed: "暂时无法确认服务端退出结果，请重试。",
     close: "关闭",
+    environmentDevelopment: "开发环境 · Stripe 测试模式",
+    environmentStaging: "预发布环境 · 测试交易",
   },
   accountAccess: {
     context: "GoodDealer 账户",
@@ -43,6 +45,7 @@ export const zhCNAccount = {
     rateLimited: "请求过于频繁，请稍后再试。",
     serviceUnavailable: "账户服务暂时不可用，请稍后重试。",
     sessionInvalid: "账户会话响应无效，请重新登录。",
+    sessionExpired: "账户会话已失效，请重新登录。",
     verifyTitle: "验证邮箱",
     verificationSent: "如果该邮箱可以注册，验证邮件会很快送达。请输入 6 位验证码。",
     verificationCode: "邮箱验证码",
@@ -165,7 +168,7 @@ export const zhCNAccount = {
     noticeCheckoutCancelled: "本次付款已取消，没有创建新的商业授权。",
     noticeCheckoutUnconfirmed: "结账创建结果尚未确认。请保留当前页面，刷新后会使用同一请求身份恢复。",
     noticeCancelUnconfirmed: "取消结果尚未确认，刷新后会继续确认。",
-    noticeSessionExpired: "账户会话已失效，请重新登录。",
+    noticeCheckoutRejected: "结账请求未被接受。请检查优惠码后重新选择期限。",
     noticeStatusUnavailable: "暂时无法读取账单状态，请稍后重试。",
   },
   accountDevices: {
