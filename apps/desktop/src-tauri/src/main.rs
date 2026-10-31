@@ -222,6 +222,7 @@ fn main() {
             let identity = load_or_create_desktop_device_identity().ok();
             let oauth = Arc::new(oauth_runtime::DesktopOAuthRuntime::new(
                 Some(native_cloud_session::PRODUCTION_CLOUD_ORIGIN),
+                Some(oauth_runtime::PRODUCTION_ACCOUNT_ORIGIN),
                 identity,
                 Arc::clone(&local_host),
             ));

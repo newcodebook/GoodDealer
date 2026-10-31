@@ -133,7 +133,13 @@ export function createDesktopOAuthHttp(deps: DesktopOAuthHttpDependencies): Fast
       cookieValue(request.headers.cookie, PUBLIC_SESSION_COOKIE),
       evaluatedAt,
     );
-    if (principal?.clientKind !== "account_web") return reply.code(401).send();
+    if (principal === null) {
+      // Desktop opens this route on the Account Web origin, which proxies `/v1/*` here. Without a
+      // session the browser is sent to sign in on that same origin and returns to this exact,
+      // already-validated request; Account Web accepts no other continuation target.
+      return reply.redirect(`/?continue=${encodeURIComponent(request.raw.url ?? "")}`, 302);
+    }
+    if (principal.clientKind !== "account_web") return reply.code(401).send();
     const proof = query.challenge_id === undefined ? {} : {
       proof: {
         challengeId: query.challenge_id,

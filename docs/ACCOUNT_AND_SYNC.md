@@ -24,9 +24,9 @@ Session，退出立即撤销精确 family。密码恢复使用独立 challenge�
 完整边界见 [ADR-0022](adr/0022-account-identity-and-email-delivery.md)。
 
 Account Web 继续使用 `gd_session` Cookie。Desktop 不复用该 Cookie：Native Host 通过系统浏览器
-发起固定客户端、固定回调地址的 Authorization Code + PKCE S256 流程。Cloud 只保存授权码、
+发起固定客户端、固定回调地址的 Authorization Code + PKCE S256 流程。授权页固定在 Account Web 源（`https://account.gooddealer.com/v1/desktop-oauth/authorize`，经同源 `/v1/*` 代理到 Cloud），使浏览器的 host-only `gd_session` 能到达授权路由；token、Grant 与同步仍只走 API 源。没有会话时 Cloud 以相对 302 跳转到同源登录页并携带 `continue`，Account Web 只接受恰好一个同源、带查询、无片段的 Desktop 授权路径，登录或发现已有会话后以 `location.replace` 返回，其他目标一律忽略。Cloud 只保存授权码、
 access token 和 refresh token 的 SHA-256 摘要；授权码五分钟内有效且只能消费一次。access token
-短期有效并只驻留 Native 内存，refresh token 每次使用后轮换并只存 macOS Keychain；重放已轮换
+短期有效并只驻留 Native 内存，refresh token 每次使用后轮换并只存系统凭据项（macOS Keychain；Linux 按 ADR-0025 使用 Secret Service）；重放已轮换
 refresh token 会撤销整个 token family。每次 refresh 前，Native 先持久化一个 pending request ID；
 如果请求结果未知，它保留旧 refresh token 与同一 request ID，并以这对值重试。Cloud 不保存原始
 token，而是从所呈现的 refresh token、request ID 和 rotation generation 确定性恢复同一 token pair

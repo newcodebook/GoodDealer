@@ -34,6 +34,11 @@ import {
   recoveryStorageKey,
   supersedeGeneration,
 } from "./browser-storage";
+import { parseDesktopAuthorizationContinuation } from "./desktop-authorization-continuation";
+
+// Read once at load: Cloud sends Desktop browser sign-in here without a session and expects the
+// signed-in browser to return to the same authorize request.
+const desktopAuthorizationContinuation = parseDesktopAuthorizationContinuation(location.search, location.origin);
 
 const routes: Readonly<Partial<Record<CloudOperationId, { readonly method: "GET" | "POST"; readonly path: string }>>> = {
   [BILLING_CHECKOUT_CREATE_OPERATION_ID]: { method: "POST", path: "/v1/account/billing/checkout" },
@@ -212,6 +217,9 @@ async function initialize(): Promise<void> {
     if (session.status === 401) accountNamespaceFence.clear();
     accessPanel.hidden = false;
     billingPanel.hidden = true;
+    if (desktopAuthorizationContinuation !== null) {
+      showAccessNotice("登录后将返回 GoodDealer Desktop 完成授权。", false);
+    }
     return;
   }
   const sessionValue = await readAuthenticatedSession(session);
@@ -223,6 +231,11 @@ async function initialize(): Promise<void> {
     return;
   }
   if (generation !== initializeGeneration) return;
+  if (desktopAuthorizationContinuation !== null) {
+    // Replace, not assign: Back must not reopen an authorize request that has been consumed.
+    location.replace(desktopAuthorizationContinuation);
+    return;
+  }
   accountNamespaceFence.activate(sessionValue.namespace);
   const context = createBillingContext(sessionValue.namespace);
   activeBillingContext = context;
