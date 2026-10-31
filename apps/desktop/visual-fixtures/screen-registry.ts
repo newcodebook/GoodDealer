@@ -34,7 +34,8 @@ export const screenGroups = ["基础", "门禁", "资产", "DNS", "变现", "同
 
 export function plannedScreens(): readonly DesignScreen[] {
   return [
-    { id: "signin", group: "门禁", title: "登录", kitSource: "SignIn.jsx", backing: "host", status: "planned" },
+    { id: "signin", group: "门禁", title: "浏览器登录", kitSource: "SignIn.jsx", backing: "host", status: "planned" },
+    { id: "runtime-status", group: "门禁", title: "运行态 · 锁定与过渡", kitSource: "../../README.md", backing: "host", status: "planned" },
     { id: "onboarding", group: "门禁", title: "接入向导", kitSource: "Onboarding.jsx", backing: "mock", status: "planned" },
     { id: "asset-library", group: "资产", title: "资产库", kitSource: "AssetLibrary.jsx", backing: "host", status: "planned" },
     { id: "domain-detail", group: "资产", title: "域名详情", kitSource: "DomainDetail.jsx", backing: "host", status: "planned" },

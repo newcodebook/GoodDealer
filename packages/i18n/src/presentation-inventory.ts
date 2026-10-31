@@ -14,7 +14,7 @@ export interface PresentationCopyInventoryEntry {
  * from the brand are explicit docs-authoritative states or security corrections.
  */
 export const presentationCopyInventory = {
-  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 70, exactBrandCopyKeys: 27 },
+  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 71, exactBrandCopyKeys: 27 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 48, exactBrandCopyKeys: 37 },
   batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 139, exactBrandCopyKeys: 79 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
@@ -26,10 +26,10 @@ export const presentationCopyInventory = {
   dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 64, exactBrandCopyKeys: 34 },
   renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 46, exactBrandCopyKeys: 27 },
   domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 62, exactBrandCopyKeys: 45 },
-  signIn: { source: "SignIn.jsx", typedBoundary: "AuthGateViewModel", localeKeyCount: 57, exactBrandCopyKeys: 55, exactEnUSBrandCopyKeys: 55 },
+  signIn: { source: "SignIn.jsx", typedBoundary: "DesktopAuthenticationStatus", localeKeyCount: 21, exactBrandCopyKeys: 9, exactEnUSBrandCopyKeys: 8 },
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 837 as const;
-export const reconciledExactBrandCopyKeyCount = 556 as const;
-export const reconciledExactEnUSBrandCopyKeyCount = 55 as const;
+export const reconciledLocaleKeyCount = 802 as const;
+export const reconciledExactBrandCopyKeyCount = 510 as const;
+export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

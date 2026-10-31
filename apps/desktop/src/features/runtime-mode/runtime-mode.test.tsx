@@ -1,14 +1,8 @@
-import { projectActivationWizardViewModel, projectAuthGateViewModel } from "@gooddealer/client-core";
+import { projectActivationWizardViewModel, projectDrainingViewModel } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ActivationWizard, SignIn } from "./index";
-
-function auth(input: unknown) {
-  const result = projectAuthGateViewModel(input);
-  if (!result.ok) throw new Error("fixture");
-  return result.value;
-}
+import { ActivationWizard, RuntimeStatusPage, SignIn } from "./index";
 
 function wizard(input: unknown) {
   const result = projectActivationWizardViewModel(input);
@@ -19,35 +13,64 @@ function wizard(input: unknown) {
 const frame = { platform: "windows", framed: false } as const;
 const noop = () => undefined;
 
-describe("Sign-in gate", () => {
-  it("keeps secrets out of the view model and offers only admitted alternatives", () => {
-    const view = auth({ kind: "sign_in", busy: false, errorKey: null, rememberDevice: true, entryRevealed: false, availableActions: ["submit", "create_account", "passkey"] });
-    const html = renderToStaticMarkup(<SignIn locale="zh-CN" view={view} windowFrame={frame} onSubmit={noop} onAction={noop} />);
+describe("Browser sign-in gate", () => {
+  it("never renders a credential field; it only starts browser sign-in", () => {
+    const html = renderToStaticMarkup(<SignIn locale="zh-CN" state="signed_out" windowFrame={frame} onBegin={noop} />);
 
-    expect(html).toContain('type="password"');
-    expect(html).toContain("使用 Passkey 登录");
-    expect(html).not.toContain("使用 Google 继续");
-    expect(html).not.toContain("忘记密码");
+    expect(html).not.toContain("<input");
+    expect(html).toContain("在浏览器中登录");
+    expect(html).toContain("不接触密码或令牌");
   });
 
-  it("maps Host error keys to copy without echoing any submitted value", () => {
-    const view = auth({ kind: "register", busy: false, errorKey: "password_mismatch", termsAccepted: false, entryRevealed: false, availableActions: ["submit", "accept_terms", "sign_in"] });
-    const html = renderToStaticMarkup(<SignIn locale="zh-CN" view={view} windowFrame={frame} onSubmit={noop} onAction={noop} />);
+  it("waits for the browser and offers to reopen it, but not while establishing authorization", () => {
+    const pending = renderToStaticMarkup(<SignIn locale="zh-CN" state="pending" windowFrame={frame} onBegin={noop} />);
+    expect(pending).toContain("等待浏览器完成登录");
+    expect(pending).toContain("重新打开浏览器");
 
-    expect(html).toContain("两次输入的密码不一致");
-    expect(html).toContain("至少 10 位，含字母与数字");
+    const establishing = renderToStaticMarkup(<SignIn locale="zh-CN" state="establishing" windowFrame={frame} onBegin={noop} />);
+    expect(establishing).toContain("正在建立本机授权");
+    expect(establishing).not.toContain("gd-btn");
   });
 
-  it("shows the resend countdown instead of the resend action while it is unavailable", () => {
-    const view = auth({
-      kind: "verify_email", busy: false, errorKey: null, emailDisplay: "you@domain.com", oneTimeCodeLength: 6,
-      resend: { kind: "unavailable", remainingLabel: "45" }, availableActions: ["submit", "back"],
+  it("offers retry only for a retryable refresh and no action when the host is unavailable", () => {
+    const retryable = renderToStaticMarkup(<SignIn locale="zh-CN" state="authorization_retryable" windowFrame={frame} onBegin={noop} onRetry={noop} />);
+    expect(retryable).toContain(">重试<");
+    expect(retryable).toContain("重新登录");
+
+    const failed = renderToStaticMarkup(<SignIn locale="zh-CN" state="authorization_failed" windowFrame={frame} onBegin={noop} onRetry={noop} />);
+    expect(failed).not.toContain(">重试<");
+
+    const unavailable = renderToStaticMarkup(<SignIn locale="zh-CN" state="host_unavailable" windowFrame={frame} onBegin={noop} />);
+    expect(unavailable).toContain("安全宿主暂不可用");
+    expect(unavailable).not.toContain("gd-btn");
+  });
+});
+
+describe("Runtime status page", () => {
+  it("offers sign-in again only for a security lock", () => {
+    const html = renderToStaticMarkup(<RuntimeStatusPage locale="zh-CN" kind="security_locked" windowFrame={frame} onSignInAgain={noop} onRetry={noop} />);
+    expect(html).toContain("重新登录");
+    expect(html).not.toContain(">重试<");
+    expect(html).toContain("本地数据不会因锁定删除");
+  });
+
+  it("shows no action while a transition is in progress", () => {
+    for (const kind of ["opening", "activating", "startup_recovery"] as const) {
+      expect(renderToStaticMarkup(<RuntimeStatusPage locale="zh-CN" kind={kind} windowFrame={frame} onRetry={noop} onSignInAgain={noop} />)).not.toContain("gd-btn");
+    }
+  });
+
+  it("reports how much remains while draining", () => {
+    const draining = projectDrainingViewModel({
+      reason: "handoff", phase: "uploading_envelopes", canCancel: false, failureReference: null,
+      streams: [
+        { stream: "mutations", acknowledgedSequence: 9, pendingCount: 3, gapCount: 0 },
+        { stream: "execution_facts", acknowledgedSequence: 4, pendingCount: 1, gapCount: 0 },
+        { stream: "workspace_device_audit", acknowledgedSequence: 2, pendingCount: 0, gapCount: 0 },
+      ],
     });
-    const html = renderToStaticMarkup(<SignIn locale="zh-CN" view={view} windowFrame={frame} onSubmit={noop} onAction={noop} />);
-
-    expect(html).toContain("45 秒后可重发");
-    expect(html).not.toContain("重新发送验证码");
-    expect(html.match(/inputmode="numeric"/giu)).toHaveLength(6);
+    if (!draining.ok) throw new Error("fixture");
+    expect(renderToStaticMarkup(<RuntimeStatusPage locale="zh-CN" kind="draining" windowFrame={frame} draining={draining.value} />)).toContain("剩余 4 项待提交");
   });
 });
 

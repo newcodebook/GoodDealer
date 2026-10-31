@@ -1,23 +1,31 @@
-import { useEffect, useState } from "react";
+import { defaultLocale, type Locale } from "@gooddealer/i18n";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createDesktopAuthenticationPort,
+  createDesktopWindowControlsPort,
   createLocalBusinessPort,
   createLocalConflictPort,
   createLocalPortfolioPresentationPort,
   createLocalSyncStatusPort,
+  detectDesktopWindowPlatform,
   type DesktopAuthenticationStatus,
 } from "./adapters/tauri";
+import type { ShellWindowFrame } from "./app-shell";
 import {
   authenticationLocksRuntime,
   createAuthenticationStatusCoordinator,
   synchronizeAfterAuthentication,
 } from "./app/authentication-coordinator";
+import { adjudicateDesktopPresentation } from "./app/desktop-presentation";
 import {
   readAuthoritativeWorkspacePublication,
   type AuthoritativeWorkspacePorts,
   type AuthoritativeWorkspacePublication,
 } from "./app/workspace-publication";
+import { WorkspaceView } from "./app/workspace-view";
+import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
+import "./app.css";
 
 const workspacePorts: AuthoritativeWorkspacePorts = {
   business: createLocalBusinessPort(),
@@ -26,6 +34,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   sync: createLocalSyncStatusPort(),
 };
 const desktopAuthentication = createDesktopAuthenticationPort();
+const windowControls = createDesktopWindowControlsPort();
 
 export type DesktopStartupState =
   | "opening"
@@ -50,17 +59,18 @@ export function desktopStartupState(
 }
 
 /**
- * Production composition root. It opens the Host-owned workspace and follows Native
- * authentication; it fabricates no authorization and holds no business rows while locked.
- *
- * Temporary exception: the previous presentation layer was removed so the Desktop UI can be
- * rebuilt from `brand/`. Until the new shell lands, this root renders only an unstyled startup
- * state; remove this placeholder when the rebuilt shell and routes are composed here.
+ * Production composition root. It opens the Host-owned workspace, follows Native authentication,
+ * and hands the adjudicated presentation to the matching page; it fabricates no authorization and
+ * holds no business rows while locked.
  */
 export function App() {
   const [workspace, setWorkspace] = useState<AuthoritativeWorkspacePublication | null>(null);
   const [failure, setFailure] = useState(false);
   const [authentication, setAuthentication] = useState<DesktopAuthenticationStatus | null>(null);
+  const [locale, setLocale] = useState<Locale>(defaultLocale);
+  const synchronizeRef = useRef<() => void>(() => undefined);
+
+  useEffect(() => { document.documentElement.lang = locale; }, [locale]);
 
   useEffect(() => {
     let active = true;
@@ -72,6 +82,10 @@ export function App() {
       setWorkspace(publication);
       setFailure(false);
     };
+    const reportFailure = () => {
+      if (active) setFailure(true);
+    };
+    synchronizeRef.current = () => { void synchronizeBusiness().catch(reportFailure); };
     const acceptAuthenticationStatus = async (value: DesktopAuthenticationStatus) => {
       if (!active) return;
       setAuthentication(value);
@@ -79,9 +93,6 @@ export function App() {
       // authoritative business-status snapshot is in flight.
       if (authenticationLocksRuntime(value)) setWorkspace(null);
       await synchronizeAfterAuthentication(value, synchronizeBusiness);
-    };
-    const reportFailure = () => {
-      if (active) setFailure(true);
     };
     const authenticationStatuses = createAuthenticationStatusCoordinator(acceptAuthenticationStatus);
 
@@ -109,18 +120,71 @@ export function App() {
     });
     return () => {
       active = false;
+      synchronizeRef.current = () => undefined;
       unlisten?.();
     };
   }, []);
 
-  const state = desktopStartupState(failure, workspace);
+  const windowFrame = useMemo((): ShellWindowFrame => ({
+    platform: detectDesktopWindowPlatform(typeof navigator === "undefined" ? "" : navigator.userAgent),
+    framed: false,
+    onMinimize: () => { void windowControls.minimize(); },
+    onToggleMaximize: () => { void windowControls.toggleMaximize(); },
+    onClose: () => { void windowControls.close(); },
+  }), []);
+  const beginSignIn = () => { void desktopAuthentication.begin().catch(() => setAuthentication("unavailable")); };
+  const refreshAuthorization = () => { void desktopAuthentication.refresh().catch(() => setAuthentication("unavailable")); };
+  const retryHost = () => { setFailure(false); synchronizeRef.current(); };
+
+  const presentation = adjudicateDesktopPresentation(failure, workspace, authentication);
+  const page = (() => {
+    switch (presentation.view) {
+      case "opening":
+        return <RuntimeStatusPage locale={locale} kind="opening" windowFrame={windowFrame} />;
+      case "host_unavailable":
+        return <RuntimeStatusPage locale={locale} kind="host_unavailable" windowFrame={windowFrame} onRetry={retryHost} />;
+      case "sign_in":
+        return (
+          <SignIn
+            locale={locale}
+            state={presentation.signIn}
+            windowFrame={windowFrame}
+            onBegin={beginSignIn}
+            onRetry={refreshAuthorization}
+            onLocaleChange={setLocale}
+          />
+        );
+      case "locked":
+        return (
+          <RuntimeStatusPage
+            locale={locale}
+            kind={presentation.reason}
+            windowFrame={windowFrame}
+            onSignInAgain={beginSignIn}
+            onRetry={refreshAuthorization}
+          />
+        );
+      case "workspace":
+        return (
+          <WorkspaceView
+            locale={locale}
+            presentation={presentation}
+            ports={workspacePorts}
+            windowFrame={windowFrame}
+            onPublication={setWorkspace}
+            onRefresh={() => synchronizeRef.current()}
+          />
+        );
+    }
+  })();
+
   return (
-    <main
-      aria-label="GoodDealer Desktop"
-      data-desktop-state={state}
+    <div
+      className="desktop-root"
+      data-desktop-state={desktopStartupState(failure, workspace)}
       {...(authentication === null ? {} : { "data-authentication": authentication })}
     >
-      GoodDealer
-    </main>
+      {page}
+    </div>
   );
 }

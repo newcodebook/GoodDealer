@@ -4,7 +4,7 @@ import { AssetLibraryScreen, assetLibraryVariants, type AssetLibraryVariant } fr
 import { DomainDetailScreen, domainDetailVariants, type DomainDetailVariant } from "./screens/domain-detail-screen";
 import { ConflictScreen, DnsScreen, conflictVariants, dnsVariants } from "./screens/dns-conflict-screens";
 import { FoundationScreen } from "./screens/foundation-screen";
-import { ActivationScreen, SignInScreen, activationVariants, signInVariants } from "./screens/gate-screens";
+import { ActivationScreen, RuntimeStatusScreen, SignInScreen, activationVariants, runtimeStatusVariants, signInVariants } from "./screens/gate-screens";
 import { HistoryScreen, TaskScreen, readOnlyVariants } from "./screens/operations-screens";
 import { RenewalScreen } from "./screens/renewal-screen";
 import { SalesScreen, salesVariants } from "./screens/sales-screen";
@@ -15,6 +15,11 @@ const designed: Readonly<Record<string, Pick<DesignScreen, "layout" | "variants"
     layout: "app",
     variants: signInVariants,
     render: ({ variant, platform }) => <SignInScreen variant={variant} platform={platform} />,
+  },
+  "runtime-status": {
+    layout: "app",
+    variants: runtimeStatusVariants,
+    render: ({ variant, platform }) => <RuntimeStatusScreen variant={variant} platform={platform} />,
   },
   onboarding: {
     layout: "app",

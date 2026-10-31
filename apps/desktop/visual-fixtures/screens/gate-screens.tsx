@@ -1,80 +1,77 @@
 import {
   projectActivationWizardViewModel,
-  projectAuthGateViewModel,
+  projectDrainingViewModel,
   type ActivationWizardViewModel,
-  type AuthGateViewModel,
 } from "@gooddealer/client-core";
 import { defaultLocale, type Locale } from "@gooddealer/i18n";
 import { useEffect, useState } from "react";
 
-import { ActivationWizard, SignIn } from "../../src/features/runtime-mode";
+import { ActivationWizard, RuntimeStatusPage, SignIn, type BrowserSignInState, type RuntimeStatusKind } from "../../src/features/runtime-mode";
 import type { DesignWindowPlatform } from "../screen-registry";
 
 export const signInVariants = [
-  { id: "sign_in", label: "登录" },
-  { id: "register", label: "注册" },
-  { id: "verify_email", label: "邮箱验证" },
-  { id: "account_recovery", label: "找回密码" },
+  { id: "signed_out", label: "未登录" },
+  { id: "pending", label: "等待浏览器" },
+  { id: "establishing", label: "建立授权" },
+  { id: "authorization_failed", label: "授权失效" },
+  { id: "authorization_retryable", label: "刷新失败" },
+  { id: "host_unavailable", label: "宿主不可用" },
 ] as const;
 
-type AuthKind = AuthGateViewModel["kind"];
-
-function authView(kind: AuthKind, state: { busy: boolean; errorKey: AuthGateViewModel["errorKey"]; remember: boolean; revealed: boolean; terms: boolean; sent: boolean; cooldown: number }): AuthGateViewModel {
-  const common = { busy: state.busy, errorKey: state.errorKey };
-  const input = kind === "sign_in"
-    ? { ...common, kind, rememberDevice: state.remember, entryRevealed: state.revealed, availableActions: ["submit", "toggle_entry_visibility", "start_account_recovery", "create_account", "oauth_google", "oauth_github", "passkey", "toggle_remember_device"] }
-    : kind === "register"
-      ? { ...common, kind, termsAccepted: state.terms, entryRevealed: state.revealed, availableActions: ["submit", "toggle_entry_visibility", "accept_terms", "open_terms", "open_privacy", "sign_in"] }
-      : kind === "verify_email"
-        ? {
-          ...common, kind, emailDisplay: "you@domain.com", oneTimeCodeLength: 6,
-          resend: state.cooldown > 0 ? { kind: "unavailable", remainingLabel: String(state.cooldown) } : { kind: "available" },
-          availableActions: state.cooldown > 0 ? ["submit", "back"] : ["submit", "back", "resend_code"],
-        }
-        : { ...common, kind, resetLinkSent: state.sent, availableActions: ["submit", "back"] };
-  const result = projectAuthGateViewModel(input);
-  if (!result.ok) throw new Error("mock auth gate state is invalid");
-  return result.value;
-}
-
-/** Account gate driven through every AuthGate state; submissions only simulate the Host round trip. */
+/** Browser sign-in gate; "sign in" simulates Native opening the browser and the round trip back. */
 export function SignInScreen({ variant, platform }: { readonly variant: string; readonly platform: DesignWindowPlatform }) {
   const [locale, setLocale] = useState<Locale>(defaultLocale);
-  const [kind, setKind] = useState<AuthKind>(variant as AuthKind);
-  const [state, setState] = useState({ busy: false, errorKey: null as AuthGateViewModel["errorKey"], remember: true, revealed: false, terms: false, sent: false, cooldown: 0 });
+  const [state, setState] = useState<BrowserSignInState>(variant as BrowserSignInState);
   useEffect(() => {
-    if (state.cooldown <= 0) return undefined;
-    const timer = setTimeout(() => setState((current) => ({ ...current, cooldown: current.cooldown - 1 })), 1000);
+    if (state !== "pending" && state !== "establishing") return undefined;
+    const timer = setTimeout(() => setState(state === "pending" ? "establishing" : "signed_out"), 2400);
     return () => clearTimeout(timer);
-  }, [state.cooldown]);
-  const go = (next: AuthKind) => { setKind(next); setState((current) => ({ ...current, busy: false, errorKey: null, sent: false })); };
+  }, [state]);
 
   return (
     <SignIn
       locale={locale}
-      view={authView(kind, state)}
+      state={state}
       windowFrame={{ platform, framed: true }}
       onLocaleChange={setLocale}
-      onSubmit={(submission) => {
-        if (kind === "register" && submission.password !== submission.confirmPassword) { setState((current) => ({ ...current, errorKey: "password_mismatch" })); return; }
-        if (kind === "register" && !state.terms) { setState((current) => ({ ...current, errorKey: "must_agree" })); return; }
-        if (kind === "verify_email" && submission.code !== "123456") { setState((current) => ({ ...current, errorKey: "invalid_code" })); return; }
-        setState((current) => ({ ...current, busy: true, errorKey: null }));
-        setTimeout(() => {
-          if (kind === "register") { go("verify_email"); setState((current) => ({ ...current, cooldown: 45 })); return; }
-          if (kind === "account_recovery") { setState((current) => ({ ...current, busy: false, sent: true })); return; }
-          setState((current) => ({ ...current, busy: false }));
-        }, 900);
-      }}
-      onAction={(action) => {
-        if (action === "create_account") go("register");
-        else if (action === "sign_in" || action === "back") go(kind === "verify_email" ? "register" : "sign_in");
-        else if (action === "start_account_recovery") go("account_recovery");
-        else if (action === "toggle_entry_visibility") setState((current) => ({ ...current, revealed: !current.revealed }));
-        else if (action === "toggle_remember_device") setState((current) => ({ ...current, remember: !current.remember }));
-        else if (action === "accept_terms") setState((current) => ({ ...current, terms: !current.terms }));
-        else if (action === "resend_code") setState((current) => ({ ...current, cooldown: 45 }));
-      }}
+      onBegin={() => setState("pending")}
+      onRetry={() => setState("establishing")}
+    />
+  );
+}
+
+export const runtimeStatusVariants = [
+  { id: "opening", label: "打开中" },
+  { id: "host_unavailable", label: "宿主不可用" },
+  { id: "security_locked", label: "安全锁定" },
+  { id: "retryable_locked", label: "可重试锁定" },
+  { id: "device_capacity", label: "设备上限" },
+  { id: "activating", label: "安全激活" },
+  { id: "draining", label: "排空中" },
+  { id: "startup_recovery", label: "启动恢复" },
+  { id: "local_continuation", label: "本地延续" },
+] as const;
+
+const mockDraining = projectDrainingViewModel({
+  reason: "handoff", phase: "uploading_envelopes", canCancel: false, failureReference: null,
+  streams: [
+    { stream: "mutations", acknowledgedSequence: 38, pendingCount: 7, gapCount: 0 },
+    { stream: "execution_facts", acknowledgedSequence: 12, pendingCount: 2, gapCount: 0 },
+    { stream: "workspace_device_audit", acknowledgedSequence: 5, pendingCount: 0, gapCount: 0 },
+  ],
+});
+
+/** Route-free runtime states; none of them admits business data or actions. */
+export function RuntimeStatusScreen({ variant, platform }: { readonly variant: string; readonly platform: DesignWindowPlatform }) {
+  if (!mockDraining.ok) throw new Error("mock draining state is invalid");
+  return (
+    <RuntimeStatusPage
+      locale={defaultLocale}
+      kind={variant as RuntimeStatusKind}
+      windowFrame={{ platform, framed: true }}
+      onRetry={() => undefined}
+      onSignInAgain={() => undefined}
+      draining={mockDraining.value}
     />
   );
 }

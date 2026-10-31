@@ -70,6 +70,8 @@ const forbiddenSemanticCopy = [
   "One account, up to 2 execution devices",
   "Credentials are encrypted by a local key. Never uploaded.",
   "Sunset · LocalContinuation 本地只读延续 · 无执行权",
+  "写入专用的安全宿主命令",
+  "write-only secure-host command",
 ] as const;
 
 describe("desktop copy contract", () => {
@@ -165,7 +167,10 @@ describe("desktop copy contract", () => {
     expect(zhCN.activation.cloudValidationPendingDescription).toContain("Cloud 必须先校验");
     expect(zhCN.signIn.deviceQuota).toContain("2 台设备");
     expect(zhCN.signIn.deviceQuota).toContain("1 台 Active");
-    expect(zhCN.signIn.accountCredentialTrust).toContain("GoodDealer Cloud 身份服务");
+    // docs/ACCOUNT_AND_SYNC.md: Desktop signs in through the system browser (PKCE); it never takes a password.
+    expect(zhCN.signIn.accountCredentialTrust).toContain("系统浏览器");
+    expect(zhCN.signIn.accountCredentialTrust).toContain("不接触密码或令牌");
+    expect(enUS.signIn.accountCredentialTrust).toContain("never handles passwords or tokens");
     expect(zhCN.settings.cloudSyncRequired).toContain("强制启用");
     expect(zhCN.settings.cloudSyncRequired).toContain("先提交本地 SQLCipher");
     expect(enUS.settings.cloudSyncRequired).toContain("does not wait for Cloud transport");
