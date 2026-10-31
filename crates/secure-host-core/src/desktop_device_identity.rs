@@ -6,21 +6,21 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ring::signature::{Ed25519KeyPair, KeyPair as _};
 use serde::{Deserialize, Serialize};
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 use sha2::{Digest as _, Sha256};
 use zeroize::{Zeroize as _, Zeroizing};
 
 const KEYCHAIN_SERVICE: &str = "com.gooddealer.desktop.device-identity";
 const KEYCHAIN_ACCOUNT: &str = "device-identity-v1";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const BINDING_KEYCHAIN_SERVICE: &str = "com.gooddealer.desktop.local-host-binding";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const BINDING_KEYCHAIN_ACCOUNT: &str = "local-host-binding-v1";
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 const BINDING_SCHEMA_VERSION: u8 = 1;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 const BINDING_DIGEST_DOMAIN: &[u8] = b"GOODDEALER/INSTALLATION-BINDING-V1\0";
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 const MAX_BINDING_BYTES: usize = 512;
 #[cfg(target_os = "macos")]
 const WHEN_UNLOCKED_THIS_DEVICE_ONLY_PROTECTION_DOMAIN: &str = "aku";
@@ -194,7 +194,7 @@ pub fn load_or_create_desktop_device_identity()
     Ok(identity)
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredDeviceBinding {
@@ -203,7 +203,7 @@ struct StoredDeviceBinding {
     installation_binding_digest: String,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn ensure_device_binding(
     identity: &DesktopDeviceIdentity,
 ) -> Result<(), DesktopDeviceIdentityError> {
@@ -217,7 +217,7 @@ fn ensure_device_binding(
     verify_device_binding_attributes()
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn installation_binding_digest(identity: &DesktopDeviceIdentity) -> String {
     let mut digest = Sha256::new();
     digest.update(BINDING_DIGEST_DOMAIN);
@@ -225,7 +225,7 @@ fn installation_binding_digest(identity: &DesktopDeviceIdentity) -> String {
     URL_SAFE_NO_PAD.encode(digest.finalize())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn encode_device_binding(
     identity: &DesktopDeviceIdentity,
 ) -> Result<Vec<u8>, DesktopDeviceIdentityError> {
@@ -242,7 +242,7 @@ fn encode_device_binding(
     Ok(bytes)
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn validate_device_binding(
     value: &[u8],
     identity: &DesktopDeviceIdentity,
@@ -261,7 +261,7 @@ fn validate_device_binding(
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 #[expect(
     clippy::unnecessary_wraps,
     reason = "the cross-platform identity API preserves one fail-closed Result contract"
@@ -325,13 +325,63 @@ fn store_native_identity(value: &[u8]) -> Result<(), DesktopDeviceIdentityError>
         .map_err(|_| DesktopDeviceIdentityError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn secret_service_error(
+    error: crate::secret_service_custody::SecretServiceError,
+) -> DesktopDeviceIdentityError {
+    match error {
+        crate::secret_service_custody::SecretServiceError::Unavailable => {
+            DesktopDeviceIdentityError::CredentialStoreUnavailable
+        }
+        crate::secret_service_custody::SecretServiceError::Rejected => {
+            DesktopDeviceIdentityError::InvalidCredential
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn load_native_identity() -> Result<Option<Vec<u8>>, DesktopDeviceIdentityError> {
+    crate::secret_service_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map(|value| value.map(|secret| secret.to_vec()))
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn store_native_identity(value: &[u8]) -> Result<(), DesktopDeviceIdentityError> {
+    crate::secret_service_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn load_device_binding() -> Result<Option<Vec<u8>>, DesktopDeviceIdentityError> {
+    crate::secret_service_custody::load(BINDING_KEYCHAIN_SERVICE, BINDING_KEYCHAIN_ACCOUNT)
+        .map(|value| value.map(|secret| secret.to_vec()))
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn store_device_binding(value: &[u8]) -> Result<(), DesktopDeviceIdentityError> {
+    // The adapter reads back and compares the stored bytes before reporting success.
+    crate::secret_service_custody::store(BINDING_KEYCHAIN_SERVICE, BINDING_KEYCHAIN_ACCOUNT, value)
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn verify_device_binding_attributes() -> Result<(), DesktopDeviceIdentityError> {
+    // Secret Service has no protection-class attributes to inspect; the adapter re-checks the
+    // identity attributes on every read, so confirm exactly one admissible item now exists.
+    load_device_binding()?
+        .map(|_| ())
+        .ok_or(DesktopDeviceIdentityError::InvalidCredential)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn load_native_identity() -> Result<Option<Vec<u8>>, DesktopDeviceIdentityError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(DesktopDeviceIdentityError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn store_native_identity(_value: &[u8]) -> Result<(), DesktopDeviceIdentityError> {
     Err(DesktopDeviceIdentityError::CredentialStoreUnavailable)
 }

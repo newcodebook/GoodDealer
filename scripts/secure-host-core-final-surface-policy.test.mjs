@@ -22,6 +22,7 @@ const expectedSourceFiles = [
   "desktop_oauth.rs",
   "lib.rs",
   "local_workspace_binding.rs",
+  "secret_service_custody.rs",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -540,4 +541,15 @@ test("rejects recreated database-key capability source or export", (t) => {
   assert.ok(localStorageFinalSurfaceErrors({ storageRoot: publicBackupModuleFixture }).some(
     (error) => error.includes("outside"),
   ));
+});
+
+test("the Linux Secret Service adapter stays identical in both Host crates", () => {
+  // ADR-0025: each trust domain keeps a private copy instead of a shared secret API, so the two
+  // copies must not drift apart in their fail-closed rules.
+  const root = resolve(import.meta.dirname, "..");
+  const core = readFileSync(join(root, "crates/secure-host-core/src/secret_service_custody.rs"), "utf8");
+  const storage = readFileSync(join(root, "crates/local-storage/src/secret_service_custody.rs"), "utf8");
+  assert.equal(core, storage);
+  assert.match(core, /EncryptionType::Dh/u);
+  assert.doesNotMatch(core, /EncryptionType::Plain/u);
 });

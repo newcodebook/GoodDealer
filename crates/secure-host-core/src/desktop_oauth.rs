@@ -546,18 +546,46 @@ fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn secret_service_error(error: crate::secret_service_custody::SecretServiceError) -> DesktopOAuthError {
+    // A rejected item is not a usable refresh credential; both cases leave custody untouched.
+    match error {
+        crate::secret_service_custody::SecretServiceError::Unavailable
+        | crate::secret_service_custody::SecretServiceError::Rejected => DesktopOAuthError::CredentialStoreUnavailable,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
+    crate::secret_service_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map(|value| value.map(|secret| secret.to_vec()))
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn store_native_refresh_bytes(value: &[u8]) -> Result<(), DesktopOAuthError> {
+    crate::secret_service_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
+    crate::secret_service_custody::delete(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(secret_service_error)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn store_native_refresh_bytes(_value: &[u8]) -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }

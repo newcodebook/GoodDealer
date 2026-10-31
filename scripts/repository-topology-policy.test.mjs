@@ -306,6 +306,7 @@ test("the production catalog covers the current repository inventory", () => {
     "ring",
     "rustix",
     "rusqlite",
+    "secret-service",
     "security-framework",
     "serde",
     "serde_json",
@@ -338,6 +339,7 @@ test("the production catalog covers the current repository inventory", () => {
   ]);
   assert.equal(secureHostCore.externalDependencies.includes("getrandom"), true);
   assert.equal(secureHostCore.externalDependencies.includes("security-framework"), true);
+  assert.equal(secureHostCore.externalDependencies.includes("secret-service"), true);
   assert.equal(secureHostCore.externalDependencies.includes("zeroize"), true);
   assert.equal(
     repositoryTooling.publicEntrypoints.some(

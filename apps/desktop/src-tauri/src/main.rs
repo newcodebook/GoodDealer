@@ -211,7 +211,11 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            let app_data_root = app.path().app_data_dir()?;
+            // The Host owns a dedicated child: WebKitGTK creates the app data directory itself
+            // (media keys) before setup runs, under the user's umask, so that directory can be
+            // group-writable on stock Linux desktops. The child is created owner-only by the root
+            // validator and holds nothing the webview writes.
+            let app_data_root = app.path().app_data_dir()?.join("local-host");
             let application_root = DesktopApplicationRoot::validate(&app_data_root)?;
             let local_host = Arc::new(DesktopLocalHost::production(application_root)?);
             app.manage(Arc::clone(&local_host));

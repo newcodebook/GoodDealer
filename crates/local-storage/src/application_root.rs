@@ -51,7 +51,7 @@ impl DesktopApplicationRoot {
             return Err(DesktopApplicationRootError::Rejected);
         }
         reject_existing_symlink_components(path)?;
-        std::fs::create_dir_all(path).map_err(|_| DesktopApplicationRootError::StorageRejected)?;
+        create_private_directory_all(path)?;
         reject_existing_symlink_components(path)?;
         let metadata = std::fs::symlink_metadata(path)
             .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
@@ -161,6 +161,27 @@ fn reject_existing_symlink_components(path: &Path) -> Result<(), DesktopApplicat
     Ok(())
 }
 
+/// Creates missing components owner-only so the root does not inherit a permissive umask.
+///
+/// Desktop distributions commonly default to umask 002; creating with the process umask would
+/// make a fresh root group-writable and fail the mode check below on first launch. An existing
+/// directory is never re-permissioned: a root that was already exposed stays rejected.
+#[cfg(unix)]
+fn create_private_directory_all(path: &Path) -> Result<(), DesktopApplicationRootError> {
+    use std::os::unix::fs::DirBuilderExt as _;
+
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .map_err(|_| DesktopApplicationRootError::StorageRejected)
+}
+
+#[cfg(not(unix))]
+fn create_private_directory_all(path: &Path) -> Result<(), DesktopApplicationRootError> {
+    std::fs::create_dir_all(path).map_err(|_| DesktopApplicationRootError::StorageRejected)
+}
+
 #[cfg(unix)]
 fn validate_owner_and_mode(
     metadata: &std::fs::Metadata,
@@ -255,6 +276,21 @@ mod tests {
         let file = parent.path().join("file");
         std::fs::write(&file, b"not a directory").unwrap();
         assert!(DesktopApplicationRoot::validate(&file).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_missing_components_owner_only_regardless_of_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let parent = tempdir().unwrap();
+        let path = parent.path().canonicalize().unwrap().join("share").join("GoodDealer");
+        DesktopApplicationRoot::validate(&path).unwrap();
+        // Any group/other bit would come from the process umask, not the requested mode.
+        for created in [path.parent().unwrap(), path.as_path()] {
+            let mode = std::fs::metadata(created).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{created:?} has mode {mode:o}");
+        }
     }
 
     #[cfg(unix)]

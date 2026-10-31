@@ -5243,7 +5243,12 @@ fn load_device_binding_native() -> Result<Option<Vec<u8>>, DesktopCustodyError> 
     }
 }
 
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "linux", not(test)))]
+fn load_device_binding_native() -> Result<Option<Vec<u8>>, DesktopCustodyError> {
+    load_native(DEVICE_IDENTITY_SERVICE, DEVICE_IDENTITY_ACCOUNT)
+}
+
+#[cfg(all(not(any(target_os = "macos", target_os = "linux")), not(test)))]
 fn load_device_binding_native() -> Result<Option<Vec<u8>>, DesktopCustodyError> {
     Err(DesktopCustodyError::Unavailable)
 }
@@ -5462,12 +5467,35 @@ fn verify_secret_attributes(service: &str, account: &str) -> Result<(), DesktopC
     Ok(())
 }
 
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "linux", not(test)))]
+fn secret_service_error(error: crate::secret_service_custody::SecretServiceError) -> DesktopCustodyError {
+    match error {
+        crate::secret_service_custody::SecretServiceError::Unavailable => {
+            DesktopCustodyError::Unavailable
+        }
+        crate::secret_service_custody::SecretServiceError::Rejected => DesktopCustodyError::Rejected,
+    }
+}
+
+#[cfg(all(target_os = "linux", not(test)))]
+fn load_native(service: &str, account: &str) -> Result<Option<Vec<u8>>, DesktopCustodyError> {
+    // Callers own zeroization of the returned bytes, matching the macOS adapter's contract.
+    crate::secret_service_custody::load(service, account)
+        .map(|value| value.map(|secret| secret.to_vec()))
+        .map_err(secret_service_error)
+}
+
+#[cfg(all(target_os = "linux", not(test)))]
+fn store_native(service: &str, account: &str, value: &[u8]) -> Result<(), DesktopCustodyError> {
+    crate::secret_service_custody::store(service, account, value).map_err(secret_service_error)
+}
+
+#[cfg(all(not(any(target_os = "macos", target_os = "linux")), not(test)))]
 fn load_native(_service: &str, _account: &str) -> Result<Option<Vec<u8>>, DesktopCustodyError> {
     Err(DesktopCustodyError::Unavailable)
 }
 
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(not(any(target_os = "macos", target_os = "linux")), not(test)))]
 fn store_native(_service: &str, _account: &str, _value: &[u8]) -> Result<(), DesktopCustodyError> {
     Err(DesktopCustodyError::Unavailable)
 }
