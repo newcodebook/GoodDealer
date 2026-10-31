@@ -1,0 +1,30 @@
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; }
+button { font: inherit; }
+
+.design-host { display: grid; width: 100%; height: 100%; grid-template-columns: 240px minmax(0, 1fr); }
+.design-host-nav { display: flex; overflow: hidden; flex-direction: column; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+.design-host-nav header { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); border-bottom: 1px solid var(--gd-line); }
+.design-host-eyebrow { color: var(--gd-warning); font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-caps); }
+.design-host-nav nav { overflow-y: auto; padding: var(--space-2); }
+.design-host-nav section { display: flex; flex-direction: column; gap: 1px; margin-bottom: var(--space-3); }
+.design-host-nav h2 { padding: var(--space-1) var(--space-2); }
+.design-host-nav button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: 6px var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); cursor: pointer; text-align: left; }
+.design-host-nav button:hover { background: var(--gd-panel-raised); color: var(--text-1); }
+.design-host-nav button[aria-current="page"] { background: var(--gd-panel-raised); box-shadow: inset 2px 0 var(--gd-gold); color: var(--text-1); }
+.design-host-tags { display: inline-flex; gap: var(--space-1); }
+.design-host-main { display: flex; overflow: hidden; flex-direction: column; min-width: 0; min-height: 0; background: var(--gd-ink); }
+.design-host-variants { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
+.design-host-locale { margin-left: auto; }
+/* The stage is the browser viewport: Account Web pages fill it edge to edge. */
+.design-host-stage { display: flex; overflow: auto; flex: 1; min-width: 0; min-height: 0; }
+.design-host-screen { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.design-host-screen > * { flex: 1; }
+.design-host-pending { padding: var(--space-6); }
+.design-shell-placeholder { display: flex; flex: 1; align-items: center; justify-content: center; color: var(--text-3); }
+/* Phone previews give the whole width to the screen; the catalog stays reachable through the URL hash. */
+@media (max-width: 760px) {
+  .design-host { grid-template-columns: minmax(0, 1fr); }
+  .design-host-nav { display: none; }
+  .design-host-variants { overflow-x: auto; flex-wrap: nowrap; }
+}

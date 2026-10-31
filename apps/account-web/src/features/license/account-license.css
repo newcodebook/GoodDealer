@@ -1,0 +1,52 @@
+.license { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
+.license-notice { padding: var(--space-4) 18px 0; }
+/* The mounted-but-empty live region must not leave a gap above the body. */
+.license-notice:empty { padding: 0; }
+.license-body { display: grid; grid-template-areas: "main side" "reference side"; grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: auto 1fr; align-items: start; gap: 14px; padding: 18px; }
+.license-main { grid-area: main; }
+.license-side { grid-area: side; }
+.license-reference { grid-area: reference; min-width: 0; }
+.license-main, .license-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.license-main .gd-panel-body { display: flex; flex-direction: column; gap: 14px; }
+.license-empty { display: flex; flex-direction: column; gap: 6px; }
+.license-empty-title { color: var(--text-1); font-size: 18px; font-weight: var(--weight-semibold); }
+.license-empty .gd-t-body-2 { max-width: 520px; }
+.license-term { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.license-term-name { color: var(--text-1); font-size: 20px; font-weight: var(--weight-semibold); letter-spacing: -.01em; }
+.license-term-unit, .license-offer-unit { color: var(--text-3); font-size: var(--text-xs); }
+.license-included { display: flex; flex-direction: column; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--gd-line); }
+.license-features { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.license-feature { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--text-xs); }
+/* Inclusions are facts, not outcomes: a quiet glyph instead of the success colour. */
+.license-feature svg { flex: none; color: var(--text-3); }
+.license-actions { display: flex; flex-wrap: wrap; gap: 9px; padding-top: 14px; border-top: 1px solid var(--gd-line); }
+.license-refund { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.license-refund .gd-t-body-2 { flex: 1; min-width: 220px; margin: 0; }
+.license-authority { display: flex; align-items: flex-start; gap: 14px; }
+.license-authority img { flex: none; margin-top: 2px; }
+.license-authority-copy { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.license-authority-copy p { margin: 0; line-height: 1.6; }
+.license-rule { padding: 10px 12px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-ink); color: var(--text-2); font-size: var(--text-xs); }
+.license-rule strong { display: block; margin-bottom: 3px; color: var(--text-1); font-weight: var(--weight-medium); }
+.license-offer { display: flex; flex-direction: column; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--gd-line); }
+.license-offer:last-of-type { border-bottom: 0; }
+/* The current term carries the gold accent as a left-edge wash, matching the kit's current-row treatment. */
+.license-offer--current { background: linear-gradient(90deg, var(--gd-gold-tint), transparent 60%); }
+.license-offer-head { display: flex; align-items: center; gap: 8px; }
+.license-offer-name { color: var(--text-1); font-size: 13px; font-weight: var(--weight-semibold); }
+.license-offer-price { display: inline-flex; align-items: baseline; gap: 4px; margin-left: auto; }
+.license-offer-note { color: var(--text-3); font-size: var(--text-xs); line-height: 1.5; }
+.license-offer-locked { margin: 0; padding: 12px 16px; border-top: 1px solid var(--gd-line); color: var(--text-3); font-size: var(--text-xs); line-height: 1.55; }
+.license-dialog { display: flex; flex-direction: column; gap: 12px; }
+.license-dialog-term { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel-raised); color: var(--text-1); font-size: 14px; font-weight: var(--weight-medium); }
+.license-dialog-body { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.license-dialog-ack { padding-top: 10px; border-top: 1px solid var(--gd-line); }
+.license-fineprint { color: var(--text-3); font-size: var(--text-2xs); line-height: 1.55; }
+/* Container queries: the shell's sidebar width varies, so the content box, not the viewport, decides. */
+@container (max-width: 900px) {
+  /* One column keeps task order: held term, then the comparison where a term is chosen, then reference. */
+  .license-body { grid-template-areas: "main" "side" "reference"; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+}
+@container (max-width: 560px) {
+  .license-body { padding: 12px; }
+}

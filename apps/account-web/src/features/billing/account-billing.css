@@ -1,0 +1,23 @@
+.billing { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
+.billing-body { display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+.billing-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.billing-provider { display: flex; align-items: center; gap: 14px; }
+/* A provider glyph, not a card: the page never depicts a card number or brand it does not hold. It is
+   custody (system language), not value, so it stays neutral instead of gold. */
+.billing-provider-glyph { display: flex; flex: none; align-items: center; justify-content: center; width: 56px; height: 36px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel-raised); color: var(--text-2); }
+.billing-provider-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.billing-provider-name { color: var(--text-1); font-size: 14px; }
+.billing-provider-detail { color: var(--text-3); font-size: var(--text-2xs); }
+.billing-mono { color: var(--text-2); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.billing-strong { color: var(--text-1); }
+.billing-receipt { display: flex; flex-direction: column; gap: 12px; }
+.billing-receipt-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--gd-line); }
+.billing-receipt-brand { display: flex; flex: 1; flex-direction: column; color: var(--text-1); font-size: 13px; font-weight: var(--weight-semibold); }
+.billing-receipt-sub { color: var(--text-3); font-size: var(--text-2xs); font-weight: var(--weight-regular); }
+.billing-receipt-total { display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--gd-line); color: var(--text-2); font-size: 13px; }
+@container (max-width: 760px) {
+  .billing-cards { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 560px) {
+  .billing-body { padding: 12px; }
+}

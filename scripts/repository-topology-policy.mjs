@@ -154,17 +154,25 @@ export const repositoryTopology = Object.freeze([
     runtime: "browser",
     trustDomain: "account-web",
     manifest: { ecosystem: "pnpm", path: "apps/account-web/package.json", identity: "@gooddealer/account-web" },
-    sourceRoots: ["src", "test", "scripts"],
+    sourceRoots: ["src", "test", "scripts", "visual-fixtures"],
     publicEntrypoints: [
       publicEntrypoint("application", "src/index.ts"),
       publicEntrypoint("browser", "src/browser.ts"),
+      publicEntrypoint("visual-fixtures", "visual-fixtures/main.tsx"),
+      publicEntrypoint("visual-vite", "vite.visual.config.ts"),
     ],
     workspaceImports: [
       workspaceImport("@gooddealer/cloud-client", "Account web's typed Cloud client boundary."),
+      workspaceImport("@gooddealer/i18n", "Account Web copy and deterministic presentation formatting."),
       workspaceImport("@gooddealer/protocol", "Account web's public account wire contracts.", ["./account"]),
+      workspaceImport("@gooddealer/ui", "Shared UI root, tokens, and declared static assets.", [
+        ".",
+        "./assets/*",
+        "./tokens.css",
+      ]),
     ],
     protocolSubpaths: ["./account"],
-    externalDependencies: ["esbuild"],
+    externalDependencies: ["@types/react", "@types/react-dom", "esbuild", "react", "react-dom", "vite"],
   }),
   topologyUnit({
     id: "admin-web",

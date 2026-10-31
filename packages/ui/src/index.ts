@@ -81,8 +81,9 @@ export { Banner, Callout } from "./components/banner/banner";
 export type { BannerProps, BannerTone, CalloutProps } from "./components/banner/banner";
 export {
   AlertTriangleIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CoinsIcon, CopyIcon,
-  ExternalLinkIcon, FileTextIcon, GlobeIcon, HistoryIcon, InboxIcon, LifeBuoyIcon,
-  ListChecksIcon, MonitorIcon, PauseIcon, PlayIcon, RefreshCwIcon, SearchIcon, SettingsIcon,
-  ShieldAlertIcon, ShieldIcon, UploadIcon, XIcon,
+  DatabaseIcon, DownloadIcon, ExternalLinkIcon, FileTextIcon, GlobeIcon, HistoryIcon, InboxIcon,
+  KeyRoundIcon, LifeBuoyIcon, ListChecksIcon, LogOutIcon, MailIcon,
+  MonitorIcon, PauseIcon, PlayIcon, ReceiptIcon, RefreshCwIcon, SearchIcon, SettingsIcon,
+  ShieldAlertIcon, ShieldCheckIcon, ShieldIcon, UploadIcon, XIcon,
 } from "./components/icon/icon";
 export type { IconProps } from "./components/icon/icon";

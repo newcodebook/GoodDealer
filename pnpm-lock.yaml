@@ -193,13 +193,34 @@ importers:
       '@gooddealer/cloud-client':
         specifier: workspace:*
         version: link:../../packages/cloud-client
+      '@gooddealer/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@gooddealer/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@gooddealer/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
     devDependencies:
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      vite:
+        specifier: 8.3.5
+        version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
 
   apps/admin-web:
     dependencies:

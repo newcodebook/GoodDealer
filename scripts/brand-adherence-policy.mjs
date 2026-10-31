@@ -5,14 +5,18 @@ import { fileURLToPath } from "node:url";
 const defaultRoot = fileURLToPath(new URL("..", import.meta.url));
 
 /**
- * Presentation roots that must render through the shared brand tokens. Account Web is excluded
- * until its presentation is rebuilt on `@gooddealer/ui`; remove that exception with the rebuild.
+ * Presentation roots that must render through the shared brand tokens. Account Web's rebuilt React
+ * screens are scanned; its legacy `src/browser.ts` and `public/index.html` stay excluded until the
+ * production entry is ported to them, and that port removes the exception with the legacy page.
  */
 export const brandPresentationRoots = Object.freeze([
   "packages/ui/src",
   "apps/desktop/src",
   "apps/desktop/visual-fixtures",
   "apps/marketing-web/src",
+  "apps/account-web/src/app-shell",
+  "apps/account-web/src/features",
+  "apps/account-web/visual-fixtures",
 ]);
 
 /** The token layer is the only place allowed to spell concrete colors and font families. */

@@ -38,6 +38,15 @@ Identity response is strictly parsed before presentation. The staging deployment
 adapter with `account@gooddealer.com`; a test user without database or development-tool access completed the
 real registration, email verification, login, refresh recovery, and logout journey. Production email delivery
 and public-signup qualification remain separate.
+The presentation is being rebuilt from `brand/ui_kits/account-web` on React with `@gooddealer/ui` and
+`@gooddealer/i18n` (zh-CN / en-US account copy). The rebuilt screens live in `src/app-shell` and
+`src/features` (access, license, devices, billing so far) and currently render only in the design host
+under `visual-fixtures` (`pnpm visual:dev`, typed mock data, labelled MOCK or CLOUD per screen). Only
+screens with a Cloud contract (access and license, pinned by `productionAccountRouteIds`) will be composed
+into production, and signing in lands on License because there is no separate Overview; until that port
+lands, `src/browser.ts` and `public/index.html` remain the deployed page and stay outside the brand
+adherence scan. Devices and Billing are designed ahead of their Account Web routes and are never composed
+into production before those routes exist.
 Launch exposes Stripe only; the optional PayPal adapter is not a launch or
 production-qualification dependency. Live-mode merchants, tax-qualified sales regions and production
 qualification remain unavailable.

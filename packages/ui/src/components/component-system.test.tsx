@@ -40,6 +40,14 @@ describe("desktop component system root API", () => {
   });
 });
 
+describe("MetricStrip wrapping", () => {
+  it("wraps only when a surface opts in", () => {
+    const metrics = [{ label: "Total", value: "10" }, { label: "Paid", value: "2027/10/24" }];
+    expect(renderToStaticMarkup(<MetricStrip metrics={metrics}/>)).toContain('class="gd-metricstrip"');
+    expect(renderToStaticMarkup(<MetricStrip wrap metrics={metrics}/>)).toContain('class="gd-metricstrip gd-metricstrip--wrap"');
+  });
+});
+
 describe("Table responsive and virtualization seams", () => {
   const columns = [
     { key: "name", label: "Name", priority: "essential" as const },
