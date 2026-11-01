@@ -14,7 +14,7 @@ chacha20poly1305.workspace = true
 fs2 = "=0.4.3"
 getrandom = "=0.4.3"
 ring = "=0.17.14"
-rustix = { version = "=1.1.4", default-features = false, features = ["fs", "process", "std"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["fs", "process", "std"] }
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
