@@ -24,7 +24,7 @@ Session，退出立即撤销精确 family。密码恢复使用独立 challenge�
 完整边界见 [ADR-0022](adr/0022-account-identity-and-email-delivery.md)。
 
 Account Web 继续使用 `gd_session` Cookie。Desktop 不复用该 Cookie：Native Host 通过系统浏览器
-发起固定客户端、固定回调地址的 Authorization Code + PKCE S256 流程。授权页固定在 Account Web 源（`https://account.gooddealer.com/v1/desktop-oauth/authorize`，经同源 `/v1/*` 代理到 Cloud），使浏览器的 host-only `gd_session` 能到达授权路由；token、Grant 与同步仍只走 API 源。没有会话时 Cloud 以相对 302 跳转到同源登录页并携带 `continue`，Account Web 只接受恰好一个同源、带查询、无片段的 Desktop 授权路径，登录或发现已有会话后以 `location.replace` 返回，其他目标一律忽略。Cloud 只保存授权码、
+发起固定客户端的 Authorization Code + PKCE S256 流程。回调按 RFC 8252 §7.3 使用 loopback（ADR-0026）：每次登录 Native 在 `127.0.0.1` 绑定系统分配端口，`redirect_uri` 精确为 `http://127.0.0.1:{port}/oauth/callback`；Cloud 只接受该形式（端口 1024–65535），并在 challenge、签名 transcript 与 token 兑换中要求同一字符串，浏览器经普通 HTTP 重定向回到 Native，不经过系统 URL scheme 或外部协议提示。授权页固定在 Account Web 源（`https://account.gooddealer.com/v1/desktop-oauth/authorize`，经同源 `/v1/*` 代理到 Cloud），使浏览器的 host-only `gd_session` 能到达授权路由；token、Grant 与同步仍只走 API 源。没有会话时 Cloud 以相对 302 跳转到同源登录页并携带 `continue`，Account Web 只接受恰好一个同源、带查询、无片段的 Desktop 授权路径，登录或发现已有会话后以 `location.replace` 返回，其他目标一律忽略。Cloud 只保存授权码、
 access token 和 refresh token 的 SHA-256 摘要；授权码五分钟内有效且只能消费一次。access token
 短期有效并只驻留 Native 内存，refresh token 每次使用后轮换并只存系统凭据项（macOS Keychain；Linux 按 ADR-0025 使用 Secret Service）；重放已轮换
 refresh token 会撤销整个 token family。每次 refresh 前，Native 先持久化一个 pending request ID；
@@ -35,7 +35,7 @@ token 搭配不同 request ID 是 reuse，失败关闭并撤销整个 token fami
 网络错误保留 refresh custody 和 pending request ID；只有确定的 `invalid_grant` 才清除两者并要求
 重新登录。Renderer 只能观察脱敏状态，不能读取 OAuth URL、PKCE 材料或任何 token。
 
-code 签发前采用两段式浏览器授权：Account Web 会话先创建两分钟 challenge 并回跳 Native；
+code 签发前采用两段式浏览器授权：Account Web 会话先创建两分钟 challenge 并重定向到 Native 的 loopback 回调，Native 在同一标签页把浏览器送往第二段授权；
 Native 用独立 Keychain 中的 Ed25519 设备密钥签署绑定 account/device/key/PKCE/client/redirect/
 nonce digest/expiry 的固定 transcript，再返回浏览器完成授权。首次安装在账户有空闲槽位时由同一
 事务建立 version 1 active key 和 binding；首次绑定还要求 Account Web 会话由五分钟内的密码或

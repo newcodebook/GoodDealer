@@ -173,10 +173,9 @@ files, and non-file database targets; on Unix it restricts the Host-owned databa
 owner.
 
 Before reading any Keychain item or opening SQLCipher, the first process acquires an OS-level exclusive
-application-data lock. A second process cannot become a refresh or database authority; single-instance
-delivery forwards a custom-scheme launch to the established process. Exact bounded OAuth callbacks
-that arrive during Native setup are buffered before managed OAuth state exists and atomically drained
-after that state is installed, preserving the one-time callback across the startup window.
+application-data lock. A second process cannot become a refresh or database authority; the
+single-instance plugin hands a second launch to the established process. Browser sign-in no longer
+arrives through process launches at all (ADR-0026), so there is no startup callback window to buffer.
 
 On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
 the operating system CSPRNG only when no database exists. If an existing database loses its
@@ -192,8 +191,14 @@ boundary. They never enter Renderer state, IPC requests, sync mutations, Cloud, 
 ordinary audit payloads.
 
 GoodDealer Desktop login uses the system browser with Authorization Code + PKCE S256. PKCE verifier
-and state remain in Native memory. The one-time callback is accepted only at
-`gooddealer://oauth/callback` with an exact matching state. The short-lived access token remains in
+and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0026), each attempt binds a
+short-lived HTTP listener on `127.0.0.1` with an OS-chosen port and sends
+`http://127.0.0.1:{port}/oauth/callback` as the redirect URI; the browser returns over a plain HTTP
+redirect, so no OS URL scheme or browser external-protocol prompt is involved. The listener accepts
+only `GET /oauth/callback` with `Host: 127.0.0.1:{port}`, answers anything else with a static page,
+ignores callbacks whose state does not match without consuming the attempt, sends the challenge leg on
+to the next authorize URL in the same tab, exchanges the code inside the callback, and closes after a
+static result page. A new sign-in supersedes a waiting one, and an attempt closes after ten minutes. The short-lived access token remains in
 Native memory; the rotating refresh token is stored only in the purpose-isolated macOS Keychain item.
 Before Cloud issues a code, it returns an account-scoped two-minute challenge. Native signs the exact
 account/device/key/PKCE/client/redirect/nonce/expiry transcript with its separate Keychain-held

@@ -1,6 +1,7 @@
 //! PKCE/browser and authentication-status facade. Bearer and refresh custody belongs exclusively
 //! to `NativeCloudSession`.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,9 +11,11 @@ use gooddealer_secure_host_core::{
 };
 use tauri::{AppHandle, Emitter as _, State};
 use tauri_plugin_opener::OpenerExt as _;
+use tokio::sync::Notify;
 use url::Url;
 
 use crate::native_cloud_session::{NativeCloudSession, NativeOAuthError, NativeOAuthStatus};
+use crate::oauth_loopback::{self, LoopbackRequest, ResultPage};
 
 /// Browser-facing origin of the authorize page. Account Web signs the user in on this host and
 /// proxies `/v1/*` to Cloud, so its host-only session cookie reaches authorize; the API origin
@@ -22,11 +25,38 @@ pub(crate) const PRODUCTION_ACCOUNT_ORIGIN: &str = "https://account.gooddealer.c
 const SIGNED_OUT_REFRESH_POLL: Duration = Duration::from_mins(5);
 const MINIMUM_REFRESH_RETRY: Duration = Duration::from_secs(1);
 const MAXIMUM_REFRESH_RETRY: Duration = Duration::from_mins(1);
+/// Covers the five-minute enrollment re-authentication window plus the two-minute challenge with
+/// room for a slow sign-in; after it the loopback server closes and Desktop returns to signed out.
+const LOGIN_TIMEOUT: Duration = Duration::from_mins(10);
+
+/// The one browser login in flight. `generation` fences a superseded server so it can neither
+/// consume nor clear a newer attempt; `attempt` is `None` only while a callback is advancing it.
+struct ActiveLogin {
+    generation: u64,
+    attempt: Option<DesktopOAuthAttempt>,
+    cancel: Arc<Notify>,
+}
+
+/// A bound loopback listener waiting for the browser, owned by its serving task.
+pub(crate) struct LoopbackLogin {
+    listener: std::net::TcpListener,
+    port: u16,
+    generation: u64,
+    cancel: Arc<Notify>,
+}
+
+enum CallbackOutcome {
+    /// Not this attempt's state; the login keeps waiting.
+    Ignored,
+    Continue(Url),
+    Completed,
+}
 
 pub(crate) struct DesktopOAuthRuntime {
     authorization_origin: Option<String>,
     identity: Option<DesktopDeviceIdentity>,
-    pending: Mutex<Option<DesktopOAuthAttempt>>,
+    active: Mutex<Option<ActiveLogin>>,
+    generations: AtomicU64,
     session: Arc<NativeCloudSession>,
 }
 
@@ -47,7 +77,8 @@ impl DesktopOAuthRuntime {
                 .filter(|origin| valid_authorization_origin(origin))
                 .map(str::to_owned),
             identity,
-            pending: Mutex::new(None),
+            active: Mutex::new(None),
+            generations: AtomicU64::new(0),
             session,
         }
     }
@@ -63,14 +94,17 @@ impl DesktopOAuthRuntime {
         {
             return NativeOAuthStatus::Unavailable;
         }
-        if self.pending.lock().is_ok_and(|pending| pending.is_some()) {
+        if self.active.lock().is_ok_and(|active| active.is_some()) {
             NativeOAuthStatus::Pending
         } else {
             self.session.status()
         }
     }
 
-    pub(crate) fn begin(&self) -> Result<String, NativeOAuthError> {
+    /// Binds a fresh loopback listener and creates the attempt that names it. A login that is
+    /// still waiting is superseded rather than reported as busy, so a closed tab never strands
+    /// the user.
+    pub(crate) fn begin(&self) -> Result<(String, LoopbackLogin), NativeOAuthError> {
         let _attempt = self.session.begin_attempt()?;
         let origin = self
             .authorization_origin
@@ -81,37 +115,86 @@ impl DesktopOAuthRuntime {
             .as_ref()
             .ok_or(NativeOAuthError::Unavailable)?;
         self.session.prepare_authorization_recovery()?;
-        let attempt = DesktopOAuthAttempt::begin(origin, identity)
+        let (listener, port) = oauth_loopback::bind().map_err(|_| NativeOAuthError::Unavailable)?;
+        let attempt = DesktopOAuthAttempt::begin(origin, identity, port)
             .map_err(|_| NativeOAuthError::Unavailable)?;
         let authorization_url = attempt.authorization_url().to_string();
-        let mut pending = self
-            .pending
+        let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
+        let cancel = Arc::new(Notify::new());
+        let mut active = self
+            .active
             .lock()
             .map_err(|_| NativeOAuthError::Unavailable)?;
-        if pending.is_some() {
-            return Err(NativeOAuthError::Busy);
+        if let Some(previous) = active.replace(ActiveLogin {
+            generation,
+            attempt: Some(attempt),
+            cancel: Arc::clone(&cancel),
+        }) {
+            previous.cancel.notify_one();
         }
-        *pending = Some(attempt);
-        Ok(authorization_url)
+        Ok((
+            authorization_url,
+            LoopbackLogin {
+                listener,
+                port,
+                generation,
+                cancel,
+            },
+        ))
     }
 
-    pub(crate) fn cancel_pending(&self) {
-        if let Ok(mut pending) = self.pending.lock() {
-            *pending = None;
+    /// Stops the given login's server and ends it if it is still the current one.
+    fn cancel(&self, generation: u64) {
+        if let Ok(mut active) = self.active.lock()
+            && active
+                .as_ref()
+                .is_some_and(|login| login.generation == generation)
+            && let Some(login) = active.take()
+        {
+            login.cancel.notify_one();
         }
     }
 
-    pub(crate) async fn handle_callback(
+    /// Ends the given login if it is still the current one.
+    fn finish(&self, generation: u64) {
+        if let Ok(mut active) = self.active.lock()
+            && active
+                .as_ref()
+                .is_some_and(|login| login.generation == generation)
+        {
+            *active = None;
+        }
+    }
+
+    async fn handle_callback(
         &self,
+        generation: u64,
         callback: Url,
-    ) -> Result<Option<Url>, NativeOAuthError> {
+    ) -> Result<CallbackOutcome, NativeOAuthError> {
         let _attempt_guard = self.session.begin_attempt()?;
-        let attempt = self
-            .pending
-            .lock()
-            .map_err(|_| NativeOAuthError::Unavailable)?
-            .take()
-            .ok_or(NativeOAuthError::CallbackRejected)?;
+        let attempt = {
+            let mut active = self
+                .active
+                .lock()
+                .map_err(|_| NativeOAuthError::Unavailable)?;
+            let Some(login) = active
+                .as_mut()
+                .filter(|login| login.generation == generation)
+            else {
+                return Err(NativeOAuthError::CallbackRejected);
+            };
+            if !login
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.callback_state_matches(&callback))
+            {
+                return Ok(CallbackOutcome::Ignored);
+            }
+            login
+                .attempt
+                .take()
+                .ok_or(NativeOAuthError::CallbackRejected)?
+        };
         let identity = self
             .identity
             .as_ref()
@@ -124,21 +207,87 @@ impl DesktopOAuthRuntime {
                 attempt,
                 authorization_url,
             } => {
-                *self
-                    .pending
+                let mut active = self
+                    .active
                     .lock()
-                    .map_err(|_| NativeOAuthError::Unavailable)? = Some(*attempt);
-                Ok(Some(authorization_url))
+                    .map_err(|_| NativeOAuthError::Unavailable)?;
+                let login = active
+                    .as_mut()
+                    .filter(|login| login.generation == generation)
+                    .ok_or(NativeOAuthError::CallbackRejected)?;
+                login.attempt = Some(*attempt);
+                Ok(CallbackOutcome::Continue(authorization_url))
             }
             DesktopOAuthContinuation::Exchange(exchange) => {
                 self.session.exchange_authorization_code(exchange).await?;
-                Ok(None)
+                Ok(CallbackOutcome::Completed)
             }
         }
     }
 
+    /// Answers browser requests on one attempt's listener until the attempt completes, fails,
+    /// is superseded, or times out. Requests are served one at a time.
+    async fn serve(self: Arc<Self>, app: AppHandle, login: LoopbackLogin) {
+        let LoopbackLogin {
+            listener,
+            port,
+            generation,
+            cancel,
+        } = login;
+        if let Ok(listener) = tokio::net::TcpListener::from_std(listener) {
+            let deadline = tokio::time::sleep(LOGIN_TIMEOUT);
+            tokio::pin!(deadline);
+            loop {
+                let mut stream = tokio::select! {
+                    () = cancel.notified() => return,
+                    () = &mut deadline => break,
+                    accepted = listener.accept() => match accepted {
+                        Ok((stream, _)) => stream,
+                        Err(_) => continue,
+                    },
+                };
+                let callback = match oauth_loopback::read_request(&mut stream, port).await {
+                    LoopbackRequest::Callback(callback) => callback,
+                    LoopbackRequest::Unrelated => {
+                        oauth_loopback::respond(&mut stream, ResultPage::NotFound).await;
+                        continue;
+                    }
+                    LoopbackRequest::Rejected => {
+                        oauth_loopback::respond(&mut stream, ResultPage::BadRequest).await;
+                        continue;
+                    }
+                };
+                match self.handle_callback(generation, callback).await {
+                    Ok(CallbackOutcome::Ignored) => {
+                        oauth_loopback::respond(&mut stream, ResultPage::BadRequest).await;
+                    }
+                    Ok(CallbackOutcome::Continue(next)) => {
+                        oauth_loopback::redirect(&mut stream, &next).await;
+                    }
+                    Ok(CallbackOutcome::Completed) => {
+                        self.finish(generation);
+                        let _ = app.emit("desktop-authentication-status", self.status());
+                        oauth_loopback::respond(&mut stream, ResultPage::SignedIn).await;
+                        return;
+                    }
+                    Err(NativeOAuthError::Busy) => {
+                        oauth_loopback::respond(&mut stream, ResultPage::Retry).await;
+                    }
+                    Err(_) => {
+                        self.finish(generation);
+                        let _ = app.emit("desktop-authentication-status", self.status());
+                        oauth_loopback::respond(&mut stream, ResultPage::Failed).await;
+                        return;
+                    }
+                }
+            }
+        }
+        self.finish(generation);
+        let _ = app.emit("desktop-authentication-status", self.status());
+    }
+
     pub(crate) async fn refresh(&self) -> Result<(), NativeOAuthError> {
-        if self.pending.lock().is_ok_and(|pending| pending.is_some()) {
+        if self.active.lock().is_ok_and(|active| active.is_some()) {
             return Err(NativeOAuthError::Busy);
         }
         self.session.refresh().await
@@ -187,13 +336,15 @@ pub(crate) fn desktop_authentication_begin(
     app: AppHandle,
     runtime: State<'_, Arc<DesktopOAuthRuntime>>,
 ) -> Result<(), String> {
-    let authorization_url = runtime.begin().map_err(|error| error.to_string())?;
+    let (authorization_url, login) = runtime.begin().map_err(|error| error.to_string())?;
+    let generation = login.generation;
+    tauri::async_runtime::spawn(Arc::clone(runtime.inner()).serve(app.clone(), login));
     if app
         .opener()
         .open_url(authorization_url, None::<&str>)
         .is_err()
     {
-        runtime.cancel_pending();
+        runtime.cancel(generation);
         return Err(NativeOAuthError::TransportRejected.to_string());
     }
     let _ = app.emit("desktop-authentication-status", runtime.status());
@@ -238,7 +389,7 @@ mod tests {
             Arc::new(DesktopLocalHost::default()),
         );
         assert_eq!(runtime.status(), NativeOAuthStatus::Unavailable);
-        assert_eq!(runtime.begin(), Err(NativeOAuthError::Unavailable));
+        assert_eq!(runtime.begin().err(), Some(NativeOAuthError::Unavailable));
     }
 
     #[test]

@@ -333,7 +333,6 @@ test("the production catalog covers the current repository inventory", () => {
     "serde_json",
     "tauri",
     "tauri-build",
-    "tauri-plugin-deep-link",
     "tauri-plugin-opener",
     "tauri-plugin-single-instance",
     "tokio",

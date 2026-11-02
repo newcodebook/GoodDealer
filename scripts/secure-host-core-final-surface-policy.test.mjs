@@ -117,6 +117,7 @@ const expectedDesktopOAuthPublicItems = [
   "DesktopRefreshToken",
   "authorization_url",
   "begin",
+  "callback_state_matches",
   "clear_desktop_refresh_request_id",
   "clear_desktop_refresh_token",
   "advance",

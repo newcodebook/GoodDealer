@@ -533,7 +533,7 @@ mod tests {
             challenge_id: "login-challenge-a",
             code_challenge: "C",
             client_id: "gooddealer-desktop",
-            redirect_uri: "gooddealer://oauth/callback",
+            redirect_uri: "http://127.0.0.1:53682/oauth/callback",
             nonce_digest: "N",
             expires_at: "2026-09-01T00:02:00Z",
         };

@@ -145,6 +145,16 @@ const expectedCatalog = [
     owner: "workspace/default-workspace",
     checksum: "e35c43c0daab0ffcb2f5998a9f7287f1e0cf5a46caa4f729274cbe0d3a5c2ecb",
   },
+  {
+    id: "202611020001-desktop-login-loopback-redirect",
+    owner: "devices",
+    checksum: "b72bf2909c4bb1bb9352c424aa23b2353598c7d2ff5767d1da947e2c70ede0b7",
+  },
+  {
+    id: "202611020002-desktop-code-loopback-redirect",
+    owner: "identity",
+    checksum: "1f6a78085fd7080c78c7af7bf9da8f1c87cea17027fd62f0eef65b4932de1947",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -170,7 +180,8 @@ describe("Cloud migration catalog", () => {
       + "  desktopLoginAuthorityMigration,\n  identityTransactionCapabilityMigration,\n  accountAccessMigration,\n"
       + "  syncV2LedgerMigration,\n  workspaceCheckpointV2Migration,\n  cloudflareDnsObservationMigration,\n"
       + "  accountRecoveryMigration,\n  commercialEntitlementSnapshotMigration,\n"
-      + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n];",
+      + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
+      + "  desktopCodeLoopbackRedirectMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -183,7 +194,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(25);
+    expect(checkedCloudMigrationCatalog).toHaveLength(27);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

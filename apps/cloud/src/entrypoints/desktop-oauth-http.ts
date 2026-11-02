@@ -15,10 +15,10 @@ import {
 import { PostgresEntitlementDeadlineReader } from "../modules/licensing/index";
 import {
   DESKTOP_OAUTH_CLIENT_ID,
-  DESKTOP_OAUTH_REDIRECT_URI,
   DesktopTokenRefreshService,
   PostgresDesktopOAuthAuthorizationService,
   PostgresIdentityAuthenticationRepository,
+  isDesktopOAuthRedirectUri,
 } from "../modules/identity/index";
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/index";
 import {
@@ -159,7 +159,7 @@ export function createDesktopOAuthHttp(deps: DesktopOAuthHttpDependencies): Fast
       evaluatedAt,
     });
     if (!result.authorized && "challengeRequired" in result && result.challengeRequired) {
-      const callback = new URL(DESKTOP_OAUTH_REDIRECT_URI);
+      const callback = new URL(query.redirect_uri);
       callback.searchParams.set("challenge_id", result.challenge.challengeId);
       callback.searchParams.set("account_id", result.challenge.accountId);
       callback.searchParams.set("device_id", result.challenge.deviceId);
@@ -170,7 +170,7 @@ export function createDesktopOAuthHttp(deps: DesktopOAuthHttpDependencies): Fast
       return reply.redirect(callback.toString(), 302);
     }
     if (!result.authorized) return reply.code(403).send();
-    const callback = new URL(DESKTOP_OAUTH_REDIRECT_URI);
+    const callback = new URL(query.redirect_uri);
     callback.searchParams.set("code", result.code);
     callback.searchParams.set("state", query.state);
     return reply.redirect(callback.toString(), 302);
@@ -240,7 +240,7 @@ export function createDesktopOAuthHttp(deps: DesktopOAuthHttpDependencies): Fast
 function parseAuthorizationQuery(value: unknown): {
   readonly response_type: "code";
   readonly client_id: typeof DESKTOP_OAUTH_CLIENT_ID;
-  readonly redirect_uri: typeof DESKTOP_OAUTH_REDIRECT_URI;
+  readonly redirect_uri: string;
   readonly code_challenge: string;
   readonly code_challenge_method: "S256";
   readonly device_id: string;
@@ -260,7 +260,7 @@ function parseAuthorizationQuery(value: unknown): {
   if (!initial && !proof) return null;
   if (
     value.response_type !== "code" || value.client_id !== DESKTOP_OAUTH_CLIENT_ID
-    || value.redirect_uri !== DESKTOP_OAUTH_REDIRECT_URI || value.code_challenge_method !== "S256"
+    || !isDesktopOAuthRedirectUri(value.redirect_uri) || value.code_challenge_method !== "S256"
     || typeof value.code_challenge !== "string" || typeof value.device_id !== "string"
     || typeof value.key_id !== "string" || typeof value.public_key !== "string"
     || typeof value.state !== "string" || !/^[A-Za-z0-9._~-]{32,128}$/u.test(value.state)
@@ -271,7 +271,7 @@ function parseAuthorizationQuery(value: unknown): {
   return {
     response_type: "code",
     client_id: DESKTOP_OAUTH_CLIENT_ID,
-    redirect_uri: DESKTOP_OAUTH_REDIRECT_URI,
+    redirect_uri: value.redirect_uri,
     code_challenge: value.code_challenge,
     code_challenge_method: "S256",
     device_id: value.device_id,

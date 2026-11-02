@@ -558,7 +558,6 @@ export const repositoryTopology = Object.freeze([
       "serde_json",
       "tauri",
       "tauri-build",
-      "tauri-plugin-deep-link",
       "tauri-plugin-opener",
       "tauri-plugin-single-instance",
       "tokio",

@@ -18,6 +18,7 @@
 | 本地业务库与 Cloud 边界 | 本地 SQLCipher 是 Desktop 业务权威；Cloud 只拥有账号/授权控制面以及允许字段的同步恢复副本。第三方账号、账号 metadata 和秘密全部禁止同步。 | [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md) |
 | 域名 Provider 能力范围 | 首发目标覆盖项目所需的域名资产生命周期能力，包括 DNS、DNSSEC、Nameserver、注册商操作和监控；非域名产品不在范围。每项能力独立资格化，资金操作逐笔用户确认。当前生产组合仍只有 Cloudflare Zone/DNS 只读观察，新执行路径保持不可用。 | [ADR-0024](adr/0024-domain-provider-capability-coverage-and-financial-confirmation.md) |
 | Linux 原生秘密托管 | 启动与登录所需的数据库 key、设备身份、安装绑定、OAuth refresh 与工作区绑定使用 Secret Service；无按应用访问控制，边界等同当前用户会话。Cloudflare 凭据、备份 KEK 与 rebootstrap 写入在 Linux 保持不可用。 | [ADR-0025](adr/0025-linux-secret-service-custody.md) |
+| Desktop 浏览器登录回调 | 按 RFC 8252 §7.3 使用 `http://127.0.0.1:{port}/oauth/callback` loopback 回调，端口每次由系统分配；Cloud 只接受该精确形式并在 challenge、transcript 与兑换中要求同一字符串。自定义 scheme 与 deep-link 不再用于登录；新登录取代等待中的登录，单次登录 10 分钟超时。 | [ADR-0026](adr/0026-desktop-oauth-loopback-redirect.md) |
 | 浏览器产品范围 | 首发产品不包含嵌入式浏览器、DOM 自动化、Cookie/Profile custody、自动登录、下载或上传。需要网页操作时由用户在自己的浏览器中完成；未来引入任何受控浏览器能力必须有新的 ADR。 | [ADR-0017](adr/0017-v1-excludes-browser-automation.md) |
 | 运营与首发 Release | 生产采用单区域、受管服务的运行模型，生产、预发布和开发环境严格隔离。首个公开客户发行目标为 `1.0.0` 的 `stable` 渠道，且只在完整首发范围、外部资格和独立批准均具备时发出。 | [ADR-0018](adr/0018-production-operations-and-stable-release.md) |
 | 商业计划与支付 | 同一功能档位提供 USD 9.80 月付、USD 98 年付和 USD 498 的 10 年固定期限预付授权；无免费试用；每账号终身唯一的首次 settled acquisition 有 336 小时全额退款窗口，续费不重置，接受即只读；首发只开放 Stripe，PayPal 是不参与首发资格的可选扩展能力；每账号最多一个有效 Provider；优惠不可叠加并由服务端统一映射；价格未含税且只开放合规销售地区。 | [ADR-0020](adr/0020-commercial-entitlement-and-local-access.md) |
