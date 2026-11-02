@@ -79,7 +79,7 @@ VPS 上的配置位置只用于定位和权限审查，不能把内容输出到�
 | `/etc/gooddealer/cloud-runtime.env` | App、Account API、Identity issuer、Provider ingress、Provider worker 五个独立 PostgreSQL URL；Identity verification pepper、outbox key、独立 browser namespace HMAC key 和独立 Workspace sync cursor/confirmation HMAC key；以及非秘密文件定位和 loopback host/port。禁止 Owner URL，禁止五个 runtime 身份共用凭据；四个 key 必须分别为独立 32-byte base64url 值。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/cloud-migration.env` | 仅 Owner PostgreSQL URL；禁止 App URL 和运行时配置。 | `root:gooddealer-migrator 0640` |
 | `/etc/gooddealer/provider-worker/development.env` | 仅 Provider worker 所需 PostgreSQL URL、Provider 配置定位和有界 drain 设置。 | `root:gooddealer-provider 0640` |
-| `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。 | `root:gooddealer-provider 0640` |
+| `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并包含 Desktop Grant 唯一能力 `cloudflare:dns:observe`，否则 Cloud 启动失败。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/postgres.env` | PostgreSQL 容器管理凭据。 | `root:root 0600` |
 | `/etc/gooddealer/openbao/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/openbao/public-keys.json` | OpenBao 地址、每 purpose 的 active key/version 与 1–8 把重叠 verifier key。 | `root:gooddealer 0640` |
@@ -247,6 +247,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 | `502` / 连接拒绝 | 检查 Cloud systemd 状态、journal 脱敏摘要、`127.0.0.1:3100` 和 PostgreSQL health。 | 不把 Cloud 改为 `0.0.0.0`。 |
 | Cloud 重启循环 | 先检查锁定 Node 路径、release 中 `apps/cloud/node_modules/tsx`、独立 migrator 最近结果和 OpenBao seal 状态。 | 不打印 EnvironmentFile、把 Owner URL 放回 runtime unit 或跳过 migration。 |
 | Transit 签名失败 | 检查 OpenBao active/unsealed、AppRole SecretID 是否过期、开发 CA 和固定 key version。 | 不使用 root token 运行 Cloud，不关闭 TLS 校验。 |
+| Desktop token 换取成功但仍未登录，`/v1/devices/authorization-grant` 被拒 | 账户 entitlement 的 `feature_entitlements` 缺少 `cloudflare:dns:observe` 时 Grant 返回 403。能力在支付 webhook 处理时按当时 policy 写入，修正 policy 后既有 entitlement 不会改变，需要一次新的购买或续订事件。 | 只读 entitlement 的 state、plan 和能力列表；不手改 licensing 表。 |
 | Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、两把 Transit key 能按固定版本签名，再确认账户有 active entitlement。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
 | TLS/Cloudflare 错误 | 检查源站证书有效期、`nginx -t`、Certbot renewal 和域名 server block。 | 不修改 Cloudflare SSL 模式或 DNS，除非用户另行授权。 |
 | migration 数量/摘要漂移 | 对比 `apps/cloud/src/db/migrations.ts` 和数据库 ledger，停止发布。 | 不编辑 ledger、不强行标记 migration 已应用。 |

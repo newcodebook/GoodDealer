@@ -189,6 +189,24 @@ describe("PostgreSQL Desktop authorization application service", () => {
   });
 
   it.each([
+    ["lacks the Grant capability", { feature_entitlements: ["feature:portfolio", "feature:provider-read"] }],
+    ["is not active", { state: "revoked" }],
+    ["has commercially expired", { commercial_expires_at: new Date("2026-08-29T00:00:00Z") }],
+  ])("denies without signing when the entitlement %s", async (_name, override) => {
+    const signer = new Ed25519GrantSigner();
+    const service = serviceFor(signer, async (text) => {
+      if (text.includes("identity_account_security_states")) {
+        return rows([{ account_security_epoch: "4", status: "normal" }]);
+      }
+      if (text.includes("identity_auth_sessions")) return rows([{ device_id: "device-a" }]);
+      if (text.includes("read_authoritative_entitlement_snapshot")) return rows([commercialRow(override)]);
+      return rows([leaseRow()]);
+    });
+    await expect(service.issue({ schemaVersion: 3 }, principal)).resolves.toBeNull();
+    expect(signer.calls).toBe(0);
+  });
+
+  it.each([
     ["recovery-pending security", [{ account_security_epoch: "4", status: "recovery_pending" }], [], []],
     ["missing session", [{ account_security_epoch: "4", status: "normal" }], [], []],
     ["wrong session device", [{ account_security_epoch: "4", status: "normal" }], [{ device_id: "device-b" }], []],
