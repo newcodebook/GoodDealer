@@ -2130,17 +2130,16 @@ mod tests {
         match test_case.kind.as_str() {
             "push-response" => corpus_accepts_push(test_case, correlation),
             "pull-response" => corpus_accepts_pull(test_case, correlation),
-            "checkpoint-response" => {
-                strict_json::<CheckpointResponseWire>(test_case.wire.as_bytes())
-                    .ok()
-                    .is_some_and(|response| {
-                        response.schema_version == 2
-                            && response.checkpoint.as_ref().is_none_or(|checkpoint| {
-                                checkpoint.validate().is_ok()
-                                    && checkpoint.workspace_id == correlation.workspace_id
-                            })
+            "checkpoint-response" => strict_json::<CheckpointResponseWire>(
+                test_case.wire.as_bytes(),
+            )
+            .is_ok_and(|response| {
+                response.schema_version == 2
+                    && response.checkpoint.as_ref().is_none_or(|checkpoint| {
+                        checkpoint.validate().is_ok()
+                            && checkpoint.workspace_id == correlation.workspace_id
                     })
-            }
+            }),
             "projection-response" => {
                 let Ok(response) = strict_json::<ProjectionResponseWire>(test_case.wire.as_bytes())
                 else {

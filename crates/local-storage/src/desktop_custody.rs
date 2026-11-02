@@ -4284,7 +4284,7 @@ fn decode_lower_hex_digest(value: &str) -> Option<[u8; 32]> {
         return None;
     }
     let mut output = [0_u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = u8::try_from((pair[0] as char).to_digit(16)?).ok()?;
         let low = u8::try_from((pair[1] as char).to_digit(16)?).ok()?;
         output[index] = (high << 4) | low;
