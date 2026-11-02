@@ -120,9 +120,9 @@ mod desktop_custody;
 mod desktop_custody;
 mod desktop_native_cloud;
 // Production custody only: under `cfg(test)` custody uses in-memory stores instead.
+mod desktop_sync_runtime;
 #[cfg(all(target_os = "linux", not(test)))]
 mod secret_service_custody;
-mod desktop_sync_runtime;
 
 mod migrations;
 #[cfg_attr(not(unix), cfg(any()))]

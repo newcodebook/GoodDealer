@@ -293,7 +293,9 @@ fn secret_service_error(
 ) -> LocalWorkspaceBindingError {
     match error {
         crate::secret_service_custody::SecretServiceError::Unavailable
-        | crate::secret_service_custody::SecretServiceError::Rejected => LocalWorkspaceBindingError::Unavailable,
+        | crate::secret_service_custody::SecretServiceError::Rejected => {
+            LocalWorkspaceBindingError::Unavailable
+        }
     }
 }
 

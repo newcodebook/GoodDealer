@@ -284,7 +284,12 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let parent = tempdir().unwrap();
-        let path = parent.path().canonicalize().unwrap().join("share").join("GoodDealer");
+        let path = parent
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("share")
+            .join("GoodDealer");
         DesktopApplicationRoot::validate(&path).unwrap();
         // Any group/other bit would come from the process umask, not the requested mode.
         for created in [path.parent().unwrap(), path.as_path()] {

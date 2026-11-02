@@ -42,7 +42,11 @@ fn select(unlocked: usize, locked: usize) -> Selection {
 }
 
 fn expected_attributes<'a>(service: &'a str, account: &'a str) -> HashMap<&'a str, &'a str> {
-    HashMap::from([("application", APPLICATION), ("service", service), ("account", account)])
+    HashMap::from([
+        ("application", APPLICATION),
+        ("service", service),
+        ("account", account),
+    ])
 }
 
 /// Re-checks the item's identity after the search: the three identity attributes must match
@@ -149,7 +153,10 @@ pub(crate) fn store(service: &str, account: &str, value: &[u8]) -> Result<(), Se
 ///
 /// [`SecretServiceError::Unavailable`] when removal cannot be confirmed.
 #[cfg(target_os = "linux")]
-#[allow(dead_code, reason = "local-storage never removes its items; secure-host-core does")]
+#[allow(
+    dead_code,
+    reason = "local-storage never removes its items; secure-host-core does"
+)]
 pub(crate) fn delete(service: &str, account: &str) -> Result<(), SecretServiceError> {
     let store = connect()?;
     let found = store
@@ -201,7 +208,10 @@ mod tests {
         ]);
         assert!(attributes_match(&exact, "svc", "acct"));
         let mut with_schema = exact.clone();
-        with_schema.insert("xdg:schema".to_owned(), "org.freedesktop.Secret.Generic".to_owned());
+        with_schema.insert(
+            "xdg:schema".to_owned(),
+            "org.freedesktop.Secret.Generic".to_owned(),
+        );
         assert!(attributes_match(&with_schema, "svc", "acct"));
 
         assert!(!attributes_match(&exact, "svc", "other"));

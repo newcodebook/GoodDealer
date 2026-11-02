@@ -158,8 +158,9 @@ describe("PostgreSQL tenant persistence", () => {
   it("rejects unknown, non-prefix, owner, and checksum drift before the next migration executes", async () => {
     const terminal = checkedCloudMigrationCatalog.at(-1);
     if (terminal === undefined) throw new Error("terminal migration is unexpectedly absent");
+    // Sorts after every real migration id, so appending to the catalog never invalidates the probe.
     const nextMigration = {
-      id: "202609220003-drift-probe",
+      id: "999912310001-drift-probe",
       owner: "test/probe",
       sql: "CREATE TABLE migration_drift_probe (id integer)",
     } as const;

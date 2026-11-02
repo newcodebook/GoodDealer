@@ -5468,12 +5468,16 @@ fn verify_secret_attributes(service: &str, account: &str) -> Result<(), DesktopC
 }
 
 #[cfg(all(target_os = "linux", not(test)))]
-fn secret_service_error(error: crate::secret_service_custody::SecretServiceError) -> DesktopCustodyError {
+fn secret_service_error(
+    error: crate::secret_service_custody::SecretServiceError,
+) -> DesktopCustodyError {
     match error {
         crate::secret_service_custody::SecretServiceError::Unavailable => {
             DesktopCustodyError::Unavailable
         }
-        crate::secret_service_custody::SecretServiceError::Rejected => DesktopCustodyError::Rejected,
+        crate::secret_service_custody::SecretServiceError::Rejected => {
+            DesktopCustodyError::Rejected
+        }
     }
 }
 

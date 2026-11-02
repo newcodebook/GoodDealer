@@ -7,11 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { registerHooks } from "node:module";
-
-// Node 26 removed the transform mode of its built-in type stripping; esbuild lowers parameter
-// properties and other non-erasable TypeScript syntax that strip-only mode rejects.
-import { transformSync } from "esbuild";
+import { createRequire, registerHooks } from "node:module";
 import { dirname, extname, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -385,6 +381,11 @@ export function jobsImportGraphReachesHttpFramework(entryPath) {
 
 function registerTypeScriptHooks() {
   if (hooksRegistered) return;
+  // Node 26 removed the transform mode of its built-in type stripping; esbuild lowers parameter
+  // properties and other non-erasable TypeScript syntax that strip-only mode rejects. It loads
+  // here, not at module top level, because CI evidence preparation imports this module's exports
+  // before dependencies are installed.
+  const { transformSync } = createRequire(import.meta.url)("esbuild");
   registerHooks({
     resolve(specifier, context, nextResolve) {
       if (
