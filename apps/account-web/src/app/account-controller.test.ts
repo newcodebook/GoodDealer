@@ -86,7 +86,9 @@ function createHarness(options: { readonly pathname?: string; readonly search?: 
 }
 
 async function settle(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  // Yields whole macrotask turns without a real timer: Windows rounds each `setTimeout(0)` up to its
+  // timer resolution, which pushed the 60-round polling test past Vitest's timeout.
+  for (let index = 0; index < 20; index += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe("AccountController session discovery", () => {
