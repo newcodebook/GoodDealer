@@ -2258,7 +2258,7 @@ impl RebootstrapRuntime {
 
     fn consume(&self, operation_id: u64) -> Result<(), RebootstrapError> {
         self.consumed_operation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |last| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |last| {
                 (operation_id > last).then_some(operation_id)
             })
             .map(|_| ())
@@ -2355,7 +2355,7 @@ impl RebootstrapRuntime {
 
 fn next_atomic(value: &AtomicU64) -> Result<u64, RebootstrapError> {
     value
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current
                 .checked_add(1)
                 .filter(|next| *next <= MAX_SAFE_INTEGER)

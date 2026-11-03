@@ -10,7 +10,7 @@ import {
   eligibleWorkspaceRouteIds,
   readAuthoritativeWorkspacePublication,
   resolveConflictAndReadWorkspace,
-} from "../app";
+} from "./workspace-publication";
 
 const HASH = "a".repeat(64);
 

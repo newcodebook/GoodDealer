@@ -56,10 +56,15 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
   失效，失败投递按有界退避重试并进入 durable terminal state。密码恢复推进 Security Epoch 并撤销
   全部 Session；登录先撤销已呈现的有效旧 Session，退出撤销精确 family。
 - Desktop 设备 Ed25519 seed、Device ID 与 Key ID 使用独立 Keychain item。Cloud challenge 只持久化
-  nonce digest 和 Account Web session digest，并把账户、设备、key、PKCE、固定 client/redirect、
+  nonce digest 和 Account Web session digest，并把账户、设备、key、PKCE、固定 client、本次 loopback redirect（ADR-0026）、
   期限绑定进签名 transcript；首次 binding 仅接受五分钟内由密码/Passkey 创建的 Web 会话，且
   两段浏览器流程必须使用同一会话。challenge 验签/消费、首次 binding 与 OAuth code 写入位于
   同一账户事务。
+- Linux 构件用 freedesktop Secret Service 托管数据库 key、设备身份与安装绑定、OAuth refresh 和
+  本地工作区绑定：强制 DH 加密会话，精确 `{application, service, account}` 属性，重复或锁定条目
+  失败关闭，写后逐字节回读。Secret Service 没有按应用访问控制，Linux 的秘密边界等同当前用户
+  会话；Cloudflare 凭据、备份 KEK 与 rebootstrap 写入在 Linux 上保持不可用。详见
+  [ADR-0025](adr/0025-linux-secret-service-custody.md)。
 - Desktop Grant/Lease 公钥是签名/notarized 构件内的严格 build-pinned allowlist；两个 purpose 均
   必须存在，未知或被移除的 `kid` 失败关闭。轮换先发布 old+new allowlist，再切 OpenBao key version。
 - 未来秘密操作应使用完整目的与作用域绑定，并在资源边界前后复核相关授权状态。

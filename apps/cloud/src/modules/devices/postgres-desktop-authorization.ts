@@ -48,7 +48,9 @@ implements DesktopAuthorizationApplicationPort {
       const lease = await readCurrentLease(transaction, principal.accountId, identity, this.leaseVerifier);
       if (lease === null) return null;
       const commercial = await readCurrentCommercialAuthority(transaction);
-      if (commercial === null) return null;
+      // An entitlement without the Grant capability is an ordinary denial, not a fault: the
+      // issuer's own check is a signer-boundary assertion and throws.
+      if (commercial === null || !authorizesGrant(commercial)) return null;
       const result = await this.issuer.issue({
         accountId: principal.accountId,
         deviceId: identity.deviceId,
@@ -61,10 +63,7 @@ implements DesktopAuthorizationApplicationPort {
       const currentCommercial = await readCurrentCommercialAuthority(transaction);
       if (
         currentCommercial === null
-        || currentCommercial.snapshot.state !== "active"
-        || currentCommercial.snapshot.commercialExpiresAt === null
-        || currentCommercial.snapshot.commercialExpiresAt <= currentCommercial.trustedNow
-        || !currentCommercial.snapshot.featureEntitlements.includes("cloudflare:dns:observe")
+        || !authorizesGrant(currentCommercial)
         || !Buffer.from(encodeAuthoritativeEntitlementSnapshotDigestInput(currentCommercial.snapshot))
           .equals(Buffer.from(encodeAuthoritativeEntitlementSnapshotDigestInput(commercial.snapshot)))
       ) return null;
@@ -98,10 +97,22 @@ function isPostgresAuthorizationFailure(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "42501";
 }
 
-async function readCurrentCommercialAuthority(transaction: AccountTransaction): Promise<{
+interface CommercialAuthority {
   readonly snapshot: AuthoritativeEntitlementSnapshot;
   readonly trustedNow: string;
-} | null> {
+}
+
+/** The V1 Grant authorizes exactly one capability; see `desktopAuthorizationGrantSchema`. */
+function authorizesGrant({ snapshot, trustedNow }: CommercialAuthority): boolean {
+  return snapshot.state === "active"
+    && snapshot.commercialExpiresAt !== null
+    && snapshot.commercialExpiresAt > trustedNow
+    && snapshot.featureEntitlements.includes("cloudflare:dns:observe");
+}
+
+async function readCurrentCommercialAuthority(
+  transaction: AccountTransaction,
+): Promise<CommercialAuthority | null> {
   const result = await transaction.query<{
     source_event_id: string;
     source_revision: string;

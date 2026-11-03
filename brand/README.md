@@ -29,7 +29,7 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **色彩 70/20/10**：黑是舞台（`#0A0B0F` 墨黑带蓝偏，禁纯黑）、金是主角（≤20%，越少越贵）、蓝是工作人员（系统语言）。面板 `#10131A`，描线 `#1E2230`。
 - **金色分层（核心决策）**：品牌层 = 105° 流沙金渐变（`#F2D488→#D4A437→#8A671D`），只用于 Logo ≥48px、开屏、徽章、营销；功能层 = 纯色 `#D4A437`，界面内一切估值数字、图标、描边。红线：禁高饱和纯金 `#FFD700`；金蓝不混渐变（唯一例外：数据可视化"投入→增值"序列）；蓝永远哑光（蓝一上渐变/辉光即塌成 Web3）；金不做大面积填充与正文。
 - **文本**：雾白 `#EAE8E1`（非纯白）、次级 `#8D93A3`。估值/金额 = 本色金 + `tabular-nums` 等宽。
-- **字体**：西文几何无衬线 General Sans（brand 方向：Aeonik / General Sans / Neue Haas；明确避免 Inter/Space Grotesk）；数字/代码 JetBrains Mono；中文 MiSans/HarmonyOS Sans 方向，CDN 以 Noto Sans SC 代替。UI 基准 13px；表头 11px 大写 +0.08em 字距。
+- **字体**：正文与中文用各平台系统界面字体——原生桌面感来自系统字形本身（macOS SF Pro + 苹方 PingFang SC；Windows Segoe UI Variable / Segoe UI + 微软雅黑 Microsoft YaHei UI；Linux Noto Sans + Noto Sans CJK SC / 思源黑体）。数字/代码/域名/估值一律 JetBrains Mono，且是唯一随应用打包的字体，保证金色等宽数字在各平台完全一致。品牌辨识度由金色等宽数字、Coin Seal、色彩与版式承担，不靠专有西文字体；不引入 Inter / Space Grotesk 等 webfont。UI 基准 13px；表头 11px 大写 +0.08em 字距。
 - **层次**：Linear 式——用描线色阶（`--gd-line` → `--gd-line-strong`）与面板色阶构建层次，不用透明度叠层。阴影安静（overlay 才有大阴影）。数据表面（表格/表单/diff）完全不透明；半透明 + 低强度 blur 仅限壳层（侧边栏、命令面板、模态遮罩）。
 - **圆角**：小而克制——按钮/输入 5px、卡片 7px、对话框 10px、药丸 999px。原生桌面感，非 Web 圆润。
 - **动效**：克制。120–160ms ease-out 淡入/2px 位移；无弹跳、无弹簧。悬停 = 面板提亮一档（`--gd-panel-raised`）或描线变亮；按下 = 颜色加深（蓝 `#2F62D8`），不缩放。系统级时长/缓动用 `--dur-fast/-base/-slow` 与 `--ease-out`（`tokens/spacing.css`）；`tokens/motion.css` 仅承载品牌层（`--gd-motion-*` 时长、`--gd-ease-*` 缓动）。**品牌动效**（开屏/成交/绑定/解锁/交权，从 Coin Seal 长出）另属「可表现」层：绑定类 `.gd-strike/.gd-seam/.gd-ripple/.gd-spin/.gd-gilt/.gd-draw/.gd-unlock/.gd-failover` + `--gd-motion-*` token，规范见 `guidelines/brand-motion.html`；`prefers-reduced-motion` 自动关闭品牌层、保留系统 transition。品牌华彩绝不泄进密集数据界面。
@@ -108,9 +108,13 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - 组件库为标准集（代码库 `packages/ui` 为空占位，无既有组件清单）
 - 原生桌面壳层 `WindowChrome` / `Toolbar` / `StatusBar`（references.md 指向 Warp 状态栏、Linear/Raycast 壳层工艺——去 SaaS 化的界面语言）
 
-## FONT SUBSTITUTIONS — 需要你提供
+## FONTS — 系统字体 + 打包等宽
 
-repo 无任何字体文件。当前 CDN 替代：General Sans（Fontshare，brand 列出的方向之一）、JetBrains Mono（Google）、**Noto Sans SC 代替 MiSans/HarmonyOS Sans**。若有 Aeonik / Neue Haas / MiSans 授权文件，请提供以替换 `tokens/fonts.css`。
+- **决策**：放弃专有西文 webfont（General Sans 的 ITF FFL 禁止经公开仓库分发；中文 webfont 体积以 MB 计），改用平台系统字体。这与绝大多数中文桌面软件一致，也最贴合「原生桌面形态」。
+- **字体栈顺序**：西文字体在前、中文在后，使西文与数字落在 SF Pro / Segoe UI，汉字回落到苹方 / 雅黑 / Noto Sans CJK SC。逐个写出字体名，不用 `system-ui`（中文 Windows 上可能把西文也解析为雅黑）。
+- **跨平台差异**：字形与字宽随平台变化——表格列宽、按钮宽度须留余量，界面需在 macOS / Windows / Linux 各自检查。
+- **打包**：生产只打包 JetBrains Mono（OFL-1.1，`@fontsource-variable/jetbrains-mono`，见 `packages/ui/src/tokens/fonts.css`）。本目录的 specimen 页面经 CDN 加载 JetBrains Mono，仅供参考预览。
+- **Wordmark**：若需要品牌化的「GoodDealer」字标，应使用转曲后的 SVG 图形资产，而不是运行时字体。
 
 ## Index
 

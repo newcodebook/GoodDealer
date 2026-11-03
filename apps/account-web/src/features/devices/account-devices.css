@@ -1,0 +1,42 @@
+.devices { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
+.devices-body { display: flex; flex-direction: column; gap: 14px; max-width: 1080px; padding: 18px; }
+/* The Epoch is a system counter, not value or ownership, so it is set in mono text-3 rather than gold. */
+.devices-epoch { color: var(--text-3); font-family: var(--font-mono); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
+.devices-row { display: grid; grid-template-columns: 20px 200px minmax(0, 1fr) auto auto; align-items: center; gap: 13px; padding: 14px 16px; border-bottom: 1px solid var(--gd-line); }
+.devices-row:last-child { border-bottom: 0; }
+/* The Active row matches Desktop Settings: a 4% gold wash, the solid-gold dot, and the ACTIVE badge.
+   The device glyph stays neutral so the row carries one gold signal per role, not four. */
+.devices-row--active { background: linear-gradient(90deg, color-mix(in srgb, var(--gd-gold) 4%, transparent), transparent 40%); }
+.devices-row-icon { color: var(--text-2); }
+.devices-row-identity, .devices-row-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.devices-row-name { overflow: hidden; color: var(--text-1); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.devices-row-state { display: flex; align-items: center; gap: 7px; }
+.devices-row-role { overflow: hidden; color: var(--text-2); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.devices-row-facts, .devices-row-seen { color: var(--text-3); font-family: var(--font-mono); font-size: var(--text-2xs); }
+.devices-row-seen { white-space: nowrap; }
+.devices-row-actions { display: flex; justify-content: flex-end; }
+.devices-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 16px; color: var(--text-3); text-align: center; }
+.devices-empty-title { color: var(--text-1); font-size: 14px; font-weight: var(--weight-medium); }
+.devices-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.devices-card { display: flex; gap: 13px; padding: 14px 16px; border: 1px solid var(--gd-line); border-radius: var(--radius-md); background: var(--gd-panel); }
+.devices-card img { flex: none; margin-top: 1px; }
+.devices-card-copy { display: flex; flex-direction: column; gap: 6px; }
+.devices-card-copy .gd-t-body-2 { line-height: 1.6; }
+.devices-card-title { color: var(--text-1); font-size: 13px; font-weight: var(--weight-medium); }
+.devices-card--bind { flex-direction: column; gap: 10px; border-style: dashed; border-color: var(--gd-line-strong); background: var(--gd-ink); }
+.devices-steps { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.devices-steps li { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: var(--text-xs); }
+.devices-step-index { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--gd-line-strong); border-radius: 50%; color: var(--text-2); font-family: var(--font-mono); font-size: var(--text-2xs); }
+.devices-dialog { display: flex; flex-direction: column; gap: 12px; }
+.devices-dialog-lead { color: var(--text-1); font-size: 13px; }
+.devices-dialog-facts { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-xs); line-height: 1.55; }
+.devices-dialog-ack { padding-top: 10px; border-top: 1px solid var(--gd-line); }
+@container (max-width: 820px) {
+  .devices-row { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .devices-row-meta, .devices-row-seen { grid-column: 2 / -1; }
+  .devices-row-actions { grid-row: 1; grid-column: 3; }
+  .devices-cards { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 560px) {
+  .devices-body { padding: 12px; }
+}

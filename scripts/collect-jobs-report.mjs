@@ -8,7 +8,11 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { registerHooks, stripTypeScriptTypes } from "node:module";
+import { registerHooks } from "node:module";
+
+// Node 26 removed the transform mode of its built-in type stripping; esbuild lowers parameter
+// properties and other non-erasable TypeScript syntax that strip-only mode rejects.
+import { transformSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -29,7 +33,7 @@ registerHooks({
       return {
         format: "module",
         shortCircuit: true,
-        source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), "utf8"), { mode: "transform" }),
+        source: transformSync(readFileSync(fileURLToPath(url), "utf8"), { loader: "ts", format: "esm" }).code,
       };
     }
     return nextLoad(url, context);

@@ -51,7 +51,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.25.0
+        run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Verify marketing deployment source policy
@@ -78,7 +78,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.25.0
+        run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Build @gooddealer/marketing-web

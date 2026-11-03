@@ -135,8 +135,8 @@ test("generated bundle retains the accepted commercial checkout contract", () =>
 
 test("launch-facing payment surfaces expose Stripe only", () => {
   const launchSource = [
-    source("apps/account-web/public/index.html"),
-    source("apps/account-web/src/browser.ts"),
+    source("apps/account-web/src/app/account-controller.ts"),
+    source("apps/account-web/src/features/license/account-license.tsx"),
     source("apps/marketing-web/src/data/en.ts"),
     source("apps/marketing-web/src/data/zh.ts"),
     currentStateSource(),

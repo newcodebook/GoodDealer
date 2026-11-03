@@ -22,7 +22,17 @@ import {
 import type { PostgresIdentityAuthenticationRepository } from "./postgres-authentication-repository";
 
 export const DESKTOP_OAUTH_CLIENT_ID = "gooddealer-desktop" as const;
-export const DESKTOP_OAUTH_REDIRECT_URI = "gooddealer://oauth/callback" as const;
+/**
+ * ADR-0026 / RFC 8252 §7.3 loopback redirect: the literal IPv4 loopback, the ephemeral port Desktop
+ * bound for this attempt, and one fixed path. `localhost`, IPv6, https, userinfo, query, fragment,
+ * and non-canonical ports are rejected so no resolver or other listener can receive the code.
+ */
+export function isDesktopOAuthRedirectUri(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d{3,4})\/oauth\/callback$/u.exec(value);
+  const port = match === null ? Number.NaN : Number(match[1]);
+  return port >= 1_024 && port <= 65_535;
+}
 export const DESKTOP_AUTHORIZATION_CODE_TTL_SECONDS = 300;
 export const DESKTOP_ENROLLMENT_REAUTH_TTL_SECONDS = 300;
 
@@ -63,12 +73,13 @@ export class PostgresDesktopOAuthAuthorizationService {
     const keyId = identifier.safeParse(input.keyId);
     if (
       input.principal.clientKind !== "account_web" || !deviceId.success || !keyId.success
-      || input.clientId !== DESKTOP_OAUTH_CLIENT_ID || input.redirectUri !== DESKTOP_OAUTH_REDIRECT_URI
+      || input.clientId !== DESKTOP_OAUTH_CLIENT_ID || !isDesktopOAuthRedirectUri(input.redirectUri)
       || input.codeChallengeMethod !== "S256" || !validChallenge(input.codeChallenge)
       || !validPublicKey(input.publicKey)
       || !Number.isFinite(input.evaluatedAt.getTime())
     ) return { authorized: false };
     const publicKey = input.publicKey;
+    const redirectUri = input.redirectUri;
     const codeChallenge = input.codeChallenge;
     const authorize = async (transaction: AccountTransaction) => {
       const security = await transaction.query<{ account_security_epoch: string; status: string }>(
@@ -119,7 +130,7 @@ export class PostgresDesktopOAuthAuthorizationService {
           publicKey,
           codeChallenge,
           clientId: DESKTOP_OAUTH_CLIENT_ID,
-          redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+          redirectUri,
           accountSecurityEpoch: epoch,
           accountSessionDigest,
           enrollmentAuthorizedUntil,
@@ -142,7 +153,7 @@ export class PostgresDesktopOAuthAuthorizationService {
         signature: input.proof.signature,
         codeChallenge,
         clientId: DESKTOP_OAUTH_CLIENT_ID,
-        redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+        redirectUri,
         accountSecurityEpoch: epoch,
         accountSessionDigest,
       });
@@ -155,7 +166,7 @@ export class PostgresDesktopOAuthAuthorizationService {
             account_security_epoch, issued_at, expires_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [input.principal.accountId, code.credentialDigest, deviceId.data, DESKTOP_OAUTH_CLIENT_ID,
-          DESKTOP_OAUTH_REDIRECT_URI, codeChallenge, epoch, input.evaluatedAt, expiresAt],
+          redirectUri, codeChallenge, epoch, input.evaluatedAt, expiresAt],
       );
       return {
         authorized: true,
@@ -200,10 +211,11 @@ export class PostgresDesktopOAuthAuthorizationService {
     const code = inspectDesktopBearerToken("authorization_code", input.code);
     if (
       code === null || !validVerifier(input.codeVerifier)
-      || input.clientId !== DESKTOP_OAUTH_CLIENT_ID || input.redirectUri !== DESKTOP_OAUTH_REDIRECT_URI
+      || input.clientId !== DESKTOP_OAUTH_CLIENT_ID || !isDesktopOAuthRedirectUri(input.redirectUri)
       || !Number.isFinite(input.evaluatedAt.getTime())
     ) return { exchanged: false };
     const challenge = pkceChallenge(input.codeVerifier);
+    const redirectUri = input.redirectUri;
     const reserved = await this.transactions.withAccount(code.accountId, async (transaction) => {
       const result = await transaction.query<{
         device_id: string;
@@ -215,7 +227,7 @@ export class PostgresDesktopOAuthAuthorizationService {
             AND client_id = $4 AND redirect_uri = $5 AND consumed_at IS NULL
             AND transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at
           RETURNING device_id, account_security_epoch`,
-        [code.accountId, code.credentialDigest, challenge, DESKTOP_OAUTH_CLIENT_ID, DESKTOP_OAUTH_REDIRECT_URI],
+        [code.accountId, code.credentialDigest, challenge, DESKTOP_OAUTH_CLIENT_ID, redirectUri],
       );
       return result.rows.length === 1 ? result.rows[0] : undefined;
     });

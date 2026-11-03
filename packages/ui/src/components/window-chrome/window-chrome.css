@@ -75,6 +75,13 @@
   color: var(--gd-on-accent);
 }
 
+/* A native window: the OS owns the frame, radius, and shadow, so the chrome fills the viewport. */
+.gd-window--native {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .gd-window-body {
   display: flex;
   flex: 1;

@@ -15,6 +15,7 @@
 | Cloud 数据库 | [PostgreSQL](https://www.postgresql.org/) | 评估未来持久化和租户隔离；M013 目录接入不等于托管 PostgreSQL 18.6 资格。 |
 | 本地数据库 | [SQLite](https://sqlite.org/) 和 [SQLCipher](https://www.zetetic.net/sqlcipher/) | 评估未来本地数据保护；当前备份仍不可用。 |
 | 浏览器平台 | [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) 和 [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview) | 不属于首发；仅在未来新的浏览器 ADR 获批后重新评估。 |
+| 原生 OAuth 回调 | [OpenAI Codex `codex-rs/login`](https://github.com/openai/codex/tree/main/codex-rs/login) 与 [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) | ADR-0026 的 loopback 回调参照其 `127.0.0.1` 短生命周期回调服务、回调内 PKCE 兑换、state 不匹配不终止登录与只记录布尔值的做法；未引入其代码或依赖。 |
 
 ## 引入规则
 

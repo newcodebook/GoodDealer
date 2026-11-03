@@ -143,7 +143,7 @@ child 的未解决 leaf 视为 blocker：未重驱的 dead leaf、ready/leased/r
 active 的设备资格截止于 `commercialExpiresAt`，grace 截止于 `offlineGraceUntil`，`pending`、
 `suspended`、`revoked` 继续失败关闭。每次实际签发的 Lease 仍独立限制最长 24 小时外部执行窗口。
 
-Desktop 已落地系统浏览器 PKCE、custom-scheme challenge/code 回调、Native access token 内存
+Desktop 已落地系统浏览器 PKCE、RFC 8252 loopback challenge/code 回调（ADR-0026）、Native access token 内存
 custody、独立 Keychain device identity、近期 Web 重新认证首次设备注册和 Keychain refresh token 轮换；每次登录或
 refresh 后使用 Bearer 拉取 Grant，以 build-pinned、分目的公钥 registry 双重验签并激活本地 runtime。
 开发 OpenBao 已提供真实 Transit/TLS/AppRole/审计集成目标，但生产 OpenBao custody 仍需独立环境

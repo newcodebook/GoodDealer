@@ -22,6 +22,8 @@ mod desktop_authorization_verifier;
 mod desktop_device_identity;
 mod desktop_oauth;
 mod local_workspace_binding;
+#[cfg(target_os = "linux")]
+mod secret_service_custody;
 
 pub use cloudflare_capture::{CloudflareCandidate, CloudflareCapture, CloudflareCaptureError};
 pub use cloudflare_keychain::{

@@ -459,7 +459,7 @@ impl DesktopSyncRuntime {
         }
         let run_sequence = self
             .next_run_sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value
                     .checked_add(1)
                     .filter(|next| *next <= MAX_SAFE_INTEGER)

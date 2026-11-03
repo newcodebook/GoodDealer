@@ -1,0 +1,30 @@
+.sales-desk { display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
+.sales-body { display: flex; flex: 1; min-height: 0; }
+.sales-body > .gd-table-shell { flex: 1; min-height: 0; border: none; border-radius: 0; }
+.sales-readonly { margin: 0; padding: 6px var(--space-3); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
+.sales-mono { font-family: var(--font-mono); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.sales-strong { color: var(--text-1); }
+.sales-muted { color: var(--text-2); }
+.sales-faint { color: var(--text-3); }
+.sales-blue { color: var(--gd-blue); }
+.sales-danger { flex: none; color: var(--gd-danger); }
+/* Gold is reserved for value results: listed value, deal amount, net income, SOLD. */
+.sales-gold { color: var(--gd-gold); }
+.sales-amount { font-size: 15px; }
+.sales-micro { font-size: var(--text-2xs); }
+.sales-note { font-size: var(--text-xs); white-space: nowrap; }
+.sales-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.sales-stack { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sales-stack--end { align-items: flex-end; }
+.sales-row { display: flex; align-items: center; gap: var(--space-2); }
+.sales-spacer { flex: 1; }
+.sales-dialog { display: flex; flex-direction: column; gap: var(--space-3); }
+.sales-ledger { display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); font-size: var(--text-sm); }
+.sales-ledger > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.sales-ledger > div > span:first-child { color: var(--text-2); }
+.sales-ledger-total { padding-top: 7px; border-top: 1px solid var(--gd-line); }
+.sales-ledger-total > span:first-child { color: var(--text-1) !important; }
+.sales-ack { padding-top: 10px; border-top: 1px solid var(--gd-line); }
+.sales-danger-box { display: flex; flex-direction: column; gap: 9px; padding: 11px 13px; border: 1px solid var(--gd-danger); border-radius: var(--radius-md); background: var(--gd-danger-tint); font-size: var(--text-sm); }
+.sales-danger-text { color: var(--text-1); font-size: var(--text-xs); line-height: 1.5; }
+.sales-danger-ack { padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--gd-danger) 24%, transparent); }

@@ -1,6 +1,8 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 
+// The mock design host renders every Desktop screen from typed mock data. It is a separate Vite
+// root so its fixtures never enter the production graph built by vite.config.ts.
 const fixtureRoot = fileURLToPath(new URL("./visual-fixtures", import.meta.url));
 
 export default defineConfig({
@@ -9,12 +11,5 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL("./dist-visual", import.meta.url)),
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: fileURLToPath(new URL("./visual-fixtures/index.html", import.meta.url)),
-        signin: fileURLToPath(new URL("./visual-fixtures/signin.html", import.meta.url)),
-        onboarding: fileURLToPath(new URL("./visual-fixtures/onboarding.html", import.meta.url)),
-      },
-    },
   },
 });

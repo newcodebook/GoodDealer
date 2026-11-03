@@ -273,10 +273,13 @@ test("the production catalog covers the current repository inventory", () => {
   assert.ok(cloud.protocolSubpaths.includes("./audit"));
   assert.ok(cloud.protocolSubpaths.includes("./workspace-observations/cloudflare-dns"));
   assert.deepEqual(cloudProtocolImport.allowedSubpaths, cloud.protocolSubpaths);
-  assert.deepEqual(accountWeb.sourceRoots, ["src", "test", "scripts"]);
+  assert.deepEqual(accountWeb.sourceRoots, ["src", "test", "visual-fixtures"]);
   assert.deepEqual(accountWeb.publicEntrypoints, [
     entrypoint("application", "src/index.ts"),
-    entrypoint("browser", "src/browser.ts"),
+    entrypoint("browser", "src/main.tsx"),
+    entrypoint("vite", "vite.config.ts"),
+    entrypoint("visual-fixtures", "visual-fixtures/main.tsx"),
+    entrypoint("visual-vite", "vite.visual.config.ts"),
   ]);
   assert.deepEqual(
     browserAutomation.publicEntrypoints.map((entry) => entry.id).sort(),
@@ -306,6 +309,7 @@ test("the production catalog covers the current repository inventory", () => {
     "ring",
     "rustix",
     "rusqlite",
+    "secret-service",
     "security-framework",
     "serde",
     "serde_json",
@@ -329,7 +333,6 @@ test("the production catalog covers the current repository inventory", () => {
     "serde_json",
     "tauri",
     "tauri-build",
-    "tauri-plugin-deep-link",
     "tauri-plugin-opener",
     "tauri-plugin-single-instance",
     "tokio",
@@ -338,6 +341,7 @@ test("the production catalog covers the current repository inventory", () => {
   ]);
   assert.equal(secureHostCore.externalDependencies.includes("getrandom"), true);
   assert.equal(secureHostCore.externalDependencies.includes("security-framework"), true);
+  assert.equal(secureHostCore.externalDependencies.includes("secret-service"), true);
   assert.equal(secureHostCore.externalDependencies.includes("zeroize"), true);
   assert.equal(
     repositoryTooling.publicEntrypoints.some(

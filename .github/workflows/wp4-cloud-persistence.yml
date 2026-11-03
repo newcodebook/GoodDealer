@@ -46,7 +46,7 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Install pinned pnpm
-        run: npm install --global pnpm@11.25.0
+        run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
       - name: Create non-privileged owner and application roles

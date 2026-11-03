@@ -7,6 +7,8 @@ import {
 } from "./commercial-providers";
 
 const MAXIMUM_CONFIGURATION_BYTES = 32_768;
+/** The only capability `desktopAuthorizationGrantSchema` admits. */
+const DESKTOP_GRANT_CAPABILITY = "cloudflare:dns:observe";
 
 /** Reads the root-managed Stripe test configuration without copying secrets into process.env. */
 export async function readStripeTestProviderComposition(
@@ -48,6 +50,11 @@ export function parseStripeTestProviderConfiguration(value: unknown): StripeTest
   const featureEntitlements = stringArray(policy.featureEntitlements, "feature entitlements");
   if (!strictlyAscending(featureEntitlements)) {
     throw new TypeError("feature entitlements must be strictly ascending");
+  }
+  // Every sold plan must be able to authorize the Desktop Grant; a policy without its capability
+  // would sell entitlements that sign in but can never obtain runtime authority.
+  if (!featureEntitlements.includes(DESKTOP_GRANT_CAPABILITY)) {
+    throw new TypeError("feature entitlements must include the Desktop Grant capability");
   }
   return {
     apiKey: secret(stripe.apiKey, /^(?:sk|rk)_test_[A-Za-z0-9_]+$/u, "Stripe test API key"),
@@ -130,7 +137,7 @@ function exactReturnUrl(value: unknown, pathname: string): string {
 
 function stringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 32
-    || value.some((item) => typeof item !== "string" || !/^feature:[a-z0-9-]+$/u.test(item))) {
+    || value.some((item) => typeof item !== "string" || !/^[a-z][a-z0-9-]*(?::[a-z0-9-]+)+$/u.test(item))) {
     throw new TypeError(`${label} is invalid`);
   }
   return [...value];

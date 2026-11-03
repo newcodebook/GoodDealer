@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { App } from "../app";
+import { App, desktopStartupState } from "../app";
 
 function readSource(path: string): string {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
@@ -22,24 +22,29 @@ function readProductionSources(directory: URL): string {
 }
 
 describe("Desktop production entrypoint boundary", () => {
-  it("composes the reviewed router and shell over the thin native adapters", () => {
+  it("composes only the thin native adapters and the extracted coordination modules", () => {
     const main = readSource("../main.tsx");
     const app = readSource("../app.tsx");
 
     expect(main).toContain('from "./app"');
     expect(main).not.toMatch(/app-shell|features|composition-root|connector-/u);
     expect(app).toMatch(/\.\/adapters\/tauri/u);
-    expect(app).toMatch(/DesktopRouter/u);
-    expect(app).toMatch(/DesktopShell/u);
+    expect(app).toMatch(/\.\/app\/workspace-publication/u);
+    expect(app).toMatch(/\.\/app\/authentication-coordinator/u);
     expect(app).not.toMatch(/composition-root|connector-|marketplace|registration|pricing|batch|listing|cloud-client/u);
-    expect(app).not.toContain(">Sync conflicts</button>");
+    expect(app).not.toMatch(/window\.(?:prompt|confirm|alert)/u);
   });
 
   it("starts by opening the Host-owned local database and fabricates no authorization", () => {
     const html = renderToStaticMarkup(createElement(App));
 
-    expect(html).toContain("Opening the local business database");
-    expect(html).not.toMatch(/authorityEvidence|kind=.active/u);
+    expect(html).toContain('data-desktop-state="opening"');
+    expect(html).not.toMatch(/authorityEvidence|kind=.active|data-desktop-state="workspace"/u);
+  });
+
+  it("maps only Host-reported workspace states to the startup surface", () => {
+    expect(desktopStartupState(true, null)).toBe("host_unavailable");
+    expect(desktopStartupState(false, null)).toBe("opening");
   });
 
   it("uses only public UI and i18n package exports outside isolated visual fixtures", () => {

@@ -1,0 +1,16 @@
+.runtime-status-window { display: flex; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.runtime-status-window > .gd-window { flex: 1; }
+.runtime-status { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 0; padding: var(--space-6); background: var(--gd-ink); }
+.runtime-status-card { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 440px; gap: var(--space-3); text-align: center; }
+.runtime-status-card p { margin: 0; line-height: 1.6; }
+.runtime-status-title { display: inline-flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 0; color: var(--text-1); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.runtime-status-title svg { color: var(--gd-blue); }
+.runtime-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border: 1px solid var(--gd-line-strong); border-radius: 50%; background: var(--gd-panel); }
+.runtime-status-icon--locked { border-color: var(--gd-warning); background: var(--gd-warning-tint); color: var(--gd-warning); }
+.runtime-status-keyhole { opacity: .85; }
+.runtime-status-progress { display: flex; flex-direction: column; width: 100%; gap: 6px; }
+.runtime-status-actions { display: flex; justify-content: center; gap: var(--space-2); margin-top: var(--space-2); }
+.runtime-status-actions:empty { display: none; }
+@keyframes runtime-status-spin { to { transform: rotate(360deg); } }
+.runtime-status-spin { animation: runtime-status-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .runtime-status-spin { animation: none; } }

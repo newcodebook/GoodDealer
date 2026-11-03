@@ -8,9 +8,10 @@ import {
 import {
   ConsumableDesktopCredentials,
   DESKTOP_OAUTH_CLIENT_ID,
-  DESKTOP_OAUTH_REDIRECT_URI,
 } from "../../src/modules/identity/index";
 import { StaticPublicSessionVerifier } from "../support/public-session";
+
+const LOOPBACK_REDIRECT_URI = "http://127.0.0.1:53682/oauth/callback";
 
 const now = new Date("2026-09-01T00:00:00Z");
 const rateLimit = { windowMs: 60_000, burst: 100, identityHeaderNames: [] } as const;
@@ -22,7 +23,7 @@ describe("Desktop OAuth HTTP boundary", () => {
     const query = new URLSearchParams({
       response_type: "code",
       client_id: DESKTOP_OAUTH_CLIENT_ID,
-      redirect_uri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirect_uri: LOOPBACK_REDIRECT_URI,
       code_challenge: "A".repeat(43),
       code_challenge_method: "S256",
       device_id: "device-a",
@@ -37,7 +38,7 @@ describe("Desktop OAuth HTTP boundary", () => {
     });
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe(
-      `gooddealer://oauth/callback?code=gd_ac1.account.code&state=${"S".repeat(32)}`,
+      `${LOOPBACK_REDIRECT_URI}?code=gd_ac1.account.code&state=${"S".repeat(32)}`,
     );
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
@@ -46,6 +47,77 @@ describe("Desktop OAuth HTTP boundary", () => {
       keyId: "device-key-a",
       publicKey: "P".repeat(43),
     }));
+    await app.close();
+  });
+
+  it("sends a browser without a session to same-origin sign-in that returns to this request", async () => {
+    const authorize = vi.fn(async () => ({ authorized: true as const, code: "gd_ac1.account.code" }));
+    const app = createApp({ authorize });
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: DESKTOP_OAUTH_CLIENT_ID,
+      redirect_uri: LOOPBACK_REDIRECT_URI,
+      code_challenge: "A".repeat(43),
+      code_challenge_method: "S256",
+      device_id: "device-a",
+      key_id: "device-key-a",
+      public_key: "P".repeat(43),
+      state: "S".repeat(32),
+    });
+    const requested = `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?${query.toString()}`;
+    for (const headers of [{}, { cookie: "gd_session=unknown-session" }]) {
+      const response = await app.inject({ method: "GET", url: requested, headers });
+      expect(response.statusCode).toBe(302);
+      // Relative: the redirect stays on whichever proxying origin served the request.
+      const location = response.headers.location ?? "";
+      expect(location.startsWith("/?continue=")).toBe(true);
+      expect(new URLSearchParams(location.slice(2)).get("continue")).toBe(requested);
+      expect(response.headers["cache-control"]).toBe("no-store");
+    }
+    expect(authorize).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects an invalid authorization request before considering sign-in", async () => {
+    const app = createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?response_type=code&redirect_uri=https%3A%2F%2Fevil.example`,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.headers.location).toBeUndefined();
+    await app.close();
+  });
+
+  it("never redirects to anything but the requested loopback callback", async () => {
+    const authorize = vi.fn(async () => ({ authorized: true as const, code: "gd_ac1.account.code" }));
+    const app = createApp({ authorize });
+    for (const redirectUri of [
+      "gooddealer://oauth/callback",
+      "http://localhost:53682/oauth/callback",
+      "http://127.0.0.1:53682/elsewhere",
+      "https://evil.example/oauth/callback",
+    ]) {
+      const query = new URLSearchParams({
+        response_type: "code",
+        client_id: DESKTOP_OAUTH_CLIENT_ID,
+        redirect_uri: redirectUri,
+        code_challenge: "A".repeat(43),
+        code_challenge_method: "S256",
+        device_id: "device-a",
+        key_id: "device-key-a",
+        public_key: "P".repeat(43),
+        state: "S".repeat(32),
+      });
+      const response = await app.inject({
+        method: "GET",
+        url: `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?${query.toString()}`,
+        headers: { cookie: "gd_session=web-session" },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.headers.location).toBeUndefined();
+    }
+    expect(authorize).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -65,7 +137,7 @@ describe("Desktop OAuth HTTP boundary", () => {
     const query = new URLSearchParams({
       response_type: "code",
       client_id: DESKTOP_OAUTH_CLIENT_ID,
-      redirect_uri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirect_uri: LOOPBACK_REDIRECT_URI,
       code_challenge: "A".repeat(43),
       code_challenge_method: "S256",
       device_id: "device-a",
@@ -105,7 +177,7 @@ describe("Desktop OAuth HTTP boundary", () => {
         code: "gd_ac1.account.code",
         code_verifier: "V".repeat(64),
         client_id: DESKTOP_OAUTH_CLIENT_ID,
-        redirect_uri: DESKTOP_OAUTH_REDIRECT_URI,
+        redirect_uri: LOOPBACK_REDIRECT_URI,
       }).toString(),
     });
     expect(response.statusCode).toBe(200);

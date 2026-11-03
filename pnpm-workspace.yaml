@@ -9,3 +9,9 @@ allowBuilds:
 
 overrides:
   nanoid@<3.3.18: 3.3.18
+
+# Temporary exception: thread-stream 4.2.0 (via fastify -> pino) types its transfer list with
+# `worker_threads.TransferListItem`, which @types/node 26 removed; the patch swaps in `Transferable`.
+# Remove this patch once a thread-stream release compiles against the current @types/node.
+patchedDependencies:
+  thread-stream@4.2.0: patches/thread-stream@4.2.0.patch

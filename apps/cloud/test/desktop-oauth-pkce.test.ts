@@ -5,10 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { AccountTransaction } from "../src/db/index";
 import {
   DESKTOP_OAUTH_CLIENT_ID,
-  DESKTOP_OAUTH_REDIRECT_URI,
   PostgresDesktopOAuthAuthorizationService,
+  isDesktopOAuthRedirectUri,
 } from "../src/modules/identity/postgres-desktop-oauth";
 import type { PostgresIdentityAuthenticationRepository } from "../src/modules/identity/postgres-authentication-repository";
+
+const LOOPBACK_REDIRECT_URI = "http://127.0.0.1:53682/oauth/callback";
 
 type InitialIssuance = Parameters<PostgresIdentityAuthenticationRepository["issueInitial"]>[0];
 type InitialIssuer = (input: InitialIssuance) => Promise<"issued" | "epoch_conflict" | "credential_jti_conflict">;
@@ -74,7 +76,7 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
       code: issuedCode,
       codeVerifier: "B".repeat(64),
       clientId: DESKTOP_OAUTH_CLIENT_ID,
-      redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirectUri: LOOPBACK_REDIRECT_URI,
       evaluatedAt: new Date("2026-09-01T00:01:00Z"),
     })).resolves.toEqual({ exchanged: false });
     expect(issueInitial).not.toHaveBeenCalled();
@@ -83,7 +85,7 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
       code: issuedCode,
       codeVerifier: verifier,
       clientId: DESKTOP_OAUTH_CLIENT_ID,
-      redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirectUri: LOOPBACK_REDIRECT_URI,
       evaluatedAt: new Date("2026-09-01T00:01:00Z"),
     });
     expect(exchanged.exchanged).toBe(true);
@@ -105,7 +107,7 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
       principal,
       deviceId: "device-a",
       clientId: DESKTOP_OAUTH_CLIENT_ID,
-      redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirectUri: LOOPBACK_REDIRECT_URI,
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
       keyId: "device-key-a",
@@ -115,6 +117,8 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
     for (const override of [
       { clientId: "attacker" },
       { redirectUri: "https://attacker.example/callback" },
+      { redirectUri: "gooddealer://oauth/callback" },
+      { redirectUri: "http://localhost:53682/oauth/callback" },
       { codeChallengeMethod: "plain" },
       { codeChallenge: "short" },
       { deviceId: "contains space" },
@@ -122,6 +126,34 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
     ]) {
       await expect(service.authorize({ ...base, ...override })).resolves.toEqual({ authorized: false });
     }
+  });
+
+  it("accepts only the exact RFC 8252 IPv4 loopback callback with an unprivileged port", () => {
+    for (const valid of [
+      "http://127.0.0.1:1024/oauth/callback",
+      LOOPBACK_REDIRECT_URI,
+      "http://127.0.0.1:65535/oauth/callback",
+    ]) expect(isDesktopOAuthRedirectUri(valid)).toBe(true);
+    for (const invalid of [
+      undefined,
+      53682,
+      "gooddealer://oauth/callback",
+      "http://localhost:53682/oauth/callback",
+      "http://[::1]:53682/oauth/callback",
+      "https://127.0.0.1:53682/oauth/callback",
+      "http://127.0.0.1/oauth/callback",
+      "http://127.0.0.1:80/oauth/callback",
+      "http://127.0.0.1:1023/oauth/callback",
+      "http://127.0.0.1:65536/oauth/callback",
+      "http://127.0.0.1:053682/oauth/callback",
+      "http://127.0.0.1:53682/oauth/callback/",
+      "http://127.0.0.1:53682/oauth/other",
+      "http://127.0.0.1:53682/oauth/callback?next=1",
+      "http://127.0.0.1:53682/oauth/callback#fragment",
+      "http://user@127.0.0.1:53682/oauth/callback",
+      "http://127.0.0.1.attacker.example:53682/oauth/callback",
+      "HTTP://127.0.0.1:53682/oauth/callback",
+    ]) expect(isDesktopOAuthRedirectUri(invalid)).toBe(false);
   });
 });
 
@@ -168,7 +200,7 @@ async function authorizeWithProof(service: PostgresDesktopOAuthAuthorizationServ
     principal,
     deviceId: "device-a",
     clientId: DESKTOP_OAUTH_CLIENT_ID,
-    redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+    redirectUri: LOOPBACK_REDIRECT_URI,
     codeChallenge: challenge,
     codeChallengeMethod: "S256",
     keyId: "device-key-a",

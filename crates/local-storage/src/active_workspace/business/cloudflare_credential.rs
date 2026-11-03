@@ -1734,10 +1734,7 @@ fn to_i64(value: u64) -> Result<i64, BusinessDatabaseError> {
     i64::try_from(value)
         .ok()
         .filter(|value| {
-            *value >= 0
-                && u64::try_from(*value)
-                    .ok()
-                    .is_some_and(|value| value <= MAX_SAFE_INTEGER)
+            *value >= 0 && u64::try_from(*value).is_ok_and(|value| value <= MAX_SAFE_INTEGER)
         })
         .ok_or(BusinessDatabaseError::InvalidInput)
 }

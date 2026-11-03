@@ -23,6 +23,8 @@ import { identityTransactionCapabilityMigration } from "../modules/identity/migr
 import { accountAccessMigration } from "../modules/identity/migrations/202609040001-account-access";
 import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";
 import { syncV2LedgerMigration } from "../modules/workspace/mutations/migrations/202609140001-sync-v2-ledger";
+import { desktopLoginLoopbackRedirectMigration } from "../modules/devices/migrations/202611020001-desktop-login-loopback-redirect";
+import { desktopCodeLoopbackRedirectMigration } from "../modules/identity/migrations/202611020002-desktop-code-loopback-redirect";
 import { buildMigrationCatalog, type CloudMigration } from "./index";
 
 /** Explicit imports make cross-module ordering reviewable without moving table ownership into db. */
@@ -52,6 +54,8 @@ export const cloudMigrations: readonly CloudMigration[] = [
   accountRecoveryMigration,
   commercialEntitlementSnapshotMigration,
   accountDefaultWorkspaceCapabilityPolicyMigration,
+  desktopLoginLoopbackRedirectMigration,
+  desktopCodeLoopbackRedirectMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

@@ -1,2 +1,2 @@
-export { SignInPage } from "./sign-in-page";
-export type { SignInActions, SignInPageProps } from "./sign-in-page";
+export { SignIn } from "./sign-in";
+export type { BrowserSignInState, SignInProps } from "./sign-in";

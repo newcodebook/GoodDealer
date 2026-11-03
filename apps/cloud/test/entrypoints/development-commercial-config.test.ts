@@ -26,7 +26,7 @@ const configuration = () => ({
   policy: {
     subscriptionPlan: "pro",
     fixedTermPlan: "ten-year",
-    featureEntitlements: ["feature:portfolio", "feature:provider-read"],
+    featureEntitlements: ["cloudflare:dns:observe", "feature:portfolio", "feature:provider-read"],
     offlineGraceSeconds: 259_200,
     credentialRefreshSeconds: 86_400,
   },
@@ -52,5 +52,21 @@ describe("Stripe test provider configuration", () => {
       ...configuration(), policy: { ...configuration().policy,
         featureEntitlements: ["feature:provider-read", "feature:portfolio"] },
     })).toThrow(/strictly ascending/u);
+  });
+
+  it("rejects a policy whose plans could never obtain a Desktop Grant", () => {
+    expect(() => parseStripeTestProviderConfiguration({
+      ...configuration(), policy: { ...configuration().policy,
+        featureEntitlements: ["feature:portfolio", "feature:provider-read"] },
+    })).toThrow(/Desktop Grant capability/u);
+  });
+
+  it("accepts only namespaced lowercase capability names", () => {
+    for (const invalid of ["portfolio", "Feature:portfolio", "feature:", ":portfolio", "feature:port folio"]) {
+      expect(() => parseStripeTestProviderConfiguration({
+        ...configuration(), policy: { ...configuration().policy,
+          featureEntitlements: ["cloudflare:dns:observe", invalid].sort() },
+      })).toThrow(/feature entitlements is invalid/u);
+    }
   });
 });

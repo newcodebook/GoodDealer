@@ -24,7 +24,6 @@ type SessionPublicationSubscriber = Arc<dyn Fn() + Send + Sync>;
 
 const TOKEN_PATH: &str = "/v1/desktop-oauth/token";
 const CLIENT_ID: &str = "gooddealer-desktop";
-const REDIRECT_URI: &str = "gooddealer://oauth/callback";
 const MAX_TOKEN_RESPONSE_BYTES: usize = 4_096;
 const ACCESS_EXPIRY_SKEW: Duration = Duration::from_secs(30);
 const AUTHORIZATION_GRANT_PATH: &str = "/v1/devices/authorization-grant";
@@ -385,7 +384,7 @@ impl NativeCloudSession {
         exchange: DesktopAuthorizationCodeExchange,
     ) -> Result<(), NativeOAuthError> {
         let endpoint = self.token_endpoint()?;
-        let request = exchange.expose(|code, verifier| {
+        let request = exchange.expose(|code, verifier, redirect_uri| {
             self.client
                 .post(endpoint)
                 .header(header::ACCEPT, "application/json")
@@ -394,7 +393,7 @@ impl NativeCloudSession {
                     ("code", code),
                     ("code_verifier", verifier),
                     ("client_id", CLIENT_ID),
-                    ("redirect_uri", REDIRECT_URI),
+                    ("redirect_uri", redirect_uri),
                 ])
         });
         let credentials = Self::prepare(self.send_token_request(request).await?)?;

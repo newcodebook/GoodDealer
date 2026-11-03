@@ -1,0 +1,30 @@
+.signin-window { display: flex; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.signin-window > .gd-window { flex: 1; }
+.signin { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.signin-brand { position: relative; display: flex; overflow: hidden; flex: none; flex-direction: column; width: 380px; padding: 40px 40px 36px; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+/* The one brand-expressive moment of the gate: a faint gold halo behind the full-gradient mark. */
+.signin-brand-glow { position: absolute; top: 44%; left: 50%; width: 440px; height: 440px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--gd-gold) 13%, transparent), transparent 68%); pointer-events: none; transform: translate(-50%, -50%); }
+.signin-brand-mark { position: relative; display: flex; flex-direction: column; align-items: center; margin: auto 0; gap: 26px; text-align: center; }
+.signin-tagline { color: var(--text-2); font-size: 15px; letter-spacing: .05em; }
+.signin-brand-foot { position: relative; display: flex; flex-direction: column; gap: 14px; }
+.signin-rule { height: 1px; background: var(--gd-line); }
+.signin-trust { display: flex; align-items: flex-start; gap: 10px; color: var(--text-3); font-size: var(--text-xs); line-height: 1.55; }
+.signin-trust svg { flex: none; margin-top: 2px; color: var(--gd-gold); }
+.signin-quota { display: flex; align-items: center; gap: var(--space-2); color: var(--text-3); font-size: var(--text-2xs); }
+.signin-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; background: var(--gd-ink); }
+.signin-locale { display: flex; justify-content: flex-end; padding: var(--space-3) var(--space-4) 2px; }
+.signin-form { display: flex; overflow-y: auto; flex: 1; flex-direction: column; width: 100%; max-width: 440px; min-height: 0; margin: 0 auto; padding: 2px 40px 22px; gap: var(--space-3); }
+/* Auto margins centre the sign-in block while the account-pages note stays at the bottom. */
+.signin-form header { margin-top: auto; margin-bottom: var(--space-1); }
+.signin-form header p { margin: 5px 0 0; }
+.signin-title { margin: 0; color: var(--text-1); font-size: var(--text-xl); font-weight: var(--weight-semibold); letter-spacing: -.02em; }
+.signin-alert { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: 9px 12px; border: 1px solid var(--gd-danger); border-radius: var(--radius-md); background: var(--gd-danger-tint); color: var(--text-1); font-size: var(--text-xs); line-height: 1.5; }
+.signin-alert svg { flex: none; margin-top: 2px; color: var(--gd-danger); }
+.signin-alert--warning { border-color: var(--gd-warning); background: var(--gd-warning-tint); }
+.signin-alert--warning svg { color: var(--gd-warning); }
+.signin-progress { display: flex; align-items: center; gap: var(--space-2); padding: 12px 14px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-sm); }
+.signin-progress svg { flex: none; color: var(--gd-blue); }
+.signin-switch { margin: auto 0 0; padding-top: var(--space-2); text-align: center; }
+@keyframes signin-spin { to { transform: rotate(360deg); } }
+.signin-spin { animation: signin-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .signin-spin { animation: none; } }

@@ -25,8 +25,8 @@ jobs:
           package-manager-cache: false
       - name: Install pinned Rust toolchain
         run: |
-          rustup toolchain install 1.97.1 --profile minimal
-          rustup default 1.97.1
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
       - name: Collect non-closing Portable browser runtime evidence
         run: node scripts/collect-browser-runtime-foundation-report.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

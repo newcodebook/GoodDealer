@@ -58,9 +58,11 @@ The current source does **not** support a customer-readiness claim:
 
 - Desktop Tauri registers 19 named commands spanning authorization-aware local business reads/writes,
   conflict and sync status, fail-closed backup surfaces, Desktop authentication, and Cloudflare
-  activation/observation. The Renderer composes these only through narrow adapters plus
-  `DesktopShell`/`DesktopRouter`; it supplies no database path, key, workspace selector, Provider
-  account identity, unrestricted network target, or Cloud Repository.
+  activation/observation. The Renderer reaches these only through narrow adapters; it supplies no
+  database path, key, workspace selector, Provider account identity, unrestricted network target, or
+  Cloud Repository. The previous Desktop presentation layer was removed for a brand-driven rebuild:
+  the production root currently opens the workspace and follows authentication but composes no
+  business screens.
 - `local-storage` owns the production SQLCipher active workspace, local business transaction,
   Provider-connection local-only storage, and secret-free Sync Outbox.
 - `secure-host-core` contains the Cloudflare Zone/DNS read Service, credential fence, hardened

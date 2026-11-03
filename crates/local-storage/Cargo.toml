@@ -42,3 +42,6 @@ security-framework = { version = "=3.7.0", default-features = false, features = 
 [[example]]
 name = "backup_evidence"
 path = "examples/backup_evidence.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }

@@ -1,1 +1,1 @@
-export * from "./connection-settings";
+export * from "./cloudflare-coordinator";

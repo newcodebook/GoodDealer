@@ -1,0 +1,43 @@
+.access { display: flex; min-height: 100%; background: var(--gd-ink); }
+.access-brand { position: relative; display: flex; overflow: hidden; flex: none; flex-direction: column; width: 420px; padding: 44px 44px 40px; border-right: 1px solid var(--gd-line); background: var(--gd-panel); }
+/* The one brand-expressive moment of the account gate: a faint gold halo behind the full-gradient mark. */
+.access-brand-glow { position: absolute; top: 44%; left: 50%; width: 480px; height: 480px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--gd-gold) 13%, transparent), transparent 68%); pointer-events: none; transform: translate(-50%, -50%); }
+.access-brand-mark { position: relative; display: flex; flex-direction: column; align-items: center; margin: auto 0; gap: 26px; text-align: center; }
+.access-tagline { color: var(--text-2); font-size: 15px; letter-spacing: .05em; }
+.access-brand-foot { position: relative; display: flex; flex-direction: column; gap: 14px; }
+.access-rule { height: 1px; background: var(--gd-line); }
+.access-trust { display: flex; align-items: flex-start; gap: 10px; color: var(--text-3); font-size: var(--text-xs); line-height: 1.55; }
+.access-trust svg { flex: none; margin-top: 2px; color: var(--gd-gold); }
+.access-quota { display: flex; align-items: center; gap: var(--space-2); color: var(--text-3); font-size: var(--text-2xs); }
+.access-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.access-topline { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); }
+.access-context-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.access-context { color: var(--text-3); }
+.access-form { display: flex; flex: 1; flex-direction: column; justify-content: center; width: 100%; max-width: 420px; margin: 0 auto; padding: var(--space-4) var(--space-6) var(--space-12); gap: var(--space-4); }
+.access-form header { margin-bottom: var(--space-1); }
+.access-form header p { margin: 6px 0 0; }
+.access-compact-mark { display: none; margin-bottom: var(--space-4); }
+.access-title { margin: 0; color: var(--text-1); font-size: var(--text-2xl); font-weight: var(--weight-semibold); letter-spacing: -.02em; }
+/* The empty live region stays in the accessibility tree; a negative margin cancels its flex gap so it
+   adds no visible row. Keep the offset equal to the .access-form gap. */
+.access-notice-region:empty { margin-top: calc(-1 * var(--space-4)); }
+.access-notice { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: 9px 12px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-1); font-size: var(--text-xs); line-height: 1.5; }
+.access-notice svg { flex: none; margin-top: 2px; color: var(--gd-blue); }
+.access-notice--success { border-color: var(--gd-success); background: var(--gd-success-tint); }
+.access-notice--success svg { color: var(--gd-success); }
+.access-notice--error { border-color: var(--gd-danger); background: var(--gd-danger-tint); }
+.access-notice--error svg { color: var(--gd-danger); }
+.access-progress { display: flex; align-items: center; gap: var(--space-2); padding: 12px 14px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-sm); }
+.access-progress svg:first-child { color: var(--gd-blue); }
+.access-progress .access-spin { margin-left: auto; }
+.access-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); }
+@keyframes access-spin { to { transform: rotate(360deg); } }
+.access-spin { animation: access-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .access-spin { animation: none; } }
+/* Phones and narrow windows drop the brand panel; the compact mark keeps the page recognisable. */
+@media (max-width: 860px) {
+  .access-brand { display: none; }
+  .access-compact-mark { display: block; }
+  .access-topline { padding: var(--space-3) var(--space-4); }
+  .access-form { padding: var(--space-2) var(--space-4) var(--space-8); }
+}

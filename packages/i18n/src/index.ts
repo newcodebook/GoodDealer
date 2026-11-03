@@ -49,3 +49,18 @@ export {
 } from "./presentation-inventory";
 
 export const defaultLocale = "zh-CN" as const;
+export {
+  accountPresentations,
+  isAccountPresentation,
+  parseAccountPresentation,
+  type AccountPresentation,
+} from "./account-copy-types";
+export { accountCopy, getAccountCopy, type AccountCopy } from "./account-copy";
+export { enUSAccount } from "./locales/account-en-us";
+export { zhCNAccount } from "./locales/account-zh-cn";
+export {
+  accountPresentationCopyInventory,
+  reconciledAccountExactBrandCopyKeyCount,
+  reconciledAccountLocaleKeyCount,
+  reconciledAccountPresentationCount,
+} from "./account-presentation-inventory";

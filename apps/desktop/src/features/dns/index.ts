@@ -1,1 +1,1 @@
-export * from "./dns-health";
+export * from "./dns-verification";

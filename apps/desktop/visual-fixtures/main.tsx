@@ -2,14 +2,14 @@ import "@gooddealer/ui/tokens.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { CatalogApp } from "./catalog/catalog-app";
-import "./visual-fixtures.css";
+import { DesignHost } from "./design-host";
+import "./design-host.css";
 
 const root = document.getElementById("root");
-if (root === null) throw new Error("Visual fixture root is missing");
+if (root === null) throw new Error("design host root element is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <CatalogApp />
+    <DesignHost />
   </StrictMode>,
 );

@@ -14,22 +14,22 @@ export interface PresentationCopyInventoryEntry {
  * from the brand are explicit docs-authoritative states or security corrections.
  */
 export const presentationCopyInventory = {
-  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 57, exactBrandCopyKeys: 22 },
-  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 33, exactBrandCopyKeys: 33 },
-  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 54, exactBrandCopyKeys: 54 },
-  conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 18, exactBrandCopyKeys: 18 },
-  manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 32, exactBrandCopyKeys: 32 },
-  settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 48, exactBrandCopyKeys: 33 },
-  operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 28, exactBrandCopyKeys: 28 },
-  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 60, exactBrandCopyKeys: 55 },
-  activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 51, exactBrandCopyKeys: 38 },
-  dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 60, exactBrandCopyKeys: 32 },
-  renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 15, exactBrandCopyKeys: 15 },
-  domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 37, exactBrandCopyKeys: 29 },
-  signIn: { source: "SignIn.jsx", typedBoundary: "AuthGateViewModel", localeKeyCount: 57, exactBrandCopyKeys: 55, exactEnUSBrandCopyKeys: 55 },
+  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 71, exactBrandCopyKeys: 27 },
+  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 48, exactBrandCopyKeys: 37 },
+  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 139, exactBrandCopyKeys: 79 },
+  conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
+  manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 54, exactBrandCopyKeys: 34 },
+  settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 82, exactBrandCopyKeys: 58 },
+  operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 52, exactBrandCopyKeys: 40 },
+  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 73, exactBrandCopyKeys: 59 },
+  activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 62, exactBrandCopyKeys: 42 },
+  dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 64, exactBrandCopyKeys: 34 },
+  renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 46, exactBrandCopyKeys: 27 },
+  domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 62, exactBrandCopyKeys: 45 },
+  signIn: { source: "SignIn.jsx", typedBoundary: "DesktopAuthenticationStatus", localeKeyCount: 21, exactBrandCopyKeys: 9, exactEnUSBrandCopyKeys: 8 },
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 550 as const;
-export const reconciledExactBrandCopyKeyCount = 444 as const;
-export const reconciledExactEnUSBrandCopyKeyCount = 55 as const;
+export const reconciledLocaleKeyCount = 802 as const;
+export const reconciledExactBrandCopyKeyCount = 510 as const;
+export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

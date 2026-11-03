@@ -1,15 +1,16 @@
 export { DesktopShell } from "./desktop-shell";
-export type { DesktopShellBanner, DesktopShellProps } from "./desktop-shell";
-export {
-  createDefaultShellRoutes,
-  isShellNavigationRouteId,
-  isShellRouteId,
-  selectEligibleShellRoute,
-  shellRouteIds,
-} from "./route-contract";
+export type { DesktopShellProps } from "./desktop-shell";
 export type {
-  ShellNavigationRouteId,
-  ShellRouteDefinition,
-  ShellRouteIcon,
-  ShellRouteId,
-} from "./route-contract";
+  DesktopShellStatus,
+  ShellCommand,
+  ShellDevice,
+  ShellDeviceRole,
+  ShellNavigationItem,
+  ShellNavigationSection,
+  ShellNavigationTone,
+  ShellWindowFrame,
+  ShellWindowPlatform,
+} from "./shell-contract";
+export { shellTableLabels } from "./table-copy";
+export { NativeWindow } from "./native-window";
+export type { NativeWindowProps } from "./native-window";

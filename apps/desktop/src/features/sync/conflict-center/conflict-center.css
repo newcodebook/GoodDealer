@@ -1,0 +1,23 @@
+.conflict-center { overflow: auto; flex: 1; min-height: 0; height: 100%; }
+.conflict-center-content { display: flex; flex-direction: column; width: 100%; max-width: 920px; margin: 0 auto; padding: var(--space-4); gap: 14px; }
+.conflict-center-head { display: flex; align-items: center; gap: 10px; }
+.conflict-center-notice { margin-left: auto; text-align: right; }
+.conflict-center-empty { margin: var(--space-6) auto; }
+.conflict-card { display: flex; flex-direction: column; gap: 10px; }
+.conflict-card--resolved { opacity: .55; }
+.conflict-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.conflict-card-note { margin-left: auto; }
+.conflict-mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.conflict-values { display: flex; gap: 10px; }
+.conflict-value { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: var(--space-2) 10px; gap: 5px; border: 1px solid var(--gd-line); border-radius: var(--radius-sm); background: var(--gd-ink); color: inherit; font: inherit; text-align: left; }
+.conflict-value--pickable { cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out); }
+.conflict-value--pickable:hover { border-color: var(--gd-line-hover); }
+.conflict-value--pickable:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.conflict-value--chosen { border-color: var(--gd-blue); }
+.conflict-value-label { color: var(--text-3); font-size: 10px; font-weight: var(--weight-medium); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.conflict-value--local .conflict-value-label { color: var(--gd-blue); }
+.conflict-value--remote .conflict-value-label { color: var(--gd-warning); }
+.conflict-value-text { overflow: hidden; color: var(--text-1); font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.conflict-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.conflict-card-rev { margin-left: auto; color: var(--text-3); font-size: var(--text-2xs); }
+.conflict-warning { display: inline-flex; align-items: center; gap: 6px; color: var(--gd-warning); font-size: var(--text-xs); }

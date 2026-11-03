@@ -12,7 +12,11 @@ use zeroize::{Zeroize as _, Zeroizing};
 use crate::desktop_device_identity::{DesktopDeviceIdentity, DesktopDeviceProofTranscript};
 
 const CLIENT_ID: &str = "gooddealer-desktop";
-const REDIRECT_URI: &str = "gooddealer://oauth/callback";
+/// ADR-0026: RFC 8252 loopback callback. Native binds the literal IPv4 loopback on an ephemeral
+/// port per attempt; Cloud repeats this exact URI in the challenge, transcript, and code exchange.
+const LOOPBACK_HOST: &str = "127.0.0.1";
+const LOOPBACK_CALLBACK_PATH: &str = "/oauth/callback";
+const MIN_LOOPBACK_PORT: u16 = 1_024;
 const AUTHORIZE_PATH: &str = "/v1/desktop-oauth/authorize";
 const KEYCHAIN_SERVICE: &str = "com.gooddealer.desktop.oauth-refresh";
 const KEYCHAIN_ACCOUNT: &str = "desktop-refresh-v1";
@@ -55,6 +59,8 @@ pub struct DesktopOAuthAttempt {
     verifier: Zeroizing<String>,
     state: Zeroizing<String>,
     code_challenge: String,
+    callback_port: u16,
+    redirect_uri: String,
     authorization_url: Url,
     challenge_responded: bool,
 }
@@ -64,10 +70,12 @@ impl DesktopOAuthAttempt {
     ///
     /// # Errors
     ///
-    /// Rejects non-HTTPS Cloud origins, malformed device identity, or unavailable randomness.
+    /// Rejects non-HTTPS Cloud origins, a privileged callback port, malformed device identity, or
+    /// unavailable randomness.
     pub fn begin(
         cloud_origin: &str,
         identity: &DesktopDeviceIdentity,
+        callback_port: u16,
     ) -> Result<Self, DesktopOAuthError> {
         let mut verifier_bytes = Zeroizing::new([0_u8; 64]);
         let mut state_bytes = Zeroizing::new([0_u8; 32]);
@@ -78,6 +86,7 @@ impl DesktopOAuthAttempt {
             identity.device_id(),
             identity.key_id(),
             &identity.public_key_base64url(),
+            callback_port,
             URL_SAFE_NO_PAD.encode(*verifier_bytes),
             URL_SAFE_NO_PAD.encode(*state_bytes),
         )
@@ -88,10 +97,12 @@ impl DesktopOAuthAttempt {
         device_id: &str,
         key_id: &str,
         public_key: &str,
+        callback_port: u16,
         verifier: String,
         state: String,
     ) -> Result<Self, DesktopOAuthError> {
-        if !valid_identifier(device_id)
+        if callback_port < MIN_LOOPBACK_PORT
+            || !valid_identifier(device_id)
             || !valid_identifier(key_id)
             || !valid_base64url(public_key, 43)
             || !valid_verifier(&verifier)
@@ -113,11 +124,13 @@ impl DesktopOAuthAttempt {
         }
         origin.set_path(AUTHORIZE_PATH);
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        let redirect_uri =
+            format!("http://{LOOPBACK_HOST}:{callback_port}{LOOPBACK_CALLBACK_PATH}");
         origin
             .query_pairs_mut()
             .append_pair("response_type", "code")
             .append_pair("client_id", CLIENT_ID)
-            .append_pair("redirect_uri", REDIRECT_URI)
+            .append_pair("redirect_uri", &redirect_uri)
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("device_id", device_id)
@@ -128,6 +141,8 @@ impl DesktopOAuthAttempt {
             verifier: Zeroizing::new(verifier),
             state: Zeroizing::new(state),
             code_challenge: challenge,
+            callback_port,
+            redirect_uri,
             authorization_url: origin,
             challenge_responded: false,
         })
@@ -138,24 +153,41 @@ impl DesktopOAuthAttempt {
         &self.authorization_url
     }
 
-    /// Verifies and advances the exact custom-scheme callback state machine.
+    /// Whether a loopback request carries this attempt's exact state. The callback server checks
+    /// this before `advance` consumes the attempt, so a stray or hostile request to the port
+    /// cannot end a login it does not belong to.
+    #[must_use]
+    pub fn callback_state_matches(&self, callback: &Url) -> bool {
+        self.is_loopback_callback(callback)
+            && exact_callback_pairs(callback).is_ok_and(|pairs| {
+                pairs
+                    .get("state")
+                    .is_some_and(|state| state.as_bytes() == self.state.as_bytes())
+            })
+    }
+
+    fn is_loopback_callback(&self, callback: &Url) -> bool {
+        callback.scheme() == "http"
+            && callback.host_str() == Some(LOOPBACK_HOST)
+            && callback.port() == Some(self.callback_port)
+            && callback.path() == LOOPBACK_CALLBACK_PATH
+            && callback.username().is_empty()
+            && callback.password().is_none()
+            && callback.fragment().is_none()
+    }
+
+    /// Verifies and advances the exact loopback callback state machine.
     ///
     /// # Errors
     ///
-    /// Rejects scheme/host/path substitution, duplicate or unknown query fields, and state mismatch.
+    /// Rejects scheme/host/port/path substitution, duplicate or unknown query fields, and state
+    /// mismatch.
     pub fn advance(
         self,
         callback: &Url,
         identity: &DesktopDeviceIdentity,
     ) -> Result<DesktopOAuthContinuation, DesktopOAuthError> {
-        if callback.scheme() != "gooddealer"
-            || callback.host_str() != Some("oauth")
-            || callback.path() != "/callback"
-            || callback.port().is_some()
-            || !callback.username().is_empty()
-            || callback.password().is_some()
-            || callback.fragment().is_some()
-        {
+        if !self.is_loopback_callback(callback) {
             return Err(DesktopOAuthError::InvalidCallback);
         }
         let pairs = exact_callback_pairs(callback)?;
@@ -176,6 +208,7 @@ impl DesktopOAuthAttempt {
                 DesktopAuthorizationCodeExchange {
                     authorization_code: Zeroizing::new(code.clone()),
                     code_verifier: self.verifier,
+                    redirect_uri: self.redirect_uri,
                 },
             ));
         }
@@ -210,7 +243,7 @@ impl DesktopOAuthAttempt {
                 challenge_id,
                 code_challenge: &self.code_challenge,
                 client_id: CLIENT_ID,
-                redirect_uri: REDIRECT_URI,
+                redirect_uri: &self.redirect_uri,
                 nonce_digest,
                 expires_at,
             })
@@ -269,12 +302,18 @@ impl Debug for DesktopOAuthAttempt {
 pub struct DesktopAuthorizationCodeExchange {
     authorization_code: Zeroizing<String>,
     code_verifier: Zeroizing<String>,
+    redirect_uri: String,
 }
 
 impl DesktopAuthorizationCodeExchange {
-    /// Makes raw exchange material available only for the duration of a native transport call.
-    pub fn expose<Result>(&self, operation: impl FnOnce(&str, &str) -> Result) -> Result {
-        operation(&self.authorization_code, &self.code_verifier)
+    /// Makes raw exchange material, with the exact redirect URI the code is bound to, available
+    /// only for the duration of a native transport call.
+    pub fn expose<Result>(&self, operation: impl FnOnce(&str, &str, &str) -> Result) -> Result {
+        operation(
+            &self.authorization_code,
+            &self.code_verifier,
+            &self.redirect_uri,
+        )
     }
 }
 
@@ -546,18 +585,50 @@ fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn secret_service_error(
+    error: crate::secret_service_custody::SecretServiceError,
+) -> DesktopOAuthError {
+    // A rejected item is not a usable refresh credential; both cases leave custody untouched.
+    match error {
+        crate::secret_service_custody::SecretServiceError::Unavailable
+        | crate::secret_service_custody::SecretServiceError::Rejected => {
+            DesktopOAuthError::CredentialStoreUnavailable
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
+    crate::secret_service_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map(|value| value.map(|secret| secret.to_vec()))
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn store_native_refresh_bytes(value: &[u8]) -> Result<(), DesktopOAuthError> {
+    crate::secret_service_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
+    crate::secret_service_custody::delete(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(secret_service_error)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn store_native_refresh_bytes(_value: &[u8]) -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
@@ -640,6 +711,9 @@ mod tests {
         DesktopDeviceIdentity::from_test_material("device-a", "device-key-a", [0x41; 32])
     }
 
+    const PORT: u16 = 53_682;
+    const CALLBACK: &str = "http://127.0.0.1:53682/oauth/callback";
+
     fn attempt() -> DesktopOAuthAttempt {
         let identity = identity();
         DesktopOAuthAttempt::from_material(
@@ -647,6 +721,7 @@ mod tests {
             "device-a",
             "device-key-a",
             &identity.public_key_base64url(),
+            PORT,
             "V".repeat(64),
             "S".repeat(43),
         )
@@ -666,7 +741,7 @@ mod tests {
         assert_eq!(pairs.get("client_id").map(String::as_str), Some(CLIENT_ID));
         assert_eq!(
             pairs.get("redirect_uri").map(String::as_str),
-            Some(REDIRECT_URI)
+            Some(CALLBACK)
         );
         assert_eq!(
             pairs.get("code_challenge_method").map(String::as_str),
@@ -676,7 +751,7 @@ mod tests {
 
         let identity = identity();
         let challenge_callback = Url::parse(&format!(
-            "gooddealer://oauth/callback?account_id=account-a&challenge_id=login-challenge-a&device_id=device-a&expires_at=2026-09-01T00%3A02%3A00Z&key_id=device-key-a&nonce_digest={}&state={}",
+            "{CALLBACK}?account_id=account-a&challenge_id=login-challenge-a&device_id=device-a&expires_at=2026-09-01T00%3A02%3A00Z&key_id=device-key-a&nonce_digest={}&state={}",
             "N".repeat(43),
             "S".repeat(43)
         ))
@@ -703,19 +778,17 @@ mod tests {
         );
 
         let code = format!("gd_ac1.YWNjb3VudC1h.{}", "A".repeat(43));
-        let callback = Url::parse(&format!(
-            "gooddealer://oauth/callback?code={code}&state={}",
-            "S".repeat(43)
-        ))
-        .unwrap();
+        let callback =
+            Url::parse(&format!("{CALLBACK}?code={code}&state={}", "S".repeat(43))).unwrap();
         let DesktopOAuthContinuation::Exchange(exchange) =
             (*attempt).advance(&callback, &identity).unwrap()
         else {
             panic!("code must continue to token exchange");
         };
-        exchange.expose(|observed_code, observed_verifier| {
+        exchange.expose(|observed_code, observed_verifier, observed_redirect| {
             assert_eq!(observed_code, code);
             assert_eq!(observed_verifier, "V".repeat(64));
+            assert_eq!(observed_redirect, CALLBACK);
         });
         assert_eq!(
             format!("{exchange:?}"),
@@ -731,6 +804,21 @@ mod tests {
                 "device-a",
                 "device-key-a",
                 &identity().public_key_base64url(),
+                PORT,
+                "V".repeat(64),
+                "S".repeat(43),
+            )
+            .err()
+            .unwrap(),
+            DesktopOAuthError::InvalidConfiguration
+        );
+        assert_eq!(
+            DesktopOAuthAttempt::from_material(
+                "https://cloud.gooddealer.test/",
+                "device-a",
+                "device-key-a",
+                &identity().public_key_base64url(),
+                1_023,
                 "V".repeat(64),
                 "S".repeat(43),
             )
@@ -739,23 +827,18 @@ mod tests {
             DesktopOAuthError::InvalidConfiguration
         );
         let code = format!("gd_ac1.YWNjb3VudC1h.{}", "A".repeat(43));
+        let state = "S".repeat(43);
         for callback in [
-            format!(
-                "gooddealer://attacker/callback?code={code}&state={}",
-                "S".repeat(43)
-            ),
-            format!(
-                "gooddealer://oauth/callback?code={code}&state={}",
-                "X".repeat(43)
-            ),
-            format!(
-                "gooddealer://oauth/callback?code={code}&state={}&extra=x",
-                "S".repeat(43)
-            ),
-            format!(
-                "gooddealer://oauth/callback?code={code}&code={code}&state={}",
-                "S".repeat(43)
-            ),
+            format!("gooddealer://oauth/callback?code={code}&state={state}"),
+            format!("http://localhost:53682/oauth/callback?code={code}&state={state}"),
+            format!("http://127.0.0.1:53683/oauth/callback?code={code}&state={state}"),
+            format!("https://127.0.0.1:53682/oauth/callback?code={code}&state={state}"),
+            format!("http://127.0.0.1:53682/oauth/other?code={code}&state={state}"),
+            format!("http://user@127.0.0.1:53682/oauth/callback?code={code}&state={state}"),
+            format!("{CALLBACK}?code={code}&state={state}#fragment"),
+            format!("{CALLBACK}?code={code}&state={}", "X".repeat(43)),
+            format!("{CALLBACK}?code={code}&state={state}&extra=x"),
+            format!("{CALLBACK}?code={code}&code={code}&state={state}"),
         ] {
             assert_eq!(
                 attempt()
@@ -765,6 +848,33 @@ mod tests {
                 DesktopOAuthError::InvalidCallback
             );
         }
+    }
+
+    #[test]
+    fn state_precheck_admits_only_this_attempts_loopback_callback() {
+        let attempt = attempt();
+        let state = "S".repeat(43);
+        let matches =
+            |callback: String| attempt.callback_state_matches(&Url::parse(&callback).unwrap());
+        assert!(matches(format!("{CALLBACK}?code=x&state={state}")));
+        assert!(matches(format!(
+            "{CALLBACK}?error=access_denied&state={state}"
+        )));
+        assert!(!matches(format!(
+            "{CALLBACK}?code=x&state={}",
+            "X".repeat(43)
+        )));
+        assert!(!matches(format!("{CALLBACK}?code=x")));
+        assert!(!matches(format!("{CALLBACK}?state={state}&state={state}")));
+        assert!(!matches(format!(
+            "http://127.0.0.1:53683/oauth/callback?state={state}"
+        )));
+        assert!(!matches(format!(
+            "http://localhost:53682/oauth/callback?state={state}"
+        )));
+        assert!(!matches(format!(
+            "http://127.0.0.1:53682/favicon.ico?state={state}"
+        )));
     }
 
     #[test]

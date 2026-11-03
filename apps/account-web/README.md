@@ -17,9 +17,9 @@ Authenticated browser application for GoodDealer account access and commercial-m
 
 ## Change Guide
 
-- Change browser composition and recovery controllers under `src`; keep payment and identity facts server-owned.
+- Change the flow in `src/app/account-controller.ts`, screens in `src/features`, and recovery controllers in `src`; keep `src/main.tsx` a thin composition root and payment and identity facts server-owned.
 - Update strict client contracts and negative tests with any browser-visible wire-shape change.
-- Verify with this package's typecheck and test commands plus the relevant Cloud route tests.
+- Verify with this package's typecheck, test, and build commands plus the relevant Cloud route tests.
 
 ## Purpose
 
@@ -28,16 +28,33 @@ It consumes strict Cloud clients and never owns payment facts, card data, Entitl
 Desktop business data, or local Provider credentials.
 
 `src/index.ts` exports the strictly parsed `BillingClient` and storage-neutral recovery controllers.
-`src/browser.ts` composes the deployed billing page with same-origin Cookie transport and browser-local,
-secret-free request recovery. The static build is deployed at `https://account.gooddealer.com`; its `/v1/*`
-and `/billing/approval/*` paths are reverse-proxied to the GoodDealer Cloud on the same VPS. Stripe test-mode
-catalog objects, return origins and webhook verification are configured in the shared development environment.
-The source shell composes same-origin registration, email verification and resend, password login and reset,
+The deployed page is a React + Vite build of `index.html` and `src/main.tsx`, a thin composition root
+that binds `src/app/account-controller.ts` to the browser. The controller owns the whole flow:
+session discovery, the Identity steps, checkout, cancellation and refund recovery, cross-tab account
+changes, and the Desktop sign-in continuation, all through injected host ports so tests drive it
+without a DOM. `src/identity` is the same-origin Identity client and `src/billing` the same-origin
+billing transport and approval navigator. The static build is deployed at `https://account.gooddealer.com`;
+its `/v1/*` and `/billing/approval/*` paths are reverse-proxied to the GoodDealer Cloud on the same VPS,
+and `/billing/success` and `/billing/cancel` serve the same `index.html` with absolute asset URLs.
+`pnpm build` reads `GOODDEALER_ACCOUNT_WEB_ENVIRONMENT` (`development` when unset, `staging`, or
+`production`; anything else fails the build); development and staging show a test-mode label, and
+production shows none. Stripe test-mode catalog objects, return origins and webhook verification are
+configured in the shared development environment.
+The page composes same-origin registration, email verification and resend, password login and reset,
 session discovery, and server-revoking logout through the independent Identity ingress. Every successful
 Identity response is strictly parsed before presentation. The staging deployment uses the fail-closed Resend
 adapter with `account@gooddealer.com`; a test user without database or development-tool access completed the
 real registration, email verification, login, refresh recovery, and logout journey. Production email delivery
 and public-signup qualification remain separate.
+The presentation is designed from `brand/` on React with `@gooddealer/ui` and `@gooddealer/i18n`
+(zh-CN / en-US account copy). Every designed screen lives in `src/app-shell` and `src/features` and renders
+in the design host under `visual-fixtures` (`pnpm visual:dev`, typed mock data, labelled MOCK or CLOUD per
+screen). Production composes only the screens with a Cloud contract: access, and License as the single
+route pinned by `productionAccountRouteIds`, so signing in lands on License because there is no separate
+Overview. Devices and Billing are designed ahead of their Account Web routes and are never composed into
+production before those routes exist. A pending checkout is shown with a Continue action instead of
+redirecting on load, so returning from Stripe's cancel page never bounces straight back to Stripe;
+continuing replays the stored request identity and receives a fresh approval handle.
 Launch exposes Stripe only; the optional PayPal adapter is not a launch or
 production-qualification dependency. Live-mode merchants, tax-qualified sales regions and production
 qualification remain unavailable.
@@ -77,7 +94,9 @@ qualification remain unavailable.
 - **Refund replay or completion substitution**: refund request and purchase identity remain in browser custody, status must correlate both GoodDealer refund and purchase IDs, and custody clears only after a strictly parsed `refunded` completion. Verified by: `test/billing-recovery-controller.test.ts`.
 - **Login CSRF and session fixation**: Identity POST routes require the exact approved HTTPS Origin; successful login revokes a valid presented session before issuing a fresh secure, HttpOnly, host-only session. Verified by: `../cloud/test/entrypoints/identity-http.test.ts` and `../cloud/test/postgres/account-access.test.ts`.
 - **Logout and recovery replay**: logout is server-revoking and idempotent; registration and reset challenges have separate digests, expiry, attempt budgets, resend cooldowns, and single-use CAS. Verified by: `test/account-access-surface.test.ts` and `../cloud/test/postgres/account-access.test.ts`.
-- **Credential persistence**: Account Web never writes passwords or verification codes to browser storage. Verified by: `src/browser.ts` and `../cloud/test/account-access.test.ts`.
+- **Credential persistence**: Account Web never writes passwords or verification codes to browser storage; the access form clears each secret in the transition that sends it. Verified by: `src/app/account-controller.test.ts`, `src/features/access/access-submission.test.ts`, `test/account-access-surface.test.ts`, and `../cloud/test/account-access.test.ts`.
+- **Stale or cross-account writes**: initialization generations, the namespace fence, and per-context busy ownership drop any async result that resumes after a reload, sign-out, or another tab's account change. Verified by: `src/app/account-controller.test.ts`.
+- **Open redirect through Desktop sign-in or approval**: only one same-origin `/v1/desktop-oauth/authorize?…` continuation and only same-origin `/billing/approval/*` navigation are followed. Verified by: `test/desktop-authorization-continuation.test.ts` and `src/billing/same-origin-billing.test.ts`.
 
 ## Open Questions
 

@@ -1,120 +1,48 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const browser = readFileSync(new URL("../src/browser.ts", import.meta.url), "utf8");
-const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const html = readFileSync(join(packageRoot, "index.html"), "utf8");
 
-describe("Account Web access surface", () => {
-  it("loads the bundle from an absolute path on billing return routes", () => {
-    expect(html).toContain('<script type="module" src="/app.js"></script>');
+/** Production sources only: tests and the mock design host never ship. */
+function productionSources(directory: string): { readonly path: string; readonly text: string }[] {
+  return readdirSync(directory).flatMap((name) => {
+    const path = join(directory, name);
+    if (statSync(path).isDirectory()) return productionSources(path);
+    if (!/\.tsx?$/u.test(name) || /\.test\.tsx?$/u.test(name)) return [];
+    return [{ path: relative(packageRoot, path), text: readFileSync(path, "utf8") }];
+  });
+}
+
+const sources = productionSources(join(packageRoot, "src"));
+
+describe("Account Web production surface", () => {
+  it("loads one module entry and no inline script", () => {
+    expect(html.match(/<script\b/gu)).toHaveLength(1);
+    expect(html).toContain('<script type="module" src="/src/main.tsx"></script>');
+  });
+
+  it("names no absolute origin, so every request and navigation stays same-origin", () => {
+    for (const source of sources) expect(source.text, source.path).not.toMatch(/https?:\/\//u);
   });
 
   it("keeps passwords and verification codes out of browser persistence", () => {
-    expect(browser).not.toMatch(/(?:localStorage|sessionStorage)\.setItem\([^\n]*(?:password|code)/u);
-    expect(browser).toContain('passwordInput.value = ""');
-    expect(browser).toContain('codeInput.value = ""');
-    expect(browser).toContain('resetCodeInput.value = ""');
-    expect(browser).toContain('newPasswordInput.value = ""');
+    for (const source of sources) {
+      expect(source.text, source.path).not.toMatch(/(?:localStorage|sessionStorage|storage)\.setItem\([^\n]*(?:password|code)/iu);
+      expect(source.text, source.path).not.toContain("sessionStorage");
+    }
   });
 
-  it("uses only same-origin credentialed Identity requests", () => {
-    expect(browser).toContain('credentials: "same-origin"');
-    expect(browser).toContain('redirect: "error"');
-    expect(browser).not.toMatch(/https?:\/\//u);
+  it("issues network requests only through the injected host fetch", () => {
+    const callers = sources.filter((source) => /\bfetch\(/u.test(source.text)).map((source) => source.path);
+    expect(callers).toEqual([join("src", "main.tsx")]);
   });
 
-  it("strictly parses every successful Identity mutation and exposes recovery, resend, and logout", () => {
-    for (const path of [
-      "/v1/identity/registration/resend",
-      "/v1/identity/password-reset",
-      "/v1/identity/password-reset/complete",
-      "/v1/identity/logout",
-    ]) expect(browser).toContain(path);
-    expect(browser).toContain("readIdentityStatus(response");
-    expect(html).toContain('id="resend-verification"');
-    expect(html).toContain('id="reset-form"');
-    expect(html).toContain('id="logout"');
-    expect(browser).toContain("accountNamespaceFence.clear()");
-  });
-
-  it("exposes a server-correlated first-purchase refund surface", () => {
-    expect(html).toContain('id="refund-panel"');
-    expect(html).toContain('id="refund-submit"');
-    expect(browser).toContain("AccountBillingRefundController");
-    expect(browser).toContain("first-purchase-refund");
-    expect(browser).toContain("purchaseId");
-    expect(browser).toContain("refundRecovery.recover");
-    expect(browser).toContain("refundRecovery.retryRefund()");
-    expect(html).toMatch(/id="refund-copy"[^>]*role="status"[^>]*aria-live="polite"/u);
-    expect(html.match(/data-checkout="[^"]+"[^>]*disabled/gmu)).toHaveLength(3);
-  });
-
-  it("partitions recovery custody by the authenticated server namespace", () => {
-    expect(browser).toContain("createNamespacedRecoveryStore");
-    expect(browser).toContain("readAuthenticatedSession");
-    expect(browser).toContain("activeBillingContext = null");
-    expect(browser).toContain("createBillingContext(sessionValue.namespace)");
-    expect(browser).toContain("invalidateBillingContext()");
-    expect(browser).toContain("event.newValue === null");
-    expect(browser).not.toContain('localStorage.getItem("gooddealer.billing.checkout.v1")');
-  });
-
-  it("keeps account tabs and panels accessible and synchronizes selection state", () => {
-    expect(html).toContain('role="tablist"');
-    expect(html).toContain('id="login-tab" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="access-form"');
-    expect(html).toContain('id="register-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="access-form"');
-    expect(html).toContain('id="access-form" class="access-form" role="tabpanel" aria-labelledby="login-tab"');
-    expect(browser).toContain('loginTab.setAttribute("aria-selected"');
-    expect(browser).toContain('registerTab.setAttribute("aria-selected"');
-    expect(browser).toContain('accessForm.setAttribute("aria-labelledby"');
-    const namespaceSwitch = browser.indexOf("if (event.key !== ACTIVE_ACCOUNT_NAMESPACE_KEY) return;");
-    const disableCheckout = browser.indexOf("setCheckoutEligibility(false);", namespaceSwitch);
-    const resetRefund = browser.indexOf("resetRefundUi();", namespaceSwitch);
-    const reinitialize = browser.indexOf("void initialize();", namespaceSwitch);
-    expect(namespaceSwitch).toBeGreaterThan(-1);
-    expect(disableCheckout).toBeGreaterThan(namespaceSwitch);
-    expect(resetRefund).toBeGreaterThan(namespaceSwitch);
-    expect(reinitialize).toBeGreaterThan(disableCheckout);
-    expect(reinitialize).toBeGreaterThan(resetRefund);
-    expect(browser).toContain("activeBillingContext = null;");
-    expect(browser).toContain('recoveryStorageKey("gooddealer.billing.refund", context.namespace)');
-  });
-
-  it("owns busy-state cleanup and refund custody refresh by the active context", () => {
-    expect(browser).toContain("if (checkoutBusyOwner === context)");
-    expect(browser).toContain("markDeterministicallyRejected(requestId, error.payload)");
-    expect(browser).toContain("if (!isCurrentBillingContext(context)) return;");
-    expect(browser).toContain("recoveryStorageKey(\"gooddealer.billing.refund\", context.namespace)");
-    expect(browser).toContain("resetRefundUi()");
-    expect(browser).toContain("delete refundSubmit.dataset.purchaseId");
-    const refundStart = browser.indexOf("async function submitRefund");
-    const refundEnd = browser.indexOf("function scheduleRefundRecovery", refundStart);
-    const refundBody = browser.slice(refundStart, refundEnd);
-    expect(refundBody.match(/if \(!isCurrentBillingContext\(context\)\) return;/gu)).toHaveLength(2);
-    expect(refundBody.indexOf("if (!isCurrentBillingContext(context)) return;"))
-      .toBeLessThan(refundBody.indexOf('refundCopy.textContent = "退款结果尚未确认'));
-  });
-
-  it("synchronously removes stale refund actions before cross-tab custody refresh", () => {
-    const refundStorageEvent = browser.indexOf('event.key === recoveryStorageKey("gooddealer.billing.refund"');
-    const resetRefund = browser.indexOf("resetRefundUi();", refundStorageEvent);
-    const reinitialize = browser.indexOf("void initialize();", refundStorageEvent);
-    expect(refundStorageEvent).toBeGreaterThan(-1);
-    expect(resetRefund).toBeGreaterThan(refundStorageEvent);
-    expect(reinitialize).toBeGreaterThan(resetRefund);
-    expect(browser).toContain("refundPanel.hidden = true;");
-    expect(browser).toContain("refundSubmit.disabled = true;");
-    expect(browser).toContain("refundRetryReady = false;");
-    expect(browser).toContain("delete refundSubmit.dataset.purchaseId;");
-  });
-
-  it("supersedes initialization even when no active billing context exists", () => {
-    const namespaceHandler = browser.indexOf("if (event.key !== ACTIVE_ACCOUNT_NAMESPACE_KEY) return;");
-    const nullContext = browser.indexOf("activeBillingContext = null;", namespaceHandler);
-    const generation = browser.indexOf("initializeGeneration = supersedeGeneration", namespaceHandler);
-    const reinitialize = browser.indexOf("void initialize();", namespaceHandler);
-    expect(generation).toBeGreaterThan(namespaceHandler);
-    expect(nullContext).toBeGreaterThan(namespaceHandler);
-    expect(reinitialize).toBeGreaterThan(generation);
+  it("composes only routes with a Cloud contract", () => {
+    const app = readFileSync(join(packageRoot, "src", "app", "account-app.tsx"), "utf8");
+    expect(app).toContain("availableRouteIds={productionAccountRouteIds}");
+    expect(app).not.toMatch(/features\/(?:devices|billing)\//u);
   });
 });

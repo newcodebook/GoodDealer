@@ -1048,7 +1048,13 @@ impl PrivateBackupAuthority {
     fn from_verified(authority: &VerifiedBackupAuthority, generation: u64) -> Self {
         let snapshot_digest = authority.snapshot_digest_hex();
         let mut digest = [0_u8; 32];
-        for (index, chunk) in snapshot_digest.as_bytes().chunks_exact(2).enumerate() {
+        for (index, chunk) in snapshot_digest
+            .as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+        {
             digest[index] = (hex_nibble(chunk[0]) << 4) | hex_nibble(chunk[1]);
         }
         Self {
@@ -1677,7 +1683,7 @@ impl DesktopLocalHost {
         }
         let requested = self
             .transition_requested_epoch
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value
                     .checked_add(1)
                     .filter(|next| *next <= MAX_SAFE_INTEGER)
@@ -1911,7 +1917,7 @@ impl DesktopLocalHost {
     ) -> Result<(), DesktopLocalHostError> {
         let requested = self
             .transition_requested_epoch
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value
                     .checked_add(1)
                     .filter(|next| *next <= MAX_SAFE_INTEGER)
@@ -3965,7 +3971,7 @@ impl DesktopLocalHost {
     ) -> Result<(), DesktopLocalHostError> {
         let requested = self
             .transition_requested_epoch
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value
                     .checked_add(1)
                     .filter(|next| *next <= MAX_SAFE_INTEGER)

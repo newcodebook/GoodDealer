@@ -34,7 +34,6 @@ import {
 } from "../../src/modules/licensing/postgres-repository";
 import {
   DESKTOP_OAUTH_CLIENT_ID,
-  DESKTOP_OAUTH_REDIRECT_URI,
   DesktopTokenRefreshService,
   PostgresDesktopOAuthAuthorizationService,
   PostgresIdentityAuthenticationRepository,
@@ -42,6 +41,8 @@ import {
 import { PostgresIdentitySessionVerificationReader } from "../../src/modules/identity/postgres-session-verification-reader";
 import { PostgresDefaultWorkspaceTenantResolver } from "../../src/modules/workspace/default-workspace/index";
 import { clearLicensingTestData } from "../support/postgres-fixture";
+
+const LOOPBACK_REDIRECT_URI = "http://127.0.0.1:53682/oauth/callback";
 
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 3 });
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 6 });
@@ -216,7 +217,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       principal,
       deviceId: "device-a",
       clientId: DESKTOP_OAUTH_CLIENT_ID,
-      redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+      redirectUri: LOOPBACK_REDIRECT_URI,
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
       keyId: "device-key-a",
@@ -817,7 +818,7 @@ async function beginAuthorization(
     principal,
     deviceId: "device-a",
     clientId: DESKTOP_OAUTH_CLIENT_ID,
-    redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+    redirectUri: LOOPBACK_REDIRECT_URI,
     codeChallenge: challenge,
     codeChallengeMethod: "S256",
     keyId: "device-key-a",
@@ -835,7 +836,7 @@ async function beginAuthorization(
     challengeId: challenged.challenge.challengeId,
     codeChallenge: challenge,
     clientId: DESKTOP_OAUTH_CLIENT_ID,
-    redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+    redirectUri: LOOPBACK_REDIRECT_URI,
     nonceDigest: challenged.challenge.nonceDigest,
     expiresAt: challenged.challenge.expiresAt,
   });
@@ -862,7 +863,7 @@ function exchangeInput(code: string, codeVerifier: string) {
     code,
     codeVerifier,
     clientId: DESKTOP_OAUTH_CLIENT_ID,
-    redirectUri: DESKTOP_OAUTH_REDIRECT_URI,
+    redirectUri: LOOPBACK_REDIRECT_URI,
     evaluatedAt: new Date(),
   } as const;
 }

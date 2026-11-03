@@ -6,7 +6,12 @@ Customer Desktop application that composes the Renderer and native Host around t
 
 ## Owns
 
-- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters.
+- The mock design host in `visual-fixtures/` (`pnpm --filter @gooddealer/desktop visual:dev`), which
+  renders every Desktop screen from typed mock data, including capabilities without a Host port. It
+  is a separate Vite root outside the production graph and grants no authority.
+- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
+  layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
+  startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
 ## Touchpoints
@@ -59,8 +64,9 @@ JSON connection/entity lookup hints, reject duplicate and unknown fields before 
 the isolated user-triggered Provider lane. Native composition captures the credential, observes the fixed
 Zone/DNS endpoint set, asks `DesktopLocalHost` to derive the complete durable operation, publishes the
 Secure Host envelope under exact-base Keychain CAS, and commits observations locally before waking the
-projection lane. The production Renderer now composes activation, bounded status, observation enqueue,
-and committed local observation reads. Production-provider qualification remains separate, so this source
+projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
+observation enqueue, and committed local observation reads; it is not composed into the production
+root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
 composition is not a customer-availability claim. Revoke/deactivate remains intentionally unavailable until
 a Host-owned atomic custody and fencing capability is delivered.
 
@@ -130,6 +136,24 @@ only an identical replay may reuse that receipt. After success, Renderer reads b
 Conflict Center, and `SyncSnapshot` between matching Host status generations and publishes the complete bundle
 in one state update; a torn read is retried and never partially published.
 
+## WebView content security policy
+
+`tauri.conf.json` sets a self-only CSP: scripts, styles, fonts, and images load only from the bundled
+app (plus `data:` images), and `connect-src` admits only Tauri IPC. No remote origin, `unsafe-eval`, or
+wildcard is allowed. Tauri's automatic nonce injection is disabled for `style-src` only, because a
+nonce would void `'unsafe-inline'` for React style attributes. Verified by `src/app/native-policy.test.ts`.
+
+## Native window
+
+The window title bar is drawn by the Renderer's `DesktopShell` and differs per platform. Windows and
+Linux run undecorated (`tauri.conf.json` `decorations: false`), so the shell draws minimize / maximize /
+close and marks its title bar with `data-tauri-drag-region`; the capability admits only
+`core:window:allow-start-dragging`, `-minimize`, `-toggle-maximize`, and `-close` for that. macOS merges
+`tauri.macos.conf.json`, which keeps native traffic lights over an overlay title bar (`titleBarStyle:
+Overlay`, `hiddenTitle`, `trafficLightPosition`); the shell reserves their inset and draws no controls.
+The macOS patch may change only title-bar presentation, verified by `src/app/native-policy.test.ts`.
+The traffic-light position and undecorated resizing still need checking on each target platform.
+
 ## Local Provider binding
 
 `local_domain_asset_provider_bind` persists an immutable association for an existing asset from
@@ -149,10 +173,9 @@ files, and non-file database targets; on Unix it restricts the Host-owned databa
 owner.
 
 Before reading any Keychain item or opening SQLCipher, the first process acquires an OS-level exclusive
-application-data lock. A second process cannot become a refresh or database authority; single-instance
-delivery forwards a custom-scheme launch to the established process. Exact bounded OAuth callbacks
-that arrive during Native setup are buffered before managed OAuth state exists and atomically drained
-after that state is installed, preserving the one-time callback across the startup window.
+application-data lock. A second process cannot become a refresh or database authority; the
+single-instance plugin hands a second launch to the established process. Browser sign-in no longer
+arrives through process launches at all (ADR-0026), so there is no startup callback window to buffer.
 
 On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
 the operating system CSPRNG only when no database exists. If an existing database loses its
@@ -168,8 +191,14 @@ boundary. They never enter Renderer state, IPC requests, sync mutations, Cloud, 
 ordinary audit payloads.
 
 GoodDealer Desktop login uses the system browser with Authorization Code + PKCE S256. PKCE verifier
-and state remain in Native memory. The one-time callback is accepted only at
-`gooddealer://oauth/callback` with an exact matching state. The short-lived access token remains in
+and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0026), each attempt binds a
+short-lived HTTP listener on `127.0.0.1` with an OS-chosen port and sends
+`http://127.0.0.1:{port}/oauth/callback` as the redirect URI; the browser returns over a plain HTTP
+redirect, so no OS URL scheme or browser external-protocol prompt is involved. The listener accepts
+only `GET /oauth/callback` with `Host: 127.0.0.1:{port}`, answers anything else with a static page,
+ignores callbacks whose state does not match without consuming the attempt, sends the challenge leg on
+to the next authorize URL in the same tab, exchanges the code inside the callback, and closes after a
+static result page. A new sign-in supersedes a waiting one, and an attempt closes after ten minutes. The short-lived access token remains in
 Native memory; the rotating refresh token is stored only in the purpose-isolated macOS Keychain item.
 Before Cloud issues a code, it returns an account-scoped two-minute challenge. Native signs the exact
 account/device/key/PKCE/client/redirect/nonce/expiry transcript with its separate Keychain-held

@@ -45,11 +45,74 @@ describe("Desktop device login proof", () => {
       publicKey: publicKey.toString("base64url"),
       codeChallenge: "C".repeat(43),
       clientId: "gooddealer-desktop",
-      redirectUri: "gooddealer://oauth/callback",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
       accountSecurityEpoch: 4,
       accountSessionDigest,
       enrollmentAuthorizedUntil: null,
       evaluatedAt: new Date("2026-09-01T00:00:00Z"),
+    })).resolves.toEqual({ issued: false });
+  });
+
+  it("reuses an exact pending challenge on an authorize retry", async () => {
+    const nonceDigest = Buffer.alloc(32, 0x42);
+    const expiresAt = new Date("2026-09-01T00:02:00.000Z");
+    const transaction = accountTransaction(async (text) => {
+      if (text.includes("FROM device_account_states")) return rows([{ present: true }]);
+      if (text.includes("DELETE FROM device_login_challenges")) {
+        return { ...rows([]), command: "DELETE", rowCount: 0 };
+      }
+      if (text.includes("SELECT count(*) < 4 AS allowed")) return rows([{ allowed: true }]);
+      if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
+        return rows([{ binding_status: "bound", key_id: "device-key-a", public_key: publicKey }]);
+      }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) {
+        return rows([{
+          challenge_id: "login-challenge-existing",
+          key_id: "device-key-a",
+          proposed_public_key: publicKey,
+          nonce_digest: nonceDigest,
+          account_session_digest: Buffer.from(accountSessionDigest, "base64url"),
+          code_challenge: "C".repeat(43),
+          client_id: "gooddealer-desktop",
+          redirect_uri: "http://127.0.0.1:53682/oauth/callback",
+          account_security_epoch: "4",
+          expires_at: expiresAt,
+        }]);
+      }
+      throw new Error(`retry should not write a second challenge: ${text}`);
+    });
+    const service = new PostgresDeviceLoginProof({
+      withAccount: async () => {
+        throw new Error("exchange-time eligibility was not requested");
+      },
+    });
+    const request = {
+      accountId: "account-a",
+      deviceId: "device-a",
+      keyId: "device-key-a",
+      publicKey: publicKey.toString("base64url"),
+      codeChallenge: "C".repeat(43),
+      clientId: "gooddealer-desktop",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
+      accountSecurityEpoch: 4,
+      accountSessionDigest,
+      enrollmentAuthorizedUntil: null,
+      evaluatedAt: new Date("2026-09-01T00:00:00Z"),
+    } as const;
+    await expect(service.issueLoginChallenge(transaction, request)).resolves.toEqual({
+      issued: true,
+      challenge: {
+        challengeId: "login-challenge-existing",
+        accountId: "account-a",
+        deviceId: "device-a",
+        keyId: "device-key-a",
+        nonceDigest: nonceDigest.toString("base64url"),
+        expiresAt: "2026-09-01T00:02:00Z",
+      },
+    });
+    await expect(service.issueLoginChallenge(transaction, {
+      ...request,
+      redirectUri: "http://127.0.0.1:53683/oauth/callback",
     })).resolves.toEqual({ issued: false });
   });
 
@@ -69,6 +132,7 @@ describe("Desktop device login proof", () => {
           public_key: publicKey,
         }]);
       }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
       if (text.includes("INSERT INTO device_login_challenges")) {
         challengeInsert = values;
         return rows([]);
@@ -104,7 +168,7 @@ describe("Desktop device login proof", () => {
       publicKey: publicKey.toString("base64url"),
       codeChallenge: "C".repeat(43),
       clientId: "gooddealer-desktop",
-      redirectUri: "gooddealer://oauth/callback",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
       accountSecurityEpoch: 4,
       accountSessionDigest,
       enrollmentAuthorizedUntil: null,
@@ -123,7 +187,7 @@ describe("Desktop device login proof", () => {
       challengeId: issued.challenge.challengeId,
       codeChallenge: "C".repeat(43),
       clientId: "gooddealer-desktop",
-      redirectUri: "gooddealer://oauth/callback",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
       nonceDigest: issued.challenge.nonceDigest,
       expiresAt: issued.challenge.expiresAt,
     });
@@ -135,7 +199,7 @@ describe("Desktop device login proof", () => {
       challengeId: issued.challenge.challengeId,
       codeChallenge: "C".repeat(43),
       clientId: "gooddealer-desktop",
-      redirectUri: "gooddealer://oauth/callback",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
       accountSecurityEpoch: 4,
       accountSessionDigest,
     } as const;
@@ -168,6 +232,7 @@ describe("Desktop device login proof", () => {
       if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
         return rows([]);
       }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
       throw new Error(`enrollment should fail before slot allocation: ${text}`);
     });
     const service = new PostgresDeviceLoginProof({
@@ -182,12 +247,87 @@ describe("Desktop device login proof", () => {
       publicKey: publicKey.toString("base64url"),
       codeChallenge: "C".repeat(43),
       clientId: "gooddealer-desktop",
-      redirectUri: "gooddealer://oauth/callback",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
       accountSecurityEpoch: 4,
       accountSessionDigest,
       enrollmentAuthorizedUntil: null,
       evaluatedAt: new Date("2026-09-01T00:00:00Z"),
     })).resolves.toEqual({ issued: false });
+  });
+
+  it("issues a whole-second expiry from a sub-second clock that Desktop accepts and signs", async () => {
+    // Desktop rejects any callback `expires_at` that is not exactly YYYY-MM-DDTHH:MM:SSZ, and the
+    // proof transcript is rebuilt from the stored row, so both must carry the same floored instant.
+    let challengeInsert: readonly unknown[] | undefined;
+    const transaction = accountTransaction(async (text, values) => {
+      if (text.includes("FROM device_account_states")) return rows([{ present: true }]);
+      if (text.includes("DELETE FROM device_login_challenges")) {
+        return { ...rows([]), command: "DELETE", rowCount: 0 };
+      }
+      if (text.includes("SELECT count(*) < 4 AS allowed")) return rows([{ allowed: true }]);
+      if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
+        return rows([{ binding_status: "bound", key_id: "device-key-a", public_key: publicKey }]);
+      }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
+      if (text.includes("INSERT INTO device_login_challenges")) {
+        challengeInsert = values;
+        return rows([]);
+      }
+      if (text.includes("FROM device_login_challenges")) {
+        return rows([{
+          purpose: "login",
+          key_id: "device-key-a",
+          proposed_public_key: publicKey,
+          nonce_digest: challengeInsert?.[6] as Buffer,
+          expires_at: challengeInsert?.[13] as Date,
+        }]);
+      }
+      if (text.includes("JOIN device_signing_keys k")) return rows([{ active: true }]);
+      if (text.includes("UPDATE device_login_challenges")) return { ...rows([]), command: "UPDATE", rowCount: 1 };
+      throw new Error(`unexpected query: ${text}`);
+    });
+    const service = new PostgresDeviceLoginProof({
+      withAccount: async () => {
+        throw new Error("exchange-time eligibility was not requested");
+      },
+    });
+    const request = {
+      accountId: "account-a",
+      deviceId: "device-a",
+      keyId: "device-key-a",
+      publicKey: publicKey.toString("base64url"),
+      codeChallenge: "C".repeat(43),
+      clientId: "gooddealer-desktop",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
+      accountSecurityEpoch: 4,
+      accountSessionDigest,
+    } as const;
+    const issued = await service.issueLoginChallenge(transaction, {
+      ...request,
+      enrollmentAuthorizedUntil: null,
+      evaluatedAt: new Date("2026-09-01T00:00:00.503Z"),
+    });
+    if (!issued.issued) throw new Error("challenge issuance failed");
+    expect(issued.challenge.expiresAt).toBe("2026-09-01T00:02:00Z");
+    expect(issued.challenge.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u);
+    expect((challengeInsert?.[13] as Date).toISOString()).toBe("2026-09-01T00:02:00.000Z");
+
+    const transcript = desktopDeviceProofTranscript({
+      accountId: issued.challenge.accountId,
+      deviceId: issued.challenge.deviceId,
+      keyId: issued.challenge.keyId,
+      challengeId: issued.challenge.challengeId,
+      codeChallenge: request.codeChallenge,
+      clientId: request.clientId,
+      redirectUri: request.redirectUri,
+      nonceDigest: issued.challenge.nonceDigest,
+      expiresAt: issued.challenge.expiresAt,
+    });
+    await expect(service.verifyAndConsumeLoginProof(transaction, {
+      ...request,
+      challengeId: issued.challenge.challengeId,
+      signature: sign(null, transcript, privateKey).toString("base64url"),
+    })).resolves.toEqual({ verified: true });
   });
 });
 

@@ -3,11 +3,5 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": [
-    "./**/*.ts",
-    "./**/*.tsx",
-    "../src/app-shell/**/*.ts",
-    "../src/app-shell/**/*.tsx",
-    "../src/vite-env.d.ts"
-  ]
+  "include": ["./**/*.ts", "./**/*.tsx", "../src/**/*.ts", "../src/**/*.tsx"]
 }
