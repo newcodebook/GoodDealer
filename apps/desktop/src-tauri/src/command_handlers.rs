@@ -6,9 +6,9 @@ use gooddealer_local_storage::{
     AssetLibraryReadSnapshot, DesktopAssetLibraryReadRequest, DesktopBackupError,
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDnsHealthReadRequest, DesktopDomainAssetProviderBindingReceipt,
-    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
+    DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
+    DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
     DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
     DomainAssetMutationReceipt, DomainDetailReadSnapshot,
 };

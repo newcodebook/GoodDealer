@@ -77,7 +77,10 @@ export interface DnsHealthPort {
 
 function observationStatus(row: DnsHealthRow): DnsVerificationRowViewModel["propagationStatus"] {
   if (row.observation === null) return "unobserved";
-  return row.observation.availability === "available" && row.observation.evidenceStatus === "confirmed"
+  // A pending or unknown Zone means Cloudflare has not seen delegation; that needs attention.
+  return row.observation.availability === "available"
+    && row.observation.evidenceStatus === "confirmed"
+    && row.observation.zoneStatus === "active"
     ? "current"
     : "warning";
 }

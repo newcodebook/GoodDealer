@@ -73,6 +73,14 @@ describe("DNS health Host read", () => {
     expect(view.rows[0]?.propagationStatus).toBe("warning");
   });
 
+  it("flags a confirmed but pending or unknown Zone, because delegation has not been observed", () => {
+    for (const zoneStatus of ["pending", "unknown"] as const) {
+      const rows = [{ entityId: "observed.test", zoneBinding: null, observation: { ...observation, zoneStatus } }];
+      const view = projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows } }))]);
+      expect(view.rows[0]?.propagationStatus).toBe("warning");
+    }
+  });
+
   it("rejects unknown fields, unordered rows and smuggled Provider identifiers", () => {
     expect(() => parseDnsHealthRead({ ...(read() as object), extra: true })).toThrow();
     const base = read() as { window: { rows: unknown[] } };

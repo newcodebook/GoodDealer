@@ -468,6 +468,8 @@ const zhCNDictionary = {
     recordCount: "{count} 条",
     loading: "正在读取 DNS 数据…",
     loadFailed: "无法读取本地 DNS 数据。重试只会重新读取，不会修改任何数据。",
+    retryRead: "重新读取",
+    observedState: "已观察",
   },
   batchOperation: {
     title: "批量任务",

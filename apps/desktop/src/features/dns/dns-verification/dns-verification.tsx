@@ -90,7 +90,8 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       ? <Badge tone="warning" mono={false}>{copy.warning}</Badge>
       : <Badge tone="danger" mono={false}>{copy.missing}</Badge>;
   const statusCell = (row: DnsVerificationRowViewModel) => {
-    const [kind, label] = row.propagationStatus === "current" ? ["success", copy.normal] as const
+    // Without ownership and delegation evidence a confirmed active Zone is only "observed", never healthy.
+    const [kind, label] = row.propagationStatus === "current" ? ["success", ownershipConnected ? copy.normal : copy.observedState] as const
       : row.propagationStatus === "propagating" ? ["sync", copy.propagating] as const
         : row.propagationStatus === "unobserved" ? ["neutral", copy.unobserved] as const : ["warning", copy.warning] as const;
     return <StatusDot kind={kind} pulse={row.propagationStatus === "propagating"} label={label} />;

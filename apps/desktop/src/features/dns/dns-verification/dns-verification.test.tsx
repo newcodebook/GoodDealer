@@ -100,4 +100,11 @@ describe("DNS & verification from the Host DNS health projection", () => {
     for (const control of ["重新验证", "改 NS", "添加 TXT", "验证 TXT", "已验证所有权"]) expect(html).not.toContain(control);
     expect(html).not.toContain("dns-danger");
   });
+
+  it("labels a confirmed Zone as observed, never as healthy", () => {
+    const html = renderToStaticMarkup(<DnsVerification locale="en-US" view={hostView()} />);
+
+    expect(html).toContain("Observed");
+    expect(html).not.toContain("Healthy");
+  });
 });

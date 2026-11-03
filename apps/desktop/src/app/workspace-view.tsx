@@ -199,7 +199,7 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
   return (
     <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryValidation}</Button>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
     </Banner>
   );
 }

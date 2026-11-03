@@ -534,6 +534,8 @@ const enUSDictionary = {
     recordCount: "{count} records",
     loading: "Reading DNS data…",
     loadFailed: "Local DNS data could not be read. Retrying only reads again and changes nothing.",
+    retryRead: "Read again",
+    observedState: "Observed",
   },
   batchOperation: {
     title: "Batch operations",
