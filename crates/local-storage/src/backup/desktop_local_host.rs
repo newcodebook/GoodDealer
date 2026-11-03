@@ -2160,6 +2160,30 @@ impl DesktopLocalHost {
         }
     }
 
+    /// Reads one bounded window of observed marketplace listings under the current Host authority
+    /// fence. Observation and Provider identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_sales(
+        &self,
+        request: crate::DesktopSalesReadRequest,
+    ) -> Result<crate::SalesReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_sales(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
     /// Reads the settings projection under the current Host authority fence.
     ///
     /// Connection, credential and Provider account identifiers stay in the Host; every declared
@@ -6592,6 +6616,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn hostile_quarantine_concurrently_rejects_grant_read_sync_and_mutation_without_writing() {
         let (directory, root, store) =
             seed_rebootstrap_crash(RebootstrapCrashBoundary::ReservationCreated);
@@ -6676,6 +6701,13 @@ mod tests {
         ));
         assert!(matches!(
             host.read_settings(),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_sales(crate::DesktopSalesReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));
         assert_eq!(

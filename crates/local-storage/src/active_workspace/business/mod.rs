@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of the latest marketplace listing observations.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_sales(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::SalesReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_sales(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads this database's Provider connections and role availability for settings.
     ///
     /// # Errors
@@ -7502,6 +7517,163 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    type ListingSeed<'a> = (
+        &'a str,
+        &'a str,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        &'a str,
+    );
+
+    /// Seeds assets, one marketplace connection and run, and the given listing observations
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    fn sales_database(listings: &[ListingSeed<'_>]) -> BusinessDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test", "charlie.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','cloudflare','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        // The schema admits one observation per (run, asset), each from a running marketplace run
+        // with a requested target, so every listing gets its own run.
+        for (index, (entity, kind, status, currency, amount, observed_at)) in
+            listings.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,?5,?6,?7,?8,'version-secret','available','confirmed')", rusqlite::params![format!("listing-secret-{index}"), run, entity, kind, status, currency, amount, observed_at]).unwrap();
+        }
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn sales_reports_latest_listing_observations_without_identifiers() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "atom",
+                "sold",
+                Some("USD"),
+                Some("950.50"),
+                "2026-08-02T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "draft",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "unlisted",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+        ]);
+        let snapshot = database.read_sales(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "sales");
+        // The newest observation per (asset, marketplace) wins and unlisted assets are omitted.
+        assert_eq!(snapshot.total_rows, 2);
+        let rows: Vec<_> = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.entity_id.as_str(),
+                    row.marketplace_kind.as_str(),
+                    row.listing_status.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("alpha.test", "afternic", "draft"),
+                ("alpha.test", "atom", "sold")
+            ]
+        );
+        assert_eq!(
+            snapshot.window.rows[1].asking_price,
+            Some(crate::SalesMoney {
+                currency: "USD".into(),
+                amount: "950.50".into()
+            })
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["listing-secret", "run-secret", "version-secret", "market-1"] {
+            assert!(!wire.contains(secret), "{secret} leaked into sales");
+        }
+        assert_eq!(database.read_sales(1, 10).unwrap().window.rows.len(), 1);
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_sales(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        // Marketplaces outside ADR-0027 and malformed prices fail the whole read.
+        for listing in [
+            (
+                "charlie.test",
+                "sedo",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("010"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1e3"),
+                TIMESTAMP,
+            ),
+        ] {
+            assert!(
+                matches!(
+                    sales_database(&[listing]).read_sales(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{listing:?} must fail closed"
+            );
+        }
     }
 
     #[test]

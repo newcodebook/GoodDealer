@@ -279,6 +279,13 @@ pub struct DesktopDnsHealthReadRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopSalesReadRequest {
+    pub(crate) start_index: u32,
+    pub(crate) size: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopDomainDetailReadRequest {
     pub(crate) entity_id: String,
 }
@@ -435,6 +442,16 @@ impl DesktopBusinessRuntime {
         query: &str,
     ) -> Result<AssetLibraryReadSnapshot, BusinessDatabaseError> {
         let mut snapshot = self.database.read_asset_library(start_index, size, query)?;
+        snapshot.read_generation = self.read_generation;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn read_sales(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::SalesReadSnapshot, BusinessDatabaseError> {
+        let mut snapshot = self.database.read_sales(start_index, size)?;
         snapshot.read_generation = self.read_generation;
         Ok(snapshot)
     }

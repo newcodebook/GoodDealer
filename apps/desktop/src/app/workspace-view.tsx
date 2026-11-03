@@ -1,11 +1,12 @@
-import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, projectSalesDeskViewModel, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, Button, GlobeIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
+import { SalesDesk } from "../features/marketplace";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -58,6 +59,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
     const has = (id: AppRouteId) => surface.availableRouteIds.includes(id);
     const assets = [
       ...(has("portfolio.list") ? [{ id: "portfolio.list", label: shellCopy.assetLibrary, icon: <GlobeIcon /> }] : []),
+      ...(has("sales.desk") ? [{ id: "sales.desk", label: shellCopy.sales, icon: <CoinsIcon /> }] : []),
       ...(has("dns.health") ? [{ id: "dns.health", label: shellCopy.dns, icon: <ShieldIcon /> }] : []),
     ];
     const execution = has("sync.conflicts")
@@ -92,7 +94,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "dns.health" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -123,6 +125,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               onOpenConflicts={surface.availableRouteIds.includes("sync.conflicts") ? () => setRoute(createAppRoute("sync.conflicts")) : undefined}
               onPublication={onPublication}
               onFailure={reportFailure}
+            />
+          ),
+          "sales.desk": () => (
+            <SalesRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
             />
           ),
           "dns.health": () => (
@@ -207,6 +217,65 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
       about={{ version: null, dataDirectory: null, revisionBase }}
       onLocaleChange={onLocaleChange}
     />
+  );
+}
+
+const salesWindowSize = 200;
+
+type SalesState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly view: SalesDeskViewModel }
+  | { readonly kind: "failed" };
+
+/**
+ * Reads every sales window for one Host generation, like DNS health. The desk gets no action
+ * callbacks: listing, offer and transfer writes need marketplace capabilities that are not
+ * qualified, and the projection grants none.
+ */
+function SalesRoute({ locale, ports, readGeneration, onStale }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "salesDesk");
+  const [state, setState] = useState<SalesState>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: SalesRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.sales.loadSales({ startIndex: next, size: salesWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < (windows[0]?.totalRows ?? 0));
+        const view = projectSalesDeskViewModel(windows);
+        if (!cancelled) setState({ kind: "ready", view });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  if (state.kind === "ready") return <SalesDesk locale={locale} view={state.view} initialTab="listings" />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+    </Banner>
   );
 }
 

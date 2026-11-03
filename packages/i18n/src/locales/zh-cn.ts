@@ -394,6 +394,13 @@ const zhCNDictionary = {
     readOnlyNotice: "备用设备只读：上架、报价与交割操作只在 Active 设备上执行。",
     noRows: "暂无销售数据",
     readOnly: "只读",
+    suspended: "平台暂停",
+    unconfirmed: "未确认",
+    notAvailable: "暂不可用",
+    offersDealsUnavailable: "报价与成交尚未接入已认证的平台能力，暂不可用。",
+    loading: "正在读取本地销售数据…",
+    loadFailed: "无法读取本地销售数据。重试只会重新读取，不会修改任何数据。",
+    retryRead: "重新读取",
   },
   dnsVerification: {
     title: "DNS 与验证",

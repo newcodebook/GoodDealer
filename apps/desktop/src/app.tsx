@@ -7,6 +7,7 @@ import {
   createLocalBusinessPort,
   createLocalConflictPort,
   createLocalDnsHealthPort,
+  createLocalSalesPort,
   createLocalSettingsPort,
   createLocalPortfolioPresentationPort,
   createLocalSyncStatusPort,
@@ -34,6 +35,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   portfolio: createLocalPortfolioPresentationPort(),
   dns: createLocalDnsHealthPort(),
   settings: createLocalSettingsPort(),
+  sales: createLocalSalesPort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

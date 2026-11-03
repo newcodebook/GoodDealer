@@ -7,6 +7,8 @@ import {
   type PriceChangePlan,
 } from "../pricing/index";
 
+export * from "./sales-read";
+
 const commerceDomainSchema = z.string().max(253).regex(
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i,
   "domain must be canonical ASCII/Punycode",
@@ -45,11 +47,13 @@ export const listingViewSchema = z
     id: z.string().min(1).max(160),
     domain: commerceDomainSchema,
     platforms: z.array(commerceDisplayTextSchema.max(80)).max(32),
-    bin: commerceMoneySchema,
-    views: z.number().int().nonnegative(),
-    offerCount: z.number().int().nonnegative(),
-    status: z.enum(["active", "paused", "draft", "pending", "conflict", "sold"]),
-    listedAtLabel: z.string().min(1).max(80),
+    // Null means the value was not observed (no price on the listing, or no qualified capability
+    // that reports views, offers or the listing date); the page shows that instead of a zero.
+    bin: commerceMoneySchema.nullable(),
+    views: z.number().int().nonnegative().nullable(),
+    offerCount: z.number().int().nonnegative().nullable(),
+    status: z.enum(["active", "paused", "draft", "pending", "conflict", "sold", "suspended", "unknown"]),
+    listedAtLabel: z.string().min(1).max(80).nullable(),
   })
   .strict();
 
@@ -100,15 +104,17 @@ export const dealViewSchema = z
 export const salesDeskViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
-    workspaceId: z.string().min(1).max(128),
     freshness: marketplaceFreshnessSchema,
     actionGrants: z.array(marketplaceActionSchema).max(32),
+    /** `unavailable` while no qualified capability observes offers or deals. */
+    offerDealAvailability: z.enum(["available", "unavailable"]),
     metrics: z.object({
       activeListingCount: z.number().int().nonnegative(),
-      listedValue: commerceMoneySchema,
-      pendingOfferCount: z.number().int().nonnegative(),
-      monthGmv: commerceMoneySchema,
-      settlingDealCount: z.number().int().nonnegative(),
+      // Null when no active listing has a price or prices span currencies.
+      listedValue: commerceMoneySchema.nullable(),
+      pendingOfferCount: z.number().int().nonnegative().nullable(),
+      monthGmv: commerceMoneySchema.nullable(),
+      settlingDealCount: z.number().int().nonnegative().nullable(),
     }).strict(),
     listings: z.array(listingViewSchema).max(100_000),
     offers: z.array(offerViewSchema).max(100_000),
@@ -125,6 +131,15 @@ export const salesDeskViewModelSchema = z
     }
     if (new Set(view.actionGrants).size !== view.actionGrants.length) {
       context.addIssue({ code: "custom", path: ["actionGrants"], message: "action grants must be unique" });
+    }
+    // Unobserved offers and deals must not look like an empty inbox or a zero total.
+    const offerMetrics = [view.metrics.pendingOfferCount, view.metrics.monthGmv, view.metrics.settlingDealCount];
+    if (view.offerDealAvailability === "unavailable"
+      && (view.offers.length > 0 || view.deals.length > 0 || offerMetrics.some((value) => value !== null))) {
+      context.addIssue({ code: "custom", path: ["offerDealAvailability"], message: "unavailable offers and deals carry no rows or totals" });
+    }
+    if (view.offerDealAvailability === "available" && offerMetrics.some((value) => value === null)) {
+      context.addIssue({ code: "custom", path: ["metrics"], message: "available offers and deals report their totals" });
     }
   });
 

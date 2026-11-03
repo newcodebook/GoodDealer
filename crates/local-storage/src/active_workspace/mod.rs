@@ -1,5 +1,7 @@
 pub(crate) mod dns_health;
 
+pub(crate) mod sales;
+
 pub(crate) mod settings;
 
 pub(crate) mod portfolio;
@@ -71,6 +73,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_sales(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::SalesReadSnapshot, PortfolioReadError> {
+            super::sales::ActiveSalesReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

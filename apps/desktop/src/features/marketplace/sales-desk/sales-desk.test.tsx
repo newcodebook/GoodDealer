@@ -1,4 +1,4 @@
-import { salesDeskViewModelSchema } from "@gooddealer/client-core";
+import { parseSalesRead, projectSalesDeskViewModel, salesDeskViewModelSchema } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +10,7 @@ const usd = (amount: string) => ({ currency: "USD", amount });
 function view(source: "active_local" | "standby_cloud", grants: readonly string[]) {
   return salesDeskViewModelSchema.parse({
     schemaVersion: 1,
-    workspaceId: "ws",
+    offerDealAvailability: "available",
     freshness: { source, serverRevision: 3, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null },
     actionGrants: grants,
     metrics: { activeListingCount: 1, listedValue: usd("280000.00"), pendingOfferCount: 1, monthGmv: usd("52000.00"), settlingDealCount: 1 },
@@ -75,5 +75,34 @@ describe("Sales desk contract", () => {
       confirmedTarget: { domain: "oxide.dev", buyerDisplay: "buyer·55A" },
       irreversibleOwnershipTransferAcknowledged: true,
     });
+  });
+});
+
+describe("Sales desk from the Host sales projection", () => {
+  const hostView = projectSalesDeskViewModel([parseSalesRead({
+    schemaVersion: 1, kind: "sales", readGeneration: 1,
+    freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+    totalRows: 2,
+    window: { startIndex: 0, size: 200, rows: [
+      { entityId: "vault.io", marketplaceKind: "atom", listingStatus: "active", askingPrice: { currency: "USD", amount: "280000" }, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed" },
+      { entityId: "zeta.io", marketplaceKind: "afternic", listingStatus: "active", askingPrice: null, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "stale" },
+    ] },
+  })]);
+
+  it("shows observed listings with unobserved values as dashes and no listing controls", () => {
+    const html = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={hostView} initialTab="listings" />);
+    expect(html).toContain("vault.io");
+    expect(html).toContain("Atom");
+    expect(html).toContain("未确认");
+    expect(html).toContain("暂不可用");
+    for (const control of ["改价", ">暂停<", "下架", "新建 Listing", ">接受<"]) expect(html).not.toContain(control);
+  });
+
+  it("says offers and deals are unavailable instead of showing an empty inbox", () => {
+    for (const initialTab of ["offers", "deals"] as const) {
+      const html = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={hostView} initialTab={initialTab} />);
+      expect(html).toContain("报价与成交尚未接入已认证的平台能力");
+      expect(html).not.toContain("<table");
+    }
   });
 });

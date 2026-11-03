@@ -21,7 +21,7 @@ export const presentationCopyInventory = {
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 34, exactBrandCopyKeys: 19 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 88, exactBrandCopyKeys: 58 },
   operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 52, exactBrandCopyKeys: 40 },
-  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 73, exactBrandCopyKeys: 59 },
+  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 80, exactBrandCopyKeys: 59 },
   activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 62, exactBrandCopyKeys: 42 },
   dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 74, exactBrandCopyKeys: 34 },
   renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 46, exactBrandCopyKeys: 27 },
@@ -30,6 +30,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 797 as const;
+export const reconciledLocaleKeyCount = 804 as const;
 export const reconciledExactBrandCopyKeyCount = 494 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

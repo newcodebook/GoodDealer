@@ -96,6 +96,12 @@ It returns observed facts only — Zone label/status, authoritative nameservers,
 per-type record counts — never record values, connection IDs, Provider resource IDs or a
 delegation/record/ownership verdict. Labels with control characters fail the whole read.
 
+`BusinessDatabase::read_sales` uses the same window rules (at most 200 rows) and returns the latest
+committed marketplace listing observation per (asset, marketplace), omitting `unlisted` ones:
+status, asking price, observation time, availability and evidence. Observation, run and Provider
+version identifiers stay in the Host. Marketplaces outside ADR-0027's launch list and malformed
+prices fail the whole read.
+
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
 `marketplace`). Connection, credential and account identifiers stay in the Host. No capability is

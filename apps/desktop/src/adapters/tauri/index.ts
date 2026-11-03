@@ -8,10 +8,14 @@ import {
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
   parseDnsHealthRead,
+  parseSalesRead,
   parseSettingsRead,
+  salesWindowRequestSchema,
   dnsHealthWindowRequestSchema,
   type DnsHealthPort,
   type DnsHealthRead,
+  type SalesRead,
+  type SalesReadPort,
   type SettingsRead,
   type SettingsReadPort,
   localDomainAssetEditRequestSchema,
@@ -113,6 +117,7 @@ const commands = {
   readDomainDetail: "local_domain_detail_read",
   readDnsHealth: "local_dns_health_read",
   readSettings: "local_settings_read",
+  readSales: "local_sales_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
@@ -181,6 +186,23 @@ export function createLocalDnsHealthPort(): DnsHealthPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Observed marketplace listing windows from the Host; any other provenance is rejected. */
+export function createLocalSalesPort(): SalesReadPort {
+  return {
+    async loadSales(request): Promise<SalesRead> {
+      let validatedRequest;
+      try { validatedRequest = salesWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseSalesRead(await invoke(commands.readSales, { request: validatedRequest }));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

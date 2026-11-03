@@ -460,6 +460,13 @@ const enUSDictionary = {
     readOnlyNotice: "Standby is read-only: listings, offers, and transfers run only on the Active device.",
     noRows: "No sales data",
     readOnly: "Read-only",
+    suspended: "Suspended by platform",
+    unconfirmed: "Unconfirmed",
+    notAvailable: "Unavailable",
+    offersDealsUnavailable: "Offers and deals are not connected to a qualified platform capability yet.",
+    loading: "Reading local sales data…",
+    loadFailed: "Local sales data could not be read. Retrying only reads again and changes nothing.",
+    retryRead: "Read again",
   },
   dnsVerification: {
     title: "DNS & verification",
