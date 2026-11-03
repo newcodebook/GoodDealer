@@ -4,6 +4,7 @@ import {
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
   type DnsHealthPort,
+  type SettingsReadPort,
   type SyncSnapshotViewModel,
   type ValidatedPortfolioPresentationPort,
 } from "@gooddealer/client-core";
@@ -27,6 +28,8 @@ export interface AuthoritativeWorkspacePorts {
   readonly business: LocalBusinessPort;
   /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
   readonly dns: DnsHealthPort;
+  /** Read by the settings route on demand; not part of the workspace publication either. */
+  readonly settings: SettingsReadPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -85,6 +88,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "dns.health"]
-    : ["portfolio.list", "portfolio.detail", "dns.health", "sync.conflicts"];
+    ? ["portfolio.list", "portfolio.detail", "dns.health", "settings"]
+    : ["portfolio.list", "portfolio.detail", "dns.health", "sync.conflicts", "settings"];
 }

@@ -171,6 +171,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::business",
   "active_workspace::business",
   "active_workspace::dns_health",
+  "active_workspace::settings",
   "portfolio_projection",
   "application_root",
   "backup",
@@ -250,6 +251,9 @@ const expectedLocalStoragePublicExports = [
   "MarkedCloudflareProvision",
   "PreparedCloudflareObservation",
   "PreparedCloudflareProvision",
+  "SettingsConnection",
+  "SettingsConnectionRole",
+  "SettingsReadSnapshot",
 ].sort();
 
 export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot } = {}) {

@@ -815,6 +815,13 @@ const zhCNDictionary = {
     workspaceLabel: "Workspace",
     selfDeviceName: "{name}（本机）",
     salesPlatformDescription: "改价 / 上下架处理平台 · 按账号连接",
+    capabilityPendingSummary: "能力资格认证前不可用，暂不能执行任何操作",
+    devicesUnavailable: "设备列表与执行权移交尚未接入 Host，暂不可用。",
+    licenseUnavailable: "许可状态尚未接入 Host，暂不可用。",
+    notAvailable: "暂不可用",
+    loading: "正在读取本地设置…",
+    loadFailed: "无法读取本地设置。重试只会重新读取，不会修改任何数据。",
+    retryRead: "重新读取",
   },
 } as const;
 

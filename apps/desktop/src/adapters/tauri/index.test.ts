@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBusinessPort, createLocalDnsHealthPort, LocalReadError } from "./index";
+import { createLocalBusinessPort, createLocalDnsHealthPort, createLocalSettingsPort, LocalReadError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -63,6 +63,31 @@ describe("Desktop Tauri local-business adapter", () => {
     await expect(port.loadDnsHealth({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     await expect(port.loadDnsHealth({ startIndex: 0, size: 10, workspaceId: "canary" } as never)).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("reads settings through the narrow command and rejects identifiers or foreign provenance", async () => {
+    const read = {
+      schemaVersion: 1, kind: "settings", readGeneration: 3,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      connections: [{
+        providerKind: "cloudflare", connectionLabel: "Cloudflare", lifecycleStatus: "active", validationStatus: "valid",
+        credentialUseState: "active", lastValidatedAt: null,
+        roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+      }],
+    };
+    const port = createLocalSettingsPort();
+    invokeMock.mockResolvedValueOnce(read);
+    await expect(port.loadSettings()).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_settings_read");
+    for (const hostile of [
+      { ...read, connections: [{ ...read.connections[0], connectionId: "canary" }] },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      "LOCAL_READ_AUTHORIZATION_REQUIRED",
+    ]) {
+      if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
+      else invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.loadSettings()).rejects.toBeInstanceOf(LocalReadError);
+    }
   });
 
   it("accepts only the closed schema-v2 retryable lock fixture", async () => {

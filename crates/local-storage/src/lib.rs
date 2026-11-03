@@ -157,6 +157,9 @@ pub use active_workspace::dns_health::{
     DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,
     DnsZoneObservationSummary,
 };
+pub use active_workspace::settings::{
+    SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
+};
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{

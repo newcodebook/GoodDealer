@@ -31,10 +31,11 @@ export interface LicenseView {
   readonly workspaceSummary: string;
 }
 
+/** Fields the Host does not report yet are null and render as unavailable, never as a placeholder. */
 export interface AboutView {
-  readonly version: string;
-  readonly dataDirectory: string;
-  readonly revisionBase: number;
+  readonly version: string | null;
+  readonly dataDirectory: string | null;
+  readonly revisionBase: number | null;
 }
 
 /** The device that holds, or is releasing, the current lease. */

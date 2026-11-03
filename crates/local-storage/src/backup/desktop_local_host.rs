@@ -2160,6 +2160,25 @@ impl DesktopLocalHost {
         }
     }
 
+    /// Reads the settings projection under the current Host authority fence.
+    ///
+    /// Connection, credential and Provider account identifiers stay in the Host; every declared
+    /// role is reported unavailable until its capabilities are qualified.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_settings()?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
     /// Reads one bounded DNS health window under the current Host authority fence.
     ///
     /// The projection carries observed Zone facts only; Provider resource and connection
@@ -6653,6 +6672,10 @@ mod tests {
                 start_index: 0,
                 size: 10,
             }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_settings(),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));
         assert_eq!(

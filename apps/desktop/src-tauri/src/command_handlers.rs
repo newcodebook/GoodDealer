@@ -10,7 +10,7 @@ use gooddealer_local_storage::{
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
     DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
-    DomainAssetMutationReceipt, DomainDetailReadSnapshot,
+    DomainAssetMutationReceipt, DomainDetailReadSnapshot, SettingsReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -68,6 +68,14 @@ pub(crate) fn local_domain_detail_read(
 ) -> Result<DomainDetailReadSnapshot, String> {
     host.read_domain_detail(request)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_settings_read(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<SettingsReadSnapshot, String> {
+    host.read_settings().map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -1,5 +1,7 @@
 pub(crate) mod dns_health;
 
+pub(crate) mod settings;
+
 pub(crate) mod portfolio;
 
 pub(crate) mod schema;
@@ -70,6 +72,13 @@ mod portfolio_connection {
                 size,
                 query,
             )
+        }
+
+        pub(crate) fn read_settings(
+            &self,
+            workspace_id: &str,
+        ) -> Result<crate::SettingsReadSnapshot, PortfolioReadError> {
+            super::settings::ActiveSettingsReader::new(&self.connection).read(workspace_id)
         }
 
         pub(crate) fn read_dns_health(

@@ -158,6 +158,7 @@ fn main() {
             command_handlers::local_asset_library_read,
             command_handlers::local_domain_detail_read,
             command_handlers::local_dns_health_read,
+            command_handlers::local_settings_read,
             command_handlers::local_domain_asset_edit,
             command_handlers::local_domain_asset_delete,
             command_handlers::local_domain_asset_provider_bind,

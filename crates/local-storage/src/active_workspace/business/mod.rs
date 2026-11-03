@@ -1582,6 +1582,17 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads this database's Provider connections and role availability for settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, or projection error.
+    pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_settings(&self.workspace_id)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one bounded DNS health window from this database's workspace.
     ///
     /// # Errors
@@ -7491,6 +7502,78 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn settings_reports_connection_roles_as_unqualified_without_identifiers() {
+        let mut database = database();
+        assert!(database.read_settings().unwrap().connections.is_empty());
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status,last_validated_at) VALUES ('workspace-local','cf-settings','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid',?1)", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+
+        let snapshot = database.read_settings().unwrap();
+        assert_eq!(snapshot.kind, "settings");
+        let [cloudflare] = snapshot.connections.as_slice() else {
+            panic!("expected one connection");
+        };
+        assert_eq!(
+            (
+                cloudflare.provider_kind.as_str(),
+                cloudflare.connection_label.as_str(),
+                cloudflare.validation_status.as_str(),
+                cloudflare.credential_use_state.as_str(),
+            ),
+            ("cloudflare", "Cloudflare", "valid", "active")
+        );
+        // A valid credential does not make a capability executable before qualification.
+        let [dns] = cloudflare.roles.as_slice() else {
+            panic!("expected one role");
+        };
+        assert_eq!(
+            (
+                dns.role.as_str(),
+                dns.availability.as_str(),
+                dns.unavailable_reason.as_str()
+            ),
+            ("dns", "unavailable", "qualification_pending")
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["cf-settings", &"a".repeat(64), &"b".repeat(64)] {
+            assert!(!wire.contains(secret), "{secret} leaked into settings");
+        }
+
+        // Unknown roles, duplicate roles and control characters fail the whole read.
+        for (column, value) in [
+            ("capabilities_json", "'[\"payments\"]'"),
+            ("capabilities_json", "'[\"dns\",\"dns\"]'"),
+            ("display_label", "'Cloud'||char(7)||'flare'"),
+        ] {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    &format!("UPDATE local_provider_connections SET {column}={value}"),
+                    [],
+                )
+                .unwrap();
+            let _ = connection;
+            assert!(
+                matches!(
+                    database.read_settings(),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{column}={value} must fail closed"
+            );
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE local_provider_connections SET capabilities_json='[\"dns\"]', display_label='Cloudflare'",
+                    [],
+                )
+                .unwrap();
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 1);
     }
 
     #[test]

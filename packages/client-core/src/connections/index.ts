@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export * from "./device-credential-lifecycle";
+export * from "./settings-read";
 
 const identifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const safePositiveGenerationSchema = z.number().int().safe().min(1);

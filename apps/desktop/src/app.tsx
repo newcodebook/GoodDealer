@@ -7,6 +7,7 @@ import {
   createLocalBusinessPort,
   createLocalConflictPort,
   createLocalDnsHealthPort,
+  createLocalSettingsPort,
   createLocalPortfolioPresentationPort,
   createLocalSyncStatusPort,
   detectDesktopWindowPlatform,
@@ -32,6 +33,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
   dns: createLocalDnsHealthPort(),
+  settings: createLocalSettingsPort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };
@@ -175,6 +177,7 @@ export function App() {
             windowFrame={windowFrame}
             onPublication={setWorkspace}
             onRefresh={() => synchronizeRef.current()}
+            onLocaleChange={setLocale}
           />
         );
     }

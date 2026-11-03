@@ -1,4 +1,4 @@
-import { connectionSettingsViewModelSchema, syncSettingsViewModelSchema } from "@gooddealer/client-core";
+import { connectionSettingsViewModelSchema, parseSettingsRead, projectConnectionSettings, syncSettingsViewModelSchema } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -87,5 +87,49 @@ describe("Settings contract", () => {
   it("keeps Standby connection status unverified", () => {
     const [connection] = standbyConnections.groups[0]?.connections ?? [];
     expect(connection === undefined ? null : connectionStatus(connection)).toEqual({ tone: "neutral", copyKey: "configuredCandidate" });
+  });
+});
+
+describe("Settings from the Host projection", () => {
+  const connections = projectConnectionSettings(parseSettingsRead({
+    schemaVersion: 1, kind: "settings", readGeneration: 1,
+    freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+    connections: [{
+      providerKind: "cloudflare", connectionLabel: "Cloudflare 主账号", lifecycleStatus: "active", validationStatus: "valid",
+      credentialUseState: "active", lastValidatedAt: null,
+      roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+    }],
+  }), () => "能力资格认证前不可用，暂不能执行任何操作");
+  const render = (initialSection: "connections" | "devices" | "license" | "sync" | "about") => renderToStaticMarkup(
+    <SettingsPanel
+      locale="zh-CN"
+      initialSection={initialSection}
+      connections={connections}
+      devices={null}
+      license="unavailable"
+      sync={null}
+      about={{ version: null, dataDirectory: null, revisionBase: 7 }}
+    />,
+  );
+
+  it("shows connections with unqualified capabilities and no connection controls", () => {
+    const html = render("connections");
+    expect(html).toContain("Cloudflare 主账号");
+    expect(html).toContain("能力资格认证前不可用");
+    // The action slot stays empty: connect, reauthorize and manage need Host capabilities not composed yet.
+    expect(html).toContain('<span class="settings-conn-action"></span>');
+    for (const control of ["重新授权", "新增账户连接", "重新运行接入向导"]) expect(html).not.toContain(control);
+  });
+
+  it("says each section without a Host source is unavailable instead of inventing values", () => {
+    expect(render("devices")).toContain("设备列表与执行权移交尚未接入 Host");
+    expect(render("devices")).not.toContain("移交执行权<");
+    expect(render("license")).toContain("许可状态尚未接入 Host");
+    const sync = render("sync");
+    expect(sync).toContain("总是人工裁决");
+    expect(sync).not.toContain("每 5 分钟");
+    const about = render("about");
+    expect(about).toContain("暂不可用");
+    expect(about).toContain(">7<");
   });
 });

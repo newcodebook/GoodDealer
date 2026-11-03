@@ -439,6 +439,14 @@ impl DesktopBusinessRuntime {
         Ok(snapshot)
     }
 
+    pub(crate) fn read_settings(
+        &self,
+    ) -> Result<crate::SettingsReadSnapshot, BusinessDatabaseError> {
+        let mut snapshot = self.database.read_settings()?;
+        snapshot.read_generation = self.read_generation;
+        Ok(snapshot)
+    }
+
     pub(crate) fn read_dns_health(
         &self,
         start_index: u32,

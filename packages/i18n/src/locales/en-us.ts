@@ -986,6 +986,13 @@ const enUSDictionary = {
     workspaceLabel: "Workspace",
     selfDeviceName: "{name} (this device)",
     salesPlatformDescription: "Pricing and listing platform · Connected by account",
+    capabilityPendingSummary: "Capabilities are unavailable until qualified; nothing can run yet",
+    devicesUnavailable: "The device list and lease handoff are not connected to the Host yet.",
+    licenseUnavailable: "License status is not connected to the Host yet.",
+    notAvailable: "Unavailable",
+    loading: "Reading local settings…",
+    loadFailed: "Local settings could not be read. Retrying only reads again and changes nothing.",
+    retryRead: "Read again",
   },
   backup: {
     title: "Local encrypted backup",

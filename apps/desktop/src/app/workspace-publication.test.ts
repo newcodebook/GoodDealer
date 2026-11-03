@@ -106,6 +106,7 @@ function ports(readGeneration: number) {
     },
     sync: { status: vi.fn(async () => sync(readGeneration)) },
     dns: { loadDnsHealth: vi.fn() },
+    settings: { loadSettings: vi.fn() },
   };
 }
 

@@ -8,9 +8,12 @@ import {
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
   parseDnsHealthRead,
+  parseSettingsRead,
   dnsHealthWindowRequestSchema,
   type DnsHealthPort,
   type DnsHealthRead,
+  type SettingsRead,
+  type SettingsReadPort,
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
@@ -109,6 +112,7 @@ const commands = {
   readAssetLibrary: "local_asset_library_read",
   readDomainDetail: "local_domain_detail_read",
   readDnsHealth: "local_dns_health_read",
+  readSettings: "local_settings_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
@@ -177,6 +181,20 @@ export function createLocalDnsHealthPort(): DnsHealthPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Redacted Provider connections and role availability; any other provenance is rejected. */
+export function createLocalSettingsPort(): SettingsReadPort {
+  return {
+    async loadSettings(): Promise<SettingsRead> {
+      try {
+        const value = parseSettingsRead(await invoke(commands.readSettings));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

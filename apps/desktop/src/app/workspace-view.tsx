@@ -1,11 +1,12 @@
-import { parseAssetLibraryQuery, projectDnsHealthViewModel, type AssetLibraryViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, Button, GlobeIcon, ShieldIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, GlobeIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
+import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
@@ -35,6 +36,7 @@ export interface WorkspaceViewProps {
   /** Publishes a generation-stable workspace read; the app root owns the authoritative copy. */
   readonly onPublication: (publication: AuthoritativeWorkspacePublication) => void;
   readonly onRefresh: () => void;
+  readonly onLocaleChange: (locale: Locale) => void;
 }
 
 const windowSize = 25;
@@ -44,7 +46,7 @@ const windowSize = 25;
  * are passed only when the adjudicated presentation is writable, so a read-only surface cannot
  * reach a mutation even if a feature would otherwise render the control.
  */
-export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh }: WorkspaceViewProps) {
+export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh, onLocaleChange }: WorkspaceViewProps) {
   const shellCopy = getPresentationCopy(locale, "shell");
   const runtimeCopy = getCapabilityCopy(locale, "runtimeMode");
   const { surface, publication, readOnly } = presentation;
@@ -64,6 +66,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
     return [
       ...(assets.length === 0 ? [] : [{ id: "assets", label: shellCopy.assets, items: assets }]),
       ...(execution.length === 0 ? [] : [{ id: "execution", label: shellCopy.execution, items: execution }]),
+      ...(has("settings") ? [{ id: "preferences", placement: "end" as const, items: [{ id: "settings", label: shellCopy.settings, icon: <SettingsIcon /> }] }] : []),
     ];
   }, [surface.availableRouteIds, pendingConflicts, shellCopy]);
 
@@ -89,7 +92,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "dns.health" || id === "sync.conflicts") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "dns.health" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -130,6 +133,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               onStale={onRefresh}
             />
           ),
+          settings: () => (
+            <SettingsRoute
+              locale={locale}
+              ports={ports}
+              revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
+              onLocaleChange={onLocaleChange}
+            />
+          ),
           "sync.conflicts": () => (
             <ConflictsRoute
               locale={locale}
@@ -143,6 +154,59 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
         }}
       />
     </DesktopShell>
+  );
+}
+
+type SettingsState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly connections: ConnectionSettingsViewModel }
+  | { readonly kind: "failed" };
+
+/**
+ * Settings from the Host projection. Connections carry no action and every role shows as
+ * unavailable until qualified; devices, license, pull cadence and build facts have no Host source
+ * yet, so the panel shows those as unavailable instead of placeholder values.
+ */
+function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly revisionBase: number | null;
+  readonly onLocaleChange: (locale: Locale) => void;
+}) {
+  const copy = getPresentationCopy(locale, "settings");
+  const [state, setState] = useState<SettingsState>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    ports.settings.loadSettings()
+      .then((read) => {
+        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, () => copy.capabilityPendingSummary) });
+      })
+      .catch(() => { if (!cancelled) setState({ kind: "failed" }); });
+    return () => { cancelled = true; };
+  }, [ports, attempt, copy]);
+
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  if (state.kind === "failed") {
+    return (
+      <Banner tone="danger" title={copy.loadFailed}>
+        <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+      </Banner>
+    );
+  }
+  return (
+    <SettingsPanel
+      locale={locale}
+      initialSection="connections"
+      connections={state.connections}
+      devices={null}
+      license="unavailable"
+      sync={null}
+      about={{ version: null, dataDirectory: null, revisionBase }}
+      onLocaleChange={onLocaleChange}
+    />
   );
 }
 
