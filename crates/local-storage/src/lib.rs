@@ -157,6 +157,7 @@ pub use active_workspace::dns_health::{
     DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,
     DnsZoneObservationSummary,
 };
+pub use active_workspace::renewals::{RenewalRow, RenewalsReadSnapshot, RenewalsWindow};
 pub use active_workspace::sales::{SalesListingRow, SalesMoney, SalesReadSnapshot, SalesWindow};
 pub use active_workspace::settings::{
     SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
@@ -185,8 +186,8 @@ pub use desktop_business_runtime::{
     DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
     DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopSalesReadRequest,
-    DesktopSyncSnapshotView, DesktopSyncTransportState,
+    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopRenewalsReadRequest,
+    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

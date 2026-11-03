@@ -102,6 +102,13 @@ status, asking price, observation time, availability and evidence. Observation, 
 version identifiers stay in the Host. Marketplaces outside ADR-0027's launch list and malformed
 prices fail the whole read.
 
+`BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
+recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
+soonest first, with recorded auto-renew and the latest available registrar observation's registrar
+name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
+term or plan is projected; registrar names that are empty, longer than 128 characters or contain
+control characters fail the whole read.
+
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
 `marketplace`). Connection, credential and account identifiers stay in the Host. No capability is

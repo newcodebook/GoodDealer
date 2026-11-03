@@ -1,4 +1,4 @@
-import { renewalDeskViewModelSchema } from "@gooddealer/client-core";
+import { projectRenewalDeskViewModel, renewalDeskViewModelSchema } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -16,6 +16,7 @@ const freshness = (canEdit: boolean) => ({
 function list(canEdit = true): RenewalListView {
   const view = renewalDeskViewModelSchema.parse({
     schemaVersion: 1, kind: "renewal_desk", state: "list", freshness: freshness(canEdit),
+    planAvailability: "available",
     budget: { currency: "USD", amount: "100" },
     items: [
       { id: "vault.io", domain: "vault.io", registrar: "Spaceship", expiresOn: "2026-08-27", daysRemaining: 7, autoRenewEnabled: false, termYears: 2, annualPrice: { currency: "USD", amount: "32" }, selected: true, status: "due" },
@@ -74,6 +75,33 @@ describe("Renewal desk", () => {
 
     expect(html).toContain("当前为只读视图");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>续费所选/u);
+  });
+
+  it("renders a Host projection with no plan as unavailable instead of priced or selectable", () => {
+    const view = projectRenewalDeskViewModel([{
+      schemaVersion: 1, kind: "renewals", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      asOfDate: "2026-08-20", totalRows: 2,
+      window: { startIndex: 0, size: 200, rows: [
+        { entityId: "vault.io", expiresOn: "2026-08-27", autoRenew: true, registrarName: "Spaceship" },
+        { entityId: "kanban.ai", expiresOn: "2026-09-05", autoRenew: null, registrarName: null },
+      ] },
+    }]);
+    if (view.state !== "list") throw new Error("fixture");
+    const html = renderToStaticMarkup(
+      <RenewalDesk locale="zh-CN" view={view} onSelectionChange={() => undefined} onTermChange={() => undefined} onAutoRenewChange={() => undefined} onReviewPlan={() => undefined} />,
+    );
+
+    expect(html).toContain("续费价格、预算与计划尚未接入");
+    expect(html).toContain("暂不可用");
+    expect(html).toContain("Spaceship");
+    expect(html).toContain(">7d<");
+    expect(html).not.toContain("续费所选");
+    expect(html).not.toContain("<select");
+    // The only checkbox is the disabled auto-renew switch; no row selection is offered.
+    expect(html.match(/type="checkbox"/gu)).toHaveLength(1);
+    expect(html).not.toContain("$");
+    expect(html).toContain("gd-switch--disabled");
   });
 
   it("escalates urgency under 30 and 14 days", () => {

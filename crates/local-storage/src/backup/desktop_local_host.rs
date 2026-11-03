@@ -2160,6 +2160,29 @@ impl DesktopLocalHost {
         }
     }
 
+    /// Reads one bounded window of expiring assets under the current Host authority fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_renewals(
+        &self,
+        request: crate::DesktopRenewalsReadRequest,
+    ) -> Result<crate::RenewalsReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_renewals(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
     /// Reads one bounded window of observed marketplace listings under the current Host authority
     /// fence. Observation and Provider identifiers stay in the Host.
     ///
@@ -6705,6 +6728,13 @@ mod tests {
         ));
         assert!(matches!(
             host.read_sales(crate::DesktopSalesReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_renewals(crate::DesktopRenewalsReadRequest {
                 start_index: 0,
                 size: 10,
             }),

@@ -20,6 +20,7 @@ const workspaceSurfaceKinds = ["standby", "active"] as const;
 export const appRouteRegistry = {
   "portfolio.list": route("portfolio.list", "assetLibrary"),
   "portfolio.detail": route("portfolio.detail", "domainDetail"),
+  "renewals.desk": route("renewals.desk", "renewalDesk"),
   "sales.desk": route("sales.desk", "salesDesk"),
   "dns.health": route("dns.health", "dnsVerification"),
   "sync.conflicts": route("sync.conflicts", "conflictCenter"),

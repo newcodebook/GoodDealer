@@ -12,7 +12,11 @@ Customer Desktop application that composes the Renderer and native Host around t
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
   sign-in, and locked pages plus a workspace with the asset library, domain detail (target-price
-  edit), sales, DNS health, conflict center, and settings. Sales shows the latest observed listing
+  edit), renewals, sales, DNS health, conflict center, and settings. Renewals opens from the asset
+  library's expiring-within-60-days metric and lists those assets from `local_renewals_read` with
+  recorded expiry, auto-renew and the last observed registrar; renewal prices, budgets and plans have
+  no qualified registrar capability and render as unavailable, with no selection, term or renew
+  action. Sales shows the latest observed listing
   per asset and marketplace from `local_sales_read`; offers, deals, view counts and listing dates
   have no qualified capability and render as unavailable, with no listing or offer action. DNS health shows only Host-observed Zone facts
   from `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render
@@ -89,6 +93,7 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `local_dns_health_read`
 - `local_settings_read`
 - `local_sales_read`
+- `local_renewals_read`
 - `local_domain_asset_edit`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`

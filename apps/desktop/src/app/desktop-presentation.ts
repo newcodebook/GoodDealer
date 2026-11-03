@@ -5,7 +5,7 @@ import { parseDesktopSurface, type WorkspaceDesktopSurface } from "./desktop-sur
 import { eligibleWorkspaceRouteIds, type AuthoritativeWorkspacePublication } from "./workspace-publication";
 
 /** Routes whose renderer is composed in production; a route without one is never offered. */
-export const composedRouteIds: readonly AppRouteId[] = ["portfolio.list", "portfolio.detail", "sales.desk", "dns.health", "sync.conflicts", "settings"];
+export const composedRouteIds: readonly AppRouteId[] = ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "sync.conflicts", "settings"];
 
 type BrowserSignInPresentation = BrowserSignInState;
 

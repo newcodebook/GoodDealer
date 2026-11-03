@@ -385,6 +385,11 @@ const enUSDictionary = {
     queueSummary: "{confirmed} confirmed · {skipped} skipped",
     close: "Done",
     readOnlyNotice: "This is a read-only view; renewals are unavailable.",
+    planUnavailable: "Renewal prices, budgets, and plans are not connected to a qualified registrar capability yet, so renewals are unavailable.",
+    notAvailable: "Unavailable",
+    loading: "Reading local renewal data…",
+    loadFailed: "Local renewal data could not be read. Retrying only reads again and changes nothing.",
+    retryRead: "Read again",
   },
   salesDesk: {
     title: "Sales",

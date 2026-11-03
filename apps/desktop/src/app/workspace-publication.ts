@@ -4,6 +4,7 @@ import {
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
   type DnsHealthPort,
+  type RenewalsReadPort,
   type SalesReadPort,
   type SettingsReadPort,
   type SyncSnapshotViewModel,
@@ -33,6 +34,8 @@ export interface AuthoritativeWorkspacePorts {
   readonly settings: SettingsReadPort;
   /** Read by the sales route on demand; not part of the workspace publication. */
   readonly sales: SalesReadPort;
+  /** Read by the renewals route on demand; not part of the workspace publication. */
+  readonly renewals: RenewalsReadPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -91,6 +94,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "sales.desk", "dns.health", "settings"]
-    : ["portfolio.list", "portfolio.detail", "sales.desk", "dns.health", "sync.conflicts", "settings"];
+    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "settings"]
+    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "sync.conflicts", "settings"];
 }

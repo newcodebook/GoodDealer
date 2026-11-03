@@ -1,5 +1,7 @@
 pub(crate) mod dns_health;
 
+pub(crate) mod renewals;
+
 pub(crate) mod sales;
 
 pub(crate) mod settings;
@@ -73,6 +75,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_renewals(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::RenewalsReadSnapshot, PortfolioReadError> {
+            super::renewals::ActiveRenewalsReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

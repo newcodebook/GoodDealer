@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBusinessPort, createLocalDnsHealthPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
+import { createLocalBusinessPort, createLocalDnsHealthPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -62,6 +62,32 @@ describe("Desktop Tauri local-business adapter", () => {
     invokeMock.mockClear();
     await expect(port.loadDnsHealth({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     await expect(port.loadDnsHealth({ startIndex: 0, size: 10, workspaceId: "canary" } as never)).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("reads renewal windows through the narrow command and rejects identifiers or foreign provenance", async () => {
+    const read = {
+      schemaVersion: 1, kind: "renewals", readGeneration: 3,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      asOfDate: "2026-08-20",
+      totalRows: 1,
+      window: { startIndex: 0, size: 200, rows: [{ entityId: "vault.io", expiresOn: "2026-08-27", autoRenew: false, registrarName: "Spaceship" }] },
+    };
+    const port = createLocalRenewalsPort();
+    invokeMock.mockResolvedValueOnce(read);
+    await expect(port.loadRenewals({ startIndex: 0, size: 200 })).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_renewals_read", { request: { startIndex: 0, size: 200 } });
+    for (const hostile of [
+      { ...read, window: { ...read.window, rows: [{ ...read.window.rows[0], observationId: "canary" }] } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      "LOCAL_READ_AUTHORIZATION_REQUIRED",
+    ]) {
+      if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
+      else invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.loadRenewals({ startIndex: 0, size: 200 })).rejects.toBeInstanceOf(LocalReadError);
+    }
+    invokeMock.mockClear();
+    await expect(port.loadRenewals({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

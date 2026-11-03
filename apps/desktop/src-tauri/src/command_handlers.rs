@@ -9,9 +9,9 @@ use gooddealer_local_storage::{
     DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
-    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact,
-    DnsHealthReadSnapshot, DomainAssetMutationReceipt, DomainDetailReadSnapshot, SalesReadSnapshot,
-    SettingsReadSnapshot,
+    DesktopRenewalsReadRequest, DesktopSalesReadRequest, DesktopSyncSnapshotView,
+    DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot, DomainAssetMutationReceipt,
+    DomainDetailReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot, SettingsReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -68,6 +68,16 @@ pub(crate) fn local_domain_detail_read(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainDetailReadSnapshot, String> {
     host.read_domain_detail(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_renewals_read(
+    request: DesktopRenewalsReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<RenewalsReadSnapshot, String> {
+    host.read_renewals(request)
         .map_err(|error| error.to_string())
 }
 

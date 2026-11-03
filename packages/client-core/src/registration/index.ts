@@ -8,15 +8,21 @@ import {
 
 export const renewalTermYearsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
+const registrarNameSchema = z.string().min(1).max(128);
+
+/**
+ * One renewal row. Registrar and auto-renew are null when nothing records them; term and price are
+ * null while the plan is unavailable, because no qualified registrar capability quotes a renewal.
+ */
 export const renewalDeskItemSchema = z.object({
   id: z.string().min(1).max(128),
   domain: canonicalDomainNameSchema,
-  registrar: z.string().min(1).max(128),
+  registrar: registrarNameSchema.nullable(),
   expiresOn: z.iso.date(),
   daysRemaining: z.number().int(),
-  autoRenewEnabled: z.boolean(),
-  termYears: renewalTermYearsSchema,
-  annualPrice: canonicalMoneyViewSchema,
+  autoRenewEnabled: z.boolean().nullable(),
+  termYears: renewalTermYearsSchema.nullable(),
+  annualPrice: canonicalMoneyViewSchema.nullable(),
   selected: z.boolean(),
   status: z.enum(["due", "planned"]),
 }).strict();
@@ -26,19 +32,21 @@ const renewalDeskListViewSchema = z.object({
   kind: z.literal("renewal_desk"),
   state: z.literal("list"),
   freshness: dataFreshnessSchema,
-  budget: canonicalMoneyViewSchema,
+  /** Whether renewal planning is executable; "unavailable" until its capability is qualified. */
+  planAvailability: z.enum(["available", "unavailable"]),
+  budget: canonicalMoneyViewSchema.nullable(),
   items: z.array(renewalDeskItemSchema).max(100_000),
   selectedCount: z.number().int().nonnegative(),
-  selectedTotal: canonicalMoneyViewSchema,
+  selectedTotal: canonicalMoneyViewSchema.nullable(),
 }).strict().superRefine(validateRenewalSelection);
 
-const renewalConfirmationItemSchema = renewalDeskItemSchema.pick({
-  id: true,
-  domain: true,
-  registrar: true,
-  termYears: true,
-  annualPrice: true,
-});
+const renewalConfirmationItemSchema = z.object({
+  id: renewalDeskItemSchema.shape.id,
+  domain: canonicalDomainNameSchema,
+  registrar: registrarNameSchema,
+  termYears: renewalTermYearsSchema,
+  annualPrice: canonicalMoneyViewSchema,
+}).strict();
 
 const renewalDeskConfirmViewSchema = z.object({
   schemaVersion: z.literal(1),
@@ -165,17 +173,33 @@ function validateRenewalSelection(
   view: z.infer<typeof renewalDeskListViewSchema>,
   context: z.RefinementCtx,
 ): void {
-  const selected = view.items.filter((item) => item.selected && item.status === "due");
-  if (view.selectedCount !== selected.length) {
-    context.addIssue({ code: "custom", path: ["selectedCount"], message: "selected count must match due rows" });
-  }
   const ids = new Set(view.items.map((item) => item.id));
   const domains = new Set(view.items.map((item) => item.domain));
   if (ids.size !== view.items.length || domains.size !== view.items.length) {
     context.addIssue({ code: "custom", path: ["items"], message: "renewal items must be unique" });
   }
-  validateSameCurrency([view.budget, view.selectedTotal, ...view.items.map((item) => item.annualPrice)], context);
-  if (!moneyEqual(sumRenewalItems(selected), view.selectedTotal)) {
+  if (view.planAvailability === "unavailable") {
+    // Nothing can be selected, priced or budgeted until a renewal capability is qualified.
+    if (view.budget !== null || view.selectedTotal !== null || view.selectedCount !== 0
+      || view.items.some((item) => item.selected || item.termYears !== null || item.annualPrice !== null)) {
+      context.addIssue({ code: "custom", path: ["planAvailability"], message: "an unavailable plan carries no selection, term, price or budget" });
+    }
+    return;
+  }
+  const { budget, selectedTotal } = view;
+  const priced = view.items.flatMap((item) => item.annualPrice === null || item.termYears === null || item.registrar === null
+    ? []
+    : [{ ...item, annualPrice: item.annualPrice, termYears: item.termYears }]);
+  if (budget === null || selectedTotal === null || priced.length !== view.items.length) {
+    context.addIssue({ code: "custom", path: ["planAvailability"], message: "an available plan needs a registrar, term, price and budget" });
+    return;
+  }
+  const selected = priced.filter((item) => item.selected && item.status === "due");
+  if (view.selectedCount !== selected.length) {
+    context.addIssue({ code: "custom", path: ["selectedCount"], message: "selected count must match due rows" });
+  }
+  validateSameCurrency([budget, selectedTotal, ...priced.map((item) => item.annualPrice)], context);
+  if (!moneyEqual(sumRenewalItems(selected), selectedTotal)) {
     context.addIssue({ code: "custom", path: ["selectedTotal"], message: "selected total must equal item terms" });
   }
 }
@@ -217,3 +241,5 @@ function unitsToDecimal(units: bigint): string {
   const fraction = (absolute % 100_000_000n).toString().padStart(8, "0").replace(/0+$/u, "");
   return `${negative ? "-" : ""}${whole}${fraction.length > 0 ? `.${fraction}` : ""}`;
 }
+
+export * from "./renewals-read";

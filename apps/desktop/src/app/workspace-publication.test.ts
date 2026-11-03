@@ -108,6 +108,7 @@ function ports(readGeneration: number) {
     dns: { loadDnsHealth: vi.fn() },
     settings: { loadSettings: vi.fn() },
     sales: { loadSales: vi.fn() },
+    renewals: { loadRenewals: vi.fn() },
   };
 }
 

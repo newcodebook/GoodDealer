@@ -23,6 +23,7 @@
     "allow-local-dns-health-read",
     "allow-local-settings-read",
     "allow-local-sales-read",
+    "allow-local-renewals-read",
     "allow-local-domain-asset-edit",
     "allow-local-domain-asset-delete",
     "allow-local-domain-asset-provider-bind",

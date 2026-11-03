@@ -4,6 +4,7 @@ import { canonicalDomainNameSchema } from "@gooddealer/client-core";
 export const appRouteIds = [
   "portfolio.list",
   "portfolio.detail",
+  "renewals.desk",
   "sales.desk",
   "dns.health",
   "sync.conflicts",

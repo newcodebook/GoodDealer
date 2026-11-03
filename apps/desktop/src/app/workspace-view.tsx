@@ -1,4 +1,4 @@
-import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, projectSalesDeskViewModel, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, typ
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
+import { RenewalDesk, type RenewalListView } from "../features/registration";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -81,7 +82,8 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
     license: null,
     providerSummary: null,
   };
-  const navigationId = route.id === "portfolio.detail" ? "portfolio.list" : route.id;
+  // Detail and renewals are entered from the asset library, so the rail keeps Assets active.
+  const navigationId = route.id === "portfolio.detail" || route.id === "renewals.desk" ? "portfolio.list" : route.id;
   const banner = actionFailed ? <Banner tone="danger" title={shellCopy.actionFailed} />
     : readOnly === "standby" ? <Banner tone="sync" title={shellCopy.standby}>{shellCopy.standbyNotice}</Banner>
       : readOnly === "commercial" ? <Banner tone="warning" title={runtimeCopy.commercialReadOnlyTitle}>{runtimeCopy.commercialReadOnlyNotice}</Banner>
@@ -111,6 +113,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               ports={ports}
               initial={publication.portfolio}
               onOpenAsset={(domainId) => setRoute({ id: "portfolio.detail", domainId })}
+              onRenew={surface.availableRouteIds.includes("renewals.desk") ? () => setRoute(createAppRoute("renewals.desk")) : undefined}
             />
           ),
           "portfolio.detail": (current) => current.id !== "portfolio.detail" ? null : (
@@ -125,6 +128,15 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               onOpenConflicts={surface.availableRouteIds.includes("sync.conflicts") ? () => setRoute(createAppRoute("sync.conflicts")) : undefined}
               onPublication={onPublication}
               onFailure={reportFailure}
+            />
+          ),
+          "renewals.desk": () => (
+            <RenewalsRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
+              onBack={() => setRoute(createAppRoute("portfolio.list"))}
             />
           ),
           "sales.desk": () => (
@@ -217,6 +229,71 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
       about={{ version: null, dataDirectory: null, revisionBase }}
       onLocaleChange={onLocaleChange}
     />
+  );
+}
+
+const renewalsWindowSize = 200;
+
+type RenewalsState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly view: RenewalListView }
+  | { readonly kind: "failed" };
+
+function isRenewalList(view: RenewalDeskViewModel): view is RenewalListView {
+  return view.state === "list";
+}
+
+/**
+ * Reads every renewal window for one Host generation, like sales. The desk gets no selection,
+ * term, auto-renew or plan callbacks: renewal quotes and registrar writes need capabilities that
+ * are not qualified yet, so the plan is reported unavailable.
+ */
+function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+  readonly onBack: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "renewalDesk");
+  const [state, setState] = useState<RenewalsState>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: RenewalsRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.renewals.loadRenewals({ startIndex: next, size: renewalsWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < (windows[0]?.totalRows ?? 0));
+        const view = projectRenewalDeskViewModel(windows);
+        if (!isRenewalList(view)) throw new TypeError("renewals project to the list state");
+        if (!cancelled) setState({ kind: "ready", view });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  if (state.kind === "ready") return <RenewalDesk locale={locale} view={state.view} onBack={onBack} />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+    </Banner>
   );
 }
 
@@ -337,11 +414,12 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   );
 }
 
-function AssetLibraryRoute({ locale, ports, initial, onOpenAsset }: {
+function AssetLibraryRoute({ locale, ports, initial, onOpenAsset, onRenew }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly initial: AssetLibraryViewModel;
   readonly onOpenAsset: (domainId: string) => void;
+  readonly onRenew: (() => void) | undefined;
 }) {
   const controller = useRef(createPortfolioReadController(ports.portfolio)).current;
   const [query, setQuery] = useState("");
@@ -378,6 +456,7 @@ function AssetLibraryRoute({ locale, ports, initial, onOpenAsset }: {
       onSelectionChange={setSelectedIds}
       onWindowChange={(startIndex, size) => load(startIndex, size, query)}
       onOpenAsset={onOpenAsset}
+      {...(onRenew === undefined ? {} : { onRenew })}
     />
   );
 }

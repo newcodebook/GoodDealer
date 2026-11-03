@@ -8,12 +8,16 @@ import {
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
   parseDnsHealthRead,
+  parseRenewalsRead,
   parseSalesRead,
   parseSettingsRead,
+  renewalsWindowRequestSchema,
   salesWindowRequestSchema,
   dnsHealthWindowRequestSchema,
   type DnsHealthPort,
   type DnsHealthRead,
+  type RenewalsRead,
+  type RenewalsReadPort,
   type SalesRead,
   type SalesReadPort,
   type SettingsRead,
@@ -117,6 +121,7 @@ const commands = {
   readDomainDetail: "local_domain_detail_read",
   readDnsHealth: "local_dns_health_read",
   readSettings: "local_settings_read",
+  readRenewals: "local_renewals_read",
   readSales: "local_sales_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
@@ -186,6 +191,23 @@ export function createLocalDnsHealthPort(): DnsHealthPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Expiring-asset windows from the Host; any other provenance is rejected. */
+export function createLocalRenewalsPort(): RenewalsReadPort {
+  return {
+    async loadRenewals(request): Promise<RenewalsRead> {
+      let validatedRequest;
+      try { validatedRequest = renewalsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseRenewalsRead(await invoke(commands.readRenewals, { request: validatedRequest }));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

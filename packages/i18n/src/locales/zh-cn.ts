@@ -319,6 +319,11 @@ const zhCNDictionary = {
     queueSummary: "已确认 {confirmed} 项 · 跳过 {skipped} 项",
     close: "完成",
     readOnlyNotice: "当前为只读视图，续费不可用。",
+    planUnavailable: "续费价格、预算与计划尚未接入已认证的注册商能力，续费暂不可用。",
+    notAvailable: "暂不可用",
+    loading: "正在读取本地续费数据…",
+    loadFailed: "无法读取本地续费数据。重试只会重新读取，不会修改任何数据。",
+    retryRead: "重新读取",
   },
   salesDesk: {
     title: "销售管理",

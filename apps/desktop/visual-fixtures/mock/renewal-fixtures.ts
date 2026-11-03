@@ -66,6 +66,7 @@ export function projectMockRenewals(rows: readonly MockRenewalRow[]): RenewalLis
     kind: "renewal_desk",
     state: "list",
     freshness,
+    planAvailability: "available",
     budget: { currency: "USD", amount: String(mockRenewalBudget) },
     items: rows.map((row) => ({
       id: row.id,

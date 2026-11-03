@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of assets expiring within the next 60 days, soonest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_renewals(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::RenewalsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_renewals(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one bounded window of the latest marketplace listing observations.
     ///
     /// # Errors
@@ -7694,6 +7709,120 @@ mod tests {
                     Err(BusinessDatabaseError::ProjectionRejected)
                 ),
                 "{listing:?} must fail closed"
+            );
+        }
+    }
+
+    /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's
+    /// `date('now')`, and registrar observations `(entity, registrar, availability, observed_at)`.
+    fn renewals_database(
+        assets: &[(&str, &str, Option<i64>, Option<i64>)],
+        observations: &[(&str, &str, &str, &str)],
+    ) -> BusinessDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for (entity, lifecycle, offset, auto_renew) in assets {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,CASE WHEN ?3 IS NULL THEN NULL ELSE date('now', ?3 || ' days') END,?4,?5,?5,1)", rusqlite::params![entity, lifecycle, offset.map(|days| format!("{days:+}")), auto_renew, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','cloudflare','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        for (index, (entity, registrar, availability, observed_at)) in
+            observations.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version-secret')", rusqlite::params![format!("registrar-secret-{index}"), run, entity, registrar, availability, observed_at]).unwrap();
+        }
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    fn renewals_list_the_sixty_day_window_soonest_first_without_identifiers() {
+        let database = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), Some(1)),
+                ("also-soon.test", "expired", Some(5), Some(0)),
+                ("edge.test", "active", Some(60), None),
+                ("beyond.test", "active", Some(61), Some(1)),
+                ("lapsed.test", "active", Some(-1), Some(1)),
+                ("today.test", "sold", Some(0), None),
+                ("archived.test", "archived", Some(3), Some(1)),
+                ("undated.test", "active", None, Some(1)),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Old Registrar",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                ),
+                (
+                    "soon.test",
+                    "Spaceship",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                ),
+                ("soon.test", "Hidden", "unavailable", "2026-03-01T00:00:00Z"),
+            ],
+        );
+        let snapshot = database.read_renewals(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "renewals");
+        let today: String = database
+            .store
+            .raw_connection()
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(snapshot.as_of_date, today);
+        assert_eq!(snapshot.total_rows, 4);
+        let rows: Vec<_> = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.entity_id.as_str(),
+                    row.auto_renew,
+                    row.registrar_name.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("today.test", None, None),
+                ("also-soon.test", Some(false), None),
+                ("soon.test", Some(true), Some("Spaceship")),
+                ("edge.test", None, None),
+            ]
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "run-secret",
+            "registrar-secret",
+            "version-secret",
+            "registrar-1",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into renewals");
+        }
+        assert_eq!(database.read_renewals(3, 10).unwrap().window.rows.len(), 1);
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_renewals(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        for name in ["Bad\nRegistrar", &"x".repeat(129)] {
+            assert!(
+                matches!(
+                    renewals_database(
+                        &[("soon.test", "active", Some(5), None)],
+                        &[("soon.test", name, "available", TIMESTAMP)],
+                    )
+                    .read_renewals(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{name:?} must fail closed"
             );
         }
     }
