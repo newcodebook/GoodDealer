@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AssetLibraryViewModel, ConflictCenterViewModel, SyncSnapshotViewModel } from "@gooddealer/client-core";
 
 import { adjudicateDesktopPresentation } from "./desktop-presentation";
-import type { AuthoritativeWorkspacePublication } from "./workspace-publication";
+import type { AuthoritativeWorkspacePublication, AuthoritativeWorkspacePorts } from "./workspace-publication";
+import { WorkspaceView } from "./workspace-view";
 
 type BusinessStatus = AuthoritativeWorkspacePublication["status"];
 
@@ -107,9 +109,24 @@ describe("desktop presentation adjudication", () => {
       const result = adjudicateDesktopPresentation(false, value, "authenticated");
       return result.view === "workspace" ? result.surface.availableRouteIds : [];
     };
-    // DNS health has no Host projection yet, so it is never composed.
-    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "sync.conflicts"]);
+    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "dns.health", "sync.conflicts"]);
     expect(routes(publication("active", ["local:read"], { sync: { ...sync, recoveryRequired: true } })))
-      .toEqual(["portfolio.list", "portfolio.detail"]);
+      .toEqual(["portfolio.list", "portfolio.detail", "dns.health"]);
+  });
+
+  it("puts every composed route in the production workspace rail", () => {
+    const presentation = adjudicateDesktopPresentation(false, publication("active", ["local:read"]), "authenticated");
+    if (presentation.view !== "workspace") throw new Error("expected a workspace");
+    const html = renderToStaticMarkup(
+      <WorkspaceView
+        locale="en-US"
+        presentation={presentation}
+        ports={{} as AuthoritativeWorkspacePorts}
+        windowFrame={{ platform: "windows", framed: false }}
+        onPublication={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+    for (const label of ["Asset library", "DNS &amp; verification", "Conflict center"]) expect(html).toContain(label);
   });
 });
