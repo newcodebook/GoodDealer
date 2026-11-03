@@ -2,18 +2,14 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   ValidatingPortfolioPresentationPort,
-  ValidatingPortfolioPlanPort,
   ValidatingPortfolioProviderBindingPort,
   assetLibraryViewModelSchema,
-  buildCsvImportPreview,
   canonicalMoneyViewSchema,
   canonicalizeDomainName,
   createAssetLibraryWindow,
-  csvImportViewModelSchema,
   dataFreshnessSchema,
   domainDetailViewModelSchema,
   type AssetLibraryRow,
-  type PortfolioPlanPort,
   localDomainAssetEditRequestSchema,
   localDomainAssetMutationReceiptSchema,
   type PortfolioProviderBindingPort,
@@ -139,65 +135,6 @@ describe("canonical domain names and CSV import", () => {
     expect(() => canonicalizeDomainName(input)).toThrow();
   });
 
-  it("classifies existing, in-file duplicates, invalid rows, and Punycode deterministically", () => {
-    const preview = buildCsvImportPreview({
-      csvText: [
-        "Domain,Registrar",
-        "vault.io,Spaceship",
-        "KANBAN.AI,Namecheap",
-        "münchen.de,Dynadot",
-        "xn--mnchen-3ya.de,Dynadot",
-        "http://bad_domain,Unknown",
-        ",Unknown",
-      ].join("\n"),
-      mappings: [{ columnIndex: 0, field: "domain" }, { columnIndex: 1, field: "registrar" }],
-      existingDomains: new Set(["vault.io"]),
-    });
-
-    expect(preview).toMatchObject({ totalCount: 6, newCount: 2, duplicateCount: 2, invalidCount: 2 });
-    expect(preview.rows.map((item) => item.status)).toEqual([
-      "duplicate", "new", "new", "duplicate", "invalid", "invalid",
-    ]);
-    expect(preview.rows[2]).toMatchObject({ canonicalDomain: "xn--mnchen-3ya.de" });
-  });
-
-  it("rejects ambiguous domain mappings and malformed quoted CSV", () => {
-    const base = { csvText: "Domain\nexample.com", existingDomains: new Set<string>() };
-    expect(() => buildCsvImportPreview({ ...base, mappings: [] })).toThrow("exactly one");
-    expect(() => buildCsvImportPreview({
-      ...base,
-      mappings: [{ columnIndex: 0, field: "domain" }, { columnIndex: 1, field: "domain" }],
-    })).toThrow("exactly one");
-    expect(() => buildCsvImportPreview({
-      ...base,
-      csvText: 'Domain\n"unterminated',
-      mappings: [{ columnIndex: 0, field: "domain" }],
-    })).toThrow("unterminated");
-  });
-
-  it("models file, map, and preview as a strict discriminated union", () => {
-    expect(csvImportViewModelSchema.safeParse({
-      schemaVersion: 1,
-      step: "file",
-      canEdit: true,
-      acceptedMediaTypes: ["text/csv"],
-      selectedFile: null,
-    }).success).toBe(true);
-    expect(csvImportViewModelSchema.safeParse({
-      schemaVersion: 1,
-      step: "map",
-      canEdit: true,
-      columns: [{ index: 0, header: "Domain", sample: "vault.io", mapping: "domain" }],
-      hasDomainMapping: true,
-    }).success).toBe(true);
-    expect(csvImportViewModelSchema.safeParse({
-      schemaVersion: 1,
-      step: "map",
-      canEdit: true,
-      columns: [{ index: 0, header: "Domain", sample: "vault.io", mapping: "ignore" }],
-      hasDomainMapping: true,
-    }).success).toBe(false);
-  });
 });
 
 describe("portfolio presentation contracts", () => {
@@ -329,27 +266,5 @@ describe("portfolio presentation contracts", () => {
       });
       await expect(port.loadAssetLibrary({ startIndex: 0, size: 25, query: "" })).rejects.toThrow();
     }
-  });
-
-  it("exposes planning but no execution method", () => {
-    expectTypeOf<keyof PortfolioPlanPort>().toEqualTypeOf<"planCsvImport">();
-  });
-
-  it("validates import plan count and unknown receipt fields", async () => {
-    const preview = buildCsvImportPreview({
-      csvText: "Domain\nexample.com",
-      mappings: [{ columnIndex: 0, field: "domain" }],
-      existingDomains: new Set(),
-    });
-    const request = { expectedNewCount: 1, preview };
-    await expect(new ValidatingPortfolioPlanPort({
-      planCsvImport: async () => ({ planId: "plan-1", status: "planned", itemCount: 1 }),
-    }).planCsvImport(request)).resolves.toMatchObject({ itemCount: 1 });
-    await expect(new ValidatingPortfolioPlanPort({
-      planCsvImport: async () => ({ planId: "plan-1", status: "planned", itemCount: 2 }),
-    }).planCsvImport(request)).rejects.toThrow("count");
-    await expect(new ValidatingPortfolioPlanPort({
-      planCsvImport: async () => ({ planId: "plan-1", status: "planned", itemCount: 1, executed: true }),
-    }).planCsvImport(request)).rejects.toThrow();
   });
 });

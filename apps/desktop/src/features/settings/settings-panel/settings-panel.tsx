@@ -64,7 +64,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 }
 
 const cadences: readonly PullRefreshCadence[] = ["when_visible", "every_5_minutes", "every_15_minutes"];
-const methodLabel = { api: "API", browser: "Browser", csv: "CSV", oauth: "OAuth" } as const;
+const methodLabel = { api: "API", oauth: "OAuth" } as const;
 
 /** Settings: connections, the device lease and handoff ceremony, license, sync policy, and about. */
 export function SettingsPanel({

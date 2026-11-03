@@ -102,7 +102,7 @@ const providerCatalog = [
   { providerId: "dynadot", displayName: "Dynadot", metadata: "API Key", category: "registrar" },
   { providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns" },
   { providerId: "atom", displayName: "Atom", metadata: "OAuth · API", category: "marketplace" },
-  { providerId: "afternic", displayName: "Afternic", metadata: "CSV · 人工", category: "marketplace" },
+  { providerId: "afternic", displayName: "Afternic", metadata: "Portfolio API", category: "marketplace" },
 ] as const;
 
 function wizardView(state: WizardState): ActivationWizardViewModel {

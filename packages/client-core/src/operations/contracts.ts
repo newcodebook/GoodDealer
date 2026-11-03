@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-import {
-  browserAutomationGrantSchema,
-  browserExecutionTaskSchema,
-} from "../browser-automation/index";
-
 export const operationIdentifierSchema = z
   .string()
   .min(1)
@@ -171,7 +166,6 @@ export const riskAcceptancePolicySchema = z.enum(["forbidden", "allowed", "fresh
 
 export const manualTaskActionSchema = z.enum([
   "open_platform",
-  "request_automation_grant",
   "mark_user_operation_done",
   "request_recheck",
   "cancel",
@@ -207,8 +201,6 @@ export const manualTaskViewSchema = z
       .max(100),
     riskAcceptancePolicy: riskAcceptancePolicySchema,
     unresolvedImpactDigest: operationDigestSchema.nullable(),
-    browserGrant: browserAutomationGrantSchema.nullable(),
-    browserTask: browserExecutionTaskSchema.nullable(),
     availableActions: z.array(manualTaskActionSchema).max(6),
   })
   .strict();
@@ -232,9 +224,6 @@ export const manualTaskInboxViewModelSchema = z
       context.addIssue({ code: "custom", path: ["tasks"], message: "tasks and selection must be unique and consistent" });
     }
     for (const [index, task] of view.tasks.entries()) {
-      if (task.browserGrant !== null && task.browserGrant.operationPlanId !== task.operationPlanId) {
-        context.addIssue({ code: "custom", path: ["tasks", index, "browserGrant"], message: "grant must bind this task plan" });
-      }
       if (task.riskAcceptancePolicy === "forbidden" && task.unresolvedImpactDigest !== null) {
         context.addIssue({ code: "custom", path: ["tasks", index, "unresolvedImpactDigest"], message: "forbidden policy cannot expose risk acceptance data" });
       }
@@ -246,7 +235,6 @@ export const manualTaskInboxViewModelSchema = z
       if (nonTerminal && canIssueCommands(view.source, view.commandAdmission)) {
         expected.push("open_platform", "request_recheck", "cancel");
         if (task.status !== "verification_pending") expected.push("mark_user_operation_done");
-        if (task.browserGrant !== null) expected.push("request_automation_grant");
         if (task.riskAcceptancePolicy !== "forbidden") expected.push("accept_residual_risk");
       }
       if (!sameMembers(task.availableActions, expected) || new Set(task.availableActions).size !== task.availableActions.length) {

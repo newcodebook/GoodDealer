@@ -14,7 +14,6 @@ import {
   Table,
   Tag,
   Toolbar,
-  UploadIcon,
   type TableColumn,
 } from "@gooddealer/ui";
 import { shellTableLabels } from "../../../app-shell";
@@ -49,7 +48,6 @@ export interface AssetLibraryProps {
   readonly onWindowChange?: (startIndex: number, size: number) => void;
   readonly onOpenAsset?: (id: string) => void;
   readonly onRenew?: () => void;
-  readonly onImportCsv?: () => void;
   readonly onCreatePlan?: (ids: readonly string[]) => void;
   readonly onBatchAction?: (action: AssetBatchAction, ids: readonly string[]) => void;
   /** Called after the user confirms "save and sync" for an inline BIN edit. */
@@ -85,7 +83,6 @@ export function AssetLibrary({
   onWindowChange,
   onOpenAsset,
   onRenew,
-  onImportCsv,
   onCreatePlan,
   onBatchAction,
   onTargetPriceCommit,
@@ -255,7 +252,6 @@ export function AssetLibrary({
         )}
         right={(
           <>
-            {onImportCsv === undefined ? null : <Button size="sm" icon={<UploadIcon size={14} />} disabled={!canEdit} onClick={onImportCsv}>{copy.importCsv}</Button>}
             {onCreatePlan === undefined ? null : (
               <Button size="sm" variant="primary" disabled={!canEdit || selectedCount === 0} onClick={() => onCreatePlan(selectedIds)}>
                 {copy.createBatchPlan}{selectedCount > 0 ? ` · ${selectedCount}` : ""}

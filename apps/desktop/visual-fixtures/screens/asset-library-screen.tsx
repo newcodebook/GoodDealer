@@ -99,7 +99,6 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
         onWindowChange={(startIndex, size) => setPageWindow({ startIndex, size })}
         onOpenAsset={() => onNavigateScreen("domain-detail")}
         onRenew={() => onNavigateScreen("renew-desk")}
-        onImportCsv={() => undefined}
         onCreatePlan={() => setBatchAction("price")}
         onBatchAction={(action) => setBatchAction(action)}
         onTargetPriceCommit={(row, amount) => {

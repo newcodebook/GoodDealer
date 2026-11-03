@@ -55,7 +55,7 @@ const connectionMetadataSchema = z
     accountAlias: z.string().min(1).max(120),
     remoteAccountId: z.string().min(1).max(160).nullable(),
     category: z.enum(["registrar", "dns", "marketplace"]),
-    method: z.enum(["api", "browser", "csv", "oauth"]).nullable(),
+    method: z.enum(["api", "oauth"]).nullable(),
     summary: z.string().min(1).max(240),
   })
   .strict();

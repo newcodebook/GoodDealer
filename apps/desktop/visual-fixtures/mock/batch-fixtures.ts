@@ -83,7 +83,7 @@ export function mockBatchDetail(job: BatchJobSummary, excludedItemIds: readonly 
     },
     groups: [
       { id: `${job.id}-g1`, platform: "Atom", account: "主账户", actionLabel: "修改价格", itemCount: 811, result: "planned" },
-      { id: `${job.id}-g2`, platform: "Afternic", account: "主账户", actionLabel: "生成 CSV · 人工上传", itemCount: 12, result: "planned" },
+      { id: `${job.id}-g2`, platform: "Afternic", account: "主账户", actionLabel: "Portfolio API · 批量改价", itemCount: 12, result: "planned" },
       { id: `${job.id}-g3`, platform: "注册商", account: "Spaceship · Dynadot", actionLabel: "变更 Nameserver", itemCount: 3, result: "planned" },
     ],
     itemWindow: { totalItems: job.targetCount, startIndex: 0, items: phase === "completed" || phase === "rolled_back" ? items.filter((item) => item.result !== "excluded") : items },

@@ -42,7 +42,6 @@ function render(props: Partial<AssetLibraryProps> & Pick<AssetLibraryProps, "pre
       selectedIds={[]}
       onSelectionChange={() => undefined}
       onTargetPriceCommit={() => undefined}
-      onImportCsv={() => undefined}
       onCreatePlan={() => undefined}
       referenceDate="2026-12-01"
       {...props}
@@ -78,7 +77,8 @@ describe("Asset Library presentation", () => {
     expect(html).toContain("当前为只读视图");
     expect(html).not.toContain('type="checkbox"');
     expect(html).not.toContain("gd-editable-value");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*导入 CSV/su);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*生成批量计划/su);
+    expect(html).not.toContain("CSV");
   });
 
   it("offers inline BIN editing only for editable Active views", () => {

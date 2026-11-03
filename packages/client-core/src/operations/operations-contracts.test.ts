@@ -1,6 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { BrowserAutomationGrantPort } from "../browser-automation/index";
 import {
   ValidatingOperationsPresentationPort,
   assetProtectionIncidentViewModelSchema,
@@ -16,7 +15,6 @@ import {
   type AssetProtectionIncidentViewModel,
   type BatchOperationPhase,
   type BatchOperationViewModel,
-  type ManualTaskBrowserGrantPort,
   type ManualTaskInboxViewModel,
   type OperationHistoryViewModel,
   type OperationsPresentationBoundary,
@@ -102,44 +100,20 @@ function batch(phase: BatchOperationPhase): BatchOperationViewModel {
   });
 }
 
-function grant(operationPlanId = "plan-1") {
-  return {
-    schemaVersion: 1,
-    grantRequestId: "grant-1",
-    providerConnectionId: "connection-1",
-    browserSessionId: "session-1",
-    operationPlanId,
-    approvedPlanHash: digest,
-    provider: "Afternic",
-    accountAlias: "Primary",
-    planItemCount: 12,
-    planActionLabel: "Upload price CSV",
-    allowedActions: ["click", "fill", "upload_csv", "read_result"],
-    targetDomains: ["vault.io"],
-    allowedHosts: ["*.afternic.com"],
-    issuedAt: timestamp,
-    expiresAt: "2026-08-17T06:10:00Z",
-    requiresFinalConfirmation: true,
-  } as const;
-}
-
 function inbox(options?: {
   readonly source?: "active_local" | "standby_cloud";
   readonly admission?: "proven" | "unavailable";
   readonly policy?: "forbidden" | "allowed" | "fresh_reauth_required";
   readonly status?: "open" | "awaiting_user" | "verification_pending" | "confirmed_completed" | "cancelled" | "risk_accepted";
-  readonly withGrant?: boolean;
 }): ManualTaskInboxViewModel {
   const source = options?.source ?? "active_local";
   const admission = options?.admission ?? "proven";
   const policy = options?.policy ?? "forbidden";
   const status = options?.status ?? "open";
-  const withGrant = options?.withGrant ?? true;
   const actions: string[] = [];
   if (source === "active_local" && admission === "proven" && ["open", "awaiting_user", "verification_pending"].includes(status)) {
     actions.push("open_platform", "request_recheck", "cancel");
     if (status !== "verification_pending") actions.push("mark_user_operation_done");
-    if (withGrant) actions.push("request_automation_grant");
     if (policy !== "forbidden") actions.push("accept_residual_risk");
   }
   return manualTaskInboxViewModelSchema.parse({
@@ -153,21 +127,19 @@ function inbox(options?: {
         id: "task-1",
         revision: 3,
         operationPlanId: "plan-1",
-        title: "Upload price CSV",
+        title: "Unlock the registrar transfer lock",
         priority: "high",
         status,
         platform: "Afternic",
         account: "Primary",
-        reason: "Provider requires an import flow",
+        reason: "The registrar offers this action only in its console",
         affectedDomains: ["vault.io"],
-        preparedArtifactLabel: "prices.csv",
-        completionCondition: "Provider import report is confirmed",
+        preparedArtifactLabel: null,
+        completionCondition: "Registrar reports the transfer lock as off",
         lastCheckedAt: timestamp,
         checklist: [{ id: "step-1", label: "Open official site", state: "pending" }],
         riskAcceptancePolicy: policy,
         unresolvedImpactDigest: policy === "forbidden" ? null : digest,
-        browserGrant: withGrant ? grant() : null,
-        browserTask: null,
         availableActions: actions,
       },
     ],
@@ -352,14 +324,27 @@ describe("manual task policy contracts", () => {
     expect(inbox({ source: "standby_cloud", admission: "unavailable" }).tasks[0]?.availableActions).toEqual([]);
   });
 
-  it("fails closed for unknown policy and consumes the browser grant contract without owning authorization", () => {
+  it("fails closed for unknown policy", () => {
     const view = inbox({ policy: "allowed" });
-    expect(view.tasks[0]?.availableActions).toContain("request_automation_grant");
     expect(manualTaskInboxViewModelSchema.safeParse({
       ...view,
       tasks: [{ ...view.tasks[0], riskAcceptancePolicy: "unknown" }],
     }).success).toBe(false);
-    expectTypeOf<ManualTaskBrowserGrantPort>().toEqualTypeOf<BrowserAutomationGrantPort>();
+  });
+
+  it("is a hand-off-and-reconcile task with no browser automation path (ADR-0017, ADR-0027)", () => {
+    const view = inbox({ policy: "allowed" });
+    expect(view.tasks[0]?.availableActions).not.toContain("request_automation_grant");
+    for (const smuggled of [{ browserGrant: null }, { browserTask: null }]) {
+      expect(manualTaskInboxViewModelSchema.safeParse({
+        ...view,
+        tasks: [{ ...view.tasks[0], ...smuggled }],
+      }).success).toBe(false);
+    }
+    expect(manualTaskInboxViewModelSchema.safeParse({
+      ...view,
+      tasks: [{ ...view.tasks[0], availableActions: [...(view.tasks[0]?.availableActions ?? []), "request_automation_grant"] }],
+    }).success).toBe(false);
   });
 
   it("requires fresh reauthentication when policy says so", () => {

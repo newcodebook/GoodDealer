@@ -9,7 +9,7 @@ const connectionRows = [
   { id: "dynadot-main", provider: "Dynadot", alias: "main", category: "registrar", method: "api", summary: "69 域名 · Token 过期", health: "action_required", checked: null },
   { id: "cloudflare-main", provider: "Cloudflare", alias: "main", category: "dns", method: "api", summary: "601 区域 · A/CNAME/TXT/MX", health: "healthy", checked: "2026-08-20T06:02:00Z" },
   { id: "atom-main", provider: "Atom", alias: "main", category: "marketplace", method: "api", summary: "511 Listing", health: "healthy", checked: "2026-08-20T06:01:00Z" },
-  { id: "afternic-main", provider: "Afternic", alias: "main", category: "marketplace", method: "csv", summary: "601 Listing · 需 CSV 人工", health: "retained_unverified", checked: "2026-07-28T03:00:00Z" },
+  { id: "afternic-main", provider: "Afternic", alias: "main", category: "marketplace", method: "api", summary: "601 Listing · Portfolio API", health: "retained_unverified", checked: "2026-07-28T03:00:00Z" },
   { id: "sellerhub-main", provider: "SellerHub", alias: "main", category: "marketplace", method: null, summary: "尚未授权账户", health: "unconfigured", checked: null },
 ] as const;
 
