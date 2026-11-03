@@ -2160,6 +2160,32 @@ impl DesktopLocalHost {
         }
     }
 
+    /// Reads one bounded DNS health window under the current Host authority fence.
+    ///
+    /// The projection carries observed Zone facts only; Provider resource and connection
+    /// identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_dns_health(
+        &self,
+        request: crate::DesktopDnsHealthReadRequest,
+    ) -> Result<crate::DnsHealthReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_dns_health(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
     /// Reads one bounded asset-library window under the current Host authority fence.
     ///
     /// # Errors
@@ -6620,6 +6646,13 @@ mod tests {
         ));
         assert!(matches!(
             mutation.join().unwrap(),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_dns_health(crate::DesktopDnsHealthReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));
         assert_eq!(

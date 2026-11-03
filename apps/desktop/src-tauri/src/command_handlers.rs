@@ -7,10 +7,10 @@ use gooddealer_local_storage::{
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
     DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
-    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt,
-    DomainDetailReadSnapshot,
+    DesktopDnsHealthReadRequest, DesktopDomainAssetProviderBindingReceipt,
+    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
+    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
+    DomainAssetMutationReceipt, DomainDetailReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -67,6 +67,16 @@ pub(crate) fn local_domain_detail_read(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainDetailReadSnapshot, String> {
     host.read_domain_detail(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_dns_health_read(
+    request: DesktopDnsHealthReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DnsHealthReadSnapshot, String> {
+    host.read_dns_health(request)
         .map_err(|error| error.to_string())
 }
 

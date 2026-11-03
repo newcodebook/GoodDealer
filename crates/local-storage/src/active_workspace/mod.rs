@@ -1,3 +1,5 @@
+pub(crate) mod dns_health;
+
 pub(crate) mod portfolio;
 
 pub(crate) mod schema;
@@ -67,6 +69,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_dns_health(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::DnsHealthReadSnapshot, PortfolioReadError> {
+            super::dns_health::ActiveDnsHealthReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

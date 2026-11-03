@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { canonicalDomainNameSchema } from "./domain-name";
-const portfolioFreshnessSchema = z
+export const portfolioFreshnessSchema = z
   .object({
     source: z.enum(["active_local", "standby_cloud"]),
     readOnlyReason: z.enum(["commercial", "standby"]).nullable(),

@@ -6,6 +6,7 @@ import {
   createDesktopWindowControlsPort,
   createLocalBusinessPort,
   createLocalConflictPort,
+  createLocalDnsHealthPort,
   createLocalPortfolioPresentationPort,
   createLocalSyncStatusPort,
   detectDesktopWindowPlatform,
@@ -30,6 +31,7 @@ import "./app.css";
 const workspacePorts: AuthoritativeWorkspacePorts = {
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
+  dns: createLocalDnsHealthPort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

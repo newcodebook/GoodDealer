@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded DNS health window from this database's workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_dns_health(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::DnsHealthReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_dns_health(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one canonical domain detail from this database's workspace.
     ///
     /// # Errors
@@ -7476,6 +7491,132 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn dns_health_reports_observed_zone_facts_without_health_verdicts() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["observed.test", "plain.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status) VALUES ('workspace-local','cf-observe','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid')", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+        database
+            .commit_cloudflare_dns_observation(&CloudflareDnsObservationWrite {
+                observation_id: "00000000-0000-4000-8000-000000000001".into(),
+                observation_run_id: "00000000-0000-4000-8000-000000000002".into(),
+                entity_id: "observed.test".into(),
+                connection_id: "cf-observe".into(),
+                lease_epoch: 3,
+                observed_at: TIMESTAMP.into(),
+                zone_name_ascii: "observed.test".into(),
+                authoritative_nameservers: vec!["ada.ns.cloudflare.com".into()],
+                dnssec_status: "unknown".into(),
+                availability: "available".into(),
+                zone_status: "active".into(),
+                records: vec![
+                    CloudflareDnsRecordWrite {
+                        record_key: "r1".into(),
+                        record_type: "A".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: None,
+                        priority: None,
+                        canonical_value: "192.0.2.1".into(),
+                        proxied: Some(true),
+                    },
+                    CloudflareDnsRecordWrite {
+                        record_key: "r2".into(),
+                        record_type: "TXT".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: Some(300),
+                        priority: None,
+                        canonical_value: "v=spf1 -all".into(),
+                        proxied: None,
+                    },
+                ],
+                provider_version_token: "v1".into(),
+                credential_generation: 1,
+                credential_scope_digest: "a".repeat(64),
+                credential_zone_digest: "c".repeat(64),
+                credential_public_proof: "b".repeat(64),
+            })
+            .unwrap();
+
+        let snapshot = database.read_dns_health(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "dns_health");
+        assert_eq!(snapshot.total_rows, 2);
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            ["observed.test", "plain.test"]
+        );
+        let observation = rows[0].observation.as_ref().unwrap();
+        assert_eq!(observation.zone_label, "observed.test");
+        assert_eq!(
+            observation.authoritative_nameservers,
+            ["ada.ns.cloudflare.com"]
+        );
+        assert_eq!(
+            (observation.record_counts.a, observation.record_counts.txt),
+            (1, 1)
+        );
+        assert!(rows[1].observation.is_none() && rows[1].zone_binding.is_none());
+        // Record values and Provider identifiers never reach this projection.
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "192.0.2.1",
+            "v=spf1",
+            "cf-observe",
+            "00000000-0000-4000-8000-000000000001",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into the DNS health projection"
+            );
+        }
+
+        assert_eq!(
+            database.read_dns_health(1, 10).unwrap().window.rows.len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_dns_health(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,verified_at,last_observed_at,created_at,updated_at) VALUES ('workspace-local','observed.test','cf-observe','cloudflare','zone',?1,?2,'observed.test',1,2,'verified',?3,?3,?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        let _ = connection;
+        let binding = database.read_dns_health(0, 1).unwrap().window.rows[0]
+            .zone_binding
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (
+                binding.connection_label.as_str(),
+                binding.validation_status.as_str()
+            ),
+            ("Cloudflare", "verified")
+        );
+        // A label that would smuggle control characters into the Renderer fails the whole read.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label='Cloud'||char(7)||'flare'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_dns_health(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     #[test]

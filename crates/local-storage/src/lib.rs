@@ -153,6 +153,10 @@ pub(crate) use active_workspace::business::{
     validate_rebootstrap_timestamp, verify_rebootstrap_checkpoint_digest,
     verify_rebootstrap_page_digest, verify_rebootstrap_plan_digest,
 };
+pub use active_workspace::dns_health::{
+    DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,
+    DnsZoneObservationSummary,
+};
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
@@ -175,7 +179,7 @@ pub use desktop_business_runtime::{
     DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,
     DesktopCloudflareObservationRecord, DesktopConflict, DesktopConflictCenterView,
     DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopSyncSnapshotView,
     DesktopSyncTransportState,

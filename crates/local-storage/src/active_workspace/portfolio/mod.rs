@@ -327,7 +327,7 @@ fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
     Ok(value)
 }
 
-fn validate_workspace(
+pub(crate) fn validate_workspace(
     connection: &Connection,
     workspace_id: &str,
 ) -> Result<(), PortfolioReadError> {
@@ -339,7 +339,9 @@ fn validate_workspace(
     Ok(())
 }
 
-fn read_freshness(connection: &Connection) -> Result<PortfolioReadFreshness, PortfolioReadError> {
+pub(crate) fn read_freshness(
+    connection: &Connection,
+) -> Result<PortfolioReadFreshness, PortfolioReadError> {
     connection.query_row("SELECT applied_through_server_revision, last_replication_activity_at, last_successful_provider_observation_at FROM active_workspace_metadata WHERE singleton=1", [], |row| {
         Ok(PortfolioReadFreshness { source: "active_local".to_owned(), read_only_reason: None,
             server_revision: validate_revision(row.get(0)?).map_err(|_| rusqlite::Error::InvalidQuery)?,

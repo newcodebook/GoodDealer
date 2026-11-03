@@ -1,4 +1,4 @@
-import { projectDnsVerificationViewModel, type DnsVerificationViewModel } from "@gooddealer/client-core";
+import { parseDnsHealthRead, projectDnsHealthViewModel, projectDnsVerificationViewModel, type DnsVerificationViewModel } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -65,5 +65,39 @@ describe("DNS & verification", () => {
     expect(html).not.toContain("改 NS");
     expect(html).not.toContain("重新验证待验证项");
     expect(html).toContain("Standby 云端数据");
+  });
+});
+
+describe("DNS & verification from the Host DNS health projection", () => {
+  const hostView = () => projectDnsHealthViewModel([parseDnsHealthRead({
+    schemaVersion: 1, kind: "dns_health", readGeneration: 2,
+    freshness: { source: "active_local", readOnlyReason: null, serverRevision: 3, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+    totalRows: 2,
+    window: {
+      startIndex: 0, size: 200,
+      rows: [
+        {
+          entityId: "observed.test", zoneBinding: null,
+          observation: {
+            providerKind: "cloudflare", observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed",
+            zoneLabel: "observed.test", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus: "unknown",
+            recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 0, other: 0 },
+          },
+        },
+        { entityId: "plain.test", zoneBinding: null, observation: null },
+      ],
+    },
+  })]);
+
+  it("says ownership is not connected and offers no verification or repair controls", () => {
+    const html = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={hostView()} />);
+
+    expect(html).toContain("未接入");
+    expect(html).toContain("所有权验证尚未接入");
+    expect(html).toContain("3 条");
+    expect(html).toContain("未观察");
+    expect(html).toContain("ada.ns.cloudflare.com");
+    for (const control of ["重新验证", "改 NS", "添加 TXT", "验证 TXT", "已验证所有权"]) expect(html).not.toContain(control);
+    expect(html).not.toContain("dns-danger");
   });
 });

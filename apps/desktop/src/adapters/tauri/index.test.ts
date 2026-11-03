@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBusinessPort } from "./index";
+import { createLocalBusinessPort, createLocalDnsHealthPort, LocalReadError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -36,6 +36,32 @@ describe("Desktop Tauri local-business adapter", () => {
     }
     invokeMock.mockClear();
     await expect(port.bindDomainAssetProvider({ ...request, workspaceId: "canary" } as never)).rejects.toThrow();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("reads DNS health windows through the narrow command and rejects hostile or foreign responses", async () => {
+    const read = {
+      schemaVersion: 1, kind: "dns_health", readGeneration: 3,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 1,
+      window: { startIndex: 0, size: 200, rows: [{ entityId: "example.test", zoneBinding: null, observation: null }] },
+    };
+    const port = createLocalDnsHealthPort();
+    invokeMock.mockResolvedValueOnce(read);
+    await expect(port.loadDnsHealth({ startIndex: 0, size: 200 })).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_dns_health_read", { request: { startIndex: 0, size: 200 } });
+    for (const hostile of [
+      { ...read, token: "canary" },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      "LOCAL_READ_AUTHORIZATION_REQUIRED",
+    ]) {
+      if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
+      else invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.loadDnsHealth({ startIndex: 0, size: 200 })).rejects.toBeInstanceOf(LocalReadError);
+    }
+    invokeMock.mockClear();
+    await expect(port.loadDnsHealth({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    await expect(port.loadDnsHealth({ startIndex: 0, size: 10, workspaceId: "canary" } as never)).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

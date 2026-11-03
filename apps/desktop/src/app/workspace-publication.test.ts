@@ -105,6 +105,7 @@ function ports(readGeneration: number) {
       resolveConflict: vi.fn(async () => ({ schemaVersion: 1 as const, readGeneration: readGeneration, enqueuedForSync: true })),
     },
     sync: { status: vi.fn(async () => sync(readGeneration)) },
+    dns: { loadDnsHealth: vi.fn() },
   };
 }
 

@@ -1,10 +1,11 @@
-import { parseAssetLibraryQuery, type AssetLibraryViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { parseAssetLibraryQuery, projectDnsHealthViewModel, type AssetLibraryViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, GlobeIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, GlobeIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
+import { DnsVerification } from "../features/dns";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
@@ -53,7 +54,10 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
 
   const navigation = useMemo((): readonly ShellNavigationSection[] => {
     const has = (id: AppRouteId) => surface.availableRouteIds.includes(id);
-    const assets = has("portfolio.list") ? [{ id: "portfolio.list", label: shellCopy.assetLibrary, icon: <GlobeIcon /> }] : [];
+    const assets = [
+      ...(has("portfolio.list") ? [{ id: "portfolio.list", label: shellCopy.assetLibrary, icon: <GlobeIcon /> }] : []),
+      ...(has("dns.health") ? [{ id: "dns.health", label: shellCopy.dns, icon: <ShieldIcon /> }] : []),
+    ];
     const execution = has("sync.conflicts")
       ? [{ id: "sync.conflicts", label: shellCopy.conflicts, icon: <AlertTriangleIcon />, ...(pendingConflicts > 0 ? { count: pendingConflicts, tone: "danger" as const } : {}) }]
       : [];
@@ -85,7 +89,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sync.conflicts") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "dns.health" || id === "sync.conflicts") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -118,6 +122,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               onFailure={reportFailure}
             />
           ),
+          "dns.health": () => (
+            <DnsHealthRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
+            />
+          ),
           "sync.conflicts": () => (
             <ConflictsRoute
               locale={locale}
@@ -131,6 +143,64 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
         }}
       />
     </DesktopShell>
+  );
+}
+
+const dnsWindowSize = 200;
+
+type DnsHealthState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly view: DnsVerificationViewModel }
+  | { readonly kind: "failed" };
+
+/**
+ * Reads every DNS health window for one Host generation. A window from a newer generation means the
+ * workspace publication is stale, so the root republishes instead of stitching mixed reads.
+ */
+function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "dnsVerification");
+  const [state, setState] = useState<DnsHealthState>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: DnsHealthRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.dns.loadDnsHealth({ startIndex: next, size: dnsWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < (windows[0]?.totalRows ?? 0));
+        const view = projectDnsHealthViewModel(windows);
+        if (!cancelled) setState({ kind: "ready", view });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  if (state.kind === "ready") return <DnsVerification locale={locale} view={state.view} />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryValidation}</Button>
+    </Banner>
   );
 }
 

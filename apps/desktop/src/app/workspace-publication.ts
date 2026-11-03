@@ -3,6 +3,7 @@ import {
   type AssetLibraryViewModel,
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
+  type DnsHealthPort,
   type SyncSnapshotViewModel,
   type ValidatedPortfolioPresentationPort,
 } from "@gooddealer/client-core";
@@ -24,6 +25,8 @@ export interface AuthoritativeWorkspacePublication {
 
 export interface AuthoritativeWorkspacePorts {
   readonly business: LocalBusinessPort;
+  /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
+  readonly dns: DnsHealthPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;

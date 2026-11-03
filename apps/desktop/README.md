@@ -12,7 +12,9 @@ Customer Desktop application that composes the Renderer and native Host around t
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
   sign-in, and locked pages plus a workspace with the asset library, domain detail (target-price
-  edit), and conflict center; every other designed screen exists only in `visual-fixtures/` until
+  edit), DNS health, and conflict center. DNS health shows only Host-observed Zone facts from
+  `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render as
+  not connected or not observed. Every other designed screen exists only in `visual-fixtures/` until
   its Host projection lands.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
@@ -79,6 +81,7 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `local_business_status`
 - `local_asset_library_read`
 - `local_domain_detail_read`
+- `local_dns_health_read`
 - `local_domain_asset_edit`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`

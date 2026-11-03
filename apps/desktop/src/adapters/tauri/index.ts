@@ -7,6 +7,10 @@ import {
   parseAssetLibraryQuery,
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
+  parseDnsHealthRead,
+  dnsHealthWindowRequestSchema,
+  type DnsHealthPort,
+  type DnsHealthRead,
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
@@ -104,6 +108,7 @@ const commands = {
   status: "local_business_status",
   readAssetLibrary: "local_asset_library_read",
   readDomainDetail: "local_domain_detail_read",
+  readDnsHealth: "local_dns_health_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
@@ -161,6 +166,23 @@ export type LocalReadErrorCode =
 
 export class LocalReadError extends Error {
   constructor(readonly code: LocalReadErrorCode) { super(code); this.name = "LocalReadError"; }
+}
+
+/** DNS health windows from the Host; a response from any other provenance is rejected. */
+export function createLocalDnsHealthPort(): DnsHealthPort {
+  return {
+    async loadDnsHealth(request): Promise<DnsHealthRead> {
+      let validatedRequest;
+      try { validatedRequest = dnsHealthWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
 }
 
 export function createLocalPortfolioPresentationPort(): ValidatedPortfolioPresentationPort {

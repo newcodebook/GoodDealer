@@ -89,6 +89,12 @@ reader is a test compatibility seam. These reads expose the safe `assetVersion` 
 sequence and use wire schema version 3. Edit/delete mutations perform lookup-first idempotent
 replay, CAS against that version, and atomically update desired state, field versions, tombstones,
 projection, and secret-free outbox rows. These changes require no schema migration.
+
+`BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
+and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.
+It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
+per-type record counts — never record values, connection IDs, Provider resource IDs or a
+delegation/record/ownership verdict. Labels with control characters fail the whole read.
 Pending outbox reads validate the recorded operation: edit/upsert payloads use the full asset
 projection while delete payloads use the exact `{entityId, operation}` shape; delete also marks
 `lifecycleStatus` pending in field versions in the same transaction.

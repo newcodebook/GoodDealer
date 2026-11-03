@@ -435,6 +435,12 @@
           "markdownDescription": "Enables the local_conflict_resolve command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_dns_health_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-dns-health-read",
+          "markdownDescription": "Enables the local_dns_health_read command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_domain_asset_delete command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-domain-asset-delete",
@@ -553,6 +559,12 @@
           "type": "string",
           "const": "deny-local-conflict-resolve",
           "markdownDescription": "Denies the local_conflict_resolve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_dns_health_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-dns-health-read",
+          "markdownDescription": "Denies the local_dns_health_read command without any pre-configured scope."
         },
         {
           "description": "Denies the local_domain_asset_delete command without any pre-configured scope.",

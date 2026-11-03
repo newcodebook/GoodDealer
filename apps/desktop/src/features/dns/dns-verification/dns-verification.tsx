@@ -37,6 +37,10 @@ export interface DnsVerificationProps {
   readonly onRequestNameserverPlan?: (row: DnsVerificationRowViewModel, nameservers: readonly string[]) => void;
 }
 
+function fill(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{(\w+)\}/gu, (match, key: string) => values[key] ?? match);
+}
+
 function isNameserverHost(value: string): boolean {
   const host = value.trim().toLowerCase().replace(/\.$/u, "");
   return host.split(".").length >= 2 && host.split(".").every((label) => /^(?!-)[a-z0-9-]{1,63}(?<!-)$/u.test(label));
@@ -68,19 +72,27 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
   };
   const openNameserver = (row: DnsVerificationRowViewModel) => { setNameservers(["", ""]); setAcknowledged(false); setDialog({ kind: "nameserver", row }); };
 
-  const ownershipBadge = (row: DnsVerificationRowViewModel) => row.ownershipStatus === "verified"
+  const ownershipConnected = view.ownershipAvailability === "available";
+  const ownershipBadge = (row: DnsVerificationRowViewModel) => row.ownershipStatus === "unavailable"
+    ? <Badge mono={false}>{copy.notConnected}</Badge>
+    : row.ownershipStatus === "verified"
     ? <Badge tone="gold" mono={false}>{copy.verified}</Badge>
     : row.ownershipStatus === "pending"
       ? <Badge tone="warning" mono={false}>{copy.pending}</Badge>
       : <Badge tone="danger" mono={false}>{copy.invalid}</Badge>;
-  const recordBadge = (row: DnsVerificationRowViewModel) => row.recordHealth === "healthy"
+  const recordBadge = (row: DnsVerificationRowViewModel) => row.recordHealth === "observed"
+    ? <span className="dns-mono dns-muted">{fill(copy.recordCount, { count: formatNumber(locale, row.recordCount ?? 0) })}</span>
+    : row.recordHealth === "unobserved"
+    ? <span className="dns-muted">{copy.unobserved}</span>
+    : row.recordHealth === "healthy"
     ? <Badge tone="success" mono={false}>{copy.normal}</Badge>
     : row.recordHealth === "warning"
       ? <Badge tone="warning" mono={false}>{copy.warning}</Badge>
       : <Badge tone="danger" mono={false}>{copy.missing}</Badge>;
   const statusCell = (row: DnsVerificationRowViewModel) => {
     const [kind, label] = row.propagationStatus === "current" ? ["success", copy.normal] as const
-      : row.propagationStatus === "propagating" ? ["sync", copy.propagating] as const : ["warning", copy.warning] as const;
+      : row.propagationStatus === "propagating" ? ["sync", copy.propagating] as const
+        : row.propagationStatus === "unobserved" ? ["neutral", copy.unobserved] as const : ["warning", copy.warning] as const;
     return <StatusDot kind={kind} pulse={row.propagationStatus === "propagating"} label={label} />;
   };
 
@@ -113,8 +125,8 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       label: copy.nameserver,
       priority: "secondary",
       render: (row) => (
-        <span className={`dns-mono${row.delegationStatus === "healthy" ? " dns-muted" : " dns-danger"}`}>
-          {row.delegationStatus === "healthy" ? null : <AlertTriangleIcon size={12} />}
+        <span className={`dns-mono${row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? " dns-muted" : " dns-danger"}`}>
+          {row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? null : <AlertTriangleIcon size={12} />}
           {row.delegatedNameservers[0] ?? copy.unknownNameserver}
         </span>
       ),
@@ -138,7 +150,10 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
     <section className="dns-verification" aria-label={copy.title}>
       <MetricStrip
         label={copy.title}
-        metrics={[
+        metrics={!ownershipConnected ? [
+          { key: "observed", label: copy.observedZones, value: formatNumber(locale, view.metrics.observed), tone: "blue" },
+          { key: "unobserved", label: copy.unobservedZones, value: formatNumber(locale, view.metrics.unobserved), tone: view.metrics.unobserved > 0 ? "warning" : "muted" },
+        ] : [
           { key: "verified", label: copy.verifiedOwnership, value: formatNumber(locale, view.metrics.verified), tone: "gold" },
           { key: "pending", label: copy.pendingOrInvalid, value: formatNumber(locale, view.metrics.pendingOrFailed), tone: view.metrics.pendingOrFailed > 0 ? "warning" : "muted" },
           { key: "ns", label: copy.nameserverMismatch, value: formatNumber(locale, view.metrics.nameserverIssues), tone: view.metrics.nameserverIssues > 0 ? "danger" : "muted" },
@@ -152,13 +167,13 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
         left={(
           <>
             <Input size="sm" prefix={<SearchIcon size={13} />} placeholder={copy.searchPlaceholder} aria-label={copy.searchPlaceholder} value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-            <Select
+            {!ownershipConnected ? null : <Select
               size="sm"
               aria-label={copy.ownership}
               options={filters.map((item) => ({ value: item.value, label: item.label }))}
               value={filter}
               onChange={(event) => { const next = filters.find((item) => item.value === event.currentTarget.value); if (next !== undefined) setFilter(next.value); }}
-            />
+            />}
           </>
         )}
         right={onReverify === undefined || readOnly ? null : (
@@ -173,6 +188,7 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
         <span className="dns-source">{readOnly ? copy.sourceStandby : copy.sourceActive} · {copy.revision} {formatNumber(locale, view.serverRevision)}</span>
       </div>
       {readOnly ? <p className="dns-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
+      {ownershipConnected ? null : <p className="dns-readonly gd-t-meta">{copy.ownershipUnavailableNotice}</p>}
       <div className="dns-body">
         <Table<DnsVerificationRowViewModel>
           {...shellTableLabels(locale)}

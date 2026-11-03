@@ -302,3 +302,5 @@ export class ValidatingDnsTxtAppendPlanClient implements DnsTxtAppendPlanPort {
     return structuredClone(preview);
   }
 }
+
+export * from "./dns-health";
