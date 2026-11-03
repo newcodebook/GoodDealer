@@ -37,7 +37,7 @@ Desktop production 图的范围控制由源码测试持续验证；后续组合�
 更新当前态并重新执行 production-entrypoint reachability 检查，不得恢复已删除的 connector 注册、
 兼容或过渡路径。
 
-## 当前局部独立复审
+## 既有局部独立复审（历史证据）
 
 D1+S1 当前范围的独立 evaluator 结论为 `PASS-with-informational-notes`：六项标准全部通过，没有
 blocker 或 non-blocker。复审以五个 mutation control 证明测试能够拒绝 ACK generation 漏增、冲突

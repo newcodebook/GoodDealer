@@ -77,16 +77,19 @@ function runCheck(umask, logPath) {
   });
 }
 
-async function main() {
-  const outIndex = process.argv.indexOf("--out");
-  const out = outIndex === -1 ? null : process.argv[outIndex + 1];
-  const dirty = repositoryMaterialDirty({
+function workingTreeDirty() {
+  return repositoryMaterialDirty({
     stagedDiff: capture("git", ["diff", "--cached", "--name-only"]),
     unstagedDiff: capture("git", ["diff", "--name-only"]),
     untrackedPaths: capture("git", ["ls-files", "--others", "--exclude-standard"]),
   });
+}
+
+async function main() {
+  const outIndex = process.argv.indexOf("--out");
+  const out = outIndex === -1 ? null : process.argv[outIndex + 1];
   const commit = capture("git", ["rev-parse", "HEAD"]);
-  if (dirty !== false) throw new Error("candidate snapshots require a clean working tree");
+  if (workingTreeDirty() !== false) throw new Error("candidate snapshots require a clean working tree");
   const toolchain = {
     node: process.version,
     pnpm: capture("pnpm", ["--version"]),
@@ -99,6 +102,9 @@ async function main() {
   for (const umask of candidateUmasks) {
     runs.push(await runCheck(umask, join(logDirectory, `pnpm-check-umask-${umask}.log`)));
   }
+  // The checks must not have moved HEAD or touched tracked/untracked material, or the record would
+  // attribute their output to a commit that was not what actually ran.
+  const dirty = capture("git", ["rev-parse", "HEAD"]) === commit ? workingTreeDirty() : true;
   const record = candidateRecord({ commit, dirty, toolchain, runs, recordedAt: new Date().toISOString() });
   const text = `${JSON.stringify(record, null, 2)}\n`;
   if (out === null) process.stdout.write(text);
