@@ -2956,7 +2956,7 @@ fn fixture_frame(output: &mut Vec<u8>, tag: u8, payload: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 

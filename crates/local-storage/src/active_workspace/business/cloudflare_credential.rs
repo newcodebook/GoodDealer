@@ -1752,7 +1752,7 @@ impl BusinessDatabase {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
     use crate::{DomainAssetWrite, LocalDatabaseKey};

@@ -878,7 +878,7 @@ mod tests {
     }
 
     fn runtime() -> (tempfile::TempDir, DesktopBusinessRuntime) {
-        let directory = tempfile::tempdir().expect("temp directory");
+        let directory = crate::test_tempdir::tempdir().expect("temp directory");
         let key = LocalDatabaseKey::from_bytes([23; 32]);
         let mut database =
             BusinessDatabase::open(&directory.path().join("business.db"), &key, "workspace-one")

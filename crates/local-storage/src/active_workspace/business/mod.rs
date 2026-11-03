@@ -6337,7 +6337,7 @@ use rusqlite::OptionalExtension;
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 

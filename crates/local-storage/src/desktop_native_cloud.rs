@@ -1551,7 +1551,7 @@ mod tests {
     }
 
     fn empty_host() -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6a; 32]),
@@ -1574,7 +1574,7 @@ mod tests {
     }
 
     fn push_host_with_mutations(count: u8) -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6b; 32]),
@@ -1973,7 +1973,7 @@ mod tests {
 
     #[test]
     fn projection_acknowledgement_is_exactly_correlated() {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6c; 32]),

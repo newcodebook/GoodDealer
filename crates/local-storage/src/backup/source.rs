@@ -815,7 +815,7 @@ pub(super) fn hex_digest(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
     use crate::{BusinessDatabase, DomainAssetWrite, LocalDatabaseKey};

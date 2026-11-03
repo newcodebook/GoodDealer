@@ -4755,11 +4755,12 @@ mod tests {
     use crate::active_workspace::business::{
         TestActiveRebootstrapJournalLinkSnapshot, TestRebootstrapJournalLinkHostileCase,
     };
+    use crate::test_tempdir::tempdir;
     use crate::{DomainAssetWrite, LocalDatabaseKey};
     use base64::Engine as _;
     #[cfg(unix)]
     use std::io::Write as _;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::TempDir;
 
     const OPERATION_ID: &str = "operation-opaque-0001";
 

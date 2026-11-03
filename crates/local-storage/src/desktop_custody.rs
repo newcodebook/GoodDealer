@@ -5661,7 +5661,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn quarantine_custody_retains_process_lock_without_database_authority() {
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let canonical_parent = parent.path().canonicalize().unwrap();
         let application_path = canonical_parent.join("GoodDealer");
         let root = DesktopApplicationRoot::validate(&application_path).unwrap();
@@ -5697,7 +5697,7 @@ mod tests {
             "rebootstrap-b.db-shm",
             "rebootstrap-b.db-journal",
         ] {
-            let parent = tempfile::tempdir().unwrap();
+            let parent = crate::test_tempdir::tempdir().unwrap();
             let application_path = parent.path().canonicalize().unwrap().join("GoodDealer");
             let root = DesktopApplicationRoot::validate(&application_path).unwrap();
             drop(ensure_active_workspace(&root).unwrap());
@@ -5722,7 +5722,7 @@ mod tests {
         }
 
         for slot in [RebootstrapSlot::A, RebootstrapSlot::B] {
-            let parent = tempfile::tempdir().unwrap();
+            let parent = crate::test_tempdir::tempdir().unwrap();
             let application_path = parent.path().canonicalize().unwrap().join("GoodDealer");
             let root = DesktopApplicationRoot::validate(&application_path).unwrap();
             let store = TestRebootstrapKeyStore::default();
@@ -5779,7 +5779,7 @@ mod tests {
     fn continuity_receipts_use_fixed_atomic_slots_and_reject_substitution() {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let receipts = parent.path().join("receipts");
         let store = DesktopContinuityReceiptStore::for_test(&receipts).unwrap();
         assert!(!store.any_receipt().unwrap());
@@ -5808,7 +5808,7 @@ mod tests {
     fn rejects_active_workspace_and_process_lock_symlink_substitution() {
         use std::os::unix::fs::symlink;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         // macOS tempdir commonly resolves through `/var`; validation intentionally
         // rejects symlinked path components, so use the canonical parent for the
         // admitted application root fixture.
@@ -5839,7 +5839,7 @@ mod tests {
     fn active_workspace_creation_is_single_level_and_rejects_symlink() {
         use std::os::unix::fs::symlink;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let canonical_parent = parent.path().canonicalize().unwrap();
         let app = canonical_parent.join("GoodDealer");
         let root = DesktopApplicationRoot::validate(&app).unwrap();
@@ -5864,7 +5864,7 @@ mod tests {
     fn admitted_database_rejects_symlink_and_group_writable_file() {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let target = parent.path().join("target.db");
         std::fs::write(&target, b"db").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -5893,7 +5893,7 @@ mod tests {
     fn path_identity_detects_inode_swap_and_missing_path() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let path = parent.path().join("business.db");
         let directory = File::open(parent.path()).unwrap();
         let file = create_admitted_database(&directory).unwrap();
@@ -5911,7 +5911,7 @@ mod tests {
     fn journal_store_round_trips_and_rejects_symlink_hardlink_and_oversize() {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let journal = parent.path().join("journal.jsonl");
         let store = DesktopJournalStore::for_test(journal.clone()).unwrap();
         assert_eq!(store.read_last().unwrap(), None);
@@ -5987,7 +5987,7 @@ mod tests {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let journal = parent.path().join("empty.jsonl");
         write_journal(&journal, b"");
         let store = DesktopJournalStore::for_test(journal).unwrap();
@@ -6050,7 +6050,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn journal_exact_positional_read_rejects_short_and_extra_data() {
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let journal = parent.path().join("journal.jsonl");
         std::fs::write(&journal, b"abc").unwrap();
         let file = File::open(journal).unwrap();
@@ -6079,7 +6079,7 @@ mod tests {
             "overwrite_restore",
             "swap",
         ] {
-            let parent = tempfile::tempdir().unwrap();
+            let parent = crate::test_tempdir::tempdir().unwrap();
             let journal = parent.path().join("journal.jsonl");
             let original = b"{\"phase\":\"prepared\"}\n".to_vec();
             std::fs::write(&journal, &original).unwrap();
@@ -6149,7 +6149,7 @@ mod tests {
         use std::sync::mpsc;
         use std::time::Duration;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let journal = parent.path().join("journal.jsonl");
         let store = Arc::new(DesktopJournalStore::for_test(journal).unwrap());
         store.append(br#"{"phase":"prepared"}"#).unwrap();
@@ -6201,7 +6201,7 @@ mod tests {
     fn journal_identity_detects_path_swap_after_admission() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let journal = parent.path().join("journal.jsonl");
         let store = DesktopJournalStore::for_test(journal.clone()).unwrap();
         store.append(b"record").unwrap();
@@ -6225,7 +6225,7 @@ mod tests {
     fn candidate_cleanup_requires_retained_exact_identity_and_rejects_links() {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let directory = File::open(parent.path()).unwrap();
         let candidate = parent.path().join("rebootstrap-a.db");
         std::fs::write(&candidate, b"candidate").unwrap();
@@ -6260,7 +6260,7 @@ mod tests {
     fn database_create_exclusive_and_existing_open_bind_inode() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = crate::test_tempdir::tempdir().unwrap();
         let directory = File::open(parent.path()).unwrap();
         let path = parent.path().join("business.db");
         std::fs::write(&path, b"raced creation").unwrap();

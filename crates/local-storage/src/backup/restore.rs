@@ -870,7 +870,7 @@ fn derived_id(domain: &str, operation_id: &str, entity_id: &str) -> String {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
     use crate::active_workspace::business::DomainAssetReplicaMutation;

@@ -197,3 +197,5 @@ pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 
 #[cfg(test)]
 mod sqlcipher_fixture;
+#[cfg(test)]
+mod test_tempdir;

@@ -1075,7 +1075,7 @@ mod tests {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn database(workspace_id: &str) -> (tempfile::TempDir, BusinessDatabase) {
-        let directory = tempfile::tempdir().expect("temporary database directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary database directory");
         let key = LocalDatabaseKey::from_bytes([0x73; 32]);
         let database =
             BusinessDatabase::open(&directory.path().join("business.db"), &key, workspace_id)
