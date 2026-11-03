@@ -9,6 +9,7 @@ const expectedScripts = Object.freeze({
   "test:structure": "node --test scripts/*.test.mjs release/release-identity-command-boundary.test.mjs && pnpm check:topology && node scripts/check-workspace.mjs && node scripts/check-boundaries.mjs",
   "check:platform-neutral": "pnpm --filter @gooddealer/account-web build && pnpm typecheck && pnpm test && pnpm test:structure",
   check: "pnpm check:platform-neutral && pnpm test:rust",
+  "check:candidate": "node scripts/record-candidate.mjs",
   "gate:validate": "node scripts/validate-gate-closure-attestation.mjs",
   "evidence:wp0": "node scripts/collect-wp0-evidence.mjs",
   "evidence:wp2": "node scripts/collect-wp0-evidence.mjs --slice account-gate",

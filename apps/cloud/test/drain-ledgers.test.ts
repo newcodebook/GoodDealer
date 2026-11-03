@@ -34,7 +34,7 @@ const accountAudit = JSON.parse(readFileSync(
 const domain = { workspaceId: "workspace-a", sourceDeviceId: "device-a", activeLeaseEpoch: 2 } as const;
 const scope = { accountId: "account-a", workspaceId: domain.workspaceId } as const;
 
-// These adapters keep the pre-P0-20 assertions unchanged while making the newly mandatory
+// These adapters keep the earlier ledger assertions unchanged while making the newly mandatory
 // TenantContext explicit at the test boundary.
 class InMemoryMutationDrainWatermarks {
   readonly #delegate = new TenantMutationDrainWatermarks();

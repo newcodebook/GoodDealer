@@ -69,10 +69,11 @@ The current source does **not** support a customer-readiness claim:
   fixed-authority transport, and GoodDealer-owned endpoint/wire definitions. Native owns one-time
   Token intake and custody; the production Renderer exposes activation, status, recovery guidance,
   and stored read-only DNS observation without receiving the Token or making Provider requests.
-- Cloud owns one literal ordered catalog with 22 migrations. The established M001–M017, M019 and
+- Cloud owns one literal ordered catalog with 27 migrations. The established M001–M017, M019 and
   M020 sequence is followed by `202609140001-sync-v2-ledger`,
-  `202609150001-workspace-checkpoint-v2`, and
-  `202609150002-cloudflare-dns-observation`; there is no M018 compatibility migration. The
+  `202609150001-workspace-checkpoint-v2`, `202609150002-cloudflare-dns-observation`, the account
+  recovery, commercial entitlement snapshot and default-workspace capability policy migrations, and
+  the two Desktop login loopback redirect migrations; there is no M018 compatibility migration. The
   Cloudflare observation schema contains only the allowlisted business observation and connection
   reference—third-party account bindings and credentials remain local-only. Source migrations and
   local tests do not establish that a shared database has applied the catalog or that a Provider is

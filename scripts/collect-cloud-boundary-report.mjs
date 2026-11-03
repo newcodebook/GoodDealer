@@ -718,7 +718,7 @@ function requirementMapping() {
       { requirement: "admin-routes-unregistered-and-periodic-jobs-exactly-allowlisted", fields: ["adminBusinessRoutesRegistered", "periodicJobsRegistered", "periodicJobsExactlyApproved", "periodicJobRegistry"], produced: true },
       { requirement: "live-cloud-integration", fields: ["runtimeIsolation", "errorIdentityMatrix"], produced: true },
       { requirement: "audit-event-chain-and-head-cas", fields: [], produced: false, reason: "AuditSinkPort records are boundary observations, not an AuditEvent chain." },
-      { requirement: "tenant-job-envelope-fan-out-and-replay-matrix", fields: [], produced: false, reason: "P0-31 job runtime is outside this slice." },
+      { requirement: "tenant-job-envelope-fan-out-and-replay-matrix", fields: [], produced: false, reason: "The tenant job envelope runtime is outside this boundary slice." },
     ],
     r0_15: [
       { requirement: "composition-root-static-import-and-registration", fields: ["publicRootImportsStaffSurface", "adminRootImportsPublicSurface", "moduleSourceRegistersRoute"], produced: true },
@@ -924,7 +924,7 @@ export async function collectCloudBoundaryReport(options = {}) {
         overLimitCount: 2,
         ...rateLimitObservation,
         probeCriterion: "crit_e26e01ef006a",
-        productionStrategyDeferredTo: "P0-19",
+        productionStrategyDeferredTo: "Q-OPS",
       },
       requirementMapping: requirementMapping(),
       requiredInputsPresent: inputs.length === CLOUD_BOUNDARY_REQUIRED_INPUTS.length,
@@ -1010,7 +1010,7 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.rateLimitBoundary?.absentCookieAfterExhaustionStatus === 429
     && report.rateLimitBoundary?.retryAfterPairingObserved === true
     && report.rateLimitBoundary?.probeCriterion === "crit_e26e01ef006a"
-    && report.rateLimitBoundary?.productionStrategyDeferredTo === "P0-19"
+    && report.rateLimitBoundary?.productionStrategyDeferredTo === "Q-OPS"
     && report.rateLimitBoundary?.observationVerdict === "pass"
     && report.requirementMapping?.closesGate === false
     && report.requirementMapping?.r0_09?.length === 6

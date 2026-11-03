@@ -21,7 +21,7 @@ const command = (emailNormalized: string, secret: string) => ({
   secret,
 });
 
-describe("P0-19 Argon2id password boundary", () => {
+describe("Argon2id password boundary", () => {
   it("freezes Argon2id v19 m=65536 t=3 p=1 salt16 hash32 and rejects parameter drift", async () => {
     const stored = await hashFixturePassword("known-password");
     expect(isArgon2idV1Phc(stored.phc)).toBe(true);

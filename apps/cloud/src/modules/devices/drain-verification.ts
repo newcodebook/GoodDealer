@@ -120,7 +120,7 @@ export interface DrainVerifierOptions {
  * Checks Cloud-derived contiguous watermarks and digests against a cooperative device's signed
  * tail claims. This is not Byzantine completeness: Cloud cannot discover an omitted local tail.
  * Guards 9–12 deliberately finish all stream reads before selecting a rejection; guard 13 is last
- * only while P0-17's refusing signature Fallback remains in force.
+ * only while the composed drain-proof signature port can only refuse.
  */
 export class DrainVerifier implements DrainVerificationPort {
   readonly #drainSignature: DrainProofSignaturePort;

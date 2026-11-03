@@ -24,10 +24,10 @@
 | 区域 | Current source state | 声明限制 |
 | --- | --- | --- |
 | Desktop Host | Tauri 精确注册当前具名本地业务、备份、认证和 Cloudflare 命令；Runtime 分离读写门禁，过期后可通过 OS-protected verified binding 只读重开；`secure-host-core` 持有 device/refresh custody、PKCE/device PoP、build-pinned 公钥 registry 与 Grant/Lease Ed25519 验签，`gooddealer-local-storage` 的 `DesktopLocalHost` 持有 SQLCipher key、本地业务与全部备份 authority。Native Bearer Grant transport 验签后激活 runtime。 | 不证明生产 Cloud/OpenBao 已部署、build-pinned registry 已用真实 key 构建、原生备份 picker/handle/KEK/anchor 资格或客户发行已完成。 |
-| Desktop production graph | `apps/desktop/src/app.tsx` 只通过具名 authentication、local-business、portfolio、sync/conflict adapters 打开工作区并跟随认证状态，界面层重建期间不组合业务路由；不导入 `cloud-client`、Provider transport 或数据库实现。Workspace route 由授权 surface 与同步状态共同筛选，冲突解决后只发布 generation-stable 的完整权威重读。 | 本地纵向与局部独立复审不等于真实登录、Provider、全系统 V1 或发行可用。 |
+| Desktop production graph | `apps/desktop/src/app.tsx` 只通过具名 authentication、local-business、portfolio、sync/conflict adapters 打开工作区并跟随认证状态；`app/workspace-view.tsx` 只为资产库、域名详情与冲突中心提供生产渲染。`dns.health` 与 `settings` 已在路由注册表中声明但没有生产渲染器，其余设计页面只存在于 `visual-fixtures`。不导入 `cloud-client`、Provider transport 或数据库实现。Workspace route 由授权 surface 与同步状态共同筛选，冲突解决后只发布 generation-stable 的完整权威重读。 | 本地纵向与局部独立复审不等于真实登录、Provider、全系统 V1 或发行可用。 |
 | Cloud public and jobs composition | `publicBusinessRoutes` 精确注册当前公共业务 route；Desktop OAuth 独立入口组合 Account Web session、PKCE、设备 challenge/PoP、首次绑定的五分钟密码/Passkey 重新认证与同 Web 会话约束、access/refresh token，Grant route 只接受绑定设备的 Desktop Bearer 主体。OpenBao Transit adapter 实现分钥、固定版本、有界 wire 和本地公钥复验。`adminBusinessRoutes` 仍为空；`periodicJobs` 精确注册 Licensing provider inbox/reconciliation，并只经窄应用端口调度。 | 本地 adapter/route/job 测试不等于已部署客户 API、生产 self-hosted scheduler/worker、live provider 或已配置生产 OpenBao；PostgreSQL composition 测试需要 `GOODDEALER_POSTGRES_*` 环境。 |
-| Identity account-access source | 独立 Identity ingress 和 Account Web 源码组合注册、验证/重发、密码登录/恢复、session discovery、登录轮换和服务端退出；后续 recovery migration 增加用途隔离 reset challenge、challenge-bound outbox、bounded dead-letter 与旧会话撤销。成功验证在一个 PostgreSQL 事务内激活账户并创建个人默认工作区，随后要求显式登录。 | 真实 staging Resend 投递、完整浏览器旅程和 25 条 migration 已取得部署证据；生产邮件域名/资格、live payment、生产 OpenBao/worker 与容量仍不在本行声明范围。 |
-| Staging authorization deployment | [`api.gooddealer.com`](DEVELOPMENT_CLOUD.md) 与 `account.gooddealer.com` 已通过 Cloudflare 和独立 Nginx/Let's Encrypt 站点接入 loopback Cloud；当前 release 使用同源代理、Resend 事务邮件、注册/邮箱验证/密码登录、真实 Cookie session、25 条 migration、Stripe test-mode 商业链路与 systemd worker。无数据库或开发工具权限的临时邮箱用户已完成注册、验证、登录、刷新恢复和退出，退出后的旧 session 返回 401。 | PostgreSQL 18.4 低于仓库锁定的 18.6，仍不构成生产 PostgreSQL 资格、live payment、生产 OpenBao/worker、HA、灾难恢复或生产客户可用性。 |
+| Identity account-access source | 独立 Identity ingress 和 Account Web 源码组合注册、验证/重发、密码登录/恢复、session discovery、登录轮换和服务端退出；后续 recovery migration 增加用途隔离 reset challenge、challenge-bound outbox、bounded dead-letter 与旧会话撤销。成功验证在一个 PostgreSQL 事务内激活账户并创建个人默认工作区，随后要求显式登录。 | 真实 staging Resend 投递、完整浏览器旅程和当时目录的 25 条 migration 已取得部署证据（当前目录 27 条，后两项 loopback redirect migration 需要新的应用证据）；生产邮件域名/资格、live payment、生产 OpenBao/worker 与容量仍不在本行声明范围。 |
+| Staging authorization deployment | [`api.gooddealer.com`](DEVELOPMENT_CLOUD.md) 与 `account.gooddealer.com` 已通过 Cloudflare 和独立 Nginx/Let's Encrypt 站点接入 loopback Cloud；当前 release 使用同源代理、Resend 事务邮件、注册/邮箱验证/密码登录、真实 Cookie session、当时目录的 25 条 migration、Stripe test-mode 商业链路与 systemd worker。无数据库或开发工具权限的临时邮箱用户已完成注册、验证、登录、刷新恢复和退出，退出后的旧 session 返回 401。 | PostgreSQL 18.4 低于仓库锁定的 18.6，仍不构成生产 PostgreSQL 资格、live payment、生产 OpenBao/worker、HA、灾难恢复或生产客户可用性。 |
 | 首切片共享合同 | `@gooddealer/protocol` 与 `@gooddealer/cloud-client` 已公开 tenant-neutral 激活、整体签名授权 Grant v3、Mutation ACK、Pull Cursor、Checkpoint 与恢复输入合同。 | 合同、fail-closed Grant route、OpenBao adapter 与本地验签不证明生产 OpenBao custody 或发行资格。 |
 | Cloudflare Secure Host | `secure-host-core` 已实现私有 Zone/DNS 只读 Service、固定 `api.cloudflare.com` 的加固 HTTPS Transport、v3 完整公开元组信封与 exact-base/explicit-target Keychain 发布；Tauri 已组合独立 ProviderLane、原生秘密录入和 stored observation，Renderer 已组合 activation/status/recovery/read-only observation。Activation 只把 Host durable prewrite handle 交给 Secure Host；prewrite COMMIT 原子 deny use，之后取消不再中断。Exact B 才能 marker/write，mismatch/malformed/unreadable 与 orphan 都在不推进 ledger/head 的前提下 sticky remediation。其 crate 不包含备份实现或依赖。 | Renderer 组合与本地测试不证明真实 Cloudflare、目标平台签名/Keychain 构件或提供商资格；完成这些外部证据前不能声明客户可用。 |
 | GDBK backup/restore | `gooddealer-local-storage` 的 `DesktopLocalHost` 独占 authority continuity、strict GDBK v1、allowlisted projection、isolated candidate、guarded current-DB honest replay；client-core 合同、Desktop raw-wire adapter 和仅在 `cfg(test)` 编译的 continuity/rebootstrap runtime/custody/database 状态机已在私有开发组合中验证。 | true-create-only fake 只证明私有协议；生产不保留 recovery shell，只保留 fixed-resource residue absence gate，且缺少 picker/handle、真实 KEK、独立 non-rollbackable anchor、true create-only slot custody、safe `SQLITE_FCNTL_HAS_MOVED`/custody VFS、durable filesystem 与签名目标平台故障资格。备份、continuity、rebootstrap 均为 `unavailable`，不能声明恢复或灾难恢复可用。 |
@@ -47,7 +47,8 @@ publication；同时运行 client-core 357 tests、Desktop 99 tests 与 producti
 证据为 task `task_fb98a01f7cb3`、artifact `art_fc8401b1604c`、check `check_a869d8246727`。
 
 该结论只接受 D1+S1 的既定 criteria，不接受账号/商业授权、完整 Cloud/PostgreSQL、真实 Cloudflare、
-目标平台构件或全系统 V1。任何后续影响该范围的源码变化都要求重新取得适用证据。
+目标平台构件或全系统 V1。复审对象是已被 `brand/` 重建替换的旧界面组合；对当前界面它只是历史仓库证据，
+阶段 4 必须在冻结候选上重新取得。任何后续影响该范围的源码变化都要求重新取得适用证据。
 
 ## 本地实现通用验收门槛
 
@@ -92,6 +93,29 @@ boundary schema 和认证语义；六条业务 route 使用 protocol public sche
 新增域名能力的验收还必须覆盖：Host-owned 报价与单项确认、Grant/Lease/凭据代次即时复验、
 计划摘要与资源绑定、未知结果对账、批量逐项结果和 Provider 页面回跳不构成成功。当前只有
 上述只读观察与现有资产本地绑定持久化实现。绑定合同、Desktop IPC 适配器和 Rust 事务测试覆盖严格请求/回执、实体和代次相关性、首次提交、精确重放、拒绝零写及 fence 回滚；这些本地测试不证明绑定 UI、完整能力门禁、撤销或真实 native/Zone 资格。目标能力不得借现有只读证据获得执行许可。
+
+## 多平台交付阶段验收
+
+本节是 [路线图](ROADMAP.md#当前执行顺序) 各阶段的验收标准。每一阶段收尾都必须满足通用条件；某阶段的
+PASS 只覆盖该阶段，后续改动会使旧证据失效。
+
+**通用条件（每阶段）：**
+
+- 根 `pnpm check` 在 umask `002` 与 `022` 下都通过，PR CI 的 `quality`、Windows 与两个 macOS job 全部通过，`git diff --check` 干净。
+- 生产 UI 只经 `@gooddealer/ui`、`@gooddealer/i18n` public exports 使用 `brand/` 移植资源；presentation inventory 计数测试通过。
+- 资格前的能力在 UI 中显示不可用及原因，生产入口不存在可执行路径。
+- 凭据只在 Host custody；日志、错误、Renderer 与非秘密持久化中没有凭据 canary。
+- 独立评估者给出 PASS，当前态文档已同步。
+
+| 阶段 | 验收标准 |
+| --- | --- |
+| **1. 当前态收口与冻结候选** | 全仓扫描后没有把局部 PASS 写成 V1 验收或外部资格的当前文档；冻结候选有提交引用和可复现的检查输出。 |
+| **2. Desktop 设计页面生产组合** | 每个设计页面在真实构件中可达，并与 `brand/ui_kits/desktop` 对照无明显偏差；数据只来自 Host 投影，不依赖 `visual-fixtures`；人工任务没有浏览器执行或授权字段（合同负向测试覆盖）；没有接线的控件不存在死按钮。 |
+| **3. Cloudflare 路径稳定** | 引导流程端到端可走通，跳过连接后可手动添加；导入与手动添加不产生重复资产；断网、Token 失效、权限不足和撤销后均失败关闭并给出可恢复提示；撤销是原子的，并在 Host 中即时生效。 |
+| **4. 当前范围全系统 V1 汇合验收** | 本文件上方 v1 详细垂直验收表的每一行都在同一冻结候选上取得新鲜证据并通过独立复审。 |
+| **5. 多平台共用框架与 Cloudflare 全能力** | 合同从 `unknown` 严格校验，未知字段与未知状态拒绝；负向测试覆盖越权、跨租户、伪造 grant/bid、角色串用凭据和批量部分失败；Cloudflare 每项写能力都有报价/预览 → 单项确认 → 执行 → 未知结果对账链路，重试幂等；框架中没有任何平台专有逻辑。 |
+| **6–10. 各平台** | 平台事实快照为当次核对并附官方链接；能力清单覆盖四种角色，每项能力要么有资格证据，要么带原因标记为不可执行；每次出价与资金操作单独确认，不存在代理或自动出价；平台专有安全约束（HMAC、IP 白名单、query-string token、最小 scope）都有负向测试；阶段 6 证明框架未改动核心模型，否则回到阶段 5 修框架并补 ADR。 |
+| **11. 1.0 资格与发行** | 所有外部资格在 [Phase 0 外部资格台账](phase0/PHASE0_GATE_REGISTER.md) 中关闭；`pnpm gate:validate` 对 attestation 通过；最终构件签名/公证与 `1.0.0` / `stable` 批准完成。 |
 
 ## 非 V1 主路径：GDBK 与 rebootstrap
 

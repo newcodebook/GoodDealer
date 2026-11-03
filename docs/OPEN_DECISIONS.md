@@ -40,7 +40,7 @@
 
 ## 当前仓库基础
 
-- Cloud 的唯一中央目录按字面顺序注册 25 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery 及后续 account capability migrations）；M002 拥有不含 Provider 连接身份的
+- Cloud 的唯一中央目录按字面顺序注册 27 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery、后续 account capability migrations 与两项 Desktop 登录 loopback redirect migrations）；M002 拥有不含 Provider 连接身份的
   `workspace_replica_*` 完整副本 schema，M015 是规范化商业领域 greenfield baseline，M016 增加
   Identity refresh recovery，M017 增加 Devices 登录授权加固，M019 建立 Identity transaction
   capability，M020 建立注册 challenge、加密邮件 outbox 和 Identity worker claim；M023 增加密码恢复、

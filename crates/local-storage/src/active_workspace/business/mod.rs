@@ -3688,7 +3688,7 @@ impl BusinessDatabase {
     }
 
     /// Stops pull materialization after Cloud reports that this reader is behind compaction.
-    /// Existing local business data and pending outbox rows are retained for P0-04 recovery.
+    /// Existing local business data and pending outbox rows are retained for local recovery.
     ///
     /// # Errors
     ///

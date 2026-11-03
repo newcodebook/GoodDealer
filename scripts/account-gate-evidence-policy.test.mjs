@@ -277,7 +277,7 @@ test("WP-2 workflow pins the evidence upload action", () => {
   assert.match(workflow, /actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7\.0\.2/);
 });
 
-test("account gate report carries the portable P0-23 query contract and fails closed on wiring drift", () => {
+test("account gate report carries the portable portfolio query contract and fails closed on wiring drift", () => {
   assert.equal(portfolioQueryContractIsPortable(portfolioQuerySource, portfolioQueryTestSource), true);
   assert.equal(
     portfolioQueryContractIsPortable(
