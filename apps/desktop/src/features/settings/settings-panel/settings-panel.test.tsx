@@ -96,7 +96,7 @@ describe("Settings from the Host projection", () => {
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     connections: [{
       providerKind: "cloudflare", connectionLabel: "Cloudflare 主账号", lifecycleStatus: "active", validationStatus: "valid",
-      credentialUseState: "active", lastValidatedAt: null,
+      credentialUseState: "active", lastValidatedAt: "2026-01-02T03:04:05Z",
       roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
     }],
   }), () => "能力资格认证前不可用，暂不能执行任何操作");
@@ -118,7 +118,9 @@ describe("Settings from the Host projection", () => {
     expect(html).toContain("能力资格认证前不可用");
     // The action slot stays empty: connect, reauthorize and manage need Host capabilities not composed yet.
     expect(html).toContain('<span class="settings-conn-action"></span>');
-    for (const control of ["重新授权", "新增账户连接", "重新运行接入向导"]) expect(html).not.toContain(control);
+    for (const control of ["重新授权", "新增账户连接", "重新运行接入向导", "浏览器 Profile"]) expect(html).not.toContain(control);
+    // An old validation keeps its date instead of reading as a time today.
+    expect(html).toMatch(/01[/-]0[12]/u);
   });
 
   it("says each section without a Host source is unavailable instead of inventing values", () => {

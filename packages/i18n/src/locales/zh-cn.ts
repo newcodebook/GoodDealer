@@ -776,7 +776,6 @@ const zhCNDictionary = {
     retainedNotVerified: "保留但未验证",
     manage: "管理",
     addAccountConnection: "新增账户连接",
-    multiAccountIsolationNotice: "同一平台可连接多个账户，各自独立凭据、浏览器 Profile 与限流桶",
     notInitialized: "未初始化",
     registrarDescription: "Nameserver 变更处理平台",
     dnsProviderDescription: "DNS 记录处理平台",

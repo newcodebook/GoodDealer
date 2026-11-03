@@ -119,7 +119,6 @@ export function SettingsPanel({
           {section === "connections" ? (
             <div className="settings-notes">
               <span className="gd-t-meta">{connections.surface === "standby" ? copy.connectionReadOnlyNotice : copy.platformCredentialNotice}</span>
-              {connections.surface === "active" ? <span className="gd-t-meta">{copy.multiAccountIsolationNotice}</span> : null}
               {connections.surface === "active" && (onAddConnection !== undefined || onRunOnboarding !== undefined) ? (
                 <div className="settings-row">
                   {onAddConnection === undefined ? null : <Button size="sm" variant="primary" onClick={onAddConnection}>{copy.addAccountConnection}</Button>}
@@ -268,7 +267,15 @@ function ConnectionsSection({ locale, view, onAction }: {
   const copy = getPresentationCopy(locale, "settings");
   const groups = { registrar: [copy.registrar, copy.registrarDescription], dns: [copy.dnsProvider, copy.dnsProviderDescription], marketplace: [copy.salesPlatform, copy.salesPlatformDescription] } as const;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const checked = (value: string | null) => value === null ? "—" : formatDate(locale, Date.parse(value), { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  // A check from an earlier day keeps its date so an old validation never reads as current.
+  const checked = (value: string | null) => {
+    if (value === null) return "—";
+    const at = Date.parse(value);
+    const sameDay = formatDate(locale, at, { dateStyle: "short", timeZone }) === formatDate(locale, Date.now(), { dateStyle: "short", timeZone });
+    return formatDate(locale, at, sameDay
+      ? { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }
+      : { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  };
   const actionLabel = (action: ConnectionSettingsAction) => action === "connect" ? copy.connect : action === "reauthorize" ? copy.reauthorize : copy.manage;
 
   return (

@@ -6,8 +6,6 @@ use std::fs::File;
 use std::io::Seek;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-#[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
@@ -64,18 +62,17 @@ const REBOOTSTRAP_DATABASE_NAMES: [&str; 2] = ["rebootstrap-a.db", "rebootstrap-
 )]
 const REBOOTSTRAP_SLOT_ACCOUNTS: [&str; 2] = ["slot-a-sqlcipher-v1", "slot-b-sqlcipher-v1"];
 
+// Thread-local so parallel tests cannot bleed inspections into each other's windows; every reader
+// runs the inspected constructor synchronously on its own test thread.
 #[cfg(test)]
-static TEST_LOCK_INSPECTION_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
-static TEST_LOCK_INSPECTION_ACQUIRED: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
-static TEST_JOURNAL_INSPECTIONS: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
-static TEST_SLOT_INSPECTIONS: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
-static TEST_ALIAS_INSPECTIONS: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
-static TEST_DATABASE_INSPECTIONS: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static TEST_LOCK_INSPECTION_ATTEMPTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_LOCK_INSPECTION_ACQUIRED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_JOURNAL_INSPECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_SLOT_INSPECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_ALIAS_INSPECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_DATABASE_INSPECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,19 +122,19 @@ pub(crate) fn reset_rebootstrap_inspection_for_test() {
         &TEST_ALIAS_INSPECTIONS,
         &TEST_DATABASE_INSPECTIONS,
     ] {
-        counter.store(0, Ordering::SeqCst);
+        counter.set(0);
     }
 }
 
 #[cfg(test)]
 pub(crate) fn rebootstrap_inspection_snapshot_for_test() -> TestRebootstrapInspectionSnapshot {
     TestRebootstrapInspectionSnapshot {
-        lock_attempts: TEST_LOCK_INSPECTION_ATTEMPTS.load(Ordering::SeqCst),
-        lock_acquired: TEST_LOCK_INSPECTION_ACQUIRED.load(Ordering::SeqCst),
-        journal_inspections: TEST_JOURNAL_INSPECTIONS.load(Ordering::SeqCst),
-        slot_inspections: TEST_SLOT_INSPECTIONS.load(Ordering::SeqCst),
-        alias_inspections: TEST_ALIAS_INSPECTIONS.load(Ordering::SeqCst),
-        database_inspections: TEST_DATABASE_INSPECTIONS.load(Ordering::SeqCst),
+        lock_attempts: TEST_LOCK_INSPECTION_ATTEMPTS.get(),
+        lock_acquired: TEST_LOCK_INSPECTION_ACQUIRED.get(),
+        journal_inspections: TEST_JOURNAL_INSPECTIONS.get(),
+        slot_inspections: TEST_SLOT_INSPECTIONS.get(),
+        alias_inspections: TEST_ALIAS_INSPECTIONS.get(),
+        database_inspections: TEST_DATABASE_INSPECTIONS.get(),
     }
 }
 
@@ -2058,7 +2055,7 @@ impl TestRebootstrapRecoveryCustody {
     }
 
     pub(crate) fn journal_store(&self) -> Result<DesktopJournalStore, DesktopCustodyError> {
-        TEST_JOURNAL_INSPECTIONS.fetch_add(1, Ordering::SeqCst);
+        TEST_JOURNAL_INSPECTIONS.set(TEST_JOURNAL_INSPECTIONS.get() + 1);
         ensure_directory_file_identity(&self.active_workspace, self.active_workspace_identity)?;
         let directory = Arc::new(
             self.active_workspace
@@ -4888,7 +4885,7 @@ fn acquire_process_lock(
     use fs2::FileExt as _;
 
     #[cfg(test)]
-    TEST_LOCK_INSPECTION_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+    TEST_LOCK_INSPECTION_ATTEMPTS.set(TEST_LOCK_INSPECTION_ATTEMPTS.get() + 1);
 
     let path = root.runtime_lock_path();
     let descriptor = rustix::fs::openat(
@@ -4905,7 +4902,7 @@ fn acquire_process_lock(
     file.try_lock_exclusive()
         .map_err(|_| DesktopCustodyError::Unavailable)?;
     #[cfg(test)]
-    TEST_LOCK_INSPECTION_ACQUIRED.fetch_add(1, Ordering::SeqCst);
+    TEST_LOCK_INSPECTION_ACQUIRED.set(TEST_LOCK_INSPECTION_ACQUIRED.get() + 1);
     let metadata = file
         .metadata()
         .map_err(|_| DesktopCustodyError::StorageRejected)?;
@@ -5018,7 +5015,7 @@ fn create_admitted_database(directory: &File) -> Result<File, DesktopCustodyErro
 
 fn open_existing_database(directory: &File) -> Result<Option<File>, DesktopCustodyError> {
     #[cfg(test)]
-    TEST_DATABASE_INSPECTIONS.fetch_add(1, Ordering::SeqCst);
+    TEST_DATABASE_INSPECTIONS.set(TEST_DATABASE_INSPECTIONS.get() + 1);
     let descriptor = match rustix::fs::openat(
         directory,
         "business.db",
@@ -5508,7 +5505,7 @@ fn store_native(_service: &str, _account: &str, _value: &[u8]) -> Result<(), Des
 fn load_active_alias_for_test(
     store: &TestRebootstrapKeyStore,
 ) -> Result<Option<Vec<u8>>, DesktopCustodyError> {
-    TEST_ALIAS_INSPECTIONS.fetch_add(1, Ordering::SeqCst);
+    TEST_ALIAS_INSPECTIONS.set(TEST_ALIAS_INSPECTIONS.get() + 1);
     store
         .active_alias
         .lock()
@@ -5582,7 +5579,7 @@ fn load_slot_native(
     store: &TestRebootstrapKeyStore,
     slot: RebootstrapSlot,
 ) -> Result<Option<Vec<u8>>, DesktopCustodyError> {
-    TEST_SLOT_INSPECTIONS.fetch_add(1, Ordering::SeqCst);
+    TEST_SLOT_INSPECTIONS.set(TEST_SLOT_INSPECTIONS.get() + 1);
     store
         .records
         .lock()

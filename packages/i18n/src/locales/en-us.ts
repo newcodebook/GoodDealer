@@ -947,7 +947,6 @@ const enUSDictionary = {
     retainedNotVerified: "Retained, not verified",
     manage: "Manage",
     addAccountConnection: "Add account connection",
-    multiAccountIsolationNotice: "Accounts on the same platform keep separate credentials, browser profiles, and rate-limit buckets.",
     notInitialized: "Not initialized",
     registrarDescription: "Platform handling Nameserver changes",
     dnsProviderDescription: "Platform handling DNS records",
