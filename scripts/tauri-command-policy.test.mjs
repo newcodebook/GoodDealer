@@ -131,6 +131,17 @@ test("the repository Desktop bridge exposes exactly the reviewed business and au
   assert.deepEqual(tauriCommandPolicyErrors(), []);
 });
 
+test("the tracked macOS capability schema matches the generated desktop schema", () => {
+  // Only a macOS build regenerates macOS-schema.json; it is byte-identical to the desktop schema
+  // there, so drift here would surface late as a dirty worktree in the macOS native job.
+  const schemas = new URL("../apps/desktop/src-tauri/gen/schemas/", import.meta.url);
+  assert.equal(
+    readFileSync(new URL("macOS-schema.json", schemas), "utf8"),
+    readFileSync(new URL("desktop-schema.json", schemas), "utf8"),
+    "regenerate macOS-schema.json from desktop-schema.json after changing Desktop commands",
+  );
+});
+
 test("rejects an unreviewed command or a missing reviewed command in each Desktop surface", (t) => {
   const mutations = [
     ["apps/desktop/src-tauri/build.rs", 'AppManifest::new().commands(&["unreviewed_command"])'],
