@@ -34,7 +34,7 @@ S0 --> L1 --> D1 --> V1
 | **A1 Cloud identity/devices** | 当前源码含注册、邮箱验证/重发、密码登录/恢复、Session discovery、登录轮换、服务端退出、默认工作区、设备 PoP、access/refresh、Grant v3、ActiveDeviceLease、商业权威及 Stripe test-mode 商业链路；开发组合保留 loopback Mailpit，staging 组合通过已验证 `gooddealer.com` 域名的 Resend 发件地址发送事务邮件。 | Account access 的本地、PostgreSQL 与 staging 浏览器证据覆盖原子回滚、并发、expiry/replay、邮件 retry/dead-letter、reset epoch、rotation、刷新恢复和 logout；真实测试用户已在无数据库/开发工具权限下完成完整旅程。 | 公开注册和生产邮件资格、Stripe live、税务范围、生产 OpenBao、生产 worker、HA 与灾难恢复继续归入各自外部资格；staging 仍运行在当前共享 VPS/开发数据库上。 |
 | **D1 Desktop** | 已按 `brand/` 重建：生产根组件只依据 Host 事实裁决页面（`app/desktop-presentation.ts`），未就绪、Host 不可用、浏览器 PKCE 登录与锁定状态均为 route-free 页面；工作区只组合有 Host 读取的资产库、域名详情（目标价编辑）与冲突中心，写入仅在 Active 且持有 mutate 能力时可达。DNS 健康、设置、销售、续费、批量、历史与人工任务只存在于 `visual-fixtures` 设计稿，等待 Host 投影；Cloudflare 流程的 generation/auth fences 仍在 `features/connections`，尚未进入生产导航。Linux 构件按 ADR-0025 可启动。商业只读/Standby 可进入同步只读视图但没有 resolve admission；locked、retryable、security、recovery surface 均 route-free。冲突解决后只会一次性发布同一 Host generation 的业务状态、资产列表、冲突与同步快照。 | D1+C1 客户路径已有独立评估证据；D1+S1 六项标准及 mutation controls 也已独立复审通过。两者都是有界局部结论，不是全系统 V1 acceptance，且针对的是已移除的旧界面组合；新界面已组合，证据必须在真实构件上重新取得。 | 在冻结候选快照上完成账号、商业授权、本地业务、同步和 Connector 的全系统旅程；revoke/deactivate 等待 Host 原子 custody/fencing capability，当前保持 unavailable。 |
 | **S1 Sync** | tenant-neutral Push/ACK/Pull/Checkpoint 合同、Cloud ledger、local materializer、Native fixed-origin transport、SyncLane、ProjectionLane、冲突/墓碑底座和退出 drain 已有实现；客户使用持久化 `SyncSnapshot`（pending/open-conflict/rejected counts、applied revision、last activity）和 `checking`/`reachable`/`offline`/`blocked` transport 状态，冲突查看与单候选本地 resolve 已接入。Host 对已提交的可见 Pull/ACK/reject/recovery 变化线性推进 `readGeneration`，精确重放不重复推进；resolve 首次成功严格返回 `expected + 1`。Push/Pull/Checkpoint 按 fail-closed 固定优先级聚合，取消后的迟到成功不能发布。Native 启动/重启从 `checking` 开始，不复用上次成功状态。内部复制诊断不属于客户状态模型。 | D1+S1 当前范围已通过独立 evaluator：六项标准无 blocker，ACK generation、冲突重放、严格 IPC、聚合优先级和 generation-stable publication 五项 mutation control 均被杀死。该证据不覆盖 live PostgreSQL 或全系统 V1。 | 完成受控环境离线、重启、空副本 no-op、Pull 合并、ACK、容量与并发集成验收；补充 live PostgreSQL 并发/RLS 资格。 |
-| **C1 Local Connector** | Cloudflare Zone/DNS 只读 Service、固定官方 origin HTTPS、Host-local Token custody、durable prewrite deny fence、ProviderLane、activation/observation Tauri 命令、bounded status/read 和本地优先结果已存在；现有资产本地资源绑定已持久化，域名能力目录和资金确认协议已定义但不可执行。 | 真实受控 Zone 验证、撤销和 post-marker remediation 仍未取得生产资格；DNS 写入、DNSSEC、Registrar 和监控尚无生产执行链。 | 先补资产创建、绑定 UI、Grant/Lease 能力门禁和原子凭据撤销，再逐项实现 DNS/DNSSEC/Registrar/监控以及真实能力资格；revoke/deactivate 在 Host capability 可用前保持 unavailable。 |
+| **C1 Local Connector** | Cloudflare Zone/DNS 只读 Service、固定官方 origin HTTPS、Host-local Token custody、durable prewrite deny fence、ProviderLane、activation/observation Tauri 命令、bounded status/read 和本地优先结果已存在；现有资产本地资源绑定已持久化，域名能力目录和资金确认协议已定义但不可执行。 | 真实受控 Zone 验证、撤销和 post-marker remediation 仍未取得生产资格；DNS 写入、DNSSEC、Registrar 和监控尚无生产执行链。 | 先补资产创建、绑定 UI、Grant/Lease 能力门禁和原子凭据撤销，再以 Cloudflare 全部域名能力抽象多平台共用框架，按 ADR-0027 顺序逐平台实现注册商、DNS/DNSSEC、交易市场、获取与监控以及真实能力资格；revoke/deactivate 在 Host capability 可用前保持 unavailable。 |
 | **V1 集成所有者** | 各底层模块已有大量局部测试和策略检查；此前账户恢复/身份批次已提交，本轮域名协议与文档切片通过固定 Node 24.18.1 下的根 `pnpm check`。 | **未完成。** D1+S1 的独立 PASS 是局部证据；本轮域名合同尚未形成完整 Provider manifest 或生产执行链，也没有冻结、可归因并通过全系统独立验收的 V1 候选快照。 | 收口本轮域名合同后建立冻结候选，再执行账号/商业授权、Desktop 授权、本地业务、同步、Cloudflare、Cloud/PostgreSQL、Tauri/Rust 的全系统验收与独立复审。 |
 
 ## 当前执行顺序
@@ -42,7 +42,7 @@ S0 --> L1 --> D1 --> V1
 1. **收口 S0/V1 当前态治理。** 使路线图、验收矩阵、迁移目录、模块 README 和执行台账准确区分源码实现、局部验证、V1 验收与外部资格。
 2. **建立冻结候选快照。** 将当前域名协议和文档切片归入可归因、可审查的集成边界；冻结前不得把 D1+C1 或 D1+S1 的局部 PASS 写成 Phase 0 完成。
 3. **执行全系统 V1 汇合验收。** 在同一候选快照上覆盖账号/商业授权、Desktop OAuth/Grant/Lease、本地业务、同步/Conflict Center、Cloudflare、Cloud/PostgreSQL 和 Tauri/Rust，再进行独立复审。
-4. **分轨补强同步、持久化和外部资格。** 完成 live PostgreSQL 并发/RLS、容量、崩溃恢复和长时间运行验证，并分别关闭 Q-OPS/Q-AUDIT、Q-CF、payment/live sales、Q-NATIVE 和 Q-REL；这些证据不得互相替代。
+4. **分轨补强同步、持久化和外部资格。** 完成 live PostgreSQL 并发/RLS、容量、崩溃恢复和长时间运行验证，并分别关闭 Q-OPS/Q-AUDIT、Q-CF、Q-PROV、payment/live sales、Q-NATIVE 和 Q-REL；这些证据不得互相替代。
 5. **核心纵向完成后再推进生产备份/rebootstrap。** native picker/稳定 handle、真实 KEK custody、独立 non-rollbackable anchor、true create-only slot custody、safe active-DB move detection 和目标平台故障验证缺一不可；此前能力保持 `unavailable`，且不属于当前 V1 acceptance 主路径。
 
 ## 外部资格与发行轨道
@@ -53,15 +53,19 @@ S0 --> L1 --> D1 --> V1
 | --- | --- |
 | **Q-AUDIT** 生产 OpenBao custody | 开发 Transit 已用于功能验证；生产集群、不可导出 key、workload identity、seal/轮换和独立审查未取得。 |
 | **Q-CF** Cloudflare 真实资格 | Host-local 只读实现存在；真实受控 Zone、最小 Token、限流/移除行为和独立安全审查未取得。 |
+| **Q-PROV** 其余 7 个平台逐项资格 | 尚无实现；每项能力需要条款审查、平台准入（Atom、AtomRegistrar、Namecheap 有账户门槛）、受控资产或沙箱、限流/错误、未知结果对账和独立安全审查。 |
 | **Q-OPS** 生产运行 | 共享 VPS 开发组合不等于生产；生产 PostgreSQL、邮件、scheduler/worker、监控、灾备和环境隔离未资格化。 |
 | **支付与销售资格** | Stripe test mode 已验证；Stripe live、生产商户值、税务/销售地区尚未启用。PayPal 保持可选且不阻断首发。 |
 | **Q-NATIVE / Q-REL** 原生与发行 | 最终构件签名/公证、目标平台验证、归档、独立审查和 `1.0.0` / `stable` 批准均未取得。 |
 
 ## v1 范围边界
 
-首发目标包含个人默认工作区、本地域名资产、secret-free 同步、Cloudflare 域名相关的 Zone/DNS、
-DNSSEC、Nameserver、Registrar 生命周期与监控，以及商业授权；每项 Provider 能力必须单独
-实现和资格化。所有资金操作逐笔用户确认，转入/转出可由 Provider 页面完成后在 Desktop 对账。
-浏览器自动化、非域名 Provider 产品、市场连接、团队/多工作区、凭据迁移和 CSV import 仍是排除项。
+首发目标包含个人默认工作区、本地域名资产、secret-free 同步、商业授权，以及 8 个平台（Cloudflare、
+Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun）各自全部的域名相关能力：注册商生命周期、
+DNS/DNSSEC/Nameserver、交易市场、获取与监控（[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)）。
+每项 Provider 能力必须单独实现和资格化。所有资金操作（含每一次出价）逐笔用户确认，没有 API 的操作由
+Provider 页面完成后在 Desktop 对账。接入顺序为 Cloudflare（同时抽象共用框架）→ Porkbun → Spaceship →
+Dynadot/Namecheap → GoDaddy/Afternic → Atom；交易市场能力在 Cloudflare 路径稳定后开始。
+浏览器自动化、非域名 Provider 产品、清单外平台、团队/多工作区、凭据迁移和 CSV import 仍是排除项。
 当前生产源码仍只组合 Cloudflare Zone/DNS 只读观察，不得把目标范围当作已完成能力。
 完整验收定义见 [VERIFICATION.md](VERIFICATION.md)。

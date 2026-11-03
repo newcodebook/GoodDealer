@@ -1,12 +1,12 @@
 # GoodDealer Design System
 
-GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面客户端（Tauri）：域名投资人在一个界面统一管理分散在多个注册商（Spaceship）、DNS（Cloudflare）和交易平台（Atom、Afternic、SellerHub）的资产——注册信息、DNS、价格、销售状态、所有权验证、批量操作。最多两台绑定设备，单活动设备持有执行权（Active 金实心点 / Standby 蓝空心点）；平台凭据永不上云。
+GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面客户端（Tauri）：域名投资人在一个界面统一管理分散在多个平台上的资产——注册信息、DNS、价格、销售状态、所有权验证、竞价与购买、批量操作。首发平台为 Cloudflare、Spaceship（含 SellerHub）、Atom（含 AtomRegistrar）、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun；一个平台可同时是注册商、DNS、交易市场和获取渠道（`docs/adr/0027-multi-platform-domain-providers-and-marketplaces.md`）。最多两台绑定设备，单活动设备持有执行权（Active 金实心点 / Standby 蓝空心点）；平台凭据永不上云。
 
 **视觉气质**：私人银行终端 / 硬件钱包，而非通用 SaaS。资产感（金）、掌控感（黑）、安全感（蓝）。中文优先（zh-CN 默认 locale），en-US 其次。
 
 ## Sources
 
-- Codebase: `GoodDealer/` monorepo（本地挂载，只读）。UI 代码为 Phase 0 脚手架（`apps/desktop`、`apps/account-web`、`apps/admin-web`、`packages/ui` 均为占位）——**`brand/` 目录与 `docs/` 是设计事实源**：
+- Codebase: `GoodDealer/` monorepo（本地挂载，只读）。`apps/desktop`、`apps/account-web` 与 `packages/ui` 已按本目录重建，`apps/admin-web` 仍为占位——**`brand/` 目录与 `docs/` 是设计事实源**：
   - `brand/README.md` 品牌视觉规范（色彩 70/20/10、金色分层、红线）
   - `brand/logo/SPEC.md` 主标制图规范（本项目已重设计为「圩印 Coin Seal」：外圆内方 + 骑缝；完整规范见 `guidelines/coin-seal-spec.html`）
   - `brand/tokens/brand.css|json` 官方 token（`--gd-*`）
@@ -22,6 +22,9 @@ GoodDealer 是一款「本地执行、云端同步」的域名资产管理桌面
 - **人称**：对用户用"您"不常见——直接祈使或描述（"选择域名后生成计划""旧设备排空后……"）。系统自述用产品名（"数据来自 GoodDealer Cloud"）。
 - **安全与风险文案**：说明为什么与后果，不吓唬。危险操作按三档视觉分级（常规蓝 / 需留意橙 / 高风险红）；高风险（Nameserver 变更[注册商处理]、Sold 覆盖）走确认仪式——陈述后果 + 精确数量入按钮 + 承认门解锁危险主操作 + 提供「仅提交常规·跳过危险子集」出口，并给出回滚路径。区分 NS 与 DNS 记录：Nameserver 变更由注册商处理（高风险），DNS 记录（A/CNAME/TXT/MX）由 DNS 提供商即时下发（需留意档，说明影响即可）。规范见 `guidelines/risk-confirmation.html`，实例见桌面 UI kit 批量执行确认。
 - **无 emoji**。状态一律用色点、徽章、图标表达。
+- **能力不可用要说明来源**：平台未授予 API 访问、能力尚未资格化、平台不支持三种情况文案各不相同，并指出门槛来自哪里（例如"Atom 要求 500 个以上 Listing 才开放 API"）。不渲染成可点击的禁用按钮假装可用。
+- **出价逐次确认**：每次出价都是独立资金确认，按钮带金额与截止时间（"出价 USD 1,200 · 截止 14:30"）；不出现"自动加价""最高出到"之类控件。
+- **不提供 CSV 导入**；资产来自平台观察导入或手动添加。没有 API 的操作呈现为"在平台页面完成后回来对账"的人工任务，不出现内嵌浏览器状态。
 - 示例（来自 docs）："只读视图始终显示'数据来自 GoodDealer Cloud'、云端数据截至时间"；"'重试失败项'只选择 failed_retryable，不会重提成功项"。
 
 ## VISUAL FOUNDATIONS

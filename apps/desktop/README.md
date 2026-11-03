@@ -10,8 +10,10 @@ Customer Desktop application that composes the Renderer and native Host around t
   renders every Desktop screen from typed mock data, including capabilities without a Host port. It
   is a separate Vite root outside the production graph and grants no authority.
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
-  layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
-  startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
+  layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
+  sign-in, and locked pages plus a workspace with the asset library, domain detail (target-price
+  edit), and conflict center; every other designed screen exists only in `visual-fixtures/` until
+  its Host projection lands.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
 ## Touchpoints

@@ -59,7 +59,7 @@ publication；同时运行 client-core 357 tests、Desktop 99 tests 与 producti
    `accountId`、`workspaceId`。
 3. 展示层没有秘密、直接持久化、直接网络/提供商权威或通过 callback/fixture 获得的结果。
 4. 对应的正向垂直测试和负向控制都已实际运行，并记录准确命令、退出状态和适用范围。
-5. 本地路径没有引入嵌入式/自动化浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移、CSV import
+5. 本地路径没有引入嵌入式/自动化浏览器、非域名 Provider 产品、首发清单外平台、团队/多工作区、凭据迁移、CSV import
    或任何 compatibility/transition/fallback 路径；域名写入和 Registrar 能力必须经过具名审批和资格。
 6. 所有共享入口、公开导出、协议、迁移和当前文档由具名整合负责人重新检查。
 
@@ -138,7 +138,7 @@ current-DB replay 和私有测试协议，但生产 capability 统一保持 `una
 | 授权与租户 | 客户端或缓存不能创建、选择、替换或扩大 Account/Workspace 范围；所有读取首先由服务器端绑定授权。 |
 | 协议 | 未知、缺失、类型错误或与请求不一致的 wire 数据从 `unknown` 拒绝，不能隐式 fallback。 |
 | 秘密与外部效果 | 秘密不进入普通应用状态、Cloud、日志、错误、审计或夹具；外部动作没有明确最小权限合同时不得发生。 |
-| v1 排除项 | 嵌入式/自动化浏览器、非域名 Provider 产品、市场连接、团队/多工作区、凭据迁移和 CSV import 没有可达产品路径；未资格化的域名外部 mutation 同样不可达。 |
+| v1 排除项 | 嵌入式/自动化浏览器、非域名 Provider 产品、首发清单外平台、代理出价、团队/多工作区、凭据迁移和 CSV import 没有可达产品路径；未资格化的域名外部 mutation（含交易市场与获取）同样不可达。 |
 | 视觉与夹具 | `brand/`、视觉 fixture/gallery、样例数据和 disabled 控件只能用于展示 QA，不能证明状态、授权或外部结果。生产 UI 只消费 `@gooddealer/ui` public exports、声明的 tokens/assets 与 `@gooddealer/i18n` public exports。 |
 | 过渡面 | 不存在旧路由、双 data/session 路径、兼容 API、别名、临时 adapter、迁移桥或浏览器/提供商 fallback。 |
 | 当前 Desktop 图 | production 入口只允许具名本地业务、认证、同步与 Cloudflare adapter；任何新增命令需同步 manifest、handler、capability、adapter 与策略测试。 |

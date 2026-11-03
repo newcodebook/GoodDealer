@@ -12,9 +12,11 @@
 | 账户接入 | 激活账户并建立其个人默认工作区访问。 | identity / account web. | 账户与默认工作区原子创建、服务器端范围和可观察会话生命周期。 |
 | 资产查看 | 查看有来源、版本和时间的域名资料。 | workspace read / desktop. | 真实共享投影、严格读取协议和脱敏展示。 |
 | 资产编辑 | 提交有明确差异的资料变更。 | workspace mutation / operations. | 计划、授权、幂等、冲突和审计。 |
-| Cloudflare 域名连接 | 配置明确 Zone/注册商资源并按能力读取或管理域名资产。 | connector / Secure Host. | capability manifest、最小权限、绑定代次、严格网络边界和逐项资格。 |
+| 平台连接 | 为首发 8 个平台各建立本地连接，按角色（注册商、DNS、交易市场、获取）绑定资源并按能力读取或管理域名资产。 | connector / Secure Host. | 每平台 capability manifest、最小权限、准入状态、绑定代次、严格网络边界和逐项资格。 |
 | DNS/DNSSEC 管理 | 读取、变更 DNS 与 DNSSEC，并在提交后重新观察确认。 | operations / connector. | 单项计划、前置条件、Lease fence、未知结果对账和脱敏历史。 |
 | Registrar 生命周期 | 注册、续费、联系人/隐私、转入/转出和转移状态。 | operations / connector. | 资金单项确认；Provider 页面回跳只触发对账，不代表成功。 |
+| 交易市场销售 | 在 Atom、Afternic、SellerHub、Dynadot 等市场上架、改价、下架并跟踪成交与授权码交付。 | operations / connector. | Listing 观察与本地目标价对账；所有权验证跨平台时拆成独立计划；没有 API 的步骤转为人工对账任务。 |
+| 域名获取 | 搜索在售域名、竞价、补抢和购买，并在注册商侧确认到账。 | operations / connector. | 每次出价和购买单项资金确认，无代理出价；成交只在注册商侧观察到账后才入库。 |
 | 批量变更 | 在逐项结果和风险预览下执行域名能力批量操作。 | operations / connector. | 逐项幂等、部分成功、未知结果和可验证补偿；不能假设 Provider 原子成功。 |
 | 多设备共享 | 在同一账户的授权客户端间读取个人工作区资料。 | identity / workspace sync. | 服务器端范围、版本、冲突和并发副作用控制；不形成跨账户共享。 |
 | 本地数据保护 | 在安全前提下导出或恢复受限资料。 | local backup / recovery. | 安全 SQLite、Host 组合、原生故障验证和恢复规则。 |

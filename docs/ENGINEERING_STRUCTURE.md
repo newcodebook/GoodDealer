@@ -81,8 +81,8 @@ API-only Zone/DNS 只读观察，其余 DNS/DNSSEC/Registrar/监控能力必须�
    别名、深层 import 或临时共享 UI 路径。
 5. 没有兼容/过渡接口、双 data/session 路径、旧路由、迁移桥、通用 adapter、提供商 fallback 或
    浏览器 fallback。夹具、gallery、样例数据和视觉 callback 不得进入生产依赖图，也不授予权威。
-6. v1 不组合浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移或 CSV import；域名 Provider
-   写入、Registrar 和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
+6. v1 不组合浏览器、非域名 Provider 产品、首发清单外平台、团队/多工作区、凭据迁移或 CSV import；域名 Provider
+   写入、Registrar、交易市场、获取和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
 
 ## Current source state：Desktop 与 Cloudflare 组合边界
 
