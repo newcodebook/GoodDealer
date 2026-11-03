@@ -50,6 +50,13 @@ jobs:
         run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+      # The topology policy runs `cargo metadata`; a partial pinned toolchain on the runner image
+      # makes that fail intermittently, so install the pinned toolchain exactly as quality.yml does.
+      - name: Remove partial pinned Rust toolchain from runner image
+        continue-on-error: true
+        run: rustup toolchain uninstall 1.99.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --force
       - name: Run Cloud boundary evidence
         env:
           EVIDENCE_GITHUB_TOKEN: ${{ github.token }}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { commerceMoneySchema, type CommerceMoney } from "../pricing/index";
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
-import type { ListingView, SalesDeskViewModel } from "./index";
+import { salesDeskViewModelSchema, type ListingView, type SalesDeskViewModel } from "./index";
 
 /** ADR-0027 launch platforms; the Host rejects listings from any other marketplace. */
 export const salesMarketplaceKindSchema = z.enum([
@@ -79,10 +79,8 @@ const marketplaceNames: Readonly<Record<SalesListingRow["marketplaceKind"], stri
 /** Unconfirmed or unavailable evidence never presents as a definite listing state. */
 function listingStatus(row: SalesListingRow): ListingView["status"] {
   if (row.availability !== "available" || row.evidenceStatus !== "confirmed") return "unknown";
-  switch (row.listingStatus) {
-    case "reserved": return "pending";
-    default: return row.listingStatus;
-  }
+  // A marketplace reservation is the platform's state; it is never shown as local sync progress.
+  return row.listingStatus;
 }
 
 const scale = 100_000_000n;
@@ -135,7 +133,8 @@ export function projectSalesDeskViewModel(windows: readonly SalesRead[]): SalesD
     status: listingStatus(row),
     listedAtLabel: null,
   })));
-  return {
+  // Parse the result so the view-model refinements also hold on the production path.
+  return salesDeskViewModelSchema.parse({
     schemaVersion: 1,
     freshness: {
       source: first.freshness.source,
@@ -155,5 +154,5 @@ export function projectSalesDeskViewModel(windows: readonly SalesRead[]): SalesD
     listings,
     offers: [],
     deals: [],
-  };
+  });
 }

@@ -36,7 +36,7 @@ describe("sales Host read", () => {
       settlingDealCount: null,
     });
     expect(view.listings[0]).toMatchObject({ platforms: ["Atom"], views: null, offerCount: null, listedAtLabel: null, status: "active" });
-    expect(view.listings[2]?.status).toBe("pending");
+    expect(view.listings[2]?.status).toBe("reserved");
   });
 
   it("never presents unconfirmed evidence as a definite status or mixed currencies as one value", () => {

@@ -467,6 +467,7 @@ const enUSDictionary = {
     loading: "Reading local sales data…",
     loadFailed: "Local sales data could not be read. Retrying only reads again and changes nothing.",
     retryRead: "Read again",
+    reserved: "Reserved",
   },
   dnsVerification: {
     title: "DNS & verification",

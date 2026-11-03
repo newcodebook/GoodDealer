@@ -93,6 +93,7 @@ export function SalesDesk({
       case "pending": return <Badge tone="sync" mono={false}>{copy.listingPending}</Badge>;
       case "conflict": return <Badge tone="danger" mono={false}>{copy.listingConflict}</Badge>;
       case "sold": return <Badge tone="gold">{copy.sold}</Badge>;
+      case "reserved": return <Badge tone="warning" mono={false}>{copy.reserved}</Badge>;
       case "suspended": return <Badge tone="warning" mono={false}>{copy.suspended}</Badge>;
       case "unknown": return <Badge mono={false}>{copy.unconfirmed}</Badge>;
     }
@@ -113,8 +114,8 @@ export function SalesDesk({
   const listingColumns: TableColumn<ListingView>[] = [
     { key: "domain", label: copy.domain, render: (listing) => mono(listing.domain, "sales-strong") },
     { key: "platforms", label: copy.platform, muted: true, priority: "secondary", render: (listing) => listing.platforms.length === 0 ? "—" : listing.platforms.join(" · ") },
-    // A published or sold BIN is a value result; a draft's or unconfirmed BIN is not.
-    { key: "bin", label: copy.bin, numeric: true, render: (listing) => listing.bin === null ? dash : mono(money(listing.bin), listing.status === "draft" || listing.status === "unknown" ? "sales-strong" : "sales-gold") },
+    // Only a published or sold BIN is a value result; every other state's BIN is not.
+    { key: "bin", label: copy.bin, numeric: true, render: (listing) => listing.bin === null ? dash : mono(money(listing.bin), listing.status === "active" || listing.status === "sold" ? "sales-gold" : "sales-strong") },
     { key: "views", label: copy.browse, numeric: true, muted: true, width: 72, priority: "supplementary", render: (listing) => listing.views === null ? dash : mono(formatNumber(locale, listing.views)) },
     { key: "offers", label: copy.inquiry, numeric: true, width: 64, render: (listing) => listing.offerCount === null ? dash : mono(formatNumber(locale, listing.offerCount), listing.offerCount > 0 ? "sales-blue" : "sales-faint") },
     { key: "status", label: copy.status, width: 88, render: listingStatus },

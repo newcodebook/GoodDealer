@@ -52,7 +52,7 @@ export const listingViewSchema = z
     bin: commerceMoneySchema.nullable(),
     views: z.number().int().nonnegative().nullable(),
     offerCount: z.number().int().nonnegative().nullable(),
-    status: z.enum(["active", "paused", "draft", "pending", "conflict", "sold", "suspended", "unknown"]),
+    status: z.enum(["active", "paused", "draft", "pending", "conflict", "sold", "reserved", "suspended", "unknown"]),
     listedAtLabel: z.string().min(1).max(80).nullable(),
   })
   .strict();

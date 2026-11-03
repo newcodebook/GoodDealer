@@ -7631,6 +7631,28 @@ mod tests {
             ));
         }
 
+        // Equal observation times fall back to the observation id, so the result is deterministic.
+        let mut tied = sales_database(&[
+            ("charlie.test", "atom", "draft", None, None, TIMESTAMP),
+            ("charlie.test", "atom", "active", None, None, TIMESTAMP),
+        ]);
+        let rows = tied.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.listing_status.as_str())
+                .collect::<Vec<_>>(),
+            ["active"]
+        );
+        // Listings of a deleted asset never reach the projection.
+        tied.store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET lifecycle_status = 'archived', deleted_at = ?1 WHERE entity_id = 'charlie.test'",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(tied.read_sales(0, 10).unwrap().total_rows, 0);
+
         // Marketplaces outside ADR-0027 and malformed prices fail the whole read.
         for listing in [
             (
