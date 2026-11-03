@@ -52,13 +52,13 @@ dead-letter outbox 和 Session 撤销；
 
 ### 1. 当前态收口与冻结候选
 
-- [ ] 扫描全仓当前态文档，确保源码实现、局部验证、V1 验收和外部资格四类状态没有混写
-- [ ] 清理临时 `P0-*` 任务语义和过时的当前态描述
-- [ ] 建立冻结候选快照，附提交引用和可复现的检查输出
+- [x] 扫描全仓当前态文档，确保源码实现、局部验证、V1 验收和外部资格四类状态没有混写 https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 清理临时 `P0-*` 任务语义和过时的当前态描述 https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 建立冻结候选快照，附提交引用和可复现的检查输出 https://github.com/newcodebook/GoodDealer/pull/53
 
 ### 2. Desktop 设计页面生产组合
 
-- [ ] DNS 健康页接入 Host 投影
+- [x] DNS 健康页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设置页接入 Host 投影（平台连接、角色与能力可用性）
 - [ ] 销售页接入 Host 投影（资格前显示不可用）
 - [ ] 续费页接入 Host 投影
@@ -66,6 +66,10 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 历史页接入 Host 投影
 - [ ] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账）
 - [ ] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures`
+- [ ] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定（当前仅接受 Cloudflare）
+- [ ] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述）
+- [ ] DNS 健康路由补 generation 过期与重试路径测试
+- [ ] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态
 
 ### 3. Cloudflare 路径稳定
 
