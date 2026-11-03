@@ -53,6 +53,69 @@ describe("Desktop device login proof", () => {
     })).resolves.toEqual({ issued: false });
   });
 
+  it("reuses an exact pending challenge on an authorize retry", async () => {
+    const nonceDigest = Buffer.alloc(32, 0x42);
+    const expiresAt = new Date("2026-09-01T00:02:00.000Z");
+    const transaction = accountTransaction(async (text) => {
+      if (text.includes("FROM device_account_states")) return rows([{ present: true }]);
+      if (text.includes("DELETE FROM device_login_challenges")) {
+        return { ...rows([]), command: "DELETE", rowCount: 0 };
+      }
+      if (text.includes("SELECT count(*) < 4 AS allowed")) return rows([{ allowed: true }]);
+      if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
+        return rows([{ binding_status: "bound", key_id: "device-key-a", public_key: publicKey }]);
+      }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) {
+        return rows([{
+          challenge_id: "login-challenge-existing",
+          key_id: "device-key-a",
+          proposed_public_key: publicKey,
+          nonce_digest: nonceDigest,
+          account_session_digest: Buffer.from(accountSessionDigest, "base64url"),
+          code_challenge: "C".repeat(43),
+          client_id: "gooddealer-desktop",
+          redirect_uri: "http://127.0.0.1:53682/oauth/callback",
+          account_security_epoch: "4",
+          expires_at: expiresAt,
+        }]);
+      }
+      throw new Error(`retry should not write a second challenge: ${text}`);
+    });
+    const service = new PostgresDeviceLoginProof({
+      withAccount: async () => {
+        throw new Error("exchange-time eligibility was not requested");
+      },
+    });
+    const request = {
+      accountId: "account-a",
+      deviceId: "device-a",
+      keyId: "device-key-a",
+      publicKey: publicKey.toString("base64url"),
+      codeChallenge: "C".repeat(43),
+      clientId: "gooddealer-desktop",
+      redirectUri: "http://127.0.0.1:53682/oauth/callback",
+      accountSecurityEpoch: 4,
+      accountSessionDigest,
+      enrollmentAuthorizedUntil: null,
+      evaluatedAt: new Date("2026-09-01T00:00:00Z"),
+    } as const;
+    await expect(service.issueLoginChallenge(transaction, request)).resolves.toEqual({
+      issued: true,
+      challenge: {
+        challengeId: "login-challenge-existing",
+        accountId: "account-a",
+        deviceId: "device-a",
+        keyId: "device-key-a",
+        nonceDigest: nonceDigest.toString("base64url"),
+        expiresAt: "2026-09-01T00:02:00Z",
+      },
+    });
+    await expect(service.issueLoginChallenge(transaction, {
+      ...request,
+      redirectUri: "http://127.0.0.1:53683/oauth/callback",
+    })).resolves.toEqual({ issued: false });
+  });
+
   it("stores only a nonce digest and consumes only an exact Ed25519 transcript", async () => {
     let challengeInsert: readonly unknown[] | undefined;
     let consumed = false;
@@ -69,6 +132,7 @@ describe("Desktop device login proof", () => {
           public_key: publicKey,
         }]);
       }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
       if (text.includes("INSERT INTO device_login_challenges")) {
         challengeInsert = values;
         return rows([]);
@@ -168,6 +232,7 @@ describe("Desktop device login proof", () => {
       if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
         return rows([]);
       }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
       throw new Error(`enrollment should fail before slot allocation: ${text}`);
     });
     const service = new PostgresDeviceLoginProof({
@@ -203,6 +268,7 @@ describe("Desktop device login proof", () => {
       if (text.includes("FROM device_bindings b") && text.includes("LEFT JOIN device_signing_keys")) {
         return rows([{ binding_status: "bound", key_id: "device-key-a", public_key: publicKey }]);
       }
+      if (text.includes("SELECT challenge_id, key_id, proposed_public_key")) return rows([]);
       if (text.includes("INSERT INTO device_login_challenges")) {
         challengeInsert = values;
         return rows([]);

@@ -80,6 +80,52 @@ export class PostgresDeviceLoginProof implements DeviceLoginProofPort {
       && (row.binding_status !== "bound" || row.key_id !== input.keyId
         || row.public_key === null || !row.public_key.equals(proposedPublicKey))
     ) return { issued: false };
+
+    // Browser retries can replay the same authorize request while its challenge is still pending.
+    // Reusing the exact row keeps the partial unique index from turning a harmless reload into a
+    // 500, while every request-bound field remains compared before any challenge is returned.
+    const existingChallenge = await transaction.query<{
+      challenge_id: string;
+      key_id: string;
+      proposed_public_key: Buffer;
+      nonce_digest: Buffer;
+      account_session_digest: Buffer;
+      code_challenge: string;
+      client_id: string;
+      redirect_uri: string;
+      account_security_epoch: string;
+      expires_at: Date;
+    }>(
+      `SELECT challenge_id, key_id, proposed_public_key, nonce_digest, account_session_digest,
+              code_challenge, client_id, redirect_uri, account_security_epoch, expires_at
+         FROM device_login_challenges
+        WHERE account_id = $1 AND device_id = $2 AND consumed_at IS NULL
+          AND transaction_timestamp() < expires_at
+        FOR UPDATE`,
+      [input.accountId, input.deviceId],
+    );
+    const challenge = existingChallenge.rows[0];
+    if (challenge !== undefined) {
+      const matches = challenge.key_id === input.keyId
+        && challenge.proposed_public_key.equals(proposedPublicKey)
+        && challenge.account_session_digest.equals(accountSessionDigest)
+        && challenge.code_challenge === input.codeChallenge
+        && challenge.client_id === input.clientId
+        && challenge.redirect_uri === input.redirectUri
+        && challenge.account_security_epoch === String(input.accountSecurityEpoch);
+      if (!matches) return { issued: false };
+      return {
+        issued: true,
+        challenge: {
+          challengeId: challenge.challenge_id,
+          accountId: input.accountId,
+          deviceId: input.deviceId,
+          keyId: challenge.key_id,
+          nonceDigest: challenge.nonce_digest.toString("base64url"),
+          expiresAt: canonicalSecond(challenge.expires_at),
+        },
+      };
+    }
     if (row === undefined) {
       if (
         input.enrollmentAuthorizedUntil === null
