@@ -59,7 +59,7 @@ dead-letter outbox 和 Session 撤销；
 ### 2. Desktop 设计页面生产组合
 
 - [x] DNS 健康页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 设置页接入 Host 投影（平台连接、角色与能力可用性）
+- [x] 设置页接入 Host 投影（平台连接、角色与能力可用性） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 销售页接入 Host 投影（资格前显示不可用）
 - [ ] 续费页接入 Host 投影
 - [ ] 批量页接入 Host 投影（先生成计划，再逐项确认）
