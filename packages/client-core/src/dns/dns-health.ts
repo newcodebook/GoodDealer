@@ -1,12 +1,11 @@
 import { z } from "zod";
 
+import { connectionLabelSchema } from "../connections/connection-label";
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import type { DnsVerificationRowViewModel, DnsVerificationViewModel } from "../verification";
 
 const safeCount = z.number().int().nonnegative().max(1_024);
-const labelSchema = z.string().min(1).max(253)
-  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "labels reject control characters");
 
 /** ADR-0027 launch platforms; a Zone may be bound on any of them, and the Host rejects others. */
 const zoneProviderKindSchema = z.enum([
@@ -26,7 +25,7 @@ const providerNames: Readonly<Record<z.infer<typeof zoneProviderKindSchema>, str
 
 const dnsZoneBindingSchema = z.object({
   providerKind: zoneProviderKindSchema,
-  connectionLabel: labelSchema,
+  connectionLabel: connectionLabelSchema,
   zoneLabel: canonicalDomainNameSchema,
   validationStatus: z.enum(["unverified", "verified", "stale", "conflicted", "detached"]),
 }).strict();

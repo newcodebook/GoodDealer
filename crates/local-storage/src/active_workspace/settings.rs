@@ -137,7 +137,7 @@ fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError>
 
 fn project_connection(raw: RawConnection) -> Result<SettingsConnection, PortfolioReadError> {
     let (provider_kind, label, lifecycle, validation, use_state, validated_at, capabilities) = raw;
-    if label.is_empty() || label.len() > 120 || label.chars().any(char::is_control) {
+    if !crate::portfolio_projection::valid_connection_label(&label) {
         return Err(PortfolioReadError::ProjectionRejected);
     }
     let declared: Vec<String> =

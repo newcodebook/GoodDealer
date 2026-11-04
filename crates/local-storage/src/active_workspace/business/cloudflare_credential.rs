@@ -6,6 +6,15 @@ use super::{
     validate_local_text, validate_sha256_hex, validate_timestamp,
 };
 
+/// Connection labels follow the one rule every Host read applies, so a stored label never fails a read.
+fn validate_connection_label(value: &str) -> Result<(), BusinessDatabaseError> {
+    if crate::portfolio_projection::valid_connection_label(value) {
+        Ok(())
+    } else {
+        Err(BusinessDatabaseError::InvalidInput)
+    }
+}
+
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,7 +181,7 @@ impl BusinessDatabase {
             )
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         validate_local_text(&connection_incarnation_id)?;
-        validate_local_text(&display_label)?;
+        validate_connection_label(&display_label)?;
         let root = self
             .store
             .raw_connection()
@@ -1180,11 +1189,11 @@ fn validate_preparation(
     for value in [
         &input.logical_connection_id,
         &input.connection_incarnation_id,
-        &input.display_label,
         &input.intent_id,
     ] {
         validate_local_text(value)?;
     }
+    validate_connection_label(&input.display_label)?;
     for digest in [
         &input.scope_digest,
         &input.zone_digest,
@@ -2567,6 +2576,33 @@ mod tests {
             database.cloudflare_provision_seed(&first.logical_connection_id),
             Err(BusinessDatabaseError::InvalidInput)
         ));
+    }
+
+    #[test]
+    fn preparation_rejects_a_connection_label_that_a_later_read_would_reject() {
+        let mut database = database();
+        // 60 astral characters are exactly 120 UTF-16 units, the shared Renderer and Host limit.
+        for label in [
+            "\u{1F310}".repeat(61),
+            "a".repeat(121),
+            "Cloud\u{200B}flare".to_owned(),
+            "Cloud\u{7}flare".to_owned(),
+            String::new(),
+        ] {
+            let mut input = preparation(1, stage(1));
+            input.display_label = label;
+            assert!(matches!(
+                database.prepare_cloudflare_credential_operation_guarded(&input, || Ok(())),
+                Err(BusinessDatabaseError::InvalidInput)
+            ));
+        }
+        let mut input = preparation(1, stage(1));
+        input.display_label = "\u{1F310}".repeat(60);
+        assert!(
+            database
+                .prepare_cloudflare_credential_operation_guarded(&input, || Ok(()))
+                .is_ok()
+        );
     }
 
     #[test]

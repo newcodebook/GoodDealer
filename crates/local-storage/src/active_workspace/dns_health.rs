@@ -8,7 +8,9 @@
 use rusqlite::{Connection, params};
 use serde::Serialize;
 
-use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness, validate_timestamp};
+use crate::portfolio_projection::{
+    PortfolioReadError, PortfolioReadFreshness, valid_connection_label, validate_timestamp,
+};
 
 use super::portfolio::{read_freshness, validate_workspace};
 
@@ -260,7 +262,11 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
             Some(validation_status),
         ) if provider_kind == connection_kind => Some(DnsZoneBinding {
             provider_kind: closed(provider_kind, &PROVIDER_KINDS)?,
-            connection_label: label(connection_label)?,
+            connection_label: if valid_connection_label(&connection_label) {
+                connection_label
+            } else {
+                return Err(PortfolioReadError::ProjectionRejected);
+            },
             zone_label: label(zone_label)?,
             validation_status: closed(
                 validation_status,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
+import { connectionLabelSchema } from "./connection-label";
 import type { ConnectionSettingsItemViewModel, ConnectionSettingsViewModel, ProviderConnectionHealth } from "./index";
 
 const connectionRoleSchema = z.enum(["registrar", "dns", "marketplace"]);
@@ -14,7 +15,7 @@ const settingsConnectionRoleSchema = z.object({
 
 const settingsConnectionSchema = z.object({
   providerKind: z.literal("cloudflare"),
-  connectionLabel: z.string().min(1).max(120).refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "labels reject control characters"),
+  connectionLabel: connectionLabelSchema,
   lifecycleStatus: z.enum(["active", "invalid", "revoked"]),
   validationStatus: z.enum(["unknown", "valid", "invalid", "insufficient_scope", "unreachable"]),
   credentialUseState: z.enum(["inactive", "active", "transition_pending", "revocation_pending", "remediation_required", "revoked"]),

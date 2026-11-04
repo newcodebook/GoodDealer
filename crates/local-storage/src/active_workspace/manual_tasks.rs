@@ -10,7 +10,8 @@ use rusqlite::{Connection, params};
 use serde::Serialize;
 
 use crate::portfolio_projection::{
-    PortfolioReadError, PortfolioReadFreshness, validate_domain_asset_id, validate_timestamp,
+    PortfolioReadError, PortfolioReadFreshness, valid_connection_label, validate_domain_asset_id,
+    validate_timestamp,
 };
 
 use super::portfolio::{read_freshness, validate_workspace};
@@ -229,7 +230,10 @@ fn project_task(
             if !PROVIDER_KINDS.contains(&kind.as_str()) {
                 return Err(PortfolioReadError::ProjectionRejected);
             }
-            (Some(kind), Some(display_text(label, 512)?))
+            if !valid_connection_label(&label) {
+                return Err(PortfolioReadError::ProjectionRejected);
+            }
+            (Some(kind), Some(label))
         }
     };
     // `IS` matches a NULL connection, so a task without one still selects only its own items.

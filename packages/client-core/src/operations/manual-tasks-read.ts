@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { connectionLabelSchema } from "../connections/connection-label";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import { manualTaskInboxViewModelSchema, type ManualTaskInboxViewModel, type ManualTaskView } from "./contracts";
 
@@ -23,7 +24,7 @@ const manualTaskRowSchema = z.object({
   operationKind: tokenSchema,
   capability: tokenSchema,
   providerKind: manualTaskProviderKindSchema.nullable(),
-  connectionLabel: displaySchema(512).nullable(),
+  connectionLabel: connectionLabelSchema.nullable(),
   highRisk: z.boolean(),
   itemCount: countSchema.min(1),
   waitingSince: z.iso.datetime(),
