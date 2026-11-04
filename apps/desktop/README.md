@@ -15,7 +15,8 @@ Customer Desktop application that composes the Renderer and native Host around t
   edit), renewals, sales, DNS health, batch operations, conflict center, operation history, and
   settings. Operation history reads the newest 500 local revisions from `local_history_read`
   (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
-  revision, with unknown previous values shown as unknown); every Revision is read-only, with no
+  revision when no remote change or conflict can lie in between; otherwise previous values show as
+  unknown); every Revision is read-only, with no
   rollback or export until a reversal capability is qualified. Batch
   operations lists Host operation plans from `local_batch_operations_read` (title, phase, targets,
   platforms, planned counts and latest attempt outcomes, never plan or operation identifiers); rows

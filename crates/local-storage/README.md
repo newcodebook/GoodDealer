@@ -112,11 +112,12 @@ and unknown platforms fail the whole read.
 `BusinessDatabase::read_history` uses the same window rules and lists the local revision ledger
 (`sync_outbox`) newest first by local commit sequence: asset, edit or delete, commit time, sync
 state, the acknowledged server revision, and each edit's changed synced fields (`note`,
-`portfolioId`, `tags`, `targetPrice`) with the same field's value in the asset's preceding local
-revision. Edits record full field snapshots, so unchanged fields are omitted; `previousValue` is
-omitted, not `null`, when no earlier local revision records the field. Remote changes pulled
-between two local revisions are not revisions of this ledger. Mutation, device, lease and payload
-digest identifiers stay in the Host; a recorded value of the wrong shape fails the whole read.
+`portfolioId`, `tags`, `targetPrice`). A field's previous value is the same field in the asset's
+preceding local revision only when that revision provably was the asset's state: it was neither
+conflicted nor rejected, and no server revision was applied between the two commits. Then
+unchanged fields are omitted; otherwise every recorded field is listed and `previousValue` is
+omitted (unknown, never `null`). Mutation, device, lease and payload digest identifiers stay in the
+Host; a recorded value an asset write could not have stored fails the whole read.
 
 `BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
 recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —

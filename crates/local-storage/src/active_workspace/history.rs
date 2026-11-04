@@ -2,16 +2,20 @@
 //! first, with each edit's changed fields and their previous values.
 //!
 //! Edits record a full snapshot of their synced fields, so a field's previous value is the same
-//! field in the asset's preceding local revision; with no preceding revision it is unknown, never
-//! empty. Remote changes pulled between two local revisions are not revisions of this ledger, so a
-//! diff compares local revisions only. Mutation, device, lease and payload digest identifiers stay
-//! in the Host.
+//! field in the asset's preceding local revision — but only when that revision provably was the
+//! asset's state: it was neither conflicted nor rejected, and no server revision was applied between
+//! the two commits. Otherwise a pulled remote change may sit in between, so every field is reported
+//! with its previous value unknown, never guessed. Mutation, device, lease and payload digest
+//! identifiers stay in the Host.
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness, validate_timestamp};
+use crate::portfolio_projection::{
+    DomainAssetProjectionRow, Money, PortfolioReadError, PortfolioReadFreshness,
+    validate_projection, validate_timestamp,
+};
 
 use super::portfolio::{read_freshness, validate_workspace};
 
@@ -59,7 +63,16 @@ pub struct HistoryFieldChange {
     pub previous_value: Option<Value>,
 }
 
-type RawRevision = (String, i64, String, String, String, String, Option<i64>);
+type RawRevision = (
+    String,
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<i64>,
+    i64,
+);
 
 pub(crate) struct ActiveHistoryReader<'a> {
     connection: &'a Connection,
@@ -96,7 +109,7 @@ impl<'a> ActiveHistoryReader<'a> {
             let mut statement = transaction
                 .prepare(
                     "SELECT mutation_id, local_commit_sequence, entity_id, operation_kind,
-                            created_at, state, server_revision
+                            created_at, state, server_revision, base_server_revision
                      FROM sync_outbox WHERE workspace_id = ?1
                      ORDER BY local_commit_sequence DESC, mutation_id DESC LIMIT ?2 OFFSET ?3",
                 )
@@ -111,6 +124,7 @@ impl<'a> ActiveHistoryReader<'a> {
                         row.get(4)?,
                         row.get(5)?,
                         row.get(6)?,
+                        row.get(7)?,
                     ))
                 })
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?
@@ -147,30 +161,95 @@ fn unsigned(value: i64) -> Result<u64, PortfolioReadError> {
     u64::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected)
 }
 
-/// Parses a recorded field value and rejects any shape the field cannot hold.
-fn field_value(field_path: &str, json: &str) -> Result<Value, PortfolioReadError> {
-    let value: Value =
-        serde_json::from_str(json).map_err(|_| PortfolioReadError::ProjectionRejected)?;
-    let valid = match field_path {
-        "note" | "portfolioId" => value.is_null() || value.is_string(),
-        "tags" => value
-            .as_array()
-            .is_some_and(|tags| tags.iter().all(Value::is_string)),
-        "targetPrice" => {
-            value.is_null()
-                || value.as_object().is_some_and(|money| {
-                    money.len() == 2
-                        && money.get("currency").is_some_and(Value::is_string)
-                        && money.get("amount").is_some_and(Value::is_string)
-                })
-        }
-        _ => false,
+/// Parses a recorded field value and holds it to the same rules as an asset write, so the read
+/// rejects any value an edit could not have recorded.
+fn field_value(entity_id: &str, field_path: &str, json: &str) -> Result<Value, PortfolioReadError> {
+    let rejected = |_| PortfolioReadError::ProjectionRejected;
+    let mut row = DomainAssetProjectionRow {
+        entity_id: entity_id.to_owned(),
+        note: None,
+        portfolio_id: None,
+        tags: Vec::new(),
+        target_price: None,
     };
-    if valid {
-        Ok(value)
-    } else {
-        Err(PortfolioReadError::ProjectionRejected)
+    match field_path {
+        "note" => row.note = serde_json::from_str::<Option<String>>(json).map_err(rejected)?,
+        "portfolioId" => {
+            row.portfolio_id = serde_json::from_str::<Option<String>>(json).map_err(rejected)?;
+        }
+        "tags" => row.tags = serde_json::from_str::<Vec<String>>(json).map_err(rejected)?,
+        "targetPrice" => {
+            row.target_price = serde_json::from_str::<Option<Money>>(json).map_err(rejected)?;
+        }
+        _ => return Err(PortfolioReadError::ProjectionRejected),
     }
+    validate_projection(&[row])?;
+    serde_json::from_str(json).map_err(rejected)
+}
+
+/// The fields of the asset's preceding local revision when it provably was the asset's state
+/// just before this one; `None` when a remote change may lie in between or nothing precedes it.
+fn preceding_fields(
+    connection: &Connection,
+    workspace_id: &str,
+    entity_id: &str,
+    sequence: i64,
+    mutation_id: &str,
+    base_server_revision: i64,
+) -> Result<Option<Vec<(String, String)>>, PortfolioReadError> {
+    let preceding: Option<(String, String, String, i64, Option<i64>)> = connection
+        .query_row(
+            "SELECT mutation_id, operation_kind, state, base_server_revision, server_revision
+             FROM sync_outbox
+             WHERE workspace_id = ?1 AND entity_id = ?2
+               AND (local_commit_sequence < ?3
+                    OR (local_commit_sequence = ?3 AND mutation_id < ?4))
+             ORDER BY local_commit_sequence DESC, mutation_id DESC LIMIT 1",
+            params![workspace_id, entity_id, sequence, mutation_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let Some((preceding_id, operation, state, preceding_base, acknowledged_at)) = preceding else {
+        return Ok(None);
+    };
+    // Every commit records the workspace's applied server revision as its base. An unchanged base
+    // means no remote revision was applied in between; a base equal to the preceding revision's
+    // own acknowledgement means only that acknowledgement was.
+    let unbroken =
+        base_server_revision == preceding_base || acknowledged_at == Some(base_server_revision);
+    if operation != "upsert" || matches!(state.as_str(), "conflicted" | "rejected") || !unbroken {
+        return Ok(None);
+    }
+    revision_fields(connection, workspace_id, &preceding_id).map(Some)
+}
+
+fn revision_fields(
+    connection: &Connection,
+    workspace_id: &str,
+    mutation_id: &str,
+) -> Result<Vec<(String, String)>, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT field_path, field_value_json FROM sync_outbox_fields
+             WHERE workspace_id = ?1 AND mutation_id = ?2 ORDER BY ordinal",
+        )
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    statement
+        .query_map(params![workspace_id, mutation_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| PortfolioReadError::ProjectionRejected)
 }
 
 fn project_revision(
@@ -178,8 +257,16 @@ fn project_revision(
     workspace_id: &str,
     raw: RawRevision,
 ) -> Result<HistoryRow, PortfolioReadError> {
-    let (mutation_id, local_revision, entity_id, operation, committed_at, state, server_revision) =
-        raw;
+    let (
+        mutation_id,
+        sequence,
+        entity_id,
+        operation,
+        committed_at,
+        state,
+        server_revision,
+        base_server_revision,
+    ) = raw;
     let operation = match operation.as_str() {
         "upsert" => "edit",
         "delete" => "delete",
@@ -196,44 +283,34 @@ fn project_revision(
     {
         return Err(PortfolioReadError::ProjectionRejected);
     }
-    let sequence = local_revision;
-    let local_revision = unsigned(local_revision)?;
-    let fields = {
-        let mut statement = connection
-            .prepare(
-                "SELECT field_path, field_value_json FROM sync_outbox_fields
-                 WHERE workspace_id = ?1 AND mutation_id = ?2 ORDER BY ordinal",
-            )
-            .map_err(|_| PortfolioReadError::SchemaRejected)?;
-        statement
-            .query_map(params![workspace_id, mutation_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|_| PortfolioReadError::ProjectionRejected)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    let fields = revision_fields(connection, workspace_id, &mutation_id)?;
+    let preceding = if fields.is_empty() {
+        None
+    } else {
+        preceding_fields(
+            connection,
+            workspace_id,
+            &entity_id,
+            sequence,
+            &mutation_id,
+            base_server_revision,
+        )?
     };
     let mut changes = Vec::with_capacity(fields.len());
     for (field_path, json) in fields {
-        let value = field_value(&field_path, &json)?;
-        // The same field in this asset's closest earlier mutation that recorded it.
-        let previous: Option<String> = connection
-            .query_row(
-                "SELECT f.field_value_json FROM sync_outbox o
-                 JOIN sync_outbox_fields f
-                   ON f.workspace_id = o.workspace_id AND f.mutation_id = o.mutation_id
-                 WHERE o.workspace_id = ?1 AND o.entity_id = ?2 AND f.field_path = ?3
-                   AND (o.local_commit_sequence < ?4
-                        OR (o.local_commit_sequence = ?4 AND o.mutation_id < ?5))
-                 ORDER BY o.local_commit_sequence DESC, o.mutation_id DESC LIMIT 1",
-                params![workspace_id, entity_id, field_path, sequence, mutation_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|_| PortfolioReadError::ProjectionRejected)?;
-        let previous_value = previous
-            .map(|json| field_value(&field_path, &json))
-            .transpose()?;
+        let value = field_value(&entity_id, &field_path, &json)?;
+        let previous_value = match &preceding {
+            None => None,
+            // A known preceding snapshot records every field, so a missing one is corrupt.
+            Some(snapshot) => {
+                let (_, previous) = snapshot
+                    .iter()
+                    .find(|(path, _)| *path == field_path)
+                    .ok_or(PortfolioReadError::ProjectionRejected)?;
+                Some(field_value(&entity_id, &field_path, previous)?)
+            }
+        };
+        // Only a provably unchanged field is left out; an unknown previous value is always kept.
         if previous_value.as_ref() != Some(&value) {
             changes.push(HistoryFieldChange {
                 field_path,
@@ -243,7 +320,7 @@ fn project_revision(
         }
     }
     Ok(HistoryRow {
-        local_revision,
+        local_revision: unsigned(sequence)?,
         entity_id,
         operation: operation.to_owned(),
         committed_at: validate_timestamp(Some(committed_at))?

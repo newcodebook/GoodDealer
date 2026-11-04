@@ -4,14 +4,17 @@ import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-model
 import { operationHistoryViewModelSchema, type OperationHistoryEntry, type OperationHistoryViewModel } from "./contracts";
 
 const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const textSchema = z.string().max(2_000);
+// Bounds mirror the Host's asset-write rules, so any value an edit could record is readable.
+const noteSchema = z.string().max(10_000);
+const portfolioIdSchema = z.string().min(1).max(160);
+const tagsSchema = z.array(z.string().min(1).max(64)).max(128);
 const moneySchema = z.object({ currency: z.string().min(1).max(16), amount: z.string().min(1).max(64) }).strict();
 
 /** Each recorded field keeps the shape the Host validated; anything else is rejected. */
 const historyFieldChangeSchema = z.discriminatedUnion("fieldPath", [
-  z.object({ fieldPath: z.literal("note"), value: textSchema.nullable(), previousValue: textSchema.nullable().optional() }).strict(),
-  z.object({ fieldPath: z.literal("portfolioId"), value: textSchema.nullable(), previousValue: textSchema.nullable().optional() }).strict(),
-  z.object({ fieldPath: z.literal("tags"), value: z.array(textSchema).max(200), previousValue: z.array(textSchema).max(200).optional() }).strict(),
+  z.object({ fieldPath: z.literal("note"), value: noteSchema.nullable(), previousValue: noteSchema.nullable().optional() }).strict(),
+  z.object({ fieldPath: z.literal("portfolioId"), value: portfolioIdSchema.nullable(), previousValue: portfolioIdSchema.nullable().optional() }).strict(),
+  z.object({ fieldPath: z.literal("tags"), value: tagsSchema, previousValue: tagsSchema.optional() }).strict(),
   z.object({ fieldPath: z.literal("targetPrice"), value: moneySchema.nullable(), previousValue: moneySchema.nullable().optional() }).strict(),
 ]);
 
@@ -92,11 +95,18 @@ export interface HistoryProjectionLabels {
   readonly fields: Readonly<Record<HistoryFieldChange["fieldPath"], string>>;
 }
 
+/** Diff values hold at most this many characters; longer notes and tag lists are clipped. */
+const displayLimit = 2_000;
+
 function displayValue(value: HistoryFieldChange["value"], empty: string): string {
+  let text: string;
   if (value === null) return empty;
-  if (typeof value === "string") return value === "" ? empty : value;
-  if (Array.isArray(value)) return value.length === 0 ? empty : value.join(", ");
-  return `${value.currency} ${value.amount}`;
+  if (typeof value === "string") text = value;
+  else if (Array.isArray(value)) text = value.join(", ");
+  else text = `${value.currency} ${value.amount}`;
+  if (text === "") return empty;
+  const characters = Array.from(text);
+  return characters.length <= displayLimit ? text : `${characters.slice(0, displayLimit - 1).join("")}…`;
 }
 
 function entryState(state: HistoryRow["state"]): OperationHistoryEntry["state"] {
@@ -112,8 +122,9 @@ function entryState(state: HistoryRow["state"]): OperationHistoryEntry["state"] 
 /**
  * Projects contiguous Host history windows of one generation into the operation history view. The
  * windows cover the newest revisions up to `historyEntryLimit`; totals still count the whole
- * ledger. No reversal is offered: rollback needs a qualified Host command, so every entry is
- * read-only and an unknown previous value stays null rather than looking empty.
+ * ledger, except `changesToday`, which counts within the loaded newest revisions. No reversal is
+ * offered: rollback needs a qualified Host command, so every entry is read-only and an unknown
+ * previous value stays null rather than looking empty.
  */
 export function projectOperationHistory(
   windows: readonly HistoryRead[],

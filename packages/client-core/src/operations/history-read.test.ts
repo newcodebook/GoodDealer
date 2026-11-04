@@ -79,6 +79,10 @@ describe("history read", () => {
       expect(projectOperationHistory([read([{ ...edit, state }])], labels, () => false, null).entries[0]!.state).toBe(expected);
     }
     expect(projectOperationHistory([read()], labels, () => false, "rev-99").selectedRevisionId).toBeNull();
+    const long = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_000) }] }])], labels, () => false, null);
+    expect(Array.from(long.entries[0]!.diffs[0]!.newValue!)).toHaveLength(2_000);
+    expect(long.entries[0]!.diffs[0]!.newValue!.endsWith("…")).toBe(true);
+    expect(() => parseHistoryRead(read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_001) }] }]))).toThrow();
   });
 
   it("requires contiguous windows of one generation and keeps only the newest revisions", () => {

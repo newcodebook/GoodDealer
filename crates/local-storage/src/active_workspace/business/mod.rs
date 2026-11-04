@@ -8086,6 +8086,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the ledger's ordering, diff and window assertions stay together"
+    )]
     fn history_lists_local_revisions_newest_first_with_diffs_and_no_identifiers() {
         let mut database = database();
         assert_eq!(database.read_history(0, 10).unwrap().total_rows, 0);
@@ -8196,10 +8200,118 @@ mod tests {
                 Err(BusinessDatabaseError::WindowRejected)
             ));
         }
-        // A recorded value of the wrong shape fails the whole read closed.
-        database.store.fixture_connection().execute("UPDATE sync_outbox_fields SET field_value_json='{\"amount\":1}' WHERE mutation_id='mutation-secret-2' AND field_path='targetPrice'", []).unwrap();
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "provenance and fail-closed value assertions stay together"
+    )]
+    fn history_never_guesses_a_previous_value_across_a_pull_or_a_conflict() {
+        let mut database = database();
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let edit = |database: &mut BusinessDatabase, mutation_id: &str, note: &str| {
+            let expected: i64 = database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected.try_into().unwrap(),
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &history_write(note, &[]),
+                    true,
+                )
+                .unwrap();
+        };
+        edit(&mut database, "edit-1", "first");
+        // A remote revision applied between two local commits may have changed the asset.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE active_workspace_metadata SET applied_through_server_revision = applied_through_server_revision + 5",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-2", "first");
+        let rows = database.read_history(0, 10).unwrap().window.rows;
+        assert_eq!(
+            rows[0].changes.len(),
+            4,
+            "unknown previous values keep every field"
+        );
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // A conflicted local value never became the asset's state, so it is not a previous value.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox SET state = 'conflicted' WHERE mutation_id = 'edit-2'",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-3", "third");
+        let rows = database.read_history(0, 10).unwrap().window.rows;
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // Recorded values are held to asset-write rules; anything else fails the read closed.
+        for (path, json) in [
+            ("targetPrice", "{\"amount\":1}"),
+            ("note", "\"\\u0007\""),
+            ("tags", "[\"b\",\"a\"]"),
+        ] {
+            let mut corrupt = self::database();
+            corrupt
+                .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+                .unwrap();
+            corrupt
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = ?2",
+                    rusqlite::params![json, path],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    corrupt.read_history(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{path} {json} must fail closed"
+            );
+        }
+        let mut long = self::database();
+        long.upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        long.store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = 'note'",
+                [serde_json::to_string(&"x".repeat(10_001)).unwrap()],
+            )
+            .unwrap();
         assert!(matches!(
-            database.read_history(0, 10),
+            long.read_history(0, 10),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
     }
