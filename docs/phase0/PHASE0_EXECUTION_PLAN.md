@@ -93,7 +93,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）
 - [ ] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况
 - [ ] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）
-- [ ] Host 路由读取的重试接线测试（重试按钮调用 `retry`、`attempt` 驱动重新读取；当前只测试了纯读取函数）
+- [ ] Host 路由读取的重试接线测试：重试按钮已测试会调用 `retry`；`useHostRouteRead` 由 `attempt` 驱动重新读取仍缺 hook 级测试（需要渲染环境）
 
 ### 3. Cloudflare 路径稳定
 

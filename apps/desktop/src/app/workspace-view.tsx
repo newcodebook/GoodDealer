@@ -16,7 +16,8 @@ import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
-import { useHostRouteRead, type HostRouteReadState } from "./host-route-read";
+import { useHostRouteRead } from "./host-route-read";
+import { HostRouteStatus } from "./host-route-status";
 import {
   createPortfolioMutationController,
   createPortfolioReadController,
@@ -266,20 +267,6 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
 }
 
 const hostWindowSize = 200;
-
-/** Loading and failure presentation shared by the windowed Host routes; retry restarts the read. */
-function HostRouteStatus({ state, copy, onRetry }: {
-  readonly state: HostRouteReadState<unknown>;
-  readonly copy: { readonly loading: string; readonly loadFailed: string; readonly retryRead: string };
-  readonly onRetry: () => void;
-}) {
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={onRetry}>{copy.retryRead}</Button>
-    </Banner>
-  );
-}
 
 /**
  * Reads every batch window for one Host generation. Rows do not open: the Host has no plan detail
