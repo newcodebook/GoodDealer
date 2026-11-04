@@ -67,8 +67,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures` https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述）
-- [ ] DNS 健康路由补 generation 过期与重试路径测试
+- [x] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] DNS 健康路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态
 - [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）
 - [ ] 连接标签长度限制在写入（512）与设置读取（120）之间对齐
@@ -80,7 +80,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 续费页自动续费覆盖指标区分“未记录”与“已关闭”
 - [ ] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐
 - [ ] 资产库到期计数在搜索过滤下与续费页列表口径一致
-- [ ] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试
+- [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
 - [ ] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）
 - [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
@@ -92,6 +92,8 @@ dead-letter outbox 和 Session 撤销；
 - [ ] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役
 - [ ] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）
 - [ ] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况
+- [ ] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）
+- [ ] Host 路由读取的重试接线测试（重试按钮调用 `retry`、`attempt` 驱动重新读取；当前只测试了纯读取函数）
 
 ### 3. Cloudflare 路径稳定
 

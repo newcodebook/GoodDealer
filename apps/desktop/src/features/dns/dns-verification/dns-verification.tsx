@@ -46,7 +46,10 @@ function isNameserverHost(value: string): boolean {
   return host.split(".").length >= 2 && host.split(".").every((label) => /^(?!-)[a-z0-9-]{1,63}(?<!-)$/u.test(label));
 }
 
-/** DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own platform. */
+/**
+ * DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own
+ * platform. Until ownership is composed, the page shows only the Zone facts the Host observed.
+ */
 export function DnsVerification({ locale, view, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
   const copy = getPresentationCopy(locale, "dnsVerification");
   const [query, setQuery] = useState("");
@@ -185,11 +188,12 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       />
       <div className="dns-guide">
         <ShieldIcon size={13} />
-        <span>{copy.guide}</span>
+        {/* The brand guide describes TXT ownership and repair flows; until ownership is composed, the
+            guide states what the page actually shows instead. */}
+        <span>{ownershipConnected ? copy.guide : copy.ownershipUnavailableNotice}</span>
         <span className="dns-source">{readOnly ? copy.sourceStandby : copy.sourceActive} · {copy.revision} {formatNumber(locale, view.serverRevision)}</span>
       </div>
       {readOnly ? <p className="dns-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
-      {ownershipConnected ? null : <p className="dns-readonly gd-t-meta">{copy.ownershipUnavailableNotice}</p>}
       <div className="dns-body">
         <Table<DnsVerificationRowViewModel>
           {...shellTableLabels(locale)}
