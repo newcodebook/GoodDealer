@@ -207,6 +207,18 @@ fn project_plan(
             |row| row.get(0),
         )
         .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    // The schema does not make a plan's operation unique, so a second one fails the read instead of
+    // letting one silently stand for both.
+    let operations: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM operations WHERE workspace_id = ?1 AND plan_id = ?2",
+            params![workspace_id, plan_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    if operations > 1 {
+        return Err(PortfolioReadError::ProjectionRejected);
+    }
     let operation: Option<(String, String, Option<String>)> = connection
         .query_row(
             "SELECT operation_id, phase, completed_at FROM operations

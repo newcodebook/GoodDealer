@@ -114,6 +114,13 @@ const resultCountsSchema = z.object({
   failedFinal: countSchema,
 }).strict();
 
+/**
+ * List phases: the execution phases plus the two plan states that never ran. An approved plan with
+ * no operation is awaiting execution, and an expired plan was never cancelled, so neither borrows
+ * an execution phase.
+ */
+export const batchListPhaseSchema = z.enum([...batchOperationPhaseSchema.options, "approved", "expired"]);
+
 /** One batch list row. Rule and account labels are null where no Host fact describes them. */
 export const batchOperationListItemSchema = z.object({
   id: z.string().min(1).max(160),
@@ -123,8 +130,8 @@ export const batchOperationListItemSchema = z.object({
   platform: z.string().min(1).max(500).nullable(),
   account: z.string().min(1).max(500).nullable(),
   createdLabel: z.string().min(1).max(64),
-  completedOn: z.iso.date().nullable(),
-  phase: batchOperationPhaseSchema,
+  completedAt: z.iso.datetime().nullable(),
+  phase: batchListPhaseSchema,
   progressPercent: z.number().int().min(0).max(100),
   highRisk: z.boolean(),
   plannedCounts: z.object({ automatic: countSchema, manual: countSchema, conflict: countSchema }).strict().nullable(),
@@ -159,11 +166,12 @@ function batchPhase(row: BatchOperationRow): BatchOperationListItem["phase"] {
   switch (row.planPhase) {
     case "planned": return "planned";
     case "awaiting_approval": return "awaiting_approval";
-    case "approved": return "queued";
+    case "approved": return "approved";
+    // An executing or completed plan without its operation row is reported as the plan says.
     case "executing": return "running";
     case "completed": return "completed";
-    case "cancelled":
-    case "expired": return "cancelled";
+    case "cancelled": return "cancelled";
+    case "expired": return "expired";
   }
 }
 
@@ -209,11 +217,11 @@ export function projectBatchOperationList(windows: readonly BatchOperationsRead[
         platform: row.providerKinds.length === 0 ? null : row.providerKinds.map((kind) => providerNames[kind]).join(" / "),
         account: null,
         createdLabel: row.createdAt.slice(0, 10),
-        completedOn: row.completedAt === null ? null : row.completedAt.slice(0, 10),
+        completedAt: row.completedAt,
         phase,
         progressPercent: progressPercent(row),
         highRisk: row.riskLevel === "high" || row.planned.highRisk > 0,
-        plannedCounts: phase === "planned" || phase === "awaiting_approval"
+        plannedCounts: phase === "planned" || phase === "awaiting_approval" || phase === "approved"
           ? { automatic: row.planned.automatic, manual: row.planned.manual, conflict: row.planned.conflict }
           : null,
         resultCounts: row.results === null ? null : {

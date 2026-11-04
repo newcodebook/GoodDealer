@@ -7938,6 +7938,12 @@ mod tests {
             batch_database("Bad\ntitle").read_batch_operations(0, 10),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+        let mut doubled = batch_database("Price change");
+        doubled.store.fixture_connection().execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,local_commit_sequence) VALUES ('workspace-local','operation-second','plan-secret-a','key-second','queued',?1,1)", [TIMESTAMP]).unwrap();
+        assert!(matches!(
+            doubled.read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's

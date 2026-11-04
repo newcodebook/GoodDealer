@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { BatchDetail, BatchList, batchDetailMode, type BatchJobSummary } from "./index";
+import { batchPhaseLabel } from "./batch-phase-badge";
 
 function batch(phase: BatchOperationViewModel["phase"], highRisk: boolean): BatchOperationViewModel {
   const actions = phase === "awaiting_approval" ? ["approve", "cancel"] : phase === "running" ? ["cancel"] : phase === "partially_failed" ? ["retry_failed"] : [];
@@ -66,7 +67,7 @@ describe("Batch operations presentation", () => {
   it("lists jobs with their phase and footer count", () => {
     const job: BatchJobSummary = {
       id: "b-1", title: "上架到 Atom", ruleLabel: "新建 Listing", targetCount: 512, platform: "Atom", account: "主账户",
-      createdLabel: "今日 11:20", completedOn: "2026-08-20", phase: "completed", progressPercent: 100, highRisk: false, plannedCounts: null,
+      createdLabel: "今日 11:20", completedAt: "2026-08-20T12:00:00Z", phase: "completed", progressPercent: 100, highRisk: false, plannedCounts: null,
       resultCounts: { succeeded: 512, waitingRemote: 0, retryable: 0, outcomeUnknown: 0, manual: 0, failedFinal: 0 },
     };
     const html = renderToStaticMarkup(<BatchList locale="zh-CN" jobs={[job]} />);
@@ -76,6 +77,15 @@ describe("Batch operations presentation", () => {
     expect(html).toContain("共 1 个批次");
   });
 
+  it("labels plans that never ran by their plan state, not an execution phase", () => {
+    expect(batchPhaseLabel("zh-CN", "approved")).toBe("待确认执行");
+    expect(batchPhaseLabel("zh-CN", "awaiting_approval")).toBe("计划待确认");
+    expect(batchPhaseLabel("zh-CN", "expired")).toBe("已过期");
+    expect(batchPhaseLabel("zh-CN", "queued")).toBe("排队中");
+    expect(batchPhaseLabel("zh-CN", "running")).toBe("执行中");
+    expect(batchDetailMode("approved")).toBe("plan");
+  });
+
   it("renders a Host projection with creation unavailable and no invented labels or detail affordance", () => {
     const view = projectBatchOperationList([{
       schemaVersion: 1, kind: "batch_operations", readGeneration: 1,
@@ -83,7 +93,7 @@ describe("Batch operations presentation", () => {
       totalRows: 1,
       window: { startIndex: 0, size: 200, rows: [{
         title: "Nameserver change", operationKind: "dns_change", planPhase: "approved", operationPhase: "completed",
-        riskLevel: "standard", itemCount: 1, targetCount: 1, createdAt: "2026-08-19T10:00:00Z", completedAt: "2026-08-20T10:00:00Z",
+        riskLevel: "standard", itemCount: 1, targetCount: 1, createdAt: "2026-08-19T10:00:00Z", completedAt: "2026-08-20T12:00:00Z",
         providerKinds: [], planned: { automatic: 1, manual: 0, unsupported: 0, conflict: 0, excluded: 0, highRisk: 0 },
         results: { queued: 0, running: 0, succeeded: 1, waitingRemote: 0, manualActionRequired: 0, failedRetryable: 0, outcomeUnknown: 0, failedFinal: 0, cancelled: 0, rolledBack: 0 },
       }] },

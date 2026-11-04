@@ -78,7 +78,8 @@ describe("batch operations read", () => {
   it("maps unexecuted plan phases and rejects incomplete or mixed windows", () => {
     const phases = (["planned", "approved", "expired", "cancelled"] as const).map((planPhase) =>
       projectBatchOperationList([read([{ ...planned, planPhase }])]).items[0]!.phase);
-    expect(phases).toEqual(["planned", "queued", "cancelled", "cancelled"]);
+    // A plan that never ran keeps a plan state; it never borrows an execution phase.
+    expect(phases).toEqual(["planned", "approved", "expired", "cancelled"]);
     const firstHalf = read([planned], { totalRows: 2, window: { startIndex: 0, size: 1, rows: [planned] } });
     const secondHalf = read([running], { totalRows: 2, window: { startIndex: 1, size: 1, rows: [running] } });
     expect(projectBatchOperationList([firstHalf, secondHalf]).items).toHaveLength(2);

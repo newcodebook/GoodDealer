@@ -53,7 +53,8 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary, creationA
   const count = (predicate: (job: BatchJobSummary) => boolean) => jobs.filter(predicate).length;
   const running = count((job) => batchDetailMode(job.phase) === "run");
   const planned = count((job) => batchDetailMode(job.phase) === "plan");
-  const completed = count((job) => job.phase === "completed" && job.completedOn === today);
+  // Completion is a UTC instant; "today" is the viewer's local calendar day.
+  const completed = count((job) => job.phase === "completed" && job.completedAt !== null && localIsoDate(new Date(job.completedAt)) === today);
   const partial = count((job) => job.phase === "partially_failed");
   const rolledBack = count((job) => job.phase === "rolled_back");
   const needle = query.trim();
@@ -105,7 +106,7 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary, creationA
       render: (job) => {
         const mode = batchDetailMode(job.phase);
         if (mode === "plan") return <span className="batch-pending">{copy.awaitingExecution}</span>;
-        if (job.phase === "rolled_back" || job.phase === "cancelled") return <span className="batch-faint">{batchPhaseLabel(locale, job.phase)}</span>;
+        if (job.phase === "rolled_back" || job.phase === "cancelled" || job.phase === "expired") return <span className="batch-faint">{batchPhaseLabel(locale, job.phase)}</span>;
         const tone = batchPhaseTone(job.phase);
         return (
           <span className="batch-progress">

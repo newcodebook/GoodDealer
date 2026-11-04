@@ -621,6 +621,8 @@ const enUSDictionary = {
     confirmAndRun: "Confirm and run",
     rolledBackTitle: "Batch rolled back",
     rolledBackBody: "This batch was rolled back as a whole; the rollback is a new Revision recorded in Operation history.",
+    queued: "Queued",
+    expired: "Expired",
     creationUnavailable: "Batch plans for repricing, DNS changes, and listings are not connected to a qualified platform capability yet, so new batches are unavailable.",
     loading: "Reading local batch operations…",
     loadFailed: "Local batch operations could not be read. Retrying only reads again and changes nothing.",
