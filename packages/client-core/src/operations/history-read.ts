@@ -1,0 +1,169 @@
+import { z } from "zod";
+
+import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
+import { operationHistoryViewModelSchema, type OperationHistoryEntry, type OperationHistoryViewModel } from "./contracts";
+
+const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const textSchema = z.string().max(2_000);
+const moneySchema = z.object({ currency: z.string().min(1).max(16), amount: z.string().min(1).max(64) }).strict();
+
+/** Each recorded field keeps the shape the Host validated; anything else is rejected. */
+const historyFieldChangeSchema = z.discriminatedUnion("fieldPath", [
+  z.object({ fieldPath: z.literal("note"), value: textSchema.nullable(), previousValue: textSchema.nullable().optional() }).strict(),
+  z.object({ fieldPath: z.literal("portfolioId"), value: textSchema.nullable(), previousValue: textSchema.nullable().optional() }).strict(),
+  z.object({ fieldPath: z.literal("tags"), value: z.array(textSchema).max(200), previousValue: z.array(textSchema).max(200).optional() }).strict(),
+  z.object({ fieldPath: z.literal("targetPrice"), value: moneySchema.nullable(), previousValue: moneySchema.nullable().optional() }).strict(),
+]);
+
+const historyRowSchema = z.object({
+  localRevision: revisionSchema,
+  entityId: z.string().min(1).max(253),
+  operation: z.enum(["edit", "delete"]),
+  committedAt: z.iso.datetime(),
+  state: z.enum(["pending", "sending", "acknowledged", "conflicted", "rejected"]),
+  serverRevision: revisionSchema.min(1).nullable(),
+  changes: z.array(historyFieldChangeSchema).max(4).readonly(),
+}).strict().superRefine((row, context) => {
+  if ((row.state === "acknowledged") !== (row.serverRevision !== null)) {
+    context.addIssue({ code: "custom", path: ["serverRevision"], message: "only an acknowledged revision has a server revision" });
+  }
+  if (row.operation === "delete" && row.changes.length > 0) {
+    context.addIssue({ code: "custom", path: ["changes"], message: "a deletion records no field values" });
+  }
+  if (new Set(row.changes.map((change) => change.fieldPath)).size !== row.changes.length) {
+    context.addIssue({ code: "custom", path: ["changes"], message: "each field changes at most once per revision" });
+  }
+});
+
+export const historyWindowRequestSchema = z.object({
+  startIndex: z.number().int().nonnegative().max(1_000_000),
+  size: z.number().int().min(1).max(200),
+}).strict();
+
+/** Host revision ledger window: local revisions newest first, without mutation or device identifiers. */
+export const historyReadSchema = z.object({
+  schemaVersion: z.literal(1),
+  kind: z.literal("history"),
+  readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  freshness: portfolioFreshnessSchema,
+  totalRows: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  pendingRows: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  window: z.object({
+    startIndex: historyWindowRequestSchema.shape.startIndex,
+    size: historyWindowRequestSchema.shape.size,
+    rows: z.array(historyRowSchema).max(200).readonly(),
+  }).strict(),
+}).strict().superRefine((read, context) => {
+  const { startIndex, size, rows } = read.window;
+  if (read.pendingRows > read.totalRows || rows.length > size || startIndex + rows.length > read.totalRows) {
+    context.addIssue({ code: "custom", path: ["window", "rows"], message: "window exceeds its bounds" });
+  }
+  for (let index = 1; index < rows.length; index += 1) {
+    if (rows[index - 1]!.localRevision < rows[index]!.localRevision) {
+      context.addIssue({ code: "custom", path: ["window", "rows", index], message: "rows must be newest first" });
+      break;
+    }
+  }
+});
+
+export type HistoryWindowRequest = z.infer<typeof historyWindowRequestSchema>;
+export type HistoryRead = z.infer<typeof historyReadSchema>;
+export type HistoryRow = z.infer<typeof historyRowSchema>;
+export type HistoryFieldChange = z.infer<typeof historyFieldChangeSchema>;
+
+export function parseHistoryRead(input: unknown): HistoryRead {
+  return historyReadSchema.parse(copyPlainData(input));
+}
+
+export interface HistoryReadPort {
+  loadHistory(request: HistoryWindowRequest): Promise<HistoryRead>;
+}
+
+/** The operation history view model holds at most this many of the newest revisions. */
+export const historyEntryLimit = 500;
+
+/** Localized labels the projection needs; the Host read carries none. */
+export interface HistoryProjectionLabels {
+  readonly edit: string;
+  readonly delete: string;
+  readonly actor: string;
+  readonly platform: string;
+  readonly empty: string;
+  readonly fields: Readonly<Record<HistoryFieldChange["fieldPath"], string>>;
+}
+
+function displayValue(value: HistoryFieldChange["value"], empty: string): string {
+  if (value === null) return empty;
+  if (typeof value === "string") return value === "" ? empty : value;
+  if (Array.isArray(value)) return value.length === 0 ? empty : value.join(", ");
+  return `${value.currency} ${value.amount}`;
+}
+
+function entryState(state: HistoryRow["state"]): OperationHistoryEntry["state"] {
+  switch (state) {
+    case "pending":
+    case "sending": return "applied";
+    case "acknowledged": return "synced";
+    case "conflicted": return "conflicted";
+    case "rejected": return "rejected";
+  }
+}
+
+/**
+ * Projects contiguous Host history windows of one generation into the operation history view. The
+ * windows cover the newest revisions up to `historyEntryLimit`; totals still count the whole
+ * ledger. No reversal is offered: rollback needs a qualified Host command, so every entry is
+ * read-only and an unknown previous value stays null rather than looking empty.
+ */
+export function projectOperationHistory(
+  windows: readonly HistoryRead[],
+  labels: HistoryProjectionLabels,
+  isToday: (committedAt: string) => boolean,
+  selectedRevisionId: string | null,
+): OperationHistoryViewModel {
+  const first = windows[0];
+  if (first === undefined) throw new TypeError("history needs at least one Host window");
+  let expectedStart = 0;
+  for (const window of windows) {
+    if (window.readGeneration !== first.readGeneration || window.totalRows !== first.totalRows
+      || window.pendingRows !== first.pendingRows || window.window.startIndex !== expectedStart) {
+      throw new TypeError("history windows must be contiguous reads of one Host generation");
+    }
+    expectedStart += window.window.rows.length;
+  }
+  if (expectedStart < Math.min(first.totalRows, historyEntryLimit)) throw new TypeError("history windows must cover the newest revisions");
+  const rows = windows.flatMap((window) => window.window.rows).slice(0, historyEntryLimit);
+  const entries = rows.map((row): OperationHistoryEntry => ({
+    revisionId: `rev-${row.localRevision}`,
+    revisionLabel: String(row.localRevision),
+    occurredAt: row.committedAt,
+    actorLabel: labels.actor,
+    scope: "single_domain",
+    // A deletion carries no diffs, so the action itself names the asset.
+    actionLabel: `${row.operation === "edit" ? labels.edit : labels.delete} · ${row.entityId}`,
+    platformLabel: labels.platform,
+    itemCount: 1,
+    state: entryState(row.state),
+    risk: "standard",
+    diffs: row.changes.map((change) => ({
+      entityLabel: row.entityId,
+      fieldLabel: labels.fields[change.fieldPath],
+      oldValue: change.previousValue === undefined ? null : displayValue(change.previousValue, labels.empty),
+      newValue: displayValue(change.value, labels.empty),
+    })),
+    reversible: false,
+    availableActions: [],
+    lateExecution: null,
+  }));
+  return operationHistoryViewModelSchema.parse({
+    schemaVersion: 1,
+    kind: "operation_history",
+    source: first.freshness.source,
+    commandAdmission: "unavailable",
+    selectedRevisionId: entries.some((entry) => entry.revisionId === selectedRevisionId) ? selectedRevisionId : null,
+    totalRevisions: first.totalRows,
+    changesToday: rows.filter((row) => isToday(row.committedAt)).length,
+    pendingRevisionCount: first.pendingRows,
+    entries,
+  });
+}

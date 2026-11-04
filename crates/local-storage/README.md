@@ -109,6 +109,15 @@ item's latest attempt status once an operation exists. Plan, item, operation, at
 and Provider request identifiers stay in the Host; titles with control characters, malformed kinds
 and unknown platforms fail the whole read.
 
+`BusinessDatabase::read_history` uses the same window rules and lists the local revision ledger
+(`sync_outbox`) newest first by local commit sequence: asset, edit or delete, commit time, sync
+state, the acknowledged server revision, and each edit's changed synced fields (`note`,
+`portfolioId`, `tags`, `targetPrice`) with the same field's value in the asset's preceding local
+revision. Edits record full field snapshots, so unchanged fields are omitted; `previousValue` is
+omitted, not `null`, when no earlier local revision records the field. Remote changes pulled
+between two local revisions are not revisions of this ledger. Mutation, device, lease and payload
+digest identifiers stay in the Host; a recorded value of the wrong shape fails the whole read.
+
 `BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
 recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
 soonest first, with recorded auto-renew and the latest available registrar observation's registrar

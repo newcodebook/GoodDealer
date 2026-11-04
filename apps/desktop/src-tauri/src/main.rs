@@ -162,6 +162,7 @@ fn main() {
             command_handlers::local_sales_read,
             command_handlers::local_renewals_read,
             command_handlers::local_batch_operations_read,
+            command_handlers::local_history_read,
             command_handlers::local_domain_asset_edit,
             command_handlers::local_domain_asset_delete,
             command_handlers::local_domain_asset_provider_bind,

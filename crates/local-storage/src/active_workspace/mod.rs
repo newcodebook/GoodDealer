@@ -2,6 +2,8 @@ pub(crate) mod batch_operations;
 
 pub(crate) mod dns_health;
 
+pub(crate) mod history;
+
 pub(crate) mod renewals;
 
 pub(crate) mod sales;
@@ -77,6 +79,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_history(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::HistoryReadSnapshot, PortfolioReadError> {
+            super::history::ActiveHistoryReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

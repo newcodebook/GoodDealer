@@ -6,6 +6,10 @@ import {
   parseBatchOperationsRead,
   type BatchOperationsRead,
   type BatchOperationsReadPort,
+  historyWindowRequestSchema,
+  parseHistoryRead,
+  type HistoryRead,
+  type HistoryReadPort,
   assetLibraryWindowRequestSchema,
   canonicalDomainNameSchema,
   parseAssetLibraryQuery,
@@ -127,6 +131,7 @@ const commands = {
   readSettings: "local_settings_read",
   readRenewals: "local_renewals_read",
   readBatchOperations: "local_batch_operations_read",
+  readHistory: "local_history_read",
   readSales: "local_sales_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
@@ -213,6 +218,23 @@ export function createLocalBatchOperationsPort(): BatchOperationsReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseBatchOperationsRead(await invoke(commands.readBatchOperations, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Revision ledger windows from the Host; any other provenance is rejected. */
+export function createLocalHistoryPort(): HistoryReadPort {
+  return {
+    async loadHistory(request): Promise<HistoryRead> {
+      let validatedRequest;
+      try { validatedRequest = historyWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseHistoryRead(await invoke(commands.readHistory, { request: validatedRequest }));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

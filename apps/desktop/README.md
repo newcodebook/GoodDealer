@@ -12,7 +12,11 @@ Customer Desktop application that composes the Renderer and native Host around t
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
   sign-in, and locked pages plus a workspace with the asset library, domain detail (target-price
-  edit), renewals, sales, DNS health, batch operations, conflict center, and settings. Batch
+  edit), renewals, sales, DNS health, batch operations, conflict center, operation history, and
+  settings. Operation history reads the newest 500 local revisions from `local_history_read`
+  (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
+  revision, with unknown previous values shown as unknown); every Revision is read-only, with no
+  rollback or export until a reversal capability is qualified. Batch
   operations lists Host operation plans from `local_batch_operations_read` (title, phase, targets,
   platforms, planned counts and latest attempt outcomes, never plan or operation identifiers); rows
   do not open, and creating, approving or running a batch is unavailable until an operation
@@ -99,6 +103,7 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `local_sales_read`
 - `local_renewals_read`
 - `local_batch_operations_read`
+- `local_history_read`
 - `local_domain_asset_edit`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`

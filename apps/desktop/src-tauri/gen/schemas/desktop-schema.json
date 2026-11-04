@@ -471,6 +471,12 @@
           "markdownDescription": "Enables the local_domain_detail_read command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_history_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-history-read",
+          "markdownDescription": "Enables the local_history_read command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_renewals_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-renewals-read",
@@ -619,6 +625,12 @@
           "type": "string",
           "const": "deny-local-domain-detail-read",
           "markdownDescription": "Denies the local_domain_detail_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_history_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-history-read",
+          "markdownDescription": "Denies the local_history_read command without any pre-configured scope."
         },
         {
           "description": "Denies the local_renewals_read command without any pre-configured scope.",

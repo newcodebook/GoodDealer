@@ -62,6 +62,8 @@ export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExp
       case "cloud_pull": return <Badge tone="sync" mono={false}>{copy.cloudPull}</Badge>;
       case "device_event": return <Badge tone="gold" mono={false}>{copy.device}</Badge>;
       case "late_execution": return <Badge tone="danger" mono={false}>{copy.lateExecution}</Badge>;
+      case "conflicted": return <Badge tone="warning" mono={false}>{copy.conflicted}</Badge>;
+      case "rejected": return <Badge tone="danger" mono={false}>{copy.rejected}</Badge>;
     }
   };
   const scopes: readonly { readonly value: ScopeFilter; readonly label: string }[] = [
@@ -115,6 +117,9 @@ export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExp
         right={<span className="gd-t-meta history-nowrap">{copy.ledgerNotice}</span>}
       />
       {readOnly ? <p className="history-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
+      {view.entries.length < view.totalRevisions ? (
+        <p className="history-readonly gd-t-meta">{fill(copy.showingNewest, { shown: formatNumber(locale, view.entries.length), total: formatNumber(locale, view.totalRevisions) })}</p>
+      ) : null}
       <div className="history-body">
         <div className="history-ledger">
           <Table<OperationHistoryEntry>

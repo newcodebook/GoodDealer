@@ -37,6 +37,7 @@ function createFixture() {
     "local_batch_operations_read",
     "local_dns_health_read",
     "local_domain_detail_read",
+    "local_history_read",
     "local_renewals_read",
     "local_sales_read",
     "local_settings_read",

@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
+import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -92,6 +92,36 @@ describe("Desktop Tauri local-business adapter", () => {
     }
     invokeMock.mockClear();
     await expect(port.loadBatchOperations({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("reads history windows through the narrow command and rejects identifiers or foreign provenance", async () => {
+    const row = {
+      localRevision: 4, entityId: "ledger.test", operation: "edit", committedAt: "2026-08-19T10:00:00Z", state: "pending",
+      serverRevision: null, changes: [{ fieldPath: "note", value: "second", previousValue: "first" }],
+    };
+    const read = {
+      schemaVersion: 1, kind: "history", readGeneration: 3,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 1, pendingRows: 1,
+      window: { startIndex: 0, size: 200, rows: [row] },
+    };
+    const port = createLocalHistoryPort();
+    invokeMock.mockResolvedValueOnce(read);
+    await expect(port.loadHistory({ startIndex: 0, size: 200 })).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_history_read", { request: { startIndex: 0, size: 200 } });
+    for (const hostile of [
+      { ...read, window: { ...read.window, rows: [{ ...row, mutationId: "canary" }] } },
+      { ...read, window: { ...read.window, rows: [{ ...row, sourceDeviceId: "canary" }] } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      "LOCAL_READ_AUTHORIZATION_REQUIRED",
+    ]) {
+      if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
+      else invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.loadHistory({ startIndex: 0, size: 200 })).rejects.toBeInstanceOf(LocalReadError);
+    }
+    invokeMock.mockClear();
+    await expect(port.loadHistory({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

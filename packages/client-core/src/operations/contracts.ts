@@ -250,6 +250,8 @@ export const operationHistoryEntryStateSchema = z.enum([
   "cloud_pull",
   "device_event",
   "late_execution",
+  "conflicted",
+  "rejected",
 ]);
 
 export const operationHistoryDiffSchema = z
@@ -318,7 +320,7 @@ export const operationHistoryViewModelSchema = z
       if (isLate !== (entry.lateExecution !== null) || (isLate && entry.reversible)) {
         context.addIssue({ code: "custom", path: ["entries", index, "lateExecution"], message: "late execution facts are read-only and require provenance" });
       }
-      if (["rolled_back", "cloud_pull", "device_event", "late_execution"].includes(entry.state) && entry.reversible) {
+      if (["rolled_back", "cloud_pull", "device_event", "late_execution", "conflicted", "rejected"].includes(entry.state) && entry.reversible) {
         context.addIssue({ code: "custom", path: ["entries", index, "reversible"], message: "entry state cannot be reversed" });
       }
     }

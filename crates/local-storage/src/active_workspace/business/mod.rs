@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_history(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::HistoryReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_history(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one bounded window of operation plans, newest first, with planned and attempted counts.
     ///
     /// # Errors
@@ -8058,6 +8073,135 @@ mod tests {
                 "{name:?} must fail closed"
             );
         }
+    }
+
+    fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
+        DomainAssetWrite {
+            entity_id: "ledger.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: tags.iter().map(|&tag| tag.to_owned()).collect(),
+            target_price: None,
+        }
+    }
+
+    #[test]
+    fn history_lists_local_revisions_newest_first_with_diffs_and_no_identifiers() {
+        let mut database = database();
+        assert_eq!(database.read_history(0, 10).unwrap().total_rows, 0);
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let version = |database: &BusinessDatabase| -> u64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        let committed = [
+            ("mutation-secret-1", history_write("first", &[])),
+            ("mutation-secret-2", history_write("second", &["sale"])),
+        ];
+        for (mutation_id, write) in &committed {
+            let expected = version(&database);
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected,
+                    "device-secret",
+                    7,
+                    TIMESTAMP,
+                    write,
+                    true,
+                )
+                .unwrap();
+        }
+        let expected = version(&database);
+        database
+            .delete_domain_asset(
+                "mutation-secret-3",
+                expected,
+                "device-secret",
+                7,
+                TIMESTAMP,
+                "ledger.test",
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "history");
+        assert_eq!((snapshot.total_rows, snapshot.pending_rows), (4, 4));
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.operation.as_str(), row.state.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("delete", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending")
+            ]
+        );
+        assert!(rows[0].local_revision > rows[1].local_revision);
+        assert!(rows[0].changes.is_empty());
+        // The second edit reports only what moved since the first, with both sides.
+        assert_eq!(
+            rows[1].changes,
+            [
+                crate::HistoryFieldChange {
+                    field_path: "note".to_owned(),
+                    value: serde_json::json!("second"),
+                    previous_value: Some(serde_json::json!("first")),
+                },
+                crate::HistoryFieldChange {
+                    field_path: "tags".to_owned(),
+                    value: serde_json::json!(["sale"]),
+                    previous_value: Some(serde_json::json!([])),
+                },
+            ]
+        );
+        assert_eq!(
+            rows[2].changes,
+            [crate::HistoryFieldChange {
+                field_path: "note".to_owned(),
+                value: serde_json::json!("first"),
+                previous_value: Some(serde_json::json!("seed")),
+            }]
+        );
+        // The first local revision has no recorded predecessor, so nothing claims an old value.
+        assert_eq!(rows[3].changes.len(), 4);
+        assert!(
+            rows[3]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(wire.matches("previousValue").count(), 3);
+        for secret in ["mutation-secret", "device-secret", "mutationId", "deviceId"] {
+            assert!(!wire.contains(secret), "{secret} leaked into history");
+        }
+        assert_eq!(database.read_history(3, 10).unwrap().window.rows.len(), 1);
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_history(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        // A recorded value of the wrong shape fails the whole read closed.
+        database.store.fixture_connection().execute("UPDATE sync_outbox_fields SET field_value_json='{\"amount\":1}' WHERE mutation_id='mutation-secret-2' AND field_path='targetPrice'", []).unwrap();
+        assert!(matches!(
+            database.read_history(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     #[test]

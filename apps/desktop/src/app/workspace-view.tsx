@@ -1,6 +1,6 @@
-import { parseAssetLibraryQuery, projectBatchOperationList, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
@@ -8,6 +8,7 @@ import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainD
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
 import { BatchList } from "../features/operations/batch-operations";
+import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
@@ -69,6 +70,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       ...(has("sync.conflicts")
         ? [{ id: "sync.conflicts", label: shellCopy.conflicts, icon: <AlertTriangleIcon />, ...(pendingConflicts > 0 ? { count: pendingConflicts, tone: "danger" as const } : {}) }]
         : []),
+      ...(has("operations.history") ? [{ id: "operations.history", label: shellCopy.history, icon: <HistoryIcon /> }] : []),
     ];
     return [
       ...(assets.length === 0 ? [] : [{ id: "assets", label: shellCopy.assets, items: assets }]),
@@ -100,7 +102,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "operations.batch" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "operations.batch" || id === "operations.history" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -161,6 +163,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
           ),
           "operations.batch": () => (
             <BatchRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
+            />
+          ),
+          "operations.history": () => (
+            <HistoryRoute
               locale={locale}
               ports={ports}
               readGeneration={publication.status.readGeneration}
@@ -295,6 +305,88 @@ function BatchRoute({ locale, ports, readGeneration, onStale }: {
   }, [ports, readGeneration, attempt]);
 
   if (state.kind === "ready") return <BatchList locale={locale} jobs={state.view.items} creationAvailability={state.view.creationAvailability} />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+    </Banner>
+  );
+}
+
+const historyWindowSize = 200;
+
+type HistoryState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly windows: readonly HistoryRead[] }
+  | { readonly kind: "failed" };
+
+function localIsoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Reads the newest history windows for one Host generation, up to the view's entry limit. The
+ * ledger gets no reversal or export callback: rollback needs a qualified Host command and export
+ * has no Host source, so every Revision is read-only.
+ */
+function HistoryRoute({ locale, ports, readGeneration, onStale }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "operationHistory");
+  const [state, setState] = useState<HistoryState>({ kind: "loading" });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: HistoryRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.history.loadHistory({ startIndex: next, size: historyWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < Math.min(windows[0]?.totalRows ?? 0, historyEntryLimit));
+        if (!cancelled) setState({ kind: "ready", windows });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  const view = useMemo(() => {
+    if (state.kind !== "ready") return null;
+    const today = localIsoDate(new Date());
+    try {
+      return projectOperationHistory(state.windows, {
+        edit: copy.editAsset,
+        delete: copy.deleteAsset,
+        actor: copy.localWorkspace,
+        platform: copy.assetLibrary,
+        empty: copy.emptyValue,
+        fields: { note: copy.fieldNote, portfolioId: copy.fieldPortfolio, tags: copy.fieldTags, targetPrice: copy.fieldTargetPrice },
+      }, (committedAt) => localIsoDate(new Date(committedAt)) === today, selected);
+    } catch {
+      return null;
+    }
+  }, [state, copy, selected]);
+
+  if (view !== null) return <OperationHistory locale={locale} view={view} onSelect={setSelected} />;
   if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
   return (
     <Banner tone="danger" title={copy.loadFailed}>
