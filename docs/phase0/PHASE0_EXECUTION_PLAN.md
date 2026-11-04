@@ -63,7 +63,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 销售页接入 Host 投影（资格前显示不可用） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 批量页接入 Host 投影（先生成计划，再逐项确认） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 历史页接入 Host 投影
+- [x] 历史页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账）
 - [ ] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures`
 - [ ] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定（当前仅接受 Cloudflare）
@@ -80,8 +80,10 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 续费页自动续费覆盖指标区分“未记录”与“已关闭”
 - [ ] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐
 - [ ] 资产库到期计数在搜索过滤下与续费页列表口径一致
-- [ ] 续费、销售、批量路由补 generation 过期与重试路径测试
+- [ ] 续费、销售、批量、历史路由补 generation 过期与重试路径测试
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
+- [ ] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）
+- [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
 
 ### 3. Cloudflare 路径稳定
 

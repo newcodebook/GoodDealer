@@ -80,7 +80,16 @@ describe("history read", () => {
     }
     expect(projectOperationHistory([read()], labels, () => false, "rev-99").selectedRevisionId).toBeNull();
     const long = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_000) }] }])], labels, () => false, null);
-    expect(Array.from(long.entries[0]!.diffs[0]!.newValue!)).toHaveLength(2_000);
+    expect(long.entries[0]!.diffs[0]!.newValue!).toHaveLength(2_000);
+    // Astral characters count once on the Host but twice in UTF-16; both bounds must hold.
+    const emoji = "😀".repeat(10_000);
+    const astral = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: emoji, previousValue: "😀".repeat(1_500) }] }])], labels, () => false, null);
+    const [diff] = astral.entries[0]!.diffs;
+    expect(diff!.newValue!.length).toBeLessThanOrEqual(2_000);
+    expect(diff!.oldValue!.length).toBeLessThanOrEqual(2_000);
+    expect(diff!.newValue!.endsWith("😀…")).toBe(true);
+    expect(parseHistoryRead(read([{ ...edit, changes: [{ fieldPath: "tags", value: ["😀".repeat(64)] }] }])).window.rows).toHaveLength(1);
+    expect(() => parseHistoryRead(read([{ ...edit, changes: [{ fieldPath: "note", value: `${emoji}😀` }] }]))).toThrow();
     expect(long.entries[0]!.diffs[0]!.newValue!.endsWith("…")).toBe(true);
     expect(() => parseHistoryRead(read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_001) }] }]))).toThrow();
   });

@@ -4,10 +4,15 @@ import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-model
 import { operationHistoryViewModelSchema, type OperationHistoryEntry, type OperationHistoryViewModel } from "./contracts";
 
 const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** Like the Host, counts Unicode scalar values rather than UTF-16 code units. */
+function maxCharacters(limit: number) {
+  return z.string().refine((value) => Array.from(value).length <= limit, `at most ${limit} characters`);
+}
+
 // Bounds mirror the Host's asset-write rules, so any value an edit could record is readable.
-const noteSchema = z.string().max(10_000);
+const noteSchema = maxCharacters(10_000);
 const portfolioIdSchema = z.string().min(1).max(160);
-const tagsSchema = z.array(z.string().min(1).max(64)).max(128);
+const tagsSchema = z.array(maxCharacters(64).refine((tag) => tag !== "", "tags are non-empty")).max(128);
 const moneySchema = z.object({ currency: z.string().min(1).max(16), amount: z.string().min(1).max(64) }).strict();
 
 /** Each recorded field keeps the shape the Host validated; anything else is rejected. */
@@ -95,7 +100,7 @@ export interface HistoryProjectionLabels {
   readonly fields: Readonly<Record<HistoryFieldChange["fieldPath"], string>>;
 }
 
-/** Diff values hold at most this many characters; longer notes and tag lists are clipped. */
+/** Diff values hold at most this many UTF-16 code units; longer notes and tag lists are clipped. */
 const displayLimit = 2_000;
 
 function displayValue(value: HistoryFieldChange["value"], empty: string): string {
@@ -105,8 +110,14 @@ function displayValue(value: HistoryFieldChange["value"], empty: string): string
   else if (Array.isArray(value)) text = value.join(", ");
   else text = `${value.currency} ${value.amount}`;
   if (text === "") return empty;
-  const characters = Array.from(text);
-  return characters.length <= displayLimit ? text : `${characters.slice(0, displayLimit - 1).join("")}…`;
+  if (text.length <= displayLimit) return text;
+  // Clip on whole code points so a surrogate pair is never split, leaving room for the ellipsis.
+  let clipped = "";
+  for (const character of text) {
+    if (clipped.length + character.length > displayLimit - 1) break;
+    clipped += character;
+  }
+  return `${clipped}…`;
 }
 
 function entryState(state: HistoryRow["state"]): OperationHistoryEntry["state"] {
