@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { salesDeskViewModelSchema } from "./index";
-import { parseSalesRead, projectSalesDeskViewModel } from "./sales-read";
+import { salesDeskViewModelSchema, salesListingLimit } from "./index";
+import { parseSalesRead, projectSalesDeskViewModel, type SalesRead } from "./sales-read";
 
 const freshness = { source: "active_local", readOnlyReason: null, serverRevision: 5, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true } as const;
 const row = {
@@ -111,5 +111,19 @@ describe("sales Host read", () => {
     expect(projectSalesDeskViewModel([first, second]).listings).toHaveLength(2);
     expect(() => projectSalesDeskViewModel([first, { ...second, readGeneration: 9 }])).toThrow();
     expect(() => projectSalesDeskViewModel([first])).toThrow();
+  });
+
+  it("fails when the domains exceed the desk limit, while extra markets per domain still fit", () => {
+    // Already-parsed windows: parsing 100k rows would only re-test the window schema.
+    const windows = (domains: number, markets: readonly SalesRead["window"]["rows"][number]["marketplaceKind"][]) => {
+      const rows = Array.from({ length: domains }, (_, index) => `d${String(index).padStart(6, "0")}.io`)
+        .flatMap((entityId) => markets.map((marketplaceKind) => ({ ...row, entityId, marketplaceKind })));
+      return Array.from({ length: Math.ceil(rows.length / 200) }, (_, index): SalesRead => ({
+        schemaVersion: 1, kind: "sales", readGeneration: 4, freshness, totalRows: rows.length,
+        window: { startIndex: index * 200, size: 200, rows: rows.slice(index * 200, index * 200 + 200) },
+      }));
+    };
+    expect(projectSalesDeskViewModel(windows(salesListingLimit, ["atom", "spaceship"])).listings).toHaveLength(salesListingLimit);
+    expect(() => projectSalesDeskViewModel(windows(salesListingLimit + 1, ["atom"]))).toThrow(RangeError);
   });
 });

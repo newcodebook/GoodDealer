@@ -3,7 +3,7 @@ import { z } from "zod";
 import { commerceMoneySchema, type CommerceMoney } from "../pricing/index";
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
-import { salesDeskViewModelSchema, type ListingView, type SalesDeskViewModel } from "./index";
+import { salesDeskViewModelSchema, salesListingLimit, type ListingView, type SalesDeskViewModel } from "./index";
 
 /** ADR-0027 launch platforms; the Host rejects listings from any other marketplace. */
 export const salesMarketplaceKindSchema = z.enum([
@@ -175,6 +175,10 @@ export function projectSalesDeskViewModel(windows: readonly SalesRead[]): SalesD
     const group = byDomain.at(-1);
     if (group !== undefined && group[0]!.entityId === row.entityId) group.push(row);
     else byDomain.push([row]);
+  }
+  // Named here rather than left to the schema so the failure says what was exceeded.
+  if (byDomain.length > salesListingLimit) {
+    throw new RangeError(`sales holds more than ${salesListingLimit} domains and needs a paginated read`);
   }
   const listings = byDomain.map(mergeListing);
   // Parse the result so the view-model refinements also hold on the production path.

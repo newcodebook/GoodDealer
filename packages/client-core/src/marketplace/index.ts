@@ -101,6 +101,13 @@ export const dealViewSchema = z
     }
   });
 
+/**
+ * Domains one sales desk holds: the DATABASE_SCHEMA 100k-asset scale target. The Host window can
+ * report more rows than this, because one domain can be listed on several markets; a read whose
+ * domains exceed it fails instead of being truncated, until sales reads become paginated.
+ */
+export const salesListingLimit = 100_000;
+
 export const salesDeskViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -116,7 +123,7 @@ export const salesDeskViewModelSchema = z
       monthGmv: commerceMoneySchema.nullable(),
       settlingDealCount: z.number().int().nonnegative().nullable(),
     }).strict(),
-    listings: z.array(listingViewSchema).max(100_000),
+    listings: z.array(listingViewSchema).max(salesListingLimit),
     offers: z.array(offerViewSchema).max(100_000),
     deals: z.array(dealViewSchema).max(100_000),
   })
