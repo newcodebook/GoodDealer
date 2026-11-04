@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
+import { useHostRouteRead, type HostRouteReadState } from "./host-route-read";
 import {
   createPortfolioMutationController,
   createPortfolioReadController,
@@ -264,12 +265,21 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
   );
 }
 
-const batchWindowSize = 200;
+const hostWindowSize = 200;
 
-type BatchState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly view: BatchOperationListViewModel }
-  | { readonly kind: "failed" };
+/** Loading and failure presentation shared by the windowed Host routes; retry restarts the read. */
+function HostRouteStatus({ state, copy, onRetry }: {
+  readonly state: HostRouteReadState<unknown>;
+  readonly copy: { readonly loading: string; readonly loadFailed: string; readonly retryRead: string };
+  readonly onRetry: () => void;
+}) {
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={onRetry}>{copy.retryRead}</Button>
+    </Banner>
+  );
+}
 
 /**
  * Reads every batch window for one Host generation. Rows do not open: the Host has no plan detail
@@ -283,52 +293,15 @@ function BatchRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "batchOperation");
-  const [state, setState] = useState<BatchState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: BatchOperationsRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.batches.loadBatchOperations({ startIndex: next, size: batchWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < (windows[0]?.totalRows ?? 0));
-        const view = projectBatchOperationList(windows);
-        if (!cancelled) setState({ kind: "ready", view });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
-
-  if (state.kind === "ready") return <BatchList locale={locale} jobs={state.view.items} creationAvailability={state.view.creationAvailability} />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
+  const { state, retry } = useHostRouteRead(
+    ports.batches, (port, request) => port.loadBatchOperations(request), readGeneration, onStale,
+    projectBatchOperationList, { windowSize: hostWindowSize },
   );
+  if (state.kind === "ready") return <BatchList locale={locale} jobs={state.value.items} creationAvailability={state.value.creationAvailability} />;
+  return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 
-const manualTasksWindowSize = 200;
-
-type ManualTasksState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly windows: readonly ManualTasksRead[] }
-  | { readonly kind: "failed" };
+const keepWindows = <T,>(windows: readonly T[]): readonly T[] => windows;
 
 /**
  * Reads every manual task window for one Host generation. The inbox gets no action or risk
@@ -342,41 +315,16 @@ function ManualTasksRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "manualTaskInbox");
-  const [state, setState] = useState<ManualTasksState>({ kind: "loading" });
   const [selected, setSelected] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: ManualTasksRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.manualTasks.loadManualTasks({ startIndex: next, size: manualTasksWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < (windows[0]?.totalRows ?? 0));
-        if (!cancelled) setState({ kind: "ready", windows });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
+  const { state, retry } = useHostRouteRead(
+    ports.manualTasks, (port, request) => port.loadManualTasks(request), readGeneration, onStale,
+    keepWindows<ManualTasksRead>, { windowSize: hostWindowSize },
+  );
 
   const view = useMemo(() => {
     if (state.kind !== "ready") return null;
     try {
-      return projectManualTaskInbox(state.windows, {
+      return projectManualTaskInbox(state.value, {
         reason: (platform, capability) => (platform === null ? copy.manualReasonUnbound : copy.manualReason.replace("{platform}", platform)).replace("{capability}", capability),
         completionCondition: copy.completionByObservation,
         noPlatform: copy.noPlatform,
@@ -388,20 +336,8 @@ function ManualTasksRoute({ locale, ports, readGeneration, onStale }: {
   }, [state, copy, selected]);
 
   if (view !== null) return <ManualTaskInbox locale={locale} view={view} onSelect={setSelected} />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
-  );
+  return <HostRouteStatus state={state.kind === "loading" ? state : { kind: "failed" }} copy={copy} onRetry={retry} />;
 }
-
-const historyWindowSize = 200;
-
-type HistoryState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly windows: readonly HistoryRead[] }
-  | { readonly kind: "failed" };
 
 function localIsoDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -421,42 +357,17 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "operationHistory");
-  const [state, setState] = useState<HistoryState>({ kind: "loading" });
   const [selected, setSelected] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: HistoryRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.history.loadHistory({ startIndex: next, size: historyWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < Math.min(windows[0]?.totalRows ?? 0, historyEntryLimit));
-        if (!cancelled) setState({ kind: "ready", windows });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
+  const { state, retry } = useHostRouteRead(
+    ports.history, (port, request) => port.loadHistory(request), readGeneration, onStale,
+    keepWindows<HistoryRead>, { windowSize: hostWindowSize, rowLimit: historyEntryLimit },
+  );
 
   const view = useMemo(() => {
     if (state.kind !== "ready") return null;
     const today = localIsoDate(new Date());
     try {
-      return projectOperationHistory(state.windows, {
+      return projectOperationHistory(state.value, {
         edit: copy.editAsset,
         delete: copy.deleteAsset,
         actor: copy.localWorkspace,
@@ -470,23 +381,13 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
   }, [state, copy, selected]);
 
   if (view !== null) return <OperationHistory locale={locale} view={view} onSelect={setSelected} />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
-  );
+  return <HostRouteStatus state={state.kind === "loading" ? state : { kind: "failed" }} copy={copy} onRetry={retry} />;
 }
 
-const renewalsWindowSize = 200;
-
-type RenewalsState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly view: RenewalListView }
-  | { readonly kind: "failed" };
-
-function isRenewalList(view: RenewalDeskViewModel): view is RenewalListView {
-  return view.state === "list";
+function projectRenewalList(windows: readonly RenewalsRead[]): RenewalListView {
+  const view = projectRenewalDeskViewModel(windows);
+  if (view.state !== "list") throw new TypeError("renewals project to the list state");
+  return view;
 }
 
 /**
@@ -502,53 +403,13 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   readonly onBack: () => void;
 }) {
   const copy = getPresentationCopy(locale, "renewalDesk");
-  const [state, setState] = useState<RenewalsState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: RenewalsRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.renewals.loadRenewals({ startIndex: next, size: renewalsWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < (windows[0]?.totalRows ?? 0));
-        const view = projectRenewalDeskViewModel(windows);
-        if (!isRenewalList(view)) throw new TypeError("renewals project to the list state");
-        if (!cancelled) setState({ kind: "ready", view });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
-
-  if (state.kind === "ready") return <RenewalDesk locale={locale} view={state.view} onBack={onBack} />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
+  const { state, retry } = useHostRouteRead(
+    ports.renewals, (port, request) => port.loadRenewals(request), readGeneration, onStale,
+    projectRenewalList, { windowSize: hostWindowSize },
   );
+  if (state.kind === "ready") return <RenewalDesk locale={locale} view={state.value} onBack={onBack} />;
+  return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
-
-const salesWindowSize = 200;
-
-type SalesState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly view: SalesDeskViewModel }
-  | { readonly kind: "failed" };
 
 /**
  * Reads every sales window for one Host generation, like DNS health. The desk gets no action
@@ -562,52 +423,13 @@ function SalesRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "salesDesk");
-  const [state, setState] = useState<SalesState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: SalesRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.sales.loadSales({ startIndex: next, size: salesWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < (windows[0]?.totalRows ?? 0));
-        const view = projectSalesDeskViewModel(windows);
-        if (!cancelled) setState({ kind: "ready", view });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
-
-  if (state.kind === "ready") return <SalesDesk locale={locale} view={state.view} initialTab="listings" />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
+  const { state, retry } = useHostRouteRead(
+    ports.sales, (port, request) => port.loadSales(request), readGeneration, onStale,
+    projectSalesDeskViewModel, { windowSize: hostWindowSize },
   );
+  if (state.kind === "ready") return <SalesDesk locale={locale} view={state.value} initialTab="listings" />;
+  return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
-
-const dnsWindowSize = 200;
-
-type DnsHealthState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly view: DnsVerificationViewModel }
-  | { readonly kind: "failed" };
 
 /**
  * Reads every DNS health window for one Host generation. A window from a newer generation means the
@@ -620,44 +442,12 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "dnsVerification");
-  const [state, setState] = useState<DnsHealthState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const staleRef = useRef(onStale);
-  staleRef.current = onStale;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void (async () => {
-      try {
-        const windows: DnsHealthRead[] = [];
-        let next = 0;
-        do {
-          const window = await ports.dns.loadDnsHealth({ startIndex: next, size: dnsWindowSize });
-          if (window.readGeneration !== readGeneration) {
-            if (!cancelled) staleRef.current();
-            return;
-          }
-          windows.push(window);
-          next += window.window.rows.length;
-          if (window.window.rows.length === 0) break;
-        } while (next < (windows[0]?.totalRows ?? 0));
-        const view = projectDnsHealthViewModel(windows);
-        if (!cancelled) setState({ kind: "ready", view });
-      } catch {
-        if (!cancelled) setState({ kind: "failed" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ports, readGeneration, attempt]);
-
-  if (state.kind === "ready") return <DnsVerification locale={locale} view={state.view} />;
-  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
-  return (
-    <Banner tone="danger" title={copy.loadFailed}>
-      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
-    </Banner>
+  const { state, retry } = useHostRouteRead(
+    ports.dns, (port, request) => port.loadDnsHealth(request), readGeneration, onStale,
+    projectDnsHealthViewModel, { windowSize: hostWindowSize },
   );
+  if (state.kind === "ready") return <DnsVerification locale={locale} view={state.value} />;
+  return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 
 function AssetLibraryRoute({ locale, ports, initial, onOpenAsset, onRenew }: {
