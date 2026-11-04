@@ -7589,6 +7589,12 @@ mod tests {
         &'a str,
     );
 
+    /// Completes a fixture run whose only target is `entity`, with that target succeeded.
+    fn complete_observation_run(connection: &rusqlite::Connection, run: &str, entity: &str) {
+        connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id=?3", rusqlite::params![TIMESTAMP, run, entity]).unwrap();
+        connection.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+    }
+
     /// Seeds assets, one marketplace connection and run, and the given listing observations
     /// `(entity, marketplace, status, currency, amount, observed_at)`.
     fn sales_database(listings: &[ListingSeed<'_>]) -> BusinessDatabase {
@@ -7607,9 +7613,55 @@ mod tests {
             connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
             connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
             connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,?5,?6,?7,?8,'version-secret','available','confirmed')", rusqlite::params![format!("listing-secret-{index}"), run, entity, kind, status, currency, amount, observed_at]).unwrap();
+            complete_observation_run(connection, &run, entity);
         }
         let _ = connection;
         database
+    }
+
+    #[test]
+    fn sales_never_lets_an_unfinished_run_hide_a_confirmed_listing() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("1000"),
+            "2026-08-01T00:00:00Z",
+        )]);
+        // Newer observations of the same listing from runs that have not completed: one still
+        // requesting its target, one whose target succeeded inside a run that is still running.
+        // (A failed target cannot carry evidence; the schema rejects that outcome.)
+        for (run, target_succeeded) in [("run-pending", false), ("run-open", true)] {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,'alpha.test','atom','sold','2026-09-01T00:00:00Z','version','available','confirmed')", rusqlite::params![format!("listing-{run}"), run]).unwrap();
+            if target_succeeded {
+                connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+            }
+        }
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        let [listing] = rows.as_slice() else {
+            panic!("expected one listing");
+        };
+        assert_eq!(
+            (
+                listing.listing_status.as_str(),
+                listing.observed_at.as_str()
+            ),
+            ("active", "2026-08-01T00:00:00Z")
+        );
+
+        // Once a run completes with this asset's target succeeded, its newer observation wins.
+        complete_observation_run(
+            database.store.fixture_connection(),
+            "run-pending",
+            "alpha.test",
+        );
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(rows[0].listing_status, "sold");
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 1);
     }
 
     #[test]
