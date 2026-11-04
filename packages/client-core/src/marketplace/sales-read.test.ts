@@ -21,8 +21,9 @@ function read(rows: readonly unknown[], overrides: Record<string, unknown> = {})
 describe("sales Host read", () => {
   it("projects observed listings and reports offers, deals and views as unavailable", () => {
     const view = projectSalesDeskViewModel([parseSalesRead(read([
+      { ...row, entityId: "mint.io", askingPrice: { currency: "USD", amount: "0.25" } },
       row,
-      { ...row, marketplaceKind: "spaceship", askingPrice: { currency: "USD", amount: "0.25" } },
+      { ...row, marketplaceKind: "spaceship" },
       { ...row, entityId: "zeta.io", listingStatus: "reserved" },
     ]))]);
     expect(salesDeskViewModelSchema.parse(view)).toEqual(view);
@@ -35,7 +36,9 @@ describe("sales Host read", () => {
       monthGmv: null,
       settlingDealCount: null,
     });
-    expect(view.listings[0]).toMatchObject({ platforms: ["Atom"], views: null, offerCount: null, listedAtLabel: null, status: "active" });
+    // One row per domain: vault.io's two markets share a status and price, and count once.
+    expect(view.listings.map((listing) => listing.domain)).toEqual(["mint.io", "vault.io", "zeta.io"]);
+    expect(view.listings[1]).toMatchObject({ platforms: ["Atom", "Spaceship"], bin: row.askingPrice, views: null, offerCount: null, listedAtLabel: null, status: "active" });
     expect(view.listings[2]?.status).toBe("reserved");
   });
 
@@ -45,9 +48,48 @@ describe("sales Host read", () => {
     expect(stale.metrics).toMatchObject({ activeListingCount: 0, listedValue: null });
     const mixed = projectSalesDeskViewModel([parseSalesRead(read([
       row,
-      { ...row, marketplaceKind: "spaceship", askingPrice: { currency: "EUR", amount: "5" } },
+      { ...row, entityId: "zeta.io", askingPrice: { currency: "EUR", amount: "5" } },
     ]))]);
     expect(mixed.metrics.listedValue).toBeNull();
+  });
+
+  it("merges a domain's markets without choosing between disagreeing states or prices", () => {
+    const view = projectSalesDeskViewModel([parseSalesRead(read([
+      { ...row, marketplaceKind: "afternic", listingStatus: "sold" },
+      row,
+      { ...row, marketplaceKind: "spaceship", askingPrice: { currency: "USD", amount: "1000.50" } },
+      { ...row, entityId: "zeta.io" },
+      { ...row, entityId: "zeta.io", marketplaceKind: "dynadot", evidenceStatus: "stale" },
+      { ...row, entityId: "zeta.io", marketplaceKind: "spaceship", askingPrice: { currency: "USD", amount: "900" } },
+    ]))]);
+    const [vault, zeta] = view.listings;
+    // Equal prices compare by value, so "1000.5" and "1000.50" are one price.
+    expect(vault).toMatchObject({ id: "vault.io", platforms: ["Afternic", "Atom", "Spaceship"], bin: row.askingPrice, status: "conflict" });
+    // Different prices have no single value; an unconfirmed market leaves the state unknown, not conflicting.
+    expect(zeta).toMatchObject({ platforms: ["Atom", "Dynadot", "Spaceship"], bin: null, status: "unknown" });
+    expect(view.metrics).toMatchObject({ activeListingCount: 0, listedValue: null });
+  });
+
+  it("does not total the listed value when an active domain has no single price", () => {
+    const view = projectSalesDeskViewModel([parseSalesRead(read([
+      { ...row, entityId: "mint.io" },
+      row,
+      { ...row, marketplaceKind: "spaceship", askingPrice: { currency: "USD", amount: "900" } },
+    ]))]);
+    expect(view.listings.map((listing) => [listing.status, listing.bin])).toEqual([["active", row.askingPrice], ["active", null]]);
+    expect(view.metrics).toMatchObject({ activeListingCount: 2, listedValue: null });
+  });
+
+  it("merges a domain whose markets span two windows and rejects order that goes back across them", () => {
+    const spanning = [row, { ...row, marketplaceKind: "spaceship" }, { ...row, entityId: "zeta.io" }];
+    const window = (rows: readonly unknown[], startIndex: number) => parseSalesRead(read(rows, { totalRows: 3, window: { startIndex, size: 200, rows } }));
+    const merged = projectSalesDeskViewModel([window(spanning.slice(0, 1), 0), window(spanning.slice(1), 1)]);
+    expect(merged.listings.map((listing) => [listing.id, listing.platforms])).toEqual([["vault.io", ["Atom", "Spaceship"]], ["zeta.io", ["Atom"]]]);
+    // Each window is ordered on its own, but vault.io returns after zeta.io across the boundary.
+    const backwards = [row, { ...row, entityId: "zeta.io" }, { ...row, marketplaceKind: "spaceship" }];
+    expect(() => projectSalesDeskViewModel([window(backwards.slice(0, 2), 0), window(backwards.slice(2), 2)])).toThrow();
+    const repeated = [row, { ...row, entityId: "zeta.io" }, row];
+    expect(() => projectSalesDeskViewModel([window(repeated.slice(0, 2), 0), window(repeated.slice(2), 2)])).toThrow();
   });
 
   it("rejects identifiers, unknown marketplaces, unordered rows and malformed prices", () => {

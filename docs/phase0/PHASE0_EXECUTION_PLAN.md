@@ -74,7 +74,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 连接标签长度限制在写入与各读取之间对齐：统一为 1–120 个 UTF-16 单元、拒绝 Cc/Cf 字符，写入与设置、DNS 健康、人工任务读取共用同一规则（此前写入 512 字节、设置读取 120 字节；开发库中超出新规则的已存标签会使这些读取失败关闭） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取补 65 条上限、未知 Provider 与已删除连接排除的 Rust 负向测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设置读取（Rust 与 Zod）接受 ADR-0027 的 8 个平台，须在首个非 Cloudflare 连接写入之前完成（当前非 Cloudflare 连接会使整个设置读取失败关闭）
-- [ ] 销售页同一域名多市场合并为一行（与 brand 一致），而非每市场一行
+- [x] 销售页同一域名多市场合并为一行（与 brand 一致），而非每市场一行 https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 销售页“冲突”状态说明为市场间状态不一致，与同步冲突中心区分（文案或提示）
 - [ ] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌
 - [ ] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页
 - [ ] 续费与资产库到期计数排除已售（sold）资产，或在续费页展示生命周期

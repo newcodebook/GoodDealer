@@ -96,13 +96,52 @@ function fromUnits(units: bigint): string {
   return fraction === "" ? whole.toString() : `${whole}.${fraction}`;
 }
 
-/** Sums prices exactly; null when there is nothing to sum or the prices span currencies. */
+/**
+ * Sums prices exactly; null when there is nothing to sum, the prices span currencies, or an active
+ * listing has no single price, since a total that silently left it out would under-report.
+ */
 function listedValue(listings: readonly ListingView[]): CommerceMoney | null {
-  const prices = listings.flatMap((listing) => listing.status === "active" && listing.bin !== null ? [listing.bin] : []);
+  const active = listings.filter((listing) => listing.status === "active");
+  if (active.some((listing) => listing.bin === null)) return null;
+  const prices = active.flatMap((listing) => listing.bin === null ? [] : [listing.bin]);
   const currency = prices[0]?.currency;
   if (currency === undefined || prices.some((price) => price.currency !== currency)) return null;
   const parsed = commerceMoneySchema.safeParse({ currency, amount: fromUnits(prices.reduce((sum, price) => sum + toUnits(price.amount), 0n)) });
   return parsed.success ? parsed.data : null;
+}
+
+function samePrice(left: CommerceMoney | null, right: CommerceMoney | null): boolean {
+  return left === null || right === null ? left === right : left.currency === right.currency && toUnits(left.amount) === toUnits(right.amount);
+}
+
+/**
+ * The domain's state across markets, never chosen on the person's behalf: two different definite
+ * states are a conflict to look at, and a state another market has not confirmed stays unknown.
+ */
+function mergedStatus(statuses: readonly ListingView["status"][]): ListingView["status"] {
+  const definite = new Set(statuses.filter((status) => status !== "unknown"));
+  if (definite.size > 1) return "conflict";
+  const [only] = definite;
+  return only === undefined || statuses.includes("unknown") ? "unknown" : only;
+}
+
+/**
+ * One row per domain, as in the brand sales desk. Differing prices have no single value, so the
+ * price is reported as unobserved rather than chosen.
+ */
+function mergeListing(rows: readonly SalesListingRow[]): ListingView {
+  const first = rows[0]!;
+  return {
+    // A presentation key scoped to this read, not a marketplace listing identifier.
+    id: first.entityId,
+    domain: first.entityId,
+    platforms: rows.map((row) => marketplaceNames[row.marketplaceKind]),
+    bin: rows.every((row) => samePrice(row.askingPrice, first.askingPrice)) ? first.askingPrice : null,
+    views: null,
+    offerCount: null,
+    status: mergedStatus(rows.map(listingStatus)),
+    listedAtLabel: null,
+  };
 }
 
 /**
@@ -122,17 +161,22 @@ export function projectSalesDeskViewModel(windows: readonly SalesRead[]): SalesD
     expectedStart += window.window.rows.length;
   }
   if (expectedStart !== first.totalRows) throw new TypeError("sales windows must cover every listing");
-  const listings = windows.flatMap((window) => window.window.rows.map((row): ListingView => ({
-    // A presentation key scoped to this read, not a marketplace listing identifier.
-    id: `${row.entityId}:${row.marketplaceKind}`,
-    domain: row.entityId,
-    platforms: [marketplaceNames[row.marketplaceKind]],
-    bin: row.askingPrice,
-    views: null,
-    offerCount: null,
-    status: listingStatus(row),
-    listedAtLabel: null,
-  })));
+  // Rows arrive ordered by domain, so each domain's markets are adjacent and merge into one row.
+  // Each window checks its own order; the order across window boundaries is checked here, so a
+  // domain can never come back as a second row with the same key.
+  const byDomain: SalesListingRow[][] = [];
+  let previous: SalesListingRow | undefined;
+  for (const row of windows.flatMap((window) => window.window.rows)) {
+    if (previous !== undefined && (previous.entityId > row.entityId
+      || (previous.entityId === row.entityId && previous.marketplaceKind >= row.marketplaceKind))) {
+      throw new TypeError("sales rows must be unique and ordered across windows");
+    }
+    previous = row;
+    const group = byDomain.at(-1);
+    if (group !== undefined && group[0]!.entityId === row.entityId) group.push(row);
+    else byDomain.push([row]);
+  }
+  const listings = byDomain.map(mergeListing);
   // Parse the result so the view-model refinements also hold on the production path.
   return salesDeskViewModelSchema.parse({
     schemaVersion: 1,
