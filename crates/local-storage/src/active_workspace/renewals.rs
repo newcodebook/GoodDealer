@@ -1,4 +1,4 @@
-//! Read-only renewals projection: unarchived assets whose recorded expiry falls within the next 60
+//! Read-only renewals projection: assets still to renew whose recorded expiry falls within the next 60
 //! days, soonest first, with the latest available registrar observation's registrar name.
 //!
 //! The window and the `asOfDate` come from the same SQLite `date('now')` the portfolio's expiring
@@ -12,10 +12,13 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// Matches the portfolio expiring-domain count: `[today, today + 61 days)` in UTC.
-const EXPIRING: &str = "FROM domain_assets
-     WHERE workspace_id = ?1 AND deleted_at IS NULL AND lifecycle_status <> 'archived'
+/// An asset the workspace still has to renew whose recorded expiry falls in `[today, today + 61
+/// days)` in UTC. Sold, dropped and archived assets are no longer the workspace's to renew, so
+/// they never count as expiring. The portfolio's expiring count uses this same predicate.
+pub(super) const EXPIRING_ASSET: &str = "lifecycle_status NOT IN ('archived', 'sold', 'dropped')
        AND expires_on >= date('now') AND expires_on < date('now', '+61 days')";
+
+const ASSETS: &str = "FROM domain_assets WHERE workspace_id = ?1 AND deleted_at IS NULL";
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +74,7 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let (as_of_date, total_rows): (String, i64) = transaction
             .query_row(
-                &format!("SELECT date('now'), count(*) {EXPIRING}"),
+                &format!("SELECT date('now'), count(*) {ASSETS} AND {EXPIRING_ASSET}"),
                 [requested_workspace_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -84,7 +87,7 @@ impl<'a> ActiveRenewalsReader<'a> {
                       AND r.entity_id = domain_assets.entity_id
                       AND r.observation_availability = 'available'
                     ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)
-                 {EXPIRING}
+                 {ASSETS} AND {EXPIRING_ASSET}
                  ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
                  LIMIT ?2 OFFSET ?3"
             ))

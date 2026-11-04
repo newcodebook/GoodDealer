@@ -151,7 +151,7 @@ impl<'a> ActivePortfolioReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let aggregates: (i64, i64, i64) = transaction.query_row(
             &format!("SELECT
-                sum(CASE WHEN lifecycle_status <> 'archived' AND expires_on >= date('now') AND expires_on < date('now', '+61 days') THEN 1 ELSE 0 END),
+                sum(CASE WHEN {expiring} THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
                   SELECT 1 FROM marketplace_listing_observations m
@@ -163,7 +163,7 @@ impl<'a> ActivePortfolioReader<'a> {
                         AND newer.marketplace_kind = m.marketplace_kind
                         AND (newer.observed_at > m.observed_at OR (newer.observed_at = m.observed_at AND newer.listing_observation_id > m.listing_observation_id)))
                 ) THEN 1 ELSE 0 END)
-              FROM domain_assets WHERE {filter}"),
+              FROM domain_assets WHERE {filter}", expiring = super::renewals::EXPIRING_ASSET),
             params![requested_workspace_id, query, upper],
             |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0))),
         ).map_err(|_| PortfolioReadError::StorageRejected)?;

@@ -22,7 +22,7 @@ function dayNumber(date: string): number {
   return Date.parse(`${date}T00:00:00Z`) / dayMs;
 }
 
-/** The Host's renewal window: unarchived assets expiring within 60 days of `asOfDate`, soonest first. */
+/** The Host's renewal window: assets still to renew (not sold, dropped or archived) expiring within 60 days of `asOfDate`, soonest first. */
 export const renewalsReadSchema = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal("renewals"),

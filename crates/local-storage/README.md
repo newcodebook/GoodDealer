@@ -128,8 +128,8 @@ most 10,000 listed). Plan, item, operation, attempt, connection, Provider accoun
 identifiers stay in the Host; unknown platforms, control characters and malformed tokens fail the
 whole read. It carries no browser session, automation or authorization data.
 
-`BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
-recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
+`BusinessDatabase::read_renewals` uses the same window rules and lists assets still to renew (not sold,
+dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
 soonest first, with recorded auto-renew and the latest available registrar observation's registrar
 name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
 term or plan is projected; registrar names that are empty, longer than 128 characters or contain

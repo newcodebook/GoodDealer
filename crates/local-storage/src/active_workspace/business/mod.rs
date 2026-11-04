@@ -8153,7 +8153,9 @@ mod tests {
                 ("edge.test", "active", Some(60), None),
                 ("beyond.test", "active", Some(61), Some(1)),
                 ("lapsed.test", "active", Some(-1), Some(1)),
-                ("today.test", "sold", Some(0), None),
+                ("today.test", "active", Some(0), None),
+                ("sold.test", "sold", Some(0), Some(1)),
+                ("dropped.test", "dropped", Some(2), Some(0)),
                 ("archived.test", "archived", Some(3), Some(1)),
                 ("undated.test", "active", None, Some(1)),
             ],
@@ -8182,6 +8184,15 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot.as_of_date, today);
         assert_eq!(snapshot.total_rows, 4);
+        // The asset library promises exactly the assets the renewals desk lists: sold, dropped and
+        // archived assets are no longer the workspace's to renew.
+        assert_eq!(
+            database
+                .read_asset_library(0, 1, "")
+                .unwrap()
+                .expiring_within60_days,
+            snapshot.total_rows
+        );
         let rows: Vec<_> = snapshot
             .window
             .rows
