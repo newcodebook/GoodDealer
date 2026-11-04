@@ -8622,6 +8622,88 @@ mod tests {
     }
 
     #[test]
+    fn dns_health_reports_zone_bindings_on_any_launch_platform_and_rejects_others() {
+        const ASSET: &str = "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)";
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]')";
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,?2,?3,'zone',?4,?5,?1,1,2,'unverified',?6,?6)";
+        let bind =
+            |database: &mut BusinessDatabase, entity: &str, connection_id: &str, kind: &str| {
+                database
+                    .store
+                    .fixture_connection()
+                    .execute(
+                        BINDING,
+                        rusqlite::params![
+                            entity,
+                            connection_id,
+                            kind,
+                            "d".repeat(64),
+                            "e".repeat(64),
+                            TIMESTAMP
+                        ],
+                    )
+                    .unwrap();
+            };
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            for entity in ["alpha.test", "beta.test"] {
+                connection
+                    .execute(ASSET, rusqlite::params![entity, TIMESTAMP])
+                    .unwrap();
+            }
+            for (id, kind, label) in [
+                ("spaceship-1", "spaceship", "Spaceship"),
+                ("porkbun-1", "porkbun", "Porkbun"),
+            ] {
+                connection
+                    .execute(CONNECTION, rusqlite::params![id, kind, label, TIMESTAMP])
+                    .unwrap();
+            }
+        }
+        bind(&mut database, "alpha.test", "spaceship-1", "spaceship");
+        let rows = database.read_dns_health(0, 10).unwrap().window.rows;
+        let binding = rows[0].zone_binding.as_ref().unwrap();
+        assert_eq!(
+            (
+                binding.provider_kind.as_str(),
+                binding.connection_label.as_str()
+            ),
+            ("spaceship", "Spaceship")
+        );
+        // A non-Cloudflare Zone has no composed observation, so none is reported for it.
+        assert!(rows[0].observation.is_none());
+
+        // A binding that names a platform other than its connection's fails the whole read.
+        bind(&mut database, "beta.test", "porkbun-1", "spaceship");
+        assert!(matches!(
+            database.read_dns_health(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        assert_eq!(database.read_dns_health(0, 1).unwrap().window.rows.len(), 1);
+
+        // A platform outside ADR-0027 never reaches the Renderer.
+        let mut database = self::database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(ASSET, rusqlite::params!["alpha.test", TIMESTAMP])
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params!["other-1", "example", "Example", TIMESTAMP],
+                )
+                .unwrap();
+        }
+        bind(&mut database, "alpha.test", "other-1", "example");
+        assert!(matches!(
+            database.read_dns_health(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn cloudflare_dns_observation_atomically_writes_local_evidence_and_count_projection() {
         let mut database = database();

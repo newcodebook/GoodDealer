@@ -14,6 +14,19 @@ use super::portfolio::{read_freshness, validate_workspace};
 
 const MAX_NAMESERVERS: usize = 16;
 
+/// ADR-0027 launch platforms. A Zone may be bound on any of them; whether a platform can hold one
+/// is decided by its capability manifest when the binding is made, not by this read.
+const PROVIDER_KINDS: [&str; 8] = [
+    "afternic",
+    "atom",
+    "cloudflare",
+    "dynadot",
+    "godaddy",
+    "namecheap",
+    "porkbun",
+    "spaceship",
+];
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DnsHealthReadSnapshot {
@@ -41,7 +54,8 @@ pub struct DnsHealthRow {
     pub observation: Option<DnsZoneObservationSummary>,
 }
 
-/// The asset's Zone binding. Connection identity and Provider resource IDs stay in the Host.
+/// The asset's Zone binding on any launch platform. Connection identity and Provider resource IDs
+/// stay in the Host.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DnsZoneBinding {
@@ -54,6 +68,7 @@ pub struct DnsZoneBinding {
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DnsZoneObservationSummary {
+    /// Only Cloudflare Zones are observed today; other platforms have no composed observation.
     pub provider_kind: String,
     pub observed_at: String,
     pub availability: String,
@@ -77,6 +92,7 @@ pub struct DnsRecordCounts {
 
 type RawRow = (
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -124,7 +140,7 @@ impl<'a> ActiveDnsHealthReader<'a> {
         let mut statement = transaction
             .prepare(
                 "SELECT a.entity_id,
-                   b.provider_kind, c.display_label, b.resource_label, b.validation_status,
+                   b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
                    z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
                    coalesce(z.cloudflare_zone_status, 'unknown'), z.authoritative_nameservers_json,
                    z.dnssec_status,
@@ -161,12 +177,13 @@ impl<'a> ActiveDnsHealthReader<'a> {
                     row.get(9)?,
                     row.get(10)?,
                     row.get(11)?,
+                    row.get(12)?,
                     [
-                        row.get(12)?,
                         row.get(13)?,
                         row.get(14)?,
                         row.get(15)?,
                         row.get(16)?,
+                        row.get(17)?,
                     ],
                 ))
             })
@@ -218,22 +235,31 @@ fn count(value: i64) -> Result<u32, PortfolioReadError> {
 }
 
 fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
-    let (entity_id, provider_kind, connection_label, zone_label, validation_status) =
-        (raw.0, raw.1, raw.2, raw.3, raw.4);
+    let (
+        entity_id,
+        provider_kind,
+        connection_kind,
+        connection_label,
+        zone_label,
+        validation_status,
+    ) = (raw.0, raw.1, raw.2, raw.3, raw.4, raw.5);
     let zone_binding = match (
         provider_kind,
+        connection_kind,
         connection_label,
         zone_label,
         validation_status,
     ) {
-        (None, None, None, None) => None,
+        (None, None, None, None, None) => None,
+        // The binding must name the platform of the connection it was made through.
         (
             Some(provider_kind),
+            Some(connection_kind),
             Some(connection_label),
             Some(zone_label),
             Some(validation_status),
-        ) => Some(DnsZoneBinding {
-            provider_kind: closed(provider_kind, &["cloudflare"])?,
+        ) if provider_kind == connection_kind => Some(DnsZoneBinding {
+            provider_kind: closed(provider_kind, &PROVIDER_KINDS)?,
             connection_label: label(connection_label)?,
             zone_label: label(zone_label)?,
             validation_status: closed(
@@ -243,7 +269,7 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
         }),
         _ => return Err(PortfolioReadError::ProjectionRejected),
     };
-    let observation = match (raw.5, raw.6, raw.7, raw.8, raw.9, raw.10, raw.11) {
+    let observation = match (raw.6, raw.7, raw.8, raw.9, raw.10, raw.11, raw.12) {
         (None, None, None, None, _, None, None) => None,
         (
             Some(observed_at),
@@ -279,11 +305,11 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
                     &["active", "inactive", "unknown", "unsupported"],
                 )?,
                 record_counts: DnsRecordCounts {
-                    a: count(raw.12[0])?,
-                    aaaa: count(raw.12[1])?,
-                    cname: count(raw.12[2])?,
-                    txt: count(raw.12[3])?,
-                    other: count(raw.12[4])?,
+                    a: count(raw.13[0])?,
+                    aaaa: count(raw.13[1])?,
+                    cname: count(raw.13[2])?,
+                    txt: count(raw.13[3])?,
+                    other: count(raw.13[4])?,
                 },
             })
         }

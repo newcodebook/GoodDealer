@@ -8,13 +8,30 @@ const safeCount = z.number().int().nonnegative().max(1_024);
 const labelSchema = z.string().min(1).max(253)
   .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "labels reject control characters");
 
+/** ADR-0027 launch platforms; a Zone may be bound on any of them, and the Host rejects others. */
+const zoneProviderKindSchema = z.enum([
+  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
+]);
+
+const providerNames: Readonly<Record<z.infer<typeof zoneProviderKindSchema>, string>> = {
+  afternic: "Afternic",
+  atom: "Atom",
+  cloudflare: "Cloudflare",
+  dynadot: "Dynadot",
+  godaddy: "GoDaddy",
+  namecheap: "Namecheap",
+  porkbun: "Porkbun",
+  spaceship: "Spaceship",
+};
+
 const dnsZoneBindingSchema = z.object({
-  providerKind: z.literal("cloudflare"),
+  providerKind: zoneProviderKindSchema,
   connectionLabel: labelSchema,
   zoneLabel: canonicalDomainNameSchema,
   validationStatus: z.enum(["unverified", "verified", "stale", "conflicted", "detached"]),
 }).strict();
 
+/** Only Cloudflare Zones are observed today; other platforms have no composed observation. */
 const dnsZoneObservationSummarySchema = z.object({
   providerKind: z.literal("cloudflare"),
   observedAt: z.iso.datetime(),
@@ -75,22 +92,23 @@ export interface DnsHealthPort {
   loadDnsHealth(request: DnsHealthWindowRequest): Promise<DnsHealthRead>;
 }
 
-function observationStatus(row: DnsHealthRow): DnsVerificationRowViewModel["propagationStatus"] {
-  if (row.observation === null) return "unobserved";
-  // A pending or unknown Zone means Cloudflare has not seen delegation; that needs attention.
-  return row.observation.availability === "available"
-    && row.observation.evidenceStatus === "confirmed"
-    && row.observation.zoneStatus === "active"
+function observationStatus(observation: DnsHealthRow["observation"]): DnsVerificationRowViewModel["propagationStatus"] {
+  if (observation === null) return "unobserved";
+  // A pending or unknown Zone means the platform has not seen delegation; that needs attention.
+  return observation.availability === "available"
+    && observation.evidenceStatus === "confirmed"
+    && observation.zoneStatus === "active"
     ? "current"
     : "warning";
 }
 
 function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
-  const observation = row.observation;
+  const bound = row.zoneBinding !== null && row.zoneBinding.validationStatus !== "detached";
+  // An observation from another platform says nothing about the bound Zone, so it is not shown as one.
+  const observation = bound && row.zoneBinding!.providerKind !== row.observation?.providerKind ? null : row.observation;
   const recordCount = observation === null || observation.availability !== "available"
     ? null
     : Object.values(observation.recordCounts).reduce((sum, value) => sum + value, 0);
-  const bound = row.zoneBinding !== null && row.zoneBinding.validationStatus !== "detached";
   return {
     domainAssetId: row.entityId,
     domain: row.entityId,
@@ -104,9 +122,9 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     delegationStatus: "unknown",
     recordHealth: recordCount === null ? "unobserved" : "observed",
     recordCount,
-    providerDisplayName: bound ? row.zoneBinding!.connectionLabel : observation === null ? "—" : "Cloudflare",
+    providerDisplayName: bound ? row.zoneBinding!.connectionLabel : observation === null ? "—" : providerNames[observation.providerKind],
     providerResolved: bound,
-    propagationStatus: observationStatus(row),
+    propagationStatus: observationStatus(observation),
     lastCheckedAt: observation?.observedAt ?? null,
     records: [],
     availableActions: [],

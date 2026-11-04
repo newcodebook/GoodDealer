@@ -66,7 +66,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 历史页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures` https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定（当前仅接受 Cloudflare）
+- [x] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述）
 - [ ] DNS 健康路由补 generation 过期与重试路径测试
 - [ ] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态
@@ -89,6 +89,9 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）
 - [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照（当前只有源码与打包依赖图层面的证据）
 - [ ] 历史与人工任务等显示文本的长度口径在 Rust（字符数）与 Zod（UTF-16）之间对齐
+- [ ] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役
+- [ ] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）
+- [ ] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况
 
 ### 3. Cloudflare 路径稳定
 
