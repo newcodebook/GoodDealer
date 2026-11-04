@@ -65,7 +65,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 批量页接入 Host 投影（先生成计划，再逐项确认） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 历史页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures`
+- [x] 每个页面与 `brand/ui_kits/desktop` 对照，生产依赖图中不含 `visual-fixtures` https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定（当前仅接受 Cloudflare）
 - [ ] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述）
 - [ ] DNS 健康路由补 generation 过期与重试路径测试
@@ -87,6 +87,8 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）
 - [ ] 人工任务等待时间改用 `manual_action_required` 结果的观察时间，而非尝试开始时间
 - [ ] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）
+- [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照（当前只有源码与打包依赖图层面的证据）
+- [ ] 历史与人工任务等显示文本的长度口径在 Rust（字符数）与 Zod（UTF-16）之间对齐
 
 ### 3. Cloudflare 路径稳定
 
