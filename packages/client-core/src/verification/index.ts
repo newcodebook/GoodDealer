@@ -226,8 +226,13 @@ export interface DnsVerificationRowViewModel {
   readonly verificationAttemptId: string | null;
   readonly verificationStatus: VerificationAttemptStatus | null;
   readonly challenge: VerificationChallengeSummary | null;
+  /** Nameservers the registrar delegates the domain to; empty while delegation is unobserved. */
   readonly delegatedNameservers: readonly string[];
   readonly delegationStatus: "healthy" | "mismatch" | "unresolved" | "unknown";
+  /** Nameservers the DNS platform assigned to the Zone; they say nothing about delegation. */
+  readonly zoneNameservers: readonly string[];
+  /** The Zone's observed DNSSEC state, or `null` when no Zone was observed. */
+  readonly dnssecStatus: "active" | "inactive" | "unknown" | "unsupported" | null;
   readonly recordHealth: "healthy" | "warning" | "missing" | "observed" | "unobserved";
   /** Observed record count when the Host reports counts instead of a health verdict. */
   readonly recordCount: number | null;
@@ -359,6 +364,8 @@ export function projectDnsVerificationViewModel(
       challenge: attempt.challenge === null ? null : { ...attempt.challenge },
       delegatedNameservers: [...dnsDomain.delegatedNameservers],
       delegationStatus: dnsDomain.delegationStatus,
+      zoneNameservers: [],
+      dnssecStatus: null,
       recordHealth: dnsDomain.recordHealth,
       recordCount: null,
       providerDisplayName: dnsDomain.provider.displayName,

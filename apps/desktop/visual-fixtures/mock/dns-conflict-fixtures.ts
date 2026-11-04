@@ -1,5 +1,7 @@
 import {
   parseConflictCenterViewModel,
+  parseDnsHealthRead,
+  projectDnsHealthViewModel,
   projectDnsVerificationViewModel,
   type ConflictCenterViewModel,
   type DnsVerificationViewModel,
@@ -157,4 +159,46 @@ export function mockConflictCenter(conflicts: readonly MockConflict[], canResolv
       } : { state: "unavailable" },
     })),
   });
+}
+
+/** The production DNS page state: Host Zone observations projected without ownership or delegation. */
+export function mockDnsHealthView(): DnsVerificationViewModel {
+  const observation = (zoneLabel: string, nameservers: readonly string[], dnssecStatus: "active" | "inactive" | "unknown", zoneStatus: "active" | "pending") => ({
+    providerKind: "cloudflare" as const,
+    observedAt: "2026-08-20T05:48:00Z",
+    availability: "available" as const,
+    evidenceStatus: "confirmed" as const,
+    zoneLabel,
+    zoneStatus,
+    authoritativeNameservers: [...nameservers],
+    dnssecStatus,
+    recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 2, other: 1 },
+  });
+  return projectDnsHealthViewModel([parseDnsHealthRead({
+    schemaVersion: 1,
+    kind: "dns_health",
+    readGeneration: 1,
+    freshness: {
+      source: "active_local",
+      readOnlyReason: null,
+      serverRevision: 8241,
+      lastReplicationActivityAt: "2026-08-20T06:02:00Z",
+      lastSuccessfulProviderObservationAt: "2026-08-20T05:48:00Z",
+      canEdit: true,
+    },
+    totalRows: 3,
+    window: {
+      startIndex: 0,
+      size: 50,
+      rows: [
+        {
+          entityId: "goldrail.com",
+          zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
+          observation: observation("goldrail.com", ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"], "active", "active"),
+        },
+        { entityId: "helio.systems", zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
+        { entityId: "north.capital", zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
+      ],
+    },
+  })]);
 }

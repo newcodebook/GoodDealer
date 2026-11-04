@@ -76,6 +76,7 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
   const openNameserver = (row: DnsVerificationRowViewModel) => { setNameservers(["", ""]); setAcknowledged(false); setDialog({ kind: "nameserver", row }); };
 
   const ownershipConnected = view.ownershipAvailability === "available";
+  const dnssecLabel = { active: copy.dnssecActive, inactive: copy.dnssecInactive, unknown: copy.dnssecUnknown, unsupported: copy.dnssecUnsupported } as const;
   const ownershipBadge = (row: DnsVerificationRowViewModel) => row.ownershipStatus === "unavailable"
     ? <Badge mono={false}>{copy.notConnected}</Badge>
     : row.ownershipStatus === "verified"
@@ -128,10 +129,20 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       key: "delegatedNameservers",
       label: copy.nameserver,
       priority: "secondary",
+      // The column is registrar delegation, as in the brand kit. The Zone's own nameservers and
+      // DNSSEC are observed DNS-platform facts, so they sit below it instead of standing in for it.
       render: (row) => (
-        <span className={`dns-mono${row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? " dns-muted" : " dns-danger"}`}>
-          {row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? null : <AlertTriangleIcon size={12} />}
-          {row.delegatedNameservers[0] ?? copy.unknownNameserver}
+        <span className="dns-ns">
+          <span className={`dns-mono${row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? " dns-muted" : " dns-danger"}`}>
+            {row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? null : <AlertTriangleIcon size={12} />}
+            {row.delegatedNameservers[0] ?? copy.unknownNameserver}
+          </span>
+          {row.zoneNameservers.length === 0 && row.dnssecStatus === null ? null : (
+            <span className="dns-zone-facts">
+              {row.zoneNameservers.length === 0 ? null : <>{copy.zoneNameservers} <span className="dns-mono">{row.zoneNameservers.join(" · ")}</span></>}
+              {row.dnssecStatus === null ? null : <span>{copy.dnssec} {dnssecLabel[row.dnssecStatus]}</span>}
+            </span>
+          )}
         </span>
       ),
     },

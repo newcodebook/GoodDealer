@@ -550,6 +550,12 @@ const enUSDictionary = {
     loadFailed: "Local DNS data could not be read. Retrying only reads again and changes nothing.",
     retryRead: "Read again",
     observedState: "Observed",
+    zoneNameservers: "Zone assigned",
+    dnssec: "DNSSEC",
+    dnssecActive: "On",
+    dnssecInactive: "Off",
+    dnssecUnknown: "Unknown",
+    dnssecUnsupported: "Unsupported",
   },
   batchOperation: {
     title: "Batch operations",

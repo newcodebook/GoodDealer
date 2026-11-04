@@ -96,7 +96,11 @@ describe("DNS & verification from the Host DNS health projection", () => {
     expect(html).toContain("所有权验证尚未接入");
     expect(html).toContain("3 条");
     expect(html).toContain("未观察");
+    // Delegation stays unknown; the observed Zone nameservers and DNSSEC are labelled as Zone facts.
+    expect(html).toContain("未知 NS");
+    expect(html).toContain("Zone 分配");
     expect(html).toContain("ada.ns.cloudflare.com");
+    expect(html).toContain("DNSSEC 未知");
     for (const control of ["重新验证", "改 NS", "添加 TXT", "验证 TXT", "已验证所有权"]) expect(html).not.toContain(control);
     // The brand guide's TXT ownership and repair description is not shown for flows that do not exist.
     for (const claim of ["_atomverify", "修复分别走"]) expect(html).not.toContain(claim);

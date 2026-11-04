@@ -484,6 +484,12 @@ const zhCNDictionary = {
     loadFailed: "无法读取本地 DNS 数据。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",
     observedState: "已观察",
+    zoneNameservers: "Zone 分配",
+    dnssec: "DNSSEC",
+    dnssecActive: "已启用",
+    dnssecInactive: "未启用",
+    dnssecUnknown: "未知",
+    dnssecUnsupported: "不支持",
   },
   batchOperation: {
     title: "批量任务",

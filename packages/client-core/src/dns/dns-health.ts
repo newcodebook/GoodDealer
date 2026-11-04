@@ -117,9 +117,12 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     verificationAttemptId: null,
     verificationStatus: null,
     challenge: null,
-    delegatedNameservers: observation === null ? [] : [...observation.authoritativeNameservers],
-    // Zone nameservers are observed, but registrar delegation is not, so it is never "healthy".
+    // Registrar delegation is not observed, so it is unknown and never "healthy". The Zone's own
+    // nameservers are reported separately: matching them is what delegation would have to prove.
+    delegatedNameservers: [],
     delegationStatus: "unknown",
+    zoneNameservers: observation === null ? [] : [...observation.authoritativeNameservers],
+    dnssecStatus: observation?.dnssecStatus ?? null,
     recordHealth: recordCount === null ? "unobserved" : "observed",
     recordCount,
     providerDisplayName: bound ? row.zoneBinding!.connectionLabel : observation === null ? "—" : providerNames[observation.providerKind],

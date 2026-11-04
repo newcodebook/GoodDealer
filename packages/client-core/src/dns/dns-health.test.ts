@@ -55,7 +55,10 @@ describe("DNS health Host read", () => {
     expect(observed).toMatchObject({
       ownershipStatus: "unavailable",
       delegationStatus: "unknown",
-      delegatedNameservers: ["ada.ns.cloudflare.com"],
+      // Zone nameservers are the platform's assignment, never reported as registrar delegation.
+      delegatedNameservers: [],
+      zoneNameservers: ["ada.ns.cloudflare.com"],
+      dnssecStatus: "unknown",
       recordHealth: "observed",
       recordCount: 2,
       providerDisplayName: "Cloudflare",
@@ -95,6 +98,8 @@ describe("DNS health Host read", () => {
       recordHealth: "unobserved",
       recordCount: null,
       delegatedNameservers: [],
+      zoneNameservers: [],
+      dnssecStatus: null,
       lastCheckedAt: null,
     });
     expect(view.metrics).toMatchObject({ observed: 0, unobserved: 1 });

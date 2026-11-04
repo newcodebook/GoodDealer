@@ -69,7 +69,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] DNS 健康读取按 ADR-0027 支持多平台 Zone 绑定 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态
+- [x] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）
 - [ ] 连接标签长度限制在写入（512）与设置读取（120）之间对齐
 - [ ] 设置读取补 65 条上限、未知 Provider 与已删除连接排除的 Rust 负向测试
@@ -94,6 +94,8 @@ dead-letter outbox 和 Session 撤销；
 - [ ] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况
 - [ ] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）
 - [ ] Host 路由读取的重试接线测试：重试按钮已测试会调用 `retry`；`useHostRouteRead` 由 `attempt` 驱动重新读取仍缺 hook 级测试（需要渲染环境）
+- [ ] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）
+- [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）
 
 ### 3. Cloudflare 路径稳定
 
