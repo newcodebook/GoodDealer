@@ -8496,6 +8496,128 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture exercises exclusion, the row bound and Provider kinds in sequence"
+    )]
+    fn settings_excludes_deleted_connections_and_fails_closed_on_overflow_or_unknown_providers() {
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,lifecycle_status,deleted_at) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]',?5,?6)";
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "live",
+                        "cloudflare",
+                        "Live",
+                        TIMESTAMP,
+                        "active",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            // Deleted connections never reach the Renderer, by lifecycle or by tombstone.
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "gone",
+                        "cloudflare",
+                        "Gone",
+                        TIMESTAMP,
+                        "deleted",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "tombstone",
+                        "cloudflare",
+                        "Tombstone",
+                        TIMESTAMP,
+                        "revoked",
+                        Some(TIMESTAMP)
+                    ],
+                )
+                .unwrap();
+        }
+        let labels = database
+            .read_settings()
+            .unwrap()
+            .connections
+            .into_iter()
+            .map(|connection| connection.connection_label)
+            .collect::<Vec<_>>();
+        assert_eq!(labels, ["Live"]);
+
+        // 64 connections are the read's bound; the 65th fails the read instead of being truncated.
+        {
+            let connection = database.store.fixture_connection();
+            for index in 1..64 {
+                connection
+                    .execute(
+                        CONNECTION,
+                        rusqlite::params![
+                            format!("bulk-{index:02}"),
+                            "cloudflare",
+                            format!("Bulk {index:02}"),
+                            TIMESTAMP,
+                            "active",
+                            None::<String>
+                        ],
+                    )
+                    .unwrap();
+            }
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 64);
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "bulk-64",
+                    "cloudflare",
+                    "Bulk 64",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        // Until the phase 5 connection-role model, a non-Cloudflare connection fails the read rather
+        // than being hidden, and a kind outside ADR-0027 is never reported.
+        for kind in ["spaceship", "example"] {
+            let mut database = self::database();
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    CONNECTION,
+                    rusqlite::params!["other", kind, "Other", TIMESTAMP, "active", None::<String>],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    database.read_settings(),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{kind} must fail closed"
+            );
+        }
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn dns_health_reports_observed_zone_facts_without_health_verdicts() {
         let mut database = database();
