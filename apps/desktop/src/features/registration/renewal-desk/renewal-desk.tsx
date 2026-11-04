@@ -86,6 +86,9 @@ export function RenewalDesk({
   const remaining = budget === null || selectedTotal === null ? null : moneyValue(budget.amount) - moneyValue(selectedTotal.amount);
   const overBudget = remaining !== null && remaining < 0;
   const autoCovered = due.filter((item) => item.autoRenewEnabled === true).length;
+  // An unrecorded setting is neither on nor off, so it is counted apart from the switched-off ones.
+  const autoOff = due.filter((item) => item.autoRenewEnabled === false).length;
+  const autoUnrecorded = due.length - autoCovered - autoOff;
   // Unrecorded or unquoted values render as a dash so they never read as a zero or a definite fact.
   const dash = <span className="renewal-faint">—</span>;
   const unavailable = { value: copy.notAvailable, tone: "muted" as const };
@@ -155,7 +158,7 @@ export function RenewalDesk({
           { key: "budget", label: copy.renewalBudget, ...(budget === null ? unavailable : { value: money(budget), tone: "gold" as const }) },
           { key: "selected", label: copy.selectedRenewalAmount, ...(selectedTotal === null ? unavailable : { value: money(selectedTotal), tone: overBudget ? "danger" as const : "gold" as const }) },
           { key: "remaining", label: copy.budgetRemaining, ...(remaining === null || budget === null ? unavailable : { value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, Math.abs(remaining).toFixed(2), budget.currency)}`, tone: overBudget ? "danger" as const : "body" as const }) },
-          { key: "auto", label: copy.autoRenewOverride, value: `${autoCovered} / ${due.length}`, tone: "blue" },
+          { key: "auto", label: copy.autoRenewCoverage, value: `${autoCovered} / ${due.length}`, tone: "blue", meta: `${copy.autoRenewOff} ${formatNumber(locale, autoOff)} · ${copy.autoRenewUnrecorded} ${formatNumber(locale, autoUnrecorded)}` },
         ]}
       />
       <Toolbar

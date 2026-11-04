@@ -81,10 +81,11 @@ describe("Renewal desk", () => {
     const view = projectRenewalDeskViewModel([{
       schemaVersion: 1, kind: "renewals", readGeneration: 1,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      asOfDate: "2026-08-20", totalRows: 2,
+      asOfDate: "2026-08-20", totalRows: 3,
       window: { startIndex: 0, size: 200, rows: [
         { entityId: "vault.io", expiresOn: "2026-08-27", autoRenew: true, registrarName: "Spaceship" },
         { entityId: "kanban.ai", expiresOn: "2026-09-05", autoRenew: null, registrarName: null },
+        { entityId: "zeta.io", expiresOn: "2026-09-06", autoRenew: false, registrarName: null },
       ] },
     }]);
     if (view.state !== "list") throw new Error("fixture");
@@ -98,8 +99,11 @@ describe("Renewal desk", () => {
     expect(html).toContain(">7d<");
     expect(html).not.toContain("续费所选");
     expect(html).not.toContain("<select");
-    // The only checkbox is the disabled auto-renew switch; no row selection is offered.
-    expect(html.match(/type="checkbox"/gu)).toHaveLength(1);
+    // Only recorded settings get a disabled switch; no row selection is offered.
+    expect(html.match(/type="checkbox"/gu)).toHaveLength(2);
+    // An unrecorded auto-renew setting is counted apart from one that is switched off.
+    expect(html).toContain("1 / 3");
+    expect(html).toContain("已关闭 1 · 未记录 1");
     expect(html).not.toContain("$");
     expect(html).toContain("gd-switch--disabled");
   });
