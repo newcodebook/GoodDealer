@@ -89,6 +89,9 @@ reader is a test compatibility seam. These reads expose the safe `assetVersion` 
 sequence and use wire schema version 3. Edit/delete mutations perform lookup-first idempotent
 replay, CAS against that version, and atomically update desired state, field versions, tombstones,
 projection, and secret-free outbox rows. These changes require no schema migration.
+The asset library's totals follow its search prefix, except the expiring count: it opens the
+renewals desk, which lists the whole workspace, so it is always the workspace-wide count of the
+rows that desk lists.
 
 `BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
 and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.

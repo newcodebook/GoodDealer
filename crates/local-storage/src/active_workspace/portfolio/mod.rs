@@ -150,8 +150,10 @@ impl<'a> ActivePortfolioReader<'a> {
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let aggregates: (i64, i64, i64) = transaction.query_row(
+            // The expiring count opens the renewals desk, which lists the whole workspace, so it
+            // ignores the search filter: the number shown is the number of rows that desk lists.
             &format!("SELECT
-                sum(CASE WHEN {expiring} THEN 1 ELSE 0 END),
+                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
                   SELECT 1 FROM marketplace_listing_observations m

@@ -69,6 +69,7 @@ export const assetLibraryViewModelSchema = z
     freshness: portfolioFreshnessSchema,
     totalRows: z.number().int().nonnegative().max(1_000_000),
     totalValue: canonicalMoneyViewSchema.nullable(),
+    // Workspace-wide even under a search: it is the number of rows the renewals desk lists.
     expiringWithin60Days: z.number().int().nonnegative(),
     conflictCount: z.number().int().nonnegative(),
     listingCount: z.number().int().nonnegative(),

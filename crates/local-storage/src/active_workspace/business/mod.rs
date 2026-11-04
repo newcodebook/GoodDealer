@@ -8185,14 +8185,19 @@ mod tests {
         assert_eq!(snapshot.as_of_date, today);
         assert_eq!(snapshot.total_rows, 4);
         // The asset library promises exactly the assets the renewals desk lists: sold, dropped and
-        // archived assets are no longer the workspace's to renew.
-        assert_eq!(
-            database
-                .read_asset_library(0, 1, "")
-                .unwrap()
-                .expiring_within60_days,
-            snapshot.total_rows
-        );
+        // archived assets are no longer the workspace's to renew, and a search that matches only
+        // some of them does not change the count the desk will list.
+        for query in ["", "soon", "nothing-matches"] {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 1, query)
+                    .unwrap()
+                    .expiring_within60_days,
+                snapshot.total_rows,
+                "{query:?}"
+            );
+        }
+        assert_eq!(database.read_asset_library(0, 1, "soon").unwrap().total_rows, 1);
         let rows: Vec<_> = snapshot
             .window
             .rows
