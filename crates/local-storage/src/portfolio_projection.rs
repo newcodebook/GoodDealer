@@ -287,6 +287,15 @@ pub(crate) fn is_forbidden_text_character(character: char) -> bool {
         || matches!(character as u32, 0x00ad | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff | 0xfff9..=0xfffb)
 }
 
+/// One rule for a registrar name wherever a read reports it (asset rows and renewals), matching the
+/// Renderer's `registrarNameSchema`: 1–128 characters (Zod 4 counts code points, as `chars` does)
+/// with no control, bidirectional or invisible formatting characters.
+pub(crate) fn valid_registrar_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= 128
+        && !value.chars().any(is_forbidden_text_character)
+}
+
 /// Maximum length of a Provider connection label, in UTF-16 code units like the Renderer schema.
 pub(crate) const CONNECTION_LABEL_MAX_UTF16: usize = 120;
 

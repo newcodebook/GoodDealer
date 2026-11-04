@@ -5,10 +5,9 @@ import {
   canonicalMoneyViewSchema,
   dataFreshnessSchema,
 } from "../portfolio/index";
+import { registrarNameSchema } from "../portfolio/view-models";
 
 export const renewalTermYearsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
-
-const registrarNameSchema = z.string().min(1).max(128);
 
 /**
  * One renewal row. Registrar and auto-renew are null when nothing records them; term and price are

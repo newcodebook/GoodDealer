@@ -444,12 +444,7 @@ fn validate_texts(tags: &[String], registrar: Option<&str>) -> Result<(), Portfo
         }
         previous = Some(tag);
     }
-    if registrar.is_some_and(|v| {
-        v.is_empty()
-            || v.chars().count() > 128
-            || v.chars()
-                .any(crate::portfolio_projection::is_forbidden_text_character)
-    }) {
+    if registrar.is_some_and(|v| !crate::portfolio_projection::valid_registrar_name(v)) {
         return Err(PortfolioReadError::ProjectionRejected);
     }
     Ok(())

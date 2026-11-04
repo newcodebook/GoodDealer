@@ -8230,7 +8230,28 @@ mod tests {
                 Err(BusinessDatabaseError::WindowRejected)
             ));
         }
-        for name in ["Bad\nRegistrar", &"x".repeat(129)] {
+        // The same matrix as the Renderer's `registrarNameSchema` test: 128 characters, counted as
+        // code points, fit; control, bidirectional and invisible formatting characters do not.
+        let longest = "\u{1d538}".repeat(128);
+        let accepted = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[("soon.test", &longest, "available", TIMESTAMP)],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            accepted.window.rows[0].registrar_name.as_deref(),
+            Some(longest.as_str())
+        );
+        for name in [
+            "Bad\nRegistrar",
+            &"x".repeat(129),
+            "",
+            "Zero\u{200b}Width",
+            "Bidi\u{202e}Name",
+            "Soft\u{ad}Hyphen",
+            "\u{feff}Bom",
+        ] {
             assert!(
                 matches!(
                     renewals_database(

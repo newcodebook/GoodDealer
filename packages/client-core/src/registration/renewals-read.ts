@@ -1,14 +1,14 @@
 import { z } from "zod";
 
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
-import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
+import { copyPlainData, portfolioFreshnessSchema, registrarNameSchema } from "../portfolio/view-models";
 import { renewalDeskViewModelSchema, type RenewalDeskItem, type RenewalDeskViewModel } from "./index";
 
 const renewalRowSchema = z.object({
   entityId: canonicalDomainNameSchema,
   expiresOn: z.iso.date(),
   autoRenew: z.boolean().nullable(),
-  registrarName: z.string().min(1).max(128).refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "registrar names reject control characters").nullable(),
+  registrarName: registrarNameSchema.nullable(),
 }).strict();
 
 export const renewalsWindowRequestSchema = z.object({

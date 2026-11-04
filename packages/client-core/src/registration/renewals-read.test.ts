@@ -32,7 +32,13 @@ describe("renewals read", () => {
     expect(() => parseRenewalsRead(read({}, [{ entityId: "past.test", expiresOn: "2026-11-02", autoRenew: null, registrarName: null }]))).toThrow();
     expect(() => parseRenewalsRead(read({}, [{ entityId: "far.test", expiresOn: "2027-01-03", autoRenew: null, registrarName: null }]))).toThrow();
     expect(() => parseRenewalsRead(read({}, [...read().window.rows].reverse()))).toThrow();
-    expect(() => parseRenewalsRead(read({}, [{ entityId: "soon.test", expiresOn: "2026-11-08", autoRenew: null, registrarName: "Bad\u0000" }]))).toThrow();
+    // The same matrix as the Host's `valid_registrar_name` test: 128 code points fit; control,
+    // bidirectional and invisible formatting characters do not.
+    const named = (registrarName: string) => read({ totalRows: 1 }, [{ entityId: "soon.test", expiresOn: "2026-11-08", autoRenew: null, registrarName }]);
+    expect(parseRenewalsRead(named("\u{1d538}".repeat(128))).window.rows[0]?.registrarName).toHaveLength(256);
+    for (const name of ["Bad\u0000", "Bad\nRegistrar", "x".repeat(129), "", "Zero\u200bWidth", "Bidi\u202eName", "Soft\u00adHyphen", "\ufeffBom"]) {
+      expect(() => parseRenewalsRead(named(name)), JSON.stringify(name)).toThrow();
+    }
     expect(() => parseRenewalsRead(read({ totalRows: 1 }))).toThrow();
   });
 

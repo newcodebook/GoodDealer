@@ -29,6 +29,9 @@ const safeTextSchema = (maximum: number) => z.string().max(maximum).refine(
   "text contains forbidden controls",
 );
 
+/** One registrar name rule for every read, matching the Host's `valid_registrar_name`. */
+export const registrarNameSchema = safeTextSchema(128).min(1);
+
 export const lifecycleStatusSchema = z.enum(["active", "expired", "sold", "dropped", "archived"]);
 export const syncStatusSchema = z.enum(["clean", "pending", "conflicted", "local_only"]);
 
@@ -37,7 +40,7 @@ export const assetLibraryRowSchema = z
     id: z.string().min(1).max(128),
     domain: canonicalDomainNameSchema,
     tags: z.array(safeTextSchema(64).min(1).refine((value) => value.trim() === value)).max(128).readonly(),
-    registrar: safeTextSchema(128).min(1).nullable(),
+    registrar: registrarNameSchema.nullable(),
     lifecycleStatus: lifecycleStatusSchema,
     syncStatus: syncStatusSchema,
     targetPrice: canonicalMoneyViewSchema.nullable(),

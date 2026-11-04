@@ -137,9 +137,10 @@ fn project_row(
     registrar_name: Option<String>,
 ) -> Result<RenewalRow, PortfolioReadError> {
     // Provider-observed text reaches the Renderer, so it is bounded and free of control characters.
-    if registrar_name.as_ref().is_some_and(|name| {
-        name.is_empty() || name.chars().count() > 128 || name.chars().any(char::is_control)
-    }) {
+    if registrar_name
+        .as_deref()
+        .is_some_and(|name| !crate::portfolio_projection::valid_registrar_name(name))
+    {
         return Err(PortfolioReadError::ProjectionRejected);
     }
     Ok(RenewalRow {

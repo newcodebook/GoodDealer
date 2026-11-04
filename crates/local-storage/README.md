@@ -133,7 +133,8 @@ dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '
 soonest first, with recorded auto-renew and the latest available registrar observation's registrar
 name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
 term or plan is projected; registrar names that are empty, longer than 128 characters or contain
-control characters fail the whole read.
+control, bidirectional or invisible formatting characters fail the whole read — the same
+`valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`.
 
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
