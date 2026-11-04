@@ -377,7 +377,7 @@ function ManualTasksRoute({ locale, ports, readGeneration, onStale }: {
     if (state.kind !== "ready") return null;
     try {
       return projectManualTaskInbox(state.windows, {
-        reason: (platform, capability) => copy.manualReason.replace("{platform}", platform).replace("{capability}", capability),
+        reason: (platform, capability) => (platform === null ? copy.manualReasonUnbound : copy.manualReason.replace("{platform}", platform)).replace("{capability}", capability),
         completionCondition: copy.completionByObservation,
         noPlatform: copy.noPlatform,
         noAccount: "—",

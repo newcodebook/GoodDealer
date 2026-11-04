@@ -35,7 +35,7 @@ function read(rows: readonly ManualTaskRow[] = [waiting, unbound], overrides: Pa
 }
 
 const labels = {
-  reason: (platform: string, capability: string) => `${platform} needs ${capability} in its console`,
+  reason: (platform: string | null, capability: string) => platform === null ? `unbound ${capability}` : `${platform} needs ${capability} in its console`,
   completionCondition: "Completes once the Host observes the platform state",
   noPlatform: "No platform",
   noAccount: "—",
@@ -65,7 +65,7 @@ describe("manual tasks read", () => {
       reason: "Cloudflare needs dns_write in its console", affectedDomains: ["alpha.test", "bravo.test"], affectedDomainCount: 2,
       lastCheckedAt: "2026-11-02T10:00:00Z", checklist: [], riskAcceptancePolicy: "forbidden", availableActions: [],
     });
-    expect(view.tasks[1]).toMatchObject({ platform: "No platform", account: "—", priority: "normal", affectedDomains: [], affectedDomainCount: 0 });
+    expect(view.tasks[1]).toMatchObject({ platform: "No platform", account: "—", reason: "unbound dns_write", priority: "normal", affectedDomains: [], affectedDomainCount: 0 });
     expect(projectManualTaskInbox([read()], labels, "task-9").selectedTaskId).toBeNull();
   });
 

@@ -71,7 +71,7 @@ describe("Manual task inbox", () => {
           highRisk: false, itemCount: 1, waitingSince: "2026-08-20T10:00:00Z", lastObservedAt: null, domainCount: 0, domains: [] },
       ] },
     };
-    const projected = projectManualTaskInbox([read], { reason: (platform, capability) => `${platform}:${capability}`, completionCondition: "观察后完成", noPlatform: "未绑定平台", noAccount: "—" }, null);
+    const projected = projectManualTaskInbox([read], { reason: (platform, capability) => `${platform ?? "none"}:${capability}`, completionCondition: "观察后完成", noPlatform: "未绑定平台", noAccount: "—" }, null);
     const html = renderToStaticMarkup(<ManualTaskInbox locale="zh-CN" view={projected} onSelect={() => undefined} />);
 
     expect(html).toContain("Dynadot:registrar_lock");

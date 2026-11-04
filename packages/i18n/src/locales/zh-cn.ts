@@ -670,6 +670,7 @@ const zhCNDictionary = {
     manualReason: "{platform} 的这一步只能在其官方控制台完成（{capability}）",
     completionByObservation: "Host 重新观察到平台状态后才算完成",
     noPlatform: "未绑定平台",
+    manualReasonUnbound: "这一步只能在平台官方控制台完成，且尚未绑定平台连接（{capability}）",
     loading: "正在读取本地人工任务…",
     loadFailed: "无法读取本地人工任务。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",

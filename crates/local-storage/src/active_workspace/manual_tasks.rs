@@ -78,8 +78,9 @@ pub struct ManualTaskRow {
     pub connection_label: Option<String>,
     pub high_risk: bool,
     pub item_count: u32,
+    /// When the earliest of these attempts started; the order of the inbox.
     pub waiting_since: String,
-    /// The latest recorded result for these attempts, if any was observed.
+    /// The latest recorded result of these waiting attempts, if any was observed.
     pub last_observed_at: Option<String>,
     pub domain_count: u32,
     /// Affected domains in byte order, at most `DOMAIN_LIMIT`.
@@ -247,7 +248,8 @@ fn project_task(
                 "SELECT count(DISTINCT i.entity_id),
                         (SELECT max(r.observed_at) FROM operation_results r
                          WHERE r.workspace_id = ?1 AND r.operation_id = ?2
-                           AND r.item_id IN (SELECT a.item_id {item_filter}))
+                           AND EXISTS (SELECT 1 {item_filter}
+                             AND a.item_id = r.item_id AND a.attempt_number = r.attempt_number))
                  {item_filter}"
             ),
             task,

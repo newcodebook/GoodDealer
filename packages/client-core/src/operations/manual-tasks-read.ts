@@ -89,8 +89,8 @@ export interface ManualTasksReadPort {
 
 /** Localized labels the projection needs; the Host read carries none. */
 export interface ManualTaskProjectionLabels {
-  /** Why the step is manual, given the platform and capability. */
-  readonly reason: (platform: string, capability: string) => string;
+  /** Why the step is manual, given the platform (`null` when none is bound) and capability. */
+  readonly reason: (platform: string | null, capability: string) => string;
   readonly completionCondition: string;
   readonly noPlatform: string;
   readonly noAccount: string;
@@ -140,7 +140,7 @@ export function projectManualTaskInbox(
       status: "awaiting_user",
       platform,
       account: row.connectionLabel ?? labels.noAccount,
-      reason: labels.reason(platform, row.capability),
+      reason: labels.reason(row.providerKind === null ? null : platform, row.capability),
       affectedDomains: [...row.domains],
       affectedDomainCount: row.domainCount,
       preparedArtifactLabel: null,
