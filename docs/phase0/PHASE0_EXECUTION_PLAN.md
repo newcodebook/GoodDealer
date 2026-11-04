@@ -61,7 +61,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] DNS 健康页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置页接入 Host 投影（平台连接、角色与能力可用性） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页接入 Host 投影（资格前显示不可用） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 续费页接入 Host 投影
+- [x] 续费页接入 Host 投影 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量页接入 Host 投影（先生成计划，再逐项确认）
 - [ ] 历史页接入 Host 投影
 - [ ] 人工任务收件箱接入 Host 投影（交给平台页面完成，再回到 Desktop 对账）
@@ -76,6 +76,11 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 销售页同一域名多市场合并为一行（与 brand 一致），而非每市场一行
 - [ ] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌
 - [ ] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页
+- [ ] 续费与资产库到期计数排除已售（sold）资产，或在续费页展示生命周期
+- [ ] 续费页自动续费覆盖指标区分“未记录”与“已关闭”
+- [ ] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐
+- [ ] 资产库到期计数在搜索过滤下与续费页列表口径一致
+- [ ] 续费、销售路由补 generation 过期与重试路径测试
 
 ### 3. Cloudflare 路径稳定
 
