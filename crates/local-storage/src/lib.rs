@@ -133,6 +133,10 @@ mod portfolio_projection;
 mod sqlcipher_key_sql;
 mod sqlcipher_process_policy;
 
+pub use active_workspace::batch_operations::{
+    BatchOperationRow, BatchOperationsReadSnapshot, BatchOperationsWindow, BatchPlannedCounts,
+    BatchResultCounts,
+};
 pub use active_workspace::business::CloudflareDnsRecordWrite;
 pub use active_workspace::business::DomainAssetMutationReceipt;
 pub(crate) use active_workspace::business::{
@@ -180,14 +184,15 @@ pub use backup::{
 };
 pub use backup::{DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
-    DesktopAssetLibraryReadRequest, DesktopCloudflareConnectionRead,
-    DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,
-    DesktopCloudflareObservationRecord, DesktopConflict, DesktopConflictCenterView,
-    DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopRenewalsReadRequest,
-    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopSyncTransportState,
+    DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
+    DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,
+    DesktopCloudflareObservationReadRequest, DesktopCloudflareObservationRecord, DesktopConflict,
+    DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolutionReceipt,
+    DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
+    DesktopDomainAssetProviderBindingRequest, DesktopDomainAssetWrite,
+    DesktopDomainDetailReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopSyncSnapshotView, DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

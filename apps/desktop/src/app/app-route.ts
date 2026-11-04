@@ -7,6 +7,7 @@ export const appRouteIds = [
   "renewals.desk",
   "sales.desk",
   "dns.health",
+  "operations.batch",
   "sync.conflicts",
   "settings",
 ] as const;

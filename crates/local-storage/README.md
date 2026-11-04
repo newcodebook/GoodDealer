@@ -102,6 +102,13 @@ status, asking price, observation time, availability and evidence. Observation, 
 version identifiers stay in the Host. Marketplaces outside ADR-0027's launch list and malformed
 prices fail the whole read.
 
+`BusinessDatabase::read_batch_operations` uses the same window rules and lists operation plans newest
+first: title, kind, plan and operation phases, risk, item and distinct target counts, the ADR-0027
+platform kinds of bound connections, planned counts by inclusion and execution mode, and each
+item's latest attempt status once an operation exists. Plan, item, operation, attempt, connection
+and Provider request identifiers stay in the Host; titles with control characters, malformed kinds
+and unknown platforms fail the whole read.
+
 `BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
 recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
 soonest first, with recorded auto-renew and the latest available registrar observation's registrar

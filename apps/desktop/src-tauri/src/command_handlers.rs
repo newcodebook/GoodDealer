@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use gooddealer_local_storage::{
-    AssetLibraryReadSnapshot, DesktopAssetLibraryReadRequest, DesktopBackupError,
-    DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
+    AssetLibraryReadSnapshot, BatchOperationsReadSnapshot, DesktopAssetLibraryReadRequest,
+    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopBatchOperationsReadRequest, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
     DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
@@ -68,6 +69,16 @@ pub(crate) fn local_domain_detail_read(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainDetailReadSnapshot, String> {
     host.read_domain_detail(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_batch_operations_read(
+    request: DesktopBatchOperationsReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<BatchOperationsReadSnapshot, String> {
+    host.read_batch_operations(request)
         .map_err(|error| error.to_string())
 }
 

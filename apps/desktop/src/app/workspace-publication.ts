@@ -1,6 +1,7 @@
 import {
   createConflictResolutionIntent,
   type AssetLibraryViewModel,
+  type BatchOperationsReadPort,
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
   type DnsHealthPort,
@@ -36,6 +37,8 @@ export interface AuthoritativeWorkspacePorts {
   readonly sales: SalesReadPort;
   /** Read by the renewals route on demand; not part of the workspace publication. */
   readonly renewals: RenewalsReadPort;
+  /** Read by the batch route on demand; not part of the workspace publication. */
+  readonly batches: BatchOperationsReadPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -94,6 +97,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "settings"]
-    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "sync.conflicts", "settings"];
+    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "settings"]
+    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "sync.conflicts", "settings"];
 }

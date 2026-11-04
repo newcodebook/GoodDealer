@@ -34,6 +34,7 @@ function createFixture() {
     "local_domain_asset_delete",
     "local_domain_asset_provider_bind",
     "local_asset_library_read",
+    "local_batch_operations_read",
     "local_dns_health_read",
     "local_domain_detail_read",
     "local_renewals_read",

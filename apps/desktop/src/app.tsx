@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
+  createLocalBatchOperationsPort,
   createLocalBusinessPort,
   createLocalConflictPort,
   createLocalDnsHealthPort,
@@ -38,6 +39,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   settings: createLocalSettingsPort(),
   sales: createLocalSalesPort(),
   renewals: createLocalRenewalsPort(),
+  batches: createLocalBatchOperationsPort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

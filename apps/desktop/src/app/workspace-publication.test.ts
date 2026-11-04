@@ -109,6 +109,7 @@ function ports(readGeneration: number) {
     settings: { loadSettings: vi.fn() },
     sales: { loadSales: vi.fn() },
     renewals: { loadRenewals: vi.fn() },
+    batches: { loadBatchOperations: vi.fn() },
   };
 }
 

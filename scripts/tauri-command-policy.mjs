@@ -16,6 +16,7 @@ const reviewedCommands = [
   "local_backup_export",
   "local_backup_restore_begin",
   "local_backup_restore_status",
+  "local_batch_operations_read",
   "local_business_status",
   "local_conflict_center_read",
   "local_conflict_resolve",

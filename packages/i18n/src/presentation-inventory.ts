@@ -16,7 +16,7 @@ export interface PresentationCopyInventoryEntry {
 export const presentationCopyInventory = {
   shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 71, exactBrandCopyKeys: 27 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 47, exactBrandCopyKeys: 36 },
-  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 139, exactBrandCopyKeys: 79 },
+  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 143, exactBrandCopyKeys: 79 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 34, exactBrandCopyKeys: 19 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 88, exactBrandCopyKeys: 58 },
@@ -30,6 +30,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 810 as const;
+export const reconciledLocaleKeyCount = 814 as const;
 export const reconciledExactBrandCopyKeyCount = 494 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

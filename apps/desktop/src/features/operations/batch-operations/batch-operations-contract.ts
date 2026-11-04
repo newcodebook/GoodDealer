@@ -1,35 +1,12 @@
-import type { BatchOperationViewModel } from "@gooddealer/client-core";
+import type { BatchOperationListItem, BatchOperationViewModel } from "@gooddealer/client-core";
 
 export type BatchPhase = BatchOperationViewModel["phase"];
 
-/**
- * One row of the batch list. The Host exposes only a single batch projection today, so this list
- * shape is Desktop-local and supplied by the mock design host until a list contract exists.
- */
-export interface BatchJobSummary {
-  readonly id: string;
-  readonly title: string;
-  readonly ruleLabel: string;
-  readonly targetCount: number;
-  readonly platform: string;
-  readonly account: string;
-  readonly createdLabel: string;
-  readonly phase: BatchPhase;
-  readonly progressPercent: number;
-  readonly highRisk: boolean;
-  readonly plannedCounts: { readonly automatic: number; readonly manual: number; readonly conflict: number } | null;
-  readonly resultCounts: BatchResultCounts | null;
-}
+/** One row of the batch list, from the client-core list contract the Host projection fills. */
+export type BatchJobSummary = BatchOperationListItem;
 
-/** Per-outcome totals for a running or finished batch; not yet part of the Host projection. */
-export interface BatchResultCounts {
-  readonly succeeded: number;
-  readonly waitingRemote: number;
-  readonly retryable: number;
-  readonly outcomeUnknown: number;
-  readonly manual: number;
-  readonly failedFinal: number;
-}
+/** Per-outcome totals for a running or finished batch. */
+export type BatchResultCounts = NonNullable<BatchOperationListItem["resultCounts"]>;
 
 export interface BatchExecutionProgress {
   readonly percent: number;

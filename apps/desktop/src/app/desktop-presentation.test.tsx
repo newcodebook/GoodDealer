@@ -109,9 +109,9 @@ describe("desktop presentation adjudication", () => {
       const result = adjudicateDesktopPresentation(false, value, "authenticated");
       return result.view === "workspace" ? result.surface.availableRouteIds : [];
     };
-    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "sync.conflicts", "settings"]);
+    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "sync.conflicts", "settings"]);
     expect(routes(publication("active", ["local:read"], { sync: { ...sync, recoveryRequired: true } })))
-      .toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "settings"]);
+      .toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "settings"]);
   });
 
   it("puts every composed route in the production workspace rail", () => {
@@ -128,6 +128,6 @@ describe("desktop presentation adjudication", () => {
         onLocaleChange={vi.fn()}
       />,
     );
-    for (const label of ["Asset library", "Sales", "DNS &amp; verification", "Conflict center", "Settings"]) expect(html).toContain(label);
+    for (const label of ["Asset library", "Sales", "DNS &amp; verification", "Batch operations", "Conflict center", "Settings"]) expect(html).toContain(label);
   });
 });

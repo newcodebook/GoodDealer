@@ -1,12 +1,13 @@
-import { parseAssetLibraryQuery, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { parseAssetLibraryQuery, projectBatchOperationList, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
+import { BatchList } from "../features/operations/batch-operations";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
@@ -63,9 +64,12 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       ...(has("sales.desk") ? [{ id: "sales.desk", label: shellCopy.sales, icon: <CoinsIcon /> }] : []),
       ...(has("dns.health") ? [{ id: "dns.health", label: shellCopy.dns, icon: <ShieldIcon /> }] : []),
     ];
-    const execution = has("sync.conflicts")
-      ? [{ id: "sync.conflicts", label: shellCopy.conflicts, icon: <AlertTriangleIcon />, ...(pendingConflicts > 0 ? { count: pendingConflicts, tone: "danger" as const } : {}) }]
-      : [];
+    const execution = [
+      ...(has("operations.batch") ? [{ id: "operations.batch", label: shellCopy.batches, icon: <ListChecksIcon /> }] : []),
+      ...(has("sync.conflicts")
+        ? [{ id: "sync.conflicts", label: shellCopy.conflicts, icon: <AlertTriangleIcon />, ...(pendingConflicts > 0 ? { count: pendingConflicts, tone: "danger" as const } : {}) }]
+        : []),
+    ];
     return [
       ...(assets.length === 0 ? [] : [{ id: "assets", label: shellCopy.assets, items: assets }]),
       ...(execution.length === 0 ? [] : [{ id: "execution", label: shellCopy.execution, items: execution }]),
@@ -96,7 +100,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "operations.batch" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -149,6 +153,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
           ),
           "dns.health": () => (
             <DnsHealthRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
+            />
+          ),
+          "operations.batch": () => (
+            <BatchRoute
               locale={locale}
               ports={ports}
               readGeneration={publication.status.readGeneration}
@@ -229,6 +241,65 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
       about={{ version: null, dataDirectory: null, revisionBase }}
       onLocaleChange={onLocaleChange}
     />
+  );
+}
+
+const batchWindowSize = 200;
+
+type BatchState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly view: BatchOperationListViewModel }
+  | { readonly kind: "failed" };
+
+/**
+ * Reads every batch window for one Host generation. Rows do not open: the Host has no plan detail
+ * read yet, and generating, approving or running a plan needs operation capabilities that are not
+ * qualified, so the list reports creation as unavailable.
+ */
+function BatchRoute({ locale, ports, readGeneration, onStale }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "batchOperation");
+  const [state, setState] = useState<BatchState>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: BatchOperationsRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.batches.loadBatchOperations({ startIndex: next, size: batchWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < (windows[0]?.totalRows ?? 0));
+        const view = projectBatchOperationList(windows);
+        if (!cancelled) setState({ kind: "ready", view });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  if (state.kind === "ready") return <BatchList locale={locale} jobs={state.view.items} creationAvailability={state.view.creationAvailability} />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+    </Banner>
   );
 }
 

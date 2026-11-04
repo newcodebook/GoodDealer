@@ -168,6 +168,7 @@ const expectedLocalWorkspaceBindingPublicItems = [
 const repositoryCoreRoot = resolve(import.meta.dirname, "../crates/secure-host-core");
 const repositoryLocalStorageRoot = resolve(import.meta.dirname, "../crates/local-storage");
 const expectedLocalStorageExportModules = [
+  "active_workspace::batch_operations",
   "active_workspace::business",
   "active_workspace::business",
   "active_workspace::dns_health",
@@ -231,6 +232,7 @@ const expectedLocalStoragePublicExports = [
   "DesktopVerifiedBackupArtifact",
   "DesktopNativeCloudAdmission",
   "DesktopRenewalsReadRequest",
+  "DesktopBatchOperationsReadRequest",
   "DesktopSalesReadRequest",
   "DesktopSyncCheckpointDisposition",
   "DesktopSyncPullDisposition",
@@ -240,6 +242,11 @@ const expectedLocalStoragePublicExports = [
   "DesktopSyncPushWork",
   "DesktopSyncSnapshotView",
   "DesktopSyncTransportState",
+  "BatchOperationRow",
+  "BatchOperationsReadSnapshot",
+  "BatchOperationsWindow",
+  "BatchPlannedCounts",
+  "BatchResultCounts",
   "DnsHealthReadSnapshot",
   "DnsHealthRow",
   "DnsHealthWindow",
@@ -517,10 +524,8 @@ test("rejects extra source files and public exports", (t) => {
   const missingStorageExportPath = join(missingStorageExportFixture, "src/lib.rs");
   writeFileSync(
     missingStorageExportPath,
-    readFileSync(missingStorageExportPath, "utf8").replace(
-      "    DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,\n",
-      "    DesktopCloudflareObservationReadRequest,\n",
-    ),
+    // Drops one export whatever line rustfmt wraps it onto.
+    readFileSync(missingStorageExportPath, "utf8").replace(/\bDesktopCloudflareObservationRead,\s*/u, ""),
   );
   assert.ok(localStorageFinalSurfaceErrors({ storageRoot: missingStorageExportFixture }).some(
     (error) => error.includes("public exports differ"),

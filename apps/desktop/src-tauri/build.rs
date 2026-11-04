@@ -13,6 +13,7 @@ fn main() {
             "local_settings_read",
             "local_sales_read",
             "local_renewals_read",
+            "local_batch_operations_read",
             "local_domain_asset_edit",
             "local_domain_asset_delete",
             "local_domain_asset_provider_bind",

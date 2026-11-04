@@ -1,3 +1,5 @@
+pub(crate) mod batch_operations;
+
 pub(crate) mod dns_health;
 
 pub(crate) mod renewals;
@@ -75,6 +77,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_batch_operations(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::BatchOperationsReadSnapshot, PortfolioReadError> {
+            super::batch_operations::ActiveBatchOperationsReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

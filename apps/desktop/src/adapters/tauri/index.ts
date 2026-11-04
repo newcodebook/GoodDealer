@@ -2,6 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   copyPlainData,
+  batchOperationsWindowRequestSchema,
+  parseBatchOperationsRead,
+  type BatchOperationsRead,
+  type BatchOperationsReadPort,
   assetLibraryWindowRequestSchema,
   canonicalDomainNameSchema,
   parseAssetLibraryQuery,
@@ -122,6 +126,7 @@ const commands = {
   readDnsHealth: "local_dns_health_read",
   readSettings: "local_settings_read",
   readRenewals: "local_renewals_read",
+  readBatchOperations: "local_batch_operations_read",
   readSales: "local_sales_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
@@ -191,6 +196,23 @@ export function createLocalDnsHealthPort(): DnsHealthPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Operation plan windows from the Host; any other provenance is rejected. */
+export function createLocalBatchOperationsPort(): BatchOperationsReadPort {
+  return {
+    async loadBatchOperations(request): Promise<BatchOperationsRead> {
+      let validatedRequest;
+      try { validatedRequest = batchOperationsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseBatchOperationsRead(await invoke(commands.readBatchOperations, { request: validatedRequest }));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

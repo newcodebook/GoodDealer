@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of operation plans, newest first, with planned and attempted counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_batch_operations(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::BatchOperationsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_batch_operations(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one bounded window of assets expiring within the next 60 days, soonest first.
     ///
     /// # Errors
@@ -7711,6 +7726,218 @@ mod tests {
                 "{listing:?} must fail closed"
             );
         }
+    }
+
+    /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
+    /// and a newer unapproved plan titled `newer_title`.
+    #[allow(clippy::too_many_lines)]
+    fn batch_database(newer_title: &str) -> BusinessDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-secret','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        let plan = "INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,?3,?4,'planned',?5,?6,?7,1)";
+        let item = "INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local',?1,?2,?3,?4,'connection-secret','dns_write','{}',?5,?6,?7)";
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-a",
+                    "dns_change",
+                    "0".repeat(64),
+                    "Nameserver change",
+                    "high",
+                    3,
+                    "2026-01-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        for (ordinal, (entity, risk, mode, inclusion)) in [
+            ("alpha.test", "high", "automatic", "included"),
+            ("bravo.test", "standard", "manual", "included"),
+            ("bravo.test", "standard", "automatic", "excluded"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            connection
+                .execute(
+                    item,
+                    rusqlite::params![
+                        "plan-secret-a",
+                        format!("item-secret-{ordinal}"),
+                        i64::try_from(ordinal).unwrap(),
+                        entity,
+                        risk,
+                        mode,
+                        inclusion
+                    ],
+                )
+                .unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-secret-a'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-secret','plan-secret-a','key-secret','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        let attempt = "INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at,completed_at,provider_request_id) VALUES ('workspace-local','operation-secret','plan-secret-a',?1,?2,?3,?4,?5,?6,'provider-request-secret')";
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    1,
+                    "failed_retryable",
+                    "1".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        // A retry needs the prior attempt's recorded retryable result.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-0',1,1,'failed_retryable','{}',?1)", [TIMESTAMP]).unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    2,
+                    "succeeded",
+                    "2".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-1",
+                    1,
+                    "manual_action_required",
+                    "3".repeat(64),
+                    TIMESTAMP,
+                    None::<&str>
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "price_change",
+                    "4".repeat(64),
+                    newer_title,
+                    "standard",
+                    1,
+                    "2026-02-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                item,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "item-secret-b",
+                    0,
+                    "alpha.test",
+                    "standard",
+                    "unsupported",
+                    "conflict"
+                ],
+            )
+            .unwrap();
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    fn batch_operations_list_plans_newest_first_with_counts_and_no_identifiers() {
+        let mut empty = database();
+        assert_eq!(empty.read_batch_operations(0, 10).unwrap().total_rows, 0);
+        let _ = empty.store.fixture_connection();
+
+        let database = batch_database("Price change");
+        let snapshot = database.read_batch_operations(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "batch_operations");
+        assert_eq!(snapshot.total_rows, 2);
+        let [newer, older] = snapshot.window.rows.as_slice() else {
+            panic!("expected two plans");
+        };
+        assert_eq!(
+            (
+                newer.title.as_str(),
+                newer.plan_phase.as_str(),
+                newer.operation_phase.as_deref()
+            ),
+            ("Price change", "planned", None)
+        );
+        assert_eq!(newer.planned.conflict, 1);
+        assert!(newer.results.is_none());
+        assert_eq!(
+            (
+                older.operation_kind.as_str(),
+                older.plan_phase.as_str(),
+                older.operation_phase.as_deref()
+            ),
+            ("dns_change", "approved", Some("running"))
+        );
+        assert_eq!(older.provider_kinds, ["cloudflare"]);
+        assert_eq!((older.item_count, older.target_count), (3, 2));
+        assert_eq!(older.completed_at, None);
+        assert_eq!(
+            (
+                older.planned.automatic,
+                older.planned.manual,
+                older.planned.excluded,
+                older.planned.high_risk
+            ),
+            (1, 1, 1, 1)
+        );
+        let results = older.results.as_ref().unwrap();
+        assert_eq!(
+            (
+                results.succeeded,
+                results.failed_retryable,
+                results.manual_action_required
+            ),
+            (1, 0, 1)
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "key-secret",
+            "connection-secret",
+            "provider-request-secret",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into batch operations"
+            );
+        }
+        assert_eq!(
+            database
+                .read_batch_operations(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_batch_operations(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        assert!(matches!(
+            batch_database("Bad\ntitle").read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's
