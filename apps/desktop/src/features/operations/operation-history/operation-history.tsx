@@ -1,5 +1,5 @@
 import type { OperationHistoryEntry, OperationHistoryViewModel } from "@gooddealer/client-core";
-import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   AlertTriangleIcon,
   Badge,
@@ -20,6 +20,8 @@ import {
 import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
+import { relativeTime } from "../relative-time";
+
 import "./operation-history.css";
 
 type ScopeFilter = "all" | OperationHistoryEntry["scope"];
@@ -31,6 +33,8 @@ export interface OperationHistoryProps {
   /** Plans a reversal: a new forward Revision; the ledger itself is never edited. */
   readonly onPlanReversal?: (entry: OperationHistoryEntry, nameserverRiskAcknowledged: boolean) => void;
   readonly onExport?: (entry: OperationHistoryEntry) => void;
+  /** The local clock relative times are measured from; defaults to now. */
+  readonly now?: Date;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -38,7 +42,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 }
 
 /** Operation history: the append-only Revision ledger beside a field-level detail pane. */
-export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExport }: OperationHistoryProps) {
+export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExport, now }: OperationHistoryProps) {
   const copy = getPresentationCopy(locale, "operationHistory");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -51,8 +55,7 @@ export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExp
     && (needle === "" || entry.actionLabel.includes(needle) || entry.revisionLabel.includes(needle) || entry.platformLabel.includes(needle)));
   const selected = view.entries.find((entry) => entry.revisionId === view.selectedRevisionId) ?? rows[0] ?? null;
   const rolledBack = view.entries.filter((entry) => entry.state === "rolled_back").length;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const when = (value: string) => formatDate(locale, Date.parse(value), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  const when = (value: string) => relativeTime(value, copy, now);
 
   const stateBadge = (entry: OperationHistoryEntry) => {
     switch (entry.state) {

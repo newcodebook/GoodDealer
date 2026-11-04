@@ -140,7 +140,7 @@ export function SalesDesk({
       <span className="sales-actions">
         {can("accept_offer") && onAcceptOffer !== undefined ? <Button size="sm" variant="primary" onClick={() => { setAcceptAck(false); setAccepting(offer); }}>{copy.accept}</Button> : null}
         {can("counter_offer") && onCounterOffer !== undefined ? (
-          <Button size="sm" onClick={() => { setCounterText(offer.counter?.amount ?? midpoint(offer)); setCountering(offer); }}>{copy.counter}</Button>
+          <Button size="sm" onClick={() => { setCounterText(offer.counter?.amount ?? midpoint(offer)); setCountering(offer); }}>{copy.counterAction}</Button>
         ) : null}
         {can("decline_offer") && onDeclineOffer !== undefined ? <Button size="sm" variant="ghost" onClick={() => onDeclineOffer(offer)}>{copy.decline}</Button> : null}
       </span>

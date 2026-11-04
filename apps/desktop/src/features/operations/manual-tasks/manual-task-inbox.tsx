@@ -1,5 +1,5 @@
 import type { ManualTaskInboxViewModel } from "@gooddealer/client-core";
-import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   Badge,
   Button,
@@ -13,6 +13,8 @@ import {
 } from "@gooddealer/ui";
 import { useState } from "react";
 
+import { relativeTime } from "../relative-time";
+
 import "./manual-task-inbox.css";
 
 type ManualTask = ManualTaskInboxViewModel["tasks"][number];
@@ -25,6 +27,8 @@ export interface ManualTaskInboxProps {
   /** Ordinary task actions; "mark done" only asks the Host to verify, it never marks success itself. */
   readonly onAction?: (task: ManualTask, action: TaskAction) => void;
   readonly onAcceptRisk?: (task: ManualTask, reason: string) => void;
+  /** The local clock relative times are measured from; defaults to now. */
+  readonly now?: Date;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -37,7 +41,7 @@ const terminal = new Set<ManualTask["status"]>(["confirmed_completed", "cancelle
  * Manual task inbox: steps a platform offers only in its own console. The person completes them in
  * their own browser; returning only asks the Host to re-observe the platform (ADR-0017, ADR-0027).
  */
-export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk }: ManualTaskInboxProps) {
+export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk, now }: ManualTaskInboxProps) {
   const copy = getPresentationCopy(locale, "manualTaskInbox");
   const [riskTask, setRiskTask] = useState<ManualTask | null>(null);
   const [reason, setReason] = useState("");
@@ -45,8 +49,7 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
   const readOnly = view.source === "standby_cloud" || view.commandAdmission !== "proven";
   const selected = view.tasks.find((task) => task.id === view.selectedTaskId) ?? view.tasks[0] ?? null;
   const open = view.tasks.filter((task) => !terminal.has(task.status)).length;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const when = (value: string | null) => value === null ? "—" : formatDate(locale, Date.parse(value), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  const when = (value: string | null) => value === null ? "—" : relativeTime(value, copy, now);
 
   const statusBadge = (task: ManualTask) => {
     switch (task.status) {

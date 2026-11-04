@@ -35,8 +35,10 @@ Customer Desktop application that composes the Renderer and native Host around t
   as not connected or not observed. Settings reads redacted Provider connections and their declared
   roles from `local_settings_read`; every role stays unavailable until its capabilities are
   qualified, and no connect/reauthorize/manage action is offered. Devices, license, pull cadence and
-  build facts have no Host source yet and render as unavailable. Every other designed screen exists
-  only in `visual-fixtures/` until its Host projection lands.
+  build facts have no Host source yet and render as unavailable. The other designed screens
+  (onboarding and the batch diff preview) exist only in `visual-fixtures/` until their Host
+  projections land; `src/app/production-build-graph.test.ts` builds the production entry in memory
+  and proves every composed page ships while no fixture or brand-kit module does.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
 ## Touchpoints
