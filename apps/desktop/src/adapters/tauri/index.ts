@@ -10,6 +10,10 @@ import {
   parseHistoryRead,
   type HistoryRead,
   type HistoryReadPort,
+  manualTasksWindowRequestSchema,
+  parseManualTasksRead,
+  type ManualTasksRead,
+  type ManualTasksReadPort,
   assetLibraryWindowRequestSchema,
   canonicalDomainNameSchema,
   parseAssetLibraryQuery,
@@ -132,6 +136,7 @@ const commands = {
   readRenewals: "local_renewals_read",
   readBatchOperations: "local_batch_operations_read",
   readHistory: "local_history_read",
+  readManualTasks: "local_manual_tasks_read",
   readSales: "local_sales_read",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
@@ -235,6 +240,23 @@ export function createLocalHistoryPort(): HistoryReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseHistoryRead(await invoke(commands.readHistory, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Manual task windows from the Host; any other provenance is rejected. */
+export function createLocalManualTasksPort(): ManualTasksReadPort {
+  return {
+    async loadManualTasks(request): Promise<ManualTasksRead> {
+      let validatedRequest;
+      try { validatedRequest = manualTasksWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseManualTasksRead(await invoke(commands.readManualTasks, { request: validatedRequest }));
         if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
         return value;
       }

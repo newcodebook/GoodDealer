@@ -134,6 +134,7 @@ function inbox(options?: {
         account: "Primary",
         reason: "The registrar offers this action only in its console",
         affectedDomains: ["vault.io"],
+        affectedDomainCount: 1,
         preparedArtifactLabel: null,
         completionCondition: "Registrar reports the transfer lock as off",
         lastCheckedAt: timestamp,

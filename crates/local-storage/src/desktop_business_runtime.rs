@@ -286,6 +286,13 @@ pub struct DesktopBatchOperationsReadRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopManualTasksReadRequest {
+    pub(crate) start_index: u32,
+    pub(crate) size: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopHistoryReadRequest {
     pub(crate) start_index: u32,
     pub(crate) size: u16,
@@ -473,6 +480,16 @@ impl DesktopBusinessRuntime {
         size: u16,
     ) -> Result<crate::BatchOperationsReadSnapshot, BusinessDatabaseError> {
         let mut snapshot = self.database.read_batch_operations(start_index, size)?;
+        snapshot.read_generation = self.read_generation;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn read_manual_tasks(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::ManualTasksReadSnapshot, BusinessDatabaseError> {
+        let mut snapshot = self.database.read_manual_tasks(start_index, size)?;
         snapshot.read_generation = self.read_generation;
         Ok(snapshot)
     }

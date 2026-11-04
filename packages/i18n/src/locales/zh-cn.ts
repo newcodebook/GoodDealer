@@ -666,6 +666,13 @@ const zhCNDictionary = {
     readOnlyNotice: "当前为只读视图，任务操作不可用。",
     empty: "没有人工任务",
     domainsUnit: "域名",
+    actionsUnavailable: "打开平台、标记完成与重新检查在对应能力资格认证前不可用；请在平台官方控制台完成此步骤。",
+    manualReason: "{platform} 的这一步只能在其官方控制台完成（{capability}）",
+    completionByObservation: "Host 重新观察到平台状态后才算完成",
+    noPlatform: "未绑定平台",
+    loading: "正在读取本地人工任务…",
+    loadFailed: "无法读取本地人工任务。重试只会重新读取，不会修改任何数据。",
+    retryRead: "重新读取",
   },
   conflictCenter: {
     title: "冲突中心",

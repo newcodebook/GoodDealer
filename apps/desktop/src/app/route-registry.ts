@@ -24,6 +24,7 @@ export const appRouteRegistry = {
   "sales.desk": route("sales.desk", "salesDesk"),
   "dns.health": route("dns.health", "dnsVerification"),
   "operations.batch": route("operations.batch", "batchOperation"),
+  "operations.manualTasks": route("operations.manualTasks", "manualTaskInbox"),
   "operations.history": route("operations.history", "operationHistory"),
   "sync.conflicts": route("sync.conflicts", "conflictCenter"),
   settings: route("settings", "settings"),

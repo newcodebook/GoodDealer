@@ -1582,6 +1582,21 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of manual tasks, oldest waiting first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_manual_tasks(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::ManualTasksReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_manual_tasks(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs.
     ///
     /// # Errors
@@ -7866,6 +7881,98 @@ mod tests {
             .unwrap();
         let _ = connection;
         database
+    }
+
+    #[test]
+    fn manual_tasks_group_waiting_items_without_identifiers() {
+        let empty = database();
+        assert_eq!(empty.read_manual_tasks(0, 10).unwrap().total_rows, 0);
+        let database = batch_database("Price change");
+        let snapshot = database.read_manual_tasks(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "manual_tasks");
+        assert_eq!(snapshot.total_rows, 1);
+        // Only the item whose latest attempt waits on the person forms a task.
+        assert_eq!(
+            snapshot.window.rows,
+            [crate::ManualTaskRow {
+                title: "Nameserver change".to_owned(),
+                operation_kind: "dns_change".to_owned(),
+                capability: "dns_write".to_owned(),
+                provider_kind: Some("cloudflare".to_owned()),
+                connection_label: Some("DNS".to_owned()),
+                high_risk: false,
+                item_count: 1,
+                waiting_since: TIMESTAMP.to_owned(),
+                last_observed_at: None,
+                domain_count: 1,
+                domains: vec!["bravo.test".to_owned()],
+            }]
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "connection-secret",
+            "provider-request-secret",
+            "key-secret",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into manual tasks");
+        }
+        assert!(
+            database
+                .read_manual_tasks(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .is_empty()
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_manual_tasks(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        let mut grouped = batch_database("Price change");
+        let connection = grouped.store.fixture_connection();
+        connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,'manual_action_required',?1,'2026-08-28T01:00:00Z')", ["5".repeat(64)]).unwrap();
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,1,'manual_action_required','{}','2026-08-28T02:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1, "one platform step stays one task");
+        assert_eq!(
+            (
+                rows[0].item_count,
+                rows[0].domain_count,
+                rows[0].last_observed_at.as_deref()
+            ),
+            (2, 1, Some("2026-08-28T02:00:00Z"))
+        );
+        let mut foreign = batch_database("Price change");
+        foreign
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET provider_kind = 'sedo'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            foreign.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let mut control = batch_database("Price change");
+        control
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Bad\nlabel'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            control.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     #[test]

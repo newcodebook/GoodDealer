@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
+import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -122,6 +122,36 @@ describe("Desktop Tauri local-business adapter", () => {
     }
     invokeMock.mockClear();
     await expect(port.loadHistory({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("reads manual task windows through the narrow command and rejects identifiers, browser fields or foreign provenance", async () => {
+    const row = {
+      title: "Nameserver change", operationKind: "dns_change", capability: "dns_write", providerKind: "cloudflare", connectionLabel: "DNS",
+      highRisk: false, itemCount: 1, waitingSince: "2026-08-19T10:00:00Z", lastObservedAt: null, domainCount: 1, domains: ["bravo.test"],
+    };
+    const read = {
+      schemaVersion: 1, kind: "manual_tasks", readGeneration: 3,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 1,
+      window: { startIndex: 0, size: 200, rows: [row] },
+    };
+    const port = createLocalManualTasksPort();
+    invokeMock.mockResolvedValueOnce(read);
+    await expect(port.loadManualTasks({ startIndex: 0, size: 200 })).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_manual_tasks_read", { request: { startIndex: 0, size: 200 } });
+    for (const hostile of [
+      { ...read, window: { ...read.window, rows: [{ ...row, operationId: "canary" }] } },
+      { ...read, window: { ...read.window, rows: [{ ...row, remoteBrowserSession: "canary" }] } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      "LOCAL_READ_AUTHORIZATION_REQUIRED",
+    ]) {
+      if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
+      else invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.loadManualTasks({ startIndex: 0, size: 200 })).rejects.toBeInstanceOf(LocalReadError);
+    }
+    invokeMock.mockClear();
+    await expect(port.loadManualTasks({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

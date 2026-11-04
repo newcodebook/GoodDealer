@@ -732,6 +732,13 @@ const enUSDictionary = {
     readOnlyNotice: "This is a read-only view; task actions are unavailable.",
     empty: "No manual tasks",
     domainsUnit: "domains",
+    actionsUnavailable: "Opening the platform, marking done and re-checking are unavailable until the matching capabilities are qualified; complete this step in the platform's official console.",
+    manualReason: "{platform} offers this step only in its official console ({capability})",
+    completionByObservation: "Completes only once the Host observes the platform state again",
+    noPlatform: "No platform bound",
+    loading: "Reading local manual tasks…",
+    loadFailed: "Local manual tasks could not be read. Retrying only reads again and changes nothing.",
+    retryRead: "Read again",
   },
   browserAutomation: {
     selectPlatformTitle: "Add account connection · Select platform",

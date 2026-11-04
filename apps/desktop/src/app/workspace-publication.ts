@@ -3,6 +3,7 @@ import {
   type AssetLibraryViewModel,
   type BatchOperationsReadPort,
   type HistoryReadPort,
+  type ManualTasksReadPort,
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
   type DnsHealthPort,
@@ -42,6 +43,8 @@ export interface AuthoritativeWorkspacePorts {
   readonly batches: BatchOperationsReadPort;
   /** Read by the history route on demand; not part of the workspace publication. */
   readonly history: HistoryReadPort;
+  /** Read by the manual task route on demand; not part of the workspace publication. */
+  readonly manualTasks: ManualTasksReadPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -100,6 +103,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.history", "settings"]
-    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.history", "sync.conflicts", "settings"];
+    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "settings"]
+    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "sync.conflicts", "settings"];
 }

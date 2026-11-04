@@ -477,6 +477,12 @@
           "markdownDescription": "Enables the local_history_read command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_manual_tasks_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-manual-tasks-read",
+          "markdownDescription": "Enables the local_manual_tasks_read command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_renewals_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-renewals-read",
@@ -631,6 +637,12 @@
           "type": "string",
           "const": "deny-local-history-read",
           "markdownDescription": "Denies the local_history_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_manual_tasks_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-manual-tasks-read",
+          "markdownDescription": "Denies the local_manual_tasks_read command without any pre-configured scope."
         },
         {
           "description": "Denies the local_renewals_read command without any pre-configured scope.",

@@ -119,6 +119,15 @@ unchanged fields are omitted; otherwise every recorded field is listed and `prev
 omitted (unknown, never `null`). Mutation, device, lease and payload digest identifiers stay in the
 Host; a recorded value an asset write could not have stored fails the whole read.
 
+`BusinessDatabase::read_manual_tasks` uses the same window rules and lists manual tasks oldest
+waiting first: plan items whose latest attempt is `manual_action_required`, grouped into one task
+per operation, connection and capability (a retry returns to the same task). Each task reports the
+plan title and kind, capability, the connection's ADR-0027 platform kind and label, risk, item
+count, waiting-since and latest observed result times, and its affected domains (exact count, at
+most 10,000 listed). Plan, item, operation, attempt, connection, Provider account and request
+identifiers stay in the Host; unknown platforms, control characters and malformed tokens fail the
+whole read. It carries no browser session, automation or authorization data.
+
 `BusinessDatabase::read_renewals` uses the same window rules and lists unarchived assets whose
 recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
 soonest first, with recorded auto-renew and the latest available registrar observation's registrar

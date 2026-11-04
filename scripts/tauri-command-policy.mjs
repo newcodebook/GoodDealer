@@ -26,6 +26,7 @@ const reviewedCommands = [
   "local_domain_asset_provider_bind",
   "local_domain_detail_read",
   "local_history_read",
+  "local_manual_tasks_read",
   "local_renewals_read",
   "local_sales_read",
   "local_settings_read",

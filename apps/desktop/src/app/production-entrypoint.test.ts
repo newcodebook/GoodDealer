@@ -36,7 +36,7 @@ describe("Desktop production entrypoint boundary", () => {
     // command is composed, and the history route passes no reversal or export callback.
     expect(readProductionSources(new URL("../", import.meta.url)))
       .not.toMatch(/OperationBatchCommandPort|OperationApprovalPort|approveBatchCommandSchema|batchActionCommandSchema|PlanReversalPort|planReversalCommandSchema|createPlanReversalCommand/u);
-    expect(readSource("./workspace-view.tsx")).not.toMatch(/onPlanReversal=|onExport=/u);
+    expect(readSource("./workspace-view.tsx")).not.toMatch(/onPlanReversal=|onExport=|onAction=|onAcceptRisk=/u);
     expect(app).not.toMatch(/window\.(?:prompt|confirm|alert)/u);
   });
 
@@ -73,8 +73,7 @@ describe("Desktop production entrypoint boundary", () => {
     const entrypointFiles = ["../main.tsx", "../app.tsx", "./desktop-router.tsx", "./route-registry.ts"];
     const entrypoint = entrypointFiles.map((path) => readSource(path)).join("\n");
 
-    // operations.batch and operations.history are composed from Host projections; the other legacy
-    // routes are not.
-    expect(entrypoint).not.toMatch(/marketplace\.sales|operations\.manualTasks/u);
+    // The operations routes are composed from Host projections; the legacy sales route is not.
+    expect(entrypoint).not.toMatch(/marketplace\.sales/u);
   });
 });

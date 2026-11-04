@@ -4,6 +4,8 @@ pub(crate) mod dns_health;
 
 pub(crate) mod history;
 
+pub(crate) mod manual_tasks;
+
 pub(crate) mod renewals;
 
 pub(crate) mod sales;
@@ -79,6 +81,19 @@ mod portfolio_connection {
                 start_index,
                 size,
                 query,
+            )
+        }
+
+        pub(crate) fn read_manual_tasks(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::ManualTasksReadSnapshot, PortfolioReadError> {
+            super::manual_tasks::ActiveManualTasksReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
             )
         }
 

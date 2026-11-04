@@ -22,6 +22,7 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_renewals_read/u);
     expect(handlers).toMatch(/fn local_batch_operations_read/u);
     expect(handlers).toMatch(/fn local_history_read/u);
+    expect(handlers).toMatch(/fn local_manual_tasks_read/u);
     expect(main).not.toMatch(/local_portfolio_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_edit/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
@@ -79,6 +80,7 @@ describe("Desktop native policy", () => {
       "allow-local-renewals-read",
       "allow-local-batch-operations-read",
       "allow-local-history-read",
+      "allow-local-manual-tasks-read",
       "allow-local-domain-asset-edit",
       "allow-local-domain-asset-delete",
       "allow-local-domain-asset-provider-bind",

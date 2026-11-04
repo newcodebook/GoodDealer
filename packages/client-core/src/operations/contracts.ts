@@ -183,7 +183,9 @@ export const manualTaskViewSchema = z
     platform: displayTextSchema,
     account: displayTextSchema,
     reason: displayTextSchema,
-    affectedDomains: z.array(domainSchema).min(1).max(10_000),
+    /** A sample of at most 10,000 affected domains; an account-level step affects none. */
+    affectedDomains: z.array(domainSchema).max(10_000),
+    affectedDomainCount: z.number().int().nonnegative().max(1_000_000),
     preparedArtifactLabel: z.string().max(500).nullable(),
     completionCondition: displayTextSchema,
     lastCheckedAt: z.iso.datetime().nullable(),
@@ -197,7 +199,6 @@ export const manualTaskViewSchema = z
           })
           .strict(),
       )
-      .min(1)
       .max(100),
     riskAcceptancePolicy: riskAcceptancePolicySchema,
     unresolvedImpactDigest: operationDigestSchema.nullable(),
@@ -224,6 +225,9 @@ export const manualTaskInboxViewModelSchema = z
       context.addIssue({ code: "custom", path: ["tasks"], message: "tasks and selection must be unique and consistent" });
     }
     for (const [index, task] of view.tasks.entries()) {
+      if (task.affectedDomains.length !== Math.min(task.affectedDomainCount, 10_000)) {
+        context.addIssue({ code: "custom", path: ["tasks", index, "affectedDomains"], message: "the domain sample must be complete up to its limit" });
+      }
       if (task.riskAcceptancePolicy === "forbidden" && task.unresolvedImpactDigest !== null) {
         context.addIssue({ code: "custom", path: ["tasks", index, "unresolvedImpactDigest"], message: "forbidden policy cannot expose risk acceptance data" });
       }

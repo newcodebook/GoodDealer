@@ -8,6 +8,7 @@ export const appRouteIds = [
   "sales.desk",
   "dns.health",
   "operations.batch",
+  "operations.manualTasks",
   "operations.history",
   "sync.conflicts",
   "settings",

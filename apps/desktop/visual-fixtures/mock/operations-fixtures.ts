@@ -127,6 +127,7 @@ export function mockManualTasks(tasks: readonly MockTask[], selectedId: string |
         account: task.account,
         reason: task.reason,
         affectedDomains: task.domains,
+        affectedDomainCount: task.domains.length,
         preparedArtifactLabel: task.artifact,
         completionCondition: task.completion,
         lastCheckedAt: "2026-08-20T05:50:00Z",

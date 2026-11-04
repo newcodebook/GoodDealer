@@ -164,6 +164,9 @@ pub use active_workspace::dns_health::{
 pub use active_workspace::history::{
     HistoryFieldChange, HistoryReadSnapshot, HistoryRow, HistoryWindow,
 };
+pub use active_workspace::manual_tasks::{
+    ManualTaskRow, ManualTasksReadSnapshot, ManualTasksWindow,
+};
 pub use active_workspace::renewals::{RenewalRow, RenewalsReadSnapshot, RenewalsWindow};
 pub use active_workspace::sales::{SalesListingRow, SalesMoney, SalesReadSnapshot, SalesWindow};
 pub use active_workspace::settings::{
@@ -194,8 +197,9 @@ pub use desktop_business_runtime::{
     DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest,
     DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
     DesktopDomainAssetProviderBindingRequest, DesktopDomainAssetWrite,
-    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopRenewalsReadRequest,
-    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopSyncTransportState,
+    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopManualTasksReadRequest,
+    DesktopRenewalsReadRequest, DesktopSalesReadRequest, DesktopSyncSnapshotView,
+    DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

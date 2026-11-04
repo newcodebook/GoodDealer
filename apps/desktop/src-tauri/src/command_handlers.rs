@@ -10,9 +10,10 @@ use gooddealer_local_storage::{
     DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopLocalBusinessStatus,
-    DesktopLocalHost, DesktopRenewalsReadRequest, DesktopSalesReadRequest, DesktopSyncSnapshotView,
-    DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot, DomainAssetMutationReceipt,
-    DomainDetailReadSnapshot, HistoryReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot,
+    DesktopLocalHost, DesktopManualTasksReadRequest, DesktopRenewalsReadRequest,
+    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact,
+    DnsHealthReadSnapshot, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
+    HistoryReadSnapshot, ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot,
     SettingsReadSnapshot,
 };
 use serde::Deserialize;
@@ -90,6 +91,16 @@ pub(crate) fn local_history_read(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<HistoryReadSnapshot, String> {
     host.read_history(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_manual_tasks_read(
+    request: DesktopManualTasksReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<ManualTasksReadSnapshot, String> {
+    host.read_manual_tasks(request)
         .map_err(|error| error.to_string())
 }
 

@@ -76,32 +76,35 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
               onClick={() => onSelect?.(task.id)}
             >
               <span className="tasks-item-title">{task.status === "confirmed_completed" ? <CheckIcon size={13} className="tasks-success" /> : null}{task.title}</span>
-              <span className="tasks-item-meta">{statusBadge(task)}<span className="gd-t-meta">{task.account} · {formatNumber(locale, task.affectedDomains.length)} {copy.domainsUnit}</span></span>
+              <span className="tasks-item-meta">{statusBadge(task)}<span className="gd-t-meta">{task.account} · {formatNumber(locale, task.affectedDomainCount)} {copy.domainsUnit}</span></span>
             </button>
           ))}
           <span className="gd-t-meta">{copy.duplicatePrevention}</span>
         </aside>
         {selected === null ? null : (
           <div className="tasks-detail">
-            {readOnly ? <p className="tasks-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
+            {view.source === "standby_cloud" ? <p className="tasks-readonly gd-t-meta">{copy.readOnlyNotice}</p>
+              : readOnly ? <p className="tasks-readonly gd-t-meta">{copy.actionsUnavailable}</p> : null}
             <Panel title={selected.title} actions={statusBadge(selected)}>
               <div className="tasks-stack">
                 <dl className="tasks-facts">
                   <dt>{copy.whyManual}</dt><dd>{selected.reason}</dd>
                   <dt>{copy.target}</dt><dd>{selected.platform} · {selected.account}</dd>
-                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomains.slice(0, 3).join(" · ")}{selected.affectedDomains.length > 3 ? ` +${selected.affectedDomains.length - 3}` : ""}</dd>
+                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomainCount === 0 ? "—" : selected.affectedDomains.slice(0, 3).join(" · ")}{selected.affectedDomainCount > 3 ? ` +${formatNumber(locale, selected.affectedDomainCount - 3)}` : ""}</dd>
                   <dt>{copy.prepared}</dt><dd>{selected.preparedArtifactLabel === null ? "—" : <span className="tasks-artifact"><FileTextIcon size={13} />{selected.preparedArtifactLabel}</span>}</dd>
                   <dt>{copy.completionCondition}</dt><dd>{selected.completionCondition}</dd>
                   <dt>{copy.lastChecked}</dt><dd className="tasks-mono">{when(selected.lastCheckedAt)}</dd>
                 </dl>
-                <div className="tasks-checklist">
-                  <span className="gd-t-label">{copy.checklist}</span>
-                  {selected.checklist.map((item) => (
-                    <span key={item.id} className={`tasks-check tasks-check--${item.state}`}>
-                      <i>{item.state === "completed" ? <CheckIcon size={11} /> : null}</i>{item.label}
-                    </span>
-                  ))}
-                </div>
+                {selected.checklist.length === 0 ? null : (
+                  <div className="tasks-checklist">
+                    <span className="gd-t-label">{copy.checklist}</span>
+                    {selected.checklist.map((item) => (
+                      <span key={item.id} className={`tasks-check tasks-check--${item.state}`}>
+                        <i>{item.state === "completed" ? <CheckIcon size={11} /> : null}</i>{item.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {onAction === undefined ? null : (
                   <div className="tasks-actions">
                     {can(selected, "open_platform") ? <Button icon={<ExternalLinkIcon size={13} />} onClick={() => onAction(selected, "open_platform")}>{copy.openPlatformAndSignIn}</Button> : null}
@@ -113,7 +116,7 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
                     {can(selected, "cancel") ? <Button size="sm" variant="ghost" onClick={() => onAction(selected, "cancel")}>{copy.cancelTask}</Button> : null}
                   </div>
                 )}
-                <span className="gd-t-meta">{copy.completionRequiresVerification}</span>
+                {onAction !== undefined && can(selected, "mark_user_operation_done") ? <span className="gd-t-meta">{copy.completionRequiresVerification}</span> : null}
               </div>
             </Panel>
           </div>

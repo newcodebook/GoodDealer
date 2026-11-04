@@ -61,7 +61,7 @@ export function parseDesktopSurface(value: unknown): DesktopSurface | null {
       availableRouteIds.length === 0 ||
       !availableRouteIds.every(isAppRouteId) ||
       new Set(availableRouteIds).size !== availableRouteIds.length ||
-      (defaultRouteId !== "portfolio.list" && defaultRouteId !== "sales.desk" && defaultRouteId !== "dns.health" && defaultRouteId !== "operations.batch" && defaultRouteId !== "operations.history" && defaultRouteId !== "sync.conflicts" && defaultRouteId !== "settings") ||
+      (defaultRouteId !== "portfolio.list" && defaultRouteId !== "sales.desk" && defaultRouteId !== "dns.health" && defaultRouteId !== "operations.batch" && defaultRouteId !== "operations.manualTasks" && defaultRouteId !== "operations.history" && defaultRouteId !== "sync.conflicts" && defaultRouteId !== "settings") ||
       !availableRouteIds.includes(defaultRouteId)
     ) {
       return null;

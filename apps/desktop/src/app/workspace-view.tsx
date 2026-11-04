@@ -1,6 +1,6 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, type BatchOperationListViewModel, type BatchOperationsRead, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalDeskViewModel, type RenewalsRead, type SalesDeskViewModel, type SalesRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DnsHealthRead, type DnsVerificationViewModel, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
+import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
@@ -8,6 +8,7 @@ import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainD
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
 import { BatchList } from "../features/operations/batch-operations";
+import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
 import { SettingsPanel } from "../features/settings";
@@ -70,6 +71,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       ...(has("sync.conflicts")
         ? [{ id: "sync.conflicts", label: shellCopy.conflicts, icon: <AlertTriangleIcon />, ...(pendingConflicts > 0 ? { count: pendingConflicts, tone: "danger" as const } : {}) }]
         : []),
+      ...(has("operations.manualTasks") ? [{ id: "operations.manualTasks", label: shellCopy.manualTasks, icon: <InboxIcon /> }] : []),
       ...(has("operations.history") ? [{ id: "operations.history", label: shellCopy.history, icon: <HistoryIcon /> }] : []),
     ];
     return [
@@ -102,7 +104,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
       title={getAppRouteLabel(locale, route.id)}
       navigation={navigation}
       activeNavigationId={navigationId}
-      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "operations.batch" || id === "operations.history" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
+      onNavigate={(id) => { setActionFailed(false); if (id === "portfolio.list" || id === "sales.desk" || id === "dns.health" || id === "operations.batch" || id === "operations.manualTasks" || id === "operations.history" || id === "sync.conflicts" || id === "settings") setRoute(createAppRoute(id)); }}
       status={status}
       windowFrame={windowFrame}
       onRefresh={() => { setActionFailed(false); onRefresh(); }}
@@ -163,6 +165,14 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
           ),
           "operations.batch": () => (
             <BatchRoute
+              locale={locale}
+              ports={ports}
+              readGeneration={publication.status.readGeneration}
+              onStale={onRefresh}
+            />
+          ),
+          "operations.manualTasks": () => (
+            <ManualTasksRoute
               locale={locale}
               ports={ports}
               readGeneration={publication.status.readGeneration}
@@ -305,6 +315,79 @@ function BatchRoute({ locale, ports, readGeneration, onStale }: {
   }, [ports, readGeneration, attempt]);
 
   if (state.kind === "ready") return <BatchList locale={locale} jobs={state.view.items} creationAvailability={state.view.creationAvailability} />;
+  if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  return (
+    <Banner tone="danger" title={copy.loadFailed}>
+      <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{copy.retryRead}</Button>
+    </Banner>
+  );
+}
+
+const manualTasksWindowSize = 200;
+
+type ManualTasksState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly windows: readonly ManualTasksRead[] }
+  | { readonly kind: "failed" };
+
+/**
+ * Reads every manual task window for one Host generation. The inbox gets no action or risk
+ * callback: opening the platform, reporting completion and re-checking need qualified Host
+ * capabilities, and the person completes the step in the platform's own console.
+ */
+function ManualTasksRoute({ locale, ports, readGeneration, onStale }: {
+  readonly locale: Locale;
+  readonly ports: AuthoritativeWorkspacePorts;
+  readonly readGeneration: number;
+  readonly onStale: () => void;
+}) {
+  const copy = getPresentationCopy(locale, "manualTaskInbox");
+  const [state, setState] = useState<ManualTasksState>({ kind: "loading" });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const windows: ManualTasksRead[] = [];
+        let next = 0;
+        do {
+          const window = await ports.manualTasks.loadManualTasks({ startIndex: next, size: manualTasksWindowSize });
+          if (window.readGeneration !== readGeneration) {
+            if (!cancelled) staleRef.current();
+            return;
+          }
+          windows.push(window);
+          next += window.window.rows.length;
+          if (window.window.rows.length === 0) break;
+        } while (next < (windows[0]?.totalRows ?? 0));
+        if (!cancelled) setState({ kind: "ready", windows });
+      } catch {
+        if (!cancelled) setState({ kind: "failed" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ports, readGeneration, attempt]);
+
+  const view = useMemo(() => {
+    if (state.kind !== "ready") return null;
+    try {
+      return projectManualTaskInbox(state.windows, {
+        reason: (platform, capability) => copy.manualReason.replace("{platform}", platform).replace("{capability}", capability),
+        completionCondition: copy.completionByObservation,
+        noPlatform: copy.noPlatform,
+        noAccount: "—",
+      }, selected);
+    } catch {
+      return null;
+    }
+  }, [state, copy, selected]);
+
+  if (view !== null) return <ManualTaskInbox locale={locale} view={view} onSelect={setSelected} />;
   if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
   return (
     <Banner tone="danger" title={copy.loadFailed}>
