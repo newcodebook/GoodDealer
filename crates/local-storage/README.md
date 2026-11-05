@@ -104,11 +104,16 @@ derives metrics from one page. It returns observed facts only — Zone label/sta
 per-type record counts — never record values, connection IDs, Provider resource IDs or a
 delegation/record/ownership verdict. Labels with control characters fail the whole read.
 
-`BusinessDatabase::read_sales` uses the same window rules (at most 200 rows) and returns the latest
-confirmed marketplace listing observation per (asset, marketplace), omitting `unlisted` ones:
-status, asking price, observation time, availability and evidence. Observation, run and Provider
-version identifiers stay in the Host. Marketplaces outside ADR-0027's launch list and malformed
-prices fail the whole read.
+`BusinessDatabase::read_sales` uses the same window rules (at most 200 rows), but its rows are listed
+domains: it takes the latest confirmed marketplace listing observation per (asset, marketplace),
+omitting `unlisted` ones, and merges each asset's markets into one row — the markets, a status
+(`unknown` while any market's evidence is unavailable or unconfirmed, `conflict` when two markets
+report different definite states) and the price only when every market agrees on it by value. Each
+read scans the listings once in domain order, so the page and the workspace-wide active count and
+exact listed value (none when prices span currencies, an active domain has no single price, or the
+sum exceeds 16 whole digits) come from the same merge, and a bad row on any page still fails the
+read. Observation, run and Provider version identifiers stay in the Host. Marketplaces outside
+ADR-0027's launch list and malformed prices fail the whole read.
 Every read that reports a Provider observation — sales, renewals, and the asset library and
 domain detail registrar and listing count — keeps only observations confirmed by a completed run
 (`succeeded` or `partial`) whose target for that asset succeeded (`observation_runs::confirmed`), so

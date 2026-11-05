@@ -18,6 +18,7 @@ import {
   ExternalLinkIcon,
   Input,
   MetricStrip,
+  Pagination,
   ProgressBar,
   Table,
   Tabs,
@@ -39,6 +40,10 @@ export interface SalesDeskProps {
   readonly locale: Locale;
   readonly view: SalesDeskViewModel;
   readonly initialTab?: SalesDeskTab;
+  /** Requests another Host page of listings; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page. */
+  readonly busy?: boolean;
   readonly onCreateListing?: () => void;
   readonly onListingAction?: (listing: ListingView, action: ListingRowAction) => void;
   /** Fires only after the binding acknowledgement; the Host builds the accept plan from this exact offer. */
@@ -63,6 +68,8 @@ export function SalesDesk({
   locale,
   view,
   initialTab = "offers",
+  onPageChange,
+  busy = false,
   onCreateListing,
   onListingAction,
   onAcceptOffer,
@@ -72,6 +79,8 @@ export function SalesDesk({
   onConfirmPayout,
 }: SalesDeskProps) {
   const copy = getPresentationCopy(locale, "salesDesk");
+  const libraryCopy = getPresentationCopy(locale, "assetLibrary");
+  const { page } = view;
   const [tab, setTab] = useState<SalesDeskTab>(initialTab);
   const [accepting, setAccepting] = useState<OfferView | null>(null);
   const [acceptAck, setAcceptAck] = useState(false);
@@ -213,7 +222,7 @@ export function SalesDesk({
   const closeTransfer = () => { setTransferring(null); setTransferAck(false); };
 
   return (
-    <section className="sales-desk" aria-label={copy.title}>
+    <section className="sales-desk" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
         metrics={[
@@ -244,7 +253,31 @@ export function SalesDesk({
       />
       {readOnly ? <p className="sales-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
       <div className="sales-body">
-        {tab === "listings" ? <Table<ListingView> {...tableLabels} label={copy.listings} rowKey="id" columns={listingColumns} rows={view.listings} emptyText={copy.noRows} maxHeight="100%" /> : null}
+        {tab === "listings" ? (
+          <Table<ListingView>
+            {...tableLabels}
+            label={copy.listings}
+            rowKey="id"
+            columns={listingColumns}
+            rows={view.listings}
+            emptyText={copy.noRows}
+            maxHeight="100%"
+            {...(page === undefined ? {} : {
+              footer: (
+                <Pagination
+                  page={Math.floor(page.startIndex / page.size) + 1}
+                  pageSize={page.size}
+                  total={page.totalItems}
+                  labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                  {...(onPageChange === undefined ? {} : {
+                    onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                    onPageSizeChange: (size: number) => onPageChange(0, size),
+                  })}
+                />
+              ),
+            })}
+          />
+        ) : null}
         {tab !== "listings" && view.offerDealAvailability === "unavailable" ? <p className="sales-readonly gd-t-meta">{copy.offersDealsUnavailable}</p> : null}
         {tab === "offers" && view.offerDealAvailability === "available" ? <Table<OfferView> {...tableLabels} label={copy.offers} rowKey="id" columns={offerColumns} rows={view.offers} emptyText={copy.noRows} maxHeight="100%" /> : null}
         {tab === "deals" && view.offerDealAvailability === "available" ? <Table<DealView> {...tableLabels} label={copy.deals} rowKey="id" columns={dealColumns} rows={view.deals} emptyText={copy.noRows} maxHeight="100%" /> : null}

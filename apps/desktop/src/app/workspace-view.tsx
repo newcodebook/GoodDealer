@@ -412,8 +412,12 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 
+/** Listed domains per sales page until the person picks another size; within the Host's 200-row window. */
+const salesPageSize = 50;
+
 /**
- * Reads every sales window for one Host generation, like DNS health. The desk gets no action
+ * Reads one page of listed domains for one Host generation; the Host merges each domain's markets
+ * and reports workspace-wide metrics, so the desk never reads every window. The desk gets no action
  * callbacks: listing, offer and transfer writes need marketplace capabilities that are not
  * qualified, and the projection grants none.
  */
@@ -424,11 +428,21 @@ function SalesRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "salesDesk");
+  const [page, setPage] = useState({ startIndex: 0, size: salesPageSize });
   const { state, retry } = useHostRouteRead(
     ports.sales, (port, request) => port.loadSales(request), readGeneration, onStale,
-    projectSalesDeskViewModel, { windowSize: hostWindowSize },
+    (windows) => projectSalesDeskViewModel(windows, page.size), { windowSize: page.size, startIndex: page.startIndex, rowLimit: page.size },
   );
-  if (state.kind === "ready") return <SalesDesk locale={locale} view={state.value} initialTab="listings" />;
+  const outcome = state.kind === "ready" ? { kind: "ready" as const, totalItems: state.value.page?.totalItems ?? 0 } : state;
+  const recovered = recoverHostPage(page, outcome);
+  useEffect(() => {
+    if (recovered !== null) setPage(recovered);
+  }, [recovered?.startIndex, recovered?.size]);
+  // Another page keeps the desk, and its tab, mounted on the last page, marked busy, until it arrives.
+  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  if (shown !== undefined) {
+    return <SalesDesk locale={locale} view={shown} busy={state.kind === "loading"} initialTab="listings" onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
+  }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 

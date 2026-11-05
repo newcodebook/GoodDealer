@@ -82,12 +82,12 @@ describe("Sales desk from the Host sales projection", () => {
   const hostView = projectSalesDeskViewModel([parseSalesRead({
     schemaVersion: 1, kind: "sales", readGeneration: 1,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-    totalRows: 2,
+    totalRows: 2, activeListingCount: 1, listedValue: { currency: "USD", amount: "280000" },
     window: { startIndex: 0, size: 200, rows: [
-      { entityId: "vault.io", marketplaceKind: "atom", listingStatus: "active", askingPrice: { currency: "USD", amount: "280000" }, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed" },
-      { entityId: "zeta.io", marketplaceKind: "afternic", listingStatus: "active", askingPrice: null, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "stale" },
+      { entityId: "vault.io", marketplaces: ["atom"], listingStatus: "active", askingPrice: { currency: "USD", amount: "280000" } },
+      { entityId: "zeta.io", marketplaces: ["afternic"], listingStatus: "unknown", askingPrice: null },
     ] },
-  })]);
+  })], 200);
 
   it("shows observed listings with unobserved values as dashes and no listing controls", () => {
     const html = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={hostView} initialTab="listings" />);
@@ -99,20 +99,38 @@ describe("Sales desk from the Host sales projection", () => {
   });
 
   it("names a disagreement between markets apart from the sync Conflict Center", () => {
-    const row = { entityId: "split.io", askingPrice: null, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed" } as const;
     const split = projectSalesDeskViewModel([parseSalesRead({
       schemaVersion: 1, kind: "sales", readGeneration: 1,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      totalRows: 2,
+      totalRows: 1, activeListingCount: 0, listedValue: null,
       window: { startIndex: 0, size: 200, rows: [
-        { ...row, marketplaceKind: "afternic", listingStatus: "sold" },
-        { ...row, marketplaceKind: "atom", listingStatus: "active" },
+        { entityId: "split.io", marketplaces: ["afternic", "atom"], listingStatus: "conflict", askingPrice: null },
       ] },
-    })]);
+    })], 200);
     const zh = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={split} initialTab="listings" />);
     expect(zh).toContain("市场间不一致");
     expect(zh).not.toContain(">冲突<");
     expect(renderToStaticMarkup(<SalesDesk locale="en-US" view={split} initialTab="listings" />)).toContain("Markets disagree");
+  });
+
+  it("reports workspace-wide metrics on a Host page and pages through the rest", () => {
+    const paged = projectSalesDeskViewModel([parseSalesRead({
+      schemaVersion: 1, kind: "sales", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 1_234, activeListingCount: 900, listedValue: { currency: "USD", amount: "88000" },
+      window: { startIndex: 50, size: 50, rows: Array.from({ length: 50 }, (_, index) => ({
+        entityId: `page-${String(index).padStart(2, "0")}.io`, marketplaces: ["atom"], listingStatus: "active", askingPrice: null,
+      })) },
+    })], 50);
+    const html = renderToStaticMarkup(<SalesDesk locale="en-US" view={paged} initialTab="listings" onPageChange={() => undefined} />);
+    // Metrics describe every listed domain, not the 50 on this page.
+    expect(html).toContain("900");
+    expect(html).toContain("88,000");
+    expect(html).toContain("51–100");
+    expect(html).toContain('aria-current="page">2<');
+    expect(html).not.toContain("aria-busy");
+    // While another page loads, this one stays mounted and is marked busy.
+    expect(renderToStaticMarkup(<SalesDesk locale="en-US" view={paged} busy initialTab="listings" />)).toContain('aria-busy="true"');
   });
 
   it("says offers and deals are unavailable instead of showing an empty inbox", () => {

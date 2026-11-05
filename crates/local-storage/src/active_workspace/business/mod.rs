@@ -7646,12 +7646,13 @@ mod tests {
         let [listing] = rows.as_slice() else {
             panic!("expected one listing");
         };
+        assert_eq!(listing.listing_status, "active");
         assert_eq!(
-            (
-                listing.listing_status.as_str(),
-                listing.observed_at.as_str()
-            ),
-            ("active", "2026-08-01T00:00:00Z")
+            listing
+                .asking_price
+                .as_ref()
+                .map(|price| price.amount.as_str()),
+            Some("1000")
         );
         // The asset library's listing count follows the same rule: the unconfirmed sale does not
         // end the confirmed listing.
@@ -7714,39 +7715,39 @@ mod tests {
         ]);
         let snapshot = database.read_sales(0, 10).unwrap();
         assert_eq!(snapshot.kind, "sales");
-        // The newest observation per (asset, marketplace) wins and unlisted assets are omitted.
-        assert_eq!(snapshot.total_rows, 2);
-        let rows: Vec<_> = snapshot
-            .window
-            .rows
-            .iter()
-            .map(|row| {
-                (
-                    row.entity_id.as_str(),
-                    row.marketplace_kind.as_str(),
-                    row.listing_status.as_str(),
-                )
-            })
-            .collect();
+        // The newest observation per (asset, marketplace) wins, unlisted assets are omitted, and a
+        // domain's markets merge into one row: a draft on one market and a sale on another are a
+        // conflict, and a price only one market reports is not the domain's price.
+        assert_eq!(snapshot.total_rows, 1);
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain");
+        };
         assert_eq!(
-            rows,
-            [
-                ("alpha.test", "afternic", "draft"),
-                ("alpha.test", "atom", "sold")
-            ]
+            (
+                row.entity_id.as_str(),
+                row.marketplaces.as_slice(),
+                row.listing_status.as_str(),
+                row.asking_price.as_ref()
+            ),
+            (
+                "alpha.test",
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                "conflict",
+                None
+            )
         );
         assert_eq!(
-            snapshot.window.rows[1].asking_price,
-            Some(crate::SalesMoney {
-                currency: "USD".into(),
-                amount: "950.50".into()
-            })
+            (
+                snapshot.active_listing_count,
+                snapshot.listed_value.as_ref()
+            ),
+            (0, None)
         );
         let wire = serde_json::to_string(&snapshot).unwrap();
         for secret in ["listing-secret", "run-secret", "version-secret", "market-1"] {
             assert!(!wire.contains(secret), "{secret} leaked into sales");
         }
-        assert_eq!(database.read_sales(1, 10).unwrap().window.rows.len(), 1);
+        assert!(database.read_sales(1, 10).unwrap().window.rows.is_empty());
         for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
             assert!(matches!(
                 database.read_sales(start, size),
@@ -7818,6 +7819,136 @@ mod tests {
                 ),
                 "{listing:?} must fail closed"
             );
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture walks paging, metrics and every no-total case"
+    )]
+    fn sales_pages_domains_and_reports_workspace_wide_metrics() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                TIMESTAMP,
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "active",
+                Some("USD"),
+                Some("1000.00"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("250.5"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "draft",
+                Some("USD"),
+                Some("99"),
+                TIMESTAMP,
+            ),
+        ]);
+        // One page holds one domain; the totals still describe every listed domain, and prices
+        // that differ only in trailing zeros agree.
+        let snapshot = database.read_sales(1, 1).unwrap();
+        assert_eq!(snapshot.total_rows, 3);
+        assert_eq!(snapshot.active_listing_count, 2);
+        assert_eq!(
+            snapshot.listed_value,
+            Some(crate::SalesMoney {
+                currency: "USD".into(),
+                amount: "1250.5".into()
+            })
+        );
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain on the page");
+        };
+        assert_eq!(row.entity_id, "bravo.test");
+        // The agreed price is reported as the first market (in code-point order) wrote it.
+        let first = database.read_sales(0, 1).unwrap().window.rows;
+        assert_eq!(
+            (
+                first[0].marketplaces.as_slice(),
+                first[0]
+                    .asking_price
+                    .as_ref()
+                    .map(|price| price.amount.as_str())
+            ),
+            (
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                Some("1000.00")
+            )
+        );
+        assert!(database.read_sales(3, 1).unwrap().window.rows.is_empty());
+
+        // No total is reported rather than one that silently leaves a listing out: prices in two
+        // currencies, an active domain whose markets disagree on price, or one without a price.
+        for listings in [
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "bravo.test",
+                    "atom",
+                    "active",
+                    Some("EUR"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "alpha.test",
+                    "afternic",
+                    "active",
+                    Some("USD"),
+                    Some("11"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                ("bravo.test", "atom", "active", None, None, TIMESTAMP),
+            ],
+        ] {
+            let snapshot = sales_database(&listings).read_sales(0, 10).unwrap();
+            assert!(snapshot.active_listing_count > 0);
+            assert_eq!(snapshot.listed_value, None, "{listings:?}");
         }
     }
 

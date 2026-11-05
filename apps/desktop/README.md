@@ -28,8 +28,9 @@ Customer Desktop application that composes the Renderer and native Host around t
   library's expiring-within-60-days metric and lists those assets from `local_renewals_read` with
   recorded expiry, auto-renew and the last observed registrar; renewal prices, budgets and plans have
   no qualified registrar capability and render as unavailable, with no selection, term or renew
-  action. Sales shows the latest observed listing
-  per asset and marketplace from `local_sales_read`; offers, deals, view counts and listing dates
+  action. Sales shows one Host page of listed
+  domains from `local_sales_read`, each merging its markets' latest confirmed listings on the Host,
+  with workspace-wide active count and listed value; offers, deals, view counts and listing dates
   have no qualified capability and render as unavailable, with no listing or offer action. DNS health shows only Host-observed Zone facts
   from `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render
   as not connected or not observed. Settings reads redacted Provider connections and their declared

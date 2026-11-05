@@ -101,12 +101,12 @@ export const dealViewSchema = z
     }
   });
 
-/**
- * Domains one sales desk holds: the DATABASE_SCHEMA 100k-asset scale target. The Host window can
- * report more rows than this, because one domain can be listed on several markets; a read whose
- * domains exceed it fails instead of being truncated, until sales reads become paginated.
- */
-export const salesListingLimit = 100_000;
+/** The Host page a sales desk shows; the desk's metrics cover every listed domain, not the page. */
+const salesDeskPageSchema = z.object({
+  startIndex: z.number().int().nonnegative().max(1_000_000),
+  size: z.number().int().min(1).max(200),
+  totalItems: z.number().int().nonnegative().max(1_000_200),
+}).strict();
 
 export const salesDeskViewModelSchema = z
   .object({
@@ -123,9 +123,10 @@ export const salesDeskViewModelSchema = z
       monthGmv: commerceMoneySchema.nullable(),
       settlingDealCount: z.number().int().nonnegative().nullable(),
     }).strict(),
-    listings: z.array(listingViewSchema).max(salesListingLimit),
+    listings: z.array(listingViewSchema).max(100_000),
     offers: z.array(offerViewSchema).max(100_000),
     deals: z.array(dealViewSchema).max(100_000),
+    page: salesDeskPageSchema.optional(),
   })
   .strict()
   .superRefine((view, context) => {
@@ -135,6 +136,11 @@ export const salesDeskViewModelSchema = z
         path: ["actionGrants"],
         message: "Standby marketplace reads cannot grant write actions",
       });
+    }
+    if (view.page !== undefined && (view.listings.length > view.page.size
+      || view.page.startIndex + view.listings.length > view.page.totalItems
+      || view.metrics.activeListingCount > view.page.totalItems)) {
+      context.addIssue({ code: "custom", path: ["page"], message: "a page holds at most its size and no more than the listed domains" });
     }
     if (new Set(view.actionGrants).size !== view.actionGrants.length) {
       context.addIssue({ code: "custom", path: ["actionGrants"], message: "action grants must be unique" });

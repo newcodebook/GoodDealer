@@ -191,10 +191,9 @@ describe("Desktop Tauri local-business adapter", () => {
     const read = {
       schemaVersion: 1, kind: "sales", readGeneration: 3,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      totalRows: 1,
+      totalRows: 1, activeListingCount: 1, listedValue: null,
       window: { startIndex: 0, size: 200, rows: [{
-        entityId: "vault.io", marketplaceKind: "atom", listingStatus: "active", askingPrice: null,
-        observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed",
+        entityId: "vault.io", marketplaces: ["atom"], listingStatus: "active", askingPrice: null,
       }] },
     };
     const port = createLocalSalesPort();
