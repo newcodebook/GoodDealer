@@ -137,7 +137,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）
 - [x] Host 路由读取的重试接线测试：重试按钮已测试会调用 `retry`；`useHostRouteRead` 由 `attempt` 驱动重新读取仍缺 hook 级测试（需要渲染环境）（同一测试：首读失败后点击“重新读取”，从同一页起点重新读取） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）
+- [x] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）（四种状态 en-US 与 zh-CN 均有渲染测试；读取契约不允许空状态） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] `read_cloudflare_connection` 返回的连接标签改用统一标签规则（当前 Host 不校验，适配器允许 256 个单元且只拒绝 C0/DEL；随 `features/connections` 进入生产导航）
 - [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）
 

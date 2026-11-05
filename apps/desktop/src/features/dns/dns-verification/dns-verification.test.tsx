@@ -70,7 +70,7 @@ describe("DNS & verification", () => {
 });
 
 describe("DNS & verification from the Host DNS health projection", () => {
-  const hostView = () => projectDnsHealthViewModel([parseDnsHealthRead({
+  const hostView = (dnssecStatus: "active" | "inactive" | "unknown" | "unsupported" = "unknown") => projectDnsHealthViewModel([parseDnsHealthRead({
     schemaVersion: 1, kind: "dns_health", readGeneration: 2,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 3, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     totalRows: 2, assetCount: 2, observedCount: 1, warningCount: 0,
@@ -81,7 +81,7 @@ describe("DNS & verification from the Host DNS health projection", () => {
           entityId: "observed.test", zoneBinding: null,
           observation: {
             providerKind: "cloudflare", observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed",
-            zoneLabel: "observed.test", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus: "unknown",
+            zoneLabel: "observed.test", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus,
             recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 0, other: 0 },
           },
         },
@@ -118,11 +118,24 @@ describe("DNS & verification from the Host DNS health projection", () => {
     expect(html).toContain("1–2");
     const empty = { ...hostView(), rows: [], page: { startIndex: 0, size: 200, totalItems: 0 } };
     const searched = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={empty} query="zzz" onQueryChange={() => undefined} />);
-    expect(searched).toContain(getPresentationCopy("zh-CN", "dnsVerification").searchEmpty);    expect(html).not.toContain("aria-busy");
+    expect(searched).toContain(getPresentationCopy("zh-CN", "dnsVerification").searchEmpty);
+    expect(html).not.toContain("aria-busy");
     // While the next search loads, the last result stays mounted (and the search box with it), marked busy.
     const busy = renderToStaticMarkup(<DnsVerification locale="en-US" view={hostView()} busy query="zz" onQueryChange={() => undefined} />);
     expect(busy).toContain('aria-busy="true"');
     expect(busy).toContain('value="zz"');
+  });
+
+  it.each([
+    ["en-US", "active", "DNSSEC On"],
+    ["en-US", "inactive", "DNSSEC Off"],
+    ["en-US", "unknown", "DNSSEC Unknown"],
+    ["en-US", "unsupported", "DNSSEC Unsupported"],
+    ["zh-CN", "active", "DNSSEC 已启用"],
+    ["zh-CN", "inactive", "DNSSEC 未启用"],
+    ["zh-CN", "unsupported", "DNSSEC 不支持"],
+  ] as const)("labels an observed %s DNSSEC status %s as a Zone fact", (locale, status, label) => {
+    expect(renderToStaticMarkup(<DnsVerification locale={locale} view={hostView(status)} />)).toContain(label);
   });
 
   it("labels a confirmed Zone as observed, never as healthy", () => {

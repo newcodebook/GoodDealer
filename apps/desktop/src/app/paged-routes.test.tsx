@@ -208,6 +208,12 @@ describe("paged Host routes", () => {
     expect(search.value).toBe("pa");
     expect(container.textContent).toContain(domain(0));
 
+    // The failed search asked for page 1, so picking page 1 again retries that search.
+    const reads = host.loadDnsHealth.mock.calls.length;
+    await click(named("1"));
+    expect(host.loadDnsHealth.mock.calls.length).toBe(reads + 1);
+    expect(host.loadDnsHealth.mock.calls.at(-1)?.[0]).toMatchObject({ startIndex: 0, query: "pa" });
+
     host.loadDnsHealth.mockImplementation(answer);
     await click(named("Read again"));
     expect(container.querySelector('[role="alert"]')).toBeNull();
