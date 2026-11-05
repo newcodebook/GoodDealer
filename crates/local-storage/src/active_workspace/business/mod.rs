@@ -8467,6 +8467,13 @@ mod tests {
             ),
             (2, 1, Some("2026-08-28T02:00:00Z"))
         );
+        // Without a recorded result an item waits from its start; once observed, from that.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+        grouped.store.fixture_connection().execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-1',1,1,'manual_action_required','{}','2026-08-28T03:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        // Both items are now observed: the task waits from the earlier observation (02:00), not
+        // from either attempt's start (00:00 and 01:00).
+        assert_eq!(rows[0].waiting_since, "2026-08-28T02:00:00Z");
         let mut foreign = batch_database("Price change");
         foreign
             .store

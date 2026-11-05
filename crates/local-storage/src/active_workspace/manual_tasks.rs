@@ -20,10 +20,17 @@ use super::portfolio::{read_freshness, validate_workspace};
 /// The inbox view lists at most this many affected domains per task; `domain_count` is exact.
 const DOMAIN_LIMIT: u32 = 10_000;
 
-/// Latest attempt per item that waits on the person, grouped into tasks.
+/// Latest attempt per item that waits on the person, grouped into tasks. An item waits from when
+/// that attempt was first observed to need the person (its earliest `manual_action_required`
+/// result), not from when the attempt started, which may be long before the platform asked; an
+/// attempt whose result is not recorded yet waits from its start.
 const TASKS: &str = "
     WITH latest AS (
-      SELECT a.operation_id, a.plan_id, a.item_id, a.attempt_number, a.started_at
+      SELECT a.operation_id, a.plan_id, a.item_id, a.attempt_number,
+             coalesce((SELECT min(r.observed_at) FROM operation_results r
+               WHERE r.workspace_id = a.workspace_id AND r.operation_id = a.operation_id
+                 AND r.item_id = a.item_id AND r.attempt_number = a.attempt_number
+                 AND r.outcome = 'manual_action_required'), a.started_at) AS waiting_since
       FROM operation_attempts a
       WHERE a.workspace_id = ?1 AND a.status = 'manual_action_required'
         AND a.attempt_number = (SELECT max(b.attempt_number) FROM operation_attempts b
@@ -31,7 +38,7 @@ const TASKS: &str = "
             AND b.item_id = a.item_id)
     )
     SELECT l.operation_id, i.connection_id, i.capability, p.title, p.operation_kind,
-           max(i.risk_level = 'high'), count(*), min(l.started_at)
+           max(i.risk_level = 'high'), count(*), min(l.waiting_since)
     FROM latest l
     JOIN operation_plan_items i
       ON i.workspace_id = ?1 AND i.plan_id = l.plan_id AND i.item_id = l.item_id
@@ -68,7 +75,7 @@ pub struct ManualTaskRow {
     pub connection_label: Option<String>,
     pub high_risk: bool,
     pub item_count: u32,
-    /// When the earliest of these attempts started; the order of the inbox.
+    /// When the earliest of these attempts was observed to need the person; the order of the inbox.
     pub waiting_since: String,
     /// The latest recorded result of these waiting attempts, if any was observed.
     pub last_observed_at: Option<String>,
@@ -121,7 +128,7 @@ impl<'a> ActiveManualTasksReader<'a> {
         let tasks = {
             let mut statement = transaction
                 .prepare(&format!(
-                    "{TASKS} ORDER BY min(l.started_at), l.operation_id, i.connection_id,
+                    "{TASKS} ORDER BY min(l.waiting_since), l.operation_id, i.connection_id,
                      i.capability LIMIT ?2 OFFSET ?3"
                 ))
                 .map_err(|_| PortfolioReadError::SchemaRejected)?;
