@@ -80,7 +80,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 在设计宿主中以两种语言核对“市场间不一致”徽章对 88px 状态列的影响，必要时改为短标签加完整说明（不改：表格为自动布局，徽章不换行时状态列扩为 106px（zh-CN）/130px（en-US）；在 716px 宽的销售台（窄于 960px 最小窗口下约 750px 的生产宽度）上两种语言都不产生横向滚动，设计宿主自带的 240px 屏幕列表使其在 960px 视口下才出现 9/34px 溢出） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、资产库与域名详情的观察读取（最近注册商、在售计数）与销售读取共用“已完成运行且目标成功”的规则（当前取最新可用观察，不论运行是否完成；补 partial 包含与 failed 排除的测试）（`observation_runs::confirmed` 为唯一规则；测试覆盖 succeeded 与 partial 包含、运行中排除且不遮蔽已确认观察；failed 目标按 schema 不能携带证据，无法构造） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 100k 规模分页落地时对资产库聚合查询做 `EXPLAIN QUERY PLAN` 检查；若放宽“每运行每资产一条挂牌观察”的唯一约束，重新审视按资产而非按市场判定目标成功的规则
+- [x] 100k 规模分页落地时对资产库聚合查询做 `EXPLAIN QUERY PLAN` 检查；若放宽“每运行每资产一条挂牌观察”的唯一约束，重新审视按资产而非按市场判定目标成功的规则（已检查：总数、到期、冲突、在售、估值、页查询与销售扫描的每个关联查找都走索引，没有未用索引的基表扫描；唯一约束未放宽。新增被忽略的 100k 基准 `scale_reads_at_100k_assets`，本机 release 下资产库每页约 0.6–0.7 s、销售约 0.55 s、续费与 DNS 约 0.13 s、域名详情 < 1 ms；这是计划检查，不是 DATABASE_SCHEMA 的正式规模声明） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 资产库与销售每页读取都对全工作区做 O(N) 聚合（在售计数每条挂牌两次已完成运行判定、估值读取全部目标价、销售窗口函数加临时排序）：确定每页延迟预算，超出时按读取 generation 缓存聚合；到期计数改写为可走 `domain_assets_by_status_expiry` 的谓词；补 1 万与 100 万资产基准，销售补 8 市场最坏情况；把查询计划固定为被忽略的计划测试（断言没有基表 SCAN），预算确定后给基准加上限；预算须在阶段 4 V1 验收前确定
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售、续费与 DNS 读取在 100k 规模下改为 Host 侧分页与聚合指标，遵守 DATABASE_SCHEMA 的 keyset/窗口分页规则，不在 Renderer 汇总全部窗口（拆为以下三项，三项完成后勾选） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 续费：Host 页读取，到期数与自动续费开/关计数由 Host 全量返回，续费台使用 kit `Pagination`；页越界时回到末页，后页读取失败时回到首页 https://github.com/newcodebook/GoodDealer/pull/53
@@ -88,7 +89,7 @@ dead-letter outbox 和 Session 撤销；
   - [x] 销售：Host 按域名分页（多市场合并在 Host 侧完成）与全量指标（在售数、单一价格规则下的挂牌估值） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告
 - [ ] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换
-- [ ] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果
+- [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 精确金额格式化依赖各 Tauri WebView（WebKitGTK、WKWebView、WebView2）支持 ECMA-402 NumberFormat v3 的字符串格式化，不支持时会静默退回双精度舍入；在打包构件中验证或在 VERIFICATION 写明最低 WebView 版本

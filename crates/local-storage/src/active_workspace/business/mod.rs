@@ -7952,6 +7952,145 @@ mod tests {
         }
     }
 
+    /// Seeds `assets` active assets the way a 100k workspace looks: every asset has a target price
+    /// and a confirmed registrar observation, half expire within 60 days, a third are listed on
+    /// two markets, and one in a hundred has a pending field.
+    fn scale_database(assets: u32) -> BusinessDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let transaction = connection.transaction().unwrap();
+        transaction.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','scale-1','cloudflare','Scale',?1,'[\"registrar\",\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        for (run, capability) in [
+            ("scale-registrar", "registrar"),
+            ("scale-atom", "marketplace"),
+            ("scale-afternic", "marketplace"),
+        ] {
+            transaction.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'scale-1',?2,?3,'running')", rusqlite::params![run, capability, TIMESTAMP]).unwrap();
+        }
+        {
+            let mut asset = transaction.prepare("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',date('now',?2),?3,?4,?4,1)").unwrap();
+            let mut desired = transaction.prepare("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,target_price_currency,target_price_amount,desired_sale_status,local_commit_sequence,updated_at) VALUES ('workspace-local',?1,'USD',?2,'hold',1,?3)").unwrap();
+            let mut target = transaction.prepare("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,?3,'requested',?4)").unwrap();
+            let mut registrar = transaction.prepare("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,'scale-registrar',?2,'Porkbun','available','confirmed',?3,'v')").unwrap();
+            let mut listing = transaction.prepare("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,'active','USD','1000',?5,'v','available','confirmed')").unwrap();
+            let mut pending = transaction.prepare("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES ('workspace-local',?1,'note',0,1,'pending',?2)").unwrap();
+            for index in 0..assets {
+                let entity = format!("d{index:07}.test");
+                let expires = if index % 2 == 0 {
+                    "+30 days"
+                } else {
+                    "+400 days"
+                };
+                asset
+                    .execute(rusqlite::params![
+                        entity,
+                        expires,
+                        i64::from(index % 3 == 0),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                desired
+                    .execute(rusqlite::params![
+                        entity,
+                        format!("{}", 100 + index % 900),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                target
+                    .execute(rusqlite::params![
+                        "scale-registrar",
+                        entity,
+                        index,
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                registrar
+                    .execute(rusqlite::params![format!("r{index}"), entity, TIMESTAMP])
+                    .unwrap();
+                if index % 3 == 0 {
+                    for (run, kind) in [("scale-atom", "atom"), ("scale-afternic", "afternic")] {
+                        target
+                            .execute(rusqlite::params![run, entity, index, TIMESTAMP])
+                            .unwrap();
+                        listing
+                            .execute(rusqlite::params![
+                                format!("{kind}-{index}"),
+                                run,
+                                entity,
+                                kind,
+                                TIMESTAMP
+                            ])
+                            .unwrap();
+                    }
+                }
+                if index % 100 == 0 {
+                    pending
+                        .execute(rusqlite::params![entity, TIMESTAMP])
+                        .unwrap();
+                }
+            }
+        }
+        transaction.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.commit().unwrap();
+        database
+    }
+
+    /// The `DATABASE_SCHEMA.md` 100k-asset benchmark for every paged Host read. Ignored by default
+    /// because seeding takes a while; run with
+    /// `cargo test -p gooddealer-local-storage --lib -- --ignored scale_reads --nocapture`.
+    #[test]
+    #[ignore = "100k-asset benchmark; run explicitly"]
+    fn scale_reads_at_100k_assets() {
+        let database = scale_database(100_000);
+        let time = |label: &str, read: &mut dyn FnMut()| {
+            let started = std::time::Instant::now();
+            read();
+            let elapsed = started.elapsed();
+            println!("{label}: {elapsed:?}");
+            elapsed
+        };
+        let mut worst = std::time::Duration::ZERO;
+        worst = worst.max(time("asset library page 1", &mut || {
+            let snapshot = database.read_asset_library(0, 50, "").unwrap();
+            assert_eq!(snapshot.total_rows, 100_000);
+            assert_eq!(snapshot.expiring_within60_days, 50_000);
+            assert_eq!(snapshot.listing_count, 33_334);
+        }));
+        worst = worst.max(time("asset library last page", &mut || {
+            database.read_asset_library(99_950, 50, "").unwrap();
+        }));
+        worst = worst.max(time("asset library search", &mut || {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 50, "d00012")
+                    .unwrap()
+                    .total_rows,
+                100
+            );
+        }));
+        worst = worst.max(time("domain detail", &mut || {
+            database.read_domain_detail("d0050000.test").unwrap();
+        }));
+        worst = worst.max(time("renewals page 1", &mut || {
+            assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, 50_000);
+        }));
+        worst = worst.max(time("dns health page 1", &mut || {
+            assert_eq!(
+                database.read_dns_health(0, 50, "").unwrap().asset_count,
+                100_000
+            );
+        }));
+        worst = worst.max(time("sales page 1", &mut || {
+            let snapshot = database.read_sales(0, 50).unwrap();
+            assert_eq!(snapshot.total_rows, 33_334);
+        }));
+        worst = worst.max(time("sales last page", &mut || {
+            database.read_sales(33_300, 50).unwrap();
+        }));
+        println!("worst: {worst:?}");
+    }
+
     /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
     /// and a newer unapproved plan titled `newer_title`.
     #[allow(clippy::too_many_lines)]
