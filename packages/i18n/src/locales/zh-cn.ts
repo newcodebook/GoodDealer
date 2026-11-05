@@ -389,7 +389,7 @@ const zhCNDictionary = {
     settling: "交割中",
     bin: "BIN",
     listingPending: "待同步",
-    listingConflict: "冲突",
+    listingConflict: "市场间不一致",
     delist: "下架",
     convertedToDeal: "已转成交",
     dealProgress: "交割进度",

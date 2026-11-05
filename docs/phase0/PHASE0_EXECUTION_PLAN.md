@@ -76,7 +76,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 设置读取（Rust 与 Zod）接受 ADR-0027 的 8 个平台，须在首个非 Cloudflare 连接写入之前完成（当前非 Cloudflare 连接会使整个设置读取失败关闭）（8 个平台均列出、每个角色仍不可用；清单外平台使读取失败关闭；非 Cloudflare 的接入方式为未知，不臆测） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设置面板补非 Cloudflare 连接的渲染测试（平台名、无接入方式标签、各角色不可用）；各模块的 8 平台清单（Rust 与 TS 各一组）补一致性测试
 - [x] 销售页同一域名多市场合并为一行（与 brand 一致），而非每市场一行 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 销售页“冲突”状态说明为市场间状态不一致，与同步冲突中心区分（文案或提示）
+- [x] 销售页“冲突”状态说明为市场间状态不一致，与同步冲突中心区分（文案或提示）（徽章文案改为“市场间不一致 / Markets disagree”；brand 销售台无此状态文案） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 在设计宿主中以两种语言核对“市场间不一致”徽章对 88px 状态列的影响，必要时改为短标签加完整说明
 - [x] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 续费、资产库与域名详情的观察读取（最近注册商、在售计数）与销售读取共用“已完成运行且目标成功”的规则（当前取最新可用观察，不论运行是否完成；补 partial 包含与 failed 排除的测试）
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53

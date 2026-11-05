@@ -98,6 +98,23 @@ describe("Sales desk from the Host sales projection", () => {
     for (const control of ["改价", ">暂停<", "下架", "新建 Listing", ">接受<"]) expect(html).not.toContain(control);
   });
 
+  it("names a disagreement between markets apart from the sync Conflict Center", () => {
+    const row = { entityId: "split.io", askingPrice: null, observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed" } as const;
+    const split = projectSalesDeskViewModel([parseSalesRead({
+      schemaVersion: 1, kind: "sales", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 2,
+      window: { startIndex: 0, size: 200, rows: [
+        { ...row, marketplaceKind: "afternic", listingStatus: "sold" },
+        { ...row, marketplaceKind: "atom", listingStatus: "active" },
+      ] },
+    })]);
+    const zh = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={split} initialTab="listings" />);
+    expect(zh).toContain("市场间不一致");
+    expect(zh).not.toContain(">冲突<");
+    expect(renderToStaticMarkup(<SalesDesk locale="en-US" view={split} initialTab="listings" />)).toContain("Markets disagree");
+  });
+
   it("says offers and deals are unavailable instead of showing an empty inbox", () => {
     for (const initialTab of ["offers", "deals"] as const) {
       const html = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={hostView} initialTab={initialTab} />);

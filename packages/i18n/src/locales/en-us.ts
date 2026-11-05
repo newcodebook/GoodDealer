@@ -455,7 +455,7 @@ const enUSDictionary = {
     settling: "Settling",
     bin: "BIN",
     listingPending: "Syncing",
-    listingConflict: "Conflict",
+    listingConflict: "Markets disagree",
     delist: "Delist",
     convertedToDeal: "Converted to deal",
     dealProgress: "Closing progress",
