@@ -20,7 +20,8 @@ export type HostRouteReadState<V> =
    */
   | { readonly kind: "loading"; readonly previous?: V }
   | { readonly kind: "ready"; readonly value: V }
-  | { readonly kind: "failed" };
+  /** `previous` is kept the same way, so a failed page or search can be reported beside the last result. */
+  | { readonly kind: "failed"; readonly previous?: V };
 
 export interface HostRouteReadOptions<T extends HostReadWindow, V> {
   readonly load: (request: HostWindowRequest) => Promise<T>;
@@ -93,12 +94,21 @@ export function recoverHostPage(
 
 /**
  * The loading state a read starts from. Within the same port and generation it carries the last
- * ready value (or the one an interrupted load already carried), so a page or search change does
- * not unmount the route; a new source, or a retry after a failure, has nothing to keep.
+ * ready value (or the one an interrupted or failed read already carried), so a page change, a
+ * search or a retry does not unmount the route; a new source has nothing to keep.
  */
 export function restartHostRouteState<V>(current: HostRouteReadState<V>, sameSource: boolean): HostRouteReadState<V> {
-  const previous = !sameSource ? undefined : current.kind === "ready" ? current.value : current.kind === "loading" ? current.previous : undefined;
+  const previous = !sameSource ? undefined : current.kind === "ready" ? current.value : current.previous;
   return previous === undefined ? { kind: "loading" } : { kind: "loading", previous };
+}
+
+/**
+ * The state a finished read leaves. A failure keeps the value the read's loading state carried,
+ * which `restartHostRouteState` limited to the same port and generation.
+ */
+export function settleHostRouteState<V>(current: HostRouteReadState<V>, next: HostRouteReadState<V>): HostRouteReadState<V> {
+  if (next.kind !== "failed" || current.kind !== "loading" || current.previous === undefined) return next;
+  return { kind: "failed", previous: current.previous };
 }
 
 /**
@@ -143,7 +153,7 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
       isCancelled: () => cancelled,
       onStale: () => callbacks.current.onStale(),
     }).then((next) => {
-      if (next !== null) setState(next);
+      if (next !== null) setState((current) => settleHostRouteState(current, next));
     });
     return () => { cancelled = true; };
     // `restartKey` is a dependency only so that a change restarts the read.

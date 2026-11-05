@@ -1,7 +1,7 @@
 import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, type ShellWindowFrame } from "../app-shell";
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
@@ -16,8 +16,8 @@ import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
-import { recoverHostPage, useHostRouteRead } from "./host-route-read";
-import { HostRouteStatus } from "./host-route-status";
+import { recoverHostPage, useHostRouteRead, type HostRouteReadState } from "./host-route-read";
+import { HostRouteStatus, type HostRouteStatusCopy } from "./host-route-status";
 import {
   createPortfolioMutationController,
   createPortfolioReadController,
@@ -405,11 +405,21 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
     if (recovered !== null) setPage(recovered);
   }, [recovered?.startIndex, recovered?.size]);
   // Another page keeps the desk mounted on the last page, marked busy, until it arrives.
-  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  const shown = state.kind === "ready" ? state.value : state.previous;
   if (shown !== undefined) {
-    return <RenewalDesk locale={locale} view={shown} busy={state.kind === "loading"} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
+    return withReadFailure(state, copy, retry, <RenewalDesk locale={locale} view={shown} busy={state.kind === "loading"} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />);
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
+}
+
+/**
+ * A paged desk showing its last result. When the latest page, search or retry failed, the failure is
+ * reported above that result instead of replacing it, so the desk and its search box stay mounted;
+ * the stale rows sit under the failure until a retry or another read succeeds.
+ */
+function withReadFailure(state: HostRouteReadState<unknown>, copy: HostRouteStatusCopy, retry: () => void, desk: ReactNode) {
+  // The same element shape in every state, so reporting a failure never remounts the desk.
+  return <>{state.kind === "failed" ? <HostRouteStatus state={state} copy={copy} onRetry={retry} /> : null}{desk}</>;
 }
 
 /** Listed domains per sales page until the person picks another size; within the Host's 200-row window. */
@@ -439,9 +449,9 @@ function SalesRoute({ locale, ports, readGeneration, onStale }: {
     if (recovered !== null) setPage(recovered);
   }, [recovered?.startIndex, recovered?.size]);
   // Another page keeps the desk, and its tab, mounted on the last page, marked busy, until it arrives.
-  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  const shown = state.kind === "ready" ? state.value : state.previous;
   if (shown !== undefined) {
-    return <SalesDesk locale={locale} view={shown} busy={state.kind === "loading"} initialTab="listings" onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
+    return withReadFailure(state, copy, retry, <SalesDesk locale={locale} view={shown} busy={state.kind === "loading"} initialTab="listings" onPageChange={(startIndex, size) => setPage({ startIndex, size })} />);
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
@@ -479,10 +489,10 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   }, [recovered?.startIndex, recovered?.size]);
   // A search or another page keeps the page, and so the focused search box, mounted on the last
   // result, marked busy, until the Host answers.
-  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  const shown = state.kind === "ready" ? state.value : state.previous;
   if (shown !== undefined) {
     const view = query === null ? { ...shown, rows: [], page: { startIndex: 0, size: page.size, totalItems: 0 } } : shown;
-    return (
+    return withReadFailure(state, copy, retry, (
       <DnsVerification
         locale={locale}
         view={view}
@@ -491,7 +501,7 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
         onQueryChange={(next) => { setText(next); setPage({ startIndex: 0, size: page.size }); }}
         onPageChange={(startIndex, size) => setPage({ startIndex, size })}
       />
-    );
+    ));
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }

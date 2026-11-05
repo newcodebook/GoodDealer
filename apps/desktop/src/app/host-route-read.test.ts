@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { readHostRoute, recoverHostPage, restartHostRouteState, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
+import { readHostRoute, recoverHostPage, restartHostRouteState, settleHostRouteState, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
 
 interface FakeWindow extends HostReadWindow {
   readonly window: { readonly startIndex: number; readonly rows: readonly string[] };
@@ -143,9 +143,21 @@ describe("Host route restart", () => {
     expect(restartHostRouteState(loading, true)).toEqual({ kind: "loading", previous: "page 1" });
   });
 
-  it("never carries a value into a new port or generation, or out of a failure", () => {
+  it("never carries a value into a new port or generation", () => {
     expect(restartHostRouteState({ kind: "ready", value: "page 1" }, false)).toEqual({ kind: "loading" });
     expect(restartHostRouteState({ kind: "loading", previous: "page 1" }, false)).toEqual({ kind: "loading" });
+    expect(restartHostRouteState({ kind: "failed", previous: "page 1" }, false)).toEqual({ kind: "loading" });
     expect(restartHostRouteState<string>({ kind: "failed" }, true)).toEqual({ kind: "loading" });
+  });
+
+  it("keeps the last result through a failed read and its retry", () => {
+    // A failed page or search reports beside the value its loading state carried.
+    const failed = settleHostRouteState({ kind: "loading", previous: "page 1" }, { kind: "failed" });
+    expect(failed).toEqual({ kind: "failed", previous: "page 1" });
+    expect(restartHostRouteState(failed, true)).toEqual({ kind: "loading", previous: "page 1" });
+    // A first read has nothing to keep, and a success replaces whatever was shown.
+    expect(settleHostRouteState<string>({ kind: "loading" }, { kind: "failed" })).toEqual({ kind: "failed" });
+    expect(settleHostRouteState({ kind: "loading", previous: "page 1" }, { kind: "ready", value: "page 2" }))
+      .toEqual({ kind: "ready", value: "page 2" });
   });
 });

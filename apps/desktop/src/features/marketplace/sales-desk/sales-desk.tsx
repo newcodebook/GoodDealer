@@ -267,6 +267,7 @@ export function SalesDesk({
                   page={Math.floor(page.startIndex / page.size) + 1}
                   pageSize={page.size}
                   total={page.totalItems}
+                  busy={busy}
                   labels={shellPaginationLabels(locale)}
                   {...(onPageChange === undefined ? {} : {
                     onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),

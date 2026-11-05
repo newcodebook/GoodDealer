@@ -167,6 +167,32 @@ describe("paged Host routes", () => {
     expect(container.textContent).toContain(domain(0));
   });
 
+  it("reports a failed DNS search above the last result and keeps the search box", async () => {
+    const host = hostPorts();
+    const answer = host.loadDnsHealth.getMockImplementation()!;
+    await render(host.ports);
+    await click(named("DNS & verification"));
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search domain / provider"]');
+    if (search === null) throw new Error("search box not found");
+    search.focus();
+    host.loadDnsHealth.mockImplementation(async () => { throw new Error("transport"); });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "pa");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // The failure sits above the last result; the same box stays mounted, focused and typed into.
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not be read");
+    expect(search.isConnected).toBe(true);
+    expect(document.activeElement).toBe(search);
+    expect(search.value).toBe("pa");
+    expect(container.textContent).toContain(domain(0));
+
+    host.loadDnsHealth.mockImplementation(answer);
+    await click(named("Read again"));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(host.loadDnsHealth.mock.calls.at(-1)?.[0].query).toBe("pa");
+  });
+
   it("sends the DNS search to the Host and keeps the search box focused while it reads", async () => {
     const host = hostPorts();
     const answer = host.loadDnsHealth.getMockImplementation()!;
