@@ -81,13 +81,13 @@ describe("Renewal desk", () => {
     const view = projectRenewalDeskViewModel([{
       schemaVersion: 1, kind: "renewals", readGeneration: 1,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      asOfDate: "2026-08-20", totalRows: 3,
+      asOfDate: "2026-08-20", totalRows: 3, autoRenewEnabledCount: 1, autoRenewDisabledCount: 1,
       window: { startIndex: 0, size: 200, rows: [
         { entityId: "vault.io", expiresOn: "2026-08-27", autoRenew: true, registrarName: "Spaceship" },
         { entityId: "kanban.ai", expiresOn: "2026-09-05", autoRenew: null, registrarName: null },
         { entityId: "zeta.io", expiresOn: "2026-09-06", autoRenew: false, registrarName: null },
       ] },
-    }]);
+    }], 200);
     if (view.state !== "list") throw new Error("fixture");
     const html = renderToStaticMarkup(
       <RenewalDesk locale="zh-CN" view={view} onSelectionChange={() => undefined} onTermChange={() => undefined} onAutoRenewChange={() => undefined} onReviewPlan={() => undefined} />,
@@ -98,7 +98,9 @@ describe("Renewal desk", () => {
     expect(html).toContain("Spaceship");
     expect(html).toContain(">7d<");
     expect(html).not.toContain("续费所选");
-    expect(html).not.toContain("<select");
+    // No renewal term can be chosen; the only select is the pager's page size.
+    expect(html).not.toContain('aria-label="续费年限');
+    expect(html.match(/<select/gu)).toHaveLength(1);
     // Only recorded settings get a disabled switch; no row selection is offered.
     expect(html.match(/type="checkbox"/gu)).toHaveLength(2);
     // An unrecorded auto-renew setting is counted apart from one that is switched off.
@@ -106,6 +108,24 @@ describe("Renewal desk", () => {
     expect(html).toContain("已关闭 1 · 未记录 1");
     expect(html).not.toContain("$");
     expect(html).toContain("gd-switch--disabled");
+  });
+
+  it("reports whole-desk metrics on a Host page and pages through the rest", () => {
+    const view = projectRenewalDeskViewModel([{
+      schemaVersion: 1, kind: "renewals", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      asOfDate: "2026-08-20", totalRows: 1_234, autoRenewEnabledCount: 600, autoRenewDisabledCount: 34,
+      window: { startIndex: 50, size: 50, rows: Array.from({ length: 50 }, (_, index) => ({ entityId: `page-${String(index).padStart(2, "0")}.io`, expiresOn: "2026-09-01", autoRenew: null, registrarName: null })) },
+    }], 50);
+    if (view.state !== "list") throw new Error("fixture");
+    const html = renderToStaticMarkup(<RenewalDesk locale="en-US" view={view} onPageChange={() => undefined} />);
+
+    // Metrics describe every expiring asset, not the one row on this page.
+    expect(html).toContain("1,234");
+    expect(html).toContain("600 / 1,234");
+    expect(html).toContain("Off 34 · Not recorded 600");
+    expect(html).toContain("51–100");
+    expect(html).toContain('aria-current="page">2<');
   });
 
   it("escalates urgency under 30 and 14 days", () => {

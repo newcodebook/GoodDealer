@@ -8235,6 +8235,24 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot.as_of_date, today);
         assert_eq!(snapshot.total_rows, 4);
+        assert_eq!(
+            (
+                snapshot.auto_renew_enabled_count,
+                snapshot.auto_renew_disabled_count
+            ),
+            (1, 1)
+        );
+        // The counts cover every expiring asset, not just the requested page.
+        let page = database.read_renewals(3, 1).unwrap();
+        assert_eq!(page.window.rows.len(), 1);
+        assert_eq!(
+            (
+                page.total_rows,
+                page.auto_renew_enabled_count,
+                page.auto_renew_disabled_count
+            ),
+            (4, 1, 1)
+        );
         // The asset library promises exactly the assets the renewals desk lists: sold, dropped and
         // archived assets are no longer the workspace's to renew, and a search that matches only
         // some of them does not change the count the desk will list.

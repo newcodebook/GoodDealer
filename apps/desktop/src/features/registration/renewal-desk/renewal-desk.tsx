@@ -9,6 +9,7 @@ import {
   Dialog,
   MetricStrip,
   Money,
+  Pagination,
   Select,
   Switch,
   Table,
@@ -33,6 +34,8 @@ export interface RenewalDeskProps {
   readonly locale: Locale;
   readonly view: RenewalListView;
   readonly onBack?: () => void;
+  /** Requests another Host page; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
   readonly onSelectionChange?: (ids: readonly string[]) => void;
   readonly onTermChange?: (ids: readonly string[], years: RenewalTermYears) => void;
   readonly onAutoRenewChange?: (id: string, enabled: boolean) => void;
@@ -62,6 +65,7 @@ export function RenewalDesk({
   locale,
   view,
   onBack,
+  onPageChange,
   onSelectionChange,
   onTermChange,
   onAutoRenewChange,
@@ -85,10 +89,13 @@ export function RenewalDesk({
   const { budget, selectedTotal } = view;
   const remaining = budget === null || selectedTotal === null ? null : moneyValue(budget.amount) - moneyValue(selectedTotal.amount);
   const overBudget = remaining !== null && remaining < 0;
-  const autoCovered = due.filter((item) => item.autoRenewEnabled === true).length;
+  // A paged view shows one Host page, so its metrics come from the Host's whole-desk counts.
+  const { page } = view;
+  const dueCount = page?.totalItems ?? due.length;
+  const autoCovered = page?.autoRenewEnabledCount ?? due.filter((item) => item.autoRenewEnabled === true).length;
   // An unrecorded setting is neither on nor off, so it is counted apart from the switched-off ones.
-  const autoOff = due.filter((item) => item.autoRenewEnabled === false).length;
-  const autoUnrecorded = due.length - autoCovered - autoOff;
+  const autoOff = page?.autoRenewDisabledCount ?? due.filter((item) => item.autoRenewEnabled === false).length;
+  const autoUnrecorded = dueCount - autoCovered - autoOff;
   // Unrecorded or unquoted values render as a dash so they never read as a zero or a definite fact.
   const dash = <span className="renewal-faint">—</span>;
   const unavailable = { value: copy.notAvailable, tone: "muted" as const };
@@ -154,11 +161,11 @@ export function RenewalDesk({
       <MetricStrip
         label={copy.title}
         metrics={[
-          { key: "due", label: copy.expiringDomains, value: formatNumber(locale, due.length) },
+          { key: "due", label: copy.expiringDomains, value: formatNumber(locale, dueCount) },
           { key: "budget", label: copy.renewalBudget, ...(budget === null ? unavailable : { value: money(budget), tone: "gold" as const }) },
           { key: "selected", label: copy.selectedRenewalAmount, ...(selectedTotal === null ? unavailable : { value: money(selectedTotal), tone: overBudget ? "danger" as const : "gold" as const }) },
           { key: "remaining", label: copy.budgetRemaining, ...(remaining === null || budget === null ? unavailable : { value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, Math.abs(remaining).toFixed(2), budget.currency)}`, tone: overBudget ? "danger" as const : "body" as const }) },
-          { key: "auto", label: copy.autoRenewCoverage, value: `${autoCovered} / ${due.length}`, tone: "blue", meta: `${copy.autoRenewOff} ${formatNumber(locale, autoOff)} · ${copy.autoRenewUnrecorded} ${formatNumber(locale, autoUnrecorded)}` },
+          { key: "auto", label: copy.autoRenewCoverage, value: `${formatNumber(locale, autoCovered)} / ${formatNumber(locale, dueCount)}`, tone: "blue", meta: `${copy.autoRenewOff} ${formatNumber(locale, autoOff)} · ${copy.autoRenewUnrecorded} ${formatNumber(locale, autoUnrecorded)}` },
         ]}
       />
       <Toolbar
@@ -192,6 +199,20 @@ export function RenewalDesk({
             onSelectionChange: (keys: Key[]) => onSelectionChange(keys.map(String).filter((id) => due.some((item) => item.id === id))),
           })}
           maxHeight="100%"
+          {...(page === undefined ? {} : {
+            footer: (
+              <Pagination
+                page={Math.floor(page.startIndex / page.size) + 1}
+                pageSize={page.size}
+                total={page.totalItems}
+                labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                {...(onPageChange === undefined ? {} : {
+                  onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                  onPageSizeChange: (size: number) => onPageChange(0, size),
+                })}
+              />
+            ),
+          })}
         />
         {selectedIds.length > 0 && canEdit ? (
           <div className="renewal-batch">

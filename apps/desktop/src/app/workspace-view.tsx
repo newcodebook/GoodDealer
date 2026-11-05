@@ -16,7 +16,7 @@ import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
-import { useHostRouteRead } from "./host-route-read";
+import { recoverHostPage, useHostRouteRead } from "./host-route-read";
 import { HostRouteStatus } from "./host-route-status";
 import {
   createPortfolioMutationController,
@@ -371,16 +371,20 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
   return <HostRouteStatus state={state.kind === "loading" ? state : { kind: "failed" }} copy={copy} onRetry={retry} />;
 }
 
-function projectRenewalList(windows: readonly RenewalsRead[]): RenewalListView {
-  const view = projectRenewalDeskViewModel(windows);
+function projectRenewalList(windows: readonly RenewalsRead[], pageSize: number): RenewalListView {
+  const view = projectRenewalDeskViewModel(windows, pageSize);
   if (view.state !== "list") throw new TypeError("renewals project to the list state");
   return view;
 }
 
+/** Rows per renewal page until the person picks another size; within the Host's 200-row window. */
+const renewalPageSize = 50;
+
 /**
- * Reads every renewal window for one Host generation, like sales. The desk gets no selection,
- * term, auto-renew or plan callbacks: renewal quotes and registrar writes need capabilities that
- * are not qualified yet, so the plan is reported unavailable.
+ * Reads one renewal page for one Host generation; the Host reports whole-desk counts with it, so
+ * the desk never reads every window. The desk gets no selection, term, auto-renew or plan
+ * callbacks: renewal quotes and registrar writes need capabilities that are not qualified yet, so
+ * the plan is reported unavailable.
  */
 function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   readonly locale: Locale;
@@ -390,11 +394,19 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   readonly onBack: () => void;
 }) {
   const copy = getPresentationCopy(locale, "renewalDesk");
+  const [page, setPage] = useState({ startIndex: 0, size: renewalPageSize });
   const { state, retry } = useHostRouteRead(
     ports.renewals, (port, request) => port.loadRenewals(request), readGeneration, onStale,
-    projectRenewalList, { windowSize: hostWindowSize },
+    (windows) => projectRenewalList(windows, page.size), { windowSize: page.size, startIndex: page.startIndex, rowLimit: page.size },
   );
-  if (state.kind === "ready") return <RenewalDesk locale={locale} view={state.value} onBack={onBack} />;
+  const outcome = state.kind === "ready" ? { kind: "ready" as const, totalItems: state.value.page?.totalItems ?? 0 } : state;
+  const recovered = recoverHostPage(page, outcome);
+  useEffect(() => {
+    if (recovered !== null) setPage(recovered);
+  }, [recovered?.startIndex, recovered?.size]);
+  if (state.kind === "ready") {
+    return <RenewalDesk locale={locale} view={state.value} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
+  }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 

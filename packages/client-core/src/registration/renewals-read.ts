@@ -30,6 +30,8 @@ export const renewalsReadSchema = z.object({
   freshness: portfolioFreshnessSchema,
   asOfDate: z.iso.date(),
   totalRows: z.number().int().nonnegative().max(1_000_200),
+  autoRenewEnabledCount: z.number().int().nonnegative().max(1_000_200),
+  autoRenewDisabledCount: z.number().int().nonnegative().max(1_000_200),
   window: z.object({
     startIndex: renewalsWindowRequestSchema.shape.startIndex,
     size: renewalsWindowRequestSchema.shape.size,
@@ -39,6 +41,9 @@ export const renewalsReadSchema = z.object({
   const { startIndex, size, rows } = read.window;
   if (rows.length > size || startIndex + rows.length > read.totalRows) {
     context.addIssue({ code: "custom", path: ["window", "rows"], message: "window exceeds its bounds" });
+  }
+  if (read.autoRenewEnabledCount + read.autoRenewDisabledCount > read.totalRows) {
+    context.addIssue({ code: "custom", path: ["autoRenewDisabledCount"], message: "auto-renew counts exceed the window total" });
   }
   const today = dayNumber(read.asOfDate);
   rows.forEach((row, index) => {
@@ -66,22 +71,31 @@ export interface RenewalsReadPort {
 }
 
 /**
- * Projects complete Host renewal windows into the renewal desk. Every window must come from one Host
- * generation and together cover every row. No registrar renewal or quote capability is qualified,
- * so the plan is unavailable: nothing is selectable, and term, price and budget stay empty.
+ * Projects one page of `pageSize` rows from Host renewal windows into the renewal desk. The windows
+ * must come from one Host generation, be contiguous from the page's first window and hold every row
+ * of the page (fewer only on the last page); the page's metrics come from the
+ * Host's whole-desk counts, never from the rows on this page. No registrar renewal or quote
+ * capability is qualified, so the plan is unavailable: nothing is selectable, and term, price and
+ * budget stay empty.
  */
-export function projectRenewalDeskViewModel(windows: readonly RenewalsRead[]): RenewalDeskViewModel {
+export function projectRenewalDeskViewModel(windows: readonly RenewalsRead[], pageSize: number): RenewalDeskViewModel {
   const first = windows[0];
   if (first === undefined) throw new TypeError("renewals need at least one Host window");
-  let expectedStart = 0;
+  let expectedStart = first.window.startIndex;
   for (const window of windows) {
     if (window.readGeneration !== first.readGeneration || window.totalRows !== first.totalRows
-      || window.asOfDate !== first.asOfDate || window.window.startIndex !== expectedStart) {
+      || window.asOfDate !== first.asOfDate || window.window.startIndex !== expectedStart
+      || window.autoRenewEnabledCount !== first.autoRenewEnabledCount
+      || window.autoRenewDisabledCount !== first.autoRenewDisabledCount) {
       throw new TypeError("renewal windows must be contiguous reads of one Host generation");
     }
     expectedStart += window.window.rows.length;
   }
-  if (expectedStart !== first.totalRows) throw new TypeError("renewal windows must cover every asset");
+  // The page must hold every row it promises, so a short Host read fails instead of showing a
+  // partial page under a full page's range.
+  if (expectedStart !== Math.min(first.totalRows, first.window.startIndex + pageSize)) {
+    throw new TypeError("renewal windows must cover the whole page");
+  }
   const today = dayNumber(first.asOfDate);
   const items = windows.flatMap((window) => window.window.rows.map((row): RenewalDeskItem => ({
     id: row.entityId,
@@ -113,5 +127,12 @@ export function projectRenewalDeskViewModel(windows: readonly RenewalsRead[]): R
     items,
     selectedCount: 0,
     selectedTotal: null,
+    page: {
+      startIndex: first.window.startIndex,
+      size: pageSize,
+      totalItems: first.totalRows,
+      autoRenewEnabledCount: first.autoRenewEnabledCount,
+      autoRenewDisabledCount: first.autoRenewDisabledCount,
+    },
   });
 }

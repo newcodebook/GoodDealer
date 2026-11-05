@@ -20,6 +20,8 @@ function read(overrides: Partial<RenewalsRead> = {}, rows: RenewalsRead["window"
     },
     asOfDate: "2026-11-03",
     totalRows: rows.length,
+    autoRenewEnabledCount: rows.filter((row) => row.autoRenew === true).length,
+    autoRenewDisabledCount: rows.filter((row) => row.autoRenew === false).length,
     window: { startIndex: 0, size: 200, rows },
     ...overrides,
   };
@@ -40,10 +42,11 @@ describe("renewals read", () => {
       expect(() => parseRenewalsRead(named(name)), JSON.stringify(name)).toThrow();
     }
     expect(() => parseRenewalsRead(read({ totalRows: 1 }))).toThrow();
+    expect(() => parseRenewalsRead(read({ autoRenewEnabledCount: 2, autoRenewDisabledCount: 1 }))).toThrow();
   });
 
   it("projects an unavailable plan with days counted from the Host date", () => {
-    const view = projectRenewalDeskViewModel([read()]);
+    const view = projectRenewalDeskViewModel([read()], 200);
     if (view.state !== "list") throw new Error("expected the list state");
     expect(view.planAvailability).toBe("unavailable");
     expect(view.budget).toBeNull();
@@ -54,23 +57,34 @@ describe("renewals read", () => {
         ["later.test", 60, null, null, null, null, false],
       ]);
     expect(view.freshness).not.toHaveProperty("readOnlyReason");
+    expect(view.page).toEqual({ startIndex: 0, size: 200, totalItems: 2, autoRenewEnabledCount: 1, autoRenewDisabledCount: 0 });
   });
 
   it("carries commercial read-only freshness", () => {
     const view = projectRenewalDeskViewModel([read({
       freshness: { ...read().freshness, readOnlyReason: "commercial", canEdit: false },
-    })]);
+    })], 200);
     expect(view.freshness).toMatchObject({ readOnlyReason: "commercial", canEdit: false });
   });
 
-  it("rejects incomplete or mixed-generation windows", () => {
+  it("projects one whole page with whole-desk counts and rejects short pages, gaps or mixed generations", () => {
     const [soon, later] = read().window.rows;
     const firstHalf = read({ totalRows: 2, window: { startIndex: 0, size: 1, rows: [soon!] } });
     const secondHalf = read({ totalRows: 2, window: { startIndex: 1, size: 1, rows: [later!] } });
-    expect(projectRenewalDeskViewModel([firstHalf, secondHalf]).items).toHaveLength(2);
-    expect(() => projectRenewalDeskViewModel([])).toThrow();
-    expect(() => projectRenewalDeskViewModel([firstHalf])).toThrow();
-    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, readGeneration: 5 }])).toThrow();
-    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, asOfDate: "2026-11-04" }])).toThrow();
+    expect(projectRenewalDeskViewModel([firstHalf, secondHalf], 2).items).toHaveLength(2);
+    // The second page alone shows its one row while the counts still describe both assets.
+    const page = projectRenewalDeskViewModel([secondHalf], 1);
+    if (page.state !== "list") throw new Error("expected the list state");
+    expect(page.items.map((item) => item.domain)).toEqual(["later.test"]);
+    expect(page.page).toEqual({ startIndex: 1, size: 1, totalItems: 2, autoRenewEnabledCount: 1, autoRenewDisabledCount: 0 });
+    // The last page may be short; any other page must be full.
+    expect(projectRenewalDeskViewModel([secondHalf], 50).items).toHaveLength(1);
+    expect(() => projectRenewalDeskViewModel([firstHalf], 2)).toThrow();
+    expect(() => projectRenewalDeskViewModel([read({ totalRows: 1000, window: { startIndex: 0, size: 50, rows: [soon!] } })], 50)).toThrow();
+    expect(() => projectRenewalDeskViewModel([], 50)).toThrow();
+    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, window: { ...secondHalf.window, startIndex: 2 } }], 2)).toThrow();
+    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, autoRenewEnabledCount: 0 }], 2)).toThrow();
+    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, readGeneration: 5 }], 2)).toThrow();
+    expect(() => projectRenewalDeskViewModel([firstHalf, { ...secondHalf, asOfDate: "2026-11-04" }], 2)).toThrow();
   });
 });

@@ -26,6 +26,18 @@ export const renewalDeskItemSchema = z.object({
   status: z.enum(["due", "planned"]),
 }).strict();
 
+/**
+ * The Host page a list view shows. Without it the items are the whole desk; with it they are one
+ * page, and the counts cover every expiring asset so metrics never describe only the page.
+ */
+const renewalDeskPageSchema = z.object({
+  startIndex: z.number().int().nonnegative().max(1_000_000),
+  size: z.number().int().min(1).max(200),
+  totalItems: z.number().int().nonnegative().max(1_000_200),
+  autoRenewEnabledCount: z.number().int().nonnegative(),
+  autoRenewDisabledCount: z.number().int().nonnegative(),
+}).strict();
+
 const renewalDeskListViewSchema = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal("renewal_desk"),
@@ -37,6 +49,7 @@ const renewalDeskListViewSchema = z.object({
   items: z.array(renewalDeskItemSchema).max(100_000),
   selectedCount: z.number().int().nonnegative(),
   selectedTotal: canonicalMoneyViewSchema.nullable(),
+  page: renewalDeskPageSchema.optional(),
 }).strict().superRefine(validateRenewalSelection);
 
 const renewalConfirmationItemSchema = z.object({
@@ -176,6 +189,11 @@ function validateRenewalSelection(
   const domains = new Set(view.items.map((item) => item.domain));
   if (ids.size !== view.items.length || domains.size !== view.items.length) {
     context.addIssue({ code: "custom", path: ["items"], message: "renewal items must be unique" });
+  }
+  const { page } = view;
+  if (page !== undefined && (view.items.length > page.size || page.startIndex + view.items.length > page.totalItems
+    || page.autoRenewEnabledCount + page.autoRenewDisabledCount > page.totalItems)) {
+    context.addIssue({ code: "custom", path: ["page"], message: "renewal page must fit its totals" });
   }
   if (view.planAvailability === "unavailable") {
     // Nothing can be selected, priced or budgeted until a renewal capability is qualified.

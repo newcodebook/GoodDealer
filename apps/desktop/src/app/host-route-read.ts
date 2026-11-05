@@ -22,7 +22,9 @@ export interface HostRouteReadOptions<T extends HostReadWindow, V> {
   /** The generation of the workspace publication the route belongs to. */
   readonly readGeneration: number;
   readonly windowSize: number;
-  /** Stop after this many rows even when the Host has more, for views that show only the newest. */
+  /** First row to read, for routes that show one page; reads start at the first row otherwise. */
+  readonly startIndex?: number;
+  /** Stop after this many rows even when the Host has more: a page, or only the newest rows. */
   readonly rowLimit?: number;
   /** Validates the complete windows into the route's value; a throw reports the read as failed. */
   readonly project: (windows: readonly T[]) => V;
@@ -42,7 +44,8 @@ export async function readHostRoute<T extends HostReadWindow, V>(
 ): Promise<HostRouteReadState<V> | null> {
   try {
     const windows: T[] = [];
-    let next = 0;
+    const start = options.startIndex ?? 0;
+    let next = start;
     do {
       const window = await options.load({ startIndex: next, size: options.windowSize });
       if (window.readGeneration !== options.readGeneration) {
@@ -52,7 +55,7 @@ export async function readHostRoute<T extends HostReadWindow, V>(
       windows.push(window);
       next += window.window.rows.length;
       if (window.window.rows.length === 0) break;
-    } while (next < Math.min(windows[0]?.totalRows ?? 0, options.rowLimit ?? Number.POSITIVE_INFINITY));
+    } while (next < Math.min(windows[0]?.totalRows ?? 0, start + (options.rowLimit ?? Number.POSITIVE_INFINITY)));
     const value = options.project(windows);
     return options.isCancelled() ? null : { kind: "ready", value };
   } catch {
@@ -60,9 +63,32 @@ export async function readHostRoute<T extends HostReadWindow, V>(
   }
 }
 
+export interface HostPage {
+  readonly startIndex: number;
+  readonly size: number;
+}
+
 /**
- * Route state for one windowed Host read. The read restarts when the port, the generation or the
- * retry attempt changes; `load`, `project` and `onStale` are read through refs so callers can pass
+ * The page a paged route should move to after a read, or null to stay. A page past the end, after
+ * rows left the read, moves back to the last page. The Host rejects a window that starts past its
+ * total, so that read fails rather than reporting a total; a failed read on a later page therefore
+ * returns to the first page, where a retry can succeed, instead of retrying the same start forever.
+ */
+export function recoverHostPage(
+  page: HostPage,
+  outcome: { readonly kind: "loading" } | { readonly kind: "failed" } | { readonly kind: "ready"; readonly totalItems: number },
+): HostPage | null {
+  if (page.startIndex === 0) return null;
+  if (outcome.kind === "failed") return { startIndex: 0, size: page.size };
+  if (outcome.kind === "ready" && page.startIndex >= outcome.totalItems) {
+    return { startIndex: Math.max(0, Math.floor((outcome.totalItems - 1) / page.size)) * page.size, size: page.size };
+  }
+  return null;
+}
+
+/**
+ * Route state for one windowed Host read. The read restarts when the port, the generation, the
+ * page or the retry attempt changes; `load`, `project` and `onStale` are read through refs so callers can pass
  * inline functions without restarting it.
  */
 export function useHostRouteRead<P, T extends HostReadWindow, V>(
@@ -71,13 +97,13 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
   readGeneration: number,
   onStale: () => void,
   project: (windows: readonly T[]) => V,
-  limits: { readonly windowSize: number; readonly rowLimit?: number },
+  limits: { readonly windowSize: number; readonly startIndex?: number; readonly rowLimit?: number },
 ): { readonly state: HostRouteReadState<V>; readonly retry: () => void } {
   const [state, setState] = useState<HostRouteReadState<V>>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const callbacks = useRef({ load, project, onStale });
   callbacks.current = { load, project, onStale };
-  const { windowSize, rowLimit } = limits;
+  const { windowSize, startIndex, rowLimit } = limits;
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +112,7 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
       load: (request) => callbacks.current.load(port, request),
       readGeneration,
       windowSize,
+      ...(startIndex === undefined ? {} : { startIndex }),
       ...(rowLimit === undefined ? {} : { rowLimit }),
       project: (windows) => callbacks.current.project(windows),
       isCancelled: () => cancelled,
@@ -94,7 +121,7 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
       if (next !== null) setState(next);
     });
     return () => { cancelled = true; };
-  }, [port, readGeneration, attempt, windowSize, rowLimit]);
+  }, [port, readGeneration, attempt, windowSize, startIndex, rowLimit]);
 
   return { state, retry: () => setAttempt((current) => current + 1) };
 }

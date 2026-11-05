@@ -29,6 +29,10 @@ pub struct RenewalsReadSnapshot {
     pub freshness: PortfolioReadFreshness,
     pub as_of_date: String,
     pub total_rows: u32,
+    /// Whole-window counts, so a desk that shows one page still reports coverage for every asset.
+    /// Assets with no recorded setting are `total_rows` minus both counts.
+    pub auto_renew_enabled_count: u32,
+    pub auto_renew_disabled_count: u32,
     pub window: RenewalsWindow,
 }
 
@@ -72,13 +76,35 @@ impl<'a> ActiveRenewalsReader<'a> {
         if start_index > 1_000_000 || !(1..=200).contains(&size) {
             return Err(PortfolioReadError::WindowRejected);
         }
-        let (as_of_date, total_rows): (String, i64) = transaction
-            .query_row(
-                &format!("SELECT date('now'), count(*) {ASSETS} AND {EXPIRING_ASSET}"),
-                [requested_workspace_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        let (as_of_date, total_rows, enabled, disabled, malformed): (String, i64, i64, i64, i64) =
+            transaction
+                .query_row(
+                    &format!(
+                        "SELECT date('now'), count(*),
+                           coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
+                           coalesce(sum(auto_renew NOT IN (0, 1)), 0)
+                         {ASSETS} AND {EXPIRING_ASSET}"
+                    ),
+                    [requested_workspace_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .map_err(|_| PortfolioReadError::StorageRejected)?;
+        // The schema admits only 0, 1 or NULL; should that ever loosen, a value that is neither on,
+        // off nor unrecorded fails the read, as it does per row, instead of being counted as
+        // unrecorded on pages the Renderer never sees.
+        if malformed != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
+        let count =
+            |value: i64| u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected);
         let mut statement = transaction
             .prepare(&format!(
                 "SELECT entity_id, expires_on, auto_renew,
@@ -120,8 +146,9 @@ impl<'a> ActiveRenewalsReader<'a> {
             read_generation: 0,
             freshness,
             as_of_date,
-            total_rows: u32::try_from(total_rows)
-                .map_err(|_| PortfolioReadError::ProjectionRejected)?,
+            total_rows: count(total_rows)?,
+            auto_renew_enabled_count: count(enabled)?,
+            auto_renew_disabled_count: count(disabled)?,
             window: RenewalsWindow {
                 start_index,
                 size,

@@ -161,6 +161,8 @@ describe("Desktop Tauri local-business adapter", () => {
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
       asOfDate: "2026-08-20",
       totalRows: 1,
+      autoRenewEnabledCount: 0,
+      autoRenewDisabledCount: 1,
       window: { startIndex: 0, size: 200, rows: [{ entityId: "vault.io", expiresOn: "2026-08-27", autoRenew: false, registrarName: "Spaceship" }] },
     };
     const port = createLocalRenewalsPort();

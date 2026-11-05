@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { readHostRoute, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
+import { readHostRoute, recoverHostPage, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
 
 interface FakeWindow extends HostReadWindow {
   readonly window: { readonly startIndex: number; readonly rows: readonly string[] };
@@ -101,9 +101,36 @@ describe("windowed Host route read", () => {
     expect(shrinking).toHaveBeenCalledTimes(2);
   });
 
+  it("reads one page from its first row up to the page size", async () => {
+    const { load, requests } = host(["a", "b", "c", "d", "e"]);
+    await expect(readHostRoute(options(load, { startIndex: 2, rowLimit: 2 }))).resolves.toEqual({ kind: "ready", value: "c,d" });
+    expect(requests).toEqual([{ startIndex: 2, size: 2 }]);
+    // The last page stops at the Host's total rather than asking past it.
+    const last = host(["a", "b", "c", "d", "e"]);
+    await expect(readHostRoute(options(last.load, { startIndex: 4, rowLimit: 2 }))).resolves.toEqual({ kind: "ready", value: "e" });
+    expect(last.requests).toEqual([{ startIndex: 4, size: 2 }]);
+  });
+
   it("stops at the row limit for views that show only the newest rows", async () => {
     const { load, requests } = host(["a", "b", "c", "d", "e"]);
     await expect(readHostRoute(options(load, { rowLimit: 3 }))).resolves.toEqual({ kind: "ready", value: "a,b,c,d" });
     expect(requests.map((request) => request.startIndex)).toEqual([0, 2]);
+  });
+});
+
+describe("paged Host route recovery", () => {
+  const page3 = { startIndex: 100, size: 50 };
+
+  it("returns a later page whose read failed to the first page, where a retry can succeed", () => {
+    // The Host rejects a window that starts past a total that shrank, so the read fails.
+    expect(recoverHostPage(page3, { kind: "failed" })).toEqual({ startIndex: 0, size: 50 });
+    expect(recoverHostPage({ startIndex: 0, size: 50 }, { kind: "failed" })).toBeNull();
+  });
+
+  it("moves a page past the end back to the last page, or the first when nothing is left", () => {
+    expect(recoverHostPage(page3, { kind: "ready", totalItems: 100 })).toEqual({ startIndex: 50, size: 50 });
+    expect(recoverHostPage(page3, { kind: "ready", totalItems: 0 })).toEqual({ startIndex: 0, size: 50 });
+    expect(recoverHostPage(page3, { kind: "ready", totalItems: 101 })).toBeNull();
+    expect(recoverHostPage(page3, { kind: "loading" })).toBeNull();
   });
 });

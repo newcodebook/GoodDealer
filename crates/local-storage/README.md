@@ -138,7 +138,9 @@ whole read. It carries no browser session, automation or authorization data.
 `BusinessDatabase::read_renewals` uses the same window rules and lists assets still to renew (not sold,
 dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
 soonest first, with recorded auto-renew and the latest confirmed, available registrar observation's
-registrar name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
+registrar name. It returns that `asOfDate` so the Renderer counts days from the Host's date, and whole-window
+auto-renew enabled/disabled counts so the desk reads one page at a time and still reports coverage
+for every expiring asset. No renewal price,
 term or plan is projected; registrar names that are empty, longer than 128 characters or contain
 control, bidirectional or invisible formatting characters fail the whole read — the same
 `valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`.
