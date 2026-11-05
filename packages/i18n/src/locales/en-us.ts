@@ -543,7 +543,7 @@ const enUSDictionary = {
     retryValidation: "Retry validation",
     verifying: "Verifying",
     searchEmpty: "No matching domains",
-    readOnlyNotice: "This is a read-only view; repairs and re-verification are unavailable.",
+    readOnlyNotice: "Standby is read-only: this view changes nothing. DNS repairs and ownership re-verification are not qualified on any device yet.",
     host: "Host",
     notConnected: "Not connected",
     ownershipUnavailableNotice: "Ownership verification is not connected yet. This page shows only Zone facts the local secure host has observed and does not judge delegation or record health.",

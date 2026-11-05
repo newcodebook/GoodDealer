@@ -477,7 +477,7 @@ const zhCNDictionary = {
     retryValidation: "重新验证",
     verifying: "验证中",
     searchEmpty: "没有匹配的域名",
-    readOnlyNotice: "当前为只读视图，修复与重新验证不可用。",
+    readOnlyNotice: "备用设备只读：本视图不做任何修改。DNS 修复与所有权重新验证尚未在任何设备上取得资格。",
     host: "主机",
     notConnected: "未接入",
     ownershipUnavailableNotice: "所有权验证尚未接入；本页只显示本地安全宿主已观察到的 Zone 事实，不判断委派或记录健康。",

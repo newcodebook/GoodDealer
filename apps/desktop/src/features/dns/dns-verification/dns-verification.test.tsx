@@ -62,7 +62,9 @@ describe("DNS & verification", () => {
   it("removes every repair from a Standby view", () => {
     const html = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={view("standby_cloud")} onReverify={() => undefined} onRequestNameserverPlan={() => undefined} />);
 
-    expect(html).toContain("当前为只读视图");
+    expect(html).toContain("备用设备只读");
+    // No DNS write is qualified, so the notice never implies the Active device offers them.
+    expect(html).toContain("尚未在任何设备上取得资格");
     expect(html).not.toContain("改 NS");
     expect(html).not.toContain("重新验证待验证项");
     expect(html).toContain("Standby 云端数据");
@@ -102,6 +104,8 @@ describe("DNS & verification from the Host DNS health projection", () => {
     expect(html).toContain("Zone 分配");
     expect(html).toContain("ada.ns.cloudflare.com");
     expect(html).toContain("DNSSEC 未知");
+    // An observed Zone always reports DNSSEC; the unobserved row has no status, so no label.
+    expect(html.split("DNSSEC ").length - 1).toBe(1);
     for (const control of ["重新验证", "改 NS", "添加 TXT", "验证 TXT", "已验证所有权"]) expect(html).not.toContain(control);
     // The brand guide's TXT ownership and repair description is not shown for flows that do not exist.
     for (const claim of ["_atomverify", "修复分别走"]) expect(html).not.toContain(claim);
