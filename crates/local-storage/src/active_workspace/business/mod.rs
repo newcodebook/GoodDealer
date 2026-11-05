@@ -8145,6 +8145,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture covers the window, the library count and the registrar name matrix"
+    )]
     fn renewals_list_the_sixty_day_window_soonest_first_without_identifiers() {
         let database = renewals_database(
             &[
@@ -8197,7 +8201,13 @@ mod tests {
                 "{query:?}"
             );
         }
-        assert_eq!(database.read_asset_library(0, 1, "soon").unwrap().total_rows, 1);
+        assert_eq!(
+            database
+                .read_asset_library(0, 1, "soon")
+                .unwrap()
+                .total_rows,
+            1
+        );
         let rows: Vec<_> = snapshot
             .window
             .rows
