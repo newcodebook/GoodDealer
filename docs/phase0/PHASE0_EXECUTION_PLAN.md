@@ -77,7 +77,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 设置面板补非 Cloudflare 连接的渲染测试（平台名、无接入方式标签、各角色不可用）；各模块的 8 平台清单（Rust 与 TS 各一组）补一致性测试（每个运行时只保留一份：Host `launch_platforms::LAUNCH_PLATFORMS`、Renderer `launchPlatformKindSchema` 与平台名；桌面测试把两者钉在一起并拒绝 Host 读取再复制清单） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页同一域名多市场合并为一行（与 brand 一致），而非每市场一行 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页“冲突”状态说明为市场间状态不一致，与同步冲突中心区分（文案或提示）（徽章文案改为“市场间不一致 / Markets disagree”；brand 销售台无此状态文案） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 在设计宿主中以两种语言核对“市场间不一致”徽章对 88px 状态列的影响，必要时改为短标签加完整说明
+- [x] 在设计宿主中以两种语言核对“市场间不一致”徽章对 88px 状态列的影响，必要时改为短标签加完整说明（不改：表格为自动布局，徽章不换行时状态列扩为 106px（zh-CN）/130px（en-US）；在 716px 宽的销售台（窄于 960px 最小窗口下约 750px 的生产宽度）上两种语言都不产生横向滚动，设计宿主自带的 240px 屏幕列表使其在 960px 视口下才出现 9/34px 溢出） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、资产库与域名详情的观察读取（最近注册商、在售计数）与销售读取共用“已完成运行且目标成功”的规则（当前取最新可用观察，不论运行是否完成；补 partial 包含与 failed 排除的测试）（`observation_runs::confirmed` 为唯一规则；测试覆盖 succeeded 与 partial 包含、运行中排除且不遮蔽已确认观察；failed 目标按 schema 不能携带证据，无法构造） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 100k 规模分页落地时对资产库聚合查询做 `EXPLAIN QUERY PLAN` 检查；若放宽“每运行每资产一条挂牌观察”的唯一约束，重新审视按资产而非按市场判定目标成功的规则
@@ -89,7 +89,10 @@ dead-letter outbox 和 Session 撤销；
 - [ ] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告
 - [ ] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换
 - [ ] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果
-- [ ] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致
+- [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 精确金额格式化依赖各 Tauri WebView（WebKitGTK、WKWebView、WebView2）支持 ECMA-402 NumberFormat v3 的字符串格式化，不支持时会静默退回双精度舍入；在打包构件中验证或在 VERIFICATION 写明最低 WebView 版本
+- [ ] 其余金额显示与求和仍经 `Number`：kit `Money` 组件（资产库目标价、域名详情挂牌价）、资产库本页估值、域名详情利润、批量编辑示例与合计、续费金额、报价中间价；改为十进制字符串格式化与精确求和
 - [ ] 续费路由补翻页接线测试（`onPageChange` → 页起点 → Host 读取）；续费、DNS 健康与销售的分页标签改为共享分页文案组而非借用资产库文案
 - [x] 销售域名超限在分页前改为提前停止读取（读到超过上限的不同域名即失败），并以“超出本视图容量”文案替代可重试的读取失败（由分页取代：销售按域名分页后不再有视图域名上限，`salesListingLimit` 已移除） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费与资产库到期计数排除已售（sold）资产，或在续费页展示生命周期（排除：已售、已放弃与已归档资产不再需要续费，续费列表与资产库计数共用同一 Host 谓词） https://github.com/newcodebook/GoodDealer/pull/53

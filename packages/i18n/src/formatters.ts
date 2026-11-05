@@ -34,7 +34,19 @@ const defaultMoneyOptions = {
   maximumFractionDigits: 2,
 } as const satisfies MoneyFormatOptions;
 
-function assertNumericValue(value: NumericValue): void {
+/**
+ * A plain decimal string, such as a money contract amount. Intl formats it exactly, so amounts
+ * beyond a double's 15–17 significant digits are not rounded on the way to the screen; the shown
+ * fraction digits still follow the format options (two for money by default).
+ */
+export type DecimalString = string;
+
+const decimalStringPattern = /^-?(0|[1-9]\d*)(\.\d+)?$/u;
+
+function assertNumericValue(value: NumericValue | DecimalString): void {
+  if (typeof value === "string" && !decimalStringPattern.test(value)) {
+    throw new RangeError("Decimal string must be a plain decimal");
+  }
   if (typeof value === "number" && !Number.isFinite(value)) {
     throw new RangeError("Numeric value must be finite");
   }
@@ -87,7 +99,7 @@ export function formatNumber(
 
 export function formatMoney(
   locale: Locale,
-  value: NumericValue,
+  value: NumericValue | DecimalString,
   currency: string,
   options: MoneyFormatOptions = defaultMoneyOptions,
 ): string {
@@ -98,5 +110,7 @@ export function formatMoney(
     ...options,
     style: "currency",
     currency,
-  }).format(value);
+    // Intl formats a decimal string exactly (ECMA-402 NumberFormat v3); TypeScript's lib typing
+    // predates that overload, and `assertNumericValue` has already checked the string's shape.
+  }).format(value as Parameters<Intl.NumberFormat["format"]>[0]);
 }

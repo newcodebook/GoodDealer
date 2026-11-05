@@ -25,6 +25,11 @@ describe("deterministic Intl formatters", () => {
     expect(formatMoney("zh-CN", 1_234.5, "USD")).toBe("US$1,234.50");
     expect(formatMoney("en-US", 1_234.5, "USD")).toBe("$1,234.50");
     expect(formatMoney("zh-CN", 1_234.5, "CNY")).toBe("¥1,234.50");
+    // Decimal strings are formatted exactly, beyond a double's precision, and must be plain decimals.
+    expect(formatMoney("en-US", "1234.5", "USD")).toBe("$1,234.50");
+    expect(formatMoney("en-US", "9999999999999999.99", "USD")).toBe("$9,999,999,999,999,999.99");
+    expect(formatMoney("en-US", 9_999_999_999_999_999.99, "USD")).not.toBe("$9,999,999,999,999,999.99");
+    for (const bad of ["1e3", "Infinity", "", "01", "1.", " 1", "0x10"]) expect(() => formatMoney("en-US", bad, "USD")).toThrow(RangeError);
   });
 
   it("rejects invalid values rather than rendering misleading output", () => {

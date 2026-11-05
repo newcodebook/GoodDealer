@@ -5,7 +5,8 @@ import type { AssetRowStatus } from "./asset-library/asset-library-contract";
 
 /** Narrow symbols keep the kit's "$284,120.00" instead of zh-CN's default "US$". */
 export function formatAssetMoney(locale: Locale, amount: string, currency: string): string {
-  return formatMoney(locale, Number(amount), currency, { currencyDisplay: "narrowSymbol" });
+  // The amount string goes to Intl unchanged: a Number would round contract amounts past 15 digits.
+  return formatMoney(locale, amount, currency, { currencyDisplay: "narrowSymbol" });
 }
 
 /** One status vocabulary for library rows and the detail header. */

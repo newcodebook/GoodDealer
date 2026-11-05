@@ -133,6 +133,20 @@ describe("Sales desk from the Host sales projection", () => {
     expect(renderToStaticMarkup(<SalesDesk locale="en-US" view={paged} busy initialTab="listings" />)).toContain('aria-busy="true"');
   });
 
+  it("shows a row price in a market's notation and the listed value in the Host's the same way", () => {
+    const view = projectSalesDeskViewModel([parseSalesRead({
+      schemaVersion: 1, kind: "sales", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      totalRows: 1, activeListingCount: 1, listedValue: { currency: "USD", amount: "1000.5" },
+      window: { startIndex: 0, size: 200, rows: [
+        { entityId: "vault.io", marketplaces: ["afternic", "atom"], listingStatus: "active", askingPrice: { currency: "USD", amount: "1000.50" } },
+      ] },
+    })], 200);
+    const html = renderToStaticMarkup(<SalesDesk locale="en-US" view={view} initialTab="listings" />);
+    // "1000.50" (the first market's notation) and "1000.5" (the Host's total) are one amount.
+    expect(html.match(/\$1,000\.50/gu)).toHaveLength(2);
+  });
+
   it("says offers and deals are unavailable instead of showing an empty inbox", () => {
     for (const initialTab of ["offers", "deals"] as const) {
       const html = renderToStaticMarkup(<SalesDesk locale="zh-CN" view={hostView} initialTab={initialTab} />);
