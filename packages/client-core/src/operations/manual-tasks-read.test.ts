@@ -51,6 +51,11 @@ describe("manual tasks read", () => {
     expect(() => parseManualTasksRead(read([{ ...waiting, connectionLabel: null }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, connectionLabel: "Bad\nlabel" }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, domainCount: 3 }]))).toThrow();
+    // A task carries only the sample the inbox names: exactly three of its five domains.
+    const large = { ...waiting, itemCount: 5, domainCount: 5, domains: ["a.test", "b.test", "c.test"] };
+    expect(parseManualTasksRead(read([large])).window.rows[0]?.domains).toHaveLength(3);
+    expect(() => parseManualTasksRead(read([{ ...large, domains: ["a.test", "b.test", "c.test", "d.test"] }]))).toThrow();
+    expect(() => parseManualTasksRead(read([{ ...large, domains: ["a.test", "b.test"] }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, domains: ["bravo.test", "alpha.test"] }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, capability: "Dns Write" }]))).toThrow();
     expect(() => parseManualTasksRead(read([unbound, waiting]))).toThrow();

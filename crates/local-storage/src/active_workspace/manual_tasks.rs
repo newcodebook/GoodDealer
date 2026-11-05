@@ -17,20 +17,25 @@ use crate::portfolio_projection::{
 use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// The inbox view lists at most this many affected domains per task; `domain_count` is exact.
-const DOMAIN_LIMIT: u32 = 10_000;
+/// The inbox names at most this many affected domains per task and counts the rest, so a task
+/// carries only that sample; `domain_count` is exact. Matches `manualTaskDomainSampleLimit` in
+/// `@gooddealer/client-core`, whose read contract rejects any other sample size.
+const DOMAIN_LIMIT: u32 = 3;
 
 /// Latest attempt per item that waits on the person, grouped into tasks. An item waits from when
 /// that attempt was first observed to need the person (its earliest `manual_action_required`
 /// result), not from when the attempt started, which may be long before the platform asked; an
-/// attempt whose result is not recorded yet waits from its start.
+/// attempt whose result is not recorded yet waits from its start. A result timestamp before the
+/// start (a platform clock behind the device's) is clamped to the start, so no wait begins before
+/// its attempt. A waiting attempt always has a start, so the scalar `max` never sees NULL.
 const TASKS: &str = "
     WITH latest AS (
       SELECT a.operation_id, a.plan_id, a.item_id, a.attempt_number,
-             coalesce((SELECT min(r.observed_at) FROM operation_results r
+             max(coalesce((SELECT min(r.observed_at) FROM operation_results r
                WHERE r.workspace_id = a.workspace_id AND r.operation_id = a.operation_id
                  AND r.item_id = a.item_id AND r.attempt_number = a.attempt_number
-                 AND r.outcome = 'manual_action_required'), a.started_at) AS waiting_since
+                 AND r.outcome = 'manual_action_required'), a.started_at), a.started_at)
+               AS waiting_since
       FROM operation_attempts a
       WHERE a.workspace_id = ?1 AND a.status = 'manual_action_required'
         AND a.attempt_number = (SELECT max(b.attempt_number) FROM operation_attempts b
@@ -75,12 +80,13 @@ pub struct ManualTaskRow {
     pub connection_label: Option<String>,
     pub high_risk: bool,
     pub item_count: u32,
-    /// When the earliest of these attempts was observed to need the person; the order of the inbox.
+    /// When the earliest of these attempts was observed to need the person, or started when no
+    /// result is recorded yet; the order of the inbox.
     pub waiting_since: String,
     /// The latest recorded result of these waiting attempts, if any was observed.
     pub last_observed_at: Option<String>,
     pub domain_count: u32,
-    /// Affected domains in byte order, at most `DOMAIN_LIMIT`.
+    /// The first affected domains in byte order, at most `DOMAIN_LIMIT`.
     pub domains: Vec<String>,
 }
 

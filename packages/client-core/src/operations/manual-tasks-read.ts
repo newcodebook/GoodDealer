@@ -3,7 +3,7 @@ import { z } from "zod";
 import { launchPlatformKindSchema, launchPlatformNames } from "../connections/launch-platforms";
 import { connectionLabelSchema } from "../connections/connection-label";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
-import { manualTaskInboxViewModelSchema, type ManualTaskInboxViewModel, type ManualTaskView } from "./contracts";
+import { manualTaskDomainSampleLimit, manualTaskInboxViewModelSchema, type ManualTaskInboxViewModel, type ManualTaskView } from "./contracts";
 
 const tokenSchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u);
 const countSchema = z.number().int().nonnegative().max(1_000_000);
@@ -26,12 +26,12 @@ const manualTaskRowSchema = z.object({
   waitingSince: z.iso.datetime(),
   lastObservedAt: z.iso.datetime().nullable(),
   domainCount: countSchema,
-  domains: z.array(z.string().min(3).max(253)).max(10_000).readonly(),
+  domains: z.array(z.string().min(3).max(253)).max(manualTaskDomainSampleLimit).readonly(),
 }).strict().superRefine((row, context) => {
   if ((row.providerKind === null) !== (row.connectionLabel === null)) {
     context.addIssue({ code: "custom", path: ["connectionLabel"], message: "a label exists exactly when a connection does" });
   }
-  if (row.domains.length !== Math.min(row.domainCount, 10_000) || row.domainCount > row.itemCount) {
+  if (row.domains.length !== Math.min(row.domainCount, manualTaskDomainSampleLimit) || row.domainCount > row.itemCount) {
     context.addIssue({ code: "custom", path: ["domains"], message: "domains must match their count" });
   }
   for (let index = 1; index < row.domains.length; index += 1) {

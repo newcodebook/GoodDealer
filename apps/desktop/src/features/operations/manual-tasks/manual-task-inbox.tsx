@@ -93,7 +93,7 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
                 <dl className="tasks-facts">
                   <dt>{copy.whyManual}</dt><dd>{selected.reason}</dd>
                   <dt>{copy.target}</dt><dd>{selected.platform} · {selected.account}</dd>
-                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomainCount === 0 ? "—" : selected.affectedDomains.slice(0, 3).join(" · ")}{selected.affectedDomainCount > 3 ? ` +${formatNumber(locale, selected.affectedDomainCount - 3)}` : ""}</dd>
+                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomainCount === 0 ? "—" : selected.affectedDomains.join(" · ")}{selected.affectedDomainCount > selected.affectedDomains.length ? ` +${formatNumber(locale, selected.affectedDomainCount - selected.affectedDomains.length)}` : ""}</dd>
                   <dt>{copy.prepared}</dt><dd>{selected.preparedArtifactLabel === null ? "—" : <span className="tasks-artifact"><FileTextIcon size={13} />{selected.preparedArtifactLabel}</span>}</dd>
                   <dt>{copy.completionCondition}</dt><dd>{selected.completionCondition}</dd>
                   <dt>{copy.lastChecked}</dt><dd className="tasks-mono">{when(selected.lastCheckedAt)}</dd>

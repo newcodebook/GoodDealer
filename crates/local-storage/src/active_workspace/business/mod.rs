@@ -8503,6 +8503,35 @@ mod tests {
     }
 
     #[test]
+    fn manual_tasks_carry_only_the_inbox_domain_sample_with_an_exact_count() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let entities = ["e.test", "c.test", "a.test", "d.test", "b.test"];
+        for entity in entities {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-1','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local','plan-1','dns_change',?1,'Nameserver change','planned','standard',5,?2,1)", rusqlite::params!["0".repeat(64), TIMESTAMP]).unwrap();
+        for (ordinal, entity) in entities.into_iter().enumerate() {
+            connection.execute("INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local','plan-1',?1,?2,?3,'connection-1','dns_write','{}','standard','manual','included')", rusqlite::params![format!("item-{ordinal}"), i64::try_from(ordinal).unwrap(), entity]).unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-1'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-1','plan-1','key-1','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        for ordinal in 0..5 {
+            connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-1','plan-1',?1,1,'manual_action_required',?2,?3)", rusqlite::params![format!("item-{ordinal}"), ordinal.to_string().repeat(64), TIMESTAMP]).unwrap();
+        }
+        // A platform clock behind the device's: the result predates its attempt's start.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-1','plan-1','item-0',1,1,'manual_action_required','{}','2026-08-27T00:00:00Z')", []).unwrap();
+        let rows = database.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1);
+        // The first three domains in byte order, with every affected domain still counted.
+        assert_eq!(rows[0].domains, ["a.test", "b.test", "c.test"]);
+        assert_eq!((rows[0].item_count, rows[0].domain_count), (5, 5));
+        // No wait begins before its attempt started.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+    }
+
+    #[test]
     fn batch_operations_list_plans_newest_first_with_counts_and_no_identifiers() {
         let mut empty = database();
         assert_eq!(empty.read_batch_operations(0, 10).unwrap().total_rows, 0);

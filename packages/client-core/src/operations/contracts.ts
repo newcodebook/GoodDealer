@@ -172,6 +172,12 @@ export const manualTaskActionSchema = z.enum([
   "accept_residual_risk",
 ]);
 
+/**
+ * Affected domains a manual task names; the inbox counts the rest. The Host sends exactly this
+ * sample (the first domains in byte order), so a task never carries its whole domain list.
+ */
+export const manualTaskDomainSampleLimit = 3;
+
 export const manualTaskViewSchema = z
   .object({
     id: operationIdentifierSchema,
@@ -183,8 +189,8 @@ export const manualTaskViewSchema = z
     platform: displayTextSchema,
     account: displayTextSchema,
     reason: displayTextSchema,
-    /** A sample of at most 10,000 affected domains; an account-level step affects none. */
-    affectedDomains: z.array(domainSchema).max(10_000),
+    /** The first affected domains, at most the sample limit; an account-level step affects none. */
+    affectedDomains: z.array(domainSchema).max(manualTaskDomainSampleLimit),
     affectedDomainCount: z.number().int().nonnegative().max(1_000_000),
     preparedArtifactLabel: z.string().max(500).nullable(),
     completionCondition: displayTextSchema,
@@ -225,7 +231,7 @@ export const manualTaskInboxViewModelSchema = z
       context.addIssue({ code: "custom", path: ["tasks"], message: "tasks and selection must be unique and consistent" });
     }
     for (const [index, task] of view.tasks.entries()) {
-      if (task.affectedDomains.length !== Math.min(task.affectedDomainCount, 10_000)) {
+      if (task.affectedDomains.length !== Math.min(task.affectedDomainCount, manualTaskDomainSampleLimit)) {
         context.addIssue({ code: "custom", path: ["tasks", index, "affectedDomains"], message: "the domain sample must be complete up to its limit" });
       }
       if (task.riskAcceptancePolicy === "forbidden" && task.unresolvedImpactDigest !== null) {

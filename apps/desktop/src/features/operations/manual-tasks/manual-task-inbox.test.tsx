@@ -66,7 +66,7 @@ describe("Manual task inbox", () => {
       window: { startIndex: 0, size: 200, rows: [
         { title: "转移锁", operationKind: "transfer_unlock", capability: "registrar_lock", providerKind: "dynadot", connectionLabel: "主账户",
           highRisk: true, itemCount: 5, waitingSince: "2026-08-19T10:00:00Z", lastObservedAt: null, domainCount: 5,
-          domains: ["a.test", "b.test", "c.test", "d.test", "e.test"] },
+          domains: ["a.test", "b.test", "c.test"] },
         { title: "账户步骤", operationKind: "account_check", capability: "account_verify", providerKind: null, connectionLabel: null,
           highRisk: false, itemCount: 1, waitingSince: "2026-08-20T10:00:00Z", lastObservedAt: null, domainCount: 0, domains: [] },
       ] },
