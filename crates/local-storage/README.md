@@ -95,7 +95,12 @@ rows that desk lists.
 
 `BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
 and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.
-It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
+A Cloudflare observation applies only while the asset is unbound, detached or bound to Cloudflare;
+an asset bound to another platform shows as unobserved rather than borrowing that observation.
+The read takes the asset library's search prefix, and besides the page returns the workspace-wide
+asset, observed and warning counts (a warning is an observation that is not an available,
+confirmed, active Zone) so the Renderer never
+derives metrics from one page. It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
 per-type record counts — never record values, connection IDs, Provider resource IDs or a
 delegation/record/ownership verdict. Labels with control characters fail the whole read.
 

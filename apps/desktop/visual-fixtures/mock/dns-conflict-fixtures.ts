@@ -187,6 +187,9 @@ export function mockDnsHealthView(): DnsVerificationViewModel {
       canEdit: true,
     },
     totalRows: 3,
+    assetCount: 3,
+    observedCount: 2,
+    warningCount: 1,
     window: {
       startIndex: 0,
       size: 50,
@@ -200,5 +203,5 @@ export function mockDnsHealthView(): DnsVerificationViewModel {
         { entityId: "north.capital", zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
       ],
     },
-  })]);
+  })], 50);
 }

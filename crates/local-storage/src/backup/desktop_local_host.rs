@@ -2315,7 +2315,8 @@ impl DesktopLocalHost {
         request: crate::DesktopDnsHealthReadRequest,
     ) -> Result<crate::DnsHealthReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
-            let mut snapshot = runtime.read_dns_health(request.start_index, request.size)?;
+            let mut snapshot =
+                runtime.read_dns_health(request.start_index, request.size, &request.query)?;
             if restriction == RuntimeRestriction::CommercialReadOnly {
                 snapshot.freshness.can_edit = false;
                 snapshot.freshness.read_only_reason = Some("commercial".to_owned());
@@ -6791,6 +6792,7 @@ mod tests {
             host.read_dns_health(crate::DesktopDnsHealthReadRequest {
                 start_index: 0,
                 size: 10,
+                query: String::new(),
             }),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));

@@ -1,4 +1,5 @@
 import { parseDnsHealthRead, projectDnsHealthViewModel, projectDnsVerificationViewModel, type DnsVerificationViewModel } from "@gooddealer/client-core";
+import { getPresentationCopy } from "@gooddealer/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -72,7 +73,7 @@ describe("DNS & verification from the Host DNS health projection", () => {
   const hostView = () => projectDnsHealthViewModel([parseDnsHealthRead({
     schemaVersion: 1, kind: "dns_health", readGeneration: 2,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 3, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-    totalRows: 2,
+    totalRows: 2, assetCount: 2, observedCount: 1, warningCount: 0,
     window: {
       startIndex: 0, size: 200,
       rows: [
@@ -87,7 +88,7 @@ describe("DNS & verification from the Host DNS health projection", () => {
         { entityId: "plain.test", zoneBinding: null, observation: null },
       ],
     },
-  })]);
+  })], 200);
 
   it("says ownership is not connected and offers no verification or repair controls", () => {
     const html = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={hostView()} />);
@@ -105,6 +106,23 @@ describe("DNS & verification from the Host DNS health projection", () => {
     // The brand guide's TXT ownership and repair description is not shown for flows that do not exist.
     for (const claim of ["_atomverify", "修复分别走"]) expect(html).not.toContain(claim);
     expect(html).not.toContain("dns-danger");
+  });
+
+  it("leaves search to the Host and pages through its results", () => {
+    const html = renderToStaticMarkup(<DnsVerification locale="en-US" view={hostView()} query="zzz" onQueryChange={() => undefined} onPageChange={() => undefined} />);
+
+    // The Host already searched, so its rows are shown even though "zzz" matches neither locally.
+    expect(html).toContain('value="zzz"');
+    expect(html).toContain("observed.test");
+    expect(html).toContain("plain.test");
+    expect(html).toContain("1–2");
+    const empty = { ...hostView(), rows: [], page: { startIndex: 0, size: 200, totalItems: 0 } };
+    const searched = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={empty} query="zzz" onQueryChange={() => undefined} />);
+    expect(searched).toContain(getPresentationCopy("zh-CN", "dnsVerification").searchEmpty);    expect(html).not.toContain("aria-busy");
+    // While the next search loads, the last result stays mounted (and the search box with it), marked busy.
+    const busy = renderToStaticMarkup(<DnsVerification locale="en-US" view={hostView()} busy query="zz" onQueryChange={() => undefined} />);
+    expect(busy).toContain('aria-busy="true"');
+    expect(busy).toContain('value="zz"');
   });
 
   it("labels a confirmed Zone as observed, never as healthy", () => {

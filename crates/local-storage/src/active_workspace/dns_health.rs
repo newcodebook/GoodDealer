@@ -36,7 +36,14 @@ pub struct DnsHealthReadSnapshot {
     pub kind: String,
     pub read_generation: u64,
     pub freshness: PortfolioReadFreshness,
+    /// Rows matching the search prefix; the window pages through these.
     pub total_rows: u32,
+    /// Workspace-wide counts, unaffected by the search, so the metrics describe every asset even
+    /// though the Renderer reads one page: assets, those with an applicable Zone observation, and
+    /// those whose observation is not an available, confirmed, active Zone.
+    pub asset_count: u32,
+    pub observed_count: u32,
+    pub warning_count: u32,
     pub window: DnsHealthWindow,
 }
 
@@ -109,6 +116,25 @@ type RawRow = (
     [i64; 5],
 );
 
+/// Non-deleted assets of the requested workspace (`?1`).
+const ASSETS: &str = "a.workspace_id = ?1 AND a.deleted_at IS NULL";
+/// The search: a canonical domain prefix (`?2`, empty for every asset) up to its successor (`?3`).
+const PREFIX: &str = "(?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
+/// Each asset's Zone binding and its applicable Zone observation. Only Cloudflare Zones are
+/// observed, and an observation says nothing about a Zone bound on another platform, so it joins
+/// only for an unbound or detached asset or a Cloudflare-bound one. The Renderer applies the same
+/// rule per row; joining here keeps the workspace-wide counts consistent with it.
+const ZONE_JOINS: &str = "
+     LEFT JOIN domain_asset_provider_bindings b
+       ON b.workspace_id = a.workspace_id AND b.entity_id = a.entity_id AND b.resource_kind = 'zone'
+     LEFT JOIN local_provider_connections c
+       ON c.workspace_id = b.workspace_id AND c.connection_id = b.connection_id
+     LEFT JOIN cloudflare_dns_projection_heads h
+       ON h.workspace_id = a.workspace_id AND h.entity_id = a.entity_id
+      AND (b.entity_id IS NULL OR b.validation_status = 'detached' OR b.provider_kind = 'cloudflare')
+     LEFT JOIN dns_zone_observations z
+       ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id";
+
 pub(crate) struct ActiveDnsHealthReader<'a> {
     connection: &'a Connection,
 }
@@ -123,6 +149,7 @@ impl<'a> ActiveDnsHealthReader<'a> {
         requested_workspace_id: &str,
         start_index: u32,
         size: u16,
+        query: &str,
     ) -> Result<DnsHealthReadSnapshot, PortfolioReadError> {
         let transaction = self
             .connection
@@ -132,15 +159,19 @@ impl<'a> ActiveDnsHealthReader<'a> {
         if start_index > 1_000_000 || !(1..=200).contains(&size) {
             return Err(PortfolioReadError::WindowRejected);
         }
+        let query = super::portfolio::canonical_query(query)?;
+        let upper = format!("{query}{{");
         let total_rows: i64 = transaction
             .query_row(
-                "SELECT count(*) FROM domain_assets WHERE workspace_id = ?1 AND deleted_at IS NULL",
-                [requested_workspace_id],
+                &format!("SELECT count(*) FROM domain_assets a WHERE {ASSETS} AND {PREFIX}"),
+                params![requested_workspace_id, query, upper],
                 |row| row.get(0),
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
+        let (asset_count, observed_count, warning_count) =
+            workspace_counts(&transaction, requested_workspace_id)?;
         let mut statement = transaction
-            .prepare(
+            .prepare(&format!(
                 "SELECT a.entity_id,
                    b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
                    z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
@@ -151,44 +182,39 @@ impl<'a> ActiveDnsHealthReader<'a> {
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'CNAME'),
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'TXT'),
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type NOT IN ('A', 'AAAA', 'CNAME', 'TXT'))
-                 FROM domain_assets a
-                 LEFT JOIN domain_asset_provider_bindings b
-                   ON b.workspace_id = a.workspace_id AND b.entity_id = a.entity_id AND b.resource_kind = 'zone'
-                 LEFT JOIN local_provider_connections c
-                   ON c.workspace_id = b.workspace_id AND c.connection_id = b.connection_id
-                 LEFT JOIN cloudflare_dns_projection_heads h
-                   ON h.workspace_id = a.workspace_id AND h.entity_id = a.entity_id
-                 LEFT JOIN dns_zone_observations z
-                   ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id
-                 WHERE a.workspace_id = ?1 AND a.deleted_at IS NULL
-                 ORDER BY a.entity_id COLLATE BINARY LIMIT ?2 OFFSET ?3",
-            )
+                 FROM domain_assets a {ZONE_JOINS}
+                 WHERE {ASSETS} AND {PREFIX}
+                 ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5"
+            ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let raw = statement
-            .query_map(params![requested_workspace_id, size, start_index], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
-                    row.get(10)?,
-                    row.get(11)?,
-                    row.get(12)?,
-                    [
-                        row.get(13)?,
-                        row.get(14)?,
-                        row.get(15)?,
-                        row.get(16)?,
-                        row.get(17)?,
-                    ],
-                ))
-            })
+            .query_map(
+                params![requested_workspace_id, query, upper, size, start_index],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                        row.get(10)?,
+                        row.get(11)?,
+                        row.get(12)?,
+                        [
+                            row.get(13)?,
+                            row.get(14)?,
+                            row.get(15)?,
+                            row.get(16)?,
+                            row.get(17)?,
+                        ],
+                    ))
+                },
+            )
             .map_err(|_| PortfolioReadError::ProjectionRejected)?
             .collect::<Result<Vec<RawRow>, _>>()
             .map_err(|_| PortfolioReadError::ProjectionRejected)?;
@@ -206,8 +232,10 @@ impl<'a> ActiveDnsHealthReader<'a> {
             kind: "dns_health".to_owned(),
             read_generation: 0,
             freshness,
-            total_rows: u32::try_from(total_rows)
-                .map_err(|_| PortfolioReadError::ProjectionRejected)?,
+            total_rows: count(total_rows)?,
+            asset_count: count(asset_count)?,
+            observed_count: count(observed_count)?,
+            warning_count: count(warning_count)?,
             window: DnsHealthWindow {
                 start_index,
                 size,
@@ -215,6 +243,27 @@ impl<'a> ActiveDnsHealthReader<'a> {
             },
         })
     }
+}
+
+/// Workspace-wide asset, observed and warning counts; a warning is an applicable observation that is
+/// not an available, confirmed, active Zone, the Renderer's `current` rule.
+fn workspace_counts(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<(i64, i64, i64), PortfolioReadError> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT count(*), count(z.zone_observation_id),
+                   coalesce(sum(z.zone_observation_id IS NOT NULL AND NOT (
+                     z.observation_availability = 'available' AND z.evidence_status = 'confirmed'
+                     AND coalesce(z.cloudflare_zone_status, 'unknown') = 'active')), 0)
+                 FROM domain_assets a {ZONE_JOINS} WHERE {ASSETS}"
+            ),
+            [workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)
 }
 
 fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError> {

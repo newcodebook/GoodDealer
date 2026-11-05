@@ -262,6 +262,11 @@ export interface DnsVerificationViewModel {
     readonly unobserved: number;
   };
   readonly rows: readonly DnsVerificationRowViewModel[];
+  /**
+   * The Host page these rows are, when the Host searches and pages; absent when the rows are the
+   * whole list and the page searches them itself.
+   */
+  readonly page?: { readonly startIndex: number; readonly size: number; readonly totalItems: number };
 }
 
 function projectOwnershipStatus(status: VerificationAttemptStatus): OwnershipStatus {

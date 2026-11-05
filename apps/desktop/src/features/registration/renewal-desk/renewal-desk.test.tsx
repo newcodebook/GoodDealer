@@ -126,6 +126,9 @@ describe("Renewal desk", () => {
     expect(html).toContain("Off 34 · Not recorded 600");
     expect(html).toContain("51–100");
     expect(html).toContain('aria-current="page">2<');
+    expect(html).not.toContain("aria-busy");
+    // While another page loads, this one stays mounted and is marked busy.
+    expect(renderToStaticMarkup(<RenewalDesk locale="en-US" view={view} busy onPageChange={() => undefined} />)).toContain('aria-busy="true"');
   });
 
   it("escalates urgency under 30 and 14 days", () => {

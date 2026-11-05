@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { readHostRoute, recoverHostPage, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
+import { readHostRoute, recoverHostPage, restartHostRouteState, type HostReadWindow, type HostWindowRequest } from "./host-route-read";
 
 interface FakeWindow extends HostReadWindow {
   readonly window: { readonly startIndex: number; readonly rows: readonly string[] };
@@ -132,5 +132,20 @@ describe("paged Host route recovery", () => {
     expect(recoverHostPage(page3, { kind: "ready", totalItems: 0 })).toEqual({ startIndex: 0, size: 50 });
     expect(recoverHostPage(page3, { kind: "ready", totalItems: 101 })).toBeNull();
     expect(recoverHostPage(page3, { kind: "loading" })).toBeNull();
+  });
+});
+
+describe("Host route restart", () => {
+  it("keeps the last ready value while another page or search of the same source loads", () => {
+    const loading = restartHostRouteState({ kind: "ready", value: "page 1" }, true);
+    expect(loading).toEqual({ kind: "loading", previous: "page 1" });
+    // A search typed while the previous one is still loading keeps the same value on screen.
+    expect(restartHostRouteState(loading, true)).toEqual({ kind: "loading", previous: "page 1" });
+  });
+
+  it("never carries a value into a new port or generation, or out of a failure", () => {
+    expect(restartHostRouteState({ kind: "ready", value: "page 1" }, false)).toEqual({ kind: "loading" });
+    expect(restartHostRouteState({ kind: "loading", previous: "page 1" }, false)).toEqual({ kind: "loading" });
+    expect(restartHostRouteState<string>({ kind: "failed" }, true)).toEqual({ kind: "loading" });
   });
 });

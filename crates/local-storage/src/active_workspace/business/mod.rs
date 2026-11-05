@@ -1677,9 +1677,10 @@ impl BusinessDatabase {
         &self,
         start_index: u32,
         size: u16,
+        query: &str,
     ) -> Result<crate::DnsHealthReadSnapshot, BusinessDatabaseError> {
         self.store
-            .read_dns_health(&self.workspace_id, start_index, size)
+            .read_dns_health(&self.workspace_id, start_index, size, query)
             .map_err(map_portfolio_read_error)
     }
 
@@ -8882,9 +8883,51 @@ mod tests {
             })
             .unwrap();
 
-        let snapshot = database.read_dns_health(0, 10).unwrap();
+        let snapshot = database.read_dns_health(0, 10, "").unwrap();
         assert_eq!(snapshot.kind, "dns_health");
         assert_eq!(snapshot.total_rows, 2);
+        let current = snapshot.window.rows[0]
+            .observation
+            .as_ref()
+            .is_some_and(|zone| {
+                zone.availability == "available"
+                    && zone.evidence_status == "confirmed"
+                    && zone.zone_status == "active"
+            });
+        assert_eq!(
+            (
+                snapshot.asset_count,
+                snapshot.observed_count,
+                snapshot.warning_count
+            ),
+            (2, 1, u32::from(!current))
+        );
+        // The search narrows the rows to a domain prefix; the counts still cover every asset.
+        let searched = database.read_dns_health(0, 10, "obs").unwrap();
+        assert_eq!(
+            (
+                searched.total_rows,
+                searched.asset_count,
+                searched.observed_count
+            ),
+            (1, 2, 1)
+        );
+        assert_eq!(searched.window.rows[0].entity_id, "observed.test");
+        assert_eq!(
+            database.read_dns_health(0, 10, "zzz").unwrap().total_rows,
+            0
+        );
+        // Like the asset library, the prefix is case-folded and anything else non-canonical fails.
+        assert_eq!(
+            database.read_dns_health(0, 10, "Obs").unwrap().total_rows,
+            1
+        );
+        for hostile in ["ob s", "\u{e9}", "obs%", &"a".repeat(65)] {
+            assert!(
+                database.read_dns_health(0, 10, hostile).is_err(),
+                "{hostile:?} must be rejected"
+            );
+        }
         let rows = &snapshot.window.rows;
         assert_eq!(
             rows.iter()
@@ -8918,12 +8961,17 @@ mod tests {
         }
 
         assert_eq!(
-            database.read_dns_health(1, 10).unwrap().window.rows.len(),
+            database
+                .read_dns_health(1, 10, "")
+                .unwrap()
+                .window
+                .rows
+                .len(),
             1
         );
         for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
             assert!(matches!(
-                database.read_dns_health(start, size),
+                database.read_dns_health(start, size, ""),
                 Err(BusinessDatabaseError::WindowRejected)
             ));
         }
@@ -8931,7 +8979,7 @@ mod tests {
         let connection = database.store.fixture_connection();
         connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,verified_at,last_observed_at,created_at,updated_at) VALUES ('workspace-local','observed.test','cf-observe','cloudflare','zone',?1,?2,'observed.test',1,2,'verified',?3,?3,?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
         let _ = connection;
-        let binding = database.read_dns_health(0, 1).unwrap().window.rows[0]
+        let binding = database.read_dns_health(0, 1, "").unwrap().window.rows[0]
             .zone_binding
             .clone()
             .unwrap();
@@ -8942,6 +8990,20 @@ mod tests {
             ),
             ("Cloudflare", "verified")
         );
+        // An asset bound on another platform but carrying a Cloudflare observation: the observation
+        // says nothing about the bound Zone, so it is neither reported for the row nor counted.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','rebound.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','spaceship-1','spaceship','Spaceship',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','rebound.test','spaceship-1','spaceship','zone',?1,?2,'rebound.test',1,2,'unverified',?3,?3)", rusqlite::params!["f".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO cloudflare_dns_projection_heads (workspace_id,entity_id,lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at) SELECT workspace_id,'rebound.test',lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at FROM cloudflare_dns_projection_heads WHERE entity_id='observed.test'", []).unwrap();
+        }
+        let rebound = database.read_dns_health(0, 10, "").unwrap();
+        let row = &rebound.window.rows[2];
+        assert_eq!(row.entity_id, "rebound.test");
+        assert!(row.observation.is_none());
+        assert_eq!((rebound.asset_count, rebound.observed_count), (3, 1));
         // A label that would smuggle control characters into the Renderer fails the whole read.
         database
             .store
@@ -8952,7 +9014,7 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            database.read_dns_health(0, 10),
+            database.read_dns_health(0, 10, ""),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
     }
@@ -8998,7 +9060,7 @@ mod tests {
             }
         }
         bind(&mut database, "alpha.test", "spaceship-1", "spaceship");
-        let rows = database.read_dns_health(0, 10).unwrap().window.rows;
+        let rows = database.read_dns_health(0, 10, "").unwrap().window.rows;
         let binding = rows[0].zone_binding.as_ref().unwrap();
         assert_eq!(
             (
@@ -9013,10 +9075,18 @@ mod tests {
         // A binding that names a platform other than its connection's fails the whole read.
         bind(&mut database, "beta.test", "porkbun-1", "spaceship");
         assert!(matches!(
-            database.read_dns_health(0, 10),
+            database.read_dns_health(0, 10, ""),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
-        assert_eq!(database.read_dns_health(0, 1).unwrap().window.rows.len(), 1);
+        assert_eq!(
+            database
+                .read_dns_health(0, 1, "")
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
 
         // A platform outside ADR-0027 never reaches the Renderer.
         let mut database = self::database();
@@ -9034,7 +9104,7 @@ mod tests {
         }
         bind(&mut database, "alpha.test", "other-1", "example");
         assert!(matches!(
-            database.read_dns_health(0, 10),
+            database.read_dns_health(0, 10, ""),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
     }

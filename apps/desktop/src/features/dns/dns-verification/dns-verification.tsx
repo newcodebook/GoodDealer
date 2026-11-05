@@ -8,6 +8,7 @@ import {
   Dialog,
   Input,
   MetricStrip,
+  Pagination,
   RefreshCwIcon,
   SearchIcon,
   Select,
@@ -28,6 +29,13 @@ type DnsDialog = { readonly kind: "txt" | "nameserver" | "challenge"; readonly r
 export interface DnsVerificationProps {
   readonly locale: Locale;
   readonly view: DnsVerificationViewModel;
+  /** The Host search text, for a paged view; an unpaged view searches its own rows. */
+  readonly query?: string;
+  readonly onQueryChange?: (query: string) => void;
+  /** Requests another Host page; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page or search. */
+  readonly busy?: boolean;
   /** Rows whose ownership re-check is in flight. */
   readonly verifyingIds?: ReadonlySet<string>;
   readonly onReverify?: (rows: readonly DnsVerificationRowViewModel[]) => void;
@@ -50,15 +58,20 @@ function isNameserverHost(value: string): boolean {
  * DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own
  * platform. Until ownership is composed, the page shows only the Zone facts the Host observed.
  */
-export function DnsVerification({ locale, view, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
+export function DnsVerification({ locale, view, query: hostQuery, onQueryChange, onPageChange, busy = false, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
   const copy = getPresentationCopy(locale, "dnsVerification");
-  const [query, setQuery] = useState("");
+  const libraryCopy = getPresentationCopy(locale, "assetLibrary");
+  const [localQuery, setLocalQuery] = useState("");
+  // A paged view is searched by the Host; only an unpaged view filters its own rows.
+  const { page } = view;
+  const query = page === undefined ? localQuery : hostQuery ?? "";
+  const setQuery = (next: string) => { if (page === undefined) setLocalQuery(next); else onQueryChange?.(next); };
   const [filter, setFilter] = useState<OwnershipFilter>("all");
   const [dialog, setDialog] = useState<DnsDialog>(null);
   const [nameservers, setNameservers] = useState(["", ""]);
   const [acknowledged, setAcknowledged] = useState(false);
   const readOnly = view.readSource === "standby_cloud";
-  const needle = query.trim().toLowerCase();
+  const needle = page === undefined ? query.trim().toLowerCase() : "";
   const rows = view.rows.filter((row) =>
     (filter === "all" || row.ownershipStatus === filter)
     && (needle === "" || row.domain.includes(needle) || row.providerDisplayName.toLowerCase().includes(needle)));
@@ -162,7 +175,7 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
   const nameserverValid = isNameserverHost(nameservers[0] ?? "") && ((nameservers[1] ?? "") === "" || isNameserverHost(nameservers[1] ?? ""));
 
   return (
-    <section className="dns-verification" aria-label={copy.title}>
+    <section className="dns-verification" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
         metrics={!ownershipConnected ? [
@@ -214,7 +227,21 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
           columns={columns}
           rows={rows}
           maxHeight="100%"
-          emptyText={view.rows.length === 0 ? copy.noRows : copy.searchEmpty}
+          emptyText={view.rows.length === 0 && query.trim() === "" ? copy.noRows : copy.searchEmpty}
+          {...(page === undefined ? {} : {
+            footer: (
+              <Pagination
+                page={Math.floor(page.startIndex / page.size) + 1}
+                pageSize={page.size}
+                total={page.totalItems}
+                labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                {...(onPageChange === undefined ? {} : {
+                  onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                  onPageSizeChange: (size: number) => onPageChange(0, size),
+                })}
+              />
+            ),
+          })}
         />
       </div>
       <Dialog

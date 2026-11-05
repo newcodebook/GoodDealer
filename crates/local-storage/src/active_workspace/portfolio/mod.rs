@@ -321,7 +321,7 @@ impl<'a> ActivePortfolioReader<'a> {
     }
 }
 
-fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
+pub(super) fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
     if value.len() > 64 || !value.is_ascii() {
         return Err(PortfolioReadError::QueryRejected);
     }

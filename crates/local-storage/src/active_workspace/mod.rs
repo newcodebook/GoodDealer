@@ -163,11 +163,13 @@ mod portfolio_connection {
             workspace_id: &str,
             start_index: u32,
             size: u16,
+            query: &str,
         ) -> Result<crate::DnsHealthReadSnapshot, PortfolioReadError> {
             super::dns_health::ActiveDnsHealthReader::new(&self.connection).read(
                 workspace_id,
                 start_index,
                 size,
+                query,
             )
         }
 

@@ -36,6 +36,8 @@ export interface RenewalDeskProps {
   readonly onBack?: () => void;
   /** Requests another Host page; only a view that carries `page` is paged. */
   readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page. */
+  readonly busy?: boolean;
   readonly onSelectionChange?: (ids: readonly string[]) => void;
   readonly onTermChange?: (ids: readonly string[], years: RenewalTermYears) => void;
   readonly onAutoRenewChange?: (id: string, enabled: boolean) => void;
@@ -66,6 +68,7 @@ export function RenewalDesk({
   view,
   onBack,
   onPageChange,
+  busy = false,
   onSelectionChange,
   onTermChange,
   onAutoRenewChange,
@@ -157,7 +160,7 @@ export function RenewalDesk({
   const skippedCount = quotes?.filter((quote) => quote.state === "skipped").length ?? 0;
 
   return (
-    <section className="renewal-desk" aria-label={copy.title}>
+    <section className="renewal-desk" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
         metrics={[

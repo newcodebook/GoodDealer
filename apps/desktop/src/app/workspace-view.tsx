@@ -404,8 +404,10 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   useEffect(() => {
     if (recovered !== null) setPage(recovered);
   }, [recovered?.startIndex, recovered?.size]);
-  if (state.kind === "ready") {
-    return <RenewalDesk locale={locale} view={state.value} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
+  // Another page keeps the desk mounted on the last page, marked busy, until it arrives.
+  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  if (shown !== undefined) {
+    return <RenewalDesk locale={locale} view={shown} busy={state.kind === "loading"} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />;
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
@@ -430,9 +432,13 @@ function SalesRoute({ locale, ports, readGeneration, onStale }: {
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 
+/** Rows per DNS page until the person picks another size; within the Host's 200-row window. */
+const dnsPageSize = 50;
+
 /**
- * Reads every DNS health window for one Host generation. A window from a newer generation means the
- * workspace publication is stale, so the root republishes instead of stitching mixed reads.
+ * Reads one DNS health page for one Host generation; the Host searches by domain prefix and reports
+ * workspace-wide counts, so the page never reads every window. A window from a newer generation
+ * means the workspace publication is stale, so the root republishes instead of stitching reads.
  */
 function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   readonly locale: Locale;
@@ -441,11 +447,38 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   readonly onStale: () => void;
 }) {
   const copy = getPresentationCopy(locale, "dnsVerification");
+  const [page, setPage] = useState({ startIndex: 0, size: dnsPageSize });
+  const [text, setText] = useState("");
+  // The Host accepts the asset library's canonical prefix; other text can match no domain, so it is
+  // shown as an empty result instead of being sent.
+  let query: string | null;
+  try { query = parseAssetLibraryQuery(text); } catch { query = null; }
   const { state, retry } = useHostRouteRead(
-    ports.dns, (port, request) => port.loadDnsHealth(request), readGeneration, onStale,
-    projectDnsHealthViewModel, { windowSize: hostWindowSize },
+    ports.dns, (port, request) => port.loadDnsHealth({ ...request, query: query ?? "" }), readGeneration, onStale,
+    (windows) => projectDnsHealthViewModel(windows, page.size),
+    { windowSize: page.size, startIndex: page.startIndex, rowLimit: page.size, restartKey: query ?? "" },
   );
-  if (state.kind === "ready") return <DnsVerification locale={locale} view={state.value} />;
+  const outcome = state.kind === "ready" ? { kind: "ready" as const, totalItems: state.value.page?.totalItems ?? 0 } : state;
+  const recovered = recoverHostPage(page, outcome);
+  useEffect(() => {
+    if (recovered !== null) setPage(recovered);
+  }, [recovered?.startIndex, recovered?.size]);
+  // A search or another page keeps the page, and so the focused search box, mounted on the last
+  // result, marked busy, until the Host answers.
+  const shown = state.kind === "ready" ? state.value : state.kind === "loading" ? state.previous : undefined;
+  if (shown !== undefined) {
+    const view = query === null ? { ...shown, rows: [], page: { startIndex: 0, size: page.size, totalItems: 0 } } : shown;
+    return (
+      <DnsVerification
+        locale={locale}
+        view={view}
+        busy={state.kind === "loading"}
+        query={text}
+        onQueryChange={(next) => { setText(next); setPage({ startIndex: 0, size: page.size }); }}
+        onPageChange={(startIndex, size) => setPage({ startIndex, size })}
+      />
+    );
+  }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 

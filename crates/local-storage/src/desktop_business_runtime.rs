@@ -275,6 +275,7 @@ pub struct DesktopAssetLibraryReadRequest {
 pub struct DesktopDnsHealthReadRequest {
     pub(crate) start_index: u32,
     pub(crate) size: u16,
+    pub(crate) query: String,
 }
 
 #[derive(Deserialize)]
@@ -536,8 +537,9 @@ impl DesktopBusinessRuntime {
         &self,
         start_index: u32,
         size: u16,
+        query: &str,
     ) -> Result<crate::DnsHealthReadSnapshot, BusinessDatabaseError> {
-        let mut snapshot = self.database.read_dns_health(start_index, size)?;
+        let mut snapshot = self.database.read_dns_health(start_index, size, query)?;
         snapshot.read_generation = self.read_generation;
         Ok(snapshot)
     }

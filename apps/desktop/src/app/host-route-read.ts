@@ -13,7 +13,12 @@ export interface HostWindowRequest {
 }
 
 export type HostRouteReadState<V> =
-  | { readonly kind: "loading" }
+  /**
+   * `previous` is the last ready value while another page, search or retry of the same port and
+   * generation loads, so a route can keep its controls mounted (and focused) instead of flashing
+   * the loading page; a new port or generation never carries a value forward.
+   */
+  | { readonly kind: "loading"; readonly previous?: V }
   | { readonly kind: "ready"; readonly value: V }
   | { readonly kind: "failed" };
 
@@ -87,9 +92,20 @@ export function recoverHostPage(
 }
 
 /**
+ * The loading state a read starts from. Within the same port and generation it carries the last
+ * ready value (or the one an interrupted load already carried), so a page or search change does
+ * not unmount the route; a new source, or a retry after a failure, has nothing to keep.
+ */
+export function restartHostRouteState<V>(current: HostRouteReadState<V>, sameSource: boolean): HostRouteReadState<V> {
+  const previous = !sameSource ? undefined : current.kind === "ready" ? current.value : current.kind === "loading" ? current.previous : undefined;
+  return previous === undefined ? { kind: "loading" } : { kind: "loading", previous };
+}
+
+/**
  * Route state for one windowed Host read. The read restarts when the port, the generation, the
- * page or the retry attempt changes; `load`, `project` and `onStale` are read through refs so callers can pass
- * inline functions without restarting it.
+ * page, the restart key or the retry attempt changes; `load`, `project` and `onStale` are read through refs so callers can pass
+ * inline functions without restarting it. A restart within the same port and generation keeps the
+ * last ready value as `previous` while it loads.
  */
 export function useHostRouteRead<P, T extends HostReadWindow, V>(
   port: P,
@@ -97,17 +113,26 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
   readGeneration: number,
   onStale: () => void,
   project: (windows: readonly T[]) => V,
-  limits: { readonly windowSize: number; readonly startIndex?: number; readonly rowLimit?: number },
+  limits: {
+    readonly windowSize: number;
+    readonly startIndex?: number;
+    readonly rowLimit?: number;
+    /** Restarts the read when it changes, for inputs `load` reads through its ref, such as a search. */
+    readonly restartKey?: string;
+  },
 ): { readonly state: HostRouteReadState<V>; readonly retry: () => void } {
   const [state, setState] = useState<HostRouteReadState<V>>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const callbacks = useRef({ load, project, onStale });
+  const source = useRef<{ readonly port: P; readonly readGeneration: number } | null>(null);
   callbacks.current = { load, project, onStale };
-  const { windowSize, startIndex, rowLimit } = limits;
+  const { windowSize, startIndex, rowLimit, restartKey } = limits;
 
   useEffect(() => {
     let cancelled = false;
-    setState({ kind: "loading" });
+    const sameSource = source.current?.port === port && source.current.readGeneration === readGeneration;
+    source.current = { port, readGeneration };
+    setState((current) => restartHostRouteState(current, sameSource));
     void readHostRoute<T, V>({
       load: (request) => callbacks.current.load(port, request),
       readGeneration,
@@ -121,7 +146,8 @@ export function useHostRouteRead<P, T extends HostReadWindow, V>(
       if (next !== null) setState(next);
     });
     return () => { cancelled = true; };
-  }, [port, readGeneration, attempt, windowSize, startIndex, rowLimit]);
+    // `restartKey` is a dependency only so that a change restarts the read.
+  }, [port, readGeneration, attempt, windowSize, startIndex, rowLimit, restartKey]);
 
   return { state, retry: () => setAttempt((current) => current + 1) };
 }
