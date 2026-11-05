@@ -176,9 +176,13 @@ describe("paged Host routes", () => {
     expect(container.querySelector(`.${desk === "sales" ? "sales-desk" : "renewal-desk"}`)?.hasAttribute("aria-busy")).toBe(false);
     expect(container.querySelector(".gd-pager-busy")).toBeNull();
 
+    // Picking the failed page again is a retry, not a dead control that sets the page it already is.
+    await click(named("2"));
+    expect(host[loader].mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 50]);
+
     host[loader].mockImplementation(succeed as never);
     await click(named("Read again"));
-    expect(host[loader].mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 50]);
+    expect(host[loader].mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 50, 50]);
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.textContent).toContain(domain(50));
   });

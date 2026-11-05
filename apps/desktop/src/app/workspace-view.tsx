@@ -16,7 +16,7 @@ import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
-import { recoverHostPage, useHostRouteRead, type HostRouteReadState } from "./host-route-read";
+import { recoverHostPage, useHostRouteRead, type HostPage, type HostRouteReadState } from "./host-route-read";
 import { HostRouteStatus, type HostRouteStatusCopy } from "./host-route-status";
 import {
   createPortfolioMutationController,
@@ -407,7 +407,7 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
   // Another page keeps the desk mounted on the last page, marked busy, until it arrives.
   const shown = state.kind === "ready" ? state.value : state.previous;
   if (shown !== undefined) {
-    return withReadFailure(state, copy, retry, <RenewalDesk locale={locale} view={shown} busy={state.kind === "loading"} onBack={onBack} onPageChange={(startIndex, size) => setPage({ startIndex, size })} />);
+    return withReadFailure(state, copy, retry, <RenewalDesk locale={locale} view={shown} busy={state.kind === "loading"} onBack={onBack} onPageChange={(startIndex, size) => changeHostPage(state, page, { startIndex, size }, setPage, retry)} />);
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
@@ -421,6 +421,16 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
 function withReadFailure(state: HostRouteReadState<unknown>, copy: HostRouteStatusCopy & { readonly staleResult: string }, retry: () => void, desk: ReactNode) {
   // The same element shape in every state, so reporting a failure never remounts the desk.
   return <>{state.kind === "failed" ? <HostRouteStatus state={state} copy={copy} onRetry={retry} staleNote={copy.staleResult} /> : null}{desk}</>;
+}
+
+/**
+ * Moves a paged route to the page the person picked. After a failed read the pager shows the last
+ * result, so the page that failed is not the highlighted one; picking it again would set the page
+ * it already is and read nothing, so it retries instead of looking like a dead control.
+ */
+function changeHostPage(state: HostRouteReadState<unknown>, page: HostPage, next: HostPage, setPage: (page: HostPage) => void, retry: () => void) {
+  if (state.kind === "failed" && next.startIndex === page.startIndex && next.size === page.size) retry();
+  else setPage(next);
 }
 
 /** Listed domains per sales page until the person picks another size; within the Host's 200-row window. */
@@ -452,7 +462,7 @@ function SalesRoute({ locale, ports, readGeneration, onStale }: {
   // Another page keeps the desk, and its tab, mounted on the last page, marked busy, until it arrives.
   const shown = state.kind === "ready" ? state.value : state.previous;
   if (shown !== undefined) {
-    return withReadFailure(state, copy, retry, <SalesDesk locale={locale} view={shown} busy={state.kind === "loading"} initialTab="listings" onPageChange={(startIndex, size) => setPage({ startIndex, size })} />);
+    return withReadFailure(state, copy, retry, <SalesDesk locale={locale} view={shown} busy={state.kind === "loading"} initialTab="listings" onPageChange={(startIndex, size) => changeHostPage(state, page, { startIndex, size }, setPage, retry)} />);
   }
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
@@ -500,7 +510,7 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
         busy={state.kind === "loading"}
         query={text}
         onQueryChange={(next) => { setText(next); setPage({ startIndex: 0, size: page.size }); }}
-        onPageChange={(startIndex, size) => setPage({ startIndex, size })}
+        onPageChange={(startIndex, size) => changeHostPage(state, page, { startIndex, size }, setPage, retry)}
       />
     ));
   }

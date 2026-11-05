@@ -104,6 +104,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 非首页读取失败时 `recoverHostPage` 一律回到第 1 页，使内联失败横幅一闪而过；把回退限定在起点越界，或保留横幅直到用户操作（Renderer 无法区分越界失败，故仍显示上一结果的失败页留在原页并保留横幅，可重试或换页；无可显示结果时才回到第 1 页） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 搜索读取失败后，保留的行与计数属于上一查询而搜索框显示新查询；在失败横幅中经 i18n 说明当前显示的是上一次成功读取的结果（三个分页台面的 `staleResult`，en-US/zh-CN） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 为续费与销售台面补一项翻页读取失败的 DOM 测试，固定 `busy={false}` 与旧页加横幅的状态 https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 翻页读取失败后分页器高亮上一结果的页码，再次点击失败页会设回同一页而不读取；失败时点击当前请求页改为重试 https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 分页台面读取失败横幅放在台面头部上方（kit 无台面内错误示例）；在打包构件逐屏对照 `brand/ui_kits/desktop` 时确认或调整该位置
 - [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
