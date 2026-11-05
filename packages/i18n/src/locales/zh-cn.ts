@@ -87,6 +87,10 @@ const zhCNDictionary = {
     stepProgress: "{index} / {total}",
   },
   shell: {
+    // Shared pagination control (brand controls.jsx), used by every paged desk.
+    perPage: "每页",
+    previousPage: "上一页",
+    nextPage: "下一页",
     assets: "资产",
     assetLibrary: "资产库",
     sales: "销售管理",
@@ -198,9 +202,6 @@ const zhCNDictionary = {
     batchUnit: "域名",
     selected: "已选",
     clearSelection: "清除",
-    perPage: "每页",
-    previousPage: "上一页",
-    nextPage: "下一页",
     loading: "正在读取本地资产…",
     emptyTitle: "还没有域名资产",
     emptyDescription: "连接平台或手动添加后，域名会出现在这里。",

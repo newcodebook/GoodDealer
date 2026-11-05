@@ -16,7 +16,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
 import { formatAssetMoney } from "../../portfolio";
@@ -208,7 +208,7 @@ export function RenewalDesk({
                 page={Math.floor(page.startIndex / page.size) + 1}
                 pageSize={page.size}
                 total={page.totalItems}
-                labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                labels={shellPaginationLabels(locale)}
                 {...(onPageChange === undefined ? {} : {
                   onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
                   onPageSizeChange: (size: number) => onPageChange(0, size),

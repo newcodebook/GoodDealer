@@ -18,7 +18,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import "./dns-verification.css";
@@ -60,7 +60,6 @@ function isNameserverHost(value: string): boolean {
  */
 export function DnsVerification({ locale, view, query: hostQuery, onQueryChange, onPageChange, busy = false, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
   const copy = getPresentationCopy(locale, "dnsVerification");
-  const libraryCopy = getPresentationCopy(locale, "assetLibrary");
   const [localQuery, setLocalQuery] = useState("");
   // A paged view is searched by the Host; only an unpaged view filters its own rows.
   const { page } = view;
@@ -234,7 +233,7 @@ export function DnsVerification({ locale, view, query: hostQuery, onQueryChange,
                 page={Math.floor(page.startIndex / page.size) + 1}
                 pageSize={page.size}
                 total={page.totalItems}
-                labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                labels={shellPaginationLabels(locale)}
                 {...(onPageChange === undefined ? {} : {
                   onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
                   onPageSizeChange: (size: number) => onPageChange(0, size),

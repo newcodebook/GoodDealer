@@ -1,7 +1,8 @@
 import type { DesktopPresentation } from "./copy-types";
 
 export interface PresentationCopyInventoryEntry {
-  readonly source: string;
+  /** Brand kit files whose copy this presentation reconciles against. */
+  readonly source: string | readonly string[];
   readonly typedBoundary: string;
   readonly localeKeyCount: number;
   readonly exactBrandCopyKeys: number;
@@ -14,8 +15,9 @@ export interface PresentationCopyInventoryEntry {
  * from the brand are explicit docs-authoritative states or security corrections.
  */
 export const presentationCopyInventory = {
-  shell: { source: "Shell.jsx", typedBoundary: "DesktopShellViewModel", localeKeyCount: 71, exactBrandCopyKeys: 27 },
-  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 47, exactBrandCopyKeys: 36 },
+  // The shell also owns the kit's shared controls (controls.jsx), such as pagination labels.
+  shell: { source: ["Shell.jsx", "controls.jsx"], typedBoundary: "DesktopShellViewModel", localeKeyCount: 74, exactBrandCopyKeys: 30 },
+  assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 44, exactBrandCopyKeys: 36 },
   batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 145, exactBrandCopyKeys: 79 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 44, exactBrandCopyKeys: 19 },
@@ -31,5 +33,5 @@ export const presentationCopyInventory = {
 
 export const reconciledPresentationCount = 13 as const;
 export const reconciledLocaleKeyCount = 852 as const;
-export const reconciledExactBrandCopyKeyCount = 499 as const;
+export const reconciledExactBrandCopyKeyCount = 502 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

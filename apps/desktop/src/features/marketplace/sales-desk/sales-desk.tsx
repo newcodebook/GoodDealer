@@ -28,7 +28,7 @@ import {
 } from "@gooddealer/ui";
 import { useState } from "react";
 
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { formatAssetMoney } from "../../portfolio";
 import { commissionPercent, dealStageProgress, offerBinDelta, parseCounterInput, transferConfirmationFor } from "./sales-desk-contract";
 import "./sales-desk.css";
@@ -79,7 +79,6 @@ export function SalesDesk({
   onConfirmPayout,
 }: SalesDeskProps) {
   const copy = getPresentationCopy(locale, "salesDesk");
-  const libraryCopy = getPresentationCopy(locale, "assetLibrary");
   const { page } = view;
   const [tab, setTab] = useState<SalesDeskTab>(initialTab);
   const [accepting, setAccepting] = useState<OfferView | null>(null);
@@ -268,7 +267,7 @@ export function SalesDesk({
                   page={Math.floor(page.startIndex / page.size) + 1}
                   pageSize={page.size}
                   total={page.totalItems}
-                  labels={{ previous: libraryCopy.previousPage, next: libraryCopy.nextPage, perPage: libraryCopy.perPage }}
+                  labels={shellPaginationLabels(locale)}
                   {...(onPageChange === undefined ? {} : {
                     onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
                     onPageSizeChange: (size: number) => onPageChange(0, size),

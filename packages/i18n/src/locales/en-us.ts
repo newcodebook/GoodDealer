@@ -136,6 +136,10 @@ const enUSDictionary = {
     enterWorkspace: "Enter workspace",
   },
   shell: {
+    // Shared pagination control (brand controls.jsx), used by every paged desk.
+    perPage: "Per page",
+    previousPage: "Previous page",
+    nextPage: "Next page",
     assets: "Assets",
     assetLibrary: "Asset library",
     sales: "Sales",
@@ -247,9 +251,6 @@ const enUSDictionary = {
     batchUnit: "domains",
     selected: "Selected",
     clearSelection: "Clear",
-    perPage: "Per page",
-    previousPage: "Previous page",
-    nextPage: "Next page",
     loading: "Reading local assets…",
     emptyTitle: "No domain assets yet",
     emptyDescription: "Domains appear here after you connect a platform or add them manually.",

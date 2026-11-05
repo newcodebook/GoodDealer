@@ -16,7 +16,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
 import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
@@ -293,7 +293,7 @@ export function AssetLibrary({
                   page={page}
                   pageSize={pageSize}
                   total={data.totalRows}
-                  labels={{ previous: copy.previousPage, next: copy.nextPage, perPage: copy.perPage }}
+                  labels={shellPaginationLabels(locale)}
                   note={<>{copy.viewValue} <span className="asset-library-gold">{money(String(pageValue), currency)}</span></>}
                   {...(onWindowChange === undefined ? {} : {
                     onPageChange: (next: number) => onWindowChange((next - 1) * pageSize, pageSize),
