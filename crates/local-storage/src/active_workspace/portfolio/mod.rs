@@ -149,11 +149,16 @@ impl<'a> ActivePortfolioReader<'a> {
                 |row| row.get(0),
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
-        let aggregates: (i64, i64, i64) = transaction.query_row(
+        let aggregates: (i64, i64, i64, i64) = transaction.query_row(
             // The expiring count opens the renewals desk, which lists the whole workspace, so it
             // ignores the search filter: the number shown is the number of rows that desk lists.
+            // `expires_on` has no schema CHECK: any page could show a malformed expiry and that
+            // count compares it as text, so one anywhere in the workspace fails the read rather than
+            // hiding on a page nobody reads; `date()` returns a value unchanged only for a valid
+            // `YYYY-MM-DD` date.
             &format!("SELECT
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
+                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND e.expires_on IS NOT date(e.expires_on)),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
                   SELECT 1 FROM marketplace_listing_observations m
@@ -170,8 +175,11 @@ impl<'a> ActivePortfolioReader<'a> {
                 confirmed_listing = super::observation_runs::confirmed("m"),
                 confirmed_newer = super::observation_runs::confirmed("newer")),
             params![requested_workspace_id, query, upper],
-            |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0))),
+            |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0), row.get::<_, Option<i64>>(3)?.unwrap_or(0))),
         ).map_err(|_| PortfolioReadError::StorageRejected)?;
+        if aggregates.1 != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         let mut value_statement = transaction.prepare(&format!(
             "SELECT d.target_price_currency, d.target_price_amount FROM domain_asset_desired_state d
              JOIN domain_assets a ON a.workspace_id = d.workspace_id AND a.entity_id = d.entity_id
@@ -223,9 +231,9 @@ impl<'a> ActivePortfolioReader<'a> {
             total_value,
             expiring_within60_days: u32::try_from(aggregates.0)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
-            conflict_count: u32::try_from(aggregates.1)
+            conflict_count: u32::try_from(aggregates.2)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
-            listing_count: u32::try_from(aggregates.2)
+            listing_count: u32::try_from(aggregates.3)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
             window: AssetLibraryWindow {
                 start_index,
@@ -401,6 +409,13 @@ fn validate_asset_rows(rows: &[AssetLibraryRow]) -> Result<(), PortfolioReadErro
             return Err(PortfolioReadError::ProjectionRejected);
         }
         validate_texts(&row.tags, row.registrar.as_deref())?;
+        if row
+            .expires_on
+            .as_deref()
+            .is_some_and(|date| !crate::portfolio_projection::valid_date(date))
+        {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         if let Some(money) = &row.target_price
             && (!crate::portfolio_projection::valid_currency(&money.currency)
                 || !crate::portfolio_projection::valid_amount(&money.amount))

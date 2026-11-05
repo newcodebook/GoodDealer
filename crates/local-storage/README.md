@@ -91,7 +91,9 @@ replay, CAS against that version, and atomically update desired state, field ver
 projection, and secret-free outbox rows. These changes require no schema migration.
 The asset library's totals follow its search prefix, except the expiring count: it opens the
 renewals desk, which lists the whole workspace, so it is always the workspace-wide count of the
-rows that desk lists.
+rows that desk lists. A recorded expiry that is not a real `YYYY-MM-DD` calendar date fails the
+asset's detail and every asset library read, whatever the page or search: any page could show it,
+and the expiring count compares it as text.
 
 `BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
 and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.

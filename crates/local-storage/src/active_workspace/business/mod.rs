@@ -10041,6 +10041,35 @@ mod tests {
             database.read_asset_library(0, 1, "bad\u{202e}"),
             Err(BusinessDatabaseError::QueryRejected)
         );
+        // A recorded expiry that is not a real calendar date fails the asset library from any page
+        // or search, since the expiring count would include it, and fails that asset's detail.
+        for (expires_on, valid) in [
+            ("2028-02-29", true),
+            ("2026-02-30", false),
+            ("2027-02-29", false),
+            ("2026-1-10", false),
+            ("2026-11-10x", false),
+            ("2026-11-10T00:00:00Z", false),
+        ] {
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                    [expires_on],
+                )
+                .unwrap();
+            assert_eq!(
+                database.read_asset_library(0, 1, "alpha").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+            assert_eq!(
+                database.read_domain_detail("beta.test").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+        }
     }
 
     #[test]

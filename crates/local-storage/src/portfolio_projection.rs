@@ -282,6 +282,12 @@ pub(crate) fn validate_timestamp(
     Ok(Some(value))
 }
 
+/// A `YYYY-MM-DD` calendar date, by the same digit and calendar rules as `validate_timestamp` and
+/// the Renderer's `z.iso.date()`; SQLite's `date()` round-trip accepts exactly the same values.
+pub(crate) fn valid_date(value: &str) -> bool {
+    value.len() == 10 && validate_timestamp(Some(format!("{value}T00:00:00Z"))).is_ok()
+}
+
 pub(crate) fn is_forbidden_text_character(character: char) -> bool {
     character.is_control()
         || matches!(character as u32, 0x00ad | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff | 0xfff9..=0xfffb)
