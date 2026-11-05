@@ -100,10 +100,14 @@ per-type record counts — never record values, connection IDs, Provider resourc
 delegation/record/ownership verdict. Labels with control characters fail the whole read.
 
 `BusinessDatabase::read_sales` uses the same window rules (at most 200 rows) and returns the latest
-committed marketplace listing observation per (asset, marketplace), omitting `unlisted` ones:
+confirmed marketplace listing observation per (asset, marketplace), omitting `unlisted` ones:
 status, asking price, observation time, availability and evidence. Observation, run and Provider
 version identifiers stay in the Host. Marketplaces outside ADR-0027's launch list and malformed
 prices fail the whole read.
+Every read that reports a Provider observation — sales, renewals, and the asset library and
+domain detail registrar and listing count — keeps only observations confirmed by a completed run
+(`succeeded` or `partial`) whose target for that asset succeeded (`observation_runs::confirmed`), so
+a run still in flight never reports evidence or hides an older confirmed observation.
 
 `BusinessDatabase::read_batch_operations` uses the same window rules and lists operation plans newest
 first: title, kind, plan and operation phases, risk, item and distinct target counts, the ADR-0027
@@ -133,8 +137,8 @@ whole read. It carries no browser session, automation or authorization data.
 
 `BusinessDatabase::read_renewals` uses the same window rules and lists assets still to renew (not sold,
 dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
-soonest first, with recorded auto-renew and the latest available registrar observation's registrar
-name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
+soonest first, with recorded auto-renew and the latest confirmed, available registrar observation's
+registrar name. It returns that `asOfDate` so the Renderer counts days from the Host's date. No renewal price,
 term or plan is projected; registrar names that are empty, longer than 128 characters or contain
 control, bidirectional or invisible formatting characters fail the whole read — the same
 `valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`.

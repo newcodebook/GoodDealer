@@ -1,5 +1,5 @@
 //! Read-only renewals projection: assets still to renew whose recorded expiry falls within the next 60
-//! days, soonest first, with the latest available registrar observation's registrar name.
+//! days, soonest first, with the latest confirmed registrar observation's registrar name.
 //!
 //! The window and the `asOfDate` come from the same SQLite `date('now')` the portfolio's expiring
 //! count uses, so the desk lists exactly the assets that count promises. No registrar renewal,
@@ -85,11 +85,12 @@ impl<'a> ActiveRenewalsReader<'a> {
                    (SELECT registrar_name FROM registrar_observations r
                     WHERE r.workspace_id = domain_assets.workspace_id
                       AND r.entity_id = domain_assets.entity_id
-                      AND r.observation_availability = 'available'
+                      AND r.observation_availability = 'available' AND {confirmed}
                     ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)
                  {ASSETS} AND {EXPIRING_ASSET}
                  ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
-                 LIMIT ?2 OFFSET ?3"
+                 LIMIT ?2 OFFSET ?3",
+                confirmed = super::observation_runs::confirmed("r")
             ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement

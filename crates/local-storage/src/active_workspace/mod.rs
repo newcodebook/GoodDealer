@@ -6,6 +6,8 @@ pub(crate) mod history;
 
 pub(crate) mod manual_tasks;
 
+pub(crate) mod observation_runs;
+
 pub(crate) mod renewals;
 
 pub(crate) mod sales;

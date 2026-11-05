@@ -27,7 +27,9 @@ const MARKETPLACES: [&str; 8] = [
 /// The latest listing per (asset, marketplace) among observations the Host finished confirming:
 /// the run completed and this asset's target in it succeeded. A newer observation from a run that
 /// is still running or failed never hides an older confirmed listing.
-const LATEST_LISTINGS: &str = "WITH latest AS (
+fn latest_listings() -> String {
+    format!(
+        "WITH latest AS (
        SELECT m.entity_id, m.marketplace_kind, m.listing_status, m.asking_price_currency,
               m.asking_price_amount, m.observed_at, m.observation_availability, m.evidence_status,
               row_number() OVER (
@@ -37,17 +39,14 @@ const LATEST_LISTINGS: &str = "WITH latest AS (
        FROM marketplace_listing_observations m
        JOIN domain_assets a
          ON a.workspace_id = m.workspace_id AND a.entity_id = m.entity_id AND a.deleted_at IS NULL
-       JOIN provider_observation_runs r
-         ON r.workspace_id = m.workspace_id AND r.observation_run_id = m.observation_run_id
-        AND r.status IN ('succeeded', 'partial')
-       JOIN provider_observation_targets t
-         ON t.workspace_id = m.workspace_id AND t.observation_run_id = m.observation_run_id
-        AND t.entity_id = m.entity_id AND t.status = 'succeeded'
-       WHERE m.workspace_id = ?1
+       WHERE m.workspace_id = ?1 AND {confirmed}
      )
      SELECT entity_id, marketplace_kind, listing_status, asking_price_currency, asking_price_amount,
             observed_at, observation_availability, evidence_status
-     FROM latest WHERE position = 1 AND listing_status <> 'unlisted'";
+     FROM latest WHERE position = 1 AND listing_status <> 'unlisted'",
+        confirmed = super::observation_runs::confirmed("m")
+    )
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -122,16 +121,17 @@ impl<'a> ActiveSalesReader<'a> {
         }
         let total_rows: i64 = transaction
             .query_row(
-                &format!("SELECT count(*) FROM ({LATEST_LISTINGS})"),
+                &format!("SELECT count(*) FROM ({})", latest_listings()),
                 [requested_workspace_id],
                 |row| row.get(0),
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let mut statement = transaction
             .prepare(&format!(
-                "{LATEST_LISTINGS}
+                "{}
                  ORDER BY entity_id COLLATE BINARY, marketplace_kind COLLATE BINARY
-                 LIMIT ?2 OFFSET ?3"
+                 LIMIT ?2 OFFSET ?3",
+                latest_listings()
             ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let raw = statement

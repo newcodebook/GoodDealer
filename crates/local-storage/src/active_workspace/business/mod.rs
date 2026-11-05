@@ -7652,6 +7652,12 @@ mod tests {
             ),
             ("active", "2026-08-01T00:00:00Z")
         );
+        // The asset library's listing count follows the same rule: the unconfirmed sale does not
+        // end the confirmed listing.
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            1
+        );
 
         // Once a run completes with this asset's target succeeded, its newer observation wins.
         complete_observation_run(
@@ -7662,6 +7668,10 @@ mod tests {
         let rows = database.read_sales(0, 10).unwrap().window.rows;
         assert_eq!(rows[0].listing_status, "sold");
         assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 1);
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            0
+        );
     }
 
     #[test]
@@ -8124,7 +8134,7 @@ mod tests {
     /// `date('now')`, and registrar observations `(entity, registrar, availability, observed_at)`.
     fn renewals_database(
         assets: &[(&str, &str, Option<i64>, Option<i64>)],
-        observations: &[(&str, &str, &str, &str)],
+        observations: &[(&str, &str, &str, &str, &str)],
     ) -> BusinessDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
@@ -8132,13 +8142,27 @@ mod tests {
             connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,CASE WHEN ?3 IS NULL THEN NULL ELSE date('now', ?3 || ' days') END,?4,?5,?5,1)", rusqlite::params![entity, lifecycle, offset.map(|days| format!("{days:+}")), auto_renew, TIMESTAMP]).unwrap();
         }
         connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','cloudflare','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
-        for (index, (entity, registrar, availability, observed_at)) in
+        // Each observation's run ends as `outcome`: "succeeded" or "partial" confirm it, while
+        // "running" leaves the run in flight with its target only requested.
+        for (index, (entity, registrar, availability, observed_at, outcome)) in
             observations.iter().enumerate()
         {
             let run = format!("run-secret-{index}");
             connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
             connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
             connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version-secret')", rusqlite::params![format!("registrar-secret-{index}"), run, entity, registrar, availability, observed_at]).unwrap();
+            match *outcome {
+                "succeeded" => complete_observation_run(connection, &run, entity),
+                "partial" => {
+                    // A partial run needs a second target the Provider did not report.
+                    connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'undated.test',1,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='missing', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=1", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=0", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_runs SET status='partial', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+                }
+                "running" => {}
+                other => panic!("unknown run outcome {other}"),
+            }
         }
         let _ = connection;
         database
@@ -8169,14 +8193,37 @@ mod tests {
                     "Old Registrar",
                     "available",
                     "2026-01-01T00:00:00Z",
+                    "succeeded",
                 ),
                 (
                     "soon.test",
                     "Spaceship",
                     "available",
                     "2026-02-01T00:00:00Z",
+                    "partial",
                 ),
-                ("soon.test", "Hidden", "unavailable", "2026-03-01T00:00:00Z"),
+                (
+                    "soon.test",
+                    "Hidden",
+                    "unavailable",
+                    "2026-03-01T00:00:00Z",
+                    "succeeded",
+                ),
+                // A newer observation from a run still in flight never hides the confirmed one.
+                (
+                    "soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
+                (
+                    "also-soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
             ],
         );
         let snapshot = database.read_renewals(0, 10).unwrap();
@@ -8229,6 +8276,27 @@ mod tests {
                 ("edge.test", None, None),
             ]
         );
+        // The asset library and domain detail report the same confirmed registrar.
+        let library = database.read_asset_library(0, 20, "").unwrap();
+        let registrar = |entity: &str| {
+            library
+                .window
+                .rows
+                .iter()
+                .find(|row| row.domain == entity)
+                .and_then(|row| row.registrar.clone())
+        };
+        assert_eq!(registrar("soon.test").as_deref(), Some("Spaceship"));
+        assert_eq!(registrar("also-soon.test"), None);
+        assert_eq!(
+            database
+                .read_domain_detail("soon.test")
+                .unwrap()
+                .asset
+                .registrar
+                .as_deref(),
+            Some("Spaceship")
+        );
         let wire = serde_json::to_string(&snapshot).unwrap();
         for secret in [
             "run-secret",
@@ -8250,7 +8318,7 @@ mod tests {
         let longest = "\u{1d538}".repeat(128);
         let accepted = renewals_database(
             &[("soon.test", "active", Some(5), None)],
-            &[("soon.test", &longest, "available", TIMESTAMP)],
+            &[("soon.test", &longest, "available", TIMESTAMP, "succeeded")],
         )
         .read_renewals(0, 10)
         .unwrap();
@@ -8271,7 +8339,7 @@ mod tests {
                 matches!(
                     renewals_database(
                         &[("soon.test", "active", Some(5), None)],
-                        &[("soon.test", name, "available", TIMESTAMP)],
+                        &[("soon.test", name, "available", TIMESTAMP, "succeeded")],
                     )
                     .read_renewals(0, 10),
                     Err(BusinessDatabaseError::ProjectionRejected)
