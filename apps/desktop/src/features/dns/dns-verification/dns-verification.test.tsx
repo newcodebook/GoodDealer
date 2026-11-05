@@ -16,7 +16,7 @@ function view(source: "active_local" | "standby_cloud" = "active_local"): DnsVer
       domains: [
         {
           domainAssetId: "helio.systems", domain: "helio.systems", delegatedNameservers: ["ns1.dynadot.com"], delegationStatus: "mismatch",
-          provider: { kind: "connected", providerKind: "registrar_dns", connectionId: "c1", displayName: "Dynadot" },
+          provider: { kind: "connected", providerKind: "dynadot", connectionId: "c1", displayName: "Dynadot" },
           recordHealth: "healthy", propagationStatus: "warning", records: [], lastCheckedAt: null,
         },
         {

@@ -14,7 +14,7 @@ export interface MockDnsRow {
   readonly nameservers: readonly string[];
   readonly delegation: "healthy" | "mismatch" | "unresolved";
   readonly records: "healthy" | "warning" | "missing";
-  readonly provider: { readonly kind: "cloudflare" | "registrar_dns"; readonly name: string } | null;
+  readonly provider: { readonly kind: "cloudflare" | "dynadot" | "spaceship"; readonly name: string } | null;
   readonly propagation: "current" | "propagating" | "warning";
   readonly checkedAt: string;
 }
@@ -27,9 +27,9 @@ export function initialMockDnsRows(): readonly MockDnsRow[] {
     { domain: "kanban.ai", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T06:01:00Z" },
     { domain: "goldrail.com", ownership: "pending", nameservers: cloudflare, delegation: "healthy", records: "warning", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "propagating", checkedAt: "2026-08-20T05:40:00Z" },
     { domain: "quanta.trade", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T04:20:00Z" },
-    { domain: "helio.systems", ownership: "failed", nameservers: ["ns1.dynadot.com"], delegation: "mismatch", records: "missing", provider: { kind: "registrar_dns", name: "Dynadot" }, propagation: "warning", checkedAt: "2026-07-30T01:11:00Z" },
+    { domain: "helio.systems", ownership: "failed", nameservers: ["ns1.dynadot.com"], delegation: "mismatch", records: "missing", provider: { kind: "dynadot", name: "Dynadot" }, propagation: "warning", checkedAt: "2026-07-30T01:11:00Z" },
     { domain: "crest.capital", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "warning", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "warning", checkedAt: "2026-08-20T03:05:00Z" },
-    { domain: "north.capital", ownership: "pending", nameservers: ["ns1.spaceship.com"], delegation: "mismatch", records: "healthy", provider: { kind: "registrar_dns", name: "Spaceship" }, propagation: "warning", checkedAt: "2026-08-19T09:12:00Z" },
+    { domain: "north.capital", ownership: "pending", nameservers: ["ns1.spaceship.com"], delegation: "mismatch", records: "healthy", provider: { kind: "spaceship", name: "Spaceship" }, propagation: "warning", checkedAt: "2026-08-19T09:12:00Z" },
     { domain: "mint.money", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T06:00:00Z" },
     { domain: "forge.dev", ownership: "pending", nameservers: [], delegation: "unresolved", records: "missing", provider: null, propagation: "warning", checkedAt: "2026-08-18T10:00:00Z" },
     { domain: "spark.trade", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T05:58:00Z" },
