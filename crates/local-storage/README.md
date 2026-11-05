@@ -159,7 +159,8 @@ control, bidirectional or invisible formatting characters fail the whole read â€
 `valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`. The rule covers
 every expiring asset, not only the page's: each read checks the distinct names of all available
 registrar observations, and only when one is invalid does it resolve each expiring asset's shown
-name to decide whether the desk would show it.
+name to decide whether the desk would show it. A recorded expiry that is not a valid `YYYY-MM-DD`
+date but sorts into the window as text fails the read the same way.
 
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,

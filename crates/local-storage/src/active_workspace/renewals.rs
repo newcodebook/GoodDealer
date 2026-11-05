@@ -82,7 +82,7 @@ impl<'a> ActiveRenewalsReader<'a> {
                     &format!(
                         "SELECT date('now'), count(*),
                            coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
-                           coalesce(sum(auto_renew NOT IN (0, 1)), 0)
+                           coalesce(sum(auto_renew NOT IN (0, 1) OR expires_on IS NOT date(expires_on)), 0)
                          {ASSETS} AND {EXPIRING_ASSET}"
                     ),
                     [requested_workspace_id],
@@ -99,7 +99,9 @@ impl<'a> ActiveRenewalsReader<'a> {
                 .map_err(|_| PortfolioReadError::StorageRejected)?;
         // The schema admits only 0, 1 or NULL; should that ever loosen, a value that is neither on,
         // off nor unrecorded fails the read, as it does per row, instead of being counted as
-        // unrecorded on pages the Renderer never sees.
+        // unrecorded on pages the Renderer never sees. `expires_on` has no schema CHECK, and the
+        // window compares it as text, so a malformed date that sorts into the window would be
+        // counted too; `date()` returns a value unchanged only for a valid `YYYY-MM-DD` date.
         if malformed != 0 {
             return Err(PortfolioReadError::ProjectionRejected);
         }

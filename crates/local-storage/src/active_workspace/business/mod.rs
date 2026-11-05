@@ -8701,6 +8701,31 @@ mod tests {
             unseen.window.rows[0].registrar_name.as_deref(),
             Some("Registrar")
         );
+        // A malformed expiry that sorts into the window as text fails every page, not only its own.
+        for suffix in ["x", "T00:00:00Z"] {
+            let mut malformed = renewals_database(
+                &[
+                    ("soon.test", "active", Some(5), None),
+                    ("later.test", "active", Some(10), None),
+                ],
+                &[],
+            );
+            malformed
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE domain_assets SET expires_on = expires_on || ?1 WHERE entity_id = 'later.test'",
+                    [suffix],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    malformed.read_renewals(0, 1),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{suffix:?}"
+            );
+        }
     }
 
     fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
