@@ -87,7 +87,8 @@ dead-letter outbox 和 Session 撤销；
   - [x] 续费：Host 页读取，到期数与自动续费开/关计数由 Host 全量返回，续费台使用 kit `Pagination`；页越界时回到末页，后页读取失败时回到首页 https://github.com/newcodebook/GoodDealer/pull/53
   - [x] DNS 健康：Host 页读取与全量指标（搜索交给 Host） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 销售：Host 按域名分页（多市场合并在 Host 侧完成）与全量指标（在售数、单一价格规则下的挂牌估值） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告
+- [x] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告（已改为每次读取全量校验并失败关闭：DNS 对每个有绑定或适用观察的资产复用逐行校验；续费先校验全部可用注册商观察的去重名称，仅在有非法名称时再逐资产解析实际显示的名称；100k 基准下续费约 0.20 s、DNS 约 0.21 s） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 续费 Host 投影校验 `domain_assets.expires_on` 的日期格式并纳入全量校验（该列无 schema CHECK，当前只由 Renderer 逐页校验；页外格式错误但按字符串比较落入窗口的日期会被计入而不被拒绝），或在后续迁移中加 CHECK；若续费精确名称扫描因历史非法名称而常态触发，记录非法名称计数以便发现
 - [ ] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换
 - [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
@@ -100,7 +101,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 续费与资产库到期计数排除已售（sold）资产，或在续费页展示生命周期（排除：已售、已放弃与已归档资产不再需要续费，续费列表与资产库计数共用同一 Host 谓词） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 资产库行与域名详情的“即将到期”高亮改用 Host 的同一到期谓词与日期（当前只按 Renderer 日期判断，已售、已放弃、已归档与已过期资产仍会高亮）
 - [x] 续费页自动续费覆盖指标区分“未记录”与“已关闭”（覆盖值仍为已开启/全部，指标说明行分别列出已关闭与未记录数量；英文文案更正为 coverage） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 续费页自动续费覆盖值使用 `formatNumber`，并补 en-US 的“Off / Not recorded”断言
+- [x] 续费页自动续费覆盖值使用 `formatNumber`，并补 en-US 的“Off / Not recorded”断言（已由 7cff6bc 的整页指标测试覆盖：`600 / 1,234`、`Off 34 · Not recorded 600`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐（Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 共用资产行的安全文本规则：1–128 个码点，拒绝控制、双向与不可见格式字符；两侧测试使用同一矩阵） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53

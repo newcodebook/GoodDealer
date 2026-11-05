@@ -102,7 +102,10 @@ asset, observed and warning counts (a warning is an observation that is not an a
 confirmed, active Zone) so the Renderer never
 derives metrics from one page. It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
 per-type record counts — never record values, connection IDs, Provider resource IDs or a
-delegation/record/ownership verdict. Labels with control characters fail the whole read.
+delegation/record/ownership verdict. Labels with control characters fail the whole read. Every
+bound or observed asset in the workspace is validated on each read, not only the page's rows, so a
+bad binding or observation the counts include fails every page and search instead of hiding on a
+page nobody reads.
 
 `BusinessDatabase::read_sales` uses the same window rules (at most 200 rows), but its rows are listed
 domains: it takes the latest confirmed marketplace listing observation per (asset, marketplace),
@@ -153,7 +156,10 @@ auto-renew enabled/disabled counts so the desk reads one page at a time and stil
 for every expiring asset. No renewal price,
 term or plan is projected; registrar names that are empty, longer than 128 characters or contain
 control, bidirectional or invisible formatting characters fail the whole read — the same
-`valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`.
+`valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`. The rule covers
+every expiring asset, not only the page's: each read checks the distinct names of all available
+registrar observations, and only when one is invalid does it resolve each expiring asset's shown
+name to decide whether the desk would show it.
 
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,

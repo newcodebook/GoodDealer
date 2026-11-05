@@ -123,6 +123,14 @@ const ZONE_JOINS: &str = "
      LEFT JOIN dns_zone_observations z
        ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id";
 
+/// The binding and observation columns `project_row` validates, in its order; the page read adds the
+/// record counts after them.
+const ROW_COLUMNS: &str = "a.entity_id,
+                   b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
+                   z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
+                   coalesce(z.cloudflare_zone_status, 'unknown'), z.authoritative_nameservers_json,
+                   z.dnssec_status";
+
 pub(crate) struct ActiveDnsHealthReader<'a> {
     connection: &'a Connection,
 }
@@ -158,13 +166,10 @@ impl<'a> ActiveDnsHealthReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let (asset_count, observed_count, warning_count) =
             workspace_counts(&transaction, requested_workspace_id)?;
+        validate_workspace_rows(&transaction, requested_workspace_id)?;
         let mut statement = transaction
             .prepare(&format!(
-                "SELECT a.entity_id,
-                   b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
-                   z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
-                   coalesce(z.cloudflare_zone_status, 'unknown'), z.authoritative_nameservers_json,
-                   z.dnssec_status,
+                "SELECT {ROW_COLUMNS},
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'A'),
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'AAAA'),
                    (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'CNAME'),
@@ -252,6 +257,47 @@ fn workspace_counts(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|_| PortfolioReadError::StorageRejected)
+}
+
+/// Validates every row the counts include, not only the page's. A page reads a few rows, so a bad
+/// binding or observation elsewhere would otherwise stay counted while no read ever rejects it; the
+/// whole read fails closed instead, as it did when the Renderer read every row. An asset with neither
+/// a binding nor an applicable observation has nothing to validate beyond its schema-checked ID.
+fn validate_workspace_rows(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<(), PortfolioReadError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {ROW_COLUMNS} FROM domain_assets a {ZONE_JOINS}
+             WHERE {ASSETS} AND (b.entity_id IS NOT NULL OR z.zone_observation_id IS NOT NULL)"
+        ))
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
+                // Record counts come from aggregates that cannot hold a bad value.
+                [0; 5],
+            ))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    for row in rows {
+        project_row(row.map_err(|_| PortfolioReadError::ProjectionRejected)?)?;
+    }
+    Ok(())
 }
 
 fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError> {

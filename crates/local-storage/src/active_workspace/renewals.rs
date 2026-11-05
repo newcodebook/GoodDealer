@@ -105,18 +105,33 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let count =
             |value: i64| u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected);
+        let registrar_name = registrar_name();
+        // Every expiring asset's registrar name is validated, not only the page's: a bad name on a
+        // page nobody reads would otherwise stay counted while no read ever rejects it. Names repeat,
+        // so only distinct ones reach Rust. Every available observation's name is checked first; the
+        // names the desk shows are a subset of those, so the per-asset latest-confirmed scan runs only
+        // when some invalid name exists, to decide whether an expiring asset actually shows it.
+        let all_valid = registrar_names_valid(
+            &transaction,
+            "SELECT DISTINCT registrar_name FROM registrar_observations
+             WHERE workspace_id = ?1 AND observation_availability = 'available'",
+            requested_workspace_id,
+        )?;
+        if !all_valid
+            && !registrar_names_valid(
+                &transaction,
+                &format!("SELECT DISTINCT {registrar_name} {ASSETS} AND {EXPIRING_ASSET}"),
+                requested_workspace_id,
+            )?
+        {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         let mut statement = transaction
             .prepare(&format!(
-                "SELECT entity_id, expires_on, auto_renew,
-                   (SELECT registrar_name FROM registrar_observations r
-                    WHERE r.workspace_id = domain_assets.workspace_id
-                      AND r.entity_id = domain_assets.entity_id
-                      AND r.observation_availability = 'available' AND {confirmed}
-                    ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)
+                "SELECT entity_id, expires_on, auto_renew, {registrar_name}
                  {ASSETS} AND {EXPIRING_ASSET}
                  ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
-                 LIMIT ?2 OFFSET ?3",
-                confirmed = super::observation_runs::confirmed("r")
+                 LIMIT ?2 OFFSET ?3"
             ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
@@ -156,6 +171,43 @@ impl<'a> ActiveRenewalsReader<'a> {
             },
         })
     }
+}
+
+/// Whether every non-null name `query` (bound to the workspace as `?1`) returns is a valid registrar
+/// name.
+fn registrar_names_valid(
+    connection: &Connection,
+    query: &str,
+    workspace_id: &str,
+) -> Result<bool, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(query)
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    for name in statement
+        .query_map([workspace_id], |row| row.get::<_, Option<String>>(0))
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    {
+        let name = name.map_err(|_| PortfolioReadError::ProjectionRejected)?;
+        if name
+            .as_deref()
+            .is_some_and(|name| !crate::portfolio_projection::valid_registrar_name(name))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The latest confirmed, available registrar observation's registrar name for each asset row.
+fn registrar_name() -> String {
+    format!(
+        "(SELECT registrar_name FROM registrar_observations r
+          WHERE r.workspace_id = domain_assets.workspace_id
+            AND r.entity_id = domain_assets.entity_id
+            AND r.observation_availability = 'available' AND {confirmed}
+          ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)",
+        confirmed = super::observation_runs::confirmed("r")
+    )
 }
 
 fn project_row(

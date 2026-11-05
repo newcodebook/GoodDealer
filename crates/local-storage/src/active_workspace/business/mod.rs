@@ -8636,6 +8636,71 @@ mod tests {
                 "{name:?} must fail closed"
             );
         }
+        // A bad name on a page the desk does not read still fails the read: the desk's counts
+        // include that asset.
+        let off_page = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("later.test", "active", Some(10), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+                (
+                    "later.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        );
+        assert!(matches!(
+            off_page.read_renewals(0, 1),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        // A bad name the desk never shows, on an asset outside the window or behind a newer
+        // confirmed name, does not fail it.
+        let unseen = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("beyond.test", "active", Some(61), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Bad\nOld",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "beyond.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            unseen.window.rows[0].registrar_name.as_deref(),
+            Some("Registrar")
+        );
     }
 
     fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
@@ -9342,21 +9407,18 @@ mod tests {
         // A non-Cloudflare Zone has no composed observation, so none is reported for it.
         assert!(rows[0].observation.is_none());
 
-        // A binding that names a platform other than its connection's fails the whole read.
+        // A binding that names a platform other than its connection's fails the whole read, also
+        // from a page or a search that does not include it: the counts would still include it.
         bind(&mut database, "beta.test", "porkbun-1", "spaceship");
-        assert!(matches!(
-            database.read_dns_health(0, 10, ""),
-            Err(BusinessDatabaseError::ProjectionRejected)
-        ));
-        assert_eq!(
-            database
-                .read_dns_health(0, 1, "")
-                .unwrap()
-                .window
-                .rows
-                .len(),
-            1
-        );
+        for (start, size, query) in [(0, 10, ""), (0, 1, ""), (0, 10, "alpha")] {
+            assert!(
+                matches!(
+                    database.read_dns_health(start, size, query),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{start} {size} {query:?}"
+            );
+        }
 
         // A platform outside ADR-0027 never reaches the Renderer.
         let mut database = self::database();
