@@ -85,7 +85,9 @@ dead-letter outbox 和 Session 撤销；
   - [x] 提议每页延迟预算（DATABASE_SCHEMA：release 下 1 万资产 ≤ 150 ms、10 万资产 2 市场 ≤ 1 s）并给 1 万与 10 万基准加上限；补 1 万、100 万与 10 万 8 市场基准（本机：10 万最慢约 0.71 s；8 市场销售约 2.0 s、资产库约 0.9 s；100 万资产库约 7.3 s、销售约 5.4 s，只记录） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 到期谓词改为可走 `domain_assets_by_status_expiry` 的 `lifecycle_status IN ('active', 'expired')` 并带表别名（续费首页 0.14 s → 0.12 s）；续费先切页再查注册商名称（末页 0.52 s → 0.19 s） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 查询计划固定为被忽略的 `paged_reads_never_scan_a_base_table`：记录各分页读取实际执行的语句，断言没有任何基表扫描（含覆盖索引扫描） https://github.com/newcodebook/GoodDealer/pull/53
-  - [ ] 8 市场最坏情况超出预算：按数据 generation（连接 `total_changes()` 与 `data_version`）缓存销售合并结果与资产库在售计数，缓存命中时每页 O(页)；缓存后给 8 市场基准加上限
+  - [x] 8 市场最坏情况：按数据 generation（连接 `total_changes()` 与 `data_version`，读取前后一致才存取）缓存销售合并结果，同一数据的后续页约 0.1 ms；8 市场基准除首次合并外以 1 s 为上限；资产库 8 市场约 0.89 s 在预算内，未缓存 https://github.com/newcodebook/GoodDealer/pull/53
+  - [ ] 销售合并缓存的内存：100 万资产约 33 万个挂牌域名时估计 2 市场约 60–80 MB、8 市场约 170–200 MB；用 100 万基准测峰值 RSS，并考虑以平台索引与状态枚举代替字符串或按行数设上限
+  - [ ] 每次写入后的首次销售读取仍需全量合并（10 万 8 市场约 2 s，超出 1 s 预算）：确定该首读是否计入预算，或改为增量维护合并结果
   - [ ] 由用户确认分页读取延迟预算（含 100 万资产目标），确认后才作为阶段 4 V1 验收条件
   - [ ] 100 万资产的全量计数随资产线性增长（约 7 s）：正式规模声明前确定 100 万预算与做法（缓存或增量计数）
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53

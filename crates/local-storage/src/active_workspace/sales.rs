@@ -5,12 +5,15 @@
 //! Observation, run and Provider version identifiers stay local. Offers, deals, view counts and
 //! sales totals are not observed by any qualified capability, so the projection carries none.
 //!
-//! The merge happens here so that a page of domains and the workspace-wide metrics use one rule:
-//! each read scans the confirmed listings once in domain order, validates every row (a bad row on
-//! another page still fails the read closed), merges each domain, counts it toward the metrics and
-//! keeps only the requested page.
+//! The merge happens here so that a page of domains and the workspace-wide metrics use one rule: a
+//! read scans the confirmed listings once in domain order, validates every row (a bad row on
+//! another page still fails the read closed), merges each domain and counts it toward the metrics.
+//! That scan is linear in listings, so the merged desk is kept for the data generation it was read
+//! at and later pages of the same data are sliced from it.
 
+use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 use serde::Serialize;
@@ -109,13 +112,45 @@ struct MarketListing {
     price: Option<SalesMoney>,
 }
 
+/// The merged desk of one workspace at one data generation.
+///
+/// The generation is the connection's `total_changes()`, which counts every row this connection
+/// inserted, updated or deleted (trigger and cascade changes included), with `PRAGMA data_version`,
+/// which changes whenever another connection commits. Neither moves while nothing writes, so equal
+/// generations read equal data; any write, even an unrelated one, makes the next read merge again.
+/// `total_changes()` does not count DDL, `VACUUM` or backup-API writes into this connection, so
+/// anything that rewrites the open database that way must reopen the connection, which drops the
+/// cache.
+#[derive(Default)]
+pub(crate) struct SalesCache(RefCell<Option<(String, DataGeneration, Arc<MergedDesk>)>>);
+
+type DataGeneration = (i64, i64);
+
+fn data_generation(connection: &Connection) -> Result<DataGeneration, PortfolioReadError> {
+    let data_version = connection
+        .pragma_query_value(None, "data_version", |row| row.get(0))
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    let total_changes = connection
+        .query_row("SELECT total_changes()", [], |row| row.get(0))
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    Ok((data_version, total_changes))
+}
+
+/// Every listed domain of the workspace, merged and in domain order, with the desk's metrics.
+struct MergedDesk {
+    rows: Vec<SalesListingRow>,
+    active: usize,
+    listed_value: Option<SalesMoney>,
+}
+
 pub(crate) struct ActiveSalesReader<'a> {
     connection: &'a Connection,
+    cache: &'a SalesCache,
 }
 
 impl<'a> ActiveSalesReader<'a> {
-    pub(crate) const fn new(connection: &'a Connection) -> Self {
-        Self { connection }
+    pub(crate) const fn new(connection: &'a Connection, cache: &'a SalesCache) -> Self {
+        Self { connection, cache }
     }
 
     pub(crate) fn read(
@@ -124,6 +159,27 @@ impl<'a> ActiveSalesReader<'a> {
         start_index: u32,
         size: u16,
     ) -> Result<SalesReadSnapshot, PortfolioReadError> {
+        match self.read_once(requested_workspace_id, start_index, size, true)? {
+            Some(snapshot) => Ok(snapshot),
+            // A commit landed while a cached desk was served, so it may predate this read's
+            // snapshot; merge again without the cache.
+            None => self
+                .read_once(requested_workspace_id, start_index, size, false)?
+                .ok_or(PortfolioReadError::StorageRejected),
+        }
+    }
+
+    /// One read; `None` when `use_cache` served a desk whose generation moved during the read.
+    fn read_once(
+        &self,
+        requested_workspace_id: &str,
+        start_index: u32,
+        size: u16,
+        use_cache: bool,
+    ) -> Result<Option<SalesReadSnapshot>, PortfolioReadError> {
+        // The generation is read before the snapshot begins and again after it ends: only when the
+        // two agree did no commit land in between, so the snapshot's data is that generation's.
+        let before = data_generation(self.connection)?;
         let transaction = self
             .connection
             .unchecked_transaction()
@@ -132,83 +188,119 @@ impl<'a> ActiveSalesReader<'a> {
         if start_index > 1_000_000 || !(1..=200).contains(&size) {
             return Err(PortfolioReadError::WindowRejected);
         }
-        let mut statement = transaction
-            .prepare(&latest_listings())
-            .map_err(|_| PortfolioReadError::SchemaRejected)?;
-        let raw = statement
-            .query_map(params![requested_workspace_id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                ))
-            })
-            .map_err(|_| PortfolioReadError::ProjectionRejected)?;
-        let page = usize::try_from(start_index).map_err(|_| PortfolioReadError::WindowRejected)?
-            ..usize::try_from(start_index).map_err(|_| PortfolioReadError::WindowRejected)?
-                + usize::from(size);
-        let mut desk = SalesDesk::new(page);
-        let mut domain: Option<(String, Vec<MarketListing>)> = None;
-        for raw in raw {
-            let raw: RawListing = raw.map_err(|_| PortfolioReadError::ProjectionRejected)?;
-            let (entity_id, market) = project_listing(raw)?;
-            match &mut domain {
-                Some((current, markets)) if *current == entity_id => markets.push(market),
-                _ => {
-                    if let Some((entity_id, markets)) = domain.take() {
-                        desk.add(merge(entity_id, &markets));
-                    }
-                    domain = Some((entity_id, vec![market]));
-                }
-            }
-        }
-        if let Some((entity_id, markets)) = domain {
-            desk.add(merge(entity_id, &markets));
-        }
+        let cached = if use_cache {
+            self.cache
+                .0
+                .borrow()
+                .as_ref()
+                .filter(|(workspace, generation, _)| {
+                    workspace == requested_workspace_id && *generation == before
+                })
+                .map(|(_, _, desk)| Arc::clone(desk))
+        } else {
+            None
+        };
+        let hit = cached.is_some();
+        let desk = match cached {
+            Some(desk) => desk,
+            None => Arc::new(merge_desk(&transaction, requested_workspace_id)?),
+        };
         let freshness = read_freshness(&transaction)?;
-        drop(statement);
         transaction
             .commit()
             .map_err(|_| PortfolioReadError::StorageRejected)?;
+        if data_generation(self.connection)? == before {
+            *self.cache.0.borrow_mut() =
+                Some((requested_workspace_id.to_owned(), before, Arc::clone(&desk)));
+        } else if hit {
+            *self.cache.0.borrow_mut() = None;
+            return Ok(None);
+        }
         let to_u32 =
             |value: usize| u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected);
-        Ok(SalesReadSnapshot {
+        let start = usize::try_from(start_index).map_err(|_| PortfolioReadError::WindowRejected)?;
+        let rows = desk
+            .rows
+            .iter()
+            .skip(start)
+            .take(usize::from(size))
+            .cloned()
+            .collect();
+        Ok(Some(SalesReadSnapshot {
             schema_version: 1,
             kind: "sales".to_owned(),
             read_generation: 0,
             freshness,
-            total_rows: to_u32(desk.domains)?,
+            total_rows: to_u32(desk.rows.len())?,
             active_listing_count: to_u32(desk.active)?,
-            listed_value: desk.listed_value(),
+            listed_value: desk.listed_value.clone(),
             window: SalesWindow {
                 start_index,
                 size,
-                rows: desk.rows,
+                rows,
             },
-        })
+        }))
     }
 }
 
-/// Folds merged domains, in order, into the page and the workspace-wide metrics.
+/// Scans, validates and merges every confirmed listing of the workspace.
+fn merge_desk(
+    transaction: &Connection,
+    requested_workspace_id: &str,
+) -> Result<MergedDesk, PortfolioReadError> {
+    let mut statement = transaction
+        .prepare(&latest_listings())
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let raw = statement
+        .query_map(params![requested_workspace_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut desk = SalesDesk::new();
+    let mut domain: Option<(String, Vec<MarketListing>)> = None;
+    for raw in raw {
+        let raw: RawListing = raw.map_err(|_| PortfolioReadError::ProjectionRejected)?;
+        let (entity_id, market) = project_listing(raw)?;
+        match &mut domain {
+            Some((current, markets)) if *current == entity_id => markets.push(market),
+            _ => {
+                if let Some((entity_id, markets)) = domain.take() {
+                    desk.add(merge(entity_id, &markets));
+                }
+                domain = Some((entity_id, vec![market]));
+            }
+        }
+    }
+    if let Some((entity_id, markets)) = domain {
+        desk.add(merge(entity_id, &markets));
+    }
+    Ok(MergedDesk {
+        listed_value: desk.listed_value(),
+        rows: desk.rows,
+        active: desk.active,
+    })
+}
+
+/// Folds merged domains, in order, into the desk and its workspace-wide metrics.
 struct SalesDesk {
-    page: std::ops::Range<usize>,
     rows: Vec<SalesListingRow>,
-    domains: usize,
     active: usize,
     /// The running sum of active prices in units of 10^-8; `Err` once no single total exists.
     value: Result<Option<(String, i128)>, ()>,
 }
 
 impl SalesDesk {
-    const fn new(page: std::ops::Range<usize>) -> Self {
+    const fn new() -> Self {
         Self {
-            page,
             rows: Vec::new(),
-            domains: 0,
             active: 0,
             value: Ok(None),
         }
@@ -230,10 +322,7 @@ impl SalesDesk {
                 _ => Err(()),
             };
         }
-        if self.page.contains(&self.domains) {
-            self.rows.push(row);
-        }
-        self.domains += 1;
+        self.rows.push(row);
     }
 
     fn listed_value(&self) -> Option<SalesMoney> {
@@ -442,7 +531,7 @@ mod tests {
 
     #[test]
     fn listed_value_is_exact_and_stays_within_the_money_contract() {
-        let mut desk = SalesDesk::new(0..0);
+        let mut desk = SalesDesk::new();
         for amount in ["0.00000001", "0.1", "0.2"] {
             desk.add(merge(
                 "a.test".to_owned(),
@@ -450,9 +539,9 @@ mod tests {
             ));
         }
         assert_eq!(desk.listed_value().unwrap().amount, "0.30000001");
-        assert!(desk.rows.is_empty());
+        assert_eq!(desk.rows.len(), 3);
 
-        let mut large = SalesDesk::new(0..0);
+        let mut large = SalesDesk::new();
         for _ in 0..2 {
             large.add(merge(
                 "a.test".to_owned(),

@@ -43,6 +43,8 @@ mod portfolio_connection {
 
     pub(crate) struct ActiveWorkspaceConnection {
         connection: Connection,
+        /// The merged sales desk of the last data generation read; see `sales::SalesCache`.
+        sales_cache: super::sales::SalesCache,
     }
 
     impl ActiveWorkspaceConnection {
@@ -61,7 +63,10 @@ mod portfolio_connection {
                 crate::migrations::MigrationError::Rejected => PortfolioReadError::SchemaRejected,
             })?;
             require_cloudflare_credential_schema(&connection)?;
-            Ok(Self { connection })
+            Ok(Self {
+                connection,
+                sales_cache: super::sales::SalesCache::default(),
+            })
         }
 
         #[cfg(test)]
@@ -145,7 +150,7 @@ mod portfolio_connection {
             start_index: u32,
             size: u16,
         ) -> Result<crate::SalesReadSnapshot, PortfolioReadError> {
-            super::sales::ActiveSalesReader::new(&self.connection).read(
+            super::sales::ActiveSalesReader::new(&self.connection, &self.sales_cache).read(
                 workspace_id,
                 start_index,
                 size,

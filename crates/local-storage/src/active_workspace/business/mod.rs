@@ -7823,6 +7823,57 @@ mod tests {
     }
 
     #[test]
+    fn sales_rereads_after_any_write_on_this_or_another_connection() {
+        // Observations are append-only, so each change is a newer confirmed observation.
+        fn observe(connection: &rusqlite::Connection, run: &str, status: &str, observed_at: &str) {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom',?2,'USD','10',?3,'v','available','confirmed')", rusqlite::params![run, status, observed_at]).unwrap();
+            complete_observation_run(connection, run, "alpha.test");
+        }
+        let directory = tempdir().unwrap().keep();
+        let path = directory.join("workspace.db");
+        let mut database = BusinessDatabase::open(
+            &path,
+            &LocalDatabaseKey::from_bytes([0x31; 32]),
+            "workspace-local",
+        )
+        .unwrap();
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','alpha.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','atom','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        observe(connection, "run-1", "draft", "2026-01-01T00:00:00Z");
+        let status = |database: &BusinessDatabase| {
+            let snapshot = database.read_sales(0, 10).unwrap();
+            (
+                snapshot.window.rows[0].listing_status.clone(),
+                snapshot.active_listing_count,
+            )
+        };
+        // A repeated read of unchanged data is served from the merged desk and is identical.
+        assert_eq!(
+            database.read_sales(0, 10).unwrap(),
+            database.read_sales(0, 10).unwrap()
+        );
+        assert_eq!(status(&database), ("draft".to_owned(), 0));
+
+        // A write through the Host's own connection is read on the next read.
+        observe(
+            database.store.fixture_connection(),
+            "run-2",
+            "active",
+            "2026-02-01T00:00:00Z",
+        );
+        assert_eq!(status(&database), ("active".to_owned(), 1));
+
+        // So is a commit from another connection to the same database.
+        let other = crate::active_workspace::open_keyed(&path, &[0x31; 32]).unwrap();
+        observe(&other, "run-3", "reserved", "2026-03-01T00:00:00Z");
+        drop(other);
+        assert_eq!(status(&database), ("reserved".to_owned(), 0));
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "one fixture walks paging, metrics and every no-total case"
@@ -8046,7 +8097,7 @@ mod tests {
     #[ignore = "100k-asset benchmark; run alone on an idle machine with --test-threads=1"]
     fn scale_reads_at_100k_assets() {
         // The `DATABASE_SCHEMA.md` per-read budget at 100k assets.
-        let worst = scale_reads(100_000, 2);
+        let worst = slowest(&scale_reads(100_000, 2), &[]);
         assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
     }
 
@@ -8054,7 +8105,7 @@ mod tests {
     #[ignore = "10k-asset benchmark; run alone on an idle machine with --test-threads=1"]
     fn scale_reads_at_10k_assets() {
         // The `DATABASE_SCHEMA.md` per-read budget at 10k assets.
-        let worst = scale_reads(10_000, 2);
+        let worst = slowest(&scale_reads(10_000, 2), &[]);
         assert!(worst <= std::time::Duration::from_millis(150), "{worst:?}");
     }
 
@@ -8065,12 +8116,30 @@ mod tests {
         scale_reads(1_000_000, 2);
     }
 
-    /// The sales worst case: every listed domain on all 8 launch platforms. Its sales read exceeds
-    /// the budget until the listing aggregates are cached per data generation, so it has no ceiling.
+    /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
+    /// after a write merges every listing and exceeds the budget; every other read, later sales
+    /// pages included, is held to it.
     #[test]
     #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
     fn scale_reads_at_100k_assets_on_8_markets() {
-        scale_reads(100_000, 8);
+        let worst = slowest(&scale_reads(100_000, 8), &[SALES_MERGE]);
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    /// The first sales read of a data generation, which merges every listing.
+    const SALES_MERGE: &str = "sales page 1 (merge)";
+
+    /// The slowest timing outside `except`.
+    fn slowest(
+        timings: &[(&'static str, std::time::Duration)],
+        except: &[&str],
+    ) -> std::time::Duration {
+        timings
+            .iter()
+            .filter(|(label, _)| !except.contains(label))
+            .map(|(_, elapsed)| *elapsed)
+            .max()
+            .unwrap_or_default()
     }
 
     /// Statements recorded by `trace_read_statements`; `trace_v2` takes a plain function pointer.
@@ -8150,29 +8219,29 @@ mod tests {
         assert!(scans.is_empty(), "{}", scans.join("\n"));
     }
 
-    /// Times every paged Host read over `scale_database(assets, markets)` and returns the slowest.
-    fn scale_reads(assets: u32, markets: usize) -> std::time::Duration {
+    /// Times every paged Host read over `scale_database(assets, markets)`.
+    fn scale_reads(assets: u32, markets: usize) -> Vec<(&'static str, std::time::Duration)> {
         let database = scale_database(assets, markets);
         let expiring = assets.div_ceil(2);
         let listed = assets.div_ceil(3);
-        let time = |label: &str, read: &mut dyn FnMut()| {
+        let mut timings = Vec::new();
+        let mut time = |label: &'static str, read: &mut dyn FnMut()| {
             let started = std::time::Instant::now();
             read();
             let elapsed = started.elapsed();
             println!("{label}: {elapsed:?}");
-            elapsed
+            timings.push((label, elapsed));
         };
-        let mut worst = std::time::Duration::ZERO;
-        worst = worst.max(time("asset library page 1", &mut || {
+        time("asset library page 1", &mut || {
             let snapshot = database.read_asset_library(0, 50, "").unwrap();
             assert_eq!(snapshot.total_rows, assets);
             assert_eq!(snapshot.expiring_within60_days, expiring);
             assert_eq!(snapshot.listing_count, listed);
-        }));
-        worst = worst.max(time("asset library last page", &mut || {
+        });
+        time("asset library last page", &mut || {
             database.read_asset_library(assets - 50, 50, "").unwrap();
-        }));
-        worst = worst.max(time("asset library search", &mut || {
+        });
+        time("asset library search", &mut || {
             assert_eq!(
                 database
                     .read_asset_library(0, 50, "d00012")
@@ -8180,34 +8249,33 @@ mod tests {
                     .total_rows,
                 100
             );
-        }));
-        worst = worst.max(time("domain detail", &mut || {
+        });
+        time("domain detail", &mut || {
             database
                 .read_domain_detail(&format!("d{:07}.test", assets / 2))
                 .unwrap();
-        }));
-        worst = worst.max(time("renewals page 1", &mut || {
+        });
+        time("renewals page 1", &mut || {
             assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, expiring);
-        }));
-        worst = worst.max(time("renewals last page", &mut || {
+        });
+        time("renewals last page", &mut || {
             database.read_renewals(expiring - 50, 50).unwrap();
-        }));
-        worst = worst.max(time("dns health page 1", &mut || {
+        });
+        time("dns health page 1", &mut || {
             assert_eq!(
                 database.read_dns_health(0, 50, "").unwrap().asset_count,
                 assets
             );
-        }));
-        worst = worst.max(time("sales page 1", &mut || {
+        });
+        time(SALES_MERGE, &mut || {
             let snapshot = database.read_sales(0, 50).unwrap();
             assert_eq!(snapshot.total_rows, listed);
             assert_eq!(snapshot.window.rows[0].marketplaces.len(), markets);
-        }));
-        worst = worst.max(time("sales last page", &mut || {
+        });
+        time("sales last page (same data)", &mut || {
             database.read_sales(listed - 50, 50).unwrap();
-        }));
-        println!("worst: {worst:?}");
-        worst
+        });
+        timings
     }
 
     /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
