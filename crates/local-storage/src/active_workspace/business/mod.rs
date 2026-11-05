@@ -8694,26 +8694,55 @@ mod tests {
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
 
-        // Until the phase 5 connection-role model, a non-Cloudflare connection fails the read rather
-        // than being hidden, and a kind outside ADR-0027 is never reported.
-        for kind in ["spaceship", "example"] {
-            let mut database = self::database();
-            database
+        // Every ADR-0027 platform is listed, each role still unavailable; a kind outside ADR-0027
+        // fails the read instead of being hidden.
+        let mut listed = self::database();
+        for kind in [
+            "afternic",
+            "atom",
+            "cloudflare",
+            "dynadot",
+            "godaddy",
+            "namecheap",
+            "porkbun",
+            "spaceship",
+        ] {
+            listed
                 .store
                 .fixture_connection()
                 .execute(
                     CONNECTION,
-                    rusqlite::params!["other", kind, "Other", TIMESTAMP, "active", None::<String>],
+                    rusqlite::params![kind, kind, kind, TIMESTAMP, "active", None::<String>],
                 )
                 .unwrap();
-            assert!(
-                matches!(
-                    database.read_settings(),
-                    Err(BusinessDatabaseError::ProjectionRejected)
-                ),
-                "{kind} must fail closed"
-            );
         }
+        let kinds = listed.read_settings().unwrap().connections;
+        assert_eq!(kinds.len(), 8);
+        assert!(kinds.iter().all(|connection| {
+            connection.roles.iter().all(|role| {
+                role.availability == "unavailable"
+                    && role.unavailable_reason == "qualification_pending"
+            })
+        }));
+        listed
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "other",
+                    "example",
+                    "Other",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            listed.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
     }
 
     #[test]

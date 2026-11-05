@@ -143,7 +143,8 @@ control, bidirectional or invisible formatting characters fail the whole read â€
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
 `marketplace`). Connection, credential and account identifiers stay in the Host. No capability is
 ADR-0024 qualified yet, so every role is reported `unavailable` with `qualification_pending`.
-Unknown or duplicate roles, unknown Provider kinds and control-character labels fail the read.
+Connections on any of the eight ADR-0027 platforms are listed; unknown or duplicate roles,
+Provider kinds outside ADR-0027 and control-character labels fail the read.
 Pending outbox reads validate the recorded operation: edit/upsert payloads use the full asset
 projection while delete payloads use the exact `{entityId, operation}` shape; delete also marks
 `lifecycleStatus` pending in field versions in the same transaction.

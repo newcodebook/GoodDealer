@@ -41,6 +41,21 @@ describe("settings Host read", () => {
     expect(view.groups.filter((group) => group.category !== "dns").every((group) => group.connections.length === 0)).toBe(true);
   });
 
+  it("lists a connection on any ADR-0027 platform without guessing how it authenticates", () => {
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [
+      connection,
+      { ...connection, providerKind: "porkbun", connectionLabel: "Porkbun main", roles: [{ role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+      { ...connection, providerKind: "godaddy", connectionLabel: "GoDaddy", roles: [{ role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+    ] })), () => "unavailable before qualification");
+    expect(parseConnectionSettingsViewModel(view)).toEqual(view);
+    const byCategory = Object.fromEntries(view.groups.map((group) => [group.category, group.connections.map((item) => [item.provider, item.method, item.admission.actionAvailability])]));
+    expect(byCategory).toEqual({
+      registrar: [["Porkbun", null, "unavailable"]],
+      dns: [["Cloudflare", "api", "unavailable"]],
+      marketplace: [["GoDaddy", null, "unavailable"]],
+    });
+  });
+
   it("rejects unknown fields, identifiers, executable roles and unknown roles", () => {
     for (const bad of [
       read({ extra: true }),
@@ -49,7 +64,7 @@ describe("settings Host read", () => {
       read({ connections: [{ ...connection, roles: [{ role: "acquisition", availability: "unavailable", unavailableReason: "qualification_pending" }] }] }),
       read({ connections: [{ ...connection, roles: [connection.roles[0], connection.roles[0]] }] }),
       read({ connections: [{ ...connection, connectionLabel: "Cloud\u0007flare" }] }),
-      read({ connections: [{ ...connection, providerKind: "porkbun" }] }),
+      read({ connections: [{ ...connection, providerKind: "sedo" }] }),
     ]) {
       expect(() => parseSettingsRead(bad)).toThrow();
     }

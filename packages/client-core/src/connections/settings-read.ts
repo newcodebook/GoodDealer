@@ -6,6 +6,11 @@ import type { ConnectionSettingsItemViewModel, ConnectionSettingsViewModel, Prov
 
 const connectionRoleSchema = z.enum(["registrar", "dns", "marketplace"]);
 
+/** ADR-0027 launch platforms; the Host fails the read on a connection to any other platform. */
+const settingsProviderKindSchema = z.enum([
+  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
+]);
+
 const settingsConnectionRoleSchema = z.object({
   role: connectionRoleSchema,
   // No capability is qualified (ADR-0024) yet, so the Host can only report it as unavailable.
@@ -14,7 +19,7 @@ const settingsConnectionRoleSchema = z.object({
 }).strict();
 
 const settingsConnectionSchema = z.object({
-  providerKind: z.literal("cloudflare"),
+  providerKind: settingsProviderKindSchema,
   connectionLabel: connectionLabelSchema,
   lifecycleStatus: z.enum(["active", "invalid", "revoked"]),
   validationStatus: z.enum(["unknown", "valid", "invalid", "insufficient_scope", "unreachable"]),
@@ -59,8 +64,25 @@ export function settingsConnectionHealth(connection: SettingsConnection): Provid
   return connection.validationStatus === "valid" ? "healthy" : "retained_unverified";
 }
 
-const providerNames = { cloudflare: "Cloudflare" } as const;
-const providerMethods = { cloudflare: "api" } as const;
+const providerNames: Readonly<Record<SettingsConnection["providerKind"], string>> = {
+  afternic: "Afternic",
+  atom: "Atom",
+  cloudflare: "Cloudflare",
+  dynadot: "Dynadot",
+  godaddy: "GoDaddy",
+  namecheap: "Namecheap",
+  porkbun: "Porkbun",
+  spaceship: "Spaceship",
+};
+
+/**
+ * How the connection authenticates. Only Cloudflare's API token flow exists; the other platforms'
+ * methods are recorded from their official documentation in their own ADR-0027 phase, so until then
+ * the method is unknown rather than guessed.
+ */
+function providerMethod(kind: SettingsConnection["providerKind"]): "api" | null {
+  return kind === "cloudflare" ? "api" : null;
+}
 
 /**
  * Projects the Host read into the settings connection groups. A connection appears once per
@@ -83,7 +105,7 @@ export function projectConnectionSettings(
           accountAlias: connection.connectionLabel,
           remoteAccountId: null,
           category,
-          method: providerMethods[connection.providerKind],
+          method: providerMethod(connection.providerKind),
           summary: summary(connection),
           credentialHealth: settingsConnectionHealth(connection),
           quotaSummary: null,
