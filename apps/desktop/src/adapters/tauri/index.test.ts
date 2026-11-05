@@ -107,13 +107,14 @@ describe("Desktop Tauri local-business adapter", () => {
     const read = {
       schemaVersion: 1, kind: "history", readGeneration: 3,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      totalRows: 1, pendingRows: 1,
+      totalRows: 1, pendingRows: 1, changesToday: 1,
       window: { startIndex: 0, size: 200, rows: [row] },
     };
     const port = createLocalHistoryPort();
     invokeMock.mockResolvedValueOnce(read);
-    await expect(port.loadHistory({ startIndex: 0, size: 200 })).resolves.toEqual(read);
-    expect(invokeMock).toHaveBeenCalledWith("local_history_read", { request: { startIndex: 0, size: 200 } });
+    const day = { todayFrom: "2026-08-27T16:00:00Z", todayUntil: "2026-08-28T16:00:00Z" };
+    await expect(port.loadHistory({ startIndex: 0, size: 200, ...day })).resolves.toEqual(read);
+    expect(invokeMock).toHaveBeenCalledWith("local_history_read", { request: { startIndex: 0, size: 200, ...day } });
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...row, mutationId: "canary" }] } },
       { ...read, window: { ...read.window, rows: [{ ...row, sourceDeviceId: "canary" }] } },
@@ -122,10 +123,11 @@ describe("Desktop Tauri local-business adapter", () => {
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
       else invokeMock.mockResolvedValueOnce(hostile);
-      await expect(port.loadHistory({ startIndex: 0, size: 200 })).rejects.toBeInstanceOf(LocalReadError);
+      await expect(port.loadHistory({ startIndex: 0, size: 200, ...day })).rejects.toBeInstanceOf(LocalReadError);
     }
     invokeMock.mockClear();
-    await expect(port.loadHistory({ startIndex: 0, size: 201 })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    await expect(port.loadHistory({ startIndex: 0, size: 201, ...day })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
+    await expect(port.loadHistory({ startIndex: 0, size: 200, todayFrom: day.todayFrom, todayUntil: day.todayFrom })).rejects.toThrow("LOCAL_WINDOW_REJECTED");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

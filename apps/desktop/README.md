@@ -16,7 +16,8 @@ Customer Desktop application that composes the Renderer and native Host around t
   history, and settings. Manual tasks reads `local_manual_tasks_read` (plan items waiting on the
   person in a platform's own console, grouped per operation, platform connection and capability);
   opening the platform, marking done, re-checking and accepting risk are unavailable until their
-  capabilities are qualified, and there is no browser session or authorized-execution control. Operation history reads the newest 500 local revisions from `local_history_read`
+  capabilities are qualified, and there is no browser session or authorized-execution control. Operation history reads the newest 500 local revisions from `local_history_read`,
+  with today's changes counted by the Host over the whole ledger within the person's local day
   (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
   revision when no remote change or conflict can lie in between; otherwise previous values show as
   unknown); every Revision is read-only, with no

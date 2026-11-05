@@ -43,10 +43,31 @@ const historyRowSchema = z.object({
   }
 });
 
+/** UTC to the second, the only form the Host compares with its commit times. */
+const canonicalInstantSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u).pipe(z.iso.datetime());
+
+/**
+ * One window of the ledger, plus the person's local day (start inclusive, end exclusive) in which
+ * the Host counts today's changes over the whole ledger. A day is 23 to 25 hours around a daylight
+ * saving change.
+ */
 export const historyWindowRequestSchema = z.object({
   startIndex: z.number().int().nonnegative().max(1_000_000),
   size: z.number().int().min(1).max(200),
-}).strict();
+  todayFrom: canonicalInstantSchema,
+  todayUntil: canonicalInstantSchema,
+}).strict().refine((request) => {
+  const span = Date.parse(request.todayUntil) - Date.parse(request.todayFrom);
+  return span > 0 && span <= 25 * 3_600_000;
+}, "the day must end after it starts, within 25 hours");
+
+/** The person's local day containing `now`, as canonical UTC instants for a history request. */
+export function localHistoryDay(now: Date): Pick<HistoryWindowRequest, "todayFrom" | "todayUntil"> {
+  const instant = (date: Date) => date.toISOString().replace(/\.\d{3}Z$/u, "Z");
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return { todayFrom: instant(from), todayUntil: instant(until) };
+}
 
 /** Host revision ledger window: local revisions newest first, without mutation or device identifiers. */
 export const historyReadSchema = z.object({
@@ -56,14 +77,17 @@ export const historyReadSchema = z.object({
   freshness: portfolioFreshnessSchema,
   totalRows: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   pendingRows: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  /** Revisions committed within the requested day, over the whole ledger. */
+  changesToday: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   window: z.object({
-    startIndex: historyWindowRequestSchema.shape.startIndex,
-    size: historyWindowRequestSchema.shape.size,
+    startIndex: z.number().int().nonnegative().max(1_000_000),
+    size: z.number().int().min(1).max(200),
     rows: z.array(historyRowSchema).max(200).readonly(),
   }).strict(),
 }).strict().superRefine((read, context) => {
   const { startIndex, size, rows } = read.window;
-  if (read.pendingRows > read.totalRows || rows.length > size || startIndex + rows.length > read.totalRows) {
+  if (read.pendingRows > read.totalRows || read.changesToday > read.totalRows || rows.length > size
+    || startIndex + rows.length > read.totalRows) {
     context.addIssue({ code: "custom", path: ["window", "rows"], message: "window exceeds its bounds" });
   }
   for (let index = 1; index < rows.length; index += 1) {
@@ -132,15 +156,14 @@ function entryState(state: HistoryRow["state"]): OperationHistoryEntry["state"] 
 
 /**
  * Projects contiguous Host history windows of one generation into the operation history view. The
- * windows cover the newest revisions up to `historyEntryLimit`; totals still count the whole
- * ledger, except `changesToday`, which counts within the loaded newest revisions. No reversal is
+ * windows cover the newest revisions up to `historyEntryLimit`; totals, including today's changes,
+ * count the whole ledger. No reversal is
  * offered: rollback needs a qualified Host command, so every entry is read-only and an unknown
  * previous value stays null rather than looking empty.
  */
 export function projectOperationHistory(
   windows: readonly HistoryRead[],
   labels: HistoryProjectionLabels,
-  isToday: (committedAt: string) => boolean,
   selectedRevisionId: string | null,
 ): OperationHistoryViewModel {
   const first = windows[0];
@@ -148,7 +171,8 @@ export function projectOperationHistory(
   let expectedStart = 0;
   for (const window of windows) {
     if (window.readGeneration !== first.readGeneration || window.totalRows !== first.totalRows
-      || window.pendingRows !== first.pendingRows || window.window.startIndex !== expectedStart) {
+      || window.pendingRows !== first.pendingRows || window.changesToday !== first.changesToday
+      || window.window.startIndex !== expectedStart) {
       throw new TypeError("history windows must be contiguous reads of one Host generation");
     }
     expectedStart += window.window.rows.length;
@@ -184,7 +208,7 @@ export function projectOperationHistory(
     commandAdmission: "unavailable",
     selectedRevisionId: entries.some((entry) => entry.revisionId === selectedRevisionId) ? selectedRevisionId : null,
     totalRevisions: first.totalRows,
-    changesToday: rows.filter((row) => isToday(row.committedAt)).length,
+    changesToday: first.changesToday,
     pendingRevisionCount: first.pendingRows,
     entries,
   });

@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, localHistoryDay, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -326,12 +326,6 @@ function ManualTasksRoute({ locale, ports, readGeneration, onStale }: {
   return <HostRouteStatus state={state.kind === "loading" ? state : { kind: "failed" }} copy={copy} onRetry={retry} />;
 }
 
-function localIsoDate(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 /**
  * Reads the newest history windows for one Host generation, up to the view's entry limit. The
  * ledger gets no reversal or export callback: rollback needs a qualified Host command and export
@@ -346,13 +340,16 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
   const copy = getPresentationCopy(locale, "operationHistory");
   const [selected, setSelected] = useState<string | null>(null);
   const { state, retry } = useHostRouteRead(
-    ports.history, (port, request) => port.loadHistory(request), readGeneration, onStale,
+    // Each window asks for the local day at the moment it is requested. When a read straddles
+    // midnight and the two days' counts differ, the projection rejects the windows as different
+    // reads and the person can read again; equal counts pass, which is still a correct count for
+    // one of the two days. A page left open past midnight keeps its last count until re-read.
+    ports.history, (port, request) => port.loadHistory({ ...request, ...localHistoryDay(new Date()) }), readGeneration, onStale,
     keepWindows<HistoryRead>, { windowSize: hostWindowSize, rowLimit: historyEntryLimit },
   );
 
   const view = useMemo(() => {
     if (state.kind !== "ready") return null;
-    const today = localIsoDate(new Date());
     try {
       return projectOperationHistory(state.value, {
         edit: copy.editAsset,
@@ -361,7 +358,7 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
         platform: copy.assetLibrary,
         empty: copy.emptyValue,
         fields: { note: copy.fieldNote, portfolioId: copy.fieldPortfolio, tags: copy.fieldTags, targetPrice: copy.fieldTargetPrice },
-      }, (committedAt) => localIsoDate(new Date(committedAt)) === today, selected);
+      }, selected);
     } catch {
       return null;
     }

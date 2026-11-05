@@ -297,6 +297,9 @@ pub struct DesktopManualTasksReadRequest {
 pub struct DesktopHistoryReadRequest {
     pub(crate) start_index: u32,
     pub(crate) size: u16,
+    /// The Renderer's local day as canonical UTC instants; the Host validates both.
+    pub(crate) today_from: String,
+    pub(crate) today_until: String,
 }
 
 #[derive(Deserialize)]
@@ -499,8 +502,9 @@ impl DesktopBusinessRuntime {
         &self,
         start_index: u32,
         size: u16,
+        today: (&str, &str),
     ) -> Result<crate::HistoryReadSnapshot, BusinessDatabaseError> {
-        let mut snapshot = self.database.read_history(start_index, size)?;
+        let mut snapshot = self.database.read_history(start_index, size, today)?;
         snapshot.read_generation = self.read_generation;
         Ok(snapshot)
     }

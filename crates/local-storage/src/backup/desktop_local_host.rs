@@ -2223,7 +2223,11 @@ impl DesktopLocalHost {
         request: crate::DesktopHistoryReadRequest,
     ) -> Result<crate::HistoryReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
-            let mut snapshot = runtime.read_history(request.start_index, request.size)?;
+            let mut snapshot = runtime.read_history(
+                request.start_index,
+                request.size,
+                (&request.today_from, &request.today_until),
+            )?;
             if restriction == RuntimeRestriction::CommercialReadOnly {
                 snapshot.freshness.can_edit = false;
                 snapshot.freshness.read_only_reason = Some("commercial".to_owned());
@@ -6825,6 +6829,8 @@ mod tests {
             host.read_history(crate::DesktopHistoryReadRequest {
                 start_index: 0,
                 size: 10,
+                today_from: "2026-08-28T00:00:00Z".to_owned(),
+                today_until: "2026-08-29T00:00:00Z".to_owned(),
             }),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));

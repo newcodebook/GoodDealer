@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { historyEntryLimit, parseHistoryRead, projectOperationHistory, type HistoryRead, type HistoryRow } from "./history-read";
+import { historyEntryLimit, historyWindowRequestSchema, localHistoryDay, parseHistoryRead, projectOperationHistory, type HistoryRead, type HistoryRow } from "./history-read";
 
 const freshness = { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true } as const;
 
@@ -35,6 +35,7 @@ function read(rows: readonly HistoryRow[] = [edit, deletion], overrides: Partial
     freshness,
     totalRows: rows.length,
     pendingRows: 1,
+    changesToday: 1,
     window: { startIndex: 0, size: 200, rows },
     ...overrides,
   };
@@ -62,10 +63,28 @@ describe("history read", () => {
     expect(() => parseHistoryRead(read([deletion, edit]))).toThrow();
     expect(() => parseHistoryRead(read([edit], { pendingRows: 2 }))).toThrow();
     expect(() => parseHistoryRead(read([edit], { totalRows: 0 }))).toThrow();
+    expect(() => parseHistoryRead(read([edit], { changesToday: 2 }))).toThrow();
+  });
+
+  it("asks the Host for the person's local day as canonical UTC instants", () => {
+    const day = localHistoryDay(new Date(2026, 10, 3, 15, 30));
+    expect(Date.parse(day.todayUntil) - Date.parse(day.todayFrom)).toBeGreaterThanOrEqual(23 * 3_600_000);
+    expect(new Date(day.todayFrom)).toEqual(new Date(2026, 10, 3));
+    expect(day.todayFrom).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u);
+    const request = { startIndex: 0, size: 200, ...day };
+    expect(historyWindowRequestSchema.parse(request)).toEqual(request);
+    for (const bad of [
+      { ...request, todayFrom: "2026-11-03T00:00:00.000Z" },
+      { ...request, todayFrom: "2026-11-03T00:00:00+08:00" },
+      { ...request, todayUntil: request.todayFrom },
+      { ...request, todayFrom: request.todayUntil, todayUntil: request.todayFrom },
+      { ...request, todayFrom: "2026-11-01T00:00:00Z", todayUntil: "2026-11-02T01:00:01Z" },
+      { startIndex: 0, size: 200 },
+    ]) expect(() => historyWindowRequestSchema.parse(bad)).toThrow();
   });
 
   it("projects read-only entries with known and unknown previous values", () => {
-    const view = projectOperationHistory([read()], labels, (at) => at.startsWith("2026-11-03"), "rev-2");
+    const view = projectOperationHistory([read()], labels, "rev-2");
     expect(view).toMatchObject({ commandAdmission: "unavailable", totalRevisions: 2, changesToday: 1, pendingRevisionCount: 1, selectedRevisionId: "rev-2" });
     const [first, second] = view.entries;
     expect(first).toMatchObject({ revisionLabel: "4", actionLabel: "Edit asset · ledger.test", state: "applied", reversible: false, availableActions: [] });
@@ -76,14 +95,14 @@ describe("history read", () => {
     ]);
     expect(second).toMatchObject({ actionLabel: "Delete asset · gone.test", state: "synced", diffs: [] });
     for (const [state, expected] of [["sending", "applied"], ["conflicted", "conflicted"], ["rejected", "rejected"]] as const) {
-      expect(projectOperationHistory([read([{ ...edit, state }])], labels, () => false, null).entries[0]!.state).toBe(expected);
+      expect(projectOperationHistory([read([{ ...edit, state }])], labels, null).entries[0]!.state).toBe(expected);
     }
-    expect(projectOperationHistory([read()], labels, () => false, "rev-99").selectedRevisionId).toBeNull();
-    const long = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_000) }] }])], labels, () => false, null);
+    expect(projectOperationHistory([read()], labels, "rev-99").selectedRevisionId).toBeNull();
+    const long = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: "x".repeat(10_000) }] }])], labels, null);
     expect(long.entries[0]!.diffs[0]!.newValue!).toHaveLength(2_000);
     // Astral characters count once on the Host but twice in UTF-16; both bounds must hold.
     const emoji = "😀".repeat(10_000);
-    const astral = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: emoji, previousValue: "😀".repeat(1_500) }] }])], labels, () => false, null);
+    const astral = projectOperationHistory([read([{ ...edit, changes: [{ fieldPath: "note", value: emoji, previousValue: "😀".repeat(1_500) }] }])], labels, null);
     const [diff] = astral.entries[0]!.diffs;
     expect(diff!.newValue!.length).toBeLessThanOrEqual(2_000);
     expect(diff!.oldValue!.length).toBeLessThanOrEqual(2_000);
@@ -98,11 +117,14 @@ describe("history read", () => {
     const rows = (start: number, count: number) => Array.from({ length: count }, (_, index): HistoryRow => ({ ...deletion, localRevision: 10_000 - start - index }));
     const total = historyEntryLimit + 50;
     const windows = [0, 200, 400].map((startIndex) => read(rows(startIndex, 200), { totalRows: total, window: { startIndex, size: 200, rows: rows(startIndex, 200) } }));
-    const view = projectOperationHistory(windows, labels, () => false, null);
+    const view = projectOperationHistory(windows, labels, null);
     expect(view.entries).toHaveLength(historyEntryLimit);
     expect(view.totalRevisions).toBe(total);
-    expect(() => projectOperationHistory(windows.slice(0, 2), labels, () => false, null)).toThrow();
-    expect(() => projectOperationHistory([windows[0]!, { ...windows[1]!, readGeneration: 4 }, windows[2]!], labels, () => false, null)).toThrow();
-    expect(() => projectOperationHistory([], labels, () => false, null)).toThrow();
+    // Today's changes are the Host's whole-ledger count, not a count of the loaded rows.
+    expect(projectOperationHistory(windows.map((window) => ({ ...window, changesToday: 600 })), labels, null).changesToday).toBe(600);
+    expect(() => projectOperationHistory([windows[0]!, { ...windows[1]!, changesToday: 2 }, windows[2]!], labels, null)).toThrow();
+    expect(() => projectOperationHistory(windows.slice(0, 2), labels, null)).toThrow();
+    expect(() => projectOperationHistory([windows[0]!, { ...windows[1]!, readGeneration: 4 }, windows[2]!], labels, null)).toThrow();
+    expect(() => projectOperationHistory([], labels, null)).toThrow();
   });
 });

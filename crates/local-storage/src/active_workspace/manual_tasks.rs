@@ -18,8 +18,9 @@ use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
 /// The inbox names at most this many affected domains per task and counts the rest, so a task
-/// carries only that sample; `domain_count` is exact. Matches `manualTaskDomainSampleLimit` in
-/// `@gooddealer/client-core`, whose read contract rejects any other sample size.
+/// carries only that sample; `domain_count` is exact. The desktop pins it to
+/// `manualTaskDomainSampleLimit` in `@gooddealer/client-core`, whose read contract rejects any
+/// other sample size.
 const DOMAIN_LIMIT: u32 = 3;
 
 /// Latest attempt per item that waits on the person, grouped into tasks. An item waits from when

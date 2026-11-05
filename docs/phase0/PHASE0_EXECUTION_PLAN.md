@@ -124,11 +124,14 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
-- [ ] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）
+- [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）
+- [ ] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）
+- [x] `local-storage` 业务测试数据库随测试结束删除（原 `tempdir().keep()` 每次运行在临时目录残留上万个目录，耗尽配额；改为 `TestDatabase` 持有目录） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
 - [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）
 - [x] 人工任务等待时间改用 `manual_action_required` 结果的观察时间，而非尝试开始时间（每项取最新尝试最早的 `manual_action_required` 结果观察时间，结果尚未记录时退回尝试开始时间；任务按其中最早者排序） https://github.com/newcodebook/GoodDealer/pull/53
-- [x] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）（Host 只发送收件箱显示的前 3 个域名（字节序），`domainCount` 仍精确；读取与视图合同共用 `manualTaskDomainSampleLimit` 并拒绝其他样本大小；等待起点不早于尝试开始） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）（Host 只发送收件箱显示的前 3 个域名（字节序），`domainCount` 仍精确；读取与视图合同共用 `manualTaskDomainSampleLimit` 并拒绝其他样本大小，Desktop 测试固定它与 Host 的 `DOMAIN_LIMIT` 相等；等待起点不早于尝试开始） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照（当前只有源码与打包依赖图层面的证据）
 - [x] 历史与人工任务等显示文本的长度口径在 Rust 与 Zod 之间对齐（核实：Zod 4 的 `max` 按码点计数，与 Rust 字符数一致，无需改动；需要 UTF-16 上限的 Zod 校验须显式比较 `length`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役（已对齐：`providerKind` 改用唯一的 `launchPlatformKindSchema`，移除 `registrar_dns`/`custom`；注册商自带 DNS 即该注册商平台；补每个首发平台接受与旧值拒绝测试） https://github.com/newcodebook/GoodDealer/pull/53

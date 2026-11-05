@@ -110,11 +110,13 @@ mod portfolio_connection {
             workspace_id: &str,
             start_index: u32,
             size: u16,
+            today: (&str, &str),
         ) -> Result<crate::HistoryReadSnapshot, PortfolioReadError> {
             super::history::ActiveHistoryReader::new(&self.connection).read(
                 workspace_id,
                 start_index,
                 size,
+                today,
             )
         }
 

@@ -56,7 +56,7 @@ describe("Operation history", () => {
     const read: HistoryRead = {
       schemaVersion: 1, kind: "history", readGeneration: 1,
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-      totalRows: 2, pendingRows: 1,
+      totalRows: 2, pendingRows: 1, changesToday: 2,
       window: { startIndex: 0, size: 2, rows: [
         { localRevision: 9, entityId: "ledger.test", operation: "edit", committedAt: "2026-08-20T06:02:00Z", state: "conflicted", serverRevision: null,
           changes: [{ fieldPath: "note", value: "new note" }] },
@@ -67,7 +67,7 @@ describe("Operation history", () => {
     const projected = projectOperationHistory([read], {
       edit: "编辑资产", delete: "删除资产", actor: "本地工作区", platform: "资产库", empty: "（空）",
       fields: { note: "备注", portfolioId: "组合", tags: "标签", targetPrice: "目标价" },
-    }, () => false, "rev-9");
+    }, "rev-9");
     const html = renderToStaticMarkup(<OperationHistory locale="zh-CN" view={{ ...projected, totalRevisions: 900 }} onSelect={() => undefined} />);
 
     expect(html).toContain("冲突");

@@ -1597,7 +1597,9 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
-    /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs.
+    /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs,
+    /// and counts the revisions committed within `today` (the Renderer's local day as canonical
+    /// UTC instants, start inclusive and end exclusive).
     ///
     /// # Errors
     ///
@@ -1606,9 +1608,10 @@ impl BusinessDatabase {
         &self,
         start_index: u32,
         size: u16,
+        today: (&str, &str),
     ) -> Result<crate::HistoryReadSnapshot, BusinessDatabaseError> {
         self.store
-            .read_history(&self.workspace_id, start_index, size)
+            .read_history(&self.workspace_id, start_index, size, today)
             .map_err(map_portfolio_read_error)
     }
 
@@ -6444,6 +6447,8 @@ mod tests {
     use super::*;
 
     const TIMESTAMP: &str = "2026-08-28T00:00:00Z";
+    /// The local day that `TIMESTAMP` falls in, for history reads.
+    const HISTORY_DAY: (&str, &str) = ("2026-08-28T00:00:00Z", "2026-08-29T00:00:00Z");
 
     #[test]
     fn cloudflare_projection_digest_matches_protocol_golden() {
@@ -6466,14 +6471,44 @@ mod tests {
         );
     }
 
-    fn database() -> BusinessDatabase {
-        let directory = tempdir().unwrap().keep();
-        BusinessDatabase::open(
-            &directory.join("workspace.db"),
-            &LocalDatabaseKey::from_bytes([0x31; 32]),
-            "workspace-local",
-        )
-        .unwrap()
+    /// A test database that removes its directory when dropped, after the database closes (fields
+    /// drop in order), so test runs do not leave encrypted databases behind.
+    pub(super) struct TestDatabase {
+        database: BusinessDatabase,
+        _directory: tempfile::TempDir,
+    }
+
+    impl TestDatabase {
+        pub(super) fn open(key: [u8; 32]) -> Self {
+            let directory = tempdir().unwrap();
+            let database = BusinessDatabase::open(
+                &directory.path().join("workspace.db"),
+                &LocalDatabaseKey::from_bytes(key),
+                "workspace-local",
+            )
+            .unwrap();
+            Self {
+                database,
+                _directory: directory,
+            }
+        }
+    }
+
+    impl std::ops::Deref for TestDatabase {
+        type Target = BusinessDatabase;
+        fn deref(&self) -> &BusinessDatabase {
+            &self.database
+        }
+    }
+
+    impl std::ops::DerefMut for TestDatabase {
+        fn deref_mut(&mut self) -> &mut BusinessDatabase {
+            &mut self.database
+        }
+    }
+
+    fn database() -> TestDatabase {
+        TestDatabase::open([0x31; 32])
     }
 
     #[test]
@@ -7598,7 +7633,7 @@ mod tests {
 
     /// Seeds assets, one marketplace connection and run, and the given listing observations
     /// `(entity, marketplace, status, currency, amount, observed_at)`.
-    fn sales_database(listings: &[ListingSeed<'_>]) -> BusinessDatabase {
+    fn sales_database(listings: &[ListingSeed<'_>]) -> TestDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
         for entity in ["alpha.test", "bravo.test", "charlie.test"] {
@@ -7831,8 +7866,8 @@ mod tests {
             connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom',?2,'USD','10',?3,'v','available','confirmed')", rusqlite::params![run, status, observed_at]).unwrap();
             complete_observation_run(connection, run, "alpha.test");
         }
-        let directory = tempdir().unwrap().keep();
-        let path = directory.join("workspace.db");
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("workspace.db");
         let mut database = BusinessDatabase::open(
             &path,
             &LocalDatabaseKey::from_bytes([0x31; 32]),
@@ -8006,7 +8041,7 @@ mod tests {
     /// Seeds `assets` active assets the way a large workspace looks: every asset has a target price
     /// and a confirmed registrar observation, every other one expires within 60 days, every third is
     /// listed on the first `markets` launch platforms, and one in a hundred has a pending field.
-    fn scale_database(assets: u32, markets: usize) -> BusinessDatabase {
+    fn scale_database(assets: u32, markets: usize) -> TestDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
         let transaction = connection.transaction().unwrap();
@@ -8281,7 +8316,7 @@ mod tests {
     /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
     /// and a newer unapproved plan titled `newer_title`.
     #[allow(clippy::too_many_lines)]
-    fn batch_database(newer_title: &str) -> BusinessDatabase {
+    fn batch_database(newer_title: &str) -> TestDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
         for entity in ["alpha.test", "bravo.test"] {
@@ -8642,7 +8677,7 @@ mod tests {
     fn renewals_database(
         assets: &[(&str, &str, Option<i64>, Option<i64>)],
         observations: &[(&str, &str, &str, &str, &str)],
-    ) -> BusinessDatabase {
+    ) -> TestDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
         for (entity, lifecycle, offset, auto_renew) in assets {
@@ -8981,7 +9016,13 @@ mod tests {
     )]
     fn history_lists_local_revisions_newest_first_with_diffs_and_no_identifiers() {
         let mut database = database();
-        assert_eq!(database.read_history(0, 10).unwrap().total_rows, 0);
+        assert_eq!(
+            database
+                .read_history(0, 10, HISTORY_DAY)
+                .unwrap()
+                .total_rows,
+            0
+        );
         database
             .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
             .unwrap();
@@ -9028,7 +9069,7 @@ mod tests {
                 true,
             )
             .unwrap();
-        let snapshot = database.read_history(0, 10).unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
         assert_eq!(snapshot.kind, "history");
         assert_eq!((snapshot.total_rows, snapshot.pending_rows), (4, 4));
         let rows = &snapshot.window.rows;
@@ -9082,12 +9123,53 @@ mod tests {
         for secret in ["mutation-secret", "device-secret", "mutationId", "deviceId"] {
             assert!(!wire.contains(secret), "{secret} leaked into history");
         }
-        assert_eq!(database.read_history(3, 10).unwrap().window.rows.len(), 1);
+        assert_eq!(
+            database
+                .read_history(3, 10, HISTORY_DAY)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
         for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
             assert!(matches!(
-                database.read_history(start, size),
+                database.read_history(start, size, HISTORY_DAY),
                 Err(BusinessDatabaseError::WindowRejected)
             ));
+        }
+        // Today's changes count the whole ledger, not the window: one row read, four counted.
+        let today = |day| database.read_history(0, 1, day).unwrap().changes_today;
+        assert_eq!(today(HISTORY_DAY), 4);
+        // The day ends before its end instant, so a day ending at the commits counts none.
+        assert_eq!(today(("2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z")), 0);
+        // A daylight saving day is 23 or 25 hours.
+        assert_eq!(today(("2026-08-27T23:00:00Z", "2026-08-29T00:00:00Z")), 4);
+        // Day lengths hold across month, year and leap-day boundaries.
+        for day in [
+            ("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-01T00:00:00Z"),
+            ("2028-02-29T00:00:00Z", "2028-03-01T00:00:00Z"),
+        ] {
+            assert_eq!(today(day), 0, "{day:?} is one day");
+        }
+        for day in [
+            ("2026-08-28T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-29T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-27T22:59:59Z", "2026-08-29T00:00:00Z"),
+            ("2028-02-28T00:00:00Z", "2028-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-02T00:00:00Z"),
+            ("2026-08-28T00:00:00.000Z", "2026-08-29T00:00:00Z"),
+            ("2026-08-28T00:00:00+08:00", "2026-08-29T00:00:00Z"),
+            ("2026-08-28", "2026-08-29T00:00:00Z"),
+        ] {
+            assert!(
+                matches!(
+                    database.read_history(0, 10, day),
+                    Err(BusinessDatabaseError::WindowRejected)
+                ),
+                "{day:?} should be rejected"
+            );
         }
     }
 
@@ -9134,7 +9216,11 @@ mod tests {
             )
             .unwrap();
         edit(&mut database, "edit-2", "first");
-        let rows = database.read_history(0, 10).unwrap().window.rows;
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
         assert_eq!(
             rows[0].changes.len(),
             4,
@@ -9156,7 +9242,11 @@ mod tests {
             )
             .unwrap();
         edit(&mut database, "edit-3", "third");
-        let rows = database.read_history(0, 10).unwrap().window.rows;
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
         assert!(
             rows[0]
                 .changes
@@ -9183,7 +9273,7 @@ mod tests {
                 .unwrap();
             assert!(
                 matches!(
-                    corrupt.read_history(0, 10),
+                    corrupt.read_history(0, 10, HISTORY_DAY),
                     Err(BusinessDatabaseError::ProjectionRejected)
                 ),
                 "{path} {json} must fail closed"
@@ -9200,7 +9290,7 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            long.read_history(0, 10),
+            long.read_history(0, 10, HISTORY_DAY),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
     }
@@ -9888,7 +9978,7 @@ mod tests {
         assert_eq!(new_entity.source_sequence, 1);
     }
 
-    fn binding_database() -> BusinessDatabase {
+    fn binding_database() -> TestDatabase {
         let mut database = database();
         database
             .upsert_domain_asset(

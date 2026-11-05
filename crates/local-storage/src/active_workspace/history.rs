@@ -29,6 +29,8 @@ pub struct HistoryReadSnapshot {
     pub total_rows: u32,
     /// Revisions not yet acknowledged by the cloud (pending or sending).
     pub pending_rows: u32,
+    /// Revisions committed within the requested day, counted over the whole ledger.
+    pub changes_today: u32,
     pub window: HistoryWindow,
 }
 
@@ -88,21 +90,25 @@ impl<'a> ActiveHistoryReader<'a> {
         requested_workspace_id: &str,
         start_index: u32,
         size: u16,
+        today: (&str, &str),
     ) -> Result<HistoryReadSnapshot, PortfolioReadError> {
         let transaction = self
             .connection
             .unchecked_transaction()
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         validate_workspace(&transaction, requested_workspace_id)?;
-        if start_index > 1_000_000 || !(1..=200).contains(&size) {
+        if start_index > 1_000_000 || !(1..=200).contains(&size) || !valid_day(today) {
             return Err(PortfolioReadError::WindowRejected);
         }
-        let (total_rows, pending_rows): (i64, i64) = transaction
+        // Commit times are written as canonical UTC seconds, so they compare as text with the
+        // canonical bounds; the day is counted in the same pass as the totals.
+        let (total_rows, pending_rows, changes_today): (i64, i64, i64) = transaction
             .query_row(
-                "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0)
+                "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
+                        coalesce(sum(created_at >= ?2 AND created_at < ?3), 0)
                  FROM sync_outbox WHERE workspace_id = ?1",
-                [requested_workspace_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                params![requested_workspace_id, today.0, today.1],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let revisions = {
@@ -148,6 +154,8 @@ impl<'a> ActiveHistoryReader<'a> {
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
             pending_rows: u32::try_from(pending_rows)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
+            changes_today: u32::try_from(changes_today)
+                .map_err(|_| PortfolioReadError::ProjectionRejected)?,
             window: HistoryWindow {
                 start_index,
                 size,
@@ -155,6 +163,30 @@ impl<'a> ActiveHistoryReader<'a> {
             },
         })
     }
+}
+
+/// The Renderer's local day as canonical UTC instants, start before end. A day is 23 to 25 hours
+/// around a daylight saving change; a longer span would count more than one day.
+fn valid_day((from, until): (&str, &str)) -> bool {
+    let canonical = |value: &str| matches!(validate_timestamp(Some(value.to_owned())), Ok(Some(_)));
+    canonical(from)
+        && canonical(until)
+        && from < until
+        && seconds(until) - seconds(from) <= 25 * 3_600
+}
+
+/// Seconds since the epoch of a canonical UTC timestamp (already validated).
+fn seconds(value: &str) -> i64 {
+    let number = |start: usize, end: usize| value[start..end].parse::<i64>().unwrap_or(0);
+    let (year, month, day) = (number(0, 4), number(5, 7), number(8, 10));
+    // Days from the civil date (Howard Hinnant's algorithm), as `format_timestamp_seconds` inverts.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    days * 86_400 + number(11, 13) * 3_600 + number(14, 16) * 60 + number(17, 19)
 }
 
 fn unsigned(value: i64) -> Result<u64, PortfolioReadError> {

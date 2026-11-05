@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  localHistoryDay,
   parseDnsHealthRead,
+  parseHistoryRead,
   parseRenewalsRead,
   parseSalesRead,
   type AssetLibraryViewModel,
@@ -64,8 +66,17 @@ function hostPorts() {
     totalRows: total, activeListingCount: 0, listedValue: null,
     window: { ...request, rows: rows(request, (index) => ({ entityId: domain(index), marketplaces: ["atom"], listingStatus: "draft", askingPrice: null })) },
   }));
-  const ports = { renewals: { loadRenewals }, dns: { loadDnsHealth }, sales: { loadSales } } as unknown as AuthoritativeWorkspacePorts;
-  return { ports, loadRenewals, loadDnsHealth, loadSales };
+  // The Host counts both revisions as today's, although neither row's date is the test's today.
+  const loadHistory = vi.fn(async (request: HostWindowRequest) => parseHistoryRead({
+    schemaVersion: 1, kind: "history", readGeneration: generation, freshness,
+    totalRows: 2, pendingRows: 0, changesToday: 2,
+    window: { startIndex: request.startIndex, size: request.size, rows: request.startIndex > 0 ? [] : [
+      { localRevision: 2, entityId: "vault.io", operation: "delete", committedAt: "2026-09-20T00:00:00Z", state: "pending", serverRevision: null, changes: [] },
+      { localRevision: 1, entityId: "page-000.io", operation: "delete", committedAt: "2026-09-19T00:00:00Z", state: "pending", serverRevision: null, changes: [] },
+    ] },
+  }));
+  const ports = { renewals: { loadRenewals }, dns: { loadDnsHealth }, sales: { loadSales }, history: { loadHistory } } as unknown as AuthoritativeWorkspacePorts;
+  return { ports, loadRenewals, loadDnsHealth, loadSales, loadHistory };
 }
 
 let container: HTMLElement;
@@ -218,6 +229,16 @@ describe("paged Host routes", () => {
     await click(named("Read again"));
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(host.loadDnsHealth.mock.calls.at(-1)?.[0].query).toBe("pa");
+  });
+
+  it("asks the Host for today's changes in the person's local day and shows its count", async () => {
+    const host = hostPorts();
+    await render(host.ports);
+    const day = localHistoryDay(new Date());
+    await click(named("Operation history"));
+    expect(host.loadHistory.mock.calls[0]?.[0]).toMatchObject({ startIndex: 0, ...day });
+    const metric = [...container.querySelectorAll(".gd-metric, [class*=metric]")].find((node) => node.textContent?.includes("Changes today"));
+    expect(metric?.textContent).toContain("2");
   });
 
   it("sends the DNS search to the Host and keeps the search box focused while it reads", async () => {

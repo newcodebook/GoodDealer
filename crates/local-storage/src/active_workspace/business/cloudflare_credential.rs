@@ -1764,18 +1764,13 @@ mod tests {
     use crate::test_tempdir::tempdir;
 
     use super::*;
+    use crate::active_workspace::business::tests::TestDatabase;
     use crate::{DomainAssetWrite, LocalDatabaseKey};
 
     const AT: &str = "2026-09-16T12:00:00Z";
 
-    fn database() -> BusinessDatabase {
-        let directory = tempdir().unwrap().keep();
-        let mut database = BusinessDatabase::open(
-            &directory.join("workspace.db"),
-            &LocalDatabaseKey::from_bytes([0x71; 32]),
-            "workspace-local",
-        )
-        .unwrap();
+    fn database() -> TestDatabase {
+        let mut database = TestDatabase::open([0x71; 32]);
         database
             .upsert_domain_asset(
                 "credential-stage-asset",
