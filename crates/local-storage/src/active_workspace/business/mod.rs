@@ -7952,19 +7952,22 @@ mod tests {
         }
     }
 
-    /// Seeds `assets` active assets the way a 100k workspace looks: every asset has a target price
-    /// and a confirmed registrar observation, half expire within 60 days, a third are listed on
-    /// two markets, and one in a hundred has a pending field.
-    fn scale_database(assets: u32) -> BusinessDatabase {
+    /// Seeds `assets` active assets the way a large workspace looks: every asset has a target price
+    /// and a confirmed registrar observation, every other one expires within 60 days, every third is
+    /// listed on the first `markets` launch platforms, and one in a hundred has a pending field.
+    fn scale_database(assets: u32, markets: usize) -> BusinessDatabase {
         let mut database = database();
         let connection = database.store.fixture_connection();
         let transaction = connection.transaction().unwrap();
         transaction.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','scale-1','cloudflare','Scale',?1,'[\"registrar\",\"marketplace\"]')", [TIMESTAMP]).unwrap();
-        for (run, capability) in [
-            ("scale-registrar", "registrar"),
-            ("scale-atom", "marketplace"),
-            ("scale-afternic", "marketplace"),
-        ] {
+        let markets: Vec<(String, &str)> = super::super::launch_platforms::LAUNCH_PLATFORMS
+            [..markets]
+            .iter()
+            .map(|kind| (format!("scale-{kind}"), *kind))
+            .collect();
+        for (run, capability) in std::iter::once(("scale-registrar", "registrar"))
+            .chain(markets.iter().map(|(run, _)| (run.as_str(), "marketplace")))
+        {
             transaction.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'scale-1',?2,?3,'running')", rusqlite::params![run, capability, TIMESTAMP]).unwrap();
         }
         {
@@ -8008,7 +8011,7 @@ mod tests {
                     .execute(rusqlite::params![format!("r{index}"), entity, TIMESTAMP])
                     .unwrap();
                 if index % 3 == 0 {
-                    for (run, kind) in [("scale-atom", "atom"), ("scale-afternic", "afternic")] {
+                    for (run, kind) in &markets {
                         target
                             .execute(rusqlite::params![run, entity, index, TIMESTAMP])
                             .unwrap();
@@ -8040,9 +8043,118 @@ mod tests {
     /// because seeding takes a while; run with
     /// `cargo test -p gooddealer-local-storage --lib -- --ignored scale_reads --nocapture`.
     #[test]
-    #[ignore = "100k-asset benchmark; run explicitly"]
+    #[ignore = "100k-asset benchmark; run alone on an idle machine with --test-threads=1"]
     fn scale_reads_at_100k_assets() {
-        let database = scale_database(100_000);
+        // The `DATABASE_SCHEMA.md` per-read budget at 100k assets.
+        let worst = scale_reads(100_000, 2);
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "10k-asset benchmark; run alone on an idle machine with --test-threads=1"]
+    fn scale_reads_at_10k_assets() {
+        // The `DATABASE_SCHEMA.md` per-read budget at 10k assets.
+        let worst = scale_reads(10_000, 2);
+        assert!(worst <= std::time::Duration::from_millis(150), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "1M-asset benchmark; seeding takes minutes, run explicitly"]
+    /// Records timings only: whole-workspace counts grow linearly, so 1M assets is not yet budgeted.
+    fn scale_reads_at_1m_assets() {
+        scale_reads(1_000_000, 2);
+    }
+
+    /// The sales worst case: every listed domain on all 8 launch platforms. Its sales read exceeds
+    /// the budget until the listing aggregates are cached per data generation, so it has no ceiling.
+    #[test]
+    #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
+    fn scale_reads_at_100k_assets_on_8_markets() {
+        scale_reads(100_000, 8);
+    }
+
+    /// Statements recorded by `trace_read_statements`; `trace_v2` takes a plain function pointer.
+    static TRACED_STATEMENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`trace_v2` takes a `fn(TraceEvent)` callback"
+    )]
+    fn trace_read_statements(event: rusqlite::trace::TraceEvent<'_>) {
+        if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
+            TRACED_STATEMENTS.lock().unwrap().push(sql.to_owned());
+        }
+    }
+
+    /// Pins the query plans of every paged Host read: no statement may scan a base table, with or
+    /// without an index. Whole-workspace counts still visit every workspace row, but through an index
+    /// seek on the workspace; this test catches a predicate or join that silently falls back to a
+    /// scan.
+    #[test]
+    #[ignore = "plans need a seeded workspace; run with the scale benchmarks"]
+    fn paged_reads_never_scan_a_base_table() {
+        let database = scale_database(10_000, 8);
+        let connection = database.store.raw_connection();
+        connection.execute_batch("ANALYZE").unwrap();
+        TRACED_STATEMENTS.lock().unwrap().clear();
+        connection.trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(trace_read_statements),
+        );
+        database.read_asset_library(5_000, 50, "").unwrap();
+        database.read_asset_library(0, 50, "d00012").unwrap();
+        database.read_domain_detail("d0005000.test").unwrap();
+        database.read_renewals(2_000, 50).unwrap();
+        database.read_dns_health(5_000, 50, "d0001").unwrap();
+        database.read_sales(1_000, 50).unwrap();
+        connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+        let tables: std::collections::BTreeSet<String> = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let statements: std::collections::BTreeSet<String> = TRACED_STATEMENTS
+            .lock()
+            .unwrap()
+            .drain(..)
+            .filter(|sql| {
+                let head = sql.trim_start().to_ascii_uppercase();
+                head.starts_with("SELECT") || head.starts_with("WITH")
+            })
+            .collect();
+        assert!(statements.len() > 10, "{statements:?}");
+        let mut scans = Vec::new();
+        for sql in &statements {
+            let mut plan = connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap();
+            let nulls = vec![rusqlite::types::Null; plan.parameter_count()];
+            for detail in plan
+                .query_map(rusqlite::params_from_iter(nulls), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+            {
+                let scanned = detail
+                    .strip_prefix("SCAN ")
+                    .map(|rest| rest.split_whitespace().next().unwrap_or(""));
+                // A covering-index scan still visits every row, so any base-table scan counts.
+                if scanned.is_some_and(|table| tables.contains(table)) {
+                    scans.push(format!("{detail}\n  in {sql}"));
+                }
+            }
+        }
+        assert!(scans.is_empty(), "{}", scans.join("\n"));
+    }
+
+    /// Times every paged Host read over `scale_database(assets, markets)` and returns the slowest.
+    fn scale_reads(assets: u32, markets: usize) -> std::time::Duration {
+        let database = scale_database(assets, markets);
+        let expiring = assets.div_ceil(2);
+        let listed = assets.div_ceil(3);
         let time = |label: &str, read: &mut dyn FnMut()| {
             let started = std::time::Instant::now();
             read();
@@ -8053,12 +8165,12 @@ mod tests {
         let mut worst = std::time::Duration::ZERO;
         worst = worst.max(time("asset library page 1", &mut || {
             let snapshot = database.read_asset_library(0, 50, "").unwrap();
-            assert_eq!(snapshot.total_rows, 100_000);
-            assert_eq!(snapshot.expiring_within60_days, 50_000);
-            assert_eq!(snapshot.listing_count, 33_334);
+            assert_eq!(snapshot.total_rows, assets);
+            assert_eq!(snapshot.expiring_within60_days, expiring);
+            assert_eq!(snapshot.listing_count, listed);
         }));
         worst = worst.max(time("asset library last page", &mut || {
-            database.read_asset_library(99_950, 50, "").unwrap();
+            database.read_asset_library(assets - 50, 50, "").unwrap();
         }));
         worst = worst.max(time("asset library search", &mut || {
             assert_eq!(
@@ -8070,25 +8182,32 @@ mod tests {
             );
         }));
         worst = worst.max(time("domain detail", &mut || {
-            database.read_domain_detail("d0050000.test").unwrap();
+            database
+                .read_domain_detail(&format!("d{:07}.test", assets / 2))
+                .unwrap();
         }));
         worst = worst.max(time("renewals page 1", &mut || {
-            assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, 50_000);
+            assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, expiring);
+        }));
+        worst = worst.max(time("renewals last page", &mut || {
+            database.read_renewals(expiring - 50, 50).unwrap();
         }));
         worst = worst.max(time("dns health page 1", &mut || {
             assert_eq!(
                 database.read_dns_health(0, 50, "").unwrap().asset_count,
-                100_000
+                assets
             );
         }));
         worst = worst.max(time("sales page 1", &mut || {
             let snapshot = database.read_sales(0, 50).unwrap();
-            assert_eq!(snapshot.total_rows, 33_334);
+            assert_eq!(snapshot.total_rows, listed);
+            assert_eq!(snapshot.window.rows[0].marketplaces.len(), markets);
         }));
         worst = worst.max(time("sales last page", &mut || {
-            database.read_sales(33_300, 50).unwrap();
+            database.read_sales(listed - 50, 50).unwrap();
         }));
         println!("worst: {worst:?}");
+        worst
     }
 
     /// Seeds one connection, two assets, an older approved plan with an operation and attempts,

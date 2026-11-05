@@ -81,7 +81,13 @@ dead-letter outbox 和 Session 撤销；
 - [x] 销售读取的最新观察需确认所属运行已完成，避免未完成运行遮蔽已确认挂牌 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、资产库与域名详情的观察读取（最近注册商、在售计数）与销售读取共用“已完成运行且目标成功”的规则（当前取最新可用观察，不论运行是否完成；补 partial 包含与 failed 排除的测试）（`observation_runs::confirmed` 为唯一规则；测试覆盖 succeeded 与 partial 包含、运行中排除且不遮蔽已确认观察；failed 目标按 schema 不能携带证据，无法构造） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 100k 规模分页落地时对资产库聚合查询做 `EXPLAIN QUERY PLAN` 检查；若放宽“每运行每资产一条挂牌观察”的唯一约束，重新审视按资产而非按市场判定目标成功的规则（已检查：总数、到期、冲突、在售、估值、页查询与销售扫描的每个关联查找都走索引，没有未用索引的基表扫描；唯一约束未放宽。新增被忽略的 100k 基准 `scale_reads_at_100k_assets`，本机 release 下资产库每页约 0.6–0.7 s、销售约 0.55 s、续费与 DNS 约 0.13 s、域名详情 < 1 ms；这是计划检查，不是 DATABASE_SCHEMA 的正式规模声明） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 资产库与销售每页读取都对全工作区做 O(N) 聚合（在售计数每条挂牌两次已完成运行判定、估值读取全部目标价、销售窗口函数加临时排序）：确定每页延迟预算，超出时按读取 generation 缓存聚合；到期计数改写为可走 `domain_assets_by_status_expiry` 的谓词；补 1 万与 100 万资产基准，销售补 8 市场最坏情况；把查询计划固定为被忽略的计划测试（断言没有基表 SCAN），预算确定后给基准加上限；预算须在阶段 4 V1 验收前确定
+- [ ] 资产库与销售每页读取都对全工作区做 O(N) 聚合（在售计数每条挂牌两次已完成运行判定、估值读取全部目标价、销售窗口函数加临时排序）；预算须在阶段 4 V1 验收前确定并满足
+  - [x] 提议每页延迟预算（DATABASE_SCHEMA：release 下 1 万资产 ≤ 150 ms、10 万资产 2 市场 ≤ 1 s）并给 1 万与 10 万基准加上限；补 1 万、100 万与 10 万 8 市场基准（本机：10 万最慢约 0.71 s；8 市场销售约 2.0 s、资产库约 0.9 s；100 万资产库约 7.3 s、销售约 5.4 s，只记录） https://github.com/newcodebook/GoodDealer/pull/53
+  - [x] 到期谓词改为可走 `domain_assets_by_status_expiry` 的 `lifecycle_status IN ('active', 'expired')` 并带表别名（续费首页 0.14 s → 0.12 s）；续费先切页再查注册商名称（末页 0.52 s → 0.19 s） https://github.com/newcodebook/GoodDealer/pull/53
+  - [x] 查询计划固定为被忽略的 `paged_reads_never_scan_a_base_table`：记录各分页读取实际执行的语句，断言没有任何基表扫描（含覆盖索引扫描） https://github.com/newcodebook/GoodDealer/pull/53
+  - [ ] 8 市场最坏情况超出预算：按数据 generation（连接 `total_changes()` 与 `data_version`）缓存销售合并结果与资产库在售计数，缓存命中时每页 O(页)；缓存后给 8 市场基准加上限
+  - [ ] 由用户确认分页读取延迟预算（含 100 万资产目标），确认后才作为阶段 4 V1 验收条件
+  - [ ] 100 万资产的全量计数随资产线性增长（约 7 s）：正式规模声明前确定 100 万预算与做法（缓存或增量计数）
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售、续费与 DNS 读取在 100k 规模下改为 Host 侧分页与聚合指标，遵守 DATABASE_SCHEMA 的 keyset/窗口分页规则，不在 Renderer 汇总全部窗口（拆为以下三项，三项完成后勾选） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 续费：Host 页读取，到期数与自动续费开/关计数由 Host 全量返回，续费台使用 kit `Pagination`；页越界时回到末页，后页读取失败时回到首页 https://github.com/newcodebook/GoodDealer/pull/53
@@ -108,7 +114,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐（Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 共用资产行的安全文本规则：1–128 个码点，拒绝控制、双向与不可见格式字符；两侧测试使用同一矩阵） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列
+- [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
 - [ ] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）

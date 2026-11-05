@@ -171,7 +171,7 @@ impl<'a> ActivePortfolioReader<'a> {
                         AND (newer.observed_at > m.observed_at OR (newer.observed_at = m.observed_at AND newer.listing_observation_id > m.listing_observation_id)))
                 ) THEN 1 ELSE 0 END)
               FROM domain_assets WHERE {filter}",
-                expiring = super::renewals::EXPIRING_ASSET,
+                expiring = super::renewals::expiring_asset("e"),
                 confirmed_listing = super::observation_runs::confirmed("m"),
                 confirmed_newer = super::observation_runs::confirmed("newer")),
             params![requested_workspace_id, query, upper],

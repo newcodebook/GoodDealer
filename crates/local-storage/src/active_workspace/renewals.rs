@@ -12,11 +12,19 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// An asset the workspace still has to renew whose recorded expiry falls in `[today, today + 61
-/// days)` in UTC. Sold, dropped and archived assets are no longer the workspace's to renew, so
-/// they never count as expiring. The portfolio's expiring count uses this same predicate.
-pub(super) const EXPIRING_ASSET: &str = "lifecycle_status NOT IN ('archived', 'sold', 'dropped')
-       AND expires_on >= date('now') AND expires_on < date('now', '+61 days')";
+/// An asset of `alias` the workspace still has to renew whose recorded expiry falls in `[today,
+/// today + 61 days)` in UTC. Sold, dropped and archived assets are no longer the workspace's to
+/// renew, so they never count as expiring; the schema admits only those three and `active` and
+/// `expired`, so naming the two kept states selects the same rows while letting SQLite seek
+/// `domain_assets_by_status_expiry` by status and expiry range instead of scanning the workspace.
+/// The column references carry the alias so a join cannot bind them to another table's columns. The
+/// portfolio's expiring count uses this same predicate.
+pub(super) fn expiring_asset(alias: &str) -> String {
+    format!(
+        "{alias}.lifecycle_status IN ('active', 'expired')
+       AND {alias}.expires_on >= date('now') AND {alias}.expires_on < date('now', '+61 days')"
+    )
+}
 
 const ASSETS: &str = "FROM domain_assets WHERE workspace_id = ?1 AND deleted_at IS NULL";
 
@@ -76,6 +84,7 @@ impl<'a> ActiveRenewalsReader<'a> {
         if start_index > 1_000_000 || !(1..=200).contains(&size) {
             return Err(PortfolioReadError::WindowRejected);
         }
+        let expiring = expiring_asset("domain_assets");
         let (as_of_date, total_rows, enabled, disabled, malformed): (String, i64, i64, i64, i64) =
             transaction
                 .query_row(
@@ -83,7 +92,7 @@ impl<'a> ActiveRenewalsReader<'a> {
                         "SELECT date('now'), count(*),
                            coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
                            coalesce(sum(auto_renew NOT IN (0, 1) OR expires_on IS NOT date(expires_on)), 0)
-                         {ASSETS} AND {EXPIRING_ASSET}"
+                         {ASSETS} AND {expiring}"
                     ),
                     [requested_workspace_id],
                     |row| {
@@ -108,7 +117,7 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let count =
             |value: i64| u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected);
-        let registrar_name = registrar_name();
+        let latest_name = registrar_name("domain_assets");
         // Every expiring asset's registrar name is validated, not only the page's: a bad name on a
         // page nobody reads would otherwise stay counted while no read ever rejects it. Names repeat,
         // so only distinct ones reach Rust. Every available observation's name is checked first; the
@@ -123,7 +132,7 @@ impl<'a> ActiveRenewalsReader<'a> {
         if !all_valid
             && !registrar_names_valid(
                 &transaction,
-                &format!("SELECT DISTINCT {registrar_name} {ASSETS} AND {EXPIRING_ASSET}"),
+                &format!("SELECT DISTINCT {latest_name} {ASSETS} AND {expiring}"),
                 requested_workspace_id,
             )?
         {
@@ -131,10 +140,15 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let mut statement = transaction
             .prepare(&format!(
-                "SELECT entity_id, expires_on, auto_renew, {registrar_name}
-                 {ASSETS} AND {EXPIRING_ASSET}
-                 ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
-                 LIMIT ?2 OFFSET ?3"
+                // The page is cut first, so the registrar lookup runs for its rows only rather than
+                // for every row the offset skips.
+                "SELECT page.entity_id, page.expires_on, page.auto_renew, {page_registrar_name}
+                 FROM (SELECT workspace_id, entity_id, expires_on, auto_renew
+                       {ASSETS} AND {expiring}
+                       ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
+                       LIMIT ?2 OFFSET ?3) page
+                 ORDER BY page.expires_on COLLATE BINARY, page.entity_id COLLATE BINARY",
+                page_registrar_name = registrar_name("page")
             ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
@@ -201,12 +215,12 @@ fn registrar_names_valid(
     Ok(true)
 }
 
-/// The latest confirmed, available registrar observation's registrar name for each asset row.
-fn registrar_name() -> String {
+/// The latest confirmed, available registrar observation's registrar name for each `alias` row.
+fn registrar_name(alias: &str) -> String {
     format!(
         "(SELECT registrar_name FROM registrar_observations r
-          WHERE r.workspace_id = domain_assets.workspace_id
-            AND r.entity_id = domain_assets.entity_id
+          WHERE r.workspace_id = {alias}.workspace_id
+            AND r.entity_id = {alias}.entity_id
             AND r.observation_availability = 'available' AND {confirmed}
           ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)",
         confirmed = super::observation_runs::confirmed("r")
