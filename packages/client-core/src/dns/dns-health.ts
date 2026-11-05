@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { launchPlatformKindSchema, launchPlatformNames } from "../connections/launch-platforms";
 import { connectionLabelSchema } from "../connections/connection-label";
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { assetLibraryWindowRequestSchema, copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
@@ -7,24 +8,8 @@ import type { DnsVerificationRowViewModel, DnsVerificationViewModel } from "../v
 
 const safeCount = z.number().int().nonnegative().max(1_024);
 
-/** ADR-0027 launch platforms; a Zone may be bound on any of them, and the Host rejects others. */
-const zoneProviderKindSchema = z.enum([
-  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
-]);
-
-const providerNames: Readonly<Record<z.infer<typeof zoneProviderKindSchema>, string>> = {
-  afternic: "Afternic",
-  atom: "Atom",
-  cloudflare: "Cloudflare",
-  dynadot: "Dynadot",
-  godaddy: "GoDaddy",
-  namecheap: "Namecheap",
-  porkbun: "Porkbun",
-  spaceship: "Spaceship",
-};
-
 const dnsZoneBindingSchema = z.object({
-  providerKind: zoneProviderKindSchema,
+  providerKind: launchPlatformKindSchema,
   connectionLabel: connectionLabelSchema,
   zoneLabel: canonicalDomainNameSchema,
   validationStatus: z.enum(["unverified", "verified", "stale", "conflicted", "detached"]),
@@ -134,7 +119,7 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     dnssecStatus: observation?.dnssecStatus ?? null,
     recordHealth: recordCount === null ? "unobserved" : "observed",
     recordCount,
-    providerDisplayName: bound ? row.zoneBinding!.connectionLabel : observation === null ? "—" : providerNames[observation.providerKind],
+    providerDisplayName: bound ? row.zoneBinding!.connectionLabel : observation === null ? "—" : launchPlatformNames[observation.providerKind],
     providerResolved: bound,
     propagationStatus: observationStatus(observation),
     lastCheckedAt: observation?.observedAt ?? null,

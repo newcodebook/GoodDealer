@@ -1,15 +1,11 @@
 import { z } from "zod";
 
+import { launchPlatformKindSchema, launchPlatformNames } from "./launch-platforms";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import { connectionLabelSchema } from "./connection-label";
 import type { ConnectionSettingsItemViewModel, ConnectionSettingsViewModel, ProviderConnectionHealth } from "./index";
 
 const connectionRoleSchema = z.enum(["registrar", "dns", "marketplace"]);
-
-/** ADR-0027 launch platforms; the Host fails the read on a connection to any other platform. */
-const settingsProviderKindSchema = z.enum([
-  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
-]);
 
 const settingsConnectionRoleSchema = z.object({
   role: connectionRoleSchema,
@@ -19,7 +15,7 @@ const settingsConnectionRoleSchema = z.object({
 }).strict();
 
 const settingsConnectionSchema = z.object({
-  providerKind: settingsProviderKindSchema,
+  providerKind: launchPlatformKindSchema,
   connectionLabel: connectionLabelSchema,
   lifecycleStatus: z.enum(["active", "invalid", "revoked"]),
   validationStatus: z.enum(["unknown", "valid", "invalid", "insufficient_scope", "unreachable"]),
@@ -64,17 +60,6 @@ export function settingsConnectionHealth(connection: SettingsConnection): Provid
   return connection.validationStatus === "valid" ? "healthy" : "retained_unverified";
 }
 
-const providerNames: Readonly<Record<SettingsConnection["providerKind"], string>> = {
-  afternic: "Afternic",
-  atom: "Atom",
-  cloudflare: "Cloudflare",
-  dynadot: "Dynadot",
-  godaddy: "GoDaddy",
-  namecheap: "Namecheap",
-  porkbun: "Porkbun",
-  spaceship: "Spaceship",
-};
-
 /**
  * How the connection authenticates. Only Cloudflare's API token flow exists; the other platforms'
  * methods are recorded from their official documentation in their own ADR-0027 phase, so until then
@@ -101,7 +86,7 @@ export function projectConnectionSettings(
         ? [{
           view: "active",
           providerConnectionId: `${category}-${index}`,
-          provider: providerNames[connection.providerKind],
+          provider: launchPlatformNames[connection.providerKind],
           accountAlias: connection.connectionLabel,
           remoteAccountId: null,
           category,

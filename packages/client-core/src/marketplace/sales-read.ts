@@ -1,14 +1,13 @@
 import { z } from "zod";
 
+import { launchPlatformKindSchema, launchPlatformNames } from "../connections/launch-platforms";
 import { commerceMoneySchema } from "../pricing/index";
 import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import { salesDeskViewModelSchema, type ListingView, type SalesDeskViewModel } from "./index";
 
-/** ADR-0027 launch platforms; the Host rejects listings from any other marketplace. */
-export const salesMarketplaceKindSchema = z.enum([
-  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
-]);
+/** ADR-0027 launch platforms; the Host rejects any other. */
+export const salesMarketplaceKindSchema = launchPlatformKindSchema;
 
 /**
  * One listed domain, merged by the Host across its markets: `unknown` when a market has not
@@ -79,23 +78,12 @@ export interface SalesReadPort {
   loadSales(request: SalesWindowRequest): Promise<SalesRead>;
 }
 
-const marketplaceNames: Readonly<Record<z.infer<typeof salesMarketplaceKindSchema>, string>> = {
-  afternic: "Afternic",
-  atom: "Atom",
-  cloudflare: "Cloudflare",
-  dynadot: "Dynadot",
-  godaddy: "GoDaddy",
-  namecheap: "Namecheap",
-  porkbun: "Porkbun",
-  spaceship: "Spaceship",
-};
-
 function listingView(row: SalesListingRow): ListingView {
   return {
     // A presentation key scoped to this read, not a marketplace listing identifier.
     id: row.entityId,
     domain: row.entityId,
-    platforms: row.marketplaces.map((kind) => marketplaceNames[kind]),
+    platforms: row.marketplaces.map((kind) => launchPlatformNames[kind]),
     bin: row.askingPrice,
     views: null,
     offerCount: null,

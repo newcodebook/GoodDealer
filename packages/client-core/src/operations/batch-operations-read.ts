@@ -1,12 +1,8 @@
 import { z } from "zod";
 
+import { launchPlatformKindSchema, launchPlatformNames } from "../connections/launch-platforms";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import { batchOperationPhaseSchema } from "./contracts";
-
-/** ADR-0027 launch platforms; the Host rejects plan items bound to any other Provider kind. */
-const batchProviderKindSchema = z.enum([
-  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
-]);
 
 const countSchema = z.number().int().nonnegative().max(100_000);
 
@@ -42,7 +38,7 @@ const batchOperationRowSchema = z.object({
   targetCount: countSchema,
   createdAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
-  providerKinds: z.array(batchProviderKindSchema).max(8).readonly(),
+  providerKinds: z.array(launchPlatformKindSchema).max(8).readonly(),
   planned: batchPlannedCountsSchema,
   results: batchAttemptCountsSchema.nullable(),
 }).strict().superRefine((row, context) => {
@@ -149,17 +145,6 @@ export const batchOperationListViewModelSchema = z.object({
 export type BatchOperationListItem = z.infer<typeof batchOperationListItemSchema>;
 export type BatchOperationListViewModel = z.infer<typeof batchOperationListViewModelSchema>;
 
-const providerNames: Readonly<Record<BatchOperationRow["providerKinds"][number], string>> = {
-  afternic: "Afternic",
-  atom: "Atom",
-  cloudflare: "Cloudflare",
-  dynadot: "Dynadot",
-  godaddy: "GoDaddy",
-  namecheap: "Namecheap",
-  porkbun: "Porkbun",
-  spaceship: "Spaceship",
-};
-
 /** The execution phase wins once an operation exists; an unexecuted plan reports its own phase. */
 function batchPhase(row: BatchOperationRow): BatchOperationListItem["phase"] {
   if (row.operationPhase !== null) return row.operationPhase;
@@ -214,7 +199,7 @@ export function projectBatchOperationList(windows: readonly BatchOperationsRead[
         title: row.title,
         ruleLabel: null,
         targetCount: row.targetCount,
-        platform: row.providerKinds.length === 0 ? null : row.providerKinds.map((kind) => providerNames[kind]).join(" / "),
+        platform: row.providerKinds.length === 0 ? null : row.providerKinds.map((kind) => launchPlatformNames[kind]).join(" / "),
         account: null,
         createdLabel: row.createdAt.slice(0, 10),
         completedAt: row.completedAt,

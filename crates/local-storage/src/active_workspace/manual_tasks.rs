@@ -14,19 +14,8 @@ use crate::portfolio_projection::{
     validate_timestamp,
 };
 
+use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
-
-/// ADR-0027 launch platforms; a task bound to any other Provider kind fails the read.
-const PROVIDER_KINDS: [&str; 8] = [
-    "afternic",
-    "atom",
-    "cloudflare",
-    "dynadot",
-    "godaddy",
-    "namecheap",
-    "porkbun",
-    "spaceship",
-];
 
 /// The inbox view lists at most this many affected domains per task; `domain_count` is exact.
 const DOMAIN_LIMIT: u32 = 10_000;
@@ -227,7 +216,7 @@ fn project_task(
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?;
-            if !PROVIDER_KINDS.contains(&kind.as_str()) {
+            if !LAUNCH_PLATFORMS.contains(&kind.as_str()) {
                 return Err(PortfolioReadError::ProjectionRejected);
             }
             if !valid_connection_label(&label) {

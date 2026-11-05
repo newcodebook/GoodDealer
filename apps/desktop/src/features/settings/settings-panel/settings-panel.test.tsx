@@ -123,6 +123,41 @@ describe("Settings from the Host projection", () => {
     expect(html).toMatch(/01[/-]0[12]/u);
   });
 
+  it("lists a non-Cloudflare connection under each role it declares, unavailable and without a guessed method", () => {
+    const multi = projectConnectionSettings(parseSettingsRead({
+      schemaVersion: 1, kind: "settings", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      connections: [
+        {
+          providerKind: "cloudflare", connectionLabel: "CF", lifecycleStatus: "active", validationStatus: "valid",
+          credentialUseState: "active", lastValidatedAt: null,
+          roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+        },
+        {
+          providerKind: "spaceship", connectionLabel: "SellerHub", lifecycleStatus: "active", validationStatus: "valid",
+          credentialUseState: "active", lastValidatedAt: null,
+          roles: [
+            { role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" },
+            { role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" },
+          ],
+        },
+      ],
+    }), () => "能力资格认证前不可用");
+    const groups = Object.fromEntries(multi.groups.map((group) => [group.category, group.connections.map((connection) => [connection.provider, connection.method])]));
+    // Spaceship's connection method is recorded in its own ADR-0027 phase, so none is shown yet.
+    expect(groups).toEqual({ registrar: [["Spaceship", null]], dns: [["Cloudflare", "api"]], marketplace: [["Spaceship", null]] });
+    for (const locale of ["zh-CN", "en-US"] as const) {
+      const html = renderToStaticMarkup(
+        <SettingsPanel locale={locale} initialSection="connections" connections={multi} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7 }} />,
+      );
+      expect(html.match(/>Spaceship</gu)).toHaveLength(2);
+      // Only Cloudflare's row carries a method tag; no row offers an action.
+      expect(html.match(/>API</gu)).toHaveLength(1);
+      expect(html).not.toContain(">OAuth<");
+      expect(html.match(/<span class="settings-conn-action"><\/span>/gu)).toHaveLength(3);
+    }
+  });
+
   it("says each section without a Host source is unavailable instead of inventing values", () => {
     expect(render("devices")).toContain("设备列表与执行权移交尚未接入 Host");
     expect(render("devices")).not.toContain("移交执行权<");

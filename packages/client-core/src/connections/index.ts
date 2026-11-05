@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export * from "./device-credential-lifecycle";
 export * from "./connection-label";
+export * from "./launch-platforms";
 export * from "./settings-read";
 
 const identifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);

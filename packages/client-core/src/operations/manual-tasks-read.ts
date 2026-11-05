@@ -1,13 +1,9 @@
 import { z } from "zod";
 
+import { launchPlatformKindSchema, launchPlatformNames } from "../connections/launch-platforms";
 import { connectionLabelSchema } from "../connections/connection-label";
 import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-models";
 import { manualTaskInboxViewModelSchema, type ManualTaskInboxViewModel, type ManualTaskView } from "./contracts";
-
-/** ADR-0027 launch platforms; the Host rejects tasks bound to any other Provider kind. */
-const manualTaskProviderKindSchema = z.enum([
-  "afternic", "atom", "cloudflare", "dynadot", "godaddy", "namecheap", "porkbun", "spaceship",
-]);
 
 const tokenSchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u);
 const countSchema = z.number().int().nonnegative().max(1_000_000);
@@ -23,7 +19,7 @@ const manualTaskRowSchema = z.object({
   title: displaySchema(500),
   operationKind: tokenSchema,
   capability: tokenSchema,
-  providerKind: manualTaskProviderKindSchema.nullable(),
+  providerKind: launchPlatformKindSchema.nullable(),
   connectionLabel: connectionLabelSchema.nullable(),
   highRisk: z.boolean(),
   itemCount: countSchema.min(1),
@@ -97,17 +93,6 @@ export interface ManualTaskProjectionLabels {
   readonly noAccount: string;
 }
 
-const providerNames: Readonly<Record<ManualTaskRow["providerKind"] & string, string>> = {
-  afternic: "Afternic",
-  atom: "Atom",
-  cloudflare: "Cloudflare",
-  dynadot: "Dynadot",
-  godaddy: "GoDaddy",
-  namecheap: "Namecheap",
-  porkbun: "Porkbun",
-  spaceship: "Spaceship",
-};
-
 /**
  * Projects complete Host manual task windows of one generation into the inbox. Keys are scoped to
  * this read, never plan or operation identifiers. No task offers an action: opening the platform,
@@ -131,7 +116,7 @@ export function projectManualTaskInbox(
   }
   if (expectedStart !== first.totalRows) throw new TypeError("manual task windows must cover every task");
   const tasks = windows.flatMap((window) => window.window.rows).map((row, index): ManualTaskView => {
-    const platform = row.providerKind === null ? labels.noPlatform : providerNames[row.providerKind];
+    const platform = row.providerKind === null ? labels.noPlatform : launchPlatformNames[row.providerKind];
     return {
       id: `task-${index}`,
       revision: 1,

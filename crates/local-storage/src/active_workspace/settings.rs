@@ -10,22 +10,11 @@ use serde::Serialize;
 
 use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness, validate_timestamp};
 
+use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
 /// Upper bound on connections in one read; a larger table fails closed instead of truncating.
 const MAX_CONNECTIONS: u16 = 64;
-/// ADR-0027 launch platforms. Settings lists a connection on any of them; whether a role on it can
-/// run is reported per role below, never inferred from the platform.
-const PROVIDER_KINDS: [&str; 8] = [
-    "afternic",
-    "atom",
-    "cloudflare",
-    "dynadot",
-    "godaddy",
-    "namecheap",
-    "porkbun",
-    "spaceship",
-];
 /// Roles the settings surface can present. ADR-0027's `acquisition` role arrives with the phase 5
 /// connection-role model; until then a connection declaring it fails the read instead of hiding.
 const ROLES: [&str; 3] = ["registrar", "dns", "marketplace"];
@@ -170,7 +159,9 @@ fn project_connection(raw: RawConnection) -> Result<SettingsConnection, Portfoli
         });
     }
     Ok(SettingsConnection {
-        provider_kind: closed(provider_kind, &PROVIDER_KINDS)?,
+        // Any launch platform is listed; whether a role on it can run is reported per role, never
+        // inferred from the platform.
+        provider_kind: closed(provider_kind, &LAUNCH_PLATFORMS)?,
         connection_label: label,
         lifecycle_status: closed(lifecycle, &["active", "invalid", "revoked"])?,
         validation_status: closed(

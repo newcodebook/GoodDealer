@@ -10,19 +10,8 @@ use serde::Serialize;
 
 use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness, validate_timestamp};
 
+use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
-
-/// ADR-0027 launch platforms; a plan item bound to any other Provider kind fails the read.
-const PROVIDER_KINDS: [&str; 8] = [
-    "afternic",
-    "atom",
-    "cloudflare",
-    "dynadot",
-    "godaddy",
-    "namecheap",
-    "porkbun",
-    "spaceship",
-];
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -340,7 +329,7 @@ fn plan_provider_kinds(
         .map(|kind| {
             closed(
                 kind.map_err(|_| PortfolioReadError::ProjectionRejected)?,
-                &PROVIDER_KINDS,
+                &LAUNCH_PLATFORMS,
             )
         })
         .collect::<Result<Vec<_>, _>>()

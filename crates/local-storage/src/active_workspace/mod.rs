@@ -4,6 +4,7 @@ pub(crate) mod dns_health;
 
 pub(crate) mod history;
 
+mod launch_platforms;
 pub(crate) mod manual_tasks;
 
 pub(crate) mod observation_runs;

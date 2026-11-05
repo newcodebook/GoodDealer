@@ -12,22 +12,10 @@ use crate::portfolio_projection::{
     PortfolioReadError, PortfolioReadFreshness, valid_connection_label, validate_timestamp,
 };
 
+use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
 const MAX_NAMESERVERS: usize = 16;
-
-/// ADR-0027 launch platforms. A Zone may be bound on any of them; whether a platform can hold one
-/// is decided by its capability manifest when the binding is made, not by this read.
-const PROVIDER_KINDS: [&str; 8] = [
-    "afternic",
-    "atom",
-    "cloudflare",
-    "dynadot",
-    "godaddy",
-    "namecheap",
-    "porkbun",
-    "spaceship",
-];
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -310,7 +298,9 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
             Some(zone_label),
             Some(validation_status),
         ) if provider_kind == connection_kind => Some(DnsZoneBinding {
-            provider_kind: closed(provider_kind, &PROVIDER_KINDS)?,
+            // A Zone may be bound on any launch platform; whether one can hold it is decided by its
+            // capability manifest when the binding is made, not by this read.
+            provider_kind: closed(provider_kind, &LAUNCH_PLATFORMS)?,
             connection_label: if valid_connection_label(&connection_label) {
                 connection_label
             } else {

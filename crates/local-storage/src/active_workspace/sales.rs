@@ -17,19 +17,8 @@ use serde::Serialize;
 
 use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 
+use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
-
-/// ADR-0027's launch platforms. A listing from any other marketplace fails the read.
-const MARKETPLACES: [&str; 8] = [
-    "afternic",
-    "atom",
-    "cloudflare",
-    "dynadot",
-    "godaddy",
-    "namecheap",
-    "porkbun",
-    "spaceship",
-];
 
 /// The latest listing per (asset, marketplace) among observations the Host finished confirming:
 /// the run completed and this asset's target in it succeeded. A newer observation from a run that
@@ -373,7 +362,7 @@ fn project_listing(raw: RawListing) -> Result<(String, MarketListing), Portfolio
     Ok((
         entity_id,
         MarketListing {
-            kind: closed(kind, &MARKETPLACES)?,
+            kind: closed(kind, &LAUNCH_PLATFORMS)?,
             // Unconfirmed or unavailable evidence never presents as a definite listing state.
             status: if availability == "available" && evidence == "confirmed" {
                 status
