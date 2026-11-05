@@ -34,4 +34,10 @@ describe("Host route status", () => {
     button!.props.onClick!();
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("says the rows under a failure are stale only when the route keeps them", () => {
+    const failed = { kind: "failed" } as const;
+    expect(renderToStaticMarkup(<HostRouteStatus state={failed} copy={copy} onRetry={vi.fn()} />)).not.toContain("Last rows");
+    expect(renderToStaticMarkup(<HostRouteStatus state={failed} copy={copy} onRetry={vi.fn()} staleNote="Last rows" />)).toContain("Last rows");
+  });
 });

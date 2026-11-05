@@ -415,11 +415,12 @@ function RenewalsRoute({ locale, ports, readGeneration, onStale, onBack }: {
 /**
  * A paged desk showing its last result. When the latest page, search or retry failed, the failure is
  * reported above that result instead of replacing it, so the desk and its search box stay mounted;
- * the stale rows sit under the failure until a retry or another read succeeds.
+ * the stale rows sit under the failure, which says they are stale, until a retry or another read
+ * succeeds.
  */
-function withReadFailure(state: HostRouteReadState<unknown>, copy: HostRouteStatusCopy, retry: () => void, desk: ReactNode) {
+function withReadFailure(state: HostRouteReadState<unknown>, copy: HostRouteStatusCopy & { readonly staleResult: string }, retry: () => void, desk: ReactNode) {
   // The same element shape in every state, so reporting a failure never remounts the desk.
-  return <>{state.kind === "failed" ? <HostRouteStatus state={state} copy={copy} onRetry={retry} /> : null}{desk}</>;
+  return <>{state.kind === "failed" ? <HostRouteStatus state={state} copy={copy} onRetry={retry} staleNote={copy.staleResult} /> : null}{desk}</>;
 }
 
 /** Listed domains per sales page until the person picks another size; within the Host's 200-row window. */

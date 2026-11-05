@@ -152,19 +152,35 @@ describe("paged Host routes", () => {
     expect(container.textContent).toContain(domain(0));
   });
 
-  it("returns to the first page when a later page fails to read", async () => {
+  const openSales = () => click(named("Sales"));
+  const openRenewals = () => click((button) => button.getAttribute("aria-label")?.startsWith("Expiring within 60 days") === true);
+
+  it.each([
+    ["sales", "loadSales", openSales],
+    ["renewals", "loadRenewals", openRenewals],
+  ] as const)("reports a failed %s page above the last page and retries the same page", async (desk, loader, open) => {
     const host = hostPorts();
-    const succeed = host.loadSales.getMockImplementation()!;
-    host.loadSales.mockImplementation(async (request) => {
-      if (request.startIndex > 0) throw new Error("window starts past a total that shrank");
+    const succeed = host[loader].getMockImplementation()! as (request: HostWindowRequest) => Promise<unknown>;
+    host[loader].mockImplementation((async (request: HostWindowRequest) => {
+      if (request.startIndex > 0) throw new Error("transport");
       return succeed(request);
-    });
+    }) as never);
     await render(host.ports);
-    await click(named("Sales"));
+    await open();
     await click(named("2"));
-    // The failed page 2 read sends the route back to page 1 instead of retrying the same start.
-    expect(host.loadSales.mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 0]);
+    // The failed page 2 stays the page: the last page sits under the failure, no longer busy, with
+    // its pager, instead of the route quietly returning to page 1.
+    expect(host[loader].mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("from the last successful read");
     expect(container.textContent).toContain(domain(0));
+    expect(container.querySelector(`.${desk === "sales" ? "sales-desk" : "renewal-desk"}`)?.hasAttribute("aria-busy")).toBe(false);
+    expect(container.querySelector(".gd-pager-busy")).toBeNull();
+
+    host[loader].mockImplementation(succeed as never);
+    await click(named("Read again"));
+    expect(host[loader].mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 50]);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain(domain(50));
   });
 
   it("reports a failed DNS search above the last result and keeps the search box", async () => {
@@ -182,6 +198,7 @@ describe("paged Host routes", () => {
     });
     // The failure sits above the last result; the same box stays mounted, focused and typed into.
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not be read");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("from the last successful read");
     expect(search.isConnected).toBe(true);
     expect(document.activeElement).toBe(search);
     expect(search.value).toBe("pa");

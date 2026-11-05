@@ -77,15 +77,21 @@ export interface HostPage {
 /**
  * The page a paged route should move to after a read, or null to stay. A page past the end, after
  * rows left the read, moves back to the last page. The Host rejects a window that starts past its
- * total, so that read fails rather than reporting a total; a failed read on a later page therefore
- * returns to the first page, where a retry can succeed, instead of retrying the same start forever.
+ * total, so that read fails rather than reporting a total, and the Renderer cannot tell that
+ * failure from any other. A failed later page that still shows the last result stays put: the
+ * failure is reported over that result, whose pager lets the person retry or pick another page.
+ * With nothing to show, only the failure would be on screen, so the route returns to the first
+ * page, where a retry can succeed, instead of retrying the same start forever.
  */
 export function recoverHostPage(
   page: HostPage,
-  outcome: { readonly kind: "loading" } | { readonly kind: "failed" } | { readonly kind: "ready"; readonly totalItems: number },
+  outcome:
+    | { readonly kind: "loading" }
+    | { readonly kind: "failed"; readonly previous?: unknown }
+    | { readonly kind: "ready"; readonly totalItems: number },
 ): HostPage | null {
   if (page.startIndex === 0) return null;
-  if (outcome.kind === "failed") return { startIndex: 0, size: page.size };
+  if (outcome.kind === "failed") return outcome.previous === undefined ? { startIndex: 0, size: page.size } : null;
   if (outcome.kind === "ready" && page.startIndex >= outcome.totalItems) {
     return { startIndex: Math.max(0, Math.floor((outcome.totalItems - 1) / page.size)) * page.size, size: page.size };
   }

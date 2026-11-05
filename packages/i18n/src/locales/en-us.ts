@@ -393,6 +393,7 @@ const enUSDictionary = {
     loading: "Reading local renewal data…",
     loadFailed: "Local renewal data could not be read. Retrying only reads again and changes nothing.",
     retryRead: "Read again",
+    staleResult: "The rows shown are from the last successful read and may be out of date.",
   },
   salesDesk: {
     title: "Sales",
@@ -476,6 +477,7 @@ const enUSDictionary = {
     loading: "Reading local sales data…",
     loadFailed: "Local sales data could not be read. Retrying only reads again and changes nothing.",
     retryRead: "Read again",
+    staleResult: "The rows shown are from the last successful read and may be out of date.",
     reserved: "Reserved",
   },
   dnsVerification: {
@@ -552,6 +554,7 @@ const enUSDictionary = {
     loading: "Reading DNS data…",
     loadFailed: "Local DNS data could not be read. Retrying only reads again and changes nothing.",
     retryRead: "Read again",
+    staleResult: "The rows shown are from the last successful read and may be out of date.",
     observedState: "Observed",
     zoneNameservers: "Zone assigned",
     dnssec: "DNSSEC",

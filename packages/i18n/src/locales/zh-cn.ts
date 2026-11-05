@@ -327,6 +327,7 @@ const zhCNDictionary = {
     loading: "正在读取本地续费数据…",
     loadFailed: "无法读取本地续费数据。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",
+    staleResult: "当前显示的是上一次成功读取的结果，可能已过时。",
   },
   salesDesk: {
     title: "销售管理",
@@ -410,6 +411,7 @@ const zhCNDictionary = {
     loading: "正在读取本地销售数据…",
     loadFailed: "无法读取本地销售数据。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",
+    staleResult: "当前显示的是上一次成功读取的结果，可能已过时。",
     reserved: "已预留",
   },
   dnsVerification: {
@@ -486,6 +488,7 @@ const zhCNDictionary = {
     loading: "正在读取 DNS 数据…",
     loadFailed: "无法读取本地 DNS 数据。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",
+    staleResult: "当前显示的是上一次成功读取的结果，可能已过时。",
     observedState: "已观察",
     zoneNameservers: "Zone 分配",
     dnssec: "DNSSEC",

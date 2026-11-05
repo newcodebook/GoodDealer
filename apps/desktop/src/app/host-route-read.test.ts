@@ -127,6 +127,10 @@ describe("paged Host route recovery", () => {
     expect(recoverHostPage({ startIndex: 0, size: 50 }, { kind: "failed" })).toBeNull();
   });
 
+  it("keeps a failed later page that still shows the last result, so its failure stays reported", () => {
+    expect(recoverHostPage(page3, { kind: "failed", previous: "page 2" })).toBeNull();
+  });
+
   it("moves a page past the end back to the last page, or the first when nothing is left", () => {
     expect(recoverHostPage(page3, { kind: "ready", totalItems: 100 })).toEqual({ startIndex: 50, size: 50 });
     expect(recoverHostPage(page3, { kind: "ready", totalItems: 0 })).toEqual({ startIndex: 0, size: 50 });

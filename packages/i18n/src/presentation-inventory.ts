@@ -23,15 +23,15 @@ export const presentationCopyInventory = {
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 44, exactBrandCopyKeys: 19 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 88, exactBrandCopyKeys: 58 },
   operationHistory: { source: "HistoryLog.jsx", typedBoundary: "OperationHistoryViewModel", localeKeyCount: 69, exactBrandCopyKeys: 43 },
-  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 82, exactBrandCopyKeys: 60 },
+  salesDesk: { source: "SalesDesk.jsx", typedBoundary: "SalesDeskViewModel", localeKeyCount: 83, exactBrandCopyKeys: 60 },
   activation: { source: "Onboarding.jsx", typedBoundary: "ActivationWizardViewModel", localeKeyCount: 62, exactBrandCopyKeys: 42 },
-  dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 80, exactBrandCopyKeys: 35 },
-  renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 53, exactBrandCopyKeys: 27 },
+  dnsVerification: { source: "DnsVerify.jsx", typedBoundary: "DnsVerificationViewModel", localeKeyCount: 81, exactBrandCopyKeys: 35 },
+  renewalDesk: { source: "RenewDesk.jsx", typedBoundary: "RenewalDeskViewModel", localeKeyCount: 54, exactBrandCopyKeys: 27 },
   domainDetail: { source: "DomainDetail.jsx", typedBoundary: "DomainDetailViewModel", localeKeyCount: 62, exactBrandCopyKeys: 45 },
   signIn: { source: "SignIn.jsx", typedBoundary: "DesktopAuthenticationStatus", localeKeyCount: 21, exactBrandCopyKeys: 9, exactEnUSBrandCopyKeys: 8 },
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 852 as const;
+export const reconciledLocaleKeyCount = 855 as const;
 export const reconciledExactBrandCopyKeyCount = 502 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

@@ -101,9 +101,9 @@ dead-letter outbox 和 Session 撤销；
 - [x] 到期日期的 `date()` 往返校验同样用于资产库：资产库每次读取统计全工作区非法到期日期并失败关闭，资产行与域名详情逐行校验 `YYYY-MM-DD` 日历日期（与 `validate_timestamp`、Renderer `z.iso.date()` 同规则）；测试覆盖闰日、2 月 30 日等不可能日期与后缀；100k 基准资产库末页约 0.78 s（新增一次全表扫描，计入 O(N) 预算项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `domain_assets.expires_on` 写入时校验：存储完整性迁移以插入/更新触发器要求 `NULL` 或 `date()` 原样往返的 `YYYY-MM-DD` 日期（SQLite 不能为已有表追加 CHECK，触发器等效）；迁移前的旧行不改写，资产库与续费读取的全表日期校验保留并继续失败关闭（两侧差异：资产库拒绝全工作区非法日期，续费只拒绝窗口内的） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换（kit 的进行中提示是 Settings/Sign-in 中缓慢旋转的弱化 RefreshCw，复用在 Pagination 备注位并尊重减少动效；同一来源的读取失败保留上一结果和搜索框，失败横幅与重试内联在台面上方，换端口或代际不沿用旧值） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 非首页读取失败时 `recoverHostPage` 一律回到第 1 页，使内联失败横幅一闪而过；把回退限定在起点越界，或保留横幅直到用户操作
-- [ ] 搜索读取失败后，保留的行与计数属于上一查询而搜索框显示新查询；在失败横幅中经 i18n 说明当前显示的是上一次成功读取的结果
-- [ ] 为续费与销售台面补一项翻页读取失败的 DOM 测试，固定 `busy={false}` 与旧页加横幅的状态
+- [x] 非首页读取失败时 `recoverHostPage` 一律回到第 1 页，使内联失败横幅一闪而过；把回退限定在起点越界，或保留横幅直到用户操作（Renderer 无法区分越界失败，故仍显示上一结果的失败页留在原页并保留横幅，可重试或换页；无可显示结果时才回到第 1 页） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 搜索读取失败后，保留的行与计数属于上一查询而搜索框显示新查询；在失败横幅中经 i18n 说明当前显示的是上一次成功读取的结果（三个分页台面的 `staleResult`，en-US/zh-CN） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 为续费与销售台面补一项翻页读取失败的 DOM 测试，固定 `busy={false}` 与旧页加横幅的状态 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
