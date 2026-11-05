@@ -283,6 +283,7 @@ export const repositoryTopology = Object.freeze([
       "@tauri-apps/cli",
       "@types/react",
       "@types/react-dom",
+      "happy-dom",
       "react",
       "react-dom",
       "vite",

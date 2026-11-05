@@ -1,0 +1,195 @@
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  parseDnsHealthRead,
+  parseRenewalsRead,
+  parseSalesRead,
+  type AssetLibraryViewModel,
+  type SyncSnapshotViewModel,
+} from "@gooddealer/client-core";
+
+import { adjudicateDesktopPresentation } from "./desktop-presentation";
+import type { HostWindowRequest } from "./host-route-read";
+import type { AuthoritativeWorkspacePorts, AuthoritativeWorkspacePublication } from "./workspace-publication";
+import { WorkspaceView } from "./workspace-view";
+
+// The paged routes keep their page in React state and read through effects, so these tests render
+// the real workspace in a DOM and drive it the way a person does: open a route, click page 2.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const generation = 4;
+const freshness = { source: "active_local", readOnlyReason: null, serverRevision: 8, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true } as const;
+const portfolio: AssetLibraryViewModel = {
+  schemaVersion: 3, kind: "asset_library", readGeneration: generation, freshness,
+  totalRows: 1, totalValue: null, expiringWithin60Days: 120, conflictCount: 0, listingCount: 0,
+  window: { startIndex: 0, size: 25, rows: [{
+    id: "vault.io", domain: "vault.io", tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean",
+    targetPrice: null, expiresOn: "2026-09-01", assetVersion: 1,
+  }] },
+};
+const sync: SyncSnapshotViewModel = {
+  schemaVersion: 1, source: "active_local", readGeneration: generation, transport: "reachable", blockedReason: null,
+  activity: "idle", pendingMutationCount: 0, openConflictCount: 0, rejectedMutationCount: 0, recoveryRequired: false,
+  appliedThroughServerRevision: 8, lastReplicationActivityAt: null, transportObservedAt: "2026-09-20T00:00:00Z",
+};
+const publication: AuthoritativeWorkspacePublication = {
+  status: { schemaVersion: 2, state: "active", capabilities: ["local:read"], readGeneration: generation } as AuthoritativeWorkspacePublication["status"],
+  portfolio,
+  conflicts: { schemaVersion: 1, kind: "conflict_center", readGeneration: generation, candidateSetVersion: 8, freshness: { source: "active_local", serverRevision: 8, observedAt: "2026-09-20T00:00:00Z" }, conflicts: [] },
+  sync,
+};
+
+const total = 120;
+const domain = (index: number) => `page-${String(index).padStart(3, "0")}.io`;
+const rows = <T,>(request: HostWindowRequest, row: (index: number) => T): T[] =>
+  Array.from({ length: Math.max(0, Math.min(request.size, total - request.startIndex)) }, (_, offset) => row(request.startIndex + offset));
+
+// Each stub answers through the real read parser, so a stub that drifts from the wire shape fails.
+function hostPorts() {
+  const loadRenewals = vi.fn(async (request: HostWindowRequest) => parseRenewalsRead({
+    schemaVersion: 1, kind: "renewals", readGeneration: generation, freshness, asOfDate: "2026-08-20",
+    totalRows: total, autoRenewEnabledCount: 0, autoRenewDisabledCount: 0,
+    window: { ...request, rows: rows(request, (index) => ({ entityId: domain(index), expiresOn: "2026-09-01", autoRenew: null, registrarName: null })) },
+  }));
+  const loadDnsHealth = vi.fn(async (request: HostWindowRequest & { readonly query: string }) => parseDnsHealthRead({
+    schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
+    totalRows: total, assetCount: total, observedCount: 0, warningCount: 0,
+    window: { startIndex: request.startIndex, size: request.size, rows: rows(request, (index) => ({ entityId: domain(index), zoneBinding: null, observation: null })) },
+  }));
+  const loadSales = vi.fn(async (request: HostWindowRequest) => parseSalesRead({
+    schemaVersion: 1, kind: "sales", readGeneration: generation, freshness,
+    totalRows: total, activeListingCount: 0, listedValue: null,
+    window: { ...request, rows: rows(request, (index) => ({ entityId: domain(index), marketplaces: ["atom"], listingStatus: "draft", askingPrice: null })) },
+  }));
+  const ports = { renewals: { loadRenewals }, dns: { loadDnsHealth }, sales: { loadSales } } as unknown as AuthoritativeWorkspacePorts;
+  return { ports, loadRenewals, loadDnsHealth, loadSales };
+}
+
+let container: HTMLElement;
+let root: Root;
+
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+async function render(ports: AuthoritativeWorkspacePorts) {
+  const presentation = adjudicateDesktopPresentation(false, publication, "authenticated");
+  if (presentation.view !== "workspace") throw new Error("expected a workspace");
+  await act(async () => {
+    root.render(
+      <WorkspaceView
+        locale="en-US"
+        presentation={presentation}
+        ports={ports}
+        windowFrame={{ platform: "linux", framed: false }}
+        onPublication={vi.fn()}
+        onRefresh={vi.fn()}
+        onLocaleChange={vi.fn()}
+      />,
+    );
+  });
+}
+
+/** Clicks the first button whose accessible text or label matches, then lets reads settle. */
+async function click(match: (button: HTMLButtonElement) => boolean) {
+  const button = [...container.querySelectorAll("button")].find(match);
+  if (button === undefined) throw new Error("button not found");
+  await act(async () => { button.click(); });
+}
+
+const named = (name: string) => (button: HTMLButtonElement) =>
+  button.textContent?.trim() === name || button.getAttribute("aria-label") === name;
+
+describe("paged Host routes", () => {
+  it.each([
+    ["Sales", "loadSales"],
+    ["DNS & verification", "loadDnsHealth"],
+  ] as const)("reads the next Host page when %s moves to page 2", async (label, loader) => {
+    const host = hostPorts();
+    await render(host.ports);
+    await click(named(label));
+    expect(host[loader].mock.calls.map(([request]) => [request.startIndex, request.size])).toEqual([[0, 50]]);
+    expect(container.textContent).toContain(domain(0));
+
+    await click(named("2"));
+    expect(host[loader].mock.calls.map(([request]) => [request.startIndex, request.size])).toEqual([[0, 50], [50, 50]]);
+    expect(container.textContent).toContain(domain(50));
+    expect(container.textContent).not.toContain(domain(0));
+  });
+
+  it("reads the next renewal page after entering from the asset library", async () => {
+    const host = hostPorts();
+    await render(host.ports);
+    await click((button) => button.getAttribute("aria-label")?.startsWith("Expiring within 60 days") === true);
+    expect(host.loadRenewals.mock.calls.map(([request]) => request.startIndex)).toEqual([0]);
+    await click(named("3"));
+    expect(host.loadRenewals.mock.calls.map(([request]) => [request.startIndex, request.size])).toEqual([[0, 50], [100, 50]]);
+    expect(container.textContent).toContain(domain(100));
+  });
+
+  it("reads again from the same page when the person retries a failed read", async () => {
+    const host = hostPorts();
+    const succeed = host.loadSales.getMockImplementation()!;
+    host.loadSales.mockImplementationOnce(async () => { throw new Error("transport"); });
+    await render(host.ports);
+    await click(named("Sales"));
+    expect(container.textContent).toContain("Local sales data could not be read");
+
+    // The retry attempt restarts the read; nothing is cached from the failed one.
+    host.loadSales.mockImplementation(succeed);
+    await click(named("Read again"));
+    expect(host.loadSales.mock.calls.map(([request]) => request.startIndex)).toEqual([0, 0]);
+    expect(container.textContent).toContain(domain(0));
+  });
+
+  it("returns to the first page when a later page fails to read", async () => {
+    const host = hostPorts();
+    const succeed = host.loadSales.getMockImplementation()!;
+    host.loadSales.mockImplementation(async (request) => {
+      if (request.startIndex > 0) throw new Error("window starts past a total that shrank");
+      return succeed(request);
+    });
+    await render(host.ports);
+    await click(named("Sales"));
+    await click(named("2"));
+    // The failed page 2 read sends the route back to page 1 instead of retrying the same start.
+    expect(host.loadSales.mock.calls.map(([request]) => request.startIndex)).toEqual([0, 50, 0]);
+    expect(container.textContent).toContain(domain(0));
+  });
+
+  it("sends the DNS search to the Host and keeps the search box focused while it reads", async () => {
+    const host = hostPorts();
+    const answer = host.loadDnsHealth.getMockImplementation()!;
+    await render(host.ports);
+    await click(named("DNS & verification"));
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search domain / provider"]');
+    if (search === null) throw new Error("search box not found");
+    search.focus();
+    // Hold the search read open, so the route is observed while the Host has not answered yet.
+    let release: () => void = () => undefined;
+    host.loadDnsHealth.mockImplementation((request) => new Promise((resolve) => { release = () => resolve(answer(request)); }));
+    await act(async () => {
+      // React listens for the native input event and reads the value through the prototype setter.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "pa");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.loadDnsHealth.mock.calls.map(([request]) => request.query)).toEqual(["", "pa"]);
+    // While the read is in flight the same box stays mounted and focused, with the last page busy.
+    expect(search.isConnected).toBe(true);
+    expect(document.activeElement).toBe(search);
+    expect(container.querySelector(".dns-verification")?.getAttribute("aria-busy")).toBe("true");
+    await act(async () => { release(); });
+    expect(container.querySelector(".dns-verification")?.hasAttribute("aria-busy")).toBe(false);
+    expect(document.activeElement).toBe(search);
+  });
+});
