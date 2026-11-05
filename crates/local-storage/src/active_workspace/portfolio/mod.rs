@@ -152,10 +152,10 @@ impl<'a> ActivePortfolioReader<'a> {
         let aggregates: (i64, i64, i64, i64) = transaction.query_row(
             // The expiring count opens the renewals desk, which lists the whole workspace, so it
             // ignores the search filter: the number shown is the number of rows that desk lists.
-            // `expires_on` has no schema CHECK: any page could show a malformed expiry and that
-            // count compares it as text, so one anywhere in the workspace fails the read rather than
-            // hiding on a page nobody reads; `date()` returns a value unchanged only for a valid
-            // `YYYY-MM-DD` date.
+            // The storage-integrity triggers reject a malformed `expires_on` only on new writes. Any
+            // page could show an older one and that count compares it as text, so one anywhere in
+            // the workspace fails the read rather than hiding on a page nobody reads; `date()`
+            // returns a value unchanged only for a valid `YYYY-MM-DD` date.
             &format!("SELECT
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND e.expires_on IS NOT date(e.expires_on)),

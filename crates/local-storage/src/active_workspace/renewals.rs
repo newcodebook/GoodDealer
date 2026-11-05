@@ -99,9 +99,10 @@ impl<'a> ActiveRenewalsReader<'a> {
                 .map_err(|_| PortfolioReadError::StorageRejected)?;
         // The schema admits only 0, 1 or NULL; should that ever loosen, a value that is neither on,
         // off nor unrecorded fails the read, as it does per row, instead of being counted as
-        // unrecorded on pages the Renderer never sees. `expires_on` has no schema CHECK, and the
-        // window compares it as text, so a malformed date that sorts into the window would be
-        // counted too; `date()` returns a value unchanged only for a valid `YYYY-MM-DD` date.
+        // unrecorded on pages the Renderer never sees. The storage-integrity triggers reject a
+        // malformed `expires_on` only on new writes, and the window compares it as text, so an older
+        // malformed date that sorts into the window would be counted too; `date()` returns a value
+        // unchanged only for a valid `YYYY-MM-DD` date.
         if malformed != 0 {
             return Err(PortfolioReadError::ProjectionRejected);
         }

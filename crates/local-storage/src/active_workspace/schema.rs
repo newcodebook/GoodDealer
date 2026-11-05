@@ -18,6 +18,9 @@ pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER: &str =
     "active-workspace/domain-provider-binding";
 pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_SQL: &str =
     include_str!("domain_provider_binding.sql");
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_ID: i64 = 202_611_050_001;
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/storage-integrity";
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_SQL: &str = include_str!("storage_integrity.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");

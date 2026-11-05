@@ -37,7 +37,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - MUST: Use explicit tombstones; omission and an empty replica never delete local rows.
 - MUST: Bound JSON, backup retention metadata, and append-heavy observation access paths in DDL.
 - MUST: Build backup data only from the already-open Host-owned SQLCipher connection, project a deterministic complete set of allowlisted business roots, and restore old content as fresh current-database mutation history without importing authority or sync-control floors.
-- MUST: Keep the design-stage schema in one reviewable migration snapshot; after the first production release, migration history becomes append-only and immutable.
+- MUST: Treat applied migrations as immutable (the runner rejects any checksum drift) and add schema changes as new append-only migrations; squashing the history into one snapshot before the first production release is a deliberate reset that needs an ADR.
 
 ## Boundaries
 
@@ -277,6 +277,12 @@ commit advances the Host generation once; exact replay advances neither counters
 may report the current generation. Binding persists a local association only; asset creation,
 Provider API writes, full Grant/Lease capability gates, revocation and controlled native/Zone
 qualification remain pending.
+
+The append-only storage-integrity migration adds write-time triggers: a binding must name its
+connection's platform, a bound connection's platform cannot change, and `domain_assets.expires_on`
+must be `NULL` or a real `YYYY-MM-DD` date (`date()` round-trips it unchanged). Rows written before
+it are not rewritten, so the asset library, renewals and DNS health reads keep their whole-set
+checks and fail closed on such rows.
 
 ## Backup and Restore Contract
 

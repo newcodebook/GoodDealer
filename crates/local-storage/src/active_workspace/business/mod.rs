@@ -8403,6 +8403,19 @@ mod tests {
 
     /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's
     /// `date('now')`, and registrar observations `(entity, registrar, availability, observed_at)`.
+    /// Drops the storage-integrity triggers, so a test can stand in for rows written before that
+    /// migration and prove the reads still fail closed on them.
+    fn allow_legacy_rows(connection: &rusqlite::Connection) {
+        connection
+            .execute_batch(
+                "DROP TRIGGER domain_asset_provider_bindings_platform_matches_connection;
+                 DROP TRIGGER local_provider_connections_bound_platform_immutable;
+                 DROP TRIGGER domain_assets_expires_on_insert_is_date;
+                 DROP TRIGGER domain_assets_expires_on_update_is_date;",
+            )
+            .unwrap();
+    }
+
     fn renewals_database(
         assets: &[(&str, &str, Option<i64>, Option<i64>)],
         observations: &[(&str, &str, &str, &str, &str)],
@@ -8710,9 +8723,9 @@ mod tests {
                 ],
                 &[],
             );
-            malformed
-                .store
-                .fixture_connection()
+            let connection = malformed.store.fixture_connection();
+            allow_legacy_rows(connection);
+            connection
                 .execute(
                     "UPDATE domain_assets SET expires_on = expires_on || ?1 WHERE entity_id = 'later.test'",
                     [suffix],
@@ -9434,6 +9447,7 @@ mod tests {
 
         // A binding that names a platform other than its connection's fails the whole read, also
         // from a page or a search that does not include it: the counts would still include it.
+        allow_legacy_rows(database.store.fixture_connection());
         bind(&mut database, "beta.test", "porkbun-1", "spaceship");
         for (start, size, query) in [(0, 10, ""), (0, 1, ""), (0, 10, "alpha")] {
             assert!(
@@ -9464,6 +9478,75 @@ mod tests {
             database.read_dns_health(0, 10, ""),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+    }
+
+    #[test]
+    fn storage_rejects_mismatched_bindings_and_malformed_expiry_dates() {
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,'porkbun-1',?2,'zone',?3,?3,?1,1,2,'unverified',?4,?4)";
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "beta.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','porkbun-1','porkbun','Porkbun',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+        let bind = |entity: &str, kind: &str| {
+            connection.execute(
+                BINDING,
+                rusqlite::params![entity, kind, "d".repeat(64), TIMESTAMP],
+            )
+        };
+        // A binding must name its connection's platform.
+        assert!(bind("alpha.test", "spaceship").is_err());
+        bind("alpha.test", "porkbun").unwrap();
+        // Once bound, the connection's platform cannot change underneath the binding.
+        assert!(
+            connection
+                .execute(
+                    "UPDATE local_provider_connections SET provider_kind = 'spaceship'",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Renamed'",
+                [],
+            )
+            .unwrap();
+
+        // A recorded expiry is a real calendar date or nothing, on insert and on update.
+        for (index, (expires_on, valid)) in [
+            (Some("2028-02-29"), true),
+            (None, true),
+            (Some("2026-02-30"), false),
+            (Some("2026-1-10"), false),
+            (Some("2026-11-10T00:00:00Z"), false),
+            (Some(""), false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                connection
+                    .execute(
+                        "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                        [expires_on],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+            assert_eq!(
+                connection
+                    .execute(
+                        "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?3,'active',?1,?2,?2,1)",
+                        rusqlite::params![expires_on, TIMESTAMP, format!("gamma-{index}.test")],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+        }
     }
 
     #[test]
@@ -10043,6 +10126,7 @@ mod tests {
         );
         // A recorded expiry that is not a real calendar date fails the asset library from any page
         // or search, since the expiring count would include it, and fails that asset's detail.
+        allow_legacy_rows(database.store.fixture_connection());
         for (expires_on, valid) in [
             ("2028-02-29", true),
             ("2026-02-30", false),
