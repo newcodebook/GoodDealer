@@ -18,7 +18,9 @@ Customer Desktop application that composes the Renderer and native Host around t
   hand through `local_domain_asset_create`; plus a workspace with the asset library (manual add through
   `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
   domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
-  cannot duplicate an asset), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
+  cannot duplicate an asset, and a deleted one, which keeps its tombstone, with
+  `DESKTOP_LOCAL_ASSET_DELETED`, shown as "deleted and cannot be added again yet"; no path purges a
+  tombstone yet), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
   history, and settings. Manual tasks reads `local_manual_tasks_read` (plan items waiting on the
   person in a platform's own console, grouped per operation, platform connection and capability);
   opening the platform, marking done, re-checking and accepting risk are unavailable until their

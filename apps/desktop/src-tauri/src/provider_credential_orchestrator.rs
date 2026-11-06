@@ -510,6 +510,7 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
         | DesktopLocalHostError::StorageRejected
         | DesktopLocalHostError::CloudProtocolRejected
         | DesktopLocalHostError::AssetExists
+        | DesktopLocalHostError::AssetDeleted
         | DesktopLocalHostError::CapabilityUnqualified => CloudflareKeychainError::StateUnknown,
     }
 }

@@ -183,6 +183,7 @@ const zhCNDictionary = {
     cancel: "取消",
     domainInvalid: "这不是有效的域名。",
     domainExists: "该域名已在工作区中，没有重复添加。",
+    domainDeleted: "该域名已删除，目前不能重新添加。",
     addDomainFailed: "未能添加。重试不会产生重复的域名。",
     activeListings: "活跃 Listing",
     pendingConflicts: "待裁决冲突",

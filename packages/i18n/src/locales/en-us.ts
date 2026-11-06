@@ -232,6 +232,7 @@ const enUSDictionary = {
     cancel: "Cancel",
     domainInvalid: "This is not a valid domain name.",
     domainExists: "This domain is already in the workspace; it was not added again.",
+    domainDeleted: "This domain was deleted and cannot be added again yet.",
     addDomainFailed: "The domain could not be added. Retrying cannot create a duplicate.",
     activeListings: "Active listings",
     pendingConflicts: "Conflicts pending decision",

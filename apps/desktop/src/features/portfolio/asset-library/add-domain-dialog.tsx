@@ -3,8 +3,11 @@ import { getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Button, Dialog, Input } from "@gooddealer/ui";
 import { useState } from "react";
 
-/** What the Host did with one add: the domain is the deduplication key, so a held one is `exists`. */
-export type AddDomainOutcome = "added" | "exists" | "failed";
+/**
+ * What the Host did with one add: the domain is the deduplication key, so a held one is `exists`,
+ * and a deleted one is `deleted`: no path purges its tombstone yet, so it cannot be re-added.
+ */
+export type AddDomainOutcome = "added" | "exists" | "deleted" | "failed";
 
 export interface AddDomainDialogProps {
   readonly locale: Locale;
@@ -14,7 +17,7 @@ export interface AddDomainDialogProps {
   readonly onSubmit: (domain: CanonicalDomainName) => Promise<AddDomainOutcome>;
 }
 
-type Problem = "invalid" | "exists" | "failed" | null;
+type Problem = Exclude<AddDomainOutcome, "added"> | "invalid" | null;
 
 /**
  * Adds one domain by hand. The typed name is canonicalized here (IDNA ASCII, no path, port or IP
@@ -40,7 +43,12 @@ export function AddDomainDialog({ locale, open, onClose, onSubmit }: AddDomainDi
         else setProblem(outcome);
       });
   };
-  const message = problem === "invalid" ? copy.domainInvalid : problem === "exists" ? copy.domainExists : problem === "failed" ? copy.addDomainFailed : undefined;
+  const message = problem === null ? undefined : {
+    invalid: copy.domainInvalid,
+    exists: copy.domainExists,
+    deleted: copy.domainDeleted,
+    failed: copy.addDomainFailed,
+  }[problem];
 
   return (
     <Dialog

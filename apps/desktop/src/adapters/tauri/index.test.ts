@@ -80,8 +80,15 @@ describe("Desktop Tauri local-business adapter", () => {
     await expect(port.createDomainAsset(request)).resolves.toEqual(receipt);
     expect(invokeMock).toHaveBeenCalledWith("local_domain_asset_create", { request });
 
-    invokeMock.mockRejectedValueOnce("DESKTOP_LOCAL_ASSET_EXISTS");
-    await expect(port.createDomainAsset(request)).rejects.toBeInstanceOf(LocalWriteError);
+    for (const code of ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED"] as const) {
+      invokeMock.mockRejectedValueOnce(code);
+      await expect(port.createDomainAsset(request)).rejects.toEqual(expect.objectContaining({ name: "LocalWriteError", code }));
+    }
+    // Only exact codes are named; a near miss or a non-string stays the Host's opaque refusal.
+    for (const opaque of ["DESKTOP_LOCAL_ASSET_DELETED ", "desktop_local_asset_deleted", { code: "DESKTOP_LOCAL_ASSET_DELETED" }]) {
+      invokeMock.mockRejectedValueOnce(opaque);
+      await expect(port.createDomainAsset(request)).rejects.not.toBeInstanceOf(LocalWriteError);
+    }
     invokeMock.mockRejectedValueOnce("DESKTOP_LOCAL_HOST_STORAGE_REJECTED");
     await expect(port.createDomainAsset(request)).rejects.toBe("DESKTOP_LOCAL_HOST_STORAGE_REJECTED");
     for (const foreign of [{ ...receipt, operation: "edit" }, { ...receipt, entityId: "other.test" }, { ...receipt, mutationId: "create-2" }]) {

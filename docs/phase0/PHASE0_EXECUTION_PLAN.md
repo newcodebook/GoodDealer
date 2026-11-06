@@ -163,12 +163,13 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 生产界面组合 `features/connections`：编排器把 `DESKTOP_CAPABILITY_UNQUALIFIED` 作为独立结果传出（当前并入通用 Host 失败），Zone 名称无法导入时显示为该原因而非通用激活失败，设置与引导显示 Host 报告的连接状态与资格原因，未认证时连接、激活、观察与撤销入口不可用；撤销界面提示用户到 Cloudflare 删除或轮换 Token；写入口经同一 `readOnly === null` 门禁并加入写入口渲染测试
 - [ ] 断网、Token 失效、权限不足、撤销后，都失败关闭并给出可恢复提示
 - [ ] 操作历史把新增显示为编辑（Outbox 只有 `upsert`/`delete`，新增无独立操作类型）：在历史中把资产的首个本地版本标为新增，或为同步协议增加新增操作类型（后者需先评估 Cloud 合同）
-- [ ] 重新添加近期删除且仍有墓碑的域名时给出可恢复的说明（当前映射为 `LOCAL_STORAGE_REJECTED`，界面只显示通用失败）：为墓碑拒绝提供独立错误码与“已删除，同步清除后可重新添加”的文案
-- [ ] `local_device_lease_read` 的负向测试补齐 Standby、授权过期与授权切换进行中三种拒绝（目前只覆盖无 Active 授权）
+- [x] 重新添加近期删除且仍有墓碑的域名时给出可恢复的说明（Host 把墓碑拒绝映射为独立的 `DESKTOP_LOCAL_ASSET_DELETED`，不写入任何数据；适配器只对确切代码具名，其余拒绝保持不透明；资产库与引导的添加对话框显示“该域名已删除，目前不能重新添加。”，不再显示通用失败。当前没有清除墓碑的路径，所以文案不承诺恢复，见新增项。对已删除资产的编辑与删除也返回该代码，界面仍按通用失败处理） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] `local_device_lease_read` 的负向测试补齐 Standby、授权过期与授权切换进行中三种拒绝（Host 测试先证明同一开发授权下租约可读，再分别进入已验证延续的商业只读、把已发布 Active 授权的执行期限置为过去、请求但未应用授权切换，三者都以 `DESKTOP_LOCAL_HOST_UNAVAILABLE` 拒绝且不显示设备或租约） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 引导连接步骤的“不可连接”规则改为逐个平台判定（目前仅在全部平台不可用时拒绝 `connect_provider`）；第二个平台进入引导前完成
 - [ ] DNS 健康读取逐行报告能否绑定（Host 为唯一依据：凭据撤销或失效、凭据代不符、Zone 暂停、资产已归档时不提供“绑定 Zone”），避免界面提供 Host 必然拒绝的操作
 - [ ] 清除已拒绝使用但未写成墓碑的 custody：撤销只接受 `inactive`/`active` 连接与 Active 信封，以下三种情况凭据已拒绝使用（失败关闭），但 Token 可能仍在 Keychain 且无法再次撤销——custody 矛盾后停在 `remediation_required`；准备后、prewrite 前被取消（锁定或登出）的撤销，重启后 intent 为 `cancelled` 而连接停在 `revocation_pending`；撤销回读仍为基线（TargetNotObservedBurned）时连接已标为 `revoked`。需要清除 custody 并退役该连接 incarnation 的 Host 路径，供用户在能力认证后重新连接
 - [ ] `provider_credential_orchestrator::revoke` 返回区分“无凭据可撤销”与各非确认结果（remediated、burned、recovery required）的结果枚举，而不是同一个 `Ok(false)`
+- [ ] 墓碑清除与已删除域名的重新添加：当前没有生产路径把墓碑置为 `purge_eligible` 或删除墓碑与已删除行，创建对带 `deleted_at` 的行一律拒绝，所以删除的域名永远不能重新添加。需要在服务端确认删除且保留期过后清除墓碑并允许重新创建，或为已确认的删除设计经同步的重新创建（两者都需先评估 Cloud 合同）；交付后把“目前不能重新添加”改为说明何时可重新添加
 - [ ] 写入口门禁的渲染测试覆盖全部写入口：目前只逐状态证明“添加域名”，补上域名详情目标价、冲突中心解决、DNS“绑定 Zone”，Cloudflare 连接、激活与观察入口进入生产组合时一并加入；若 Host 将来产生 Active 但无 mutate 的“受限”状态，补一条说明写入口缺失原因的横幅
 
 ### 4. 当前范围全系统 V1 汇合验收

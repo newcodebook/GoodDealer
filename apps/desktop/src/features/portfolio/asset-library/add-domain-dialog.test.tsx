@@ -72,12 +72,15 @@ describe("Add domain dialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("says a held domain was not added again, and that a failure can be retried", async () => {
-    const outcomes: AddDomainOutcome[] = ["exists", "failed"];
+  it("says a held domain was not added again, a deleted one waits for sync, and a failure can be retried", async () => {
+    const outcomes: AddDomainOutcome[] = ["exists", "deleted", "failed"];
     const onClose = render(async () => outcomes.shift() ?? "failed");
     type("held.example");
     await add();
     expect(document.body.textContent).toContain("该域名已在工作区中，没有重复添加");
+    await add();
+    expect(document.body.textContent).toContain("该域名已删除，目前不能重新添加");
+    expect(document.body.textContent).not.toContain("未能添加");
     await add();
     expect(document.body.textContent).toContain("重试不会产生重复的域名");
     expect(onClose).not.toHaveBeenCalled();

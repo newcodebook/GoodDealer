@@ -277,9 +277,11 @@ describe("Adding a domain", () => {
     }));
   });
 
-  it("names a duplicate and treats every other failure or an unaccepted receipt as failed", async () => {
+  it("names a duplicate and a still-tombstoned deletion, and treats every other failure or an unaccepted receipt as failed", async () => {
     const duplicate = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_EXISTS"); });
     expect((await addDomainAsset(duplicate, createPortfolioMutationController(duplicate), "held.test", 7)).outcome).toBe("exists");
+    const tombstoned = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_DELETED"); });
+    expect((await addDomainAsset(tombstoned, createPortfolioMutationController(tombstoned), "gone.test", 7)).outcome).toBe("deleted");
     const broken = port(async () => { throw "DESKTOP_LOCAL_HOST_STORAGE_REJECTED"; });
     expect((await addDomainAsset(broken, createPortfolioMutationController(broken), "x.test", 7)).outcome).toBe("failed");
     // The status no longer matches the receipt's generation, so the add is not published as done.

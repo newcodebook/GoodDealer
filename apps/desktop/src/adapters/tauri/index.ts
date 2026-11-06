@@ -72,12 +72,17 @@ export interface LocalBusinessStatus {
   readonly readGeneration: number;
 }
 
+/** The Host refusals of an add the person can act on; every other refusal stays opaque. */
+const localWriteErrorCodes = ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED"] as const;
+export type LocalWriteErrorCode = (typeof localWriteErrorCodes)[number];
+
 /**
- * A write the Host refused for a reason the person can act on. Only the duplicate is named; every
- * other refusal stays an opaque failure, as for edits.
+ * A write the Host refused for a reason the person can act on: the domain is already held, or it
+ * was deleted and keeps its tombstone, so it cannot be re-added yet. Every other refusal stays an
+ * opaque failure, as for edits.
  */
 export class LocalWriteError extends Error {
-  constructor(readonly code: "DESKTOP_LOCAL_ASSET_EXISTS") {
+  constructor(readonly code: LocalWriteErrorCode) {
     super(code);
     this.name = "LocalWriteError";
   }
@@ -85,7 +90,7 @@ export class LocalWriteError extends Error {
 
 export interface LocalBusinessPort {
   status(): Promise<LocalBusinessStatus>;
-  /** Adds a domain the workspace does not hold; a held one rejects with `LocalWriteError`. */
+  /** Adds a domain the workspace does not hold; a held or still-tombstoned one rejects with `LocalWriteError`. */
   createDomainAsset(request: LocalDomainAssetCreateRequest): Promise<LocalDomainAssetMutationReceipt>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
@@ -444,7 +449,8 @@ export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProvider
       try {
         receipt = await invoke(commands.createDomainAsset, { request: parsed });
       } catch (error) {
-        if (error === "DESKTOP_LOCAL_ASSET_EXISTS") throw new LocalWriteError(error);
+        const named = localWriteErrorCodes.find((code) => code === error);
+        if (named !== undefined) throw new LocalWriteError(named);
         throw error;
       }
       const parsedReceipt = localDomainAssetMutationReceiptSchema.parse(receipt);

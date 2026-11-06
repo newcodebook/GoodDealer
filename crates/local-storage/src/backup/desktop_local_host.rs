@@ -64,6 +64,9 @@ pub enum DesktopLocalHostError {
     Unavailable,
     /// The workspace already holds the domain being added; nothing was written.
     AssetExists,
+    /// The domain was deleted and keeps its tombstone, so it cannot be added or changed again
+    /// under the same identity (no path purges a tombstone yet); nothing was written.
+    AssetDeleted,
     /// The capability has not passed ADR-0024 qualification; nothing was attempted.
     CapabilityUnqualified,
 }
@@ -77,6 +80,7 @@ impl fmt::Display for DesktopLocalHostError {
             Self::CloudProtocolRejected => "DESKTOP_CLOUD_PROTOCOL_REJECTED",
             Self::Unavailable => "DESKTOP_LOCAL_HOST_UNAVAILABLE",
             Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
+            Self::AssetDeleted => "DESKTOP_LOCAL_ASSET_DELETED",
             Self::CapabilityUnqualified => "DESKTOP_CAPABILITY_UNQUALIFIED",
         })
     }
@@ -4483,6 +4487,7 @@ impl DesktopLocalHost {
             | DesktopLocalHostError::CloudProtocolRejected
             | DesktopLocalHostError::Unavailable
             | DesktopLocalHostError::AssetExists
+            | DesktopLocalHostError::AssetDeleted
             | DesktopLocalHostError::CapabilityUnqualified => DesktopBackupError::StorageRejected,
         })
     }
@@ -5103,8 +5108,10 @@ fn map_host_database_error(error: BusinessDatabaseError) -> DesktopLocalHostErro
         BusinessDatabaseError::WorkspaceRejected | BusinessDatabaseError::MutationStale => {
             DesktopLocalHostError::AuthorityRejected
         }
-        // A duplicate is the one rejection the person can act on, so it keeps its own code.
+        // A duplicate and a deletion are the rejections the person can understand (the domain is
+        // held, or it was deleted and keeps its tombstone), so each keeps its own code.
         BusinessDatabaseError::AssetExists => DesktopLocalHostError::AssetExists,
+        BusinessDatabaseError::AssetDeleted => DesktopLocalHostError::AssetDeleted,
         _ => DesktopLocalHostError::StorageRejected,
     }
 }
@@ -5838,6 +5845,74 @@ mod tests {
         let business = serde_json::to_value(host.business_status()).unwrap();
         assert_eq!(business["state"], "security_locked");
         assert_eq!(business["capabilities"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn device_lease_is_refused_in_read_only_after_expiry_and_while_authority_switches() {
+        let host_at = |seed: u8| {
+            let directory = tempdir().unwrap();
+            let database = BusinessDatabase::open(
+                &directory.path().join("active.db"),
+                &LocalDatabaseKey::from_bytes([seed; 32]),
+                "workspace-local",
+            )
+            .unwrap();
+            let host = DesktopLocalHost::development(
+                database,
+                directory.path().join("native-backup"),
+                "account-local",
+                "workspace-local",
+                "device-local",
+            )
+            .unwrap();
+            // The Active development authority shows its lease, so each refusal below is caused
+            // by the state it sets up and not by a host that never had one.
+            assert!(host.device_lease().is_ok());
+            (directory, host)
+        };
+
+        // Commercial read-only (the Host form of Standby): the verified continuation holds no
+        // lease to show.
+        let (_standby_directory, standby) = host_at(0x61);
+        assert_eq!(
+            standby.continuity_startup_for_test().unwrap(),
+            StartupContinuity::VerifiedLocalContinuation
+        );
+        standby.enter_commercial_read_only().unwrap();
+        assert_eq!(
+            standby.business_status().state,
+            DesktopLocalBusinessState::CommercialReadOnly
+        );
+        assert_eq!(
+            standby.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
+
+        // Expired: the published Active authority is past its execution window.
+        let (_expired_directory, expired) = host_at(0x62);
+        expired
+            .authority_publication
+            .lock()
+            .unwrap()
+            .authority
+            .as_mut()
+            .unwrap()
+            .execute_before = 0;
+        assert_eq!(
+            expired.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
+
+        // Switching: a transition was requested but not yet applied, so the current lease may
+        // already be superseded and is not shown.
+        let (_switching_directory, switching) = host_at(0x63);
+        switching
+            .transition_requested_epoch
+            .fetch_add(1, Ordering::AcqRel);
+        assert_eq!(
+            switching.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
     }
 
     #[test]
@@ -8128,6 +8203,33 @@ mod tests {
         assert_eq!(
             DesktopLocalHostError::AssetExists.to_string(),
             "DESKTOP_LOCAL_ASSET_EXISTS"
+        );
+    }
+
+    #[test]
+    fn business_create_of_a_still_tombstoned_domain_names_the_deletion_and_writes_nothing() {
+        let (_directory, host) = development_business_host();
+        let before = host.read_domain_detail(domain_detail_request()).unwrap();
+        let generation = host.business_status().read_generation;
+        host.delete_domain_asset(delete_request(
+            "host-delete",
+            generation,
+            before.asset.asset_version,
+        ))
+        .unwrap();
+        // The deleted domain keeps its tombstone and identity: re-adding is refused
+        // with its own code, not as a duplicate or an opaque storage failure.
+        let pending = pending_mutation_count(&host);
+        let generation = host.business_status().read_generation;
+        let refused =
+            host.create_domain_asset(create_request("host-readd", generation, "backup.example"));
+        assert_eq!(refused, Err(DesktopLocalHostError::AssetDeleted));
+        assert_ne!(refused, Err(DesktopLocalHostError::AssetExists));
+        assert_eq!(pending_mutation_count(&host), pending);
+        assert_eq!(host.business_status().read_generation, generation);
+        assert_eq!(
+            DesktopLocalHostError::AssetDeleted.to_string(),
+            "DESKTOP_LOCAL_ASSET_DELETED"
         );
     }
 
