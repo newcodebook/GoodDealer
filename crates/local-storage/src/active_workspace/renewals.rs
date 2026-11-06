@@ -33,6 +33,11 @@ pub(super) fn expiring_asset(alias: &str, today: &HostDay) -> String {
 /// flag and list against different days. The value comes only from SQLite's own `date('now')` and
 /// is checked to be a canonical `YYYY-MM-DD` date, which is what makes it safe to place in SQL text.
 /// It is the only source of "today" for Host reads: a read that filters by date takes one.
+///
+/// It is deliberately UTC rather than the person's local day: `expires_on` is the date of the
+/// registry's UTC expiry instant, and the registry expires the name then, so a local day would move
+/// the window a day early or late around midnight for anyone away from UTC. History's "changes
+/// today" counts the person's own actions instead, so it takes their local day from the Renderer.
 pub(super) struct HostDay(String);
 
 impl HostDay {
