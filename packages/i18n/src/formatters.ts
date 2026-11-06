@@ -1,4 +1,5 @@
 import { parseLocale, type Locale } from "./copy-types";
+import { formatDecimalExactly } from "./exact-decimal";
 
 export type DateValue = Date | number;
 export type NumericValue = number | bigint;
@@ -35,9 +36,11 @@ const defaultMoneyOptions = {
 } as const satisfies MoneyFormatOptions;
 
 /**
- * A plain decimal string, such as a money contract amount. Intl formats it exactly, so amounts
+ * A plain decimal string, such as a money contract amount. It is formatted exactly, so amounts
  * beyond a double's 15–17 significant digits are not rounded on the way to the screen; the shown
- * fraction digits still follow the format options (two for money by default).
+ * fraction digits still follow the format options (two for money by default). On a WebView that
+ * cannot format it exactly the formatters show it as unavailable (`—`) rather than rounded
+ * (`exact-decimal.ts`).
  */
 export type DecimalString = string;
 
@@ -91,11 +94,8 @@ export function formatNumber(
   options: NumberFormatOptions = defaultNumberOptions,
 ): string {
   assertNumericValue(value);
-  return new Intl.NumberFormat(parseLocale(locale), {
-    ...defaultNumberOptions,
-    ...options,
-    // As in `formatMoney`: Intl formats a decimal string exactly, and the shape is already checked.
-  }).format(value as Parameters<Intl.NumberFormat["format"]>[0]);
+  const format = new Intl.NumberFormat(parseLocale(locale), { ...defaultNumberOptions, ...options });
+  return typeof value === "string" ? formatDecimalExactly(format, value) : format.format(value);
 }
 
 export function formatMoney(
@@ -106,12 +106,11 @@ export function formatMoney(
 ): string {
   assertNumericValue(value);
   assertCurrency(currency);
-  return new Intl.NumberFormat(parseLocale(locale), {
+  const format = new Intl.NumberFormat(parseLocale(locale), {
     ...defaultMoneyOptions,
     ...options,
     style: "currency",
     currency,
-    // Intl formats a decimal string exactly (ECMA-402 NumberFormat v3); TypeScript's lib typing
-    // predates that overload, and `assertNumericValue` has already checked the string's shape.
-  }).format(value as Parameters<Intl.NumberFormat["format"]>[0]);
+  });
+  return typeof value === "string" ? formatDecimalExactly(format, value) : format.format(value);
 }
