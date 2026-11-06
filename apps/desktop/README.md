@@ -37,7 +37,9 @@ Customer Desktop application that composes the Renderer and native Host around t
   from `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render
   as not connected or not observed. Settings reads redacted Provider connections and their declared
   roles from `local_settings_read`; every role stays unavailable until its capabilities are
-  qualified, and no connect/reauthorize/manage action is offered. Devices, license, pull cadence and
+  qualified, and no connect/reauthorize/manage action is offered. Its About section reports the same
+  read's counts of stored rows the other reads reject (rows written before the integrity triggers)
+  and which read each one makes unavailable; repair is not offered yet. Devices, license, pull cadence and
   build facts have no Host source yet and render as unavailable. The other designed screens
   (onboarding and the batch diff preview) exist only in `visual-fixtures/` until their Host
   projections land; `src/app/production-build-graph.test.ts` builds the production entry in memory

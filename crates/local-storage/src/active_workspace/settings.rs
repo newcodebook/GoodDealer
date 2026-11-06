@@ -4,6 +4,12 @@
 //! Connection, credential and Provider account identifiers stay in the Host. No capability has an
 //! ADR-0024 qualification yet, so every declared role is reported as unavailable with
 //! `qualification_pending` instead of letting the Renderer infer availability from credential state.
+//!
+//! It also reports stored rows that other reads reject. Integrity triggers keep new writes valid,
+//! but rows written before them are not rewritten, and the reads fail closed on them rather than
+//! hiding them. Each count reuses the predicate of the read it affects, so the person can see why
+//! that read is unavailable or slow instead of it failing silently. These counts never fail this
+//! read themselves.
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -27,6 +33,25 @@ pub struct SettingsReadSnapshot {
     pub read_generation: u64,
     pub freshness: PortfolioReadFreshness,
     pub connections: Vec<SettingsConnection>,
+    pub storage_integrity: StorageIntegrity,
+}
+
+/// Stored rows other reads reject, by the read they affect.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageIntegrity {
+    /// Assets whose recorded expiry is not a real date: the asset library fails, and renewals fail
+    /// when one falls in their window.
+    pub malformed_expiries: u32,
+    /// Available registrar observations with an invalid registrar name: renewals slow down and fail
+    /// when an expiring asset shows one.
+    pub invalid_registrar_observations: u32,
+    /// Assets whose Zone binding or observation fails validation: DNS health fails.
+    pub rejected_dns_rows: u32,
+    /// Confirmed listings that fail validation: sales fails.
+    pub rejected_listings: u32,
+    /// Outbox rows with a malformed commit time: history fails.
+    pub malformed_outbox_rows: u32,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -113,19 +138,49 @@ impl<'a> ActiveSettingsReader<'a> {
             .into_iter()
             .map(project_connection)
             .collect::<Result<Vec<_>, _>>()?;
+        let storage_integrity = storage_integrity(&transaction, requested_workspace_id)?;
         let freshness = read_freshness(&transaction)?;
         drop(statement);
         transaction
             .commit()
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         Ok(SettingsReadSnapshot {
-            schema_version: 1,
+            schema_version: 2,
             kind: "settings".to_owned(),
             read_generation: 0,
             freshness,
             connections,
+            storage_integrity,
         })
     }
+}
+
+fn storage_integrity(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<StorageIntegrity, PortfolioReadError> {
+    let malformed_expiries: i64 = connection
+        .query_row(
+            &format!(
+                "SELECT count(*) FROM domain_assets a
+                 WHERE a.workspace_id = ?1 AND a.deleted_at IS NULL AND {}",
+                super::renewals::malformed_expiry("a")
+            ),
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    Ok(StorageIntegrity {
+        malformed_expiries: u32::try_from(malformed_expiries)
+            .map_err(|_| PortfolioReadError::ProjectionRejected)?,
+        invalid_registrar_observations: super::renewals::invalid_registrar_observations(
+            connection,
+            workspace_id,
+        )?,
+        rejected_dns_rows: super::dns_health::rejected_rows(connection, workspace_id)?,
+        rejected_listings: super::sales::rejected_listings(connection, workspace_id)?,
+        malformed_outbox_rows: super::history::malformed_outbox_rows(connection, workspace_id)?,
+    })
 }
 
 fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError> {

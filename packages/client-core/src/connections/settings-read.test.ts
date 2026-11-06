@@ -13,13 +13,16 @@ const connection = {
   roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
 } as const;
 
+const integrity = { malformedExpiries: 0, invalidRegistrarObservations: 3, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 1 } as const;
+
 function read(overrides: Record<string, unknown> = {}): unknown {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "settings",
     readGeneration: 3,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     connections: [connection],
+    storageIntegrity: integrity,
     ...overrides,
   };
 }
@@ -65,9 +68,20 @@ describe("settings Host read", () => {
       read({ connections: [{ ...connection, roles: [connection.roles[0], connection.roles[0]] }] }),
       read({ connections: [{ ...connection, connectionLabel: "Cloud\u0007flare" }] }),
       read({ connections: [{ ...connection, providerKind: "sedo" }] }),
+      read({ schemaVersion: 1 }),
+      read({ storageIntegrity: undefined }),
+      read({ storageIntegrity: { ...integrity, unknownRows: 0 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: -1 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: 1.5 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: 2 ** 32 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: "1" } }),
     ]) {
       expect(() => parseSettingsRead(bad)).toThrow();
     }
+  });
+
+  it("keeps the Host's storage integrity counts", () => {
+    expect(parseSettingsRead(read()).storageIntegrity).toEqual(integrity);
   });
 
   it("maps credential facts to a badge where revocation and remediation win", () => {

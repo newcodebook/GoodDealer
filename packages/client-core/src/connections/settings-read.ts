@@ -29,17 +29,34 @@ const settingsConnectionSchema = z.object({
   }
 });
 
-/** Host settings read: redacted Provider connections and their role availability. */
+const rowCountSchema = z.number().int().nonnegative().max(0xffff_ffff);
+
+/**
+ * Stored rows that other Host reads reject, by the read they affect. Integrity triggers keep new
+ * writes valid, but older rows stay until repaired, and each affected read fails closed on them; the
+ * counts let settings say why instead of the read failing silently.
+ */
+const storageIntegritySchema = z.object({
+  malformedExpiries: rowCountSchema,
+  invalidRegistrarObservations: rowCountSchema,
+  rejectedDnsRows: rowCountSchema,
+  rejectedListings: rowCountSchema,
+  malformedOutboxRows: rowCountSchema,
+}).strict();
+
+/** Host settings read: redacted Provider connections, their role availability and storage integrity. */
 export const settingsReadSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   kind: z.literal("settings"),
   readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   freshness: portfolioFreshnessSchema,
   connections: z.array(settingsConnectionSchema).max(64).readonly(),
+  storageIntegrity: storageIntegritySchema,
 }).strict();
 
 export type SettingsRead = z.infer<typeof settingsReadSchema>;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
+export type SettingsStorageIntegrity = z.infer<typeof storageIntegritySchema>;
 
 export function parseSettingsRead(input: unknown): SettingsRead {
   return settingsReadSchema.parse(copyPlainData(input));

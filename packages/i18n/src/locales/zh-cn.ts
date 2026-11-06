@@ -881,6 +881,14 @@ const zhCNDictionary = {
     loading: "正在读取本地设置…",
     loadFailed: "无法读取本地设置。重试只会重新读取，不会修改任何数据。",
     retryRead: "重新读取",
+    storageIntegrity: "本地数据完整性",
+    storageIntegrityClean: "没有被读取拒绝的数据",
+    malformedExpiries: "{count} 个资产的到期日期无效：资产库无法读取，续费可能无法读取",
+    invalidRegistrarObservations: "{count} 条注册商观察的名称无效：续费读取变慢，需要显示该名称时无法读取",
+    rejectedDnsRows: "{count} 个资产的 DNS 绑定或观察无效：DNS 健康无法读取",
+    rejectedListings: "{count} 条挂牌观察无效：销售无法读取",
+    malformedOutboxRows: "{count} 条变更记录的时间无效：历史无法读取",
+    storageRepairUnavailable: "这些数据早于完整性校验写入，其他数据不受影响；修复入口尚不可用。",
   },
 } as const;
 

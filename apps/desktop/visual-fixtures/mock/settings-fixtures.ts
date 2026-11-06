@@ -70,4 +70,5 @@ export function mockSyncSettings(cadence: SyncSettingsViewModel["pullRefreshCade
   return syncSettingsViewModelSchema.parse({ schemaVersion: 1, kind: "sync_settings", businessSynchronization: "mandatory", pullRefreshCadence: cadence, conflictResolution: "manual_review" });
 }
 
-export const mockAbout: AboutView = { version: "0.9.0 · Tauri", dataDirectory: "~/Library/Application Support/GoodDealer", revisionBase: 8241 };
+export const mockAbout: AboutView = { version: "0.9.0 · Tauri", dataDirectory: "~/Library/Application Support/GoodDealer", revisionBase: 8241,
+  storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 } };

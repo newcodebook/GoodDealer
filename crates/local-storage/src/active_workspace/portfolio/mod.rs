@@ -160,7 +160,7 @@ impl<'a> ActivePortfolioReader<'a> {
             // returns a value unchanged only for a valid `YYYY-MM-DD` date.
             &format!("SELECT
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
-                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND e.expires_on IS NOT date(e.expires_on)),
+                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {malformed_expiry}),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
                   SELECT 1 FROM marketplace_listing_observations m
@@ -174,6 +174,7 @@ impl<'a> ActivePortfolioReader<'a> {
                 ) THEN 1 ELSE 0 END)
               FROM domain_assets WHERE {filter}",
                 expiring = super::renewals::expiring_asset("e", &today),
+                malformed_expiry = super::renewals::malformed_expiry("e"),
                 confirmed_listing = super::observation_runs::confirmed("m"),
                 confirmed_newer = super::observation_runs::confirmed("newer")),
             params![requested_workspace_id, query, upper],

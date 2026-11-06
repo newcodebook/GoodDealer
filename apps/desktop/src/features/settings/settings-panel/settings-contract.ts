@@ -1,4 +1,4 @@
-import type { ConnectionSettingsItemViewModel } from "@gooddealer/client-core";
+import type { ConnectionSettingsItemViewModel, SettingsStorageIntegrity } from "@gooddealer/client-core";
 
 export type SettingsSection = "connections" | "devices" | "license" | "sync" | "about";
 export const settingsSections: readonly SettingsSection[] = ["connections", "devices", "license", "sync", "about"];
@@ -36,7 +36,18 @@ export interface AboutView {
   readonly version: string | null;
   readonly dataDirectory: string | null;
   readonly revisionBase: number | null;
+  /** Null when the Host has not reported it; the panel then says it is unavailable. */
+  readonly storageIntegrity: SettingsStorageIntegrity | null;
 }
+
+/** The integrity counts in the order the panel lists them, each with the read it affects. */
+export const storageIntegrityChecks = [
+  "malformedExpiries",
+  "invalidRegistrarObservations",
+  "rejectedDnsRows",
+  "rejectedListings",
+  "malformedOutboxRows",
+] as const satisfies readonly (keyof SettingsStorageIntegrity)[];
 
 /** The device that holds, or is releasing, the current lease. */
 export function leaseHolder(view: DeviceRuntimeView): DeviceRuntimeEntry | null {

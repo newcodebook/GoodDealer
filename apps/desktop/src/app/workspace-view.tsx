@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -216,7 +216,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
 
 type SettingsState =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly connections: ConnectionSettingsViewModel }
+  | { readonly kind: "ready"; readonly connections: ConnectionSettingsViewModel; readonly storageIntegrity: SettingsStorageIntegrity }
   | { readonly kind: "failed" };
 
 /**
@@ -239,7 +239,7 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
     setState({ kind: "loading" });
     ports.settings.loadSettings()
       .then((read) => {
-        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, () => copy.capabilityPendingSummary) });
+        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, () => copy.capabilityPendingSummary), storageIntegrity: read.storageIntegrity });
       })
       .catch(() => { if (!cancelled) setState({ kind: "failed" }); });
     return () => { cancelled = true; };
@@ -261,7 +261,7 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
       devices={null}
       license="unavailable"
       sync={null}
-      about={{ version: null, dataDirectory: null, revisionBase }}
+      about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}
       onLocaleChange={onLocaleChange}
     />
   );

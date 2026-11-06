@@ -30,6 +30,7 @@ import {
   connectionStatus,
   leaseHolder,
   settingsSections,
+  storageIntegrityChecks,
   type AboutView,
   type DeviceRuntimeEntry,
   type DeviceRuntimeView,
@@ -99,6 +100,8 @@ export function SettingsPanel({
     about: copy.about,
   };
   const holder = devices === null ? null : leaseHolder(devices);
+  const integrity = about.storageIntegrity;
+  const integrityIssues = integrity === null ? [] : storageIntegrityChecks.flatMap((check) => integrity[check] === 0 ? [] : [[check, integrity[check]] as const]);
   const closeHandoff = () => { setHandoffTarget(null); setHandoffAck(false); };
   const cadenceLabel = (cadence: PullRefreshCadence) => cadence === "when_visible" ? copy.whenVisible : cadence === "every_5_minutes" ? copy.every5Minutes : copy.every15Minutes;
 
@@ -223,7 +226,21 @@ export function SettingsPanel({
                 <KeyValueRow label={copy.version} value={about.version ?? copy.notAvailable} mono={about.version !== null} tone="muted" />
                 <KeyValueRow label={copy.localDataDirectory} value={about.dataDirectory ?? copy.notAvailable} mono={about.dataDirectory !== null} tone="muted" />
                 <KeyValueRow label={copy.revisionBase} value={about.revisionBase === null ? copy.notAvailable : formatNumber(locale, about.revisionBase)} mono={about.revisionBase !== null} tone="muted" />
+                <KeyValueRow
+                  label={copy.storageIntegrity}
+                  tone={integrityIssues.length === 0 ? "muted" : "danger"}
+                  value={about.storageIntegrity === null ? copy.notAvailable : integrityIssues.length === 0 ? copy.storageIntegrityClean : (
+                    <span className="settings-notes">
+                      {integrityIssues.map(([check, count]) => <span key={check}>{fill(copy[check], { count: formatNumber(locale, count) })}</span>)}
+                    </span>
+                  )}
+                />
               </KeyValueList>
+              {integrityIssues.length === 0 ? null : (
+                <div className="settings-notes settings-notes--inset">
+                  <span className="gd-t-meta">{copy.storageRepairUnavailable}</span>
+                </div>
+              )}
             </Panel>
           ) : null}
         </div>

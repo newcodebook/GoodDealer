@@ -218,7 +218,8 @@ describe("Desktop Tauri local-business adapter", () => {
 
   it("reads settings through the narrow command and rejects identifiers or foreign provenance", async () => {
     const read = {
-      schemaVersion: 1, kind: "settings", readGeneration: 3,
+      schemaVersion: 2, kind: "settings", readGeneration: 3,
+      storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
       connections: [{
         providerKind: "cloudflare", connectionLabel: "Cloudflare", lifecycleStatus: "active", validationStatus: "valid",

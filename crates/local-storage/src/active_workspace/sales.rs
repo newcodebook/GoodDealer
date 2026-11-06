@@ -252,17 +252,7 @@ fn merge_desk(
         .prepare(&latest_listings())
         .map_err(|_| PortfolioReadError::SchemaRejected)?;
     let raw = statement
-        .query_map(params![requested_workspace_id], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ))
-        })
+        .query_map(params![requested_workspace_id], raw_listing)
         .map_err(|_| PortfolioReadError::ProjectionRejected)?;
     let mut desk = SalesDesk::new();
     let mut domain: Option<(String, Vec<MarketListing>)> = None;
@@ -287,6 +277,40 @@ fn merge_desk(
         rows: desk.rows,
         active: desk.active,
     })
+}
+
+/// How many of the listings the desk merges fail validation. Any one fails the sales read closed;
+/// settings diagnostics report the count so the cause is visible.
+pub(super) fn rejected_listings(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(&latest_listings())
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let mut rejected = 0_u32;
+    for raw in statement
+        .query_map(params![workspace_id], raw_listing)
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    {
+        if super::unreadable_row(raw, project_listing)? {
+            rejected = rejected.saturating_add(1);
+        }
+    }
+    Ok(rejected)
+}
+
+/// One row of `latest_listings`, in its column order.
+fn raw_listing(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawListing> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+    ))
 }
 
 /// Folds merged domains, in order, into the desk and its workspace-wide metrics.

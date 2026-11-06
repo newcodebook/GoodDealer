@@ -19,6 +19,28 @@ use crate::portfolio_projection::{
 
 use super::portfolio::{read_freshness, validate_workspace};
 
+/// Whether an outbox row's commit time is anything but canonical UTC seconds. `strftime` returns
+/// such a value unchanged, but it also keeps hour 24, hence the hour bound; the outbox integrity
+/// triggers apply the same rule, only on new writes.
+const MALFORMED_CREATED_AT: &str = "(created_at IS NOT strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
+     OR substr(created_at, 12, 2) > '23')";
+
+/// How many of the workspace's outbox rows have a malformed commit time. Any one fails the history
+/// read closed; settings diagnostics report the count so the cause is visible.
+pub(super) fn malformed_outbox_rows(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, PortfolioReadError> {
+    let malformed: i64 = connection
+        .query_row(
+            &format!("SELECT count(*) FROM sync_outbox WHERE workspace_id = ?1 AND {MALFORMED_CREATED_AT}"),
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    u32::try_from(malformed).map_err(|_| PortfolioReadError::ProjectionRejected)
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryReadSnapshot {
@@ -107,11 +129,12 @@ impl<'a> ActiveHistoryReader<'a> {
         let (total_rows, pending_rows, changes_today, malformed): (i64, i64, i64, i64) =
             transaction
                 .query_row(
-                    "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
+                    &format!(
+                        "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
                         coalesce(sum(created_at >= ?2 AND created_at < ?3), 0),
-                        coalesce(sum(created_at IS NOT strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
-                                     OR substr(created_at, 12, 2) > '23'), 0)
-                 FROM sync_outbox WHERE workspace_id = ?1",
+                        coalesce(sum({MALFORMED_CREATED_AT}), 0)
+                 FROM sync_outbox WHERE workspace_id = ?1"
+                    ),
                     params![requested_workspace_id, today.0, today.1],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )

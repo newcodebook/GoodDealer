@@ -343,3 +343,52 @@ mod portfolio_connection {
 }
 
 pub(crate) use portfolio_connection::*;
+
+/// Whether a scanned row is one a read rejects: a stored value of the wrong type, or one that
+/// `validate` refuses. Any other error is the storage failing, not a bad row, so it fails the scan
+/// instead of being counted.
+fn unreadable_row<T, U>(
+    row: rusqlite::Result<T>,
+    validate: impl FnOnce(T) -> Result<U, crate::portfolio_projection::PortfolioReadError>,
+) -> Result<bool, crate::portfolio_projection::PortfolioReadError> {
+    match row {
+        Ok(row) => Ok(validate(row).is_err()),
+        Err(
+            rusqlite::Error::FromSqlConversionFailure(..)
+            | rusqlite::Error::InvalidColumnType(..)
+            | rusqlite::Error::IntegralValueOutOfRange(..),
+        ) => Ok(true),
+        Err(_) => Err(crate::portfolio_projection::PortfolioReadError::StorageRejected),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::portfolio_projection::PortfolioReadError;
+
+    use super::unreadable_row;
+
+    #[test]
+    fn a_bad_row_is_counted_but_a_storage_failure_fails_the_scan() {
+        let valid = |value: i64| {
+            if value > 0 {
+                Ok(())
+            } else {
+                Err(PortfolioReadError::ProjectionRejected)
+            }
+        };
+        assert!(!unreadable_row(Ok(1), valid).unwrap());
+        assert!(unreadable_row(Ok(0), valid).unwrap());
+        let wrong_type =
+            rusqlite::Error::InvalidColumnType(0, "value".to_owned(), rusqlite::types::Type::Blob);
+        assert!(unreadable_row(Err(wrong_type), valid).unwrap());
+        let corrupt = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+            None,
+        );
+        assert!(matches!(
+            unreadable_row(Err(corrupt), valid),
+            Err(PortfolioReadError::StorageRejected)
+        ));
+    }
+}

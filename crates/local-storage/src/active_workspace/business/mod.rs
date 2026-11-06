@@ -9387,6 +9387,90 @@ mod tests {
     }
 
     #[test]
+    fn settings_counts_stored_rows_the_other_reads_reject_without_failing() {
+        let mut database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+        ]);
+        let integrity = |database: &BusinessDatabase| {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            [
+                integrity.malformed_expiries,
+                integrity.invalid_registrar_observations,
+                integrity.rejected_dns_rows,
+                integrity.rejected_listings,
+                integrity.malformed_outbox_rows,
+            ]
+        };
+        // The one listing sales rejects is counted, and the settings read itself still succeeds.
+        assert_eq!(integrity(&database), [0, 0, 0, 1, 0]);
+        assert!(matches!(
+            database.read_sales(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        let connection = database.store.fixture_connection();
+        allow_legacy_rows(connection);
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        // An impossible calendar date, and a deleted asset's, which no read shows.
+        connection.execute("UPDATE domain_assets SET expires_on = '2026-02-30' WHERE entity_id = 'charlie.test'", []).unwrap();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,deleted_at,local_commit_sequence) VALUES ('workspace-local','gone.test','archived','soon',?1,?1,?1,1)", [TIMESTAMP]).unwrap();
+        // Two available observations share an invalid name; an unavailable one is never shown.
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','porkbun','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        for (index, (entity, name, availability)) in [
+            ("alpha.test", "Bad\u{7}Name", "available"),
+            ("bravo.test", "Bad\u{7}Name", "available"),
+            ("charlie.test", "Bad\u{7}Name", "unavailable"),
+            ("charlie.test", "Porkbun", "available"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let run = format!("registrar-run-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version')", rusqlite::params![format!("registrar-{index}"), run, entity, name, availability, TIMESTAMP]).unwrap();
+        }
+        // A Zone binding naming a platform other than its connection's.
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','alpha.test','registrar-1','spaceship','zone',?1,?2,'alpha.test',1,2,'unverified',?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        for (mutation, created_at) in [
+            ("legacy-1", "2026-08-28 12:00:00"),
+            ("legacy-2", "2026-08-28T24:00:00Z"),
+            ("canonical", "2026-08-28T12:00:00Z"),
+        ] {
+            connection.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at) VALUES ('workspace-local',?1,'domain_asset','alpha.test','{}',?2)", [mutation, created_at]).unwrap();
+        }
+        let _ = connection;
+
+        assert_eq!(integrity(&database), [1, 2, 1, 1, 2]);
+        // Each count names a read that fails closed on those rows.
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        assert!(matches!(
+            database.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
     fn settings_reports_connection_roles_as_unqualified_without_identifiers() {
         let mut database = database();
         assert!(database.read_settings().unwrap().connections.is_empty());

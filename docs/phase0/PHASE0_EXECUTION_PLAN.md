@@ -97,7 +97,7 @@ dead-letter outbox 和 Session 撤销；
   - [x] 销售：Host 按域名分页（多市场合并在 Host 侧完成）与全量指标（在售数、单一价格规则下的挂牌估值） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告（已改为每次读取全量校验并失败关闭：DNS 对每个有绑定或适用观察的资产复用逐行校验；续费先校验全部可用注册商观察的去重名称，仅在有非法名称时再逐资产解析实际显示的名称；100k 基准下续费约 0.20 s、DNS 约 0.21 s） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费 Host 投影校验 `domain_assets.expires_on` 的日期格式并纳入全量校验（该列无 schema CHECK，当前只由 Renderer 逐页校验；页外格式错误但按字符串比较落入窗口的日期会被计入而不被拒绝），或在后续迁移中加 CHECK；若续费精确名称扫描因历史非法名称而常态触发，记录非法名称计数以便发现（已完成：续费计数查询把 `expires_on IS NOT date(expires_on)` 计为异常并让整次读取失败） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 续费读取因历史非法注册商名称而每次触发逐资产精确扫描时，在设置/诊断中报告非法名称计数，避免静默变慢；同时在设置/诊断中报告并提供修复让读取失败关闭的存储坏行（非法到期日期、平台不一致的绑定、迁移前写入的非规范 Outbox `created_at` 等），避免单行坏数据让整页长期不可读；读取侧的全表校验（DNS 绑定、续费名称与到期日期、资产库到期日期、历史的 Outbox 时间）只能在迁移或修复步骤清理完迁移前的旧行之后移除
+- [ ] 为让读取失败关闭的存储坏行（非法到期日期、平台不一致的绑定、非法注册商名称与挂牌观察、迁移前写入的非规范 Outbox `created_at` 等）提供修复，避免单行坏数据让整页长期不可读；读取侧的全表校验（DNS 绑定、续费名称与到期日期、资产库到期日期、销售挂牌、历史的 Outbox 时间）只能在修复步骤清理完迁移前的旧行之后移除（暂停：待决事项——这些行属于同步复制的业务数据与已提交的变更流水，修复是经变更流水改写、删除或标记旧观察不可用，还是改写已确认的 Outbox 时间，需要先有 ADR 决定；建议：业务数据经变更流水以新变更修复以保持副本收敛，已确认的 Outbox 历史保持不可变、只标记不改写；设置中的报告已完成，见本阶段末项）
 - [x] 到期日期的 `date()` 往返校验同样用于资产库：资产库每次读取统计全工作区非法到期日期并失败关闭，资产行与域名详情逐行校验 `YYYY-MM-DD` 日历日期（与 `validate_timestamp`、Renderer `z.iso.date()` 同规则）；测试覆盖闰日、2 月 30 日等不可能日期与后缀；100k 基准资产库末页约 0.78 s（新增一次全表扫描，计入 O(N) 预算项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `domain_assets.expires_on` 写入时校验：存储完整性迁移以插入/更新触发器要求 `NULL` 或 `date()` 原样往返的 `YYYY-MM-DD` 日期（SQLite 不能为已有表追加 CHECK，触发器等效）；迁移前的旧行不改写，资产库与续费读取的全表日期校验保留并继续失败关闭（两侧差异：资产库拒绝全工作区非法日期，续费只拒绝窗口内的） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换（kit 的进行中提示是 Settings/Sign-in 中缓慢旋转的弱化 RefreshCw，复用在 Pagination 备注位并尊重减少动效；同一来源的读取失败保留上一结果和搜索框，失败横幅与重试内联在台面上方，换端口或代际不沿用旧值） https://github.com/newcodebook/GoodDealer/pull/53
@@ -146,6 +146,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）（四种状态 en-US 与 zh-CN 均有渲染测试；已观察的 Zone 读取契约必带状态，未观察的行不显示 DNSSEC 标签并有测试） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] `read_cloudflare_connection` 返回的连接标签改用统一标签规则（当前 Host 不校验，适配器允许 256 个单元且只拒绝 C0/DEL；随 `features/connections` 进入生产导航）
 - [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）
+- [x] 设置“关于”报告让其他读取失败关闭或变慢的存储坏行计数：非法到期日期（资产库与续费）、非法注册商名称的可用观察（续费变慢，显示时失败）、DNS 绑定或观察无效的资产、无效挂牌观察（销售）、时间非规范的 Outbox 行（历史）；每项计数复用对应读取的校验谓词，设置读取本身不因坏行失败；修复尚不可用并如实说明 https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 设置读取每次全量运行完整性计数（含销售挂牌合并查询，10 万资产约 0.5–2 s）：改为复用销售按数据代缓存或仅在打开“关于”时计数，并纳入 10 万基准计时
 
 ### 3. Cloudflare 路径稳定
 

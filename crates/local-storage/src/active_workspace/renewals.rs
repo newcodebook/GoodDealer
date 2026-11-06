@@ -116,26 +116,19 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let today = HostDay::read(&transaction)?;
         let expiring = expiring_asset("domain_assets", &today);
-        let (total_rows, enabled, disabled, malformed): (i64, i64, i64, i64) =
-            transaction
-                .query_row(
-                    &format!(
-                        "SELECT count(*),
+        let (total_rows, enabled, disabled, malformed): (i64, i64, i64, i64) = transaction
+            .query_row(
+                &format!(
+                    "SELECT count(*),
                            coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
-                           coalesce(sum(auto_renew NOT IN (0, 1) OR expires_on IS NOT date(expires_on)), 0)
-                         {ASSETS} AND {expiring}"
-                    ),
-                    [requested_workspace_id],
-                    |row| {
-                        Ok((
-                            row.get(0)?,
-                            row.get(1)?,
-                            row.get(2)?,
-                            row.get(3)?,
-                        ))
-                    },
-                )
-                .map_err(|_| PortfolioReadError::StorageRejected)?;
+                           coalesce(sum(auto_renew NOT IN (0, 1) OR {malformed_expiry}), 0)
+                         {ASSETS} AND {expiring}",
+                    malformed_expiry = malformed_expiry("domain_assets")
+                ),
+                [requested_workspace_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
         // The schema admits only 0, 1 or NULL; should that ever loosen, a value that is neither on,
         // off nor unrecorded fails the read, as it does per row, instead of being counted as
         // unrecorded on pages the Renderer never sees. The storage-integrity triggers reject a
@@ -218,6 +211,47 @@ impl<'a> ActiveRenewalsReader<'a> {
             },
         })
     }
+}
+
+/// Whether the `alias` row's recorded expiry is anything but a real `YYYY-MM-DD` date. `date()`
+/// returns exactly those unchanged; the storage-integrity triggers reject others only on new writes.
+pub(super) fn malformed_expiry(alias: &str) -> String {
+    format!("{alias}.expires_on IS NOT date({alias}.expires_on)")
+}
+
+/// How many available registrar observations carry a name that is not a valid registrar name. Any
+/// one sends every renewals read down the per-asset scan, and fails it if an expiring asset shows
+/// it; settings diagnostics report the count so that slowdown or failure is not silent.
+pub(super) fn invalid_registrar_observations(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT registrar_name, count(*) FROM registrar_observations
+             WHERE workspace_id = ?1 AND observation_availability = 'available'
+               AND registrar_name IS NOT NULL
+             GROUP BY registrar_name",
+        )
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let mut invalid = 0_u32;
+    for row in statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get::<_, rusqlite::types::Value>(0)?,
+                row.get::<_, i64>(1)?,
+            ))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    {
+        let (name, count) = row.map_err(|_| PortfolioReadError::ProjectionRejected)?;
+        let valid = matches!(&name, rusqlite::types::Value::Text(name)
+            if crate::portfolio_projection::valid_registrar_name(name));
+        if !valid {
+            invalid = invalid.saturating_add(u32::try_from(count).unwrap_or(u32::MAX));
+        }
+    }
+    Ok(invalid)
 }
 
 /// Whether every non-null name `query` (bound to the workspace as `?1`) returns is a valid registrar

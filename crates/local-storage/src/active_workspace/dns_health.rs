@@ -166,7 +166,9 @@ impl<'a> ActiveDnsHealthReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let (asset_count, observed_count, warning_count) =
             workspace_counts(&transaction, requested_workspace_id)?;
-        validate_workspace_rows(&transaction, requested_workspace_id)?;
+        if rejected_rows(&transaction, requested_workspace_id)? != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         let mut statement = transaction
             .prepare(&format!(
                 "SELECT {ROW_COLUMNS},
@@ -259,14 +261,15 @@ fn workspace_counts(
         .map_err(|_| PortfolioReadError::StorageRejected)
 }
 
-/// Validates every row the counts include, not only the page's. A page reads a few rows, so a bad
-/// binding or observation elsewhere would otherwise stay counted while no read ever rejects it; the
-/// whole read fails closed instead, as it did when the Renderer read every row. An asset with neither
-/// a binding nor an applicable observation has nothing to validate beyond its schema-checked ID.
-fn validate_workspace_rows(
+/// How many of the rows the counts include fail validation, not only on the page. A page reads a few
+/// rows, so a bad binding or observation elsewhere would otherwise stay counted while no read ever
+/// rejects it; the read fails closed on any, as it did when the Renderer read every row, and
+/// settings diagnostics report the count so the cause is visible. An asset with neither a binding
+/// nor an applicable observation has nothing to validate beyond its schema-checked ID.
+pub(super) fn rejected_rows(
     connection: &Connection,
     workspace_id: &str,
-) -> Result<(), PortfolioReadError> {
+) -> Result<u32, PortfolioReadError> {
     let mut statement = connection
         .prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM domain_assets a {ZONE_JOINS}
@@ -294,10 +297,13 @@ fn validate_workspace_rows(
             ))
         })
         .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut rejected = 0_u32;
     for row in rows {
-        project_row(row.map_err(|_| PortfolioReadError::ProjectionRejected)?)?;
+        if super::unreadable_row(row, project_row)? {
+            rejected = rejected.saturating_add(1);
+        }
     }
-    Ok(())
+    Ok(rejected)
 }
 
 fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError> {

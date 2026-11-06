@@ -33,7 +33,7 @@ const devices: DeviceRuntimeView = {
   ],
   handoffTargetIds: ["mini"],
 };
-const about = { version: "0.9.0", dataDirectory: "~/GoodDealer", revisionBase: 8241 };
+const about = { version: "0.9.0", dataDirectory: "~/GoodDealer", revisionBase: 8241, storageIntegrity: null };
 const noop = () => undefined;
 
 describe("Settings panel", () => {
@@ -92,7 +92,7 @@ describe("Settings contract", () => {
 
 describe("Settings from the Host projection", () => {
   const connections = projectConnectionSettings(parseSettingsRead({
-    schemaVersion: 1, kind: "settings", readGeneration: 1,
+    schemaVersion: 2, kind: "settings", readGeneration: 1, storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     connections: [{
       providerKind: "cloudflare", connectionLabel: "Cloudflare 主账号", lifecycleStatus: "active", validationStatus: "valid",
@@ -108,7 +108,7 @@ describe("Settings from the Host projection", () => {
       devices={null}
       license="unavailable"
       sync={null}
-      about={{ version: null, dataDirectory: null, revisionBase: 7 }}
+      about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }}
     />,
   );
 
@@ -125,7 +125,7 @@ describe("Settings from the Host projection", () => {
 
   it("lists a non-Cloudflare connection under each role it declares, unavailable and without a guessed method", () => {
     const multi = projectConnectionSettings(parseSettingsRead({
-      schemaVersion: 1, kind: "settings", readGeneration: 1,
+      schemaVersion: 2, kind: "settings", readGeneration: 1, storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
       freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
       connections: [
         {
@@ -148,7 +148,7 @@ describe("Settings from the Host projection", () => {
     expect(groups).toEqual({ registrar: [["Spaceship", null]], dns: [["Cloudflare", "api"]], marketplace: [["Spaceship", null]] });
     for (const locale of ["zh-CN", "en-US"] as const) {
       const html = renderToStaticMarkup(
-        <SettingsPanel locale={locale} initialSection="connections" connections={multi} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7 }} />,
+        <SettingsPanel locale={locale} initialSection="connections" connections={multi} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }} />,
       );
       expect(html.match(/>Spaceship</gu)).toHaveLength(2);
       // Only Cloudflare's row carries a method tag; no row offers an action.
@@ -168,5 +168,25 @@ describe("Settings from the Host projection", () => {
     const about = render("about");
     expect(about).toContain("暂不可用");
     expect(about).toContain(">7<");
+  });
+
+  it("reports stored rows other reads reject, says which read each affects, and that repair is unavailable", () => {
+    const panel = (storageIntegrity: Parameters<typeof SettingsPanel>[0]["about"]["storageIntegrity"], locale: "zh-CN" | "en-US" = "zh-CN") => renderToStaticMarkup(
+      <SettingsPanel locale={locale} initialSection="about" connections={connections} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: null, storageIntegrity }} />,
+    );
+    const clean = { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 };
+    expect(panel(clean)).toContain("没有被读取拒绝的数据");
+    expect(panel(clean)).not.toContain("修复入口");
+    expect(panel(null)).toMatch(/本地数据完整性<\/dt><dd class="gd-key-value--muted">暂不可用/u);
+
+    const html = panel({ ...clean, invalidRegistrarObservations: 1200, malformedOutboxRows: 1 });
+    expect(html).toContain("gd-key-value--danger");
+    expect(html).toContain("1,200 条注册商观察的名称无效：续费读取变慢");
+    expect(html).toContain("1 条变更记录的时间无效：历史无法读取");
+    // Only the classes with rows appear.
+    expect(html).not.toContain("到期日期无效");
+    expect(html).not.toContain("挂牌观察无效");
+    expect(html).toContain("修复入口尚不可用");
+    expect(panel({ ...clean, rejectedDnsRows: 2, rejectedListings: 3, malformedExpiries: 4 }, "en-US")).toMatch(/4 assets with an invalid expiry date: the asset library cannot be read, and renewals may not be.*2 assets with an invalid DNS binding.*3 invalid listing observations/su);
   });
 });
