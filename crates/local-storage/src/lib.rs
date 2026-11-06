@@ -211,8 +211,9 @@ pub use desktop_native_cloud::{
     DesktopCloudflareRecoveryPlan, DesktopCloudflareRecoveryScan, DesktopCloudflareResolution,
     DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition, DesktopSyncPullExchange,
     DesktopSyncPushClaim, DesktopSyncPushDisposition, DesktopSyncPushWork,
-    InspectingCloudflareProvision, MarkedCloudflareProvision, PreparedCloudflareObservation,
-    PreparedCloudflareProvision,
+    InspectingCloudflareProvision, InspectingCloudflareRevocation, MarkedCloudflareProvision,
+    MarkedCloudflareRevocation, PreparedCloudflareObservation, PreparedCloudflareProvision,
+    PreparedCloudflareRevocation,
 };
 pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 

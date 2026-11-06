@@ -150,6 +150,8 @@ export interface CloudflarePort {
   status(): Promise<CloudflareConnectionStatus>;
   /** Native opens the bounded credential capture; the token never enters this argument. */
   activate(connectionRef: string): Promise<void>;
+  /** Queues revocation; the Host denies the credential at once and tombstones it in custody. */
+  revoke(connectionRef: string): Promise<void>;
   observe(connectionRef: string, entityId: string): Promise<void>;
   readObservation(entityId: string): Promise<CloudflareObservation>;
 }
@@ -175,6 +177,7 @@ const commands = {
   readDeviceLease: "local_device_lease_read",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
+  cloudflareRevoke: "cloudflare_connection_revoke",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
 } as const;
@@ -186,6 +189,9 @@ export function createCloudflarePort(): CloudflarePort {
     },
     async activate(connectionRef) {
       await invoke(commands.cloudflareActivate, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+    },
+    async revoke(connectionRef) {
+      await invoke(commands.cloudflareRevoke, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
     },
     async observe(connectionRef, entityId) {
       await invoke(commands.cloudflareObserve, {

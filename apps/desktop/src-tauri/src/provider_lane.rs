@@ -26,12 +26,20 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
         entity_id: String,
     },
+    /// Revokes the connection's credential. It shares the single in-flight slot so it never races
+    /// a provision of the same custody, but it is never rate limited: withdrawing access must
+    /// always be possible.
+    Revoke {
+        connection_id: String,
+    },
 }
 
 impl ProviderOperation {
     fn connection_id(&self) -> &str {
         match self {
-            Self::Activate { connection_id } | Self::Observe { connection_id, .. } => connection_id,
+            Self::Activate { connection_id }
+            | Self::Revoke { connection_id }
+            | Self::Observe { connection_id, .. } => connection_id,
         }
     }
 }
@@ -130,6 +138,7 @@ impl ProviderAdmissionState {
                 }
                 rate.observations.push_back(now);
             }
+            ProviderOperation::Revoke { .. } => {}
         }
         self.in_flight = Some(operation.clone());
         ProviderAdmission::Enqueue
@@ -425,6 +434,34 @@ mod tests {
             ProviderSubmission::Accepted
         );
         assert_eq!(handle.submit_at(&activation, now), ProviderSubmission::Busy);
+    }
+
+    #[test]
+    fn revocation_is_serial_with_provision_but_never_rate_limited() {
+        let (handle, mut lane) = ProviderLane::new();
+        let revoke = ProviderOperation::Revoke {
+            connection_id: "connection-a".to_owned(),
+        };
+        // Recovery must finish first: a revocation never overlaps an unresolved credential write.
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Busy);
+        lane.finish_recovery(Some(0), true);
+        let now = Instant::now();
+        let activation = ProviderOperation::Activate {
+            connection_id: "connection-a".to_owned(),
+        };
+        assert_eq!(
+            handle.submit_at(&activation, now),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+        let operation = lane.commands.try_recv().unwrap();
+        lane.complete(&operation);
+        for _ in 0..3 {
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Accepted);
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+            let operation = lane.commands.try_recv().unwrap();
+            lane.complete(&operation);
+        }
     }
 
     #[test]

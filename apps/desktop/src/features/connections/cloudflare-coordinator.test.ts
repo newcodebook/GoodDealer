@@ -10,7 +10,7 @@ const observation = {
 };
 
 function port(overrides: Partial<CloudflarePort> = {}): CloudflarePort {
-  return { status: vi.fn(async () => status), activate: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
+  return { status: vi.fn(async () => status), activate: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
 }
 
 describe("CloudflareJourney", () => {

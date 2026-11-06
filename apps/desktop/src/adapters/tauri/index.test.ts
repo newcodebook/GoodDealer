@@ -7,11 +7,21 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
+import { createCloudflarePort, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+  });
+
+  it("revokes through its own command with only a bounded connection reference", async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    await createCloudflarePort().revoke("connection-opaque");
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_connection_revoke", { request: { schemaVersion: 1, connectionId: "connection-opaque" } });
+    for (const hostile of ["", "with space", "x".repeat(257), "token\u0000"]) {
+      await expect(createCloudflarePort().revoke(hostile)).rejects.toThrow(TypeError);
+    }
+    expect(invokeMock).toHaveBeenCalledOnce();
   });
 
   it("binds through the narrow validating capability and rejects hostile IPC receipts", async () => {

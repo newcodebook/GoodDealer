@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the cloudflare_connection_activate command without any pre-configured scope."
         },
         {
+          "description": "Enables the cloudflare_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-connection-revoke",
+          "markdownDescription": "Enables the cloudflare_connection_revoke command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-status",
@@ -523,6 +529,12 @@
           "type": "string",
           "const": "deny-cloudflare-connection-activate",
           "markdownDescription": "Denies the cloudflare_connection_activate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-connection-revoke",
+          "markdownDescription": "Denies the cloudflare_connection_revoke command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_status command without any pre-configured scope.",

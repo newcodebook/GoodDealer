@@ -3,6 +3,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "cloudflare_connection_activate",
+            "cloudflare_connection_revoke",
             "cloudflare_zone_observe",
             "cloudflare_connection_status",
             "cloudflare_observation_read",

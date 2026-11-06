@@ -7,7 +7,7 @@ use gooddealer_local_storage::{
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
     DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
     DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution, DesktopLocalHost,
-    DesktopLocalHostError, InspectingCloudflareProvision,
+    DesktopLocalHostError, InspectingCloudflareProvision, InspectingCloudflareRevocation,
 };
 use gooddealer_secure_host_core::{
     CloudflareCapture, CloudflareCaptureError, CloudflareCredentialObservationPlan,
@@ -16,7 +16,7 @@ use gooddealer_secure_host_core::{
     CloudflarePrewriteFailure, CloudflarePrewriteInspection, CloudflareProviderClient,
     CloudflareProviderError, CloudflareProviderObservation, CloudflareProviderZoneStatus,
     CloudflareRecordType, inspect_cloudflare_recovery_guarded,
-    publish_cloudflare_candidate_guarded,
+    publish_cloudflare_candidate_guarded, publish_cloudflare_tombstone_guarded,
 };
 
 pub(crate) async fn recover(host: Arc<DesktopLocalHost>) -> Result<(), ProviderCredentialError> {
@@ -213,6 +213,68 @@ pub(crate) async fn observe(
     .map_err(|_| ProviderCredentialError::Host)
 }
 
+/// Revokes a connection's credential. Preparation denies credential use in the Host in the same
+/// commit, so the revocation takes effect before custody is touched; the tombstone publication
+/// then removes the token from custody under the same fences as provision. `Ok(false)` means
+/// there was no credential to revoke.
+///
+/// A quarantined connection is not refused here: revoking only withdraws access, and the
+/// prewrite inspection still remediates any custody that contradicts the Host's record.
+pub(crate) async fn revoke(
+    host: Arc<DesktopLocalHost>,
+    connection_hint: String,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<bool, ProviderCredentialError> {
+    let admission = host
+        .begin_native_cloud_run()
+        .map_err(|_| ProviderCredentialError::Host)?;
+    let prepare_host = Arc::clone(&host);
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        prepare_host.prepare_cloudflare_revocation(admission, &connection_hint)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map_err(|_| ProviderCredentialError::Host)?;
+    let Some(prepared) = prepared else {
+        return Ok(false);
+    };
+
+    let prewrite_host = Arc::clone(&host);
+    let inspecting = cancel_fence
+        .commit(|| prewrite_host.begin_cloudflare_revocation_prewrite_inspection(prepared))
+        .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+        .map_err(|_| ProviderCredentialError::Host)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        inspecting.with_keychain_plan(|plan, inspecting| {
+            let forwarded = ForwardedProvisionPlan(plan);
+            publish_cloudflare_tombstone_guarded(
+                &forwarded,
+                ForwardedRevocationInspection(inspecting),
+                |ForwardedRevocationInspection(inspecting)| {
+                    host.mark_cloudflare_revocation_write_started(inspecting)
+                        .map_err(map_host_to_keychain)
+                },
+                |ForwardedRevocationInspection(inspecting), reason| {
+                    host.remediate_cloudflare_revocation_prewrite(
+                        inspecting,
+                        map_prewrite_failure(reason),
+                    )
+                    .map_err(map_host_to_keychain)
+                },
+                |marked, comparison| {
+                    host.resolve_cloudflare_revocation(marked, map_comparison(comparison))
+                        .map_err(map_host_to_keychain)
+                },
+            )
+        })
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map(|resolution| resolution == DesktopCloudflareResolution::Confirmed)
+    .map_err(|_| ProviderCredentialError::Keychain)
+}
+
 fn provider_custody_quarantine() -> &'static Mutex<HashSet<String>> {
     static QUARANTINE: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     QUARANTINE.get_or_init(|| Mutex::new(HashSet::new()))
@@ -237,6 +299,10 @@ struct ForwardedRecoveryPlan<'a>(DesktopCloudflareRecoveryPlan<'a>);
 struct ForwardedPrewriteInspection(InspectingCloudflareProvision);
 
 impl CloudflarePrewriteInspection for ForwardedPrewriteInspection {}
+
+struct ForwardedRevocationInspection(InspectingCloudflareRevocation);
+
+impl CloudflarePrewriteInspection for ForwardedRevocationInspection {}
 
 struct ForwardedObservationPlan<'a>(&'a gooddealer_local_storage::PreparedCloudflareObservation);
 
@@ -494,6 +560,33 @@ mod tests {
         let post_prewrite_activation = &production[prewrite..observation];
         assert!(!post_prewrite_activation.contains("is_cancelled()"));
         assert!(!post_prewrite_activation.contains(".commit("));
+        for call in [
+            "publish_cloudflare_tombstone_guarded(",
+            ".begin_cloudflare_revocation_prewrite_inspection(",
+            ".mark_cloudflare_revocation_write_started(",
+            ".remediate_cloudflare_revocation_prewrite(",
+            ".resolve_cloudflare_revocation(",
+        ] {
+            assert_eq!(production.matches(call).count(), 1, "{call}");
+            assert!(!command_handlers.contains(call), "{call}");
+            assert!(!runtime.contains(call), "{call}");
+            assert!(!main.contains(call), "{call}");
+        }
+        // Revocation: once custody inspection has durably begun, nothing may abandon the
+        // tombstone publication midway, exactly as for provision.
+        let revocation_prewrite = production
+            .find(".begin_cloudflare_revocation_prewrite_inspection(")
+            .expect("durable revocation prewrite transition");
+        let tombstone = production
+            .find("publish_cloudflare_tombstone_guarded(")
+            .expect("Secure Host tombstone publication");
+        let revocation_end = production
+            .find("fn provider_custody_quarantine()")
+            .expect("end of the revocation boundary");
+        assert!(revocation_prewrite < tombstone && tombstone < revocation_end);
+        let post_prewrite_revocation = &production[revocation_prewrite..revocation_end];
+        assert!(!post_prewrite_revocation.contains("is_cancelled()"));
+        assert!(!post_prewrite_revocation.contains(".commit("));
         let host_types =
             include_str!("../../../../crates/local-storage/src/desktop_native_cloud.rs");
         let prepared = host_types
@@ -504,6 +597,18 @@ mod tests {
             .unwrap();
         let marked = host_types
             .find("pub struct MarkedCloudflareProvision")
+            .unwrap();
+        assert!(prepared < inspecting && inspecting < marked);
+        assert!(!host_types[prepared..inspecting].contains("with_keychain_plan"));
+        assert!(host_types[inspecting..marked].contains("with_keychain_plan"));
+        let prepared = host_types
+            .find("pub struct PreparedCloudflareRevocation")
+            .unwrap();
+        let inspecting = host_types
+            .find("pub struct InspectingCloudflareRevocation")
+            .unwrap();
+        let marked = host_types
+            .find("pub struct MarkedCloudflareRevocation")
             .unwrap();
         assert!(prepared < inspecting && inspecting < marked);
         assert!(!host_types[prepared..inspecting].contains("with_keychain_plan"));

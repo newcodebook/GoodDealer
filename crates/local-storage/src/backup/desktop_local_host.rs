@@ -1216,6 +1216,25 @@ fn recovery_observation(
     }
 }
 
+const fn prewrite_failure_reason(
+    reason: crate::DesktopCloudflarePrewriteFailure,
+) -> crate::CloudflarePrewriteFailureReason {
+    match reason {
+        crate::DesktopCloudflarePrewriteFailure::BaseMismatch => {
+            crate::CloudflarePrewriteFailureReason::BaseMismatch
+        }
+        crate::DesktopCloudflarePrewriteFailure::MissingOther => {
+            crate::CloudflarePrewriteFailureReason::MissingOther
+        }
+        crate::DesktopCloudflarePrewriteFailure::Malformed => {
+            crate::CloudflarePrewriteFailureReason::Malformed
+        }
+        crate::DesktopCloudflarePrewriteFailure::Unreadable => {
+            crate::CloudflarePrewriteFailureReason::Unreadable
+        }
+    }
+}
+
 const fn desktop_cloudflare_resolution(
     resolution: crate::CloudflareCredentialResolution,
 ) -> crate::DesktopCloudflareResolution {
@@ -1476,25 +1495,11 @@ impl DesktopLocalHost {
             preparation,
             plan: _,
         } = inspecting;
-        let reason = match reason {
-            crate::DesktopCloudflarePrewriteFailure::BaseMismatch => {
-                crate::CloudflarePrewriteFailureReason::BaseMismatch
-            }
-            crate::DesktopCloudflarePrewriteFailure::MissingOther => {
-                crate::CloudflarePrewriteFailureReason::MissingOther
-            }
-            crate::DesktopCloudflarePrewriteFailure::Malformed => {
-                crate::CloudflarePrewriteFailureReason::Malformed
-            }
-            crate::DesktopCloudflarePrewriteFailure::Unreadable => {
-                crate::CloudflarePrewriteFailureReason::Unreadable
-            }
-        };
         self.cancel_cloudflare_prewrite_for_remediation(
             &admission,
             &preparation.connection_incarnation_id,
             &preparation.intent_id,
-            reason,
+            prewrite_failure_reason(reason),
         )?;
         Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
     }
@@ -1593,6 +1598,139 @@ impl DesktopLocalHost {
     pub fn resolve_cloudflare_provision(
         &self,
         marked: crate::MarkedCloudflareProvision,
+        comparison: crate::DesktopCloudflareCustodyComparison,
+    ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
+        let observation = recovery_observation(&marked.plan, comparison);
+        let resolution = self.resolve_cloudflare_credential_operation(
+            &marked.admission,
+            &marked.preparation.connection_incarnation_id,
+            &marked.preparation.intent_id,
+            &observation,
+        )?;
+        Ok(desktop_cloudflare_resolution(resolution))
+    }
+
+    /// Durably prepares the revocation of a connection's Active credential. Credential use is
+    /// denied in the same commit, so revocation takes effect in the Host before custody changes;
+    /// the tombstone publication that follows only removes the token from custody.
+    ///
+    /// Returns `None` when the connection holds no credential, which leaves nothing to revoke.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, an unknown connection, a live credential operation, or a
+    /// credential that is not Active.
+    pub fn prepare_cloudflare_revocation(
+        &self,
+        admission: crate::DesktopNativeCloudAdmission,
+        connection_hint: &str,
+    ) -> Result<Option<crate::PreparedCloudflareRevocation>, DesktopLocalHostError> {
+        let prepared =
+            self.with_sync_write(&admission.inner, |sync, database, admitted, guard| {
+                sync.prepare_cloudflare_revocation(database, admitted, connection_hint, guard)
+            })?;
+        let Some(prepared) = prepared else {
+            return Ok(None);
+        };
+        let target = crate::CloudflareCredentialWitness {
+            kind: crate::CloudflareCredentialEnvelopeKind::Tombstone,
+            generation: Some(prepared.preparation.target_generation),
+            scope_digest: Some(prepared.preparation.scope_digest.clone()),
+            zone_digest: Some(prepared.preparation.zone_digest.clone()),
+            public_proof: Some(prepared.preparation.target_public_proof.clone()),
+        };
+        Ok(Some(crate::PreparedCloudflareRevocation {
+            admission,
+            plan: crate::DesktopCloudflareKeychainPlanData {
+                connection_incarnation_id: prepared.preparation.connection_incarnation_id.clone(),
+                connection_digest: prepared.connection_digest,
+                expected_base: prepared.expected_base,
+                target,
+            },
+            preparation: prepared.preparation,
+        }))
+    }
+
+    /// Durably enters revocation prewrite inspection after the final cancellation fence.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale handle, authority, or persisted intent before Keychain is entered.
+    pub fn begin_cloudflare_revocation_prewrite_inspection(
+        &self,
+        prepared: crate::PreparedCloudflareRevocation,
+    ) -> Result<crate::InspectingCloudflareRevocation, DesktopLocalHostError> {
+        self.begin_cloudflare_prewrite_inspection(
+            &prepared.admission,
+            &prepared.preparation.connection_incarnation_id,
+            &prepared.preparation.intent_id,
+        )?;
+        Ok(crate::InspectingCloudflareRevocation {
+            admission: prepared.admission,
+            preparation: prepared.preparation,
+            plan: prepared.plan,
+        })
+    }
+
+    /// Records the exact Active base after Secure Host proved it under the Keychain lock.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale handle, authority, persisted intent, or root/publication drift.
+    pub fn mark_cloudflare_revocation_write_started(
+        &self,
+        inspecting: crate::InspectingCloudflareRevocation,
+    ) -> Result<crate::MarkedCloudflareRevocation, DesktopLocalHostError> {
+        self.mark_cloudflare_keychain_write_started(
+            &inspecting.admission,
+            &inspecting.preparation.connection_incarnation_id,
+            &inspecting.preparation.intent_id,
+        )?;
+        Ok(crate::MarkedCloudflareRevocation {
+            admission: inspecting.admission,
+            preparation: inspecting.preparation,
+            plan: inspecting.plan,
+        })
+    }
+
+    /// Converts a revocation prewrite custody contradiction into terminal, sticky remediation.
+    /// Credential use stays denied: a revocation never restores a credential it could not prove.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale admission, non-prewrite intent, invalid transition, or failed storage commit.
+    pub fn remediate_cloudflare_revocation_prewrite(
+        &self,
+        inspecting: crate::InspectingCloudflareRevocation,
+        reason: crate::DesktopCloudflarePrewriteFailure,
+    ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
+        // Consuming the opaque handle prevents a remediation from being replayed.
+        let crate::InspectingCloudflareRevocation {
+            admission,
+            preparation,
+            plan: _,
+        } = inspecting;
+        self.cancel_cloudflare_prewrite_for_remediation(
+            &admission,
+            &preparation.connection_incarnation_id,
+            &preparation.intent_id,
+            prewrite_failure_reason(reason),
+        )?;
+        Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
+    }
+
+    /// Resolves a marked revocation from a closed Secure Host custody comparison.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, invalid persisted state, or storage failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "consuming the opaque marked handle prevents replay after resolution"
+    )]
+    pub fn resolve_cloudflare_revocation(
+        &self,
+        marked: crate::MarkedCloudflareRevocation,
         comparison: crate::DesktopCloudflareCustodyComparison,
     ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
         let observation = recovery_observation(&marked.plan, comparison);

@@ -272,6 +272,50 @@ pub struct MarkedCloudflareProvision {
     pub(crate) plan: DesktopCloudflareKeychainPlanData,
 }
 
+/// Opaque Host-owned revocation, durably prepared with credential use already denied. Distinct
+/// from the provision handles so a revocation can only be published as a tombstone.
+pub struct PreparedCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for PreparedCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PreparedCloudflareRevocation([REDACTED])")
+    }
+}
+
+/// Opaque proof that Host durably entered prewrite inspection for a revocation.
+pub struct InspectingCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for InspectingCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("InspectingCloudflareRevocation([REDACTED])")
+    }
+}
+
+impl InspectingCloudflareRevocation {
+    pub fn with_keychain_plan<T>(
+        self,
+        use_plan: impl FnOnce(DesktopCloudflareKeychainPlan<'_>, Self) -> T,
+    ) -> T {
+        let data = self.plan.clone();
+        let plan = DesktopCloudflareKeychainPlan { data: &data };
+        use_plan(plan, self)
+    }
+}
+
+pub struct MarkedCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
 /// Opaque Host-owned admission for one stored-credential Provider observation.
 pub struct PreparedCloudflareObservation {
     pub(crate) admission: DesktopNativeCloudAdmission,
@@ -1969,6 +2013,159 @@ mod tests {
         );
         assert_eq!(business_generation(&other_host), 1);
         assert_eq!(other_host.native_checkpoint_due(&other_admission), Ok(true));
+    }
+
+    fn credential_host() -> (tempfile::TempDir, DesktopLocalHost) {
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
+        let mut database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6d; 32]),
+            WORKSPACE_ID,
+        )
+        .expect("open test database");
+        database
+            .upsert_domain_asset(
+                "revoke-asset",
+                "2026-09-15T00:00:00Z",
+                &DomainAssetWrite {
+                    entity_id: "revoke.test".to_owned(),
+                    note: None,
+                    portfolio_id: None,
+                    tags: Vec::new(),
+                    target_price: None,
+                },
+            )
+            .expect("seed asset");
+        database.seed_verified_cloudflare_binding_for_test("revoke.test");
+        let local_host = host(database, &directory);
+        (directory, local_host)
+    }
+
+    #[test]
+    fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        // Revocation takes effect in the Host at preparation: the credential is no longer
+        // published, and no Provider observation can be admitted with it.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+                .is_err()
+        );
+        assert_eq!(
+            prepared.plan.target.kind,
+            crate::CloudflareCredentialEnvelopeKind::Tombstone
+        );
+        assert_eq!(
+            prepared.plan.expected_base.kind,
+            crate::CloudflareCredentialEnvelopeKind::Active
+        );
+        assert_eq!(
+            prepared.plan.target.scope_digest,
+            prepared.plan.expected_base.scope_digest
+        );
+        assert_eq!(
+            prepared.plan.target.zone_digest,
+            prepared.plan.expected_base.zone_digest
+        );
+        assert!(prepared.plan.target.generation > prepared.plan.expected_base.generation);
+
+        // A second revocation while this one is unresolved is refused, not queued.
+        let concurrent = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(concurrent, &connection)
+                .is_err()
+        );
+
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        let marked = local_host
+            .mark_cloudflare_revocation_write_started(inspecting)
+            .expect("mark Keychain write");
+        assert_eq!(
+            local_host.resolve_cloudflare_revocation(
+                marked,
+                crate::DesktopCloudflareCustodyComparison::ExactTarget
+            ),
+            Ok(crate::DesktopCloudflareResolution::Confirmed)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let replay = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(replay, &connection)
+                .is_err()
+        );
+        let unknown = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(unknown, "cloudflare-unknown")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn revocation_prewrite_contradiction_remediates_and_keeps_the_credential_denied() {
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        assert_eq!(
+            local_host.remediate_cloudflare_revocation_prewrite(
+                inspecting,
+                crate::DesktopCloudflarePrewriteFailure::BaseMismatch
+            ),
+            Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+                .is_err()
+        );
     }
 
     #[test]

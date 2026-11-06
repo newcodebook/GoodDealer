@@ -155,7 +155,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 资产创建，并对导入和手动添加去重（Host 经 `local_domain_asset_create` 在当前 Host 提交栅栏下以一个同步 upsert 新增资产；规范域名是去重键，工作区已有的域名返回 `DESKTOP_LOCAL_ASSET_EXISTS` 且不写入任何数据，已删除仍有墓碑的域名被拒绝；Host 与 Renderer 都拒绝非规范名称与 IP 字面量；资产库在 kit 的工具栏次按钮位提供“添加域名”，Standby/只读时不可用；kit 无加号图标，按钮不带图标。导入的去重依赖引导导入也走该命令，见上一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 绑定 UI（DNS 页的 kit 行操作列：Host 读取显示无有效绑定、且有本资产同名 Zone 的已确认可用 Cloudflare 观察时，可写界面提供“绑定 Zone”，经 `local_domain_asset_provider_bind` 由 Host 复核证据与读取代后提交，提交后按回执代重新发布；kit 没有绑定专用画面，沿用 DNS 页行操作按钮；生产导航尚无建立连接或观察的入口，所以目前不会出现该操作） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Grant/Lease 能力门禁接入生产导航（Host 只在 Grant v3 与嵌套 ActiveDeviceLease 验签通过、且商业能力为 `cloudflare:dns:observe` 时进入 Active；Renderer 只得到由此派生的 `local:read`/`workspace:mutate` 状态，`adjudicateDesktopPresentation` 据此决定锁定页、Standby/商业只读/受限与可用路由，写入口（添加域名、目标价、绑定 Zone、引导）只在 Active 且含 mutate 时组合；新增渲染测试逐个状态证明写入口的有无。Cloudflare 连接入口按同一能力门禁随下方 Cloudflare 进入生产组合一项交付） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 凭据原子撤销，revoke/deactivate 的 Host capability
+- [x] 凭据原子撤销，revoke/deactivate 的 Host capability（`cloudflare_connection_revoke` 经同一串行 ProviderLane 提交、不限速；Host 在准备撤销的同一提交中把连接置为 `revocation_pending` 并拒绝凭据使用，即停用先于 custody 生效；Secure Host 新增 `publish_cloudflare_tombstone_guarded`，在 Keychain 锁内只对 exact Active 基线写入下一 generation 的无 Token 墓碑（保留 scope 与 Zone），与 activation 同一 prewrite/marker/回读栅栏，基线矛盾进入 remediation 且凭据保持拒绝；确认后连接为 `revoked`，Token 在墓碑确认后才离开 custody，重放与并发撤销被拒绝。撤销只撤回 GoodDealer 的 custody 与使用，不会在 Cloudflare 吊销 API Token。凭据只在 macOS Keychain 中，其他平台的墓碑发布失败关闭；生产界面的撤销入口随下方 Cloudflare 进入生产组合与 Q-CF 提供。已在 `remediation_required` 状态的连接尚不能撤销，见新增项） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Cloudflare generation/auth fences 从 `features/connections` 进入生产组合（含：全新安装没有 Cloudflare 连接行、凭据采集仅 macOS、观察表对 `domain_assets` 有外键，所以“连接后从观察导入”需要新建连接与按区域导入的 Host 能力；交付时让引导的连接与导入步骤改用它，导入仍逐个经 `local_domain_asset_create`；同时决定 DNS 页“绑定 Zone”在 Q-CF 关闭前是否可见，若不可见，把 `bind_zone` 绑定到连接或能力状态上）
 - [ ] 断网、Token 失效、权限不足、撤销后，都失败关闭并给出可恢复提示
 - [ ] 操作历史把新增显示为编辑（Outbox 只有 `upsert`/`delete`，新增无独立操作类型）：在历史中把资产的首个本地版本标为新增，或为同步协议增加新增操作类型（后者需先评估 Cloud 合同）
@@ -163,6 +163,8 @@ dead-letter outbox 和 Session 撤销；
 - [ ] `local_device_lease_read` 的负向测试补齐 Standby、授权过期与授权切换进行中三种拒绝（目前只覆盖无 Active 授权）
 - [ ] 引导连接步骤的“不可连接”规则改为逐个平台判定（目前仅在全部平台不可用时拒绝 `connect_provider`）；第二个平台进入引导前完成
 - [ ] DNS 健康读取逐行报告能否绑定（Host 为唯一依据：凭据撤销或失效、凭据代不符、Zone 暂停、资产已归档时不提供“绑定 Zone”），避免界面提供 Host 必然拒绝的操作
+- [ ] 清除已拒绝使用但未写成墓碑的 custody：撤销只接受 `inactive`/`active` 连接与 Active 信封，以下三种情况凭据已拒绝使用（失败关闭），但 Token 可能仍在 Keychain 且无法再次撤销——custody 矛盾后停在 `remediation_required`；准备后、prewrite 前被取消（锁定或登出）的撤销，重启后 intent 为 `cancelled` 而连接停在 `revocation_pending`；撤销回读仍为基线（TargetNotObservedBurned）时连接已标为 `revoked`。需要清除 custody 并退役该连接 incarnation 的 Host 路径，供用户在能力认证后重新连接
+- [ ] `provider_credential_orchestrator::revoke` 返回区分“无凭据可撤销”与各非确认结果（remediated、burned、recovery required）的结果枚举，而不是同一个 `Ok(false)`
 - [ ] 写入口门禁的渲染测试覆盖全部写入口：目前只逐状态证明“添加域名”，补上域名详情目标价、冲突中心解决、DNS“绑定 Zone”，Cloudflare 连接、激活与观察入口进入生产组合时一并加入；若 Host 将来产生 Active 但无 mutate 的“受限”状态，补一条说明写入口缺失原因的横幅
 
 ### 4. 当前范围全系统 V1 汇合验收

@@ -66,8 +66,12 @@ Cloudflare activation/status/observation/local-read 已通过独立、仅用户�
 原始 IPC 只提交 connection/entity lookup hints，凭据和 Provider HTTPS 留在 Native；activation 在 Keychain
 前先提交 durable prewrite deny fence，提交后取消不再中断，只有 exact B 能进入 marker/write，矛盾或
 orphan 固定进入 remediation 且不推进 generation ledger/head。Renderer 对 status/observation 使用严格
-非秘密 DTO、本地提交后读取和 generation/auth fence。Revoke/deactivate
-没有 Host 原子 custody/fencing capability，因此当前明确显示 unavailable，未伪造 UI/API。
+非秘密 DTO、本地提交后读取和 generation/auth fence。撤销经 `cloudflare_connection_revoke` 进入同一
+ProviderLane（不限速）：Host 在准备撤销的同一提交中拒绝凭据使用（即停用），再由 Secure Host 在与
+activation 相同的 prewrite、marker 与回读栅栏下，把 exact Active 信封替换为下一 generation 的无 Token
+墓碑；custody 矛盾时进入 remediation，凭据保持拒绝。撤销立即拒绝使用，墓碑确认后 Token 才离开
+custody。撤销只撤回 GoodDealer 的 custody 与使用，不会在 Cloudflare 吊销 API Token：撤销界面必须
+提示用户到 Cloudflare 删除或轮换该 Token。能力资格认证前生产界面不提供撤销入口。
 真实受控 Zone、目标平台 Keychain 和发行资格同样尚未完成，不能声明客户可用。
 
 `local-storage` 的私有备份边界、GDBK/current-DB restore 和 test-only continuity/rebootstrap 聚合协议

@@ -216,13 +216,8 @@ impl DesktopSyncRuntime {
         else {
             return Ok(None);
         };
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         Ok(Some(PreparedCloudflareRecoveryData {
             connection_incarnation_id: seed.connection_incarnation_id,
             intent_id: seed.intent_id,
@@ -257,12 +252,9 @@ impl DesktopSyncRuntime {
         Ok(PreparedCloudflareObservationData {
             connection_id: connection_hint.to_owned(),
             entity_id: entity_hint.to_owned(),
-            connection_digest: domain_digest(
-                b"gooddealer/cloudflare-connection/v1\0",
-                &[
-                    admission.workspace_id.as_bytes(),
-                    seed.connection_incarnation_id.as_bytes(),
-                ],
+            connection_digest: cloudflare_connection_digest(
+                &admission.workspace_id,
+                &seed.connection_incarnation_id,
             ),
             connection_incarnation_id: seed.connection_incarnation_id,
             generation: credential.generation,
@@ -371,13 +363,8 @@ impl DesktopSyncRuntime {
                 observation.zone_binding_digest.as_bytes(),
             ],
         );
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         let preparation = CloudflareCredentialPreparation {
             logical_connection_id: seed.logical_connection_id,
             connection_incarnation_id: seed.connection_incarnation_id,
@@ -406,6 +393,68 @@ impl DesktopSyncRuntime {
             expected_base: seed.expected_base,
             connection_digest,
         })
+    }
+
+    /// Durably prepares the revocation of the connection's Active credential and denies its use
+    /// in the same transaction, so the Host stops using it before custody is touched.
+    ///
+    /// Returns `None` when the connection holds no credential: there is nothing to revoke.
+    pub(crate) fn prepare_cloudflare_revocation(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<Option<PreparedCloudflareProvisionData>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let seed = database
+            .cloudflare_provision_seed(connection_hint)
+            .map_err(map_database_error)?;
+        let (scope_digest, zone_digest) = match &seed.expected_base {
+            base if base.kind == CloudflareCredentialEnvelopeKind::Absent => return Ok(None),
+            CloudflareCredentialWitness {
+                kind: CloudflareCredentialEnvelopeKind::Active,
+                scope_digest: Some(scope),
+                zone_digest: Some(zone),
+                ..
+            } => (scope.clone(), zone.clone()),
+            _ => return Err(DesktopSyncError::StorageRejected),
+        };
+        let target_generation = seed
+            .expected_head_generation
+            .checked_add(1)
+            .filter(|generation| *generation <= MAX_SAFE_INTEGER)
+            .ok_or(DesktopSyncError::StorageRejected)?;
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        let preparation = CloudflareCredentialPreparation {
+            logical_connection_id: seed.logical_connection_id,
+            connection_incarnation_id: seed.connection_incarnation_id,
+            display_label: seed.display_label,
+            intent_id: random_uuid_v4()?,
+            operation_kind: CloudflareCredentialOperationKind::Revoke,
+            expected_head_generation: seed.expected_head_generation,
+            target_generation,
+            scope_digest,
+            zone_digest,
+            target_public_proof: random_hex_32()?,
+            prepared_authority_snapshot_digest: admission.authority_snapshot_digest.clone(),
+            staged_observation: None,
+            prepared_at: timestamp(trusted_now()?)?,
+        };
+        let disposition = database
+            .prepare_cloudflare_credential_operation_guarded(&preparation, || {
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)?;
+        if disposition != CloudflareCredentialPreparationDisposition::Prepared {
+            return Ok(None);
+        }
+        Ok(Some(PreparedCloudflareProvisionData {
+            preparation,
+            expected_base: seed.expected_base,
+            connection_digest,
+        }))
     }
 
     /// Creates a runtime from Host-owned authority material.
@@ -907,6 +956,17 @@ impl DesktopSyncRuntime {
             )
             .map_err(map_database_error)
     }
+}
+
+/// The Keychain account digest of one connection incarnation; every credential path must agree.
+fn cloudflare_connection_digest(workspace_id: &str, connection_incarnation_id: &str) -> String {
+    domain_digest(
+        b"gooddealer/cloudflare-connection/v1\0",
+        &[
+            workspace_id.as_bytes(),
+            connection_incarnation_id.as_bytes(),
+        ],
+    )
 }
 
 pub(crate) fn delivery_owner(admission: &DesktopSyncRunAdmission) -> String {

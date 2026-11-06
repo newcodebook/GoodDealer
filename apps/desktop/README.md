@@ -105,10 +105,17 @@ Secure Host envelope under exact-base Keychain CAS, and commits observations loc
 projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
 observation enqueue, and committed local observation reads; it is not composed into the production
 root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
-composition is not a customer-availability claim. Revoke/deactivate remains intentionally unavailable until
-a Host-owned atomic custody and fencing capability is delivered.
+composition is not a customer-availability claim. `cloudflare_connection_revoke` queues a Host-owned
+revocation on the same serial lane, never rate limited: the commit that prepares it also denies credential
+use, so the connection is deactivated before custody changes; Secure Host then replaces the exact Active
+envelope with a tokenless tombstone at the next generation under the same prewrite, marker and read-back
+fences as activation, and contradicting custody remediates while the credential stays denied. Use is
+denied at once; the token leaves custody only once the tombstone is confirmed. Revocation withdraws
+GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. No
+production screen offers revocation until the Cloudflare capability is qualified (ADR-0024).
 
 - `cloudflare_connection_activate`
+- `cloudflare_connection_revoke`
 - `cloudflare_connection_status`
 - `cloudflare_observation_read`
 - `cloudflare_zone_observe`

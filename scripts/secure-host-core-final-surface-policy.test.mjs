@@ -40,6 +40,7 @@ const expectedCloudflareKeychainExports = [
   "CloudflarePrewriteInspection",
   "inspect_cloudflare_recovery_guarded",
   "publish_cloudflare_candidate_guarded",
+  "publish_cloudflare_tombstone_guarded",
 ];
 const expectedCloudflareProviderExports = [
   "CloudflareCredentialObservationPlan",
@@ -272,9 +273,12 @@ const expectedLocalStoragePublicExports = [
   "Money",
   "PortfolioReadFreshness",
   "InspectingCloudflareProvision",
+  "InspectingCloudflareRevocation",
   "MarkedCloudflareProvision",
+  "MarkedCloudflareRevocation",
   "PreparedCloudflareObservation",
   "PreparedCloudflareProvision",
+  "PreparedCloudflareRevocation",
   "RenewalRow",
   "RenewalsReadSnapshot",
   "RenewalsWindow",

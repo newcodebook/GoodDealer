@@ -34,6 +34,13 @@ pub(crate) struct CloudflareConnectionActivateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareConnectionRevokeRequest {
+    schema_version: u8,
+    connection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CloudflareZoneObserveRequest {
     schema_version: u8,
     connection_id: String,
@@ -301,6 +308,21 @@ pub(crate) async fn cloudflare_connection_activate(
     validate_provider_schema_version(request.schema_version)?;
     validate_cloudflare_connection_id(&request.connection_id)?;
     map_provider_submission(cloud.submit_provider(&ProviderOperation::Activate {
+        connection_id: request.connection_id,
+    }))
+}
+
+/// Queues revocation of the connection's credential. The Host denies credential use as soon as
+/// the revocation is prepared; the result is read back through `cloudflare_connection_status`.
+#[tauri::command]
+pub(crate) async fn cloudflare_connection_revoke(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<(), String> {
+    let request: CloudflareConnectionRevokeRequest = decode_provider_request(&request, 512)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    map_provider_submission(cloud.submit_provider(&ProviderOperation::Revoke {
         connection_id: request.connection_id,
     }))
 }
