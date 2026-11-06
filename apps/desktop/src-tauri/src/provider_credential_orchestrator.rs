@@ -213,10 +213,48 @@ pub(crate) async fn observe(
     .map_err(|_| ProviderCredentialError::Host)
 }
 
+/// What one revocation did. Every outcome but `NothingToRevoke` left credential use denied in
+/// the Host; only `Revoked` also confirmed the token left custody. The others name why custody
+/// was not confirmed, so a caller never reads them as one indistinct `false`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RevocationOutcome {
+    /// The connection held no credential; nothing was prepared or written.
+    NothingToRevoke,
+    /// The tombstone was confirmed and the token left custody.
+    Revoked,
+    /// Custody contradicted the Host's record before the write, so it was remediated instead.
+    PrewriteRemediated,
+    /// The write may have happened but the read-back did not show the tombstone.
+    NotObservedBurned,
+    /// The tombstone was read back but authority changed during the write.
+    AuthorityStaleBurned,
+    /// The read-back could not decide custody; startup recovery must resolve it.
+    RecoveryRequired,
+}
+
+impl RevocationOutcome {
+    const fn from_resolution(resolution: DesktopCloudflareResolution) -> Self {
+        match resolution {
+            DesktopCloudflareResolution::Confirmed => Self::Revoked,
+            DesktopCloudflareResolution::PrewriteRemediated => Self::PrewriteRemediated,
+            DesktopCloudflareResolution::TargetNotObservedBurned => Self::NotObservedBurned,
+            DesktopCloudflareResolution::TargetPresentAuthorityStaleBurned => {
+                Self::AuthorityStaleBurned
+            }
+            DesktopCloudflareResolution::RecoveryRequired => Self::RecoveryRequired,
+        }
+    }
+
+    /// Whether the Host's connection state changed, so projections must be re-read. Preparing a
+    /// revocation already commits the denial, so every outcome but `NothingToRevoke` does.
+    pub(crate) const fn changed_host_state(self) -> bool {
+        !matches!(self, Self::NothingToRevoke)
+    }
+}
+
 /// Revokes a connection's credential. Preparation denies credential use in the Host in the same
 /// commit, so the revocation takes effect before custody is touched; the tombstone publication
-/// then removes the token from custody under the same fences as provision. `Ok(false)` means
-/// there was no credential to revoke.
+/// then removes the token from custody under the same fences as provision.
 ///
 /// A quarantined connection is not refused here: revoking only withdraws access, and the
 /// prewrite inspection still remediates any custody that contradicts the Host's record.
@@ -224,7 +262,7 @@ pub(crate) async fn revoke(
     host: Arc<DesktopLocalHost>,
     connection_hint: String,
     cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
-) -> Result<bool, ProviderCredentialError> {
+) -> Result<RevocationOutcome, ProviderCredentialError> {
     let admission = host
         .begin_native_cloud_run()
         .map_err(|_| ProviderCredentialError::Host)?;
@@ -236,7 +274,7 @@ pub(crate) async fn revoke(
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map_err(|_| ProviderCredentialError::Host)?;
     let Some(prepared) = prepared else {
-        return Ok(false);
+        return Ok(RevocationOutcome::NothingToRevoke);
     };
 
     let prewrite_host = Arc::clone(&host);
@@ -271,7 +309,7 @@ pub(crate) async fn revoke(
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map(|resolution| resolution == DesktopCloudflareResolution::Confirmed)
+    .map(RevocationOutcome::from_resolution)
     .map_err(|_| ProviderCredentialError::Keychain)
 }
 
@@ -615,6 +653,34 @@ mod tests {
         assert!(prepared < inspecting && inspecting < marked);
         assert!(!host_types[prepared..inspecting].contains("with_keychain_plan"));
         assert!(host_types[inspecting..marked].contains("with_keychain_plan"));
+    }
+
+    #[test]
+    fn revocation_outcome_keeps_every_resolution_distinct() {
+        use super::RevocationOutcome;
+        use gooddealer_local_storage::DesktopCloudflareResolution as Resolution;
+        let outcomes = [
+            Resolution::Confirmed,
+            Resolution::PrewriteRemediated,
+            Resolution::TargetNotObservedBurned,
+            Resolution::TargetPresentAuthorityStaleBurned,
+            Resolution::RecoveryRequired,
+        ]
+        .map(RevocationOutcome::from_resolution);
+        assert_eq!(
+            outcomes,
+            [
+                RevocationOutcome::Revoked,
+                RevocationOutcome::PrewriteRemediated,
+                RevocationOutcome::NotObservedBurned,
+                RevocationOutcome::AuthorityStaleBurned,
+                RevocationOutcome::RecoveryRequired,
+            ]
+        );
+        // Every prepared revocation committed the denial, so each must re-read projections;
+        // only finding no credential leaves the Host unchanged.
+        assert!(outcomes.iter().all(|outcome| outcome.changed_host_state()));
+        assert!(!RevocationOutcome::NothingToRevoke.changed_host_state());
     }
 
     #[test]

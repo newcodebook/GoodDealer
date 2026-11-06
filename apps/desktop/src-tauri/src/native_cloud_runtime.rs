@@ -280,7 +280,9 @@ async fn run_provider_operation(
                 .await
         }
         ProviderOperation::Revoke { connection_id } => {
-            crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence).await
+            crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
+                .await
+                .map(crate::provider_credential_orchestrator::RevocationOutcome::changed_host_state)
         }
         ProviderOperation::Observe {
             connection_id,
