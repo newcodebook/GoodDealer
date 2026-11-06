@@ -114,6 +114,28 @@ describe("desktop presentation adjudication", () => {
       .toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "settings"]);
   });
 
+  it.each([
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("renders the write entry for %s %j only when Grant and Lease admit writes", (state, capabilities, writable) => {
+    const presentation = adjudicateDesktopPresentation(false, publication(state, [...capabilities]), "authenticated");
+    if (presentation.view !== "workspace") throw new Error("expected a workspace");
+    const html = renderToStaticMarkup(
+      <WorkspaceView
+        locale="en-US"
+        presentation={presentation}
+        ports={{} as AuthoritativeWorkspacePorts}
+        windowFrame={{ platform: "windows", framed: false }}
+        onPublication={vi.fn()}
+        onRefresh={vi.fn()}
+        onLocaleChange={vi.fn()}
+      />,
+    );
+    expect(html.includes(">Add domain<")).toBe(writable);
+  });
+
   it("puts every composed route in the production workspace rail", () => {
     const presentation = adjudicateDesktopPresentation(false, publication("active", ["local:read"]), "authenticated");
     if (presentation.view !== "workspace") throw new Error("expected a workspace");
