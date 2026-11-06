@@ -24,6 +24,11 @@ pub(crate) const STORAGE_INTEGRITY_MIGRATION_SQL: &str = include_str!("storage_i
 pub(crate) const OUTBOX_INTEGRITY_MIGRATION_ID: i64 = 202_611_060_001;
 pub(crate) const OUTBOX_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/outbox-integrity";
 pub(crate) const OUTBOX_INTEGRITY_MIGRATION_SQL: &str = include_str!("outbox_integrity.sql");
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_ID: i64 = 202_611_060_002;
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-local-creations";
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL: &str =
+    include_str!("outbox_local_creations.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
@@ -661,6 +666,10 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "wire_schema_version",
             "wire_mutation_digest",
         ],
+    ),
+    (
+        "sync_outbox_local_creations",
+        &["workspace_id", "mutation_id"],
     ),
     (
         "sync_outbox_fields",

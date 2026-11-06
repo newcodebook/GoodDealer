@@ -1,5 +1,7 @@
 //! Read-only operation history: the local revision ledger of committed asset mutations, newest
-//! first, with each edit's changed fields and their previous values.
+//! first, with each edit's changed fields and their previous values. An upsert the create path
+//! marked in `sync_outbox_local_creations` reads as `create`; it has no preceding revision, so its
+//! fields carry no previous value.
 //!
 //! Edits record a full snapshot of their synced fields, so a field's previous value is the same
 //! field in the asset's preceding local revision — but only when that revision provably was the
@@ -96,6 +98,7 @@ type RawRevision = (
     String,
     Option<i64>,
     i64,
+    bool,
 );
 
 pub(crate) struct ActiveHistoryReader<'a> {
@@ -146,7 +149,10 @@ impl<'a> ActiveHistoryReader<'a> {
             let mut statement = transaction
                 .prepare(
                     "SELECT mutation_id, local_commit_sequence, entity_id, operation_kind,
-                            created_at, state, server_revision, base_server_revision
+                            created_at, state, server_revision, base_server_revision,
+                            EXISTS(SELECT 1 FROM sync_outbox_local_creations AS creation
+                                   WHERE creation.workspace_id = sync_outbox.workspace_id
+                                     AND creation.mutation_id = sync_outbox.mutation_id)
                      FROM sync_outbox WHERE workspace_id = ?1
                      ORDER BY local_commit_sequence DESC, mutation_id DESC LIMIT ?2 OFFSET ?3",
                 )
@@ -162,6 +168,7 @@ impl<'a> ActiveHistoryReader<'a> {
                         row.get(5)?,
                         row.get(6)?,
                         row.get(7)?,
+                        row.get(8)?,
                     ))
                 })
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?
@@ -329,10 +336,14 @@ fn project_revision(
         state,
         server_revision,
         base_server_revision,
+        created,
     ) = raw;
-    let operation = match operation.as_str() {
-        "upsert" => "edit",
-        "delete" => "delete",
+    // Only the create path marks an upsert as a creation; an unmarked upsert is an edit, so an
+    // older creation or a pulled asset's first local edit never reads as an add.
+    let operation = match (operation.as_str(), created) {
+        ("upsert", true) => "create",
+        ("upsert", false) => "edit",
+        ("delete", false) => "delete",
         _ => return Err(PortfolioReadError::ProjectionRejected),
     };
     if ![

@@ -42,6 +42,7 @@ function read(rows: readonly HistoryRow[] = [edit, deletion], overrides: Partial
 }
 
 const labels = {
+  create: "Add asset",
   edit: "Edit asset",
   delete: "Delete asset",
   actor: "Local workspace",
@@ -58,6 +59,11 @@ describe("history read", () => {
     expect(() => parseHistoryRead(read([{ ...edit, changes: [{ fieldPath: "lifecycleStatus", value: "archived" }] } as unknown as HistoryRow]))).toThrow();
     expect(() => parseHistoryRead(read([{ ...edit, changes: [edit.changes[0]!, edit.changes[0]!] }]))).toThrow();
     expect(() => parseHistoryRead(read([{ ...deletion, changes: edit.changes }]))).toThrow();
+    // A creation is accepted only without previous values: nothing precedes it.
+    const creation: HistoryRow = { ...edit, operation: "create", changes: [{ fieldPath: "note", value: "first" }] };
+    expect(parseHistoryRead(read([creation]))).toEqual(read([creation]));
+    expect(() => parseHistoryRead(read([{ ...creation, changes: [{ fieldPath: "note", value: "first", previousValue: null }] }]))).toThrow();
+    expect(() => parseHistoryRead(read([{ ...edit, operation: "upsert" } as unknown as HistoryRow]))).toThrow();
     expect(() => parseHistoryRead(read([{ ...edit, serverRevision: 3 }]))).toThrow();
     expect(() => parseHistoryRead(read([{ ...deletion, serverRevision: null }]))).toThrow();
     expect(() => parseHistoryRead(read([deletion, edit]))).toThrow();
@@ -94,6 +100,8 @@ describe("history read", () => {
       { entityLabel: "ledger.test", fieldLabel: "Target price", oldValue: null, newValue: "USD 120.00" },
     ]);
     expect(second).toMatchObject({ actionLabel: "Delete asset · gone.test", state: "synced", diffs: [] });
+    const added = projectOperationHistory([read([{ ...edit, operation: "create", changes: [{ fieldPath: "note", value: "first" }] }])], labels, null);
+    expect(added.entries[0]).toMatchObject({ actionLabel: "Add asset · ledger.test", diffs: [{ fieldLabel: "Note", oldValue: null, newValue: "first" }] });
     for (const [state, expected] of [["sending", "applied"], ["conflicted", "conflicted"], ["rejected", "rejected"]] as const) {
       expect(projectOperationHistory([read([{ ...edit, state }])], labels, null).entries[0]!.state).toBe(expected);
     }

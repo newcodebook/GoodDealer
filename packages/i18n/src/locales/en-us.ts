@@ -966,6 +966,7 @@ const enUSDictionary = {
     noEntries: "No matching Revisions",
     conflicted: "Conflicted",
     rejected: "Rejected",
+    createAsset: "Add asset",
     editAsset: "Edit asset",
     deleteAsset: "Delete asset",
     fieldNote: "Note",

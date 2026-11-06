@@ -26,7 +26,8 @@ const historyFieldChangeSchema = z.discriminatedUnion("fieldPath", [
 const historyRowSchema = z.object({
   localRevision: revisionSchema,
   entityId: z.string().min(1).max(253),
-  operation: z.enum(["edit", "delete"]),
+  /** `create` only for an add the Host's create path recorded; earlier adds read as `edit`. */
+  operation: z.enum(["create", "edit", "delete"]),
   committedAt: z.iso.datetime(),
   state: z.enum(["pending", "sending", "acknowledged", "conflicted", "rejected"]),
   serverRevision: revisionSchema.min(1).nullable(),
@@ -37,6 +38,10 @@ const historyRowSchema = z.object({
   }
   if (row.operation === "delete" && row.changes.length > 0) {
     context.addIssue({ code: "custom", path: ["changes"], message: "a deletion records no field values" });
+  }
+  // Nothing precedes an asset's creation, so no field of it can have a previous value.
+  if (row.operation === "create" && row.changes.some((change) => change.previousValue !== undefined)) {
+    context.addIssue({ code: "custom", path: ["changes"], message: "a creation has no previous values" });
   }
   if (new Set(row.changes.map((change) => change.fieldPath)).size !== row.changes.length) {
     context.addIssue({ code: "custom", path: ["changes"], message: "each field changes at most once per revision" });
@@ -116,6 +121,7 @@ export const historyEntryLimit = 500;
 
 /** Localized labels the projection needs; the Host read carries none. */
 export interface HistoryProjectionLabels {
+  readonly create: string;
   readonly edit: string;
   readonly delete: string;
   readonly actor: string;
@@ -186,7 +192,7 @@ export function projectOperationHistory(
     actorLabel: labels.actor,
     scope: "single_domain",
     // A deletion carries no diffs, so the action itself names the asset.
-    actionLabel: `${row.operation === "edit" ? labels.edit : labels.delete} · ${row.entityId}`,
+    actionLabel: `${labels[row.operation]} · ${row.entityId}`,
     platformLabel: labels.platform,
     itemCount: 1,
     state: entryState(row.state),

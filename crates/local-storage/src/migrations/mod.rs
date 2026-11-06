@@ -8,11 +8,12 @@ use crate::active_workspace::schema::{
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
     DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, OUTBOX_INTEGRITY_MIGRATION_ID,
     OUTBOX_INTEGRITY_MIGRATION_OWNER, OUTBOX_INTEGRITY_MIGRATION_SQL,
-    STORAGE_INTEGRITY_MIGRATION_ID, STORAGE_INTEGRITY_MIGRATION_OWNER,
-    STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
-    SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
-    SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
-    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_ID, OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL, STORAGE_INTEGRITY_MIGRATION_ID,
+    STORAGE_INTEGRITY_MIGRATION_OWNER, STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID,
+    SYNC_V2_MIGRATION_OWNER, SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER,
+    SYNC_V3_MIGRATION_SQL, SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL,
+    SYNC_V5_MIGRATION_ID, SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +79,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: OUTBOX_INTEGRITY_MIGRATION_ID,
         owner: OUTBOX_INTEGRITY_MIGRATION_OWNER,
         sql: OUTBOX_INTEGRITY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_LOCAL_CREATIONS_MIGRATION_ID,
+        owner: OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
+        sql: OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL,
     },
 ];
 
@@ -335,7 +341,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 10);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 11);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -360,7 +366,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 44);
+        assert_eq!(table_count, 45);
         assert!(business_index_count >= 24);
 
         connection

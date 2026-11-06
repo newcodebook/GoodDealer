@@ -360,6 +360,7 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
     if (state.kind !== "ready") return null;
     try {
       return projectOperationHistory(state.value, {
+        create: copy.createAsset,
         edit: copy.editAsset,
         delete: copy.deleteAsset,
         actor: copy.localWorkspace,

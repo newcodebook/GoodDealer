@@ -795,6 +795,7 @@ const zhCNDictionary = {
     noEntries: "没有匹配的 Revision",
     conflicted: "冲突",
     rejected: "被拒绝",
+    createAsset: "添加资产",
     editAsset: "编辑资产",
     deleteAsset: "删除资产",
     fieldNote: "备注",

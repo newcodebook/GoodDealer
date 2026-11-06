@@ -65,7 +65,7 @@ describe("Operation history", () => {
     };
     // A two-row window stands in for the newest revisions of a larger ledger.
     const projected = projectOperationHistory([read], {
-      edit: "编辑资产", delete: "删除资产", actor: "本地工作区", platform: "资产库", empty: "（空）",
+      create: "添加资产", edit: "编辑资产", delete: "删除资产", actor: "本地工作区", platform: "资产库", empty: "（空）",
       fields: { note: "备注", portfolioId: "组合", tags: "标签", targetPrice: "目标价" },
     }, "rev-9");
     const html = renderToStaticMarkup(<OperationHistory locale="zh-CN" view={{ ...projected, totalRevisions: 900 }} onSelect={() => undefined} />);

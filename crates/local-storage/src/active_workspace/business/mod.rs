@@ -2106,6 +2106,15 @@ impl BusinessDatabase {
             "upsert"
         };
         transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending')", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The wire keeps creation an upsert; the Host-only marker lets history name it.
+            transaction
+                .execute(
+                    "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
+                    params![self.workspace_id, mutation_id],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
         if let Some(asset) = edit {
             let values = [
                 ("note", serde_json::to_string(&asset.note)),
@@ -9494,6 +9503,109 @@ mod tests {
                 "{day:?} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn history_names_a_creation_only_when_the_create_path_marked_it() {
+        let mut database = database();
+        // An asset written without the create path (as a pull or the legacy seed writes it) has
+        // a first local upsert too; that one must stay an edit.
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let created = DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            ..history_write("added", &["new"])
+        };
+        database
+            .create_domain_asset_guarded(
+                "create-1",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &created,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'added.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        database
+            .edit_domain_asset(
+                "edit-1",
+                u64::try_from(version).unwrap(),
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "added.test".to_owned(),
+                    ..history_write("edited", &["new"])
+                },
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        let rows = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| (row.entity_id.as_str(), row.operation.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            [
+                ("added.test", "edit"),
+                ("added.test", "create"),
+                ("ledger.test", "edit")
+            ]
+        );
+        // A creation has nothing before it, so none of its fields claims a previous value.
+        let creation = &snapshot.window.rows[1];
+        assert!(!creation.changes.is_empty());
+        assert!(
+            creation
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+
+        // The marker can name only an asset's first upsert and never changes.
+        let connection = database.store.raw_connection();
+        for refused in ["edit-1", "seed-missing"] {
+            assert!(
+                connection
+                    .execute(
+                        "INSERT INTO sync_outbox_local_creations (workspace_id, mutation_id) VALUES ('workspace-local', ?1)",
+                        [refused],
+                    )
+                    .is_err(),
+                "{refused}"
+            );
+        }
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox_local_creations SET mutation_id = 'edit-1'",
+                    [],
+                )
+                .is_err()
+        );
+        let markers: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sync_outbox_local_creations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(markers, 1);
     }
 
     #[test]
