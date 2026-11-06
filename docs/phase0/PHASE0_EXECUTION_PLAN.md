@@ -115,10 +115,12 @@ dead-letter outbox 和 Session 撤销；
 - [x] 分页路由（续费、DNS 健康、销售）补翻页接线测试（`onPageChange` → 页起点 → Host 读取）；与 `useHostRouteRead` 的 hook 级重试测试一起需要渲染环境（桌面测试新增 `happy-dom` 开发依赖；`app/paged-routes.test.tsx` 在 DOM 中渲染真实工作区，从导航或资产库进入三个分页路由并点击页码；后页读取失败回到首页、DNS 搜索在读取进行中保持输入框挂载与焦点（对去掉保留上一视图的变体失败）；桩读取经真实读取解析器；`happy-dom` 已登记到仓库拓扑依赖目录） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售域名超限在分页前改为提前停止读取（读到超过上限的不同域名即失败），并以“超出本视图容量”文案替代可重试的读取失败（由分页取代：销售按域名分页后不再有视图域名上限，`salesListingLimit` 已移除） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费与资产库到期计数排除已售（sold）资产，或在续费页展示生命周期（排除：已售、已放弃与已归档资产不再需要续费，续费列表与资产库计数共用同一 Host 谓词） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 资产库行与域名详情的“即将到期”高亮改用 Host 的同一到期谓词与日期（当前只按 Renderer 日期判断，已售、已放弃、已归档与已过期资产仍会高亮）
+- [x] 资产库行与域名详情的“即将到期”高亮改用 Host 的同一到期谓词与日期（当前只按 Renderer 日期判断，已售、已放弃、已归档与已过期资产仍会高亮）（Host 在资产库行与域名详情中返回 `expiring`，由续费页与到期计数共用的 `expiring_asset` 谓词和 SQLite 日期计算；读取契约拒绝不可能为真的组合（未保留或无到期日）；Renderer 不再按本地日期判断） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费页自动续费覆盖指标区分“未记录”与“已关闭”（覆盖值仍为已开启/全部，指标说明行分别列出已关闭与未记录数量；英文文案更正为 coverage） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费页自动续费覆盖值使用 `formatNumber`，并补 en-US 的“Off / Not recorded”断言（已由 7cff6bc 的整页指标测试覆盖：`600 / 1,234`、`Off 34 · Not recorded 600`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐（Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 共用资产行的安全文本规则：1–128 个码点，拒绝控制、双向与不可见格式字符；两侧测试使用同一矩阵） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 资产库读取只取一次 Host 日期，行 `expiring` 与到期计数共用（当前分属两条语句，跨 UTC 午夜的读取可能相差一天）
+- [ ] 决定到期窗口的“今天”采用 UTC 还是本地日（当前 Host 用 UTC 日期，与续费页一致；历史页已改用本地日），并在 V1 前记录决定
 - [ ] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）

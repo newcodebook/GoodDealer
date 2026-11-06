@@ -38,6 +38,7 @@ function row(index: number): AssetLibraryRow {
     syncStatus: "clean",
     targetPrice: { currency: "USD", amount: "1200" },
     expiresOn: "2027-03-14",
+    expiring: false,
     assetVersion: index + 1,
   };
 }
@@ -172,6 +173,31 @@ describe("portfolio presentation contracts", () => {
     expect(assetLibraryViewModelSchema.safeParse({ ...library("active_local", [row(1)]), freshness: { ...freshness("active_local"), readOnlyReason: undefined } }).success).toBe(false);
     const { lifecycleStatus: _lifecycleStatus, ...missingLifecycle } = row(2);
     expect(assetLibraryViewModelSchema.safeParse(library("active_local", [missingLifecycle as AssetLibraryRow])).success).toBe(false);
+  });
+
+  it("accepts the Host's expiring flag only where its renewals predicate can hold", () => {
+    const parses = (overrides: Partial<AssetLibraryRow>) =>
+      assetLibraryViewModelSchema.safeParse(library("active_local", [{ ...row(1), ...overrides }])).success;
+    expect(parses({ expiring: true })).toBe(true);
+    expect(parses({ expiring: true, lifecycleStatus: "expired" })).toBe(true);
+    for (const lifecycleStatus of ["sold", "dropped", "archived"] as const) {
+      expect(parses({ expiring: true, lifecycleStatus })).toBe(false);
+      expect(parses({ expiring: false, lifecycleStatus })).toBe(true);
+    }
+    expect(parses({ expiring: true, expiresOn: null })).toBe(false);
+    const { expiring: _expiring, ...missing } = row(1);
+    expect(assetLibraryViewModelSchema.safeParse(library("active_local", [missing as AssetLibraryRow])).success).toBe(false);
+    expect(parses({ expiring: 1 as never })).toBe(false);
+    // The detail schema inherits the rule through `.extend`; pin it so a Zod change cannot drop it silently.
+    const detail = (asset: Partial<AssetLibraryRow>) => domainDetailViewModelSchema.safeParse({
+      schemaVersion: 3, kind: "domain_detail", readGeneration: 1, freshness: freshness("active_local"),
+      state: asset.lifecycleStatus === "sold" ? "sold" : "normal",
+      asset: { ...row(1), acquiredOn: null, portfolioId: null, acquisitionCost: null, autoRenew: null, registrarLock: null, note: null, ...asset },
+      conflictFields: [],
+    }).success;
+    expect(detail({ expiring: true })).toBe(true);
+    expect(detail({ expiring: true, lifecycleStatus: "sold" })).toBe(false);
+    expect(detail({ expiring: true, expiresOn: null })).toBe(false);
   });
 
   it.each(["normal", "conflict", "sold"] as const)("supports DomainDetail %s state", (state) => {

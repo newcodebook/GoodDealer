@@ -29,7 +29,7 @@ const portfolio: AssetLibraryViewModel = {
   totalRows: 1, totalValue: null, expiringWithin60Days: 120, conflictCount: 0, listingCount: 0,
   window: { startIndex: 0, size: 25, rows: [{
     id: "vault.io", domain: "vault.io", tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean",
-    targetPrice: null, expiresOn: "2026-09-01", assetVersion: 1,
+    targetPrice: null, expiresOn: "2026-09-01", expiring: false, assetVersion: 1,
   }] },
 };
 const sync: SyncSnapshotViewModel = {

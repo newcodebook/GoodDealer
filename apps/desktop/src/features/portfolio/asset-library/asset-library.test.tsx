@@ -8,7 +8,7 @@ import { assetRowStatus, parseTargetPriceInput } from "./asset-library-contract"
 function row(domain: string, overrides: Partial<AssetLibraryRow> = {}): AssetLibraryRow {
   return {
     id: domain, domain, tags: [], registrar: "Spaceship", lifecycleStatus: "active", syncStatus: "clean",
-    targetPrice: { currency: "USD", amount: "3500" }, expiresOn: "2027-01-01", assetVersion: 1, ...overrides,
+    targetPrice: { currency: "USD", amount: "3500" }, expiresOn: "2027-01-01", expiring: false, assetVersion: 1, ...overrides,
   };
 }
 
@@ -43,7 +43,6 @@ function render(props: Partial<AssetLibraryProps> & Pick<AssetLibraryProps, "pre
       onSelectionChange={() => undefined}
       onTargetPriceCommit={() => undefined}
       onCreatePlan={() => undefined}
-      referenceDate="2026-12-01"
       {...props}
     />,
   );
@@ -85,12 +84,18 @@ describe("Asset Library presentation", () => {
     expect(render({ presentation: { state: "ready", data: library(null) } })).toContain("gd-editable-value");
   });
 
-  it("marks only assets expiring within 60 days of the reference date", () => {
+  it("marks only the assets the Host reports as expiring, whatever the Renderer's date", () => {
+    // Same expiry date: the sold asset is no longer the workspace's to renew, so the Host leaves it unmarked.
     const html = render({
-      presentation: { state: "ready", data: library(null, [row("soon.com", { expiresOn: "2026-12-20" }), row("later.com", { expiresOn: "2027-06-01" })]) },
+      presentation: { state: "ready", data: library(null, [
+        row("kept.com", { expiresOn: "2026-12-20", expiring: true }),
+        row("sold.com", { expiresOn: "2026-12-20", lifecycleStatus: "sold" }),
+        row("later.com", { expiresOn: "2027-06-01" }),
+      ]) },
     });
 
     expect(html.match(/asset-library-expiring/gu)).toHaveLength(1);
+    expect(html).toMatch(/<span class="asset-library-expiring">2026-12-20<\/span>/u);
   });
 
   it("renders explicit empty, loading, and unavailable states instead of an empty table", () => {

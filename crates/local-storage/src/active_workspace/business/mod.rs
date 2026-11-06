@@ -8836,8 +8836,33 @@ mod tests {
                 ("edge.test", None, None),
             ]
         );
-        // The asset library and domain detail report the same confirmed registrar.
+        // Each library row and its detail flag exactly the assets the desk lists, by the same
+        // predicate: sold, dropped, archived, lapsed, undated and too-distant assets stay unflagged.
         let library = database.read_asset_library(0, 20, "").unwrap();
+        let mut flagged: Vec<_> = library
+            .window
+            .rows
+            .iter()
+            .filter(|row| row.expiring)
+            .map(|row| row.domain.as_str())
+            .collect();
+        flagged.sort_unstable();
+        let mut listed: Vec<_> = rows.iter().map(|row| row.0).collect();
+        listed.sort_unstable();
+        assert_eq!(flagged, listed);
+        for row in &library.window.rows {
+            assert_eq!(
+                database
+                    .read_domain_detail(&row.domain)
+                    .unwrap()
+                    .asset
+                    .expiring,
+                row.expiring,
+                "{}",
+                row.domain
+            );
+        }
+        // The asset library and domain detail report the same confirmed registrar.
         let registrar = |entity: &str| {
             library
                 .window

@@ -22,7 +22,7 @@ import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import { assetRowStatus, parseTargetPriceInput } from "../asset-library/asset-library-contract";
-import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
+import { AssetStatusBadge, formatAssetMoney } from "../asset-presentation";
 import type { DomainDetailPresentation, DomainDetailSections, DomainDnsRecord, DomainListing } from "./domain-detail-contract";
 import "./domain-detail.css";
 
@@ -40,7 +40,6 @@ export interface DomainDetailProps {
   readonly onEditRecords?: () => void;
   readonly onOpenRegistrar?: () => void;
   readonly onOpenConflicts?: () => void;
-  readonly referenceDate?: string;
 }
 
 type DetailDialog = "price" | "delist" | null;
@@ -60,7 +59,6 @@ export function DomainDetail({
   onEditRecords,
   onOpenRegistrar,
   onOpenConflicts,
-  referenceDate = todayIso(),
 }: DomainDetailProps) {
   const copy = getPresentationCopy(locale, "domainDetail");
   const libraryCopy = getPresentationCopy(locale, "assetLibrary");
@@ -89,7 +87,7 @@ export function DomainDetail({
   const listed = status !== "unlisted" && status !== "sold";
   // A sold asset has no price left to manage; its listing history stays visible read-only.
   const canEditPrice = canEdit && status !== "sold" && onTargetPriceCommit !== undefined;
-  const expiringSoon = asset.expiresOn !== null && daysUntil(asset.expiresOn, referenceDate) <= 60;
+  const expiringSoon = asset.expiring;
   const money = (amount: string, currency: string) => formatAssetMoney(locale, amount, currency);
   const gain = asset.targetPrice !== null && asset.acquisitionCost !== null && asset.targetPrice.currency === asset.acquisitionCost.currency
     ? Number(asset.targetPrice.amount) - Number(asset.acquisitionCost.amount)

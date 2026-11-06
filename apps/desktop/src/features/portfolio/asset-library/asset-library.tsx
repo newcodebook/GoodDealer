@@ -19,7 +19,7 @@ import {
 import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
-import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
+import { AssetStatusBadge, formatAssetMoney } from "../asset-presentation";
 
 import {
   assetRowStatus,
@@ -52,8 +52,6 @@ export interface AssetLibraryProps {
   readonly onBatchAction?: (action: AssetBatchAction, ids: readonly string[]) => void;
   /** Called after the user confirms "save and sync" for an inline BIN edit. */
   readonly onTargetPriceCommit?: (row: AssetLibraryRow, amount: string) => void;
-  /** ISO date that "expiring within 60 days" is measured from; defaults to today. */
-  readonly referenceDate?: string;
 }
 
 const statusFilters: readonly AssetStatusFilter[] = ["all", "synced", "pending", "conflict", "unlisted", "sold"];
@@ -86,7 +84,6 @@ export function AssetLibrary({
   onCreatePlan,
   onBatchAction,
   onTargetPriceCommit,
-  referenceDate = todayIso(),
 }: AssetLibraryProps) {
   const copy = getPresentationCopy(locale, "assetLibrary");
   const [pendingEdit, setPendingEdit] = useState<{ readonly row: AssetLibraryRow; readonly amount: string } | null>(null);
@@ -163,8 +160,7 @@ export function AssetLibrary({
       priority: "secondary",
       render: (row) => {
         if (row.expiresOn === null) return "—";
-        const soon = daysUntil(row.expiresOn, referenceDate) <= 60;
-        return <span className={soon ? "asset-library-expiring" : undefined}>{row.expiresOn}</span>;
+        return <span className={row.expiring ? "asset-library-expiring" : undefined}>{row.expiresOn}</span>;
       },
     },
   ];

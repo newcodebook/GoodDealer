@@ -59,6 +59,9 @@ pub struct AssetLibraryRow {
     pub sync_status: String,
     pub target_price: Option<Money>,
     pub expires_on: Option<String>,
+    /// Whether the renewals desk lists this asset, by the same predicate and Host date as the
+    /// expiring count, so a highlight never disagrees with the desk it leads to.
+    pub expiring: bool,
     pub asset_version: u64,
 }
 
@@ -96,6 +99,8 @@ pub struct DomainDetailAsset {
     pub sync_status: String,
     pub target_price: Option<Money>,
     pub expires_on: Option<String>,
+    /// The asset library row's `expiring`, for the same asset.
+    pub expiring: bool,
     pub acquired_on: Option<String>,
     pub acquisition_cost: Option<Money>,
     pub auto_renew: Option<bool>,

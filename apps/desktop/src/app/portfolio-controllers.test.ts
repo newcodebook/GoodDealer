@@ -39,7 +39,7 @@ function detail(domain: string, readGeneration: number): DomainDetailViewModel {
     readGeneration,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 0, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     state: "normal",
-    asset: { id: domain, domain, tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean", targetPrice: null, expiresOn: null, assetVersion: 1, portfolioId: null, acquiredOn: null, acquisitionCost: null, autoRenew: null, registrarLock: null, note: null },
+    asset: { id: domain, domain, tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean", targetPrice: null, expiresOn: null, expiring: false, assetVersion: 1, portfolioId: null, acquiredOn: null, acquisitionCost: null, autoRenew: null, registrarLock: null, note: null },
     conflictFields: [],
   };
 }

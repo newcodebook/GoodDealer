@@ -10,7 +10,6 @@ import {
   initialMockAssets,
   mockDomainDetail,
   mockDomainSections,
-  mockReferenceDate,
   type MockAssetRecord,
 } from "../mock/workspace-fixtures";
 import type { DesignWindowPlatform } from "../screen-registry";
@@ -93,7 +92,6 @@ export function DomainDetailScreen({ variant, platform, onNavigateScreen }: {
         onEditRecords={() => setBatchAction("records")}
         onOpenRegistrar={() => undefined}
         onOpenConflicts={() => onNavigateScreen("conflict-center")}
-        referenceDate={mockReferenceDate}
       />
       <MockBatchEdits
         locale={locale}

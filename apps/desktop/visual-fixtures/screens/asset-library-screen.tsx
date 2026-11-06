@@ -9,7 +9,6 @@ import { MockShell, mockShellStatus } from "../mock/mock-shell";
 import type { DesignWindowPlatform } from "../screen-registry";
 import {
   initialMockAssets,
-  mockReferenceDate,
   mockRegistrars,
   projectMockLibrary,
   type MockAssetRecord,
@@ -107,7 +106,6 @@ export function AssetLibraryScreen({ variant, platform, onNavigateScreen }: {
             : record));
           setUnsynced((count) => count + 1);
         }}
-        referenceDate={mockReferenceDate}
       />
       <MockBatchEdits
         locale={locale}

@@ -206,10 +206,11 @@ impl<'a> ActivePortfolioReader<'a> {
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only'
                  ELSE 'clean' END,
-               d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence
+               d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring}
              FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
              WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
             confirmed_registrar = super::observation_runs::confirmed("r"),
+            expiring = expiring_column(),
         )).map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
             .query_map(
@@ -267,15 +268,16 @@ impl<'a> ActivePortfolioReader<'a> {
           CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only' ELSE 'clean' END,
-          d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence,
+          d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring},
           a.acquired_on, a.acquisition_cost_currency, a.acquisition_cost_amount, a.auto_renew, a.registrar_lock, d.note, d.portfolio_id
           FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
           WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL",
-          confirmed_registrar = super::observation_runs::confirmed("r"));
+          confirmed_registrar = super::observation_runs::confirmed("r"),
+          expiring = expiring_column());
         let detail = transaction
             .query_row(&sql, params![requested_workspace_id, entity_id], |row| {
                 let base = map_asset_row(row)?;
-                let acquisition_cost = optional_money(row.get(10)?, row.get(11)?)?;
+                let acquisition_cost = optional_money(row.get(11)?, row.get(12)?)?;
                 Ok(DomainDetailAsset {
                     id: base.id,
                     domain: base.domain,
@@ -285,13 +287,14 @@ impl<'a> ActivePortfolioReader<'a> {
                     sync_status: base.sync_status,
                     target_price: base.target_price,
                     expires_on: base.expires_on,
-                    acquired_on: row.get(9)?,
+                    expiring: base.expiring,
+                    acquired_on: row.get(10)?,
                     acquisition_cost,
-                    auto_renew: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
-                    registrar_lock: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
-                    note: row.get(14)?,
+                    auto_renew: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+                    registrar_lock: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
+                    note: row.get(15)?,
                     asset_version: base.asset_version,
-                    portfolio_id: row.get(15)?,
+                    portfolio_id: row.get(16)?,
                 })
             })
             .optional()
@@ -388,7 +391,20 @@ fn map_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetLibraryRow> {
         expires_on: row.get(7)?,
         asset_version: u64::try_from(row.get::<_, i64>(8)?)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        expiring: match row.get::<_, i64>(9)? {
+            0 => false,
+            1 => true,
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
     })
+}
+
+/// The `expiring` column both asset queries select at index 9, from the renewals predicate.
+fn expiring_column() -> String {
+    format!(
+        "CASE WHEN {} THEN 1 ELSE 0 END",
+        super::renewals::expiring_asset("a")
+    )
 }
 
 fn validate_asset_rows(rows: &[AssetLibraryRow]) -> Result<(), PortfolioReadError> {
@@ -413,6 +429,10 @@ fn validate_asset_rows(rows: &[AssetLibraryRow]) -> Result<(), PortfolioReadErro
             .expires_on
             .as_deref()
             .is_some_and(|date| !crate::portfolio_projection::valid_date(date))
+            // The predicate holds only for a kept asset with a recorded expiry.
+            || (row.expiring
+                && (row.expires_on.is_none()
+                    || !matches!(row.lifecycle_status.as_str(), "active" | "expired")))
         {
             return Err(PortfolioReadError::ProjectionRejected);
         }
@@ -436,6 +456,7 @@ fn validate_detail(detail: &DomainDetailAsset) -> Result<(), PortfolioReadError>
         sync_status: detail.sync_status.clone(),
         target_price: detail.target_price.clone(),
         expires_on: detail.expires_on.clone(),
+        expiring: detail.expiring,
         asset_version: detail.asset_version,
     }])?;
     if detail.note.as_ref().is_some_and(|v| {

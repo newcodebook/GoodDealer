@@ -21,11 +21,3 @@ export function AssetStatusBadge({ locale, status }: { readonly locale: Locale; 
     case "local": return <Badge mono={false}>{getPresentationCopy(locale, "shell").unsynced}</Badge>;
   }
 }
-
-export function daysUntil(date: string, reference: string): number {
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${reference}T00:00:00Z`)) / 86_400_000);
-}
-
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}

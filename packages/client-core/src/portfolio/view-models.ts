@@ -45,12 +45,17 @@ export const assetLibraryRowSchema = z
     syncStatus: syncStatusSchema,
     targetPrice: canonicalMoneyViewSchema.nullable(),
     expiresOn: z.iso.date().nullable(),
+    // The Host's renewals predicate on its own date, so the highlight matches the desk it leads to.
+    expiring: z.boolean(),
     assetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   })
   .strict()
   .superRefine((row, context) => {
     if (row.id !== row.domain) {
       context.addIssue({ code: "custom", path: ["id"], message: "asset id must equal its canonical domain" });
+    }
+    if (row.expiring && (row.expiresOn === null || (row.lifecycleStatus !== "active" && row.lifecycleStatus !== "expired"))) {
+      context.addIssue({ code: "custom", path: ["expiring"], message: "only a kept asset with a recorded expiry can be expiring" });
     }
     if (new Set(row.tags).size !== row.tags.length) {
       context.addIssue({ code: "custom", path: ["tags"], message: "asset tags must be unique" });
