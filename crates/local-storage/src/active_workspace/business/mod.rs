@@ -8850,6 +8850,11 @@ mod tests {
         let mut listed: Vec<_> = rows.iter().map(|row| row.0).collect();
         listed.sort_unstable();
         assert_eq!(flagged, listed);
+        // The count and the flags come from the same read and the same day.
+        assert_eq!(
+            usize::try_from(library.expiring_within60_days).unwrap(),
+            flagged.len()
+        );
         for row in &library.window.rows {
             assert_eq!(
                 database

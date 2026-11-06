@@ -139,6 +139,8 @@ impl<'a> ActivePortfolioReader<'a> {
             return Err(PortfolioReadError::WindowRejected);
         }
         let query = canonical_query(query)?;
+        // One day for the count and every row's flag, so they cannot disagree across midnight.
+        let today = super::renewals::HostDay::read(&transaction)?;
         let upper = format!("{query}{{");
         let filter = "workspace_id = ?1 AND deleted_at IS NULL AND (?2 = '' OR (entity_id >= ?2 AND entity_id < ?3))";
         let aliased_filter = "a.workspace_id = ?1 AND a.deleted_at IS NULL AND (?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
@@ -171,7 +173,7 @@ impl<'a> ActivePortfolioReader<'a> {
                         AND (newer.observed_at > m.observed_at OR (newer.observed_at = m.observed_at AND newer.listing_observation_id > m.listing_observation_id)))
                 ) THEN 1 ELSE 0 END)
               FROM domain_assets WHERE {filter}",
-                expiring = super::renewals::expiring_asset("e"),
+                expiring = super::renewals::expiring_asset("e", &today),
                 confirmed_listing = super::observation_runs::confirmed("m"),
                 confirmed_newer = super::observation_runs::confirmed("newer")),
             params![requested_workspace_id, query, upper],
@@ -210,7 +212,7 @@ impl<'a> ActivePortfolioReader<'a> {
              FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
              WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
             confirmed_registrar = super::observation_runs::confirmed("r"),
-            expiring = expiring_column(),
+            expiring = expiring_column(&today),
         )).map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
             .query_map(
@@ -273,7 +275,7 @@ impl<'a> ActivePortfolioReader<'a> {
           FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
           WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL",
           confirmed_registrar = super::observation_runs::confirmed("r"),
-          expiring = expiring_column());
+          expiring = expiring_column(&super::renewals::HostDay::read(&transaction)?));
         let detail = transaction
             .query_row(&sql, params![requested_workspace_id, entity_id], |row| {
                 let base = map_asset_row(row)?;
@@ -400,10 +402,10 @@ fn map_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetLibraryRow> {
 }
 
 /// The `expiring` column both asset queries select at index 9, from the renewals predicate.
-fn expiring_column() -> String {
+fn expiring_column(today: &super::renewals::HostDay) -> String {
     format!(
         "CASE WHEN {} THEN 1 ELSE 0 END",
-        super::renewals::expiring_asset("a")
+        super::renewals::expiring_asset("a", today)
     )
 }
 

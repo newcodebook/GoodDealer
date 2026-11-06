@@ -1,8 +1,9 @@
 //! Read-only renewals projection: assets still to renew whose recorded expiry falls within the next 60
 //! days, soonest first, with the latest confirmed registrar observation's registrar name.
 //!
-//! The window and the `asOfDate` come from the same SQLite `date('now')` the portfolio's expiring
-//! count uses, so the desk lists exactly the assets that count promises. No registrar renewal,
+//! The window and the `asOfDate` come from one [`HostDay`] per read, the same kind of day the
+//! portfolio's expiring count and row flags use, so the desk lists exactly the assets that count
+//! promises. No registrar renewal,
 //! quote or pricing capability is qualified, so the projection carries no price, term or plan.
 
 use rusqlite::{Connection, params};
@@ -18,12 +19,36 @@ use super::portfolio::{read_freshness, validate_workspace};
 /// `expired`, so naming the two kept states selects the same rows while letting SQLite seek
 /// `domain_assets_by_status_expiry` by status and expiry range instead of scanning the workspace.
 /// The column references carry the alias so a join cannot bind them to another table's columns. The
-/// portfolio's expiring count uses this same predicate.
-pub(super) fn expiring_asset(alias: &str) -> String {
+/// portfolio's expiring count and row flags use this same predicate.
+pub(super) fn expiring_asset(alias: &str, today: &HostDay) -> String {
+    let today = today.as_str();
     format!(
         "{alias}.lifecycle_status IN ('active', 'expired')
-       AND {alias}.expires_on >= date('now') AND {alias}.expires_on < date('now', '+61 days')"
+       AND {alias}.expires_on >= '{today}' AND {alias}.expires_on < date('{today}', '+61 days')"
     )
+}
+
+/// The Host's UTC day, read once per read transaction. SQLite evaluates `date('now')` once per
+/// statement, so a read whose statements each asked for it could straddle midnight and count,
+/// flag and list against different days. The value comes only from SQLite's own `date('now')` and
+/// is checked to be a canonical `YYYY-MM-DD` date, which is what makes it safe to place in SQL text.
+/// It is the only source of "today" for Host reads: a read that filters by date takes one.
+pub(super) struct HostDay(String);
+
+impl HostDay {
+    pub(super) fn read(connection: &Connection) -> Result<Self, PortfolioReadError> {
+        let day: String = connection
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        if !crate::portfolio_projection::valid_date(&day) {
+            return Err(PortfolioReadError::StorageRejected);
+        }
+        Ok(Self(day))
+    }
+
+    pub(super) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 const ASSETS: &str = "FROM domain_assets WHERE workspace_id = ?1 AND deleted_at IS NULL";
@@ -84,12 +109,13 @@ impl<'a> ActiveRenewalsReader<'a> {
         if start_index > 1_000_000 || !(1..=200).contains(&size) {
             return Err(PortfolioReadError::WindowRejected);
         }
-        let expiring = expiring_asset("domain_assets");
-        let (as_of_date, total_rows, enabled, disabled, malformed): (String, i64, i64, i64, i64) =
+        let today = HostDay::read(&transaction)?;
+        let expiring = expiring_asset("domain_assets", &today);
+        let (total_rows, enabled, disabled, malformed): (i64, i64, i64, i64) =
             transaction
                 .query_row(
                     &format!(
-                        "SELECT date('now'), count(*),
+                        "SELECT count(*),
                            coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
                            coalesce(sum(auto_renew NOT IN (0, 1) OR expires_on IS NOT date(expires_on)), 0)
                          {ASSETS} AND {expiring}"
@@ -101,7 +127,6 @@ impl<'a> ActiveRenewalsReader<'a> {
                             row.get(1)?,
                             row.get(2)?,
                             row.get(3)?,
-                            row.get(4)?,
                         ))
                     },
                 )
@@ -177,7 +202,7 @@ impl<'a> ActiveRenewalsReader<'a> {
             kind: "renewals".to_owned(),
             read_generation: 0,
             freshness,
-            as_of_date,
+            as_of_date: today.0,
             total_rows: count(total_rows)?,
             auto_renew_enabled_count: count(enabled)?,
             auto_renew_disabled_count: count(disabled)?,
@@ -251,4 +276,67 @@ fn project_row(
         },
         registrar_name,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rows of `(entity, status, expires_on)` the predicate selects for a fixed day.
+    fn expiring_on(day: &str, rows: &[(&str, &str, &str)]) -> Vec<String> {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE a (entity_id TEXT, lifecycle_status TEXT, expires_on TEXT)",
+            )
+            .unwrap();
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO a VALUES (?1, ?2, ?3)",
+                    params![row.0, row.1, row.2],
+                )
+                .unwrap();
+        }
+        let predicate = expiring_asset("a", &HostDay(day.to_owned()));
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT entity_id FROM a WHERE {predicate} ORDER BY entity_id"
+            ))
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn the_window_follows_the_given_day_not_the_clock() {
+        // 2026-12-15 + 61 days is 2027-02-14, so the window crosses a year end and is half-open.
+        let rows = [
+            ("before", "active", "2026-12-14"),
+            ("first", "active", "2026-12-15"),
+            ("last", "expired", "2027-02-13"),
+            ("after", "active", "2027-02-14"),
+            ("sold", "sold", "2026-12-20"),
+            ("dropped", "dropped", "2026-12-20"),
+            ("archived", "archived", "2026-12-20"),
+        ];
+        assert_eq!(expiring_on("2026-12-15", &rows), ["first", "last"]);
+        // A day far from the test machine's clock still decides alone.
+        assert_eq!(expiring_on("2027-02-13", &rows), ["after", "last"]);
+    }
+
+    #[test]
+    fn host_day_is_sqlites_canonical_utc_date() {
+        let connection = Connection::open_in_memory().unwrap();
+        let day = HostDay::read(&connection).unwrap();
+        let now: String = connection
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .unwrap();
+        // Equal unless the two reads straddle midnight, in which case the second is the next day.
+        assert!(day.as_str() == now || day.as_str() < now.as_str());
+        assert!(crate::portfolio_projection::valid_date(day.as_str()));
+    }
 }
