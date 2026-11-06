@@ -18,6 +18,7 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness, va
 
 use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
+use super::sales::{SalesCache, data_generation};
 
 /// Upper bound on connections in one read; a larger table fails closed instead of truncating.
 const MAX_CONNECTIONS: u16 = 64;
@@ -86,17 +87,40 @@ type RawConnection = (
 
 pub(crate) struct ActiveSettingsReader<'a> {
     connection: &'a Connection,
+    sales_cache: &'a SalesCache,
 }
 
 impl<'a> ActiveSettingsReader<'a> {
-    pub(crate) const fn new(connection: &'a Connection) -> Self {
-        Self { connection }
+    pub(crate) const fn new(connection: &'a Connection, sales_cache: &'a SalesCache) -> Self {
+        Self {
+            connection,
+            sales_cache,
+        }
     }
 
     pub(crate) fn read(
         &self,
         requested_workspace_id: &str,
     ) -> Result<SettingsReadSnapshot, PortfolioReadError> {
+        match self.read_once(requested_workspace_id, true)? {
+            Some(snapshot) => Ok(snapshot),
+            // A commit landed while the cached sales desk vouched for the listings, so it may
+            // predate this read's snapshot; count them again without it.
+            None => self
+                .read_once(requested_workspace_id, false)?
+                .ok_or(PortfolioReadError::StorageRejected),
+        }
+    }
+
+    /// One read; `None` when `use_cache` relied on a sales desk whose generation moved during it.
+    fn read_once(
+        &self,
+        requested_workspace_id: &str,
+        use_cache: bool,
+    ) -> Result<Option<SettingsReadSnapshot>, PortfolioReadError> {
+        // As in the sales read: the generation before the snapshot begins and after it ends agree
+        // only when no commit landed in between.
+        let before = data_generation(self.connection)?;
         let transaction = self
             .connection
             .unchecked_transaction()
@@ -138,26 +162,33 @@ impl<'a> ActiveSettingsReader<'a> {
             .into_iter()
             .map(project_connection)
             .collect::<Result<Vec<_>, _>>()?;
-        let storage_integrity = storage_integrity(&transaction, requested_workspace_id)?;
+        // A desk merged at this generation proves no listing is rejected: the merge fails on any.
+        let listings_vouched = use_cache && self.sales_cache.holds(requested_workspace_id, before);
+        let storage_integrity =
+            storage_integrity(&transaction, requested_workspace_id, listings_vouched)?;
         let freshness = read_freshness(&transaction)?;
         drop(statement);
         transaction
             .commit()
             .map_err(|_| PortfolioReadError::StorageRejected)?;
-        Ok(SettingsReadSnapshot {
+        if listings_vouched && data_generation(self.connection)? != before {
+            return Ok(None);
+        }
+        Ok(Some(SettingsReadSnapshot {
             schema_version: 2,
             kind: "settings".to_owned(),
             read_generation: 0,
             freshness,
             connections,
             storage_integrity,
-        })
+        }))
     }
 }
 
 fn storage_integrity(
     connection: &Connection,
     workspace_id: &str,
+    listings_vouched: bool,
 ) -> Result<StorageIntegrity, PortfolioReadError> {
     let malformed_expiries: i64 = connection
         .query_row(
@@ -178,7 +209,11 @@ fn storage_integrity(
             workspace_id,
         )?,
         rejected_dns_rows: super::dns_health::rejected_rows(connection, workspace_id)?,
-        rejected_listings: super::sales::rejected_listings(connection, workspace_id)?,
+        rejected_listings: if listings_vouched {
+            0
+        } else {
+            super::sales::rejected_listings(connection, workspace_id)?
+        },
         malformed_outbox_rows: super::history::malformed_outbox_rows(connection, workspace_id)?,
     })
 }

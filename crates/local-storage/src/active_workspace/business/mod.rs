@@ -8152,17 +8152,20 @@ mod tests {
     }
 
     /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
-    /// after a write merges every listing and exceeds the budget; every other read, later sales
-    /// pages included, is held to it.
+    /// after a write merges every listing and exceeds the budget, and so does a settings read before
+    /// it, which scans the same listings for its integrity count; every other read, later sales
+    /// pages and settings included, is held to it.
     #[test]
     #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
     fn scale_reads_at_100k_assets_on_8_markets() {
-        let worst = slowest(&scale_reads(100_000, 8), &[SALES_MERGE]);
+        let worst = slowest(&scale_reads(100_000, 8), &[SALES_MERGE, SETTINGS_SCAN]);
         assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
     }
 
     /// The first sales read of a data generation, which merges every listing.
     const SALES_MERGE: &str = "sales page 1 (merge)";
+    /// A settings read before any sales read of the generation, which scans every listing.
+    const SETTINGS_SCAN: &str = "settings (listing scan)";
 
     /// The slowest timing outside `except`.
     fn slowest(
@@ -8302,6 +8305,10 @@ mod tests {
                 assets
             );
         });
+        time(SETTINGS_SCAN, &mut || {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            assert_eq!(integrity.rejected_listings, 0);
+        });
         time(SALES_MERGE, &mut || {
             let snapshot = database.read_sales(0, 50).unwrap();
             assert_eq!(snapshot.total_rows, listed);
@@ -8309,6 +8316,9 @@ mod tests {
         });
         time("sales last page (same data)", &mut || {
             database.read_sales(listed - 50, 50).unwrap();
+        });
+        time("settings (sales desk merged)", &mut || {
+            database.read_settings().unwrap();
         });
         timings
     }
@@ -9468,6 +9478,53 @@ mod tests {
             database.read_history(0, 10, HISTORY_DAY),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+    }
+
+    #[test]
+    fn settings_skips_the_listing_scan_only_while_a_sales_desk_vouches_for_this_generation() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("10"),
+            TIMESTAMP,
+        )]);
+        let listing_scans = |database: &BusinessDatabase| {
+            let connection = database.store.raw_connection();
+            TRACED_STATEMENTS.lock().unwrap().clear();
+            connection.trace_v2(
+                rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+                Some(trace_read_statements),
+            );
+            let rejected = database
+                .read_settings()
+                .unwrap()
+                .storage_integrity
+                .rejected_listings;
+            connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+            let scans = TRACED_STATEMENTS
+                .lock()
+                .unwrap()
+                .drain(..)
+                .filter(|sql| sql.contains("marketplace_listing_observations"))
+                .count();
+            (rejected, scans)
+        };
+        // Without a merged desk the listings are scanned.
+        assert_eq!(listing_scans(&database), (0, 1));
+        // A desk merged at this generation vouches for them.
+        database.read_sales(0, 10).unwrap();
+        assert_eq!(listing_scans(&database), (0, 0));
+        // Any write moves the generation, so a listing written since is counted, not vouched for.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-late','market-1','marketplace',?1,'running')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-late','bravo.test',0,'requested',?1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local','listing-late','run-late','bravo.test','atom','active','usd','10',?1,'version','available','confirmed')", [TIMESTAMP]).unwrap();
+            complete_observation_run(connection, "run-late", "bravo.test");
+        }
+        assert_eq!(listing_scans(&database), (1, 1));
     }
 
     #[test]

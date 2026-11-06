@@ -163,7 +163,8 @@ mod portfolio_connection {
             &self,
             workspace_id: &str,
         ) -> Result<crate::SettingsReadSnapshot, PortfolioReadError> {
-            super::settings::ActiveSettingsReader::new(&self.connection).read(workspace_id)
+            super::settings::ActiveSettingsReader::new(&self.connection, &self.sales_cache)
+                .read(workspace_id)
         }
 
         pub(crate) fn read_dns_health(

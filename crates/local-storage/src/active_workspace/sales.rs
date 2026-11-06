@@ -124,9 +124,23 @@ struct MarketListing {
 #[derive(Default)]
 pub(crate) struct SalesCache(RefCell<Option<(String, DataGeneration, Arc<MergedDesk>)>>);
 
-type DataGeneration = (i64, i64);
+impl SalesCache {
+    /// Whether the cache holds the workspace's desk merged at `generation`.
+    pub(super) fn holds(&self, workspace_id: &str, generation: DataGeneration) -> bool {
+        self.0
+            .borrow()
+            .as_ref()
+            .is_some_and(|(workspace, cached, _)| {
+                workspace == workspace_id && *cached == generation
+            })
+    }
+}
 
-fn data_generation(connection: &Connection) -> Result<DataGeneration, PortfolioReadError> {
+pub(super) type DataGeneration = (i64, i64);
+
+pub(super) fn data_generation(
+    connection: &Connection,
+) -> Result<DataGeneration, PortfolioReadError> {
     let data_version = connection
         .pragma_query_value(None, "data_version", |row| row.get(0))
         .map_err(|_| PortfolioReadError::StorageRejected)?;
@@ -244,6 +258,10 @@ impl<'a> ActiveSalesReader<'a> {
 }
 
 /// Scans, validates and merges every confirmed listing of the workspace.
+///
+/// It fails on every listing `rejected_listings` counts, never skipping one: the settings read
+/// relies on that, taking a desk cached at a generation as proof that none is rejected. A merge
+/// that tolerated a bad row would have to stop the settings read from using the cache.
 fn merge_desk(
     transaction: &Connection,
     requested_workspace_id: &str,
