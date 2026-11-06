@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { csvImportPreviewSchema } from "./csv-import";
 import {
   assetLibraryWindowRequestSchema,
   parseAssetLibraryViewModel,
@@ -34,11 +33,17 @@ const editableAssetSchema = z.object({
   targetPrice: z.object({ currency: z.string().regex(/^[A-Z]{3}$/u), amount: z.string() }).strict().nullable(),
 }).strict();
 export const localDomainAssetEditRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), asset: editableAssetSchema }).strict();
+/** Adds a domain the workspace does not hold; the domain is the deduplication key. */
+export const localDomainAssetCreateRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), asset: editableAssetSchema.extend({
+  // As the Host requires: an all-numeric last label would be an IP literal, not a domain.
+  entityId: canonicalDomainNameSchema.refine((domain) => /[a-z]/u.test(domain.split(".").at(-1) ?? ""), "domain name requires a non-numeric public suffix"),
+}) }).strict();
 export const localDomainAssetDeleteRequestSchema = z.object({ mutationId: mutationIdSchema, expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), expectedAssetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), entityId: z.string().min(3).max(253) }).strict();
 export const localDomainAssetProviderBindingRequestSchema = z.object({ schemaVersion: z.literal(1), expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), entityId: canonicalDomainNameSchema }).strict();
-export const localDomainAssetMutationReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), operation: z.enum(["edit", "delete"]), mutationId: mutationIdSchema, entityId: z.string().min(3).max(253), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), deviceMutationSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), baseServerRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), activeLeaseEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), committedAt: z.iso.datetime(), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
+export const localDomainAssetMutationReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), operation: z.enum(["create", "edit", "delete"]), mutationId: mutationIdSchema, entityId: z.string().min(3).max(253), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), deviceMutationSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), baseServerRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), activeLeaseEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), committedAt: z.iso.datetime(), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
 export const localDomainAssetProviderBindingReceiptSchema = z.object({ schemaVersion: z.literal(1), disposition: z.enum(["committed", "replayed"]), entityId: canonicalDomainNameSchema, providerKind: z.literal("cloudflare"), resourceKind: z.literal("zone"), resourceBindingDigest: z.string().regex(/^[0-9a-f]{64}$/u), resourceLabel: canonicalDomainNameSchema, bindingGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), validationStatus: z.literal("verified"), verifiedAt: z.iso.datetime(), lastObservedAt: z.iso.datetime(), localCommitSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), readGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
 export type LocalDomainAssetEditRequest = z.infer<typeof localDomainAssetEditRequestSchema>;
+export type LocalDomainAssetCreateRequest = z.infer<typeof localDomainAssetCreateRequestSchema>;
 export type LocalDomainAssetDeleteRequest = z.infer<typeof localDomainAssetDeleteRequestSchema>;
 export type LocalDomainAssetProviderBindingRequest = z.infer<typeof localDomainAssetProviderBindingRequestSchema>;
 export type LocalDomainAssetMutationReceipt = z.infer<typeof localDomainAssetMutationReceiptSchema>;
@@ -102,49 +107,5 @@ export class ValidatingPortfolioPresentationPort implements ValidatedPortfolioPr
   async loadDomainDetail(assetId: string) {
     if (!/^(?=.{3,253}$)(?=.*\.)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(assetId)) throw new TypeError("asset id is invalid");
     return parseDomainDetailViewModel(await this.#boundary.loadDomainDetail(assetId));
-  }
-}
-
-export const csvImportPlanRequestSchema = z.object({
-  expectedNewCount: z.number().int().positive(),
-  preview: csvImportPreviewSchema,
-}).strict().superRefine((request, context) => {
-  if (request.expectedNewCount !== request.preview.newCount) {
-    context.addIssue({ code: "custom", path: ["expectedNewCount"], message: "import count must match preview" });
-  }
-});
-
-export const portfolioPlanReceiptSchema = z.object({
-  planId: z.string().min(1).max(128),
-  status: z.literal("planned"),
-  itemCount: z.number().int().positive(),
-}).strict();
-
-export type CsvImportPlanRequest = z.infer<typeof csvImportPlanRequestSchema>;
-export type PortfolioPlanReceipt = z.infer<typeof portfolioPlanReceiptSchema>;
-
-/** Creates an inspectable plan only; execution remains in the operations capability. */
-export interface PortfolioPlanPort {
-  planCsvImport(request: CsvImportPlanRequest): Promise<PortfolioPlanReceipt>;
-}
-
-export interface PortfolioPlanBoundary {
-  planCsvImport(request: CsvImportPlanRequest): Promise<unknown>;
-}
-
-export class ValidatingPortfolioPlanPort implements PortfolioPlanPort {
-  readonly #boundary: PortfolioPlanBoundary;
-
-  constructor(boundary: PortfolioPlanBoundary) {
-    this.#boundary = boundary;
-  }
-
-  async planCsvImport(request: CsvImportPlanRequest): Promise<PortfolioPlanReceipt> {
-    const parsedRequest = csvImportPlanRequestSchema.parse(request);
-    const receipt = portfolioPlanReceiptSchema.parse(await this.#boundary.planCsvImport(parsedRequest));
-    if (receipt.itemCount !== parsedRequest.expectedNewCount) {
-      throw new TypeError("portfolio plan receipt count does not match the reviewed preview");
-    }
-    return receipt;
   }
 }

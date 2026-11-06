@@ -1,8 +1,15 @@
 import {
   createConflictResolutionIntent,
   type AssetLibraryViewModel,
+  type BatchOperationsReadPort,
+  type HistoryReadPort,
+  type ManualTasksReadPort,
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
+  type DnsHealthPort,
+  type RenewalsReadPort,
+  type SalesReadPort,
+  type SettingsReadPort,
   type SyncSnapshotViewModel,
   type ValidatedPortfolioPresentationPort,
 } from "@gooddealer/client-core";
@@ -24,6 +31,20 @@ export interface AuthoritativeWorkspacePublication {
 
 export interface AuthoritativeWorkspacePorts {
   readonly business: LocalBusinessPort;
+  /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
+  readonly dns: DnsHealthPort;
+  /** Read by the settings route on demand; not part of the workspace publication either. */
+  readonly settings: SettingsReadPort;
+  /** Read by the sales route on demand; not part of the workspace publication. */
+  readonly sales: SalesReadPort;
+  /** Read by the renewals route on demand; not part of the workspace publication. */
+  readonly renewals: RenewalsReadPort;
+  /** Read by the batch route on demand; not part of the workspace publication. */
+  readonly batches: BatchOperationsReadPort;
+  /** Read by the history route on demand; not part of the workspace publication. */
+  readonly history: HistoryReadPort;
+  /** Read by the manual task route on demand; not part of the workspace publication. */
+  readonly manualTasks: ManualTasksReadPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -82,6 +103,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "dns.health"]
-    : ["portfolio.list", "portfolio.detail", "dns.health", "sync.conflicts"];
+    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "settings"]
+    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "sync.conflicts", "settings"];
 }

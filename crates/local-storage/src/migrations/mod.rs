@@ -6,10 +6,14 @@ use crate::active_workspace::schema::{
     CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
     CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
-    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
-    SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
-    SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
-    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, OUTBOX_INTEGRITY_MIGRATION_ID,
+    OUTBOX_INTEGRITY_MIGRATION_OWNER, OUTBOX_INTEGRITY_MIGRATION_SQL,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_ID, OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL, STORAGE_INTEGRITY_MIGRATION_ID,
+    STORAGE_INTEGRITY_MIGRATION_OWNER, STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID,
+    SYNC_V2_MIGRATION_OWNER, SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER,
+    SYNC_V3_MIGRATION_SQL, SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL,
+    SYNC_V5_MIGRATION_ID, SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +69,21 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: DOMAIN_PROVIDER_BINDING_MIGRATION_ID,
         owner: DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
         sql: DOMAIN_PROVIDER_BINDING_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: STORAGE_INTEGRITY_MIGRATION_ID,
+        owner: STORAGE_INTEGRITY_MIGRATION_OWNER,
+        sql: STORAGE_INTEGRITY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_INTEGRITY_MIGRATION_ID,
+        owner: OUTBOX_INTEGRITY_MIGRATION_OWNER,
+        sql: OUTBOX_INTEGRITY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_LOCAL_CREATIONS_MIGRATION_ID,
+        owner: OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
+        sql: OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL,
     },
 ];
 
@@ -322,7 +341,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 8);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 11);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -347,7 +366,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 44);
+        assert_eq!(table_count, 45);
         assert!(business_index_count >= 24);
 
         connection
@@ -720,5 +739,79 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .unwrap(), 1);
+    }
+
+    #[test]
+    fn outbox_created_at_must_be_a_canonical_utc_instant() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,0,1,?1,?1)",
+                ["2026-09-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert = |mutation_id: &str, created_at: &str| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at)
+                 VALUES ('workspace-local',?1,'domain_asset','canonical.test','{}',?2)",
+                [mutation_id, created_at],
+            )
+        };
+        // Each value gets the same verdict from the trigger and from `validate_timestamp`, the rule
+        // the Host's reads apply, so the two cannot drift apart unnoticed.
+        let read_rule = |value: &str| {
+            crate::portfolio_projection::validate_timestamp(Some(value.to_owned())).is_ok()
+        };
+        for (index, accepted) in ["2026-11-06T00:00:00Z", "2028-02-29T23:59:59Z"]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(read_rule(accepted), "{accepted:?}");
+            insert(&format!("accepted-{index}"), accepted).unwrap();
+        }
+        for (index, rejected) in [
+            "2026-11-06T00:00:00.000Z",
+            "2026-11-06T08:00:00+08:00",
+            "2026-11-06 00:00:00",
+            "2026-11-06T00:00:00",
+            "2026-11-06",
+            "2027-02-29T00:00:00Z",
+            "2026-11-06T24:00:00Z",
+            "2026-11-06T00:60:00Z",
+            "2026-11-06T00:00:60Z",
+            "2026-11-06t00:00:00z",
+            "2026-11-06T00:00Z",
+            "2026-11-06T00:00:00Z ",
+            "",
+            "not a time",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(!read_rule(rejected), "{rejected:?}");
+            assert!(
+                insert(&format!("rejected-{index}"), rejected).is_err(),
+                "{rejected:?} must be rejected"
+            );
+        }
+        // An update cannot slip a non-canonical value past the insert rule either.
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox SET created_at = '2026-11-06T00:00:00.5Z'
+                     WHERE mutation_id = 'accepted-0'",
+                    [],
+                )
+                .is_err()
+        );
     }
 }

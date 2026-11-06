@@ -242,7 +242,7 @@ fn validate_owner_and_mode(
 mod tests {
     use std::path::Path;
 
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 

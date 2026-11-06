@@ -20,7 +20,12 @@ const workspaceSurfaceKinds = ["standby", "active"] as const;
 export const appRouteRegistry = {
   "portfolio.list": route("portfolio.list", "assetLibrary"),
   "portfolio.detail": route("portfolio.detail", "domainDetail"),
+  "renewals.desk": route("renewals.desk", "renewalDesk"),
+  "sales.desk": route("sales.desk", "salesDesk"),
   "dns.health": route("dns.health", "dnsVerification"),
+  "operations.batch": route("operations.batch", "batchOperation"),
+  "operations.manualTasks": route("operations.manualTasks", "manualTaskInbox"),
+  "operations.history": route("operations.history", "operationHistory"),
   "sync.conflicts": route("sync.conflicts", "conflictCenter"),
   settings: route("settings", "settings"),
 } as const satisfies Readonly<Record<AppRouteId, AppRouteDefinition>>;

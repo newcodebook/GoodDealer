@@ -59,6 +59,9 @@ pub struct AssetLibraryRow {
     pub sync_status: String,
     pub target_price: Option<Money>,
     pub expires_on: Option<String>,
+    /// Whether the renewals desk lists this asset, by the same predicate and Host date as the
+    /// expiring count, so a highlight never disagrees with the desk it leads to.
+    pub expiring: bool,
     pub asset_version: u64,
 }
 
@@ -96,6 +99,8 @@ pub struct DomainDetailAsset {
     pub sync_status: String,
     pub target_price: Option<Money>,
     pub expires_on: Option<String>,
+    /// The asset library row's `expiring`, for the same asset.
+    pub expiring: bool,
     pub acquired_on: Option<String>,
     pub acquisition_cost: Option<Money>,
     pub auto_renew: Option<bool>,
@@ -282,9 +287,46 @@ pub(crate) fn validate_timestamp(
     Ok(Some(value))
 }
 
+/// A `YYYY-MM-DD` calendar date, by the same digit and calendar rules as `validate_timestamp` and
+/// the Renderer's `z.iso.date()`; SQLite's `date()` round-trip accepts exactly the same values.
+pub(crate) fn valid_date(value: &str) -> bool {
+    value.len() == 10 && validate_timestamp(Some(format!("{value}T00:00:00Z"))).is_ok()
+}
+
 pub(crate) fn is_forbidden_text_character(character: char) -> bool {
     character.is_control()
         || matches!(character as u32, 0x00ad | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff | 0xfff9..=0xfffb)
+}
+
+/// One rule for a registrar name wherever a read reports it (asset rows and renewals), matching the
+/// Renderer's `registrarNameSchema`: 1–128 characters (Zod 4 counts code points, as `chars` does)
+/// with no control, bidirectional or invisible formatting characters.
+///
+/// Two display-text rules exist on purpose. Registrar names and asset text (tags, notes) use this
+/// safe-text set, counted in code points: they come from providers or the person's portfolio, and
+/// script-specific format characters such as U+0600 ARABIC NUMBER SIGN are legitimate there, so
+/// only the characters that can hide or reorder text are refused. Connection labels
+/// (`valid_connection_label`) are short names the person types for an account, counted in UTF-16
+/// units like the Renderer's input, and refuse every control and format character.
+pub(crate) fn valid_registrar_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= 128
+        && !value.chars().any(is_forbidden_text_character)
+}
+
+/// Maximum length of a Provider connection label, in UTF-16 code units like the Renderer schema.
+pub(crate) const CONNECTION_LABEL_MAX_UTF16: usize = 120;
+
+/// One rule for connection labels, applied when a label is written and when any read reports it,
+/// so a label the Host accepted can never fail a later read. Control and Unicode format characters
+/// (general category Cf) are rejected, matching the Renderer's `\p{Cc}\p{Cf}` check.
+pub(crate) fn valid_connection_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.encode_utf16().count() <= CONNECTION_LABEL_MAX_UTF16
+        && !value.chars().any(|character| {
+            character.is_control()
+                || matches!(character as u32, 0x00ad | 0x0600..=0x0605 | 0x061c | 0x06dd | 0x070f | 0x0890..=0x0891 | 0x08e2 | 0x180e | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0x2066..=0x206f | 0xfeff | 0xfff9..=0xfffb | 0x110bd | 0x110cd | 0x13430..=0x1343f | 0x1bca0..=0x1bca3 | 0x1d173..=0x1d17a | 0xe0001 | 0xe0020..=0xe007f)
+        })
 }
 
 pub(crate) fn valid_currency(value: &str) -> bool {
@@ -308,4 +350,30 @@ pub(crate) fn valid_amount(value: &str) -> bool {
             && part.bytes().all(|byte| byte.is_ascii_digit())
             && !part.ends_with('0')
     })
+}
+
+#[cfg(test)]
+mod connection_label_tests {
+    use super::valid_connection_label;
+
+    #[test]
+    fn connection_labels_are_bounded_in_utf16_units_and_reject_hidden_characters() {
+        assert!(valid_connection_label("Cloudflare 主账户"));
+        assert!(valid_connection_label(&"a".repeat(120)));
+        assert!(valid_connection_label(&"\u{1F310}".repeat(60)));
+        for rejected in [
+            String::new(),
+            "a".repeat(121),
+            "\u{1F310}".repeat(61),
+            "Cloud\u{7}flare".to_owned(),
+            "Cloud\u{200B}flare".to_owned(),
+            "Cloud\u{202E}flare".to_owned(),
+            "Cloud\u{FEFF}flare".to_owned(),
+            "Cloud\u{E0041}flare".to_owned(),
+            // Labels reject every format character, unlike registrar names: see `valid_registrar_name`.
+            "Cloud\u{600}flare".to_owned(),
+        ] {
+            assert!(!valid_connection_label(&rejected), "{rejected:?}");
+        }
+    }
 }

@@ -8,6 +8,7 @@ import {
   Dialog,
   Input,
   MetricStrip,
+  Pagination,
   RefreshCwIcon,
   SearchIcon,
   Select,
@@ -17,7 +18,7 @@ import {
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import "./dns-verification.css";
@@ -28,6 +29,13 @@ type DnsDialog = { readonly kind: "txt" | "nameserver" | "challenge"; readonly r
 export interface DnsVerificationProps {
   readonly locale: Locale;
   readonly view: DnsVerificationViewModel;
+  /** The Host search text, for a paged view; an unpaged view searches its own rows. */
+  readonly query?: string;
+  readonly onQueryChange?: (query: string) => void;
+  /** Requests another Host page; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page or search. */
+  readonly busy?: boolean;
   /** Rows whose ownership re-check is in flight. */
   readonly verifyingIds?: ReadonlySet<string>;
   readonly onReverify?: (rows: readonly DnsVerificationRowViewModel[]) => void;
@@ -35,6 +43,14 @@ export interface DnsVerificationProps {
   readonly onRequestTxtPlan?: (row: DnsVerificationRowViewModel) => void;
   /** Requests a high-risk Nameserver plan after the acknowledgement gate. */
   readonly onRequestNameserverPlan?: (row: DnsVerificationRowViewModel, nameservers: readonly string[]) => void;
+  /** Binds the row to the Zone the Host observed; offered only for rows that carry `bind_zone`. */
+  readonly onBindZone?: (row: DnsVerificationRowViewModel) => void;
+  /** The row whose binding is in flight; every bind action is disabled meanwhile. */
+  readonly bindingId?: string | null;
+}
+
+function fill(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{(\w+)\}/gu, (match, key: string) => values[key] ?? match);
 }
 
 function isNameserverHost(value: string): boolean {
@@ -42,16 +58,23 @@ function isNameserverHost(value: string): boolean {
   return host.split(".").length >= 2 && host.split(".").every((label) => /^(?!-)[a-z0-9-]{1,63}(?<!-)$/u.test(label));
 }
 
-/** DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own platform. */
-export function DnsVerification({ locale, view, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
+/**
+ * DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own
+ * platform. Until ownership is composed, the page shows only the Zone facts the Host observed.
+ */
+export function DnsVerification({ locale, view, query: hostQuery, onQueryChange, onPageChange, busy = false, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan, onBindZone, bindingId = null }: DnsVerificationProps) {
   const copy = getPresentationCopy(locale, "dnsVerification");
-  const [query, setQuery] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
+  // A paged view is searched by the Host; only an unpaged view filters its own rows.
+  const { page } = view;
+  const query = page === undefined ? localQuery : hostQuery ?? "";
+  const setQuery = (next: string) => { if (page === undefined) setLocalQuery(next); else onQueryChange?.(next); };
   const [filter, setFilter] = useState<OwnershipFilter>("all");
   const [dialog, setDialog] = useState<DnsDialog>(null);
   const [nameservers, setNameservers] = useState(["", ""]);
   const [acknowledged, setAcknowledged] = useState(false);
   const readOnly = view.readSource === "standby_cloud";
-  const needle = query.trim().toLowerCase();
+  const needle = page === undefined ? query.trim().toLowerCase() : "";
   const rows = view.rows.filter((row) =>
     (filter === "all" || row.ownershipStatus === filter)
     && (needle === "" || row.domain.includes(needle) || row.providerDisplayName.toLowerCase().includes(needle)));
@@ -68,19 +91,29 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
   };
   const openNameserver = (row: DnsVerificationRowViewModel) => { setNameservers(["", ""]); setAcknowledged(false); setDialog({ kind: "nameserver", row }); };
 
-  const ownershipBadge = (row: DnsVerificationRowViewModel) => row.ownershipStatus === "verified"
+  const ownershipConnected = view.ownershipAvailability === "available";
+  const dnssecLabel = { active: copy.dnssecActive, inactive: copy.dnssecInactive, unknown: copy.dnssecUnknown, unsupported: copy.dnssecUnsupported } as const;
+  const ownershipBadge = (row: DnsVerificationRowViewModel) => row.ownershipStatus === "unavailable"
+    ? <Badge mono={false}>{copy.notConnected}</Badge>
+    : row.ownershipStatus === "verified"
     ? <Badge tone="gold" mono={false}>{copy.verified}</Badge>
     : row.ownershipStatus === "pending"
       ? <Badge tone="warning" mono={false}>{copy.pending}</Badge>
       : <Badge tone="danger" mono={false}>{copy.invalid}</Badge>;
-  const recordBadge = (row: DnsVerificationRowViewModel) => row.recordHealth === "healthy"
+  const recordBadge = (row: DnsVerificationRowViewModel) => row.recordHealth === "observed"
+    ? <span className="dns-mono dns-muted">{fill(copy.recordCount, { count: formatNumber(locale, row.recordCount ?? 0) })}</span>
+    : row.recordHealth === "unobserved"
+    ? <span className="dns-muted">{copy.unobserved}</span>
+    : row.recordHealth === "healthy"
     ? <Badge tone="success" mono={false}>{copy.normal}</Badge>
     : row.recordHealth === "warning"
       ? <Badge tone="warning" mono={false}>{copy.warning}</Badge>
       : <Badge tone="danger" mono={false}>{copy.missing}</Badge>;
   const statusCell = (row: DnsVerificationRowViewModel) => {
-    const [kind, label] = row.propagationStatus === "current" ? ["success", copy.normal] as const
-      : row.propagationStatus === "propagating" ? ["sync", copy.propagating] as const : ["warning", copy.warning] as const;
+    // Without ownership and delegation evidence a confirmed active Zone is only "observed", never healthy.
+    const [kind, label] = row.propagationStatus === "current" ? ["success", ownershipConnected ? copy.normal : copy.observedState] as const
+      : row.propagationStatus === "propagating" ? ["sync", copy.propagating] as const
+        : row.propagationStatus === "unobserved" ? ["neutral", copy.unobserved] as const : ["warning", copy.warning] as const;
     return <StatusDot kind={kind} pulse={row.propagationStatus === "propagating"} label={label} />;
   };
 
@@ -102,6 +135,9 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
     if (row.challenge !== null) {
       return <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: "challenge", row })}>{copy.viewTxt}</Button>;
     }
+    if (can("bind_zone") && onBindZone !== undefined) {
+      return <Button size="sm" disabled={bindingId !== null} onClick={() => onBindZone(row)}>{copy.bindZone}</Button>;
+    }
     return null;
   };
 
@@ -112,10 +148,20 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       key: "delegatedNameservers",
       label: copy.nameserver,
       priority: "secondary",
+      // The column is registrar delegation, as in the brand kit. The Zone's own nameservers and
+      // DNSSEC are observed DNS-platform facts, so they sit below it instead of standing in for it.
       render: (row) => (
-        <span className={`dns-mono${row.delegationStatus === "healthy" ? " dns-muted" : " dns-danger"}`}>
-          {row.delegationStatus === "healthy" ? null : <AlertTriangleIcon size={12} />}
-          {row.delegatedNameservers[0] ?? copy.unknownNameserver}
+        <span className="dns-ns">
+          <span className={`dns-mono${row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? " dns-muted" : " dns-danger"}`}>
+            {row.delegationStatus === "healthy" || row.delegationStatus === "unknown" ? null : <AlertTriangleIcon size={12} />}
+            {row.delegatedNameservers[0] ?? copy.unknownNameserver}
+          </span>
+          {row.zoneNameservers.length === 0 && row.dnssecStatus === null ? null : (
+            <span className="dns-zone-facts">
+              {row.zoneNameservers.length === 0 ? null : <>{copy.zoneNameservers} <span className="dns-mono">{row.zoneNameservers.join(" · ")}</span></>}
+              {row.dnssecStatus === null ? null : <span>{copy.dnssec} {dnssecLabel[row.dnssecStatus]}</span>}
+            </span>
+          )}
         </span>
       ),
     },
@@ -135,10 +181,13 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
   const nameserverValid = isNameserverHost(nameservers[0] ?? "") && ((nameservers[1] ?? "") === "" || isNameserverHost(nameservers[1] ?? ""));
 
   return (
-    <section className="dns-verification" aria-label={copy.title}>
+    <section className="dns-verification" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
-        metrics={[
+        metrics={!ownershipConnected ? [
+          { key: "observed", label: copy.observedZones, value: formatNumber(locale, view.metrics.observed), tone: "blue" },
+          { key: "unobserved", label: copy.unobservedZones, value: formatNumber(locale, view.metrics.unobserved), tone: view.metrics.unobserved > 0 ? "warning" : "muted" },
+        ] : [
           { key: "verified", label: copy.verifiedOwnership, value: formatNumber(locale, view.metrics.verified), tone: "gold" },
           { key: "pending", label: copy.pendingOrInvalid, value: formatNumber(locale, view.metrics.pendingOrFailed), tone: view.metrics.pendingOrFailed > 0 ? "warning" : "muted" },
           { key: "ns", label: copy.nameserverMismatch, value: formatNumber(locale, view.metrics.nameserverIssues), tone: view.metrics.nameserverIssues > 0 ? "danger" : "muted" },
@@ -152,13 +201,13 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
         left={(
           <>
             <Input size="sm" prefix={<SearchIcon size={13} />} placeholder={copy.searchPlaceholder} aria-label={copy.searchPlaceholder} value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-            <Select
+            {!ownershipConnected ? null : <Select
               size="sm"
               aria-label={copy.ownership}
               options={filters.map((item) => ({ value: item.value, label: item.label }))}
               value={filter}
               onChange={(event) => { const next = filters.find((item) => item.value === event.currentTarget.value); if (next !== undefined) setFilter(next.value); }}
-            />
+            />}
           </>
         )}
         right={onReverify === undefined || readOnly ? null : (
@@ -169,7 +218,9 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
       />
       <div className="dns-guide">
         <ShieldIcon size={13} />
-        <span>{copy.guide}</span>
+        {/* The brand guide describes TXT ownership and repair flows; until ownership is composed, the
+            guide states what the page actually shows instead. */}
+        <span>{ownershipConnected ? copy.guide : copy.ownershipUnavailableNotice}</span>
         <span className="dns-source">{readOnly ? copy.sourceStandby : copy.sourceActive} · {copy.revision} {formatNumber(locale, view.serverRevision)}</span>
       </div>
       {readOnly ? <p className="dns-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
@@ -182,7 +233,22 @@ export function DnsVerification({ locale, view, verifyingIds = new Set(), onReve
           columns={columns}
           rows={rows}
           maxHeight="100%"
-          emptyText={view.rows.length === 0 ? copy.noRows : copy.searchEmpty}
+          emptyText={view.rows.length === 0 && query.trim() === "" ? copy.noRows : copy.searchEmpty}
+          {...(page === undefined ? {} : {
+            footer: (
+              <Pagination
+                page={Math.floor(page.startIndex / page.size) + 1}
+                pageSize={page.size}
+                total={page.totalItems}
+                busy={busy}
+                labels={shellPaginationLabels(locale)}
+                {...(onPageChange === undefined ? {} : {
+                  onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                  onPageSizeChange: (size: number) => onPageChange(0, size),
+                })}
+              />
+            ),
+          })}
         />
       </div>
       <Dialog

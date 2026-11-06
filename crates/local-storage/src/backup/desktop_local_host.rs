@@ -38,7 +38,8 @@ use crate::BusinessDatabase;
 use crate::desktop_business_runtime::DesktopBusinessRuntime;
 use crate::desktop_business_runtime::{
     BusinessMutationContext, DesktopAssetLibraryReadRequest, DesktopConflictCenterView,
-    DesktopConflictResolveRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopConflictResolveRequest, DesktopDomainAssetCreateRequest,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest,
 };
@@ -61,6 +62,13 @@ pub enum DesktopLocalHostError {
     AuthorityRejected,
     CloudProtocolRejected,
     Unavailable,
+    /// The workspace already holds the domain being added; nothing was written.
+    AssetExists,
+    /// The domain was deleted and keeps its tombstone, so it cannot be added or changed again
+    /// under the same identity (no path purges a tombstone yet); nothing was written.
+    AssetDeleted,
+    /// The capability has not passed ADR-0024 qualification; nothing was attempted.
+    CapabilityUnqualified,
 }
 
 impl fmt::Display for DesktopLocalHostError {
@@ -71,6 +79,9 @@ impl fmt::Display for DesktopLocalHostError {
             Self::AuthorityRejected => "DESKTOP_LOCAL_HOST_AUTHORITY_REJECTED",
             Self::CloudProtocolRejected => "DESKTOP_CLOUD_PROTOCOL_REJECTED",
             Self::Unavailable => "DESKTOP_LOCAL_HOST_UNAVAILABLE",
+            Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
+            Self::AssetDeleted => "DESKTOP_LOCAL_ASSET_DELETED",
+            Self::CapabilityUnqualified => "DESKTOP_CAPABILITY_UNQUALIFIED",
         })
     }
 }
@@ -149,6 +160,19 @@ pub struct DesktopLocalBusinessStatus {
     state: DesktopLocalBusinessState,
     capabilities: Vec<&'static str>,
     read_generation: u64,
+}
+
+/// The device and lease that currently hold execution authority, for display only.
+///
+/// It carries no signed envelope, key or capability: only the identifiers Cloud already bound
+/// into the verified Active authority. The Host reports it only while that authority is current,
+/// so a Standby, locked or continuation workspace never shows a lease it does not hold.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopDeviceLease {
+    schema_version: u8,
+    device_id: String,
+    lease_epoch: u64,
 }
 
 const MAX_REQUEST_WIRE_BYTES: usize = 4_096;
@@ -1199,6 +1223,25 @@ fn recovery_observation(
     }
 }
 
+const fn prewrite_failure_reason(
+    reason: crate::DesktopCloudflarePrewriteFailure,
+) -> crate::CloudflarePrewriteFailureReason {
+    match reason {
+        crate::DesktopCloudflarePrewriteFailure::BaseMismatch => {
+            crate::CloudflarePrewriteFailureReason::BaseMismatch
+        }
+        crate::DesktopCloudflarePrewriteFailure::MissingOther => {
+            crate::CloudflarePrewriteFailureReason::MissingOther
+        }
+        crate::DesktopCloudflarePrewriteFailure::Malformed => {
+            crate::CloudflarePrewriteFailureReason::Malformed
+        }
+        crate::DesktopCloudflarePrewriteFailure::Unreadable => {
+            crate::CloudflarePrewriteFailureReason::Unreadable
+        }
+    }
+}
+
 const fn desktop_cloudflare_resolution(
     resolution: crate::CloudflareCredentialResolution,
 ) -> crate::DesktopCloudflareResolution {
@@ -1359,6 +1402,20 @@ impl DesktopLocalHost {
         Ok(desktop_cloudflare_resolution(resolution))
     }
 
+    /// Imports the activated Zone under the activation's own admission; see
+    /// `DesktopSyncRuntime::import_cloudflare_zone_asset`. It runs after the Provider observed the
+    /// Zone and before the credential is prepared. If a later step fails, the domain stays added:
+    /// the person connected that Zone, and the asset is an ordinary one they can delete.
+    fn import_cloudflare_zone_asset(
+        &self,
+        admission: &crate::DesktopNativeCloudAdmission,
+        entity_id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, admitted, guard| {
+            sync.import_cloudflare_zone_asset(business, admitted, entity_id, guard)
+        })
+    }
+
     /// Derives and durably prepares one Cloudflare provision from Host-owned state.
     ///
     /// # Errors
@@ -1373,6 +1430,7 @@ impl DesktopLocalHost {
             admission,
             connection_hint,
         } = activation;
+        self.import_cloudflare_zone_asset(&admission, &observation.entity_id)?;
         let prepared =
             self.with_sync_write(&admission.inner, |sync, database, admitted, guard| {
                 sync.prepare_cloudflare_provision(
@@ -1459,25 +1517,11 @@ impl DesktopLocalHost {
             preparation,
             plan: _,
         } = inspecting;
-        let reason = match reason {
-            crate::DesktopCloudflarePrewriteFailure::BaseMismatch => {
-                crate::CloudflarePrewriteFailureReason::BaseMismatch
-            }
-            crate::DesktopCloudflarePrewriteFailure::MissingOther => {
-                crate::CloudflarePrewriteFailureReason::MissingOther
-            }
-            crate::DesktopCloudflarePrewriteFailure::Malformed => {
-                crate::CloudflarePrewriteFailureReason::Malformed
-            }
-            crate::DesktopCloudflarePrewriteFailure::Unreadable => {
-                crate::CloudflarePrewriteFailureReason::Unreadable
-            }
-        };
         self.cancel_cloudflare_prewrite_for_remediation(
             &admission,
             &preparation.connection_incarnation_id,
             &preparation.intent_id,
-            reason,
+            prewrite_failure_reason(reason),
         )?;
         Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
     }
@@ -1576,6 +1620,139 @@ impl DesktopLocalHost {
     pub fn resolve_cloudflare_provision(
         &self,
         marked: crate::MarkedCloudflareProvision,
+        comparison: crate::DesktopCloudflareCustodyComparison,
+    ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
+        let observation = recovery_observation(&marked.plan, comparison);
+        let resolution = self.resolve_cloudflare_credential_operation(
+            &marked.admission,
+            &marked.preparation.connection_incarnation_id,
+            &marked.preparation.intent_id,
+            &observation,
+        )?;
+        Ok(desktop_cloudflare_resolution(resolution))
+    }
+
+    /// Durably prepares the revocation of a connection's Active credential. Credential use is
+    /// denied in the same commit, so revocation takes effect in the Host before custody changes;
+    /// the tombstone publication that follows only removes the token from custody.
+    ///
+    /// Returns `None` when the connection holds no credential, which leaves nothing to revoke.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, an unknown connection, a live credential operation, or a
+    /// credential that is not Active.
+    pub fn prepare_cloudflare_revocation(
+        &self,
+        admission: crate::DesktopNativeCloudAdmission,
+        connection_hint: &str,
+    ) -> Result<Option<crate::PreparedCloudflareRevocation>, DesktopLocalHostError> {
+        let prepared =
+            self.with_sync_write(&admission.inner, |sync, database, admitted, guard| {
+                sync.prepare_cloudflare_revocation(database, admitted, connection_hint, guard)
+            })?;
+        let Some(prepared) = prepared else {
+            return Ok(None);
+        };
+        let target = crate::CloudflareCredentialWitness {
+            kind: crate::CloudflareCredentialEnvelopeKind::Tombstone,
+            generation: Some(prepared.preparation.target_generation),
+            scope_digest: Some(prepared.preparation.scope_digest.clone()),
+            zone_digest: Some(prepared.preparation.zone_digest.clone()),
+            public_proof: Some(prepared.preparation.target_public_proof.clone()),
+        };
+        Ok(Some(crate::PreparedCloudflareRevocation {
+            admission,
+            plan: crate::DesktopCloudflareKeychainPlanData {
+                connection_incarnation_id: prepared.preparation.connection_incarnation_id.clone(),
+                connection_digest: prepared.connection_digest,
+                expected_base: prepared.expected_base,
+                target,
+            },
+            preparation: prepared.preparation,
+        }))
+    }
+
+    /// Durably enters revocation prewrite inspection after the final cancellation fence.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale handle, authority, or persisted intent before Keychain is entered.
+    pub fn begin_cloudflare_revocation_prewrite_inspection(
+        &self,
+        prepared: crate::PreparedCloudflareRevocation,
+    ) -> Result<crate::InspectingCloudflareRevocation, DesktopLocalHostError> {
+        self.begin_cloudflare_prewrite_inspection(
+            &prepared.admission,
+            &prepared.preparation.connection_incarnation_id,
+            &prepared.preparation.intent_id,
+        )?;
+        Ok(crate::InspectingCloudflareRevocation {
+            admission: prepared.admission,
+            preparation: prepared.preparation,
+            plan: prepared.plan,
+        })
+    }
+
+    /// Records the exact Active base after Secure Host proved it under the Keychain lock.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale handle, authority, persisted intent, or root/publication drift.
+    pub fn mark_cloudflare_revocation_write_started(
+        &self,
+        inspecting: crate::InspectingCloudflareRevocation,
+    ) -> Result<crate::MarkedCloudflareRevocation, DesktopLocalHostError> {
+        self.mark_cloudflare_keychain_write_started(
+            &inspecting.admission,
+            &inspecting.preparation.connection_incarnation_id,
+            &inspecting.preparation.intent_id,
+        )?;
+        Ok(crate::MarkedCloudflareRevocation {
+            admission: inspecting.admission,
+            preparation: inspecting.preparation,
+            plan: inspecting.plan,
+        })
+    }
+
+    /// Converts a revocation prewrite custody contradiction into terminal, sticky remediation.
+    /// Credential use stays denied: a revocation never restores a credential it could not prove.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale admission, non-prewrite intent, invalid transition, or failed storage commit.
+    pub fn remediate_cloudflare_revocation_prewrite(
+        &self,
+        inspecting: crate::InspectingCloudflareRevocation,
+        reason: crate::DesktopCloudflarePrewriteFailure,
+    ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
+        // Consuming the opaque handle prevents a remediation from being replayed.
+        let crate::InspectingCloudflareRevocation {
+            admission,
+            preparation,
+            plan: _,
+        } = inspecting;
+        self.cancel_cloudflare_prewrite_for_remediation(
+            &admission,
+            &preparation.connection_incarnation_id,
+            &preparation.intent_id,
+            prewrite_failure_reason(reason),
+        )?;
+        Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
+    }
+
+    /// Resolves a marked revocation from a closed Secure Host custody comparison.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, invalid persisted state, or storage failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "consuming the opaque marked handle prevents replay after resolution"
+    )]
+    pub fn resolve_cloudflare_revocation(
+        &self,
+        marked: crate::MarkedCloudflareRevocation,
         comparison: crate::DesktopCloudflareCustodyComparison,
     ) -> Result<crate::DesktopCloudflareResolution, DesktopLocalHostError> {
         let observation = recovery_observation(&marked.plan, comparison);
@@ -2083,6 +2260,44 @@ impl DesktopLocalHost {
         }
     }
 
+    /// The current Active device and lease epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` unless the business state is Active under a current authority read
+    /// in the same lock order as [`Self::business_status`].
+    pub fn device_lease(&self) -> Result<DesktopDeviceLease, DesktopLocalHostError> {
+        let Ok(_operation) = self.operation_selection.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let Ok(authority) = self.authority_publication.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let Ok(runtime) = self.runtime_state.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::Unavailable)?;
+        if runtime.is_none()
+            || self.transition_requested_epoch.load(Ordering::Acquire)
+                != authority.applied_authority_epoch
+            || authority.restriction != RuntimeRestriction::Active
+        {
+            return Err(DesktopLocalHostError::Unavailable);
+        }
+        authority
+            .authority
+            .as_ref()
+            .filter(|current| {
+                current.kind == BackupAuthorityKind::Active && current.is_current_at(now)
+            })
+            .map(|current| DesktopDeviceLease {
+                schema_version: 1,
+                device_id: current.device_id.clone(),
+                lease_epoch: current.lease_epoch,
+            })
+            .ok_or(DesktopLocalHostError::Unavailable)
+    }
+
     fn status_snapshot(&self) -> DesktopStatusSnapshot {
         // Status is itself an authorization boundary. Use the same aggregate lock prefix as
         // operations so a renderer can never observe a restriction independently of a pending
@@ -2158,6 +2373,175 @@ impl DesktopLocalHost {
                 }
             }
         }
+    }
+
+    /// Reads one bounded window of operation plans under the current Host authority fence. Plan,
+    /// operation, attempt and Provider identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_batch_operations(
+        &self,
+        request: crate::DesktopBatchOperationsReadRequest,
+    ) -> Result<crate::BatchOperationsReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_batch_operations(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads one bounded window of manual tasks under the current Host authority fence. Plan,
+    /// operation, attempt and connection identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_manual_tasks(
+        &self,
+        request: crate::DesktopManualTasksReadRequest,
+    ) -> Result<crate::ManualTasksReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_manual_tasks(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads one bounded window of the local revision ledger under the current Host authority
+    /// fence. Mutation, device and lease identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_history(
+        &self,
+        request: crate::DesktopHistoryReadRequest,
+    ) -> Result<crate::HistoryReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_history(
+                request.start_index,
+                request.size,
+                (&request.today_from, &request.today_until),
+            )?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads one bounded window of expiring assets under the current Host authority fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_renewals(
+        &self,
+        request: crate::DesktopRenewalsReadRequest,
+    ) -> Result<crate::RenewalsReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_renewals(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads one bounded window of observed marketplace listings under the current Host authority
+    /// fence. Observation and Provider identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_sales(
+        &self,
+        request: crate::DesktopSalesReadRequest,
+    ) -> Result<crate::SalesReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_sales(request.start_index, request.size)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads the settings projection under the current Host authority fence.
+    ///
+    /// Connection, credential and Provider account identifiers stay in the Host; every declared
+    /// role is reported unavailable until its capabilities are qualified.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot = runtime.read_settings()?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// Reads one bounded DNS health window under the current Host authority fence.
+    ///
+    /// The projection carries observed Zone facts only; Provider resource and connection
+    /// identifiers stay in the Host.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when local reads are not currently admitted.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the IPC-facing request contract is intentionally accepted as an owned wire value"
+    )]
+    pub fn read_dns_health(
+        &self,
+        request: crate::DesktopDnsHealthReadRequest,
+    ) -> Result<crate::DnsHealthReadSnapshot, DesktopLocalHostError> {
+        self.with_authorized_business(false, |runtime, _, _, restriction| {
+            let mut snapshot =
+                runtime.read_dns_health(request.start_index, request.size, &request.query)?;
+            if restriction == RuntimeRestriction::CommercialReadOnly {
+                snapshot.freshness.can_edit = false;
+                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
+            }
+            Ok(snapshot)
+        })
     }
 
     /// Reads one bounded asset-library window under the current Host authority fence.
@@ -2289,6 +2673,65 @@ impl DesktopLocalHost {
             runtime.edit_domain_asset_guarded(request, &context, || {
                 self.require_business_commit_fence(captured_epoch, authority)
             })
+        })
+    }
+
+    /// Adds one domain the workspace does not hold yet, under the current Host commit fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when mutation admission, validation, the
+    /// duplicate check, or the final durable commit fence fails.
+    pub fn create_domain_asset(
+        &self,
+        request: DesktopDomainAssetCreateRequest,
+    ) -> Result<crate::DomainAssetMutationReceipt, DesktopLocalHostError> {
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let context = BusinessMutationContext::new(
+                authority.device_id.clone(),
+                authority.lease_epoch,
+                format_timestamp(
+                    current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+                ),
+            )?;
+            runtime.create_domain_asset_guarded(request, &context, || {
+                self.require_business_commit_fence(captured_epoch, authority)
+            })
+        })
+    }
+
+    /// Creates the workspace's Cloudflare connection, holding no credential, so activation has a
+    /// row to provision into. Refused before any authority or storage work while the Cloudflare
+    /// capability is unqualified (ADR-0024): a connection is only useful to run that capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CapabilityUnqualified`, or a closed authority or storage error when mutation
+    /// admission, validation, or the final durable commit fence fails.
+    pub fn create_cloudflare_connection(
+        &self,
+        request: &crate::DesktopCloudflareConnectionCreateRequest,
+    ) -> Result<crate::DesktopCloudflareConnectionCreated, DesktopLocalHostError> {
+        if !crate::active_workspace::capability_qualification::capability_qualified(
+            crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE,
+        ) {
+            return Err(DesktopLocalHostError::CapabilityUnqualified);
+        }
+        let connection_id = crate::desktop_sync_runtime::random_uuid_v4()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let incarnation_id = crate::desktop_sync_runtime::random_uuid_v4()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let created_at = format_timestamp(
+                current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+            );
+            runtime.create_cloudflare_connection_guarded(
+                request,
+                &connection_id,
+                &incarnation_id,
+                &created_at,
+                || self.require_business_commit_fence(captured_epoch, authority),
+            )
         })
     }
 
@@ -3965,7 +4408,7 @@ impl DesktopLocalHost {
 
     #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
-    fn renew_business_authority_for_test(
+    pub(crate) fn renew_business_authority_for_test(
         &self,
         lease_epoch: u64,
     ) -> Result<(), DesktopLocalHostError> {
@@ -4042,7 +4485,10 @@ impl DesktopLocalHost {
             DesktopLocalHostError::StorageRejected
             | DesktopLocalHostError::ApplicationRootRejected
             | DesktopLocalHostError::CloudProtocolRejected
-            | DesktopLocalHostError::Unavailable => DesktopBackupError::StorageRejected,
+            | DesktopLocalHostError::Unavailable
+            | DesktopLocalHostError::AssetExists
+            | DesktopLocalHostError::AssetDeleted
+            | DesktopLocalHostError::CapabilityUnqualified => DesktopBackupError::StorageRejected,
         })
     }
 
@@ -4662,6 +5108,10 @@ fn map_host_database_error(error: BusinessDatabaseError) -> DesktopLocalHostErro
         BusinessDatabaseError::WorkspaceRejected | BusinessDatabaseError::MutationStale => {
             DesktopLocalHostError::AuthorityRejected
         }
+        // A duplicate and a deletion are the rejections the person can understand (the domain is
+        // held, or it was deleted and keeps its tombstone), so each keeps its own code.
+        BusinessDatabaseError::AssetExists => DesktopLocalHostError::AssetExists,
+        BusinessDatabaseError::AssetDeleted => DesktopLocalHostError::AssetDeleted,
         _ => DesktopLocalHostError::StorageRejected,
     }
 }
@@ -4673,6 +5123,7 @@ fn map_sync_error(error: DesktopSyncError) -> DesktopLocalHostError {
         | DesktopSyncError::InvalidInput
         | DesktopSyncError::AcknowledgementMismatch => DesktopLocalHostError::AuthorityRejected,
         DesktopSyncError::StorageRejected => DesktopLocalHostError::StorageRejected,
+        DesktopSyncError::CapabilityUnqualified => DesktopLocalHostError::CapabilityUnqualified,
     }
 }
 
@@ -4755,11 +5206,12 @@ mod tests {
     use crate::active_workspace::business::{
         TestActiveRebootstrapJournalLinkSnapshot, TestRebootstrapJournalLinkHostileCase,
     };
+    use crate::test_tempdir::tempdir;
     use crate::{DomainAssetWrite, LocalDatabaseKey};
     use base64::Engine as _;
     #[cfg(unix)]
     use std::io::Write as _;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::TempDir;
 
     const OPERATION_ID: &str = "operation-opaque-0001";
 
@@ -5258,6 +5710,12 @@ mod tests {
             host.business_status().state,
             DesktopLocalBusinessState::Active
         );
+        let lease = serde_json::to_value(host.device_lease().unwrap()).unwrap();
+        assert_eq!(
+            lease,
+            serde_json::json!({ "schemaVersion": 1, "deviceId": device_id, "leaseEpoch": lease["leaseEpoch"] })
+        );
+        assert!(lease["leaseEpoch"].as_u64().is_some_and(|epoch| epoch > 0));
         let snapshot = host
             .read_asset_library(DesktopAssetLibraryReadRequest {
                 start_index: 0,
@@ -5277,6 +5735,8 @@ mod tests {
         assert_eq!(business["schemaVersion"], 2);
         assert_eq!(business["state"], "activation_required");
         assert_eq!(business["capabilities"], serde_json::json!([]));
+        // Without an Active authority there is no lease to show, and nothing is invented.
+        assert_eq!(host.device_lease(), Err(DesktopLocalHostError::Unavailable));
         let value = serde_json::to_value(host.backup_status()).unwrap();
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["kind"], "local_backup_restore_status");
@@ -5385,6 +5845,74 @@ mod tests {
         let business = serde_json::to_value(host.business_status()).unwrap();
         assert_eq!(business["state"], "security_locked");
         assert_eq!(business["capabilities"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn device_lease_is_refused_in_read_only_after_expiry_and_while_authority_switches() {
+        let host_at = |seed: u8| {
+            let directory = tempdir().unwrap();
+            let database = BusinessDatabase::open(
+                &directory.path().join("active.db"),
+                &LocalDatabaseKey::from_bytes([seed; 32]),
+                "workspace-local",
+            )
+            .unwrap();
+            let host = DesktopLocalHost::development(
+                database,
+                directory.path().join("native-backup"),
+                "account-local",
+                "workspace-local",
+                "device-local",
+            )
+            .unwrap();
+            // The Active development authority shows its lease, so each refusal below is caused
+            // by the state it sets up and not by a host that never had one.
+            assert!(host.device_lease().is_ok());
+            (directory, host)
+        };
+
+        // Commercial read-only (the Host form of Standby): the verified continuation holds no
+        // lease to show.
+        let (_standby_directory, standby) = host_at(0x61);
+        assert_eq!(
+            standby.continuity_startup_for_test().unwrap(),
+            StartupContinuity::VerifiedLocalContinuation
+        );
+        standby.enter_commercial_read_only().unwrap();
+        assert_eq!(
+            standby.business_status().state,
+            DesktopLocalBusinessState::CommercialReadOnly
+        );
+        assert_eq!(
+            standby.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
+
+        // Expired: the published Active authority is past its execution window.
+        let (_expired_directory, expired) = host_at(0x62);
+        expired
+            .authority_publication
+            .lock()
+            .unwrap()
+            .authority
+            .as_mut()
+            .unwrap()
+            .execute_before = 0;
+        assert_eq!(
+            expired.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
+
+        // Switching: a transition was requested but not yet applied, so the current lease may
+        // already be superseded and is not shown.
+        let (_switching_directory, switching) = host_at(0x63);
+        switching
+            .transition_requested_epoch
+            .fetch_add(1, Ordering::AcqRel);
+        assert_eq!(
+            switching.device_lease(),
+            Err(DesktopLocalHostError::Unavailable)
+        );
     }
 
     #[test]
@@ -6546,6 +7074,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn hostile_quarantine_concurrently_rejects_grant_read_sync_and_mutation_without_writing() {
         let (directory, root, store) =
             seed_rebootstrap_crash(RebootstrapCrashBoundary::ReservationCreated);
@@ -6619,6 +7148,55 @@ mod tests {
         ));
         assert!(matches!(
             mutation.join().unwrap(),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_dns_health(crate::DesktopDnsHealthReadRequest {
+                start_index: 0,
+                size: 10,
+                query: String::new(),
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_settings(),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_sales(crate::DesktopSalesReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_batch_operations(crate::DesktopBatchOperationsReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_manual_tasks(crate::DesktopManualTasksReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_history(crate::DesktopHistoryReadRequest {
+                start_index: 0,
+                size: 10,
+                today_from: "2026-08-28T00:00:00Z".to_owned(),
+                today_until: "2026-08-29T00:00:00Z".to_owned(),
+            }),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        ));
+        assert!(matches!(
+            host.read_renewals(crate::DesktopRenewalsReadRequest {
+                start_index: 0,
+                size: 10,
+            }),
             Err(DesktopLocalHostError::AuthorityRejected)
         ));
         assert_eq!(
@@ -7575,6 +8153,107 @@ mod tests {
             restore_outbox_rows,
             restore_history_rows,
         }
+    }
+
+    fn create_request(
+        mutation_id: &str,
+        read_generation: u64,
+        domain: &str,
+    ) -> DesktopDomainAssetCreateRequest {
+        serde_json::from_value(serde_json::json!({
+            "mutationId": mutation_id,
+            "expectedReadGeneration": read_generation,
+            "asset": {
+                "entityId": domain,
+                "note": null,
+                "portfolioId": null,
+                "tags": [],
+                "targetPrice": null
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn business_create_adds_a_new_domain_and_names_a_duplicate() {
+        let (_directory, host) = development_business_host();
+        let generation = host.business_status().read_generation;
+        let receipt = host
+            .create_domain_asset(create_request("host-create", generation, "added.example"))
+            .unwrap();
+        assert_eq!(receipt.operation, "create");
+        assert!(
+            host.read_domain_detail(
+                serde_json::from_value(serde_json::json!({"entityId": "added.example"})).unwrap()
+            )
+            .is_ok()
+        );
+        // The seeded domain is already held: the duplicate keeps its own code and writes nothing.
+        let pending = pending_mutation_count(&host);
+        let generation = host.business_status().read_generation;
+        assert_eq!(
+            host.create_domain_asset(create_request(
+                "host-duplicate",
+                generation,
+                "backup.example"
+            )),
+            Err(DesktopLocalHostError::AssetExists)
+        );
+        assert_eq!(pending_mutation_count(&host), pending);
+        assert_eq!(
+            DesktopLocalHostError::AssetExists.to_string(),
+            "DESKTOP_LOCAL_ASSET_EXISTS"
+        );
+    }
+
+    #[test]
+    fn business_create_of_a_still_tombstoned_domain_names_the_deletion_and_writes_nothing() {
+        let (_directory, host) = development_business_host();
+        let before = host.read_domain_detail(domain_detail_request()).unwrap();
+        let generation = host.business_status().read_generation;
+        host.delete_domain_asset(delete_request(
+            "host-delete",
+            generation,
+            before.asset.asset_version,
+        ))
+        .unwrap();
+        // The deleted domain keeps its tombstone and identity: re-adding is refused
+        // with its own code, not as a duplicate or an opaque storage failure.
+        let pending = pending_mutation_count(&host);
+        let generation = host.business_status().read_generation;
+        let refused =
+            host.create_domain_asset(create_request("host-readd", generation, "backup.example"));
+        assert_eq!(refused, Err(DesktopLocalHostError::AssetDeleted));
+        assert_ne!(refused, Err(DesktopLocalHostError::AssetExists));
+        assert_eq!(pending_mutation_count(&host), pending);
+        assert_eq!(host.business_status().read_generation, generation);
+        assert_eq!(
+            DesktopLocalHostError::AssetDeleted.to_string(),
+            "DESKTOP_LOCAL_ASSET_DELETED"
+        );
+    }
+
+    #[test]
+    fn business_create_transition_at_final_fence_writes_nothing() {
+        let (_directory, host) = development_business_host();
+        let generation = host.business_status().read_generation;
+        let pending = pending_mutation_count(&host);
+        host.publish_transition_at_next_business_commit_for_test()
+            .unwrap();
+        assert_eq!(
+            host.create_domain_asset(create_request(
+                "fenced-create",
+                generation,
+                "fenced.example"
+            )),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        );
+        let runtime = host.runtime_state.lock().unwrap();
+        let business = &runtime.as_ref().unwrap().business;
+        assert!(business.read_domain_detail("fenced.example").is_err());
+        assert_eq!(business.read_generation(), generation);
+        drop(runtime);
+        assert_eq!(pending_mutation_count(&host), pending);
     }
 
     #[test]

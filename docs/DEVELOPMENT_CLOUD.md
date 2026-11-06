@@ -126,14 +126,14 @@ docker exec gooddealer-postgres-development \
   -c 'SELECT count(*) FROM gooddealer_cloud_migrations'
 ```
 
-当前共享 staging 数据库从空库应用证据覆盖完整 25 条 migration，并核验 Identity
+当前共享 staging 数据库的空库应用证据覆盖当时目录的 25 条 migration，并核验 Identity
 capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 SQL 的预期 checksum 是
 `dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e`，M019 的预期 checksum 是
 `5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9`，其 closed purpose allowlist 包含
 `refund_request`。当前源码 catalog 应有 27 个条目：M001–M017、M019、M020、上述三个同步/观察
 migration、`202609210001-account-recovery`、`202609220001-commercial-entitlement-snapshot` 和
 `202609220002-account-default-workspace-capability-policy`、`202611020001-desktop-login-loopback-redirect` 和
-`202611020002-desktop-code-loopback-redirect`。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
+`202611020002-desktop-code-loopback-redirect`；后两项需要新的 staging 应用证据。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
 roles/memberships、同步 v2 ledger/checkpoint/Cloudflare observation schema 与五个 runtime 登录身份
 取得不含业务行和秘密的结构快照。
 

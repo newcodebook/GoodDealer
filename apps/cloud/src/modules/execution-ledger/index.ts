@@ -57,7 +57,10 @@ export interface ExecutionFactIngestVerificationPort {
   }): Promise<ExecutionFactIngestVerification>;
 }
 
-/** P0-17 Fallback: fact ingestion cannot succeed without the deferred R0-06 verifier. */
+/**
+ * Fact ingestion cannot succeed until a device-signature verifier is composed; see R0-06 in
+ * docs/reviews/PHASE0_READINESS_REVIEW_2026-08-01.md.
+ */
 export class RefusingExecutionFactIngestVerification implements ExecutionFactIngestVerificationPort {
   async verifyExecutionFact(): Promise<{
     readonly verified: false;

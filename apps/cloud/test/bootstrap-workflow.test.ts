@@ -479,7 +479,7 @@ describe("BootstrapWorkflow", () => {
     await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
     vi.spyOn(harness.lifecycle, "attemptIssue").mockResolvedValue({ issued: true } as never);
 
-    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in P0-16");
+    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in the in-memory bootstrap workflow");
     expect(harness.retireCursor).toHaveBeenCalledOnce();
     expect(harness.retireCursor).toHaveBeenCalledWith(
       { accountId: "account-1", workspaceId: "workspace-1" },

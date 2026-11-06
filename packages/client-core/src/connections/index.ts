@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export * from "./device-credential-lifecycle";
+export * from "./connection-label";
+export * from "./launch-platforms";
+export * from "./settings-read";
 
 const identifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const safePositiveGenerationSchema = z.number().int().safe().min(1);
@@ -55,7 +58,7 @@ const connectionMetadataSchema = z
     accountAlias: z.string().min(1).max(120),
     remoteAccountId: z.string().min(1).max(160).nullable(),
     category: z.enum(["registrar", "dns", "marketplace"]),
-    method: z.enum(["api", "browser", "csv", "oauth"]).nullable(),
+    method: z.enum(["api", "oauth"]).nullable(),
     summary: z.string().min(1).max(240),
   })
   .strict();

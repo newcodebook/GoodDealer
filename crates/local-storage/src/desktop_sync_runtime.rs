@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::active_workspace::business::SyncProjectionEffect;
+use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -35,6 +36,8 @@ pub(crate) enum DesktopSyncError {
     StorageRejected,
     InvalidInput,
     AcknowledgementMismatch,
+    /// The capability has not passed ADR-0024 qualification, so the Host refuses to run it.
+    CapabilityUnqualified,
 }
 
 impl fmt::Display for DesktopSyncError {
@@ -45,6 +48,7 @@ impl fmt::Display for DesktopSyncError {
             Self::StorageRejected => "SYNC_STORAGE_REJECTED",
             Self::InvalidInput => "SYNC_INPUT_REJECTED",
             Self::AcknowledgementMismatch => "SYNC_ACKNOWLEDGEMENT_MISMATCH",
+            Self::CapabilityUnqualified => "SYNC_CAPABILITY_UNQUALIFIED",
         })
     }
 }
@@ -197,6 +201,7 @@ impl DesktopSyncRuntime {
         connection_hint: &str,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         database
             .cloudflare_provision_seed(connection_hint)
             .map(|_| ())
@@ -216,13 +221,8 @@ impl DesktopSyncRuntime {
         else {
             return Ok(None);
         };
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         Ok(Some(PreparedCloudflareRecoveryData {
             connection_incarnation_id: seed.connection_incarnation_id,
             intent_id: seed.intent_id,
@@ -240,6 +240,7 @@ impl DesktopSyncRuntime {
         entity_hint: &str,
     ) -> Result<PreparedCloudflareObservationData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let credential = database
             .cloudflare_connection_observation_admission(connection_hint)
             .map_err(map_database_error)?;
@@ -257,12 +258,9 @@ impl DesktopSyncRuntime {
         Ok(PreparedCloudflareObservationData {
             connection_id: connection_hint.to_owned(),
             entity_id: entity_hint.to_owned(),
-            connection_digest: domain_digest(
-                b"gooddealer/cloudflare-connection/v1\0",
-                &[
-                    admission.workspace_id.as_bytes(),
-                    seed.connection_incarnation_id.as_bytes(),
-                ],
+            connection_digest: cloudflare_connection_digest(
+                &admission.workspace_id,
+                &seed.connection_incarnation_id,
             ),
             connection_incarnation_id: seed.connection_incarnation_id,
             generation: credential.generation,
@@ -324,6 +322,44 @@ impl DesktopSyncRuntime {
             .map_err(map_database_error)
     }
 
+    /// Imports the activated Zone as a domain asset under this activation's own admission, through
+    /// the same Host create path as `local_domain_asset_create`
+    /// (`DesktopBusinessRuntime::create_domain_asset_guarded`), so deduplication, the deletion
+    /// tombstone rule and the sync Outbox apply unchanged. The admission recheck and the commit
+    /// guard bind the write to the workspace, device, lease and authority the Provider was observed
+    /// under: a change of authority during the Provider call writes nothing. A domain the
+    /// workspace already holds is left as it is.
+    ///
+    /// The read generation is the runtime's own: this create is decided by the Host, not by a
+    /// Renderer view, and it only adds a bare asset keyed by name, so no update can be lost.
+    pub(crate) fn import_cloudflare_zone_asset(
+        &self,
+        business: &mut crate::desktop_business_runtime::DesktopBusinessRuntime,
+        admission: &DesktopSyncRunAdmission,
+        entity_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(business.database_for_backup_mut(), admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
+        let context = crate::desktop_business_runtime::BusinessMutationContext::new(
+            admission.device_id.clone(),
+            admission.lease_epoch,
+            timestamp(trusted_now()?)?,
+        )
+        .map_err(map_database_error)?;
+        let request = crate::DesktopDomainAssetCreateRequest {
+            mutation_id: random_uuid_v4()?,
+            expected_read_generation: business.read_generation(),
+            asset: crate::DesktopDomainAssetWrite::bare(entity_id),
+        };
+        match business
+            .create_domain_asset_guarded(request, &context, || commit_guard.verify(self, admission))
+        {
+            Ok(_) | Err(BusinessDatabaseError::AssetExists) => Ok(()),
+            Err(error) => Err(map_database_error(error)),
+        }
+    }
+
     pub(crate) fn prepare_cloudflare_provision(
         &self,
         database: &mut BusinessDatabase,
@@ -333,6 +369,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PreparedCloudflareProvisionData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let seed = database
             .cloudflare_provision_seed(connection_hint)
             .map_err(map_database_error)?;
@@ -371,13 +408,8 @@ impl DesktopSyncRuntime {
                 observation.zone_binding_digest.as_bytes(),
             ],
         );
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         let preparation = CloudflareCredentialPreparation {
             logical_connection_id: seed.logical_connection_id,
             connection_incarnation_id: seed.connection_incarnation_id,
@@ -406,6 +438,68 @@ impl DesktopSyncRuntime {
             expected_base: seed.expected_base,
             connection_digest,
         })
+    }
+
+    /// Durably prepares the revocation of the connection's Active credential and denies its use
+    /// in the same transaction, so the Host stops using it before custody is touched.
+    ///
+    /// Returns `None` when the connection holds no credential: there is nothing to revoke.
+    pub(crate) fn prepare_cloudflare_revocation(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<Option<PreparedCloudflareProvisionData>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let seed = database
+            .cloudflare_provision_seed(connection_hint)
+            .map_err(map_database_error)?;
+        let (scope_digest, zone_digest) = match &seed.expected_base {
+            base if base.kind == CloudflareCredentialEnvelopeKind::Absent => return Ok(None),
+            CloudflareCredentialWitness {
+                kind: CloudflareCredentialEnvelopeKind::Active,
+                scope_digest: Some(scope),
+                zone_digest: Some(zone),
+                ..
+            } => (scope.clone(), zone.clone()),
+            _ => return Err(DesktopSyncError::StorageRejected),
+        };
+        let target_generation = seed
+            .expected_head_generation
+            .checked_add(1)
+            .filter(|generation| *generation <= MAX_SAFE_INTEGER)
+            .ok_or(DesktopSyncError::StorageRejected)?;
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        let preparation = CloudflareCredentialPreparation {
+            logical_connection_id: seed.logical_connection_id,
+            connection_incarnation_id: seed.connection_incarnation_id,
+            display_label: seed.display_label,
+            intent_id: random_uuid_v4()?,
+            operation_kind: CloudflareCredentialOperationKind::Revoke,
+            expected_head_generation: seed.expected_head_generation,
+            target_generation,
+            scope_digest,
+            zone_digest,
+            target_public_proof: random_hex_32()?,
+            prepared_authority_snapshot_digest: admission.authority_snapshot_digest.clone(),
+            staged_observation: None,
+            prepared_at: timestamp(trusted_now()?)?,
+        };
+        let disposition = database
+            .prepare_cloudflare_credential_operation_guarded(&preparation, || {
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)?;
+        if disposition != CloudflareCredentialPreparationDisposition::Prepared {
+            return Ok(None);
+        }
+        Ok(Some(PreparedCloudflareProvisionData {
+            preparation,
+            expected_base: seed.expected_base,
+            connection_digest,
+        }))
     }
 
     /// Creates a runtime from Host-owned authority material.
@@ -909,6 +1003,27 @@ impl DesktopSyncRuntime {
     }
 }
 
+/// Refuses a capability the Host's ADR-0024 register has not qualified. Checked at every
+/// admission that would reach the Provider, so no caller can reach an unqualified capability.
+fn require_qualified(capability: &str) -> Result<(), DesktopSyncError> {
+    if crate::active_workspace::capability_qualification::capability_qualified(capability) {
+        Ok(())
+    } else {
+        Err(DesktopSyncError::CapabilityUnqualified)
+    }
+}
+
+/// The Keychain account digest of one connection incarnation; every credential path must agree.
+fn cloudflare_connection_digest(workspace_id: &str, connection_incarnation_id: &str) -> String {
+    domain_digest(
+        b"gooddealer/cloudflare-connection/v1\0",
+        &[
+            workspace_id.as_bytes(),
+            connection_incarnation_id.as_bytes(),
+        ],
+    )
+}
+
 pub(crate) fn delivery_owner(admission: &DesktopSyncRunAdmission) -> String {
     owner(admission)
 }
@@ -989,7 +1104,7 @@ fn checked_timestamp(now: i64, seconds: i64) -> Result<String, DesktopSyncError>
     timestamp(now.checked_add(seconds).ok_or(DesktopSyncError::Blocked)?)
 }
 
-fn random_uuid_v4() -> Result<String, DesktopSyncError> {
+pub(crate) fn random_uuid_v4() -> Result<String, DesktopSyncError> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| DesktopSyncError::StorageRejected)?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -1054,6 +1169,7 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
         | BusinessDatabaseError::WindowRejected
         | BusinessDatabaseError::AssetNotFound
         | BusinessDatabaseError::AssetDeleted
+        | BusinessDatabaseError::AssetExists
         | BusinessDatabaseError::SecretInSyncPayload
         | BusinessDatabaseError::SequenceExhausted
         | BusinessDatabaseError::ProviderBindingUnavailable => DesktopSyncError::InvalidInput,
@@ -1075,7 +1191,7 @@ mod tests {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn database(workspace_id: &str) -> (tempfile::TempDir, BusinessDatabase) {
-        let directory = tempfile::tempdir().expect("temporary database directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary database directory");
         let key = LocalDatabaseKey::from_bytes([0x73; 32]);
         let database =
             BusinessDatabase::open(&directory.path().join("business.db"), &key, workspace_id)

@@ -178,6 +178,33 @@ describe("runtime presentation boundary corpus", () => {
     });
   });
 
+  it("lets unqualified providers and imports show as unavailable without any way to start them", () => {
+    const connections = {
+      step: "connections",
+      providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable" }],
+      connectedCount: 0,
+      availableActions: ["back", "continue"],
+    };
+    expect(projectActivationWizardViewModel(connections).ok).toBe(true);
+    expect(projectActivationWizardViewModel({ ...connections, availableActions: ["connect_provider", "continue"] })).toEqual({ ok: false, issue: "invalid_state" });
+    const importStep = {
+      step: "initial_import",
+      connectedCount: 0,
+      importState: "unavailable",
+      progress: 0,
+      importedDomains: null,
+      importedListings: null,
+      conflicts: null,
+      baselineServerRevision: null,
+      availableActions: ["back", "continue"],
+    };
+    expect(projectActivationWizardViewModel(importStep).ok).toBe(true);
+    expect(projectActivationWizardViewModel({ ...importStep, availableActions: ["start_import"] })).toEqual({ ok: false, issue: "invalid_state" });
+    expect(projectActivationWizardViewModel({
+      step: "complete", deviceName: null, importedDomains: 1, baselineServerRevision: 0, syncReady: false, availableActions: ["enter_workspace"],
+    }).ok).toBe(true);
+  });
+
   it("keeps activation in activating and awaiting-Cloud until Cloud issues the bound-device lease", () => {
     const activating = {
       step: "device",

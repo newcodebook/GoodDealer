@@ -16,11 +16,22 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_business_status/u);
     expect(handlers).toMatch(/fn local_asset_library_read/u);
     expect(handlers).toMatch(/fn local_domain_detail_read/u);
+    expect(handlers).toMatch(/fn local_dns_health_read/u);
+    expect(handlers).toMatch(/fn local_settings_read/u);
+    expect(handlers).toMatch(/fn local_sales_read/u);
+    expect(handlers).toMatch(/fn local_renewals_read/u);
+    expect(handlers).toMatch(/fn local_batch_operations_read/u);
+    expect(handlers).toMatch(/fn local_history_read/u);
+    expect(handlers).toMatch(/fn local_manual_tasks_read/u);
     expect(main).not.toMatch(/local_portfolio_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_edit/u);
+    expect(handlers).toMatch(/fn local_domain_asset_create/u);
+    expect(handlers).toMatch(/fn local_device_lease_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
+    expect(handlers).toMatch(/fn cloudflare_connection_create/u);
+    expect(handlers).toMatch(/fn cloudflare_connection_revoke/u);
     expect(handlers).toMatch(/fn cloudflare_connection_status/u);
     expect(handlers).toMatch(/fn cloudflare_observation_read/u);
     expect(handlers).toMatch(/fn cloudflare_zone_observe/u);
@@ -57,6 +68,8 @@ describe("Desktop native policy", () => {
       "core:window:allow-toggle-maximize",
       "core:window:allow-close",
       "allow-cloudflare-connection-activate",
+      "allow-cloudflare-connection-create",
+      "allow-cloudflare-connection-revoke",
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",
       "allow-cloudflare-zone-observe",
@@ -65,9 +78,18 @@ describe("Desktop native policy", () => {
       "allow-local-backup-artifact-select",
       "allow-local-backup-restore-begin",
       "allow-local-business-status",
+      "allow-local-device-lease-read",
       "allow-local-asset-library-read",
       "allow-local-domain-detail-read",
+      "allow-local-dns-health-read",
+      "allow-local-settings-read",
+      "allow-local-sales-read",
+      "allow-local-renewals-read",
+      "allow-local-batch-operations-read",
+      "allow-local-history-read",
+      "allow-local-manual-tasks-read",
       "allow-local-domain-asset-edit",
+      "allow-local-domain-asset-create",
       "allow-local-domain-asset-delete",
       "allow-local-domain-asset-provider-bind",
       "allow-local-conflict-center-read",

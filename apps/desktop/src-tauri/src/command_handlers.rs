@@ -3,14 +3,20 @@
 use std::sync::Arc;
 
 use gooddealer_local_storage::{
-    AssetLibraryReadSnapshot, DesktopAssetLibraryReadRequest, DesktopBackupError,
-    DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopCloudflareObservationReadRequest,
+    AssetLibraryReadSnapshot, BatchOperationsReadSnapshot, DesktopAssetLibraryReadRequest,
+    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopBatchOperationsReadRequest, DesktopCloudflareConnectionCreateRequest,
+    DesktopCloudflareConnectionCreated, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
+    DesktopDeviceLease, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
     DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainDetailReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
-    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt,
-    DomainDetailReadSnapshot,
+    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopLocalBusinessStatus,
+    DesktopLocalHost, DesktopManualTasksReadRequest, DesktopRenewalsReadRequest,
+    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact,
+    DnsHealthReadSnapshot, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
+    HistoryReadSnapshot, ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot,
+    SettingsReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -23,6 +29,13 @@ use crate::provider_lane::{ProviderOperation, ProviderStatus, ProviderSubmission
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CloudflareConnectionActivateRequest {
+    schema_version: u8,
+    connection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareConnectionRevokeRequest {
     schema_version: u8,
     connection_id: String,
 }
@@ -50,6 +63,16 @@ pub(crate) fn local_business_status(
     host.business_status()
 }
 
+/// The Active device and lease epoch for display; refused unless the workspace is Active.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_device_lease_read(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopDeviceLease, String> {
+    host.device_lease()
+        .map_err(|_| "LOCAL_LEASE_UNAVAILABLE".to_owned())
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn local_asset_library_read(
@@ -72,11 +95,88 @@ pub(crate) fn local_domain_detail_read(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_batch_operations_read(
+    request: DesktopBatchOperationsReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<BatchOperationsReadSnapshot, String> {
+    host.read_batch_operations(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_history_read(
+    request: DesktopHistoryReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<HistoryReadSnapshot, String> {
+    host.read_history(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_manual_tasks_read(
+    request: DesktopManualTasksReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<ManualTasksReadSnapshot, String> {
+    host.read_manual_tasks(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_renewals_read(
+    request: DesktopRenewalsReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<RenewalsReadSnapshot, String> {
+    host.read_renewals(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_sales_read(
+    request: DesktopSalesReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<SalesReadSnapshot, String> {
+    host.read_sales(request).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_settings_read(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<SettingsReadSnapshot, String> {
+    host.read_settings().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_dns_health_read(
+    request: DesktopDnsHealthReadRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DnsHealthReadSnapshot, String> {
+    host.read_dns_health(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn local_domain_asset_edit(
     request: DesktopDomainAssetEditRequest,
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainAssetMutationReceipt, String> {
     host.edit_domain_asset(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_domain_asset_create(
+    request: DesktopDomainAssetCreateRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DomainAssetMutationReceipt, String> {
+    host.create_domain_asset(request)
         .map_err(|error| error.to_string())
 }
 
@@ -200,6 +300,18 @@ fn map_desktop_backup_error(error: DesktopBackupError) -> String {
     error.code().to_owned()
 }
 
+/// Creates the Cloudflare connection activation provisions into. The Host refuses it with
+/// `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified (ADR-0024).
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn cloudflare_connection_create(
+    request: DesktopCloudflareConnectionCreateRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopCloudflareConnectionCreated, String> {
+    host.create_cloudflare_connection(&request)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub(crate) async fn cloudflare_connection_activate(
     request: tauri::ipc::Request<'_>,
@@ -209,6 +321,21 @@ pub(crate) async fn cloudflare_connection_activate(
     validate_provider_schema_version(request.schema_version)?;
     validate_cloudflare_connection_id(&request.connection_id)?;
     map_provider_submission(cloud.submit_provider(&ProviderOperation::Activate {
+        connection_id: request.connection_id,
+    }))
+}
+
+/// Queues revocation of the connection's credential. The Host denies credential use as soon as
+/// the revocation is prepared; the result is read back through `cloudflare_connection_status`.
+#[tauri::command]
+pub(crate) async fn cloudflare_connection_revoke(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<(), String> {
+    let request: CloudflareConnectionRevokeRequest = decode_provider_request(&request, 512)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    map_provider_submission(cloud.submit_provider(&ProviderOperation::Revoke {
         connection_id: request.connection_id,
     }))
 }

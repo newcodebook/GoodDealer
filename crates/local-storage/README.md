@@ -37,7 +37,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - MUST: Use explicit tombstones; omission and an empty replica never delete local rows.
 - MUST: Bound JSON, backup retention metadata, and append-heavy observation access paths in DDL.
 - MUST: Build backup data only from the already-open Host-owned SQLCipher connection, project a deterministic complete set of allowlisted business roots, and restore old content as fresh current-database mutation history without importing authority or sync-control floors.
-- MUST: Keep the design-stage schema in one reviewable migration snapshot; after the first production release, migration history becomes append-only and immutable.
+- MUST: Treat applied migrations as immutable (the runner rejects any checksum drift) and add schema changes as new append-only migrations; squashing the history into one snapshot before the first production release is a deliberate reset that needs an ADR.
 
 ## Boundaries
 
@@ -89,6 +89,89 @@ reader is a test compatibility seam. These reads expose the safe `assetVersion` 
 sequence and use wire schema version 3. Edit/delete mutations perform lookup-first idempotent
 replay, CAS against that version, and atomically update desired state, field versions, tombstones,
 projection, and secret-free outbox rows. These changes require no schema migration.
+The asset library's totals follow its search prefix, except the expiring count: it opens the
+renewals desk, which lists the whole workspace, so it is always the workspace-wide count of the
+rows that desk lists. A recorded expiry that is not a real `YYYY-MM-DD` calendar date fails the
+asset's detail and every asset library read, whatever the page or search: any page could show it,
+and the expiring count compares it as text.
+
+`BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
+and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.
+A Cloudflare observation applies only while the asset is unbound, detached or bound to Cloudflare;
+an asset bound to another platform shows as unobserved rather than borrowing that observation.
+The read takes the asset library's search prefix, and besides the page returns the workspace-wide
+asset, observed and warning counts (a warning is an observation that is not an available,
+confirmed, active Zone) so the Renderer never
+derives metrics from one page. It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
+per-type record counts — never record values, connection IDs, Provider resource IDs or a
+delegation/record/ownership verdict. Labels with control characters fail the whole read. Every
+bound or observed asset in the workspace is validated on each read, not only the page's rows, so a
+bad binding or observation the counts include fails every page and search instead of hiding on a
+page nobody reads.
+
+`BusinessDatabase::read_sales` uses the same window rules (at most 200 rows), but its rows are listed
+domains: it takes the latest confirmed marketplace listing observation per (asset, marketplace),
+omitting `unlisted` ones, and merges each asset's markets into one row — the markets, a status
+(`unknown` while any market's evidence is unavailable or unconfirmed, `conflict` when two markets
+report different definite states) and the price only when every market agrees on it by value. A
+read scans the listings once in domain order, so the page and the workspace-wide active count and
+exact listed value (none when prices span currencies, an active domain has no single price, or the
+sum exceeds 16 whole digits) come from the same merge, and a bad row on any page still fails the
+read. The merged desk is kept for the data generation it was read at (the connection's
+`total_changes()` with `PRAGMA data_version`), so later pages of unchanged data are sliced from it;
+any write, from this or another connection, makes the next read merge again. Observation, run and Provider version identifiers stay in the Host. Marketplaces outside
+ADR-0027's launch list and malformed prices fail the whole read.
+Every read that reports a Provider observation — sales, renewals, and the asset library and
+domain detail registrar and listing count — keeps only observations confirmed by a completed run
+(`succeeded` or `partial`) whose target for that asset succeeded (`observation_runs::confirmed`), so
+a run still in flight never reports evidence or hides an older confirmed observation.
+
+`BusinessDatabase::read_batch_operations` uses the same window rules and lists operation plans newest
+first: title, kind, plan and operation phases, risk, item and distinct target counts, the ADR-0027
+platform kinds of bound connections, planned counts by inclusion and execution mode, and each
+item's latest attempt status once an operation exists. Plan, item, operation, attempt, connection
+and Provider request identifiers stay in the Host; titles with control characters, malformed kinds
+and unknown platforms fail the whole read.
+
+`BusinessDatabase::read_history` uses the same window rules and lists the local revision ledger
+(`sync_outbox`) newest first by local commit sequence: asset, edit or delete, commit time, sync
+state, the acknowledged server revision, and each edit's changed synced fields (`note`,
+`portfolioId`, `tags`, `targetPrice`). A field's previous value is the same field in the asset's
+preceding local revision only when that revision provably was the asset's state: it was neither
+conflicted nor rejected, and no server revision was applied between the two commits. Then
+unchanged fields are omitted; otherwise every recorded field is listed and `previousValue` is
+omitted (unknown, never `null`). Mutation, device, lease and payload digest identifiers stay in the
+Host; a recorded value an asset write could not have stored fails the whole read.
+
+`BusinessDatabase::read_manual_tasks` uses the same window rules and lists manual tasks oldest
+waiting first: plan items whose latest attempt is `manual_action_required`, grouped into one task
+per operation, connection and capability (a retry returns to the same task). Each task reports the
+plan title and kind, capability, the connection's ADR-0027 platform kind and label, risk, item
+count, waiting-since and latest observed result times, and its affected domains (exact count, at
+most 10,000 listed). Plan, item, operation, attempt, connection, Provider account and request
+identifiers stay in the Host; unknown platforms, control characters and malformed tokens fail the
+whole read. It carries no browser session, automation or authorization data.
+
+`BusinessDatabase::read_renewals` uses the same window rules and lists assets still to renew (not sold,
+dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
+soonest first, with recorded auto-renew and the latest confirmed, available registrar observation's
+registrar name. It returns that `asOfDate` so the Renderer counts days from the Host's date, and whole-window
+auto-renew enabled/disabled counts so the desk reads one page at a time and still reports coverage
+for every expiring asset. No renewal price,
+term or plan is projected; registrar names that are empty, longer than 128 characters or contain
+control, bidirectional or invisible formatting characters fail the whole read — the same
+`valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`. The rule covers
+every expiring asset, not only the page's: each read checks the distinct names of all available
+registrar observations, and only when one is invalid does it resolve each expiring asset's shown
+name to decide whether the desk would show it. A recorded expiry that is not a valid `YYYY-MM-DD`
+date but sorts into the window as text fails the read the same way.
+
+`BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
+label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
+`marketplace`). Connection, credential and account identifiers stay in the Host. No capability is
+ADR-0024 qualified yet, so every role is reported `unavailable` with `qualification_pending`.
+Connections on any of the eight ADR-0027 platforms are listed; unknown or duplicate roles,
+Provider kinds outside ADR-0027 and control-character labels fail the read.
 Pending outbox reads validate the recorded operation: edit/upsert payloads use the full asset
 projection while delete payloads use the exact `{entityId, operation}` shape; delete also marks
 `lifecycleStatus` pending in field versions in the same transaction.
@@ -196,6 +279,12 @@ commit advances the Host generation once; exact replay advances neither counters
 may report the current generation. Binding persists a local association only; asset creation,
 Provider API writes, full Grant/Lease capability gates, revocation and controlled native/Zone
 qualification remain pending.
+
+The append-only storage-integrity migration adds write-time triggers: a binding must name its
+connection's platform, a bound connection's platform cannot change, and `domain_assets.expires_on`
+must be `NULL` or a real `YYYY-MM-DD` date (`date()` round-trips it unchanged). Rows written before
+it are not rewritten, so the asset library, renewals and DNS health reads keep their whole-set
+checks and fail closed on such rows.
 
 ## Backup and Restore Contract
 

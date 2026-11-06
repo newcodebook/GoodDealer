@@ -31,6 +31,7 @@ pub use cloudflare_keychain::{
     CloudflareCredentialRecoveryPlan, CloudflareCustodyComparison, CloudflareKeychainError,
     CloudflareKeychainGuard, CloudflarePrewriteFailure, CloudflarePrewriteInspection,
     inspect_cloudflare_recovery_guarded, publish_cloudflare_candidate_guarded,
+    publish_cloudflare_tombstone_guarded,
 };
 pub use cloudflare_provider::{
     CloudflareCredentialObservationPlan, CloudflareProviderClient, CloudflareProviderError,

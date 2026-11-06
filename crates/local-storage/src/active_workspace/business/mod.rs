@@ -590,6 +590,7 @@ pub enum BusinessDatabaseError {
     MutationConflict,
     MutationStale,
     AssetDeleted,
+    AssetExists,
     SequenceExhausted,
     ProviderBindingUnavailable,
 }
@@ -611,6 +612,7 @@ impl Display for BusinessDatabaseError {
             Self::MutationConflict => "LOCAL_MUTATION_IDEMPOTENCY_CONFLICT",
             Self::MutationStale => "LOCAL_MUTATION_STALE_AUTHORITY",
             Self::AssetDeleted => "LOCAL_ASSET_DELETED",
+            Self::AssetExists => "LOCAL_ASSET_EXISTS",
             Self::SequenceExhausted => "LOCAL_MUTATION_SEQUENCE_EXHAUSTED",
             Self::ProviderBindingUnavailable => "LOCAL_PROVIDER_BINDING_UNAVAILABLE",
         })
@@ -1060,6 +1062,132 @@ pub(crate) fn verify_rebootstrap_recovery_read_only(
     )
 }
 
+/// The latest committed Cloudflare Zone observation an asset may be bound from: a live asset, a
+/// confirmed-available Zone with the asset's own name, observed through the connection's current
+/// active credential for that Zone. The bind and the DNS health read both ask this one question, so
+/// the read never offers a bind the Host would refuse for its evidence.
+#[derive(Clone)]
+pub(crate) struct BindableZone {
+    pub(crate) connection_id: String,
+    pub(crate) resource_binding_digest: String,
+    pub(crate) observation_digest: String,
+    pub(crate) resource_label: String,
+    pub(crate) generation: u64,
+    pub(crate) observed_at: String,
+}
+
+impl BindableZone {
+    /// The bind's identity rule for an existing binding of this asset's Zone: the same connection,
+    /// platform, Zone and name, at a credential generation no newer than this evidence. A binding
+    /// identity is immutable, so anything else is a conflict, never a replacement.
+    pub(crate) fn admits_existing(
+        &self,
+        connection_id: &str,
+        provider_kind: &str,
+        resource_binding_digest: &str,
+        resource_label: &str,
+        binding_generation: u64,
+    ) -> bool {
+        connection_id == self.connection_id
+            && provider_kind == "cloudflare"
+            && resource_binding_digest == self.resource_binding_digest
+            && resource_label == self.resource_label
+            && binding_generation <= self.generation
+    }
+}
+
+/// # Errors
+///
+/// Returns `StorageRejected` when the query fails or a selected field is not in its stored form,
+/// so a malformed row is never offered or bound.
+pub(crate) fn latest_bindable_zone(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<Option<BindableZone>, BusinessDatabaseError> {
+    let selected: Option<(String, String, String, String, i64, String)> = connection
+        .prepare(
+            "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
+                        c.active_credential_generation,b.observed_at
+                   FROM cloudflare_dns_staged_batches b
+                   JOIN domain_assets a
+                     ON a.workspace_id=b.workspace_id
+                    AND a.entity_id=b.entity_id
+                   JOIN cloudflare_credential_roots r
+                     ON r.workspace_id=b.workspace_id
+                    AND r.connection_incarnation_id=b.connection_incarnation_id
+                   JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id
+                    AND c.connection_id=r.logical_connection_id
+                  WHERE b.workspace_id=?1
+                    AND b.entity_id=?2
+                    AND b.entity_id=b.zone_name_ascii
+                    AND a.deleted_at IS NULL
+                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
+                    AND b.visibility='committed'
+                    AND b.observation_availability='available'
+                    AND b.cloudflare_zone_status IN ('active','pending')
+                    AND r.retired_at IS NULL
+                    AND r.known_envelope_kind='active'
+                    AND r.known_envelope_generation=c.active_credential_generation
+                    AND r.known_zone_digest=b.zone_digest
+                    AND c.provider_kind='cloudflare'
+                    AND c.lifecycle_status='active'
+                    AND c.validation_status='valid'
+                    AND c.credential_use_state='active'
+                    AND c.active_credential_generation IS NOT NULL
+                    AND c.active_credential_zone_digest=b.zone_digest
+                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
+                   LIMIT 1",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_row(params![workspace_id, entity_id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })
+                .optional()
+        })
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation,
+        observed_at,
+    )) = selected
+    else {
+        return Ok(None);
+    };
+    let stored = |valid: bool| {
+        if valid {
+            Ok(())
+        } else {
+            Err(BusinessDatabaseError::StorageRejected)
+        }
+    };
+    stored(validate_sha256_hex(&resource_binding_digest).is_ok())?;
+    stored(validate_sha256_hex(&observation_digest).is_ok())?;
+    stored(validate_local_text(&connection_id).is_ok())?;
+    stored(validate_domain_asset_id(&resource_label).is_ok())?;
+    Ok(Some(BindableZone {
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation: u64::try_from(generation)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        observed_at,
+    }))
+}
+
 impl BusinessDatabase {
     #[cfg(test)]
     pub(crate) fn provider_binding_snapshot_for_test(&self) -> Vec<Vec<Vec<String>>> {
@@ -1120,72 +1248,17 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let latest: Option<(String, String, String, String, i64, String)> = transaction
-            .query_row(
-                "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
-                        c.active_credential_generation,b.observed_at
-                   FROM cloudflare_dns_staged_batches b
-                   JOIN domain_assets a
-                     ON a.workspace_id=b.workspace_id
-                    AND a.entity_id=b.entity_id
-                   JOIN cloudflare_credential_roots r
-                     ON r.workspace_id=b.workspace_id
-                    AND r.connection_incarnation_id=b.connection_incarnation_id
-                   JOIN local_provider_connections c
-                     ON c.workspace_id=r.workspace_id
-                    AND c.connection_id=r.logical_connection_id
-                  WHERE b.workspace_id=?1
-                    AND b.entity_id=?2
-                    AND b.entity_id=b.zone_name_ascii
-                    AND a.deleted_at IS NULL
-                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
-                    AND b.visibility='committed'
-                    AND b.observation_availability='available'
-                    AND b.cloudflare_zone_status IN ('active','pending')
-                    AND r.retired_at IS NULL
-                    AND r.known_envelope_kind='active'
-                    AND r.known_envelope_generation=c.active_credential_generation
-                    AND r.known_zone_digest=b.zone_digest
-                    AND c.provider_kind='cloudflare'
-                    AND c.lifecycle_status='active'
-                    AND c.validation_status='valid'
-                    AND c.credential_use_state='active'
-                    AND c.active_credential_generation IS NOT NULL
-                    AND c.active_credential_zone_digest=b.zone_digest
-                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
-                   LIMIT 1",
-                params![self.workspace_id, entity_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let Some((
+        let Some(zone) = latest_bindable_zone(&transaction, &self.workspace_id, entity_id)? else {
+            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
+        };
+        let BindableZone {
             connection_id,
             resource_binding_digest,
             observation_digest,
             resource_label,
-            generation,
+            generation: binding_generation,
             observed_at,
-        )) = latest
-        else {
-            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
-        };
-        let binding_generation =
-            u64::try_from(generation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        validate_sha256_hex(&resource_binding_digest)?;
-        validate_sha256_hex(&observation_digest)?;
-        validate_local_text(&connection_id)?;
-        validate_domain_asset_id(&resource_label)
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        } = zone.clone();
         if resource_label != entity_id {
             return Err(BusinessDatabaseError::MutationConflict);
         }
@@ -1234,16 +1307,15 @@ impl BusinessDatabase {
             old_last_observed_at,
         )) = existing
         {
-            if old_connection != connection_id
-                || old_provider != "cloudflare"
-                || old_digest != resource_binding_digest
-                || old_label != resource_label
-            {
-                return Err(BusinessDatabaseError::MutationConflict);
-            }
             let old_generation = u64::try_from(old_generation)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if binding_generation < old_generation {
+            if !zone.admits_existing(
+                &old_connection,
+                &old_provider,
+                &old_digest,
+                &old_label,
+                old_generation,
+            ) {
                 return Err(BusinessDatabaseError::MutationConflict);
             }
             if old_observation == observation_digest
@@ -1323,7 +1395,8 @@ impl BusinessDatabase {
                     resource_binding_digest,
                     observation_digest,
                     resource_label,
-                    generation,
+                    i64::try_from(binding_generation)
+                        .map_err(|_| BusinessDatabaseError::StorageRejected)?,
                     local_commit_sequence,
                     committed_at,
                     observed_at,
@@ -1582,6 +1655,111 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of manual tasks, oldest waiting first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_manual_tasks(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::ManualTasksReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_manual_tasks(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs,
+    /// and counts the revisions committed within `today` (the Renderer's local day as canonical
+    /// UTC instants, start inclusive and end exclusive).
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_history(
+        &self,
+        start_index: u32,
+        size: u16,
+        today: (&str, &str),
+    ) -> Result<crate::HistoryReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_history(&self.workspace_id, start_index, size, today)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of operation plans, newest first, with planned and attempted counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_batch_operations(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::BatchOperationsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_batch_operations(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of assets expiring within the next 60 days, soonest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_renewals(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::RenewalsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_renewals(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of the latest marketplace listing observations.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_sales(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::SalesReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_sales(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads this database's Provider connections and role availability for settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, or projection error.
+    pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_settings(&self.workspace_id)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded DNS health window from this database's workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_dns_health(
+        &self,
+        start_index: u32,
+        size: u16,
+        query: &str,
+    ) -> Result<crate::DnsHealthReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_dns_health(&self.workspace_id, start_index, size, query)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one canonical domain detail from this database's workspace.
     ///
     /// # Errors
@@ -1728,6 +1906,62 @@ impl BusinessDatabase {
         )
     }
 
+    /// Adds a domain the workspace does not hold yet, as one synced upsert mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AssetExists` when the workspace already holds the domain and `AssetDeleted` while a
+    /// deleted one keeps its tombstone; otherwise a closed validation, authorization, transaction, or
+    /// pre-COMMIT guard error.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the guarded port carries explicit authority and critical-section callbacks"
+    )]
+    pub fn create_domain_asset_guarded<G, F, A>(
+        &mut self,
+        mutation_id: &str,
+        device_id: &str,
+        active_lease_epoch: u64,
+        committed_at: &str,
+        asset: &DomainAssetWrite,
+        allow_new: bool,
+        guard: F,
+        after_commit: A,
+    ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError>
+    where
+        F: FnOnce(bool) -> Result<G, BusinessDatabaseError>,
+        A: FnOnce(&mut G, bool) -> Result<(), BusinessDatabaseError>,
+    {
+        validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_identifier(device_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_timestamp(Some(committed_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_domain_asset(asset)?;
+        // A new identity is also held to the Renderer's canonical form: an all-numeric last label
+        // would be an IP literal, not a registrable domain.
+        if !asset
+            .entity_id
+            .rsplit('.')
+            .next()
+            .is_some_and(|label| label.bytes().any(|byte| byte.is_ascii_lowercase()))
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        self.mutate_domain_asset(
+            "create",
+            mutation_id,
+            &asset.entity_id,
+            0,
+            device_id,
+            active_lease_epoch,
+            committed_at,
+            Some(asset),
+            allow_new,
+            guard,
+            after_commit,
+        )
+    }
+
     /// # Errors
     ///
     /// Returns a closed validation, authorization, CAS, transaction, or pre-COMMIT guard error.
@@ -1825,10 +2059,10 @@ impl BusinessDatabase {
             payload_schema,
         )) = existing
         {
-            let expected_op = if operation == "edit" {
-                "upsert"
-            } else {
+            let expected_op = if operation == "delete" {
                 "delete"
+            } else {
+                "upsert"
             };
             if stored_entity != entity_id
                 || kind != "domain_asset"
@@ -1870,15 +2104,50 @@ impl BusinessDatabase {
         if !allow_new {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let (current_version, deleted): (i64, Option<String>) = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?.ok_or(BusinessDatabaseError::AssetNotFound)?;
-        if deleted.is_some() {
-            return Err(BusinessDatabaseError::AssetDeleted);
-        }
-        if u64::try_from(current_version).ok() != Some(expected_asset_version) {
-            return Err(BusinessDatabaseError::MutationStale);
+        let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The entity ID is the canonical domain, so the domain is the deduplication key: adding
+            // a domain the workspace already holds, from an import or by hand, is refused rather
+            // than merged. A deleted domain keeps its tombstone until the delete has synced and
+            // been purged, so it cannot be recreated under the same identity before then.
+            if expected_asset_version != 0 {
+                return Err(BusinessDatabaseError::InvalidInput);
+            }
+            let tombstoned: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)", params![self.workspace_id, entity_id], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            match stored {
+                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+                Some((_, Some(_))) => return Err(BusinessDatabaseError::AssetDeleted),
+                None if tombstoned => return Err(BusinessDatabaseError::AssetDeleted),
+                None => {}
+            }
+        } else {
+            let (current_version, deleted) = stored.ok_or(BusinessDatabaseError::AssetNotFound)?;
+            if deleted.is_some() {
+                return Err(BusinessDatabaseError::AssetDeleted);
+            }
+            if u64::try_from(current_version).ok() != Some(expected_asset_version) {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
         }
         let (local_seq, base_rev, device_seq): (i64, i64, i64) = transaction.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1, next_device_mutation_sequence=next_device_mutation_sequence+1, updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence, applied_through_server_revision, next_device_mutation_sequence-1", [committed_at], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
-        if operation == "edit" {
+        if operation == "create" {
+            let asset = edit.expect("create operation carries asset");
+            let tags_json = serde_json::to_string(&asset.tags)
+                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+            let (currency, amount) = (
+                asset.target_price.as_ref().map(|money| &money.currency),
+                asset.target_price.as_ref().map(|money| &money.amount),
+            );
+            transaction.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES (?1,?2,'active',?3,?3,?4)", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            transaction.execute("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at) VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, currency, amount, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for tag in &asset.tags {
+                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![self.workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+            transaction.execute("INSERT INTO portfolio_domain_assets (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,target_price_amount,note_server_revision,portfolio_id_server_revision,tags_server_revision,target_price_server_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)", params![self.workspace_id, entity_id, asset.note, asset.portfolio_id, tags_json, currency, amount]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+                transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6)", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+        } else if operation == "edit" {
             let asset = edit.expect("edit operation carries asset");
             transaction.execute("UPDATE domain_assets SET updated_at=?3, local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?3,note=?4,target_price_currency=?5,target_price_amount=?6,local_commit_sequence=?7,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount), local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -1902,12 +2171,21 @@ impl BusinessDatabase {
         }
         let lease_epoch =
             i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let operation_kind = if operation == "edit" {
-            "upsert"
-        } else {
+        let operation_kind = if operation == "delete" {
             "delete"
+        } else {
+            "upsert"
         };
         transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending')", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The wire keeps creation an upsert; the Host-only marker lets history name it.
+            transaction
+                .execute(
+                    "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
+                    params![self.workspace_id, mutation_id],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
         if let Some(asset) = edit {
             let values = [
                 ("note", serde_json::to_string(&asset.note)),
@@ -3688,7 +3966,7 @@ impl BusinessDatabase {
     }
 
     /// Stops pull materialization after Cloud reports that this reader is behind compaction.
-    /// Existing local business data and pending outbox rows are retained for P0-04 recovery.
+    /// Existing local business data and pending outbox rows are retained for local recovery.
     ///
     /// # Errors
     ///
@@ -6337,11 +6615,13 @@ use rusqlite::OptionalExtension;
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 
     const TIMESTAMP: &str = "2026-08-28T00:00:00Z";
+    /// The local day that `TIMESTAMP` falls in, for history reads.
+    const HISTORY_DAY: (&str, &str) = ("2026-08-28T00:00:00Z", "2026-08-29T00:00:00Z");
 
     #[test]
     fn cloudflare_projection_digest_matches_protocol_golden() {
@@ -6364,14 +6644,44 @@ mod tests {
         );
     }
 
-    fn database() -> BusinessDatabase {
-        let directory = tempdir().unwrap().keep();
-        BusinessDatabase::open(
-            &directory.join("workspace.db"),
-            &LocalDatabaseKey::from_bytes([0x31; 32]),
-            "workspace-local",
-        )
-        .unwrap()
+    /// A test database that removes its directory when dropped, after the database closes (fields
+    /// drop in order), so test runs do not leave encrypted databases behind.
+    pub(super) struct TestDatabase {
+        database: BusinessDatabase,
+        _directory: tempfile::TempDir,
+    }
+
+    impl TestDatabase {
+        pub(super) fn open(key: [u8; 32]) -> Self {
+            let directory = tempdir().unwrap();
+            let database = BusinessDatabase::open(
+                &directory.path().join("workspace.db"),
+                &LocalDatabaseKey::from_bytes(key),
+                "workspace-local",
+            )
+            .unwrap();
+            Self {
+                database,
+                _directory: directory,
+            }
+        }
+    }
+
+    impl std::ops::Deref for TestDatabase {
+        type Target = BusinessDatabase;
+        fn deref(&self) -> &BusinessDatabase {
+            &self.database
+        }
+    }
+
+    impl std::ops::DerefMut for TestDatabase {
+        fn deref_mut(&mut self) -> &mut BusinessDatabase {
+            &mut self.database
+        }
+    }
+
+    fn database() -> TestDatabase {
+        TestDatabase::open([0x31; 32])
     }
 
     #[test]
@@ -7044,6 +7354,135 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one create story: commit, replay, duplicate, stale, tombstone and invalid input share state"
+    )]
+    fn creating_a_domain_commits_one_synced_upsert_and_refuses_duplicates() {
+        let mut database = database();
+        let write = |note: &str| DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: vec!["new".to_owned()],
+            target_price: Some(Money {
+                currency: "USD".to_owned(),
+                amount: "2500".to_owned(),
+            }),
+        };
+        let create = |database: &mut BusinessDatabase, mutation: &str, asset: &DomainAssetWrite| {
+            database.create_domain_asset_guarded(
+                mutation,
+                "device-1",
+                7,
+                TIMESTAMP,
+                asset,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+        };
+        let receipt = create(&mut database, "create-1", &write("first")).unwrap();
+        assert_eq!(
+            (receipt.disposition.as_str(), receipt.operation.as_str()),
+            ("committed", "create")
+        );
+        let detail = database.read_domain_detail("added.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("first"));
+        assert_eq!(detail.asset.tags, ["new"]);
+        let (kind, state, fields): (String, String, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT operation_kind, state, (SELECT count(*) FROM sync_outbox_fields f WHERE f.mutation_id = o.mutation_id)
+                 FROM sync_outbox o WHERE mutation_id = 'create-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (kind.as_str(), state.as_str(), fields),
+            ("upsert", "pending", 4)
+        );
+
+        // The same request replays; a different one for the same domain is a duplicate, whether it
+        // comes from an import or by hand, and changes nothing.
+        assert_eq!(
+            create(&mut database, "create-1", &write("first"))
+                .unwrap()
+                .disposition,
+            "replayed"
+        );
+        assert_eq!(
+            create(&mut database, "create-2", &write("second")),
+            Err(BusinessDatabaseError::AssetExists)
+        );
+        assert_eq!(
+            database
+                .read_domain_detail("added.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("first")
+        );
+        // A stale read generation is refused before anything is written.
+        assert_eq!(
+            database.create_domain_asset_guarded(
+                "create-3",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "other.test".to_owned(),
+                    ..write("x")
+                },
+                false,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            ),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        // A deleted domain keeps its tombstone, so it cannot come back under the same identity yet.
+        database
+            .delete_domain_asset("delete-1", 1, "device-1", 7, TIMESTAMP, "added.test", true)
+            .unwrap();
+        assert_eq!(
+            create(&mut database, "create-4", &write("again")),
+            Err(BusinessDatabaseError::AssetDeleted)
+        );
+        // An invalid domain, or an IP literal, never reaches storage.
+        assert_eq!(
+            create(
+                &mut database,
+                "create-6",
+                &DomainAssetWrite {
+                    entity_id: "10.0.0.1".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(
+            create(
+                &mut database,
+                "create-5",
+                &DomainAssetWrite {
+                    entity_id: "Not A Domain".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let outbox: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_outbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outbox, 2);
+    }
+
+    #[test]
     fn pre_commit_guard_failure_rolls_back_all_mutation_rows() {
         let mut database = database();
         database
@@ -7478,6 +7917,2588 @@ mod tests {
         );
     }
 
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    type ListingSeed<'a> = (
+        &'a str,
+        &'a str,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        &'a str,
+    );
+
+    /// Completes a fixture run whose only target is `entity`, with that target succeeded.
+    fn complete_observation_run(connection: &rusqlite::Connection, run: &str, entity: &str) {
+        connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id=?3", rusqlite::params![TIMESTAMP, run, entity]).unwrap();
+        connection.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+    }
+
+    /// Seeds assets, one marketplace connection and run, and the given listing observations
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    fn sales_database(listings: &[ListingSeed<'_>]) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test", "charlie.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','cloudflare','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        // The schema admits one observation per (run, asset), each from a running marketplace run
+        // with a requested target, so every listing gets its own run.
+        for (index, (entity, kind, status, currency, amount, observed_at)) in
+            listings.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,?5,?6,?7,?8,'version-secret','available','confirmed')", rusqlite::params![format!("listing-secret-{index}"), run, entity, kind, status, currency, amount, observed_at]).unwrap();
+            complete_observation_run(connection, &run, entity);
+        }
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    fn sales_never_lets_an_unfinished_run_hide_a_confirmed_listing() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("1000"),
+            "2026-08-01T00:00:00Z",
+        )]);
+        // Newer observations of the same listing from runs that have not completed: one still
+        // requesting its target, one whose target succeeded inside a run that is still running.
+        // (A failed target cannot carry evidence; the schema rejects that outcome.)
+        for (run, target_succeeded) in [("run-pending", false), ("run-open", true)] {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,'alpha.test','atom','sold','2026-09-01T00:00:00Z','version','available','confirmed')", rusqlite::params![format!("listing-{run}"), run]).unwrap();
+            if target_succeeded {
+                connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+            }
+        }
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        let [listing] = rows.as_slice() else {
+            panic!("expected one listing");
+        };
+        assert_eq!(listing.listing_status, "active");
+        assert_eq!(
+            listing
+                .asking_price
+                .as_ref()
+                .map(|price| price.amount.as_str()),
+            Some("1000")
+        );
+        // The asset library's listing count follows the same rule: the unconfirmed sale does not
+        // end the confirmed listing.
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            1
+        );
+
+        // Once a run completes with this asset's target succeeded, its newer observation wins.
+        complete_observation_run(
+            database.store.fixture_connection(),
+            "run-pending",
+            "alpha.test",
+        );
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(rows[0].listing_status, "sold");
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 1);
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            0
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn sales_reports_latest_listing_observations_without_identifiers() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "atom",
+                "sold",
+                Some("USD"),
+                Some("950.50"),
+                "2026-08-02T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "draft",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "unlisted",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+        ]);
+        let snapshot = database.read_sales(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "sales");
+        // The newest observation per (asset, marketplace) wins, unlisted assets are omitted, and a
+        // domain's markets merge into one row: a draft on one market and a sale on another are a
+        // conflict, and a price only one market reports is not the domain's price.
+        assert_eq!(snapshot.total_rows, 1);
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain");
+        };
+        assert_eq!(
+            (
+                row.entity_id.as_str(),
+                row.marketplaces.as_slice(),
+                row.listing_status.as_str(),
+                row.asking_price.as_ref()
+            ),
+            (
+                "alpha.test",
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                "conflict",
+                None
+            )
+        );
+        assert_eq!(
+            (
+                snapshot.active_listing_count,
+                snapshot.listed_value.as_ref()
+            ),
+            (0, None)
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["listing-secret", "run-secret", "version-secret", "market-1"] {
+            assert!(!wire.contains(secret), "{secret} leaked into sales");
+        }
+        assert!(database.read_sales(1, 10).unwrap().window.rows.is_empty());
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_sales(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        // Equal observation times fall back to the observation id, so the result is deterministic.
+        let mut tied = sales_database(&[
+            ("charlie.test", "atom", "draft", None, None, TIMESTAMP),
+            ("charlie.test", "atom", "active", None, None, TIMESTAMP),
+        ]);
+        let rows = tied.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.listing_status.as_str())
+                .collect::<Vec<_>>(),
+            ["active"]
+        );
+        // Listings of a deleted asset never reach the projection.
+        tied.store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET lifecycle_status = 'archived', deleted_at = ?1 WHERE entity_id = 'charlie.test'",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(tied.read_sales(0, 10).unwrap().total_rows, 0);
+
+        // Marketplaces outside ADR-0027 and malformed prices fail the whole read.
+        for listing in [
+            (
+                "charlie.test",
+                "sedo",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("010"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1e3"),
+                TIMESTAMP,
+            ),
+        ] {
+            assert!(
+                matches!(
+                    sales_database(&[listing]).read_sales(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{listing:?} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn sales_rereads_after_any_write_on_this_or_another_connection() {
+        // Observations are append-only, so each change is a newer confirmed observation.
+        fn observe(connection: &rusqlite::Connection, run: &str, status: &str, observed_at: &str) {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom',?2,'USD','10',?3,'v','available','confirmed')", rusqlite::params![run, status, observed_at]).unwrap();
+            complete_observation_run(connection, run, "alpha.test");
+        }
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("workspace.db");
+        let mut database = BusinessDatabase::open(
+            &path,
+            &LocalDatabaseKey::from_bytes([0x31; 32]),
+            "workspace-local",
+        )
+        .unwrap();
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','alpha.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','atom','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        observe(connection, "run-1", "draft", "2026-01-01T00:00:00Z");
+        let status = |database: &BusinessDatabase| {
+            let snapshot = database.read_sales(0, 10).unwrap();
+            (
+                snapshot.window.rows[0].listing_status.clone(),
+                snapshot.active_listing_count,
+            )
+        };
+        // A repeated read of unchanged data is served from the merged desk and is identical.
+        assert_eq!(
+            database.read_sales(0, 10).unwrap(),
+            database.read_sales(0, 10).unwrap()
+        );
+        assert_eq!(status(&database), ("draft".to_owned(), 0));
+
+        // A write through the Host's own connection is read on the next read.
+        observe(
+            database.store.fixture_connection(),
+            "run-2",
+            "active",
+            "2026-02-01T00:00:00Z",
+        );
+        assert_eq!(status(&database), ("active".to_owned(), 1));
+
+        // So is a commit from another connection to the same database.
+        let other = crate::active_workspace::open_keyed(&path, &[0x31; 32]).unwrap();
+        observe(&other, "run-3", "reserved", "2026-03-01T00:00:00Z");
+        drop(other);
+        assert_eq!(status(&database), ("reserved".to_owned(), 0));
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture walks paging, metrics and every no-total case"
+    )]
+    fn sales_pages_domains_and_reports_workspace_wide_metrics() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                TIMESTAMP,
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "active",
+                Some("USD"),
+                Some("1000.00"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("250.5"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "draft",
+                Some("USD"),
+                Some("99"),
+                TIMESTAMP,
+            ),
+        ]);
+        // One page holds one domain; the totals still describe every listed domain, and prices
+        // that differ only in trailing zeros agree.
+        let snapshot = database.read_sales(1, 1).unwrap();
+        assert_eq!(snapshot.total_rows, 3);
+        assert_eq!(snapshot.active_listing_count, 2);
+        assert_eq!(
+            snapshot.listed_value,
+            Some(crate::SalesMoney {
+                currency: "USD".into(),
+                amount: "1250.5".into()
+            })
+        );
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain on the page");
+        };
+        assert_eq!(row.entity_id, "bravo.test");
+        // The agreed price is reported as the first market (in code-point order) wrote it.
+        let first = database.read_sales(0, 1).unwrap().window.rows;
+        assert_eq!(
+            (
+                first[0].marketplaces.as_slice(),
+                first[0]
+                    .asking_price
+                    .as_ref()
+                    .map(|price| price.amount.as_str())
+            ),
+            (
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                Some("1000.00")
+            )
+        );
+        assert!(database.read_sales(3, 1).unwrap().window.rows.is_empty());
+
+        // No total is reported rather than one that silently leaves a listing out: prices in two
+        // currencies, an active domain whose markets disagree on price, or one without a price.
+        for listings in [
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "bravo.test",
+                    "atom",
+                    "active",
+                    Some("EUR"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "alpha.test",
+                    "afternic",
+                    "active",
+                    Some("USD"),
+                    Some("11"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                ("bravo.test", "atom", "active", None, None, TIMESTAMP),
+            ],
+        ] {
+            let snapshot = sales_database(&listings).read_sales(0, 10).unwrap();
+            assert!(snapshot.active_listing_count > 0);
+            assert_eq!(snapshot.listed_value, None, "{listings:?}");
+        }
+    }
+
+    /// Seeds `assets` active assets the way a large workspace looks: every asset has a target price
+    /// and a confirmed registrar observation, every other one expires within 60 days, every third is
+    /// listed on the first `markets` launch platforms, and one in a hundred has a pending field.
+    fn scale_database(assets: u32, markets: usize) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let transaction = connection.transaction().unwrap();
+        transaction.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','scale-1','cloudflare','Scale',?1,'[\"registrar\",\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        let markets: Vec<(String, &str)> = super::super::launch_platforms::LAUNCH_PLATFORMS
+            [..markets]
+            .iter()
+            .map(|kind| (format!("scale-{kind}"), *kind))
+            .collect();
+        for (run, capability) in std::iter::once(("scale-registrar", "registrar"))
+            .chain(markets.iter().map(|(run, _)| (run.as_str(), "marketplace")))
+        {
+            transaction.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'scale-1',?2,?3,'running')", rusqlite::params![run, capability, TIMESTAMP]).unwrap();
+        }
+        {
+            let mut asset = transaction.prepare("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',date('now',?2),?3,?4,?4,1)").unwrap();
+            let mut desired = transaction.prepare("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,target_price_currency,target_price_amount,desired_sale_status,local_commit_sequence,updated_at) VALUES ('workspace-local',?1,'USD',?2,'hold',1,?3)").unwrap();
+            let mut target = transaction.prepare("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,?3,'requested',?4)").unwrap();
+            let mut registrar = transaction.prepare("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,'scale-registrar',?2,'Porkbun','available','confirmed',?3,'v')").unwrap();
+            let mut listing = transaction.prepare("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,'active','USD','1000',?5,'v','available','confirmed')").unwrap();
+            let mut pending = transaction.prepare("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES ('workspace-local',?1,'note',0,1,'pending',?2)").unwrap();
+            for index in 0..assets {
+                let entity = format!("d{index:07}.test");
+                let expires = if index % 2 == 0 {
+                    "+30 days"
+                } else {
+                    "+400 days"
+                };
+                asset
+                    .execute(rusqlite::params![
+                        entity,
+                        expires,
+                        i64::from(index % 3 == 0),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                desired
+                    .execute(rusqlite::params![
+                        entity,
+                        format!("{}", 100 + index % 900),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                target
+                    .execute(rusqlite::params![
+                        "scale-registrar",
+                        entity,
+                        index,
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                registrar
+                    .execute(rusqlite::params![format!("r{index}"), entity, TIMESTAMP])
+                    .unwrap();
+                if index % 3 == 0 {
+                    for (run, kind) in &markets {
+                        target
+                            .execute(rusqlite::params![run, entity, index, TIMESTAMP])
+                            .unwrap();
+                        listing
+                            .execute(rusqlite::params![
+                                format!("{kind}-{index}"),
+                                run,
+                                entity,
+                                kind,
+                                TIMESTAMP
+                            ])
+                            .unwrap();
+                    }
+                }
+                if index % 100 == 0 {
+                    pending
+                        .execute(rusqlite::params![entity, TIMESTAMP])
+                        .unwrap();
+                }
+            }
+        }
+        transaction.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.commit().unwrap();
+        database
+    }
+
+    /// The `DATABASE_SCHEMA.md` 100k-asset benchmark for every paged Host read. Ignored by default
+    /// because seeding takes a while; run with
+    /// `cargo test -p gooddealer-local-storage --lib -- --ignored scale_reads --nocapture`.
+    #[test]
+    #[ignore = "100k-asset benchmark; run alone on an idle machine with --test-threads=1"]
+    fn scale_reads_at_100k_assets() {
+        // The `DATABASE_SCHEMA.md` per-read budget at 100k assets.
+        let worst = slowest(&scale_reads(100_000, 2), &[]);
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "10k-asset benchmark; run alone on an idle machine with --test-threads=1"]
+    fn scale_reads_at_10k_assets() {
+        // The `DATABASE_SCHEMA.md` per-read budget at 10k assets.
+        let worst = slowest(&scale_reads(10_000, 2), &[]);
+        assert!(worst <= std::time::Duration::from_millis(150), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "1M-asset benchmark; seeding takes minutes, run explicitly"]
+    /// Records timings only: whole-workspace counts grow linearly, so 1M assets is not yet budgeted.
+    fn scale_reads_at_1m_assets() {
+        scale_reads(1_000_000, 2);
+    }
+
+    /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
+    /// after a write merges every listing and exceeds the budget, and so does a settings read before
+    /// it, which scans the same listings for its integrity count; every other read, later sales
+    /// pages and settings included, is held to it.
+    #[test]
+    #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
+    fn scale_reads_at_100k_assets_on_8_markets() {
+        let worst = slowest(&scale_reads(100_000, 8), &[SALES_MERGE, SETTINGS_SCAN]);
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    /// The first sales read of a data generation, which merges every listing.
+    const SALES_MERGE: &str = "sales page 1 (merge)";
+    /// A settings read before any sales read of the generation, which scans every listing.
+    const SETTINGS_SCAN: &str = "settings (listing scan)";
+
+    /// The slowest timing outside `except`.
+    fn slowest(
+        timings: &[(&'static str, std::time::Duration)],
+        except: &[&str],
+    ) -> std::time::Duration {
+        timings
+            .iter()
+            .filter(|(label, _)| !except.contains(label))
+            .map(|(_, elapsed)| *elapsed)
+            .max()
+            .unwrap_or_default()
+    }
+
+    /// Statements recorded by `trace_read_statements`; `trace_v2` takes a plain function pointer.
+    static TRACED_STATEMENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`trace_v2` takes a `fn(TraceEvent)` callback"
+    )]
+    fn trace_read_statements(event: rusqlite::trace::TraceEvent<'_>) {
+        if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
+            TRACED_STATEMENTS.lock().unwrap().push(sql.to_owned());
+        }
+    }
+
+    /// Pins the query plans of every paged Host read: no statement may scan a base table, with or
+    /// without an index. Whole-workspace counts still visit every workspace row, but through an index
+    /// seek on the workspace; this test catches a predicate or join that silently falls back to a
+    /// scan.
+    #[test]
+    #[ignore = "plans need a seeded workspace; run with the scale benchmarks"]
+    fn paged_reads_never_scan_a_base_table() {
+        let database = scale_database(10_000, 8);
+        let connection = database.store.raw_connection();
+        connection.execute_batch("ANALYZE").unwrap();
+        TRACED_STATEMENTS.lock().unwrap().clear();
+        connection.trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(trace_read_statements),
+        );
+        database.read_asset_library(5_000, 50, "").unwrap();
+        database.read_asset_library(0, 50, "d00012").unwrap();
+        database.read_domain_detail("d0005000.test").unwrap();
+        database.read_renewals(2_000, 50).unwrap();
+        database.read_dns_health(5_000, 50, "d0001").unwrap();
+        database.read_sales(1_000, 50).unwrap();
+        connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+        let tables: std::collections::BTreeSet<String> = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let statements: std::collections::BTreeSet<String> = TRACED_STATEMENTS
+            .lock()
+            .unwrap()
+            .drain(..)
+            .filter(|sql| {
+                let head = sql.trim_start().to_ascii_uppercase();
+                head.starts_with("SELECT") || head.starts_with("WITH")
+            })
+            .collect();
+        assert!(statements.len() > 10, "{statements:?}");
+        let mut scans = Vec::new();
+        for sql in &statements {
+            let mut plan = connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap();
+            let nulls = vec![rusqlite::types::Null; plan.parameter_count()];
+            for detail in plan
+                .query_map(rusqlite::params_from_iter(nulls), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+            {
+                let scanned = detail
+                    .strip_prefix("SCAN ")
+                    .map(|rest| rest.split_whitespace().next().unwrap_or(""));
+                // A covering-index scan still visits every row, so any base-table scan counts.
+                if scanned.is_some_and(|table| tables.contains(table)) {
+                    scans.push(format!("{detail}\n  in {sql}"));
+                }
+            }
+        }
+        assert!(scans.is_empty(), "{}", scans.join("\n"));
+    }
+
+    /// Times every paged Host read over `scale_database(assets, markets)`.
+    fn scale_reads(assets: u32, markets: usize) -> Vec<(&'static str, std::time::Duration)> {
+        let database = scale_database(assets, markets);
+        let expiring = assets.div_ceil(2);
+        let listed = assets.div_ceil(3);
+        let mut timings = Vec::new();
+        let mut time = |label: &'static str, read: &mut dyn FnMut()| {
+            let started = std::time::Instant::now();
+            read();
+            let elapsed = started.elapsed();
+            println!("{label}: {elapsed:?}");
+            timings.push((label, elapsed));
+        };
+        time("asset library page 1", &mut || {
+            let snapshot = database.read_asset_library(0, 50, "").unwrap();
+            assert_eq!(snapshot.total_rows, assets);
+            assert_eq!(snapshot.expiring_within60_days, expiring);
+            assert_eq!(snapshot.listing_count, listed);
+        });
+        time("asset library last page", &mut || {
+            database.read_asset_library(assets - 50, 50, "").unwrap();
+        });
+        time("asset library search", &mut || {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 50, "d00012")
+                    .unwrap()
+                    .total_rows,
+                100
+            );
+        });
+        time("domain detail", &mut || {
+            database
+                .read_domain_detail(&format!("d{:07}.test", assets / 2))
+                .unwrap();
+        });
+        time("renewals page 1", &mut || {
+            assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, expiring);
+        });
+        time("renewals last page", &mut || {
+            database.read_renewals(expiring - 50, 50).unwrap();
+        });
+        time("dns health page 1", &mut || {
+            assert_eq!(
+                database.read_dns_health(0, 50, "").unwrap().asset_count,
+                assets
+            );
+        });
+        time(SETTINGS_SCAN, &mut || {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            assert_eq!(integrity.rejected_listings, 0);
+        });
+        time(SALES_MERGE, &mut || {
+            let snapshot = database.read_sales(0, 50).unwrap();
+            assert_eq!(snapshot.total_rows, listed);
+            assert_eq!(snapshot.window.rows[0].marketplaces.len(), markets);
+        });
+        time("sales last page (same data)", &mut || {
+            database.read_sales(listed - 50, 50).unwrap();
+        });
+        time("settings (sales desk merged)", &mut || {
+            database.read_settings().unwrap();
+        });
+        timings
+    }
+
+    /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
+    /// and a newer unapproved plan titled `newer_title`.
+    #[allow(clippy::too_many_lines)]
+    fn batch_database(newer_title: &str) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-secret','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        let plan = "INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,?3,?4,'planned',?5,?6,?7,1)";
+        let item = "INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local',?1,?2,?3,?4,'connection-secret','dns_write','{}',?5,?6,?7)";
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-a",
+                    "dns_change",
+                    "0".repeat(64),
+                    "Nameserver change",
+                    "high",
+                    3,
+                    "2026-01-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        for (ordinal, (entity, risk, mode, inclusion)) in [
+            ("alpha.test", "high", "automatic", "included"),
+            ("bravo.test", "standard", "manual", "included"),
+            ("bravo.test", "standard", "automatic", "excluded"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            connection
+                .execute(
+                    item,
+                    rusqlite::params![
+                        "plan-secret-a",
+                        format!("item-secret-{ordinal}"),
+                        i64::try_from(ordinal).unwrap(),
+                        entity,
+                        risk,
+                        mode,
+                        inclusion
+                    ],
+                )
+                .unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-secret-a'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-secret','plan-secret-a','key-secret','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        let attempt = "INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at,completed_at,provider_request_id) VALUES ('workspace-local','operation-secret','plan-secret-a',?1,?2,?3,?4,?5,?6,'provider-request-secret')";
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    1,
+                    "failed_retryable",
+                    "1".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        // A retry needs the prior attempt's recorded retryable result.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-0',1,1,'failed_retryable','{}',?1)", [TIMESTAMP]).unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    2,
+                    "succeeded",
+                    "2".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-1",
+                    1,
+                    "manual_action_required",
+                    "3".repeat(64),
+                    TIMESTAMP,
+                    None::<&str>
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "price_change",
+                    "4".repeat(64),
+                    newer_title,
+                    "standard",
+                    1,
+                    "2026-02-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                item,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "item-secret-b",
+                    0,
+                    "alpha.test",
+                    "standard",
+                    "unsupported",
+                    "conflict"
+                ],
+            )
+            .unwrap();
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    fn manual_tasks_group_waiting_items_without_identifiers() {
+        let empty = database();
+        assert_eq!(empty.read_manual_tasks(0, 10).unwrap().total_rows, 0);
+        let database = batch_database("Price change");
+        let snapshot = database.read_manual_tasks(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "manual_tasks");
+        assert_eq!(snapshot.total_rows, 1);
+        // Only the item whose latest attempt waits on the person forms a task.
+        assert_eq!(
+            snapshot.window.rows,
+            [crate::ManualTaskRow {
+                title: "Nameserver change".to_owned(),
+                operation_kind: "dns_change".to_owned(),
+                capability: "dns_write".to_owned(),
+                provider_kind: Some("cloudflare".to_owned()),
+                connection_label: Some("DNS".to_owned()),
+                high_risk: false,
+                item_count: 1,
+                waiting_since: TIMESTAMP.to_owned(),
+                last_observed_at: None,
+                domain_count: 1,
+                domains: vec!["bravo.test".to_owned()],
+            }]
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "connection-secret",
+            "provider-request-secret",
+            "key-secret",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into manual tasks");
+        }
+        assert!(
+            database
+                .read_manual_tasks(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .is_empty()
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_manual_tasks(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        let mut grouped = batch_database("Price change");
+        let connection = grouped.store.fixture_connection();
+        connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,'manual_action_required',?1,'2026-08-28T01:00:00Z')", ["5".repeat(64)]).unwrap();
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,1,'manual_action_required','{}','2026-08-28T02:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1, "one platform step stays one task");
+        assert_eq!(
+            (
+                rows[0].item_count,
+                rows[0].domain_count,
+                rows[0].last_observed_at.as_deref()
+            ),
+            (2, 1, Some("2026-08-28T02:00:00Z"))
+        );
+        // Without a recorded result an item waits from its start; once observed, from that.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+        grouped.store.fixture_connection().execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-1',1,1,'manual_action_required','{}','2026-08-28T03:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        // Both items are now observed: the task waits from the earlier observation (02:00), not
+        // from either attempt's start (00:00 and 01:00).
+        assert_eq!(rows[0].waiting_since, "2026-08-28T02:00:00Z");
+        let mut foreign = batch_database("Price change");
+        foreign
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET provider_kind = 'sedo'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            foreign.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let mut control = batch_database("Price change");
+        control
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Bad\nlabel'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            control.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn manual_tasks_carry_only_the_inbox_domain_sample_with_an_exact_count() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let entities = ["e.test", "c.test", "a.test", "d.test", "b.test"];
+        for entity in entities {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-1','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local','plan-1','dns_change',?1,'Nameserver change','planned','standard',5,?2,1)", rusqlite::params!["0".repeat(64), TIMESTAMP]).unwrap();
+        for (ordinal, entity) in entities.into_iter().enumerate() {
+            connection.execute("INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local','plan-1',?1,?2,?3,'connection-1','dns_write','{}','standard','manual','included')", rusqlite::params![format!("item-{ordinal}"), i64::try_from(ordinal).unwrap(), entity]).unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-1'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-1','plan-1','key-1','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        for ordinal in 0..5 {
+            connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-1','plan-1',?1,1,'manual_action_required',?2,?3)", rusqlite::params![format!("item-{ordinal}"), ordinal.to_string().repeat(64), TIMESTAMP]).unwrap();
+        }
+        // A platform clock behind the device's: the result predates its attempt's start.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-1','plan-1','item-0',1,1,'manual_action_required','{}','2026-08-27T00:00:00Z')", []).unwrap();
+        let rows = database.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1);
+        // The first three domains in byte order, with every affected domain still counted.
+        assert_eq!(rows[0].domains, ["a.test", "b.test", "c.test"]);
+        assert_eq!((rows[0].item_count, rows[0].domain_count), (5, 5));
+        // No wait begins before its attempt started.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+    }
+
+    #[test]
+    fn batch_operations_list_plans_newest_first_with_counts_and_no_identifiers() {
+        let mut empty = database();
+        assert_eq!(empty.read_batch_operations(0, 10).unwrap().total_rows, 0);
+        let _ = empty.store.fixture_connection();
+
+        let database = batch_database("Price change");
+        let snapshot = database.read_batch_operations(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "batch_operations");
+        assert_eq!(snapshot.total_rows, 2);
+        let [newer, older] = snapshot.window.rows.as_slice() else {
+            panic!("expected two plans");
+        };
+        assert_eq!(
+            (
+                newer.title.as_str(),
+                newer.plan_phase.as_str(),
+                newer.operation_phase.as_deref()
+            ),
+            ("Price change", "planned", None)
+        );
+        assert_eq!(newer.planned.conflict, 1);
+        assert!(newer.results.is_none());
+        assert_eq!(
+            (
+                older.operation_kind.as_str(),
+                older.plan_phase.as_str(),
+                older.operation_phase.as_deref()
+            ),
+            ("dns_change", "approved", Some("running"))
+        );
+        assert_eq!(older.provider_kinds, ["cloudflare"]);
+        assert_eq!((older.item_count, older.target_count), (3, 2));
+        assert_eq!(older.completed_at, None);
+        assert_eq!(
+            (
+                older.planned.automatic,
+                older.planned.manual,
+                older.planned.excluded,
+                older.planned.high_risk
+            ),
+            (1, 1, 1, 1)
+        );
+        let results = older.results.as_ref().unwrap();
+        assert_eq!(
+            (
+                results.succeeded,
+                results.failed_retryable,
+                results.manual_action_required
+            ),
+            (1, 0, 1)
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "key-secret",
+            "connection-secret",
+            "provider-request-secret",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into batch operations"
+            );
+        }
+        assert_eq!(
+            database
+                .read_batch_operations(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_batch_operations(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        assert!(matches!(
+            batch_database("Bad\ntitle").read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let mut doubled = batch_database("Price change");
+        doubled.store.fixture_connection().execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,local_commit_sequence) VALUES ('workspace-local','operation-second','plan-secret-a','key-second','queued',?1,1)", [TIMESTAMP]).unwrap();
+        assert!(matches!(
+            doubled.read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's
+    /// `date('now')`, and registrar observations `(entity, registrar, availability, observed_at)`.
+    /// Drops the storage-integrity triggers, so a test can stand in for rows written before that
+    /// migration and prove the reads still fail closed on them.
+    fn allow_legacy_rows(connection: &rusqlite::Connection) {
+        connection
+            .execute_batch(
+                "DROP TRIGGER domain_asset_provider_bindings_platform_matches_connection;
+                 DROP TRIGGER local_provider_connections_bound_platform_immutable;
+                 DROP TRIGGER domain_assets_expires_on_insert_is_date;
+                 DROP TRIGGER domain_assets_expires_on_update_is_date;",
+            )
+            .unwrap();
+    }
+
+    fn renewals_database(
+        assets: &[(&str, &str, Option<i64>, Option<i64>)],
+        observations: &[(&str, &str, &str, &str, &str)],
+    ) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for (entity, lifecycle, offset, auto_renew) in assets {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,CASE WHEN ?3 IS NULL THEN NULL ELSE date('now', ?3 || ' days') END,?4,?5,?5,1)", rusqlite::params![entity, lifecycle, offset.map(|days| format!("{days:+}")), auto_renew, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','cloudflare','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        // Each observation's run ends as `outcome`: "succeeded" or "partial" confirm it, while
+        // "running" leaves the run in flight with its target only requested.
+        for (index, (entity, registrar, availability, observed_at, outcome)) in
+            observations.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version-secret')", rusqlite::params![format!("registrar-secret-{index}"), run, entity, registrar, availability, observed_at]).unwrap();
+            match *outcome {
+                "succeeded" => complete_observation_run(connection, &run, entity),
+                "partial" => {
+                    // A partial run needs a second target the Provider did not report.
+                    connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'undated.test',1,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='missing', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=1", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=0", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_runs SET status='partial', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+                }
+                "running" => {}
+                other => panic!("unknown run outcome {other}"),
+            }
+        }
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture covers the window, the library count and the registrar name matrix"
+    )]
+    fn renewals_list_the_sixty_day_window_soonest_first_without_identifiers() {
+        let database = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), Some(1)),
+                ("also-soon.test", "expired", Some(5), Some(0)),
+                ("edge.test", "active", Some(60), None),
+                ("beyond.test", "active", Some(61), Some(1)),
+                ("lapsed.test", "active", Some(-1), Some(1)),
+                ("today.test", "active", Some(0), None),
+                ("sold.test", "sold", Some(0), Some(1)),
+                ("dropped.test", "dropped", Some(2), Some(0)),
+                ("archived.test", "archived", Some(3), Some(1)),
+                ("undated.test", "active", None, Some(1)),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Old Registrar",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "soon.test",
+                    "Spaceship",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                    "partial",
+                ),
+                (
+                    "soon.test",
+                    "Hidden",
+                    "unavailable",
+                    "2026-03-01T00:00:00Z",
+                    "succeeded",
+                ),
+                // A newer observation from a run still in flight never hides the confirmed one.
+                (
+                    "soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
+                (
+                    "also-soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
+            ],
+        );
+        let snapshot = database.read_renewals(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "renewals");
+        let today: String = database
+            .store
+            .raw_connection()
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(snapshot.as_of_date, today);
+        assert_eq!(snapshot.total_rows, 4);
+        assert_eq!(
+            (
+                snapshot.auto_renew_enabled_count,
+                snapshot.auto_renew_disabled_count
+            ),
+            (1, 1)
+        );
+        // The counts cover every expiring asset, not just the requested page.
+        let page = database.read_renewals(3, 1).unwrap();
+        assert_eq!(page.window.rows.len(), 1);
+        assert_eq!(
+            (
+                page.total_rows,
+                page.auto_renew_enabled_count,
+                page.auto_renew_disabled_count
+            ),
+            (4, 1, 1)
+        );
+        // The asset library promises exactly the assets the renewals desk lists: sold, dropped and
+        // archived assets are no longer the workspace's to renew, and a search that matches only
+        // some of them does not change the count the desk will list.
+        for query in ["", "soon", "nothing-matches"] {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 1, query)
+                    .unwrap()
+                    .expiring_within60_days,
+                snapshot.total_rows,
+                "{query:?}"
+            );
+        }
+        assert_eq!(
+            database
+                .read_asset_library(0, 1, "soon")
+                .unwrap()
+                .total_rows,
+            1
+        );
+        let rows: Vec<_> = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.entity_id.as_str(),
+                    row.auto_renew,
+                    row.registrar_name.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("today.test", None, None),
+                ("also-soon.test", Some(false), None),
+                ("soon.test", Some(true), Some("Spaceship")),
+                ("edge.test", None, None),
+            ]
+        );
+        // Each library row and its detail flag exactly the assets the desk lists, by the same
+        // predicate: sold, dropped, archived, lapsed, undated and too-distant assets stay unflagged.
+        let library = database.read_asset_library(0, 20, "").unwrap();
+        let mut flagged: Vec<_> = library
+            .window
+            .rows
+            .iter()
+            .filter(|row| row.expiring)
+            .map(|row| row.domain.as_str())
+            .collect();
+        flagged.sort_unstable();
+        let mut listed: Vec<_> = rows.iter().map(|row| row.0).collect();
+        listed.sort_unstable();
+        assert_eq!(flagged, listed);
+        // The count and the flags come from the same read and the same day.
+        assert_eq!(
+            usize::try_from(library.expiring_within60_days).unwrap(),
+            flagged.len()
+        );
+        for row in &library.window.rows {
+            assert_eq!(
+                database
+                    .read_domain_detail(&row.domain)
+                    .unwrap()
+                    .asset
+                    .expiring,
+                row.expiring,
+                "{}",
+                row.domain
+            );
+        }
+        // The asset library and domain detail report the same confirmed registrar.
+        let registrar = |entity: &str| {
+            library
+                .window
+                .rows
+                .iter()
+                .find(|row| row.domain == entity)
+                .and_then(|row| row.registrar.clone())
+        };
+        assert_eq!(registrar("soon.test").as_deref(), Some("Spaceship"));
+        assert_eq!(registrar("also-soon.test"), None);
+        assert_eq!(
+            database
+                .read_domain_detail("soon.test")
+                .unwrap()
+                .asset
+                .registrar
+                .as_deref(),
+            Some("Spaceship")
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "run-secret",
+            "registrar-secret",
+            "version-secret",
+            "registrar-1",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into renewals");
+        }
+        assert_eq!(database.read_renewals(3, 10).unwrap().window.rows.len(), 1);
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_renewals(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        // The same matrix as the Renderer's `registrarNameSchema` test: 128 characters, counted as
+        // code points, fit; control, bidirectional and invisible formatting characters do not.
+        let longest = "\u{1d538}".repeat(128);
+        let accepted = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[("soon.test", &longest, "available", TIMESTAMP, "succeeded")],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            accepted.window.rows[0].registrar_name.as_deref(),
+            Some(longest.as_str())
+        );
+        // A format character outside the safe-text set is accepted here, unlike in connection
+        // labels, as in the Renderer's matrix.
+        let arabic_sign = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[(
+                "soon.test",
+                "Arabic\u{600}Sign",
+                "available",
+                TIMESTAMP,
+                "succeeded",
+            )],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            arabic_sign.window.rows[0].registrar_name.as_deref(),
+            Some("Arabic\u{600}Sign")
+        );
+        for name in [
+            "Bad\nRegistrar",
+            &"x".repeat(129),
+            "",
+            "Zero\u{200b}Width",
+            "Bidi\u{202e}Name",
+            "Soft\u{ad}Hyphen",
+            "\u{feff}Bom",
+        ] {
+            assert!(
+                matches!(
+                    renewals_database(
+                        &[("soon.test", "active", Some(5), None)],
+                        &[("soon.test", name, "available", TIMESTAMP, "succeeded")],
+                    )
+                    .read_renewals(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{name:?} must fail closed"
+            );
+        }
+        // A bad name on a page the desk does not read still fails the read: the desk's counts
+        // include that asset.
+        let off_page = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("later.test", "active", Some(10), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+                (
+                    "later.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        );
+        assert!(matches!(
+            off_page.read_renewals(0, 1),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        // A bad name the desk never shows, on an asset outside the window or behind a newer
+        // confirmed name, does not fail it.
+        let unseen = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("beyond.test", "active", Some(61), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Bad\nOld",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "beyond.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            unseen.window.rows[0].registrar_name.as_deref(),
+            Some("Registrar")
+        );
+        // A malformed expiry that sorts into the window as text fails every page, not only its own.
+        for suffix in ["x", "T00:00:00Z"] {
+            let mut malformed = renewals_database(
+                &[
+                    ("soon.test", "active", Some(5), None),
+                    ("later.test", "active", Some(10), None),
+                ],
+                &[],
+            );
+            let connection = malformed.store.fixture_connection();
+            allow_legacy_rows(connection);
+            connection
+                .execute(
+                    "UPDATE domain_assets SET expires_on = expires_on || ?1 WHERE entity_id = 'later.test'",
+                    [suffix],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    malformed.read_renewals(0, 1),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn history_fails_closed_on_a_legacy_outbox_time_anywhere_in_the_ledger() {
+        let database = database();
+        let connection = database.store.raw_connection();
+        let insert = |mutation_id: &str, created_at: &str| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at)
+                 VALUES ('workspace-local',?1,'domain_asset','ledger.test','{}',?2)",
+                [mutation_id, created_at],
+            )
+        };
+        // New writes cannot store a non-canonical time at all.
+        assert!(insert("new-offset", "2026-08-28T08:00:00+08:00").is_err());
+        insert("canonical", "2026-08-28T12:00:00Z").unwrap();
+        assert_eq!(
+            database
+                .read_history(0, 1, HISTORY_DAY)
+                .unwrap()
+                .changes_today,
+            1
+        );
+        // A row written before the trigger existed is still refused by the read, even when it is
+        // not on the requested page, rather than being counted against the wrong day.
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        for legacy in ["2026-08-28 12:00:00", "2026-08-28T24:00:00Z"] {
+            insert("legacy", legacy).unwrap();
+            assert!(
+                matches!(
+                    database.read_history(0, 1, HISTORY_DAY),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{legacy:?}"
+            );
+            connection
+                .execute("DELETE FROM sync_outbox WHERE mutation_id = 'legacy'", [])
+                .unwrap();
+        }
+        assert!(database.read_history(0, 1, HISTORY_DAY).is_ok());
+    }
+
+    fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
+        DomainAssetWrite {
+            entity_id: "ledger.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: tags.iter().map(|&tag| tag.to_owned()).collect(),
+            target_price: None,
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the ledger's ordering, diff and window assertions stay together"
+    )]
+    fn history_lists_local_revisions_newest_first_with_diffs_and_no_identifiers() {
+        let mut database = database();
+        assert_eq!(
+            database
+                .read_history(0, 10, HISTORY_DAY)
+                .unwrap()
+                .total_rows,
+            0
+        );
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let version = |database: &BusinessDatabase| -> u64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        let committed = [
+            ("mutation-secret-1", history_write("first", &[])),
+            ("mutation-secret-2", history_write("second", &["sale"])),
+        ];
+        for (mutation_id, write) in &committed {
+            let expected = version(&database);
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected,
+                    "device-secret",
+                    7,
+                    TIMESTAMP,
+                    write,
+                    true,
+                )
+                .unwrap();
+        }
+        let expected = version(&database);
+        database
+            .delete_domain_asset(
+                "mutation-secret-3",
+                expected,
+                "device-secret",
+                7,
+                TIMESTAMP,
+                "ledger.test",
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        assert_eq!(snapshot.kind, "history");
+        assert_eq!((snapshot.total_rows, snapshot.pending_rows), (4, 4));
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.operation.as_str(), row.state.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("delete", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending")
+            ]
+        );
+        assert!(rows[0].local_revision > rows[1].local_revision);
+        assert!(rows[0].changes.is_empty());
+        // The second edit reports only what moved since the first, with both sides.
+        assert_eq!(
+            rows[1].changes,
+            [
+                crate::HistoryFieldChange {
+                    field_path: "note".to_owned(),
+                    value: serde_json::json!("second"),
+                    previous_value: Some(serde_json::json!("first")),
+                },
+                crate::HistoryFieldChange {
+                    field_path: "tags".to_owned(),
+                    value: serde_json::json!(["sale"]),
+                    previous_value: Some(serde_json::json!([])),
+                },
+            ]
+        );
+        assert_eq!(
+            rows[2].changes,
+            [crate::HistoryFieldChange {
+                field_path: "note".to_owned(),
+                value: serde_json::json!("first"),
+                previous_value: Some(serde_json::json!("seed")),
+            }]
+        );
+        // The first local revision has no recorded predecessor, so nothing claims an old value.
+        assert_eq!(rows[3].changes.len(), 4);
+        assert!(
+            rows[3]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(wire.matches("previousValue").count(), 3);
+        for secret in ["mutation-secret", "device-secret", "mutationId", "deviceId"] {
+            assert!(!wire.contains(secret), "{secret} leaked into history");
+        }
+        assert_eq!(
+            database
+                .read_history(3, 10, HISTORY_DAY)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_history(start, size, HISTORY_DAY),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        // Today's changes count the whole ledger, not the window: one row read, four counted.
+        let today = |day| database.read_history(0, 1, day).unwrap().changes_today;
+        assert_eq!(today(HISTORY_DAY), 4);
+        // The day ends before its end instant, so a day ending at the commits counts none.
+        assert_eq!(today(("2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z")), 0);
+        // A daylight saving day is 23 or 25 hours.
+        assert_eq!(today(("2026-08-27T23:00:00Z", "2026-08-29T00:00:00Z")), 4);
+        // Day lengths hold across month, year and leap-day boundaries.
+        for day in [
+            ("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-01T00:00:00Z"),
+            ("2028-02-29T00:00:00Z", "2028-03-01T00:00:00Z"),
+        ] {
+            assert_eq!(today(day), 0, "{day:?} is one day");
+        }
+        for day in [
+            ("2026-08-28T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-29T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-27T22:59:59Z", "2026-08-29T00:00:00Z"),
+            ("2028-02-28T00:00:00Z", "2028-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-02T00:00:00Z"),
+            ("2026-08-28T00:00:00.000Z", "2026-08-29T00:00:00Z"),
+            ("2026-08-28T00:00:00+08:00", "2026-08-29T00:00:00Z"),
+            ("2026-08-28", "2026-08-29T00:00:00Z"),
+        ] {
+            assert!(
+                matches!(
+                    database.read_history(0, 10, day),
+                    Err(BusinessDatabaseError::WindowRejected)
+                ),
+                "{day:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn history_names_a_creation_only_when_the_create_path_marked_it() {
+        let mut database = database();
+        // An asset written without the create path (as a pull or the legacy seed writes it) has
+        // a first local upsert too; that one must stay an edit.
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let created = DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            ..history_write("added", &["new"])
+        };
+        database
+            .create_domain_asset_guarded(
+                "create-1",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &created,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'added.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        database
+            .edit_domain_asset(
+                "edit-1",
+                u64::try_from(version).unwrap(),
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "added.test".to_owned(),
+                    ..history_write("edited", &["new"])
+                },
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        let rows = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| (row.entity_id.as_str(), row.operation.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            [
+                ("added.test", "edit"),
+                ("added.test", "create"),
+                ("ledger.test", "edit")
+            ]
+        );
+        // A creation has nothing before it, so none of its fields claims a previous value.
+        let creation = &snapshot.window.rows[1];
+        assert!(!creation.changes.is_empty());
+        assert!(
+            creation
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+
+        // The marker can name only an asset's first upsert and never changes.
+        let connection = database.store.raw_connection();
+        for refused in ["edit-1", "seed-missing"] {
+            assert!(
+                connection
+                    .execute(
+                        "INSERT INTO sync_outbox_local_creations (workspace_id, mutation_id) VALUES ('workspace-local', ?1)",
+                        [refused],
+                    )
+                    .is_err(),
+                "{refused}"
+            );
+        }
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox_local_creations SET mutation_id = 'edit-1'",
+                    [],
+                )
+                .is_err()
+        );
+        let markers: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sync_outbox_local_creations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(markers, 1);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "provenance and fail-closed value assertions stay together"
+    )]
+    fn history_never_guesses_a_previous_value_across_a_pull_or_a_conflict() {
+        let mut database = database();
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let edit = |database: &mut BusinessDatabase, mutation_id: &str, note: &str| {
+            let expected: i64 = database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected.try_into().unwrap(),
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &history_write(note, &[]),
+                    true,
+                )
+                .unwrap();
+        };
+        edit(&mut database, "edit-1", "first");
+        // A remote revision applied between two local commits may have changed the asset.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE active_workspace_metadata SET applied_through_server_revision = applied_through_server_revision + 5",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-2", "first");
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
+        assert_eq!(
+            rows[0].changes.len(),
+            4,
+            "unknown previous values keep every field"
+        );
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // A conflicted local value never became the asset's state, so it is not a previous value.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox SET state = 'conflicted' WHERE mutation_id = 'edit-2'",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-3", "third");
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // Recorded values are held to asset-write rules; anything else fails the read closed.
+        for (path, json) in [
+            ("targetPrice", "{\"amount\":1}"),
+            ("note", "\"\\u0007\""),
+            ("tags", "[\"b\",\"a\"]"),
+        ] {
+            let mut corrupt = self::database();
+            corrupt
+                .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+                .unwrap();
+            corrupt
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = ?2",
+                    rusqlite::params![json, path],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    corrupt.read_history(0, 10, HISTORY_DAY),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{path} {json} must fail closed"
+            );
+        }
+        let mut long = self::database();
+        long.upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        long.store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = 'note'",
+                [serde_json::to_string(&"x".repeat(10_001)).unwrap()],
+            )
+            .unwrap();
+        assert!(matches!(
+            long.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn settings_counts_stored_rows_the_other_reads_reject_without_failing() {
+        let mut database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+        ]);
+        let integrity = |database: &BusinessDatabase| {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            [
+                integrity.malformed_expiries,
+                integrity.invalid_registrar_observations,
+                integrity.rejected_dns_rows,
+                integrity.rejected_listings,
+                integrity.malformed_outbox_rows,
+            ]
+        };
+        // The one listing sales rejects is counted, and the settings read itself still succeeds.
+        assert_eq!(integrity(&database), [0, 0, 0, 1, 0]);
+        assert!(matches!(
+            database.read_sales(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        let connection = database.store.fixture_connection();
+        allow_legacy_rows(connection);
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        // An impossible calendar date, and a deleted asset's, which no read shows.
+        connection.execute("UPDATE domain_assets SET expires_on = '2026-02-30' WHERE entity_id = 'charlie.test'", []).unwrap();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,deleted_at,local_commit_sequence) VALUES ('workspace-local','gone.test','archived','soon',?1,?1,?1,1)", [TIMESTAMP]).unwrap();
+        // Two available observations share an invalid name; an unavailable one is never shown.
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','porkbun','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        for (index, (entity, name, availability)) in [
+            ("alpha.test", "Bad\u{7}Name", "available"),
+            ("bravo.test", "Bad\u{7}Name", "available"),
+            ("charlie.test", "Bad\u{7}Name", "unavailable"),
+            ("charlie.test", "Porkbun", "available"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let run = format!("registrar-run-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version')", rusqlite::params![format!("registrar-{index}"), run, entity, name, availability, TIMESTAMP]).unwrap();
+        }
+        // A Zone binding naming a platform other than its connection's.
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','alpha.test','registrar-1','spaceship','zone',?1,?2,'alpha.test',1,2,'unverified',?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        for (mutation, created_at) in [
+            ("legacy-1", "2026-08-28 12:00:00"),
+            ("legacy-2", "2026-08-28T24:00:00Z"),
+            ("canonical", "2026-08-28T12:00:00Z"),
+        ] {
+            connection.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at) VALUES ('workspace-local',?1,'domain_asset','alpha.test','{}',?2)", [mutation, created_at]).unwrap();
+        }
+        let _ = connection;
+
+        assert_eq!(integrity(&database), [1, 2, 1, 1, 2]);
+        // Each count names a read that fails closed on those rows.
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        assert!(matches!(
+            database.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn settings_skips_the_listing_scan_only_while_a_sales_desk_vouches_for_this_generation() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("10"),
+            TIMESTAMP,
+        )]);
+        let listing_scans = |database: &BusinessDatabase| {
+            let connection = database.store.raw_connection();
+            TRACED_STATEMENTS.lock().unwrap().clear();
+            connection.trace_v2(
+                rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+                Some(trace_read_statements),
+            );
+            let rejected = database
+                .read_settings()
+                .unwrap()
+                .storage_integrity
+                .rejected_listings;
+            connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+            let scans = TRACED_STATEMENTS
+                .lock()
+                .unwrap()
+                .drain(..)
+                .filter(|sql| sql.contains("marketplace_listing_observations"))
+                .count();
+            (rejected, scans)
+        };
+        // Without a merged desk the listings are scanned.
+        assert_eq!(listing_scans(&database), (0, 1));
+        // A desk merged at this generation vouches for them.
+        database.read_sales(0, 10).unwrap();
+        assert_eq!(listing_scans(&database), (0, 0));
+        // Any write moves the generation, so a listing written since is counted, not vouched for.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-late','market-1','marketplace',?1,'running')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-late','bravo.test',0,'requested',?1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local','listing-late','run-late','bravo.test','atom','active','usd','10',?1,'version','available','confirmed')", [TIMESTAMP]).unwrap();
+            complete_observation_run(connection, "run-late", "bravo.test");
+        }
+        assert_eq!(listing_scans(&database), (1, 1));
+    }
+
+    #[test]
+    fn settings_reports_connection_roles_as_unqualified_without_identifiers() {
+        let mut database = database();
+        assert!(database.read_settings().unwrap().connections.is_empty());
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status,last_validated_at) VALUES ('workspace-local','cf-settings','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid',?1)", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+
+        let snapshot = database.read_settings().unwrap();
+        assert_eq!(snapshot.kind, "settings");
+        let [cloudflare] = snapshot.connections.as_slice() else {
+            panic!("expected one connection");
+        };
+        assert_eq!(
+            (
+                cloudflare.provider_kind.as_str(),
+                cloudflare.connection_label.as_str(),
+                cloudflare.validation_status.as_str(),
+                cloudflare.credential_use_state.as_str(),
+            ),
+            ("cloudflare", "Cloudflare", "valid", "active")
+        );
+        // A valid credential does not make a capability executable before qualification.
+        let [dns] = cloudflare.roles.as_slice() else {
+            panic!("expected one role");
+        };
+        assert_eq!(
+            (
+                dns.role.as_str(),
+                dns.availability.as_str(),
+                dns.unavailable_reason.as_str()
+            ),
+            ("dns", "unavailable", "qualification_pending")
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["cf-settings", &"a".repeat(64), &"b".repeat(64)] {
+            assert!(!wire.contains(secret), "{secret} leaked into settings");
+        }
+
+        // Unknown roles, duplicate roles and control characters fail the whole read.
+        for (column, value) in [
+            ("capabilities_json", "'[\"payments\"]'"),
+            ("capabilities_json", "'[\"dns\",\"dns\"]'"),
+            ("display_label", "'Cloud'||char(7)||'flare'"),
+        ] {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    &format!("UPDATE local_provider_connections SET {column}={value}"),
+                    [],
+                )
+                .unwrap();
+            let _ = connection;
+            assert!(
+                matches!(
+                    database.read_settings(),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{column}={value} must fail closed"
+            );
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE local_provider_connections SET capabilities_json='[\"dns\"]', display_label='Cloudflare'",
+                    [],
+                )
+                .unwrap();
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 1);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture exercises exclusion, the row bound and Provider kinds in sequence"
+    )]
+    fn settings_excludes_deleted_connections_and_fails_closed_on_overflow_or_unknown_providers() {
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,lifecycle_status,deleted_at) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]',?5,?6)";
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "live",
+                        "cloudflare",
+                        "Live",
+                        TIMESTAMP,
+                        "active",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            // Deleted connections never reach the Renderer, by lifecycle or by tombstone.
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "gone",
+                        "cloudflare",
+                        "Gone",
+                        TIMESTAMP,
+                        "deleted",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "tombstone",
+                        "cloudflare",
+                        "Tombstone",
+                        TIMESTAMP,
+                        "revoked",
+                        Some(TIMESTAMP)
+                    ],
+                )
+                .unwrap();
+        }
+        let labels = database
+            .read_settings()
+            .unwrap()
+            .connections
+            .into_iter()
+            .map(|connection| connection.connection_label)
+            .collect::<Vec<_>>();
+        assert_eq!(labels, ["Live"]);
+
+        // 64 connections are the read's bound; the 65th fails the read instead of being truncated.
+        {
+            let connection = database.store.fixture_connection();
+            for index in 1..64 {
+                connection
+                    .execute(
+                        CONNECTION,
+                        rusqlite::params![
+                            format!("bulk-{index:02}"),
+                            "cloudflare",
+                            format!("Bulk {index:02}"),
+                            TIMESTAMP,
+                            "active",
+                            None::<String>
+                        ],
+                    )
+                    .unwrap();
+            }
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 64);
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "bulk-64",
+                    "cloudflare",
+                    "Bulk 64",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        // Every ADR-0027 platform is listed, each role still unavailable; a kind outside ADR-0027
+        // fails the read instead of being hidden.
+        let mut listed = self::database();
+        for kind in [
+            "afternic",
+            "atom",
+            "cloudflare",
+            "dynadot",
+            "godaddy",
+            "namecheap",
+            "porkbun",
+            "spaceship",
+        ] {
+            listed
+                .store
+                .fixture_connection()
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![kind, kind, kind, TIMESTAMP, "active", None::<String>],
+                )
+                .unwrap();
+        }
+        let kinds = listed.read_settings().unwrap().connections;
+        assert_eq!(kinds.len(), 8);
+        assert!(kinds.iter().all(|connection| {
+            connection.roles.iter().all(|role| {
+                role.availability == "unavailable"
+                    && role.unavailable_reason == "qualification_pending"
+            })
+        }));
+        listed
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "other",
+                    "example",
+                    "Other",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            listed.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn dns_health_reports_observed_zone_facts_without_health_verdicts() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["observed.test", "plain.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status) VALUES ('workspace-local','cf-observe','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid')", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+        database
+            .commit_cloudflare_dns_observation(&CloudflareDnsObservationWrite {
+                observation_id: "00000000-0000-4000-8000-000000000001".into(),
+                observation_run_id: "00000000-0000-4000-8000-000000000002".into(),
+                entity_id: "observed.test".into(),
+                connection_id: "cf-observe".into(),
+                lease_epoch: 3,
+                observed_at: TIMESTAMP.into(),
+                zone_name_ascii: "observed.test".into(),
+                authoritative_nameservers: vec!["ada.ns.cloudflare.com".into()],
+                dnssec_status: "unknown".into(),
+                availability: "available".into(),
+                zone_status: "active".into(),
+                records: vec![
+                    CloudflareDnsRecordWrite {
+                        record_key: "r1".into(),
+                        record_type: "A".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: None,
+                        priority: None,
+                        canonical_value: "192.0.2.1".into(),
+                        proxied: Some(true),
+                    },
+                    CloudflareDnsRecordWrite {
+                        record_key: "r2".into(),
+                        record_type: "TXT".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: Some(300),
+                        priority: None,
+                        canonical_value: "v=spf1 -all".into(),
+                        proxied: None,
+                    },
+                ],
+                provider_version_token: "v1".into(),
+                credential_generation: 1,
+                credential_scope_digest: "a".repeat(64),
+                credential_zone_digest: "c".repeat(64),
+                credential_public_proof: "b".repeat(64),
+            })
+            .unwrap();
+
+        let snapshot = database.read_dns_health(0, 10, "").unwrap();
+        assert_eq!(snapshot.kind, "dns_health");
+        assert_eq!(snapshot.total_rows, 2);
+        let current = snapshot.window.rows[0]
+            .observation
+            .as_ref()
+            .is_some_and(|zone| {
+                zone.availability == "available"
+                    && zone.evidence_status == "confirmed"
+                    && zone.zone_status == "active"
+            });
+        assert_eq!(
+            (
+                snapshot.asset_count,
+                snapshot.observed_count,
+                snapshot.warning_count
+            ),
+            (2, 1, u32::from(!current))
+        );
+        // The search narrows the rows to a domain prefix; the counts still cover every asset.
+        let searched = database.read_dns_health(0, 10, "obs").unwrap();
+        assert_eq!(
+            (
+                searched.total_rows,
+                searched.asset_count,
+                searched.observed_count
+            ),
+            (1, 2, 1)
+        );
+        assert_eq!(searched.window.rows[0].entity_id, "observed.test");
+        assert_eq!(
+            database.read_dns_health(0, 10, "zzz").unwrap().total_rows,
+            0
+        );
+        // Like the asset library, the prefix is case-folded and anything else non-canonical fails.
+        assert_eq!(
+            database.read_dns_health(0, 10, "Obs").unwrap().total_rows,
+            1
+        );
+        for hostile in ["ob s", "\u{e9}", "obs%", &"a".repeat(65)] {
+            assert!(
+                database.read_dns_health(0, 10, hostile).is_err(),
+                "{hostile:?} must be rejected"
+            );
+        }
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            ["observed.test", "plain.test"]
+        );
+        let observation = rows[0].observation.as_ref().unwrap();
+        assert_eq!(observation.zone_label, "observed.test");
+        assert_eq!(
+            observation.authoritative_nameservers,
+            ["ada.ns.cloudflare.com"]
+        );
+        assert_eq!(
+            (observation.record_counts.a, observation.record_counts.txt),
+            (1, 1)
+        );
+        assert!(rows[1].observation.is_none() && rows[1].zone_binding.is_none());
+        // Record values and Provider identifiers never reach this projection.
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "192.0.2.1",
+            "v=spf1",
+            "cf-observe",
+            "00000000-0000-4000-8000-000000000001",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into the DNS health projection"
+            );
+        }
+
+        assert_eq!(
+            database
+                .read_dns_health(1, 10, "")
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_dns_health(start, size, ""),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,verified_at,last_observed_at,created_at,updated_at) VALUES ('workspace-local','observed.test','cf-observe','cloudflare','zone',?1,?2,'observed.test',1,2,'verified',?3,?3,?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        let _ = connection;
+        let binding = database.read_dns_health(0, 1, "").unwrap().window.rows[0]
+            .zone_binding
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (
+                binding.connection_label.as_str(),
+                binding.validation_status.as_str()
+            ),
+            ("Cloudflare", "verified")
+        );
+        // An asset bound on another platform but carrying a Cloudflare observation: the observation
+        // says nothing about the bound Zone, so it is neither reported for the row nor counted.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','rebound.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','spaceship-1','spaceship','Spaceship',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','rebound.test','spaceship-1','spaceship','zone',?1,?2,'rebound.test',1,2,'unverified',?3,?3)", rusqlite::params!["f".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO cloudflare_dns_projection_heads (workspace_id,entity_id,lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at) SELECT workspace_id,'rebound.test',lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at FROM cloudflare_dns_projection_heads WHERE entity_id='observed.test'", []).unwrap();
+        }
+        let rebound = database.read_dns_health(0, 10, "").unwrap();
+        let row = &rebound.window.rows[2];
+        assert_eq!(row.entity_id, "rebound.test");
+        assert!(row.observation.is_none());
+        assert_eq!((rebound.asset_count, rebound.observed_count), (3, 1));
+        // A label that would smuggle control characters into the Renderer fails the whole read.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label='Cloud'||char(7)||'flare'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn dns_health_reports_zone_bindings_on_any_launch_platform_and_rejects_others() {
+        const ASSET: &str = "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)";
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]')";
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,?2,?3,'zone',?4,?5,?1,1,2,'unverified',?6,?6)";
+        let bind =
+            |database: &mut BusinessDatabase, entity: &str, connection_id: &str, kind: &str| {
+                database
+                    .store
+                    .fixture_connection()
+                    .execute(
+                        BINDING,
+                        rusqlite::params![
+                            entity,
+                            connection_id,
+                            kind,
+                            "d".repeat(64),
+                            "e".repeat(64),
+                            TIMESTAMP
+                        ],
+                    )
+                    .unwrap();
+            };
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            for entity in ["alpha.test", "beta.test"] {
+                connection
+                    .execute(ASSET, rusqlite::params![entity, TIMESTAMP])
+                    .unwrap();
+            }
+            for (id, kind, label) in [
+                ("spaceship-1", "spaceship", "Spaceship"),
+                ("porkbun-1", "porkbun", "Porkbun"),
+            ] {
+                connection
+                    .execute(CONNECTION, rusqlite::params![id, kind, label, TIMESTAMP])
+                    .unwrap();
+            }
+        }
+        bind(&mut database, "alpha.test", "spaceship-1", "spaceship");
+        let rows = database.read_dns_health(0, 10, "").unwrap().window.rows;
+        let binding = rows[0].zone_binding.as_ref().unwrap();
+        assert_eq!(
+            (
+                binding.provider_kind.as_str(),
+                binding.connection_label.as_str()
+            ),
+            ("spaceship", "Spaceship")
+        );
+        // A non-Cloudflare Zone has no composed observation, so none is reported for it.
+        assert!(rows[0].observation.is_none());
+
+        // A binding that names a platform other than its connection's fails the whole read, also
+        // from a page or a search that does not include it: the counts would still include it.
+        allow_legacy_rows(database.store.fixture_connection());
+        bind(&mut database, "beta.test", "porkbun-1", "spaceship");
+        for (start, size, query) in [(0, 10, ""), (0, 1, ""), (0, 10, "alpha")] {
+            assert!(
+                matches!(
+                    database.read_dns_health(start, size, query),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{start} {size} {query:?}"
+            );
+        }
+
+        // A platform outside ADR-0027 never reaches the Renderer.
+        let mut database = self::database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(ASSET, rusqlite::params!["alpha.test", TIMESTAMP])
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params!["other-1", "example", "Example", TIMESTAMP],
+                )
+                .unwrap();
+        }
+        bind(&mut database, "alpha.test", "other-1", "example");
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn storage_rejects_mismatched_bindings_and_malformed_expiry_dates() {
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,'porkbun-1',?2,'zone',?3,?3,?1,1,2,'unverified',?4,?4)";
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "beta.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','porkbun-1','porkbun','Porkbun',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+        let bind = |entity: &str, kind: &str| {
+            connection.execute(
+                BINDING,
+                rusqlite::params![entity, kind, "d".repeat(64), TIMESTAMP],
+            )
+        };
+        // A binding must name its connection's platform.
+        assert!(bind("alpha.test", "spaceship").is_err());
+        bind("alpha.test", "porkbun").unwrap();
+        // Once bound, the connection's platform cannot change underneath the binding.
+        assert!(
+            connection
+                .execute(
+                    "UPDATE local_provider_connections SET provider_kind = 'spaceship'",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Renamed'",
+                [],
+            )
+            .unwrap();
+
+        // A recorded expiry is a real calendar date or nothing, on insert and on update.
+        for (index, (expires_on, valid)) in [
+            (Some("2028-02-29"), true),
+            (None, true),
+            (Some("2026-02-30"), false),
+            (Some("2026-1-10"), false),
+            (Some("2026-11-10T00:00:00Z"), false),
+            (Some(""), false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                connection
+                    .execute(
+                        "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                        [expires_on],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+            assert_eq!(
+                connection
+                    .execute(
+                        "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?3,'active',?1,?2,?2,1)",
+                        rusqlite::params![expires_on, TIMESTAMP, format!("gamma-{index}.test")],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+        }
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn cloudflare_dns_observation_atomically_writes_local_evidence_and_count_projection() {
@@ -7594,7 +10615,7 @@ mod tests {
         assert_eq!(new_entity.source_sequence, 1);
     }
 
-    fn binding_database() -> BusinessDatabase {
+    fn binding_database() -> TestDatabase {
         let mut database = database();
         database
             .upsert_domain_asset(
@@ -7611,6 +10632,72 @@ mod tests {
             .unwrap();
         database.seed_verified_cloudflare_binding_for_test("example.com");
         database
+    }
+
+    #[test]
+    fn dns_health_offers_a_bind_exactly_when_the_bind_would_be_admitted() {
+        let bindable = |database: &TestDatabase| {
+            database.read_dns_health(0, 10, "").unwrap().window.rows[0].bindable
+        };
+        // Every evidence refusal the bind makes: revoked or invalid credentials, a changed
+        // credential generation or Zone, an archived asset, unavailable or uncommitted evidence.
+        let refusals = [
+            "UPDATE cloudflare_dns_staged_batches SET observation_availability='unavailable'",
+            "UPDATE cloudflare_dns_staged_batches SET visibility='staged'",
+            "UPDATE domain_assets SET lifecycle_status='archived' WHERE entity_id='example.com'",
+            "UPDATE local_provider_connections SET lifecycle_status='invalid'",
+            "UPDATE local_provider_connections SET credential_use_state='revocation_pending'",
+            "UPDATE local_provider_connections SET credential_use_state='remediation_required'",
+            "UPDATE local_provider_connections SET active_credential_zone_digest='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+            "UPDATE cloudflare_credential_roots SET known_envelope_generation=2,highest_resolved_generation=2,head_ledger_generation=2",
+        ];
+        for mutation in refusals {
+            let mut database = binding_database();
+            assert!(bindable(&database), "fixture is bindable before {mutation}");
+            database
+                .store
+                .fixture_connection()
+                .execute_batch(&format!(
+                    "PRAGMA foreign_keys=OFF; DROP TRIGGER cloudflare_dns_staged_batch_immutable; {mutation}"
+                ))
+                .unwrap();
+            assert!(!bindable(&database), "{mutation}");
+            assert_eq!(
+                database
+                    .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+                Err(BusinessDatabaseError::ProviderBindingUnavailable),
+                "{mutation}"
+            );
+        }
+
+        // Once bound, the live binding is not offered again; detached with the same identity it is,
+        // and detached under another Zone it is not, because the bind would refuse the change.
+        let mut database = binding_database();
+        database
+            .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(()))
+            .unwrap();
+        assert!(!bindable(&database));
+        let connection = database.store.fixture_connection();
+        connection
+            .execute_batch(
+                "UPDATE domain_asset_provider_bindings SET validation_status='detached', verified_at=NULL",
+            )
+            .unwrap();
+        assert!(bindable(&database));
+        database
+            .store
+            .fixture_connection()
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 DROP TRIGGER domain_asset_provider_bindings_identity_immutable;
+                 UPDATE domain_asset_provider_bindings SET resource_binding_digest='dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'",
+            )
+            .unwrap();
+        assert!(!bindable(&database));
+        assert_eq!(
+            database.bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
     }
 
     #[test]
@@ -8053,6 +11140,36 @@ mod tests {
             database.read_asset_library(0, 1, "bad\u{202e}"),
             Err(BusinessDatabaseError::QueryRejected)
         );
+        // A recorded expiry that is not a real calendar date fails the asset library from any page
+        // or search, since the expiring count would include it, and fails that asset's detail.
+        allow_legacy_rows(database.store.fixture_connection());
+        for (expires_on, valid) in [
+            ("2028-02-29", true),
+            ("2026-02-30", false),
+            ("2027-02-29", false),
+            ("2026-1-10", false),
+            ("2026-11-10x", false),
+            ("2026-11-10T00:00:00Z", false),
+        ] {
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                    [expires_on],
+                )
+                .unwrap();
+            assert_eq!(
+                database.read_asset_library(0, 1, "alpha").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+            assert_eq!(
+                database.read_domain_detail("beta.test").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+        }
     }
 
     #[test]

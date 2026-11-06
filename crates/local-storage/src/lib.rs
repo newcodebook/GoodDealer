@@ -133,6 +133,10 @@ mod portfolio_projection;
 mod sqlcipher_key_sql;
 mod sqlcipher_process_policy;
 
+pub use active_workspace::batch_operations::{
+    BatchOperationRow, BatchOperationsReadSnapshot, BatchOperationsWindow, BatchPlannedCounts,
+    BatchResultCounts,
+};
 pub use active_workspace::business::CloudflareDnsRecordWrite;
 pub use active_workspace::business::DomainAssetMutationReceipt;
 pub(crate) use active_workspace::business::{
@@ -153,6 +157,21 @@ pub(crate) use active_workspace::business::{
     validate_rebootstrap_timestamp, verify_rebootstrap_checkpoint_digest,
     verify_rebootstrap_page_digest, verify_rebootstrap_plan_digest,
 };
+pub use active_workspace::dns_health::{
+    DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,
+    DnsZoneObservationSummary,
+};
+pub use active_workspace::history::{
+    HistoryFieldChange, HistoryReadSnapshot, HistoryRow, HistoryWindow,
+};
+pub use active_workspace::manual_tasks::{
+    ManualTaskRow, ManualTasksReadSnapshot, ManualTasksWindow,
+};
+pub use active_workspace::renewals::{RenewalRow, RenewalsReadSnapshot, RenewalsWindow};
+pub use active_workspace::sales::{SalesListingRow, SalesMoney, SalesReadSnapshot, SalesWindow};
+pub use active_workspace::settings::{
+    SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
+};
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
@@ -169,16 +188,19 @@ pub use backup::{
     DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
     DesktopVerifiedBackupArtifact,
 };
-pub use backup::{DesktopLocalBusinessState, DesktopLocalBusinessStatus};
+pub use backup::{DesktopDeviceLease, DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
-    DesktopAssetLibraryReadRequest, DesktopCloudflareConnectionRead,
-    DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,
-    DesktopCloudflareObservationRecord, DesktopConflict, DesktopConflictCenterView,
-    DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
+    DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
+    DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated,
+    DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,
+    DesktopCloudflareObservationReadRequest, DesktopCloudflareObservationRecord, DesktopConflict,
+    DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolutionReceipt,
+    DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
     DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopSyncSnapshotView,
-    DesktopSyncTransportState,
+    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopHistoryReadRequest,
+    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopSyncSnapshotView, DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{
@@ -190,10 +212,13 @@ pub use desktop_native_cloud::{
     DesktopCloudflareRecoveryPlan, DesktopCloudflareRecoveryScan, DesktopCloudflareResolution,
     DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition, DesktopSyncPullExchange,
     DesktopSyncPushClaim, DesktopSyncPushDisposition, DesktopSyncPushWork,
-    InspectingCloudflareProvision, MarkedCloudflareProvision, PreparedCloudflareObservation,
-    PreparedCloudflareProvision,
+    InspectingCloudflareProvision, InspectingCloudflareRevocation, MarkedCloudflareProvision,
+    MarkedCloudflareRevocation, PreparedCloudflareObservation, PreparedCloudflareProvision,
+    PreparedCloudflareRevocation,
 };
 pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 
 #[cfg(test)]
 mod sqlcipher_fixture;
+#[cfg(test)]
+mod test_tempdir;

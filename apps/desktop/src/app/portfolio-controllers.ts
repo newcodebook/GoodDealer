@@ -1,6 +1,7 @@
 import type {
   AssetLibraryViewModel,
   AssetLibraryWindowRequest,
+  CanonicalDomainName,
   DomainDetailViewModel,
   LocalDomainAssetMutationReceipt,
   PortfolioReadErrorCode,
@@ -8,7 +9,7 @@ import type {
   ValidatedPortfolioPresentationPort,
 } from "@gooddealer/client-core";
 
-import { LocalReadError, type LocalBusinessPort, type LocalBusinessStatus } from "../adapters/tauri";
+import { LocalReadError, LocalWriteError, type LocalBusinessPort, type LocalBusinessStatus } from "../adapters/tauri";
 
 export interface PortfolioRequestToken { readonly generation: number; readonly identity: string; }
 
@@ -173,4 +174,34 @@ function isPortfolioReadErrorCode(code: string): code is PortfolioReadErrorCode 
   return code === "LOCAL_WORKSPACE_REJECTED" || code === "LOCAL_STORAGE_REJECTED" || code === "LOCAL_SCHEMA_REJECTED"
     || code === "LOCAL_PROJECTION_REJECTED" || code === "LOCAL_REVISION_REJECTED"
     || code === "LOCAL_RESPONSE_REJECTED";
+}
+
+/**
+ * Adds one domain through the mutation controller. A committed add resolves `added` with the
+ * accepted mutation; a domain the workspace already holds resolves `exists`; a deleted one, which
+ * keeps its tombstone and cannot be re-added, resolves `deleted`; anything else,
+ * including a superseded or unaccepted receipt, resolves `failed`. Retrying is safe because the
+ * domain is the deduplication key.
+ */
+export function addDomainAsset(
+  port: LocalBusinessPort,
+  controller: PortfolioMutationController,
+  domain: CanonicalDomainName,
+  expectedReadGeneration: number,
+): Promise<{ readonly outcome: "added"; readonly accepted: AcceptedPortfolioMutation } | { readonly outcome: "exists" | "deleted" | "failed" }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value: Parameters<typeof resolve>[0]) => { if (!settled) { settled = true; resolve(value); } };
+    void controller.execute(
+      `create:${domain}`,
+      expectedReadGeneration,
+      async () => port.createDomainAsset({
+        mutationId: crypto.randomUUID(),
+        expectedReadGeneration,
+        asset: { entityId: domain, note: null, portfolioId: null, tags: [], targetPrice: null },
+      }),
+      (accepted) => settle({ outcome: "added", accepted }),
+      (error) => settle({ outcome: !(error instanceof LocalWriteError) ? "failed" : error.code === "DESKTOP_LOCAL_ASSET_DELETED" ? "deleted" : "exists" }),
+    ).finally(() => settle({ outcome: "failed" }));
+  });
 }

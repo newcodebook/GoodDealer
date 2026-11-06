@@ -1,7 +1,7 @@
 /**
  * Recipe contract status.
  *
- * Unblocked by W4 (P0-29): the Rust-side RecipeStep AST is now defined in
+ * The Rust-side RecipeStep AST is defined in
  * `crates/automation-host/src/recipe_ast.rs`.  The TypeScript recipe layer
  * mirrors the allowed step types without re-implementing the closed enum —
  * the Rust AST is the authoritative parse boundary.

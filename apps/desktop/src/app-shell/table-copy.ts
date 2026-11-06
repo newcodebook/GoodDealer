@@ -9,3 +9,9 @@ export function shellTableLabels(locale: Locale) {
     selectRowLabel: copy.selectRow,
   };
 }
+
+/** Localized labels for the kit `Pagination` under a paged Desktop table. */
+export function shellPaginationLabels(locale: Locale) {
+  const copy = getPresentationCopy(locale, "shell");
+  return { previous: copy.previousPage, next: copy.nextPage, perPage: copy.perPage };
+}

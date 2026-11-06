@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AssetLibraryViewModel, DomainDetailViewModel, LocalDomainAssetMutationReceipt } from "@gooddealer/client-core";
 
-import { LocalReadError } from "../adapters/tauri";
+import { LocalReadError, LocalWriteError } from "../adapters/tauri";
 import {
+  addDomainAsset,
   createPortfolioMutationController,
   createPortfolioReadController,
   createPortfolioReadCoordinator,
@@ -39,12 +40,12 @@ function detail(domain: string, readGeneration: number): DomainDetailViewModel {
     readGeneration,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 0, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
     state: "normal",
-    asset: { id: domain, domain, tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean", targetPrice: null, expiresOn: null, assetVersion: 1, portfolioId: null, acquiredOn: null, acquisitionCost: null, autoRenew: null, registrarLock: null, note: null },
+    asset: { id: domain, domain, tags: [], registrar: null, lifecycleStatus: "active", syncStatus: "clean", targetPrice: null, expiresOn: null, expiring: false, assetVersion: 1, portfolioId: null, acquiredOn: null, acquisitionCost: null, autoRenew: null, registrarLock: null, note: null },
     conflictFields: [],
   };
 }
 
-function receipt(operation: "edit" | "delete", entityId: string, readGeneration: number): LocalDomainAssetMutationReceipt {
+function receipt(operation: "create" | "edit" | "delete", entityId: string, readGeneration: number): LocalDomainAssetMutationReceipt {
   return {
     schemaVersion: 1,
     disposition: "committed",
@@ -181,6 +182,7 @@ describe("Desktop portfolio read and mutation fences", () => {
     }));
     const controller = createPortfolioMutationController({
       status,
+      createDomainAsset: vi.fn(),
       editDomainAsset: vi.fn(),
       deleteDomainAsset: vi.fn(),
     });
@@ -208,6 +210,7 @@ describe("Desktop portfolio read and mutation fences", () => {
     }));
     const controller = createPortfolioMutationController({
       status,
+      createDomainAsset: vi.fn(),
       editDomainAsset: vi.fn(),
       deleteDomainAsset: vi.fn(),
     });
@@ -234,6 +237,7 @@ describe("Desktop portfolio read and mutation fences", () => {
     }));
     const controller = createPortfolioMutationController({
       status,
+      createDomainAsset: vi.fn(),
       editDomainAsset: vi.fn(),
       deleteDomainAsset: vi.fn(),
     });
@@ -249,5 +253,39 @@ describe("Desktop portfolio read and mutation fences", () => {
 
     expect(status).toHaveBeenCalledOnce();
     expect(accept).not.toHaveBeenCalled();
+  });
+});
+
+describe("Adding a domain", () => {
+  const active = vi.fn(async () => ({
+    schemaVersion: 2 as const,
+    state: "active" as const,
+    capabilities: ["local:read", "workspace:mutate"] as const,
+    readGeneration: 8,
+  }));
+  const port = (createDomainAsset: () => Promise<LocalDomainAssetMutationReceipt>) => ({
+    status: active, createDomainAsset: vi.fn(createDomainAsset), editDomainAsset: vi.fn(), deleteDomainAsset: vi.fn(),
+  });
+
+  it("reports added only for a receipt accepted at a fresh Active generation, and sends the canonical domain", async () => {
+    const business = port(async () => receipt("create", "added.test", 8));
+    const result = await addDomainAsset(business, createPortfolioMutationController(business), "added.test", 7);
+    expect(result.outcome).toBe("added");
+    expect(business.createDomainAsset).toHaveBeenCalledWith(expect.objectContaining({
+      expectedReadGeneration: 7,
+      asset: { entityId: "added.test", note: null, portfolioId: null, tags: [], targetPrice: null },
+    }));
+  });
+
+  it("names a duplicate and a still-tombstoned deletion, and treats every other failure or an unaccepted receipt as failed", async () => {
+    const duplicate = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_EXISTS"); });
+    expect((await addDomainAsset(duplicate, createPortfolioMutationController(duplicate), "held.test", 7)).outcome).toBe("exists");
+    const tombstoned = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_DELETED"); });
+    expect((await addDomainAsset(tombstoned, createPortfolioMutationController(tombstoned), "gone.test", 7)).outcome).toBe("deleted");
+    const broken = port(async () => { throw "DESKTOP_LOCAL_HOST_STORAGE_REJECTED"; });
+    expect((await addDomainAsset(broken, createPortfolioMutationController(broken), "x.test", 7)).outcome).toBe("failed");
+    // The status no longer matches the receipt's generation, so the add is not published as done.
+    const stale = port(async () => receipt("create", "late.test", 9));
+    expect((await addDomainAsset(stale, createPortfolioMutationController(stale), "late.test", 7)).outcome).toBe("failed");
   });
 });

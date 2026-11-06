@@ -5,6 +5,8 @@ const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
   "cloudflare_connection_activate",
+  "cloudflare_connection_create",
+  "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
   "cloudflare_zone_observe",
@@ -16,13 +18,22 @@ const reviewedCommands = [
   "local_backup_export",
   "local_backup_restore_begin",
   "local_backup_restore_status",
+  "local_batch_operations_read",
   "local_business_status",
   "local_conflict_center_read",
   "local_conflict_resolve",
+  "local_device_lease_read",
+  "local_dns_health_read",
+  "local_domain_asset_create",
   "local_domain_asset_delete",
   "local_domain_asset_edit",
   "local_domain_asset_provider_bind",
   "local_domain_detail_read",
+  "local_history_read",
+  "local_manual_tasks_read",
+  "local_renewals_read",
+  "local_sales_read",
+  "local_settings_read",
   "local_sync_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(

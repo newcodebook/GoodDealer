@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./decimal-amount";
+
 /**
  * Business money stays decimal text at this boundary. It is never converted to
  * a JavaScript number, so display code cannot accidentally introduce binary

@@ -71,7 +71,7 @@ export const meta: PageMeta = {
           name: "Which registrars and platforms are supported?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Registrars start with Spaceship, Namecheap, Dynadot, and Alibaba Cloud. DNS supports Cloudflare and registrar-native DNS. Sales platforms cover Atom (Dan.com), Afternic, and SellerHub. Registrars not yet integrated can be supplemented via file import.",
+            text: "The release target covers Spaceship, Namecheap, Dynadot, Alibaba Cloud, Cloudflare, Atom (Dan.com), Afternic, and SellerHub. Each integration remains unavailable until its compatibility and safety gates pass. Domains from platforms not yet integrated can be added manually.",
           },
         },
         {
@@ -132,7 +132,7 @@ export const data: MkData = {
     { side: "right", tag: "Price Sync", title: "Change a price once, synced across every platform", desc: "After a confirmed bulk price change, results sync to supported sales platforms and your second computer. If a value is wrong, review and submit a corrective change.", anim: "sync" },
   ],
   pillars: [
-    { k: "asset", title: "Unified Asset Library", body: "Read domains from registrars like Spaceship. Registrars not yet integrated can be supplemented with file imports. Duplicates are detected automatically. Registrar, expiry, renewal cost, lock status, and DNS provider visible on one screen.", items: ["Tags · Portfolios · Acquisition cost · Notes", "Unrealized gain/loss shown alongside asking price"] },
+    { k: "asset", title: "Unified Asset Library", body: "Read domains from connected registrars like Spaceship. Domains from platforms not yet integrated can be added manually. Duplicates are detected automatically. Registrar, expiry, renewal cost, lock status, and DNS provider visible on one screen.", items: ["Tags · Portfolios · Acquisition cost · Notes", "Unrealized gain/loss shown alongside asking price"] },
     { k: "sales", title: "Multi-Platform Sales Management", body: "View listing status on Atom, SellerHub, and Afternic. Set buy-it-now prices, minimum offers, and per-platform prices in bulk. Alerts when a platform price has been manually changed.", items: ["Multiple accounts per platform, managed separately", "Platforms without API support get a manual task guide"] },
     { k: "dns", title: "DNS & Ownership Verification", body: "Automatically detect the DNS provider a domain actually uses. Add verification records on Cloudflare or registrar DNS without overwriting your existing email-related settings (SPF / DKIM / DMARC).", items: ["Changing DNS provider requires explicit confirmation", "Auto-waits for DNS propagation and checks verification results"] },
     { k: "batch", title: "Bulk Operations — Preview Before You Commit", body: "Filter by tag, registrar, TLD, listing status, and expiry. Bulk-change prices, list/delist, and edit DNS. Every change, risk warning, and unsupported item is listed before execution.", items: ["Confirm button shows the exact operation count", "Results categorized: success / failed / pending / needs manual action"] },
@@ -158,7 +158,7 @@ export const data: MkData = {
     { q: "Does it automatically monitor sales and delist domains?", a: "No. The first version does not run in the background automatically. When you refresh, or when a sale is detected during another operation, the software generates a cross-platform delist checklist for you to confirm and execute." },
     { q: "Are platform passwords and API keys uploaded?", a: "No. Passwords and login details always stay on your computer. GoodDealer's cloud and operations backend cannot read them. API keys are entered in a secure input field within the software; the cloud only syncs domain names, prices, and other business data." },
     { q: "How many devices can I link?", a: "Up to two computers. Only one can execute operations at a time; the other can only view. Adding a third requires unlinking an existing one first. If you unlink the active computer, the new device must wait for the current operation to finish before taking over." },
-    { q: "Which registrars and platforms are supported?", a: "The release target covers mainstream registrars, sales platforms, and DNS providers, including Spaceship, Namecheap, Dynadot, Alibaba Cloud, Cloudflare, Atom, Spaceship SellerHub, and Afternic. Each integration is released only after its compatibility and safety gates pass; unsupported registrars can be supplemented via file import." },
+    { q: "Which registrars and platforms are supported?", a: "The release target covers Spaceship, Namecheap, Dynadot, Alibaba Cloud, Cloudflare, Atom, Spaceship SellerHub, and Afternic. Each integration is released only after its compatibility and safety gates pass. Domains from platforms not yet integrated can be added manually." },
     { q: "Is there a purely local, offline mode?", a: "There is no permanent local-only mode: cloud sync is automatic and keeps the sanitized business replica available to your other computer. The desktop app still saves business work to its encrypted local database first and, after account and device authorization, can continue within its verified offline window. Queued changes sync when the connection returns. Platform accounts, passwords, API keys, and browser sessions remain only on that computer." },
     { q: "Does the 10-year special renew automatically?", a: "No. The 10-year special prepays a fixed 10-year term and does not renew automatically. Monthly and annual plans can be cancelled anytime and stop billing at the end of the paid period." },
   ],
@@ -263,7 +263,7 @@ export const data: MkData = {
       syncWin: "Price Sync · Change Once",
       syncNote: "Change once · pulse travels along spokes · synced one by one",
     },
-    platforms: { tag: "Platform Coverage", tagSub: "Registrars · Sales · DNS", h2: "Mainstream registrars and sales platforms, expanding coverage", lead: "GoodDealer's release target covers most mainstream domain platforms. Gold marks the release target, not current availability: every integration remains unavailable until its compatibility and safety gates pass.", soon: "Future target", footerNote: "■ Gold border = release target, subject to compatibility and safety gates · Others follow by demand · Unsupported registrars can import files" },
+    platforms: { tag: "Platform Coverage", tagSub: "Registrars · Sales · DNS", h2: "Mainstream registrars and sales platforms, expanding coverage", lead: "GoodDealer's release target covers most mainstream domain platforms. Gold marks the release target, not current availability: every integration remains unavailable until its compatibility and safety gates pass.", soon: "Future target", footerNote: "■ Gold border = release target, subject to compatibility and safety gates · Others follow by demand · Domains from platforms not yet integrated can be added manually" },
     security: {
       tag: "Security Model",
       tagSub: "Passwords stay local · Cloud read-only",

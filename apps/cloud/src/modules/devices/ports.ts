@@ -227,7 +227,7 @@ export interface AuditChainRegistryPort {
 }
 
 export interface DrainProofSignaturePort {
-  /** P0-17 Fallback: this return type deliberately cannot express success. */
+  /** This return type deliberately cannot express success until a drain-proof verifier is composed. */
   checkDrainProofSignature(input: {
     readonly transcript: Uint8Array;
     readonly signature: string;
@@ -295,7 +295,7 @@ export interface CapabilityVerifierPort {
 }
 
 export interface LeaseSignerPort {
-  /** P0-16 deliberately has no success variant. Widening this type requires a later Gate decision. */
+  /** The in-memory bootstrap path deliberately has no success variant; widening it requires a Gate decision. */
   signActiveDeviceLease(
     claims: ActiveDeviceLeaseClaims,
   ): Promise<{ readonly issued: false; readonly reason: "lease_issuance_disabled" }>;
@@ -405,7 +405,7 @@ export class BindingOnlyCapabilityVerifier implements CapabilityVerifierPort {
   }
 }
 
-/** P0-16 Fallback: issuance is structurally impossible through this port. */
+/** Issuance is structurally impossible through this in-memory port. */
 export class DenyingLeaseSigner implements LeaseSignerPort {
   async signActiveDeviceLease(): Promise<{
     readonly issued: false;
@@ -437,23 +437,23 @@ export class DenyingCheckpointCatalog implements CheckpointCatalogPort {
 
 export class DenyingWorkspaceRevisionReader implements WorkspaceRevisionPort {
   async readHead(): Promise<never> {
-    throw new Error("workspace revision reads are unavailable in the P0-16 default");
+    throw new Error("workspace revision reads are unavailable in the denying default");
   }
 }
 
 export class DenyingMutationPageReader implements MutationPagePort {
   async readPage(): Promise<never> {
-    throw new Error("mutation page reads are unavailable in the P0-16 default");
+    throw new Error("mutation page reads are unavailable in the denying default");
   }
 }
 
 export class DenyingDeviceCursor implements DeviceCursorPort {
   async retireCursor(): Promise<never> {
-    throw new Error("device cursor retirement is unavailable in the P0-16 default");
+    throw new Error("device cursor retirement is unavailable in the denying default");
   }
 
   async activateCursor(): Promise<never> {
-    throw new Error("device cursor activation is unavailable in the P0-16 default");
+    throw new Error("device cursor activation is unavailable in the denying default");
   }
 }
 

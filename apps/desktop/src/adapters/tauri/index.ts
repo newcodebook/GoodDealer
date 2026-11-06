@@ -2,11 +2,39 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   copyPlainData,
+  batchOperationsWindowRequestSchema,
+  parseBatchOperationsRead,
+  type BatchOperationsRead,
+  type BatchOperationsReadPort,
+  historyWindowRequestSchema,
+  parseHistoryRead,
+  type HistoryRead,
+  type HistoryReadPort,
+  manualTasksWindowRequestSchema,
+  parseManualTasksRead,
+  type ManualTasksRead,
+  type ManualTasksReadPort,
   assetLibraryWindowRequestSchema,
   canonicalDomainNameSchema,
   parseAssetLibraryQuery,
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
+  parseDnsHealthRead,
+  parseRenewalsRead,
+  parseSalesRead,
+  parseSettingsRead,
+  renewalsWindowRequestSchema,
+  salesWindowRequestSchema,
+  dnsHealthWindowRequestSchema,
+  type DnsHealthPort,
+  type DnsHealthRead,
+  type RenewalsRead,
+  type RenewalsReadPort,
+  type SalesRead,
+  type SalesReadPort,
+  type SettingsRead,
+  type SettingsReadPort,
+  localDomainAssetCreateRequestSchema,
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
@@ -20,6 +48,7 @@ import {
   type ConflictResolutionIntent,
   type ConflictResolutionReceipt,
   type SyncSnapshotViewModel,
+  type LocalDomainAssetCreateRequest,
   type LocalDomainAssetEditRequest,
   type LocalDomainAssetDeleteRequest,
   type LocalDomainAssetMutationReceipt,
@@ -43,17 +72,47 @@ export interface LocalBusinessStatus {
   readonly readGeneration: number;
 }
 
+/** The Host refusals of an add the person can act on; every other refusal stays opaque. */
+const localWriteErrorCodes = ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED"] as const;
+export type LocalWriteErrorCode = (typeof localWriteErrorCodes)[number];
+
+/**
+ * A write the Host refused for a reason the person can act on: the domain is already held, or it
+ * was deleted and keeps its tombstone, so it cannot be re-added yet. Every other refusal stays an
+ * opaque failure, as for edits.
+ */
+export class LocalWriteError extends Error {
+  constructor(readonly code: LocalWriteErrorCode) {
+    super(code);
+    this.name = "LocalWriteError";
+  }
+}
+
 export interface LocalBusinessPort {
   status(): Promise<LocalBusinessStatus>;
+  /** Adds a domain the workspace does not hold; a held or still-tombstoned one rejects with `LocalWriteError`. */
+  createDomainAsset(request: LocalDomainAssetCreateRequest): Promise<LocalDomainAssetMutationReceipt>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
-  /** Optional until the asset-detail UI exposes the explicit bind action. */
+  /** Optional so read-only adapters need not supply it; the DNS page binds through it only when writable. */
   bindDomainAssetProvider?(request: LocalDomainAssetProviderBindingRequest): Promise<LocalDomainAssetProviderBindingReceipt>;
 }
 
 export interface LocalConflictPort {
   conflictCenter(): Promise<ConflictCenterViewModel>;
   resolveConflict(request: ConflictResolutionIntent): Promise<ConflictResolutionReceipt>;
+}
+
+/** The Active device and its lease epoch, for display. No envelope, key or capability crosses here. */
+export interface LocalDeviceLease {
+  readonly schemaVersion: 1;
+  readonly deviceId: string;
+  readonly leaseEpoch: number;
+}
+
+export interface LocalDeviceLeasePort {
+  /** Rejects whenever this device does not hold a current Active lease. */
+  read(): Promise<LocalDeviceLease>;
 }
 
 export interface LocalSyncStatusPort {
@@ -92,10 +151,24 @@ export interface CloudflareObservation {
   }[];
 }
 
+/** The Cloudflare connection activation provisions into; it holds no credential yet. */
+export interface CloudflareConnectionCreated {
+  readonly schemaVersion: 1;
+  readonly connectionRef: string;
+  readonly displayLabel: string;
+  /** False when a connection that was never activated is returned instead of adding another. */
+  readonly created: boolean;
+  readonly readGeneration: number;
+}
+
 export interface CloudflarePort {
   status(): Promise<CloudflareConnectionStatus>;
+  /** Refused by the Host with `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified. */
+  create(displayLabel: string): Promise<CloudflareConnectionCreated>;
   /** Native opens the bounded credential capture; the token never enters this argument. */
   activate(connectionRef: string): Promise<void>;
+  /** Queues revocation; the Host denies the credential at once and tombstones it in custody. */
+  revoke(connectionRef: string): Promise<void>;
   observe(connectionRef: string, entityId: string): Promise<void>;
   readObservation(entityId: string): Promise<CloudflareObservation>;
 }
@@ -104,14 +177,25 @@ const commands = {
   status: "local_business_status",
   readAssetLibrary: "local_asset_library_read",
   readDomainDetail: "local_domain_detail_read",
+  readDnsHealth: "local_dns_health_read",
+  readSettings: "local_settings_read",
+  readRenewals: "local_renewals_read",
+  readBatchOperations: "local_batch_operations_read",
+  readHistory: "local_history_read",
+  readManualTasks: "local_manual_tasks_read",
+  readSales: "local_sales_read",
+  createDomainAsset: "local_domain_asset_create",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
   conflictCenter: "local_conflict_center_read",
   resolveConflict: "local_conflict_resolve",
   localSyncStatus: "local_sync_status",
+  readDeviceLease: "local_device_lease_read",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
+  cloudflareCreate: "cloudflare_connection_create",
+  cloudflareRevoke: "cloudflare_connection_revoke",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
 } as const;
@@ -121,8 +205,15 @@ export function createCloudflarePort(): CloudflarePort {
     async status() {
       return parseCloudflareStatus(await invoke(commands.cloudflareStatus));
     },
+    async create(displayLabel) {
+      if (typeof displayLabel !== "string" || displayLabel.length === 0 || displayLabel.length > 256) throw new TypeError("invalid Cloudflare connection label");
+      return parseCloudflareConnectionCreated(await invoke(commands.cloudflareCreate, { request: { schemaVersion: 1, displayLabel } }));
+    },
     async activate(connectionRef) {
       await invoke(commands.cloudflareActivate, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+    },
+    async revoke(connectionRef) {
+      await invoke(commands.cloudflareRevoke, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
     },
     async observe(connectionRef, entityId) {
       await invoke(commands.cloudflareObserve, {
@@ -161,6 +252,122 @@ export type LocalReadErrorCode =
 
 export class LocalReadError extends Error {
   constructor(readonly code: LocalReadErrorCode) { super(code); this.name = "LocalReadError"; }
+}
+
+/** DNS health windows from the Host; a response from any other provenance is rejected. */
+export function createLocalDnsHealthPort(): DnsHealthPort {
+  return {
+    async loadDnsHealth(request): Promise<DnsHealthRead> {
+      let validatedRequest;
+      try { validatedRequest = dnsHealthWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Operation plan windows from the Host; any other provenance is rejected. */
+export function createLocalBatchOperationsPort(): BatchOperationsReadPort {
+  return {
+    async loadBatchOperations(request): Promise<BatchOperationsRead> {
+      let validatedRequest;
+      try { validatedRequest = batchOperationsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseBatchOperationsRead(await invoke(commands.readBatchOperations, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Revision ledger windows from the Host; any other provenance is rejected. */
+export function createLocalHistoryPort(): HistoryReadPort {
+  return {
+    async loadHistory(request): Promise<HistoryRead> {
+      let validatedRequest;
+      try { validatedRequest = historyWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseHistoryRead(await invoke(commands.readHistory, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Manual task windows from the Host; any other provenance is rejected. */
+export function createLocalManualTasksPort(): ManualTasksReadPort {
+  return {
+    async loadManualTasks(request): Promise<ManualTasksRead> {
+      let validatedRequest;
+      try { validatedRequest = manualTasksWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseManualTasksRead(await invoke(commands.readManualTasks, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Expiring-asset windows from the Host; any other provenance is rejected. */
+export function createLocalRenewalsPort(): RenewalsReadPort {
+  return {
+    async loadRenewals(request): Promise<RenewalsRead> {
+      let validatedRequest;
+      try { validatedRequest = renewalsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseRenewalsRead(await invoke(commands.readRenewals, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Observed marketplace listing windows from the Host; any other provenance is rejected. */
+export function createLocalSalesPort(): SalesReadPort {
+  return {
+    async loadSales(request): Promise<SalesRead> {
+      let validatedRequest;
+      try { validatedRequest = salesWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseSalesRead(await invoke(commands.readSales, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Redacted Provider connections and role availability; any other provenance is rejected. */
+export function createLocalSettingsPort(): SettingsReadPort {
+  return {
+    async loadSettings(): Promise<SettingsRead> {
+      try {
+        const value = parseSettingsRead(await invoke(commands.readSettings));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
 }
 
 export function createLocalPortfolioPresentationPort(): ValidatedPortfolioPresentationPort {
@@ -236,6 +443,23 @@ export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProvider
     async status() {
       return parseStatus(await invoke(commands.status));
     },
+    async createDomainAsset(request) {
+      const parsed = localDomainAssetCreateRequestSchema.parse(request);
+      let receipt: unknown;
+      try {
+        receipt = await invoke(commands.createDomainAsset, { request: parsed });
+      } catch (error) {
+        const named = localWriteErrorCodes.find((code) => code === error);
+        if (named !== undefined) throw new LocalWriteError(named);
+        throw error;
+      }
+      const parsedReceipt = localDomainAssetMutationReceiptSchema.parse(receipt);
+      // The Host answers for the request it was given; anything else is not this write's receipt.
+      if (parsedReceipt.operation !== "create" || parsedReceipt.entityId !== parsed.asset.entityId || parsedReceipt.mutationId !== parsed.mutationId) {
+        throw new TypeError("create receipt does not match the request");
+      }
+      return parsedReceipt;
+    },
     async editDomainAsset(request) {
       const parsed = localDomainAssetEditRequestSchema.parse(request);
       return localDomainAssetMutationReceiptSchema.parse(await invoke(commands.editDomainAsset, { request: parsed }));
@@ -262,6 +486,25 @@ export function createLocalConflictPort(): LocalConflictPort {
 
 export function createLocalSyncStatusPort(): LocalSyncStatusPort {
   return { async status() { return parseSyncSnapshotViewModel(await invoke(commands.localSyncStatus)); } };
+}
+
+export function createLocalDeviceLeasePort(): LocalDeviceLeasePort {
+  return { async read() { return parseDeviceLease(await invoke(commands.readDeviceLease)); } };
+}
+
+function parseDeviceLease(value: unknown): LocalDeviceLease {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "deviceId", "leaseEpoch"]);
+  const deviceId = record["deviceId"];
+  if (
+    record["schemaVersion"] !== 1
+    || typeof deviceId !== "string" || deviceId.length === 0 || deviceId.length > 128
+    // The Host admits only printable ASCII device identifiers; anything else is not its value.
+    || [...deviceId].some((char) => { const code = char.codePointAt(0) ?? 0; return code < 0x21 || code > 0x7e; })
+    || !Number.isSafeInteger(record["leaseEpoch"]) || (record["leaseEpoch"] as number) < 1
+  ) {
+    throw new TypeError("invalid device lease");
+  }
+  return Object.freeze({ schemaVersion: 1, deviceId, leaseEpoch: record["leaseEpoch"] as number });
 }
 
 function parseStatus(value: unknown): LocalBusinessStatus {
@@ -312,6 +555,18 @@ function exactRecord(value: unknown, keys: readonly string[]): Record<string, un
     throw new TypeError("invalid local business response shape");
   }
   return record;
+}
+
+function parseCloudflareConnectionCreated(value: unknown): CloudflareConnectionCreated {
+  const keys = ["connectionRef", "created", "displayLabel", "readGeneration", "schemaVersion"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("invalid Cloudflare connection");
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join() !== keys.join()) throw new TypeError("invalid Cloudflare connection");
+  const { schemaVersion, connectionRef, displayLabel, created, readGeneration } = record;
+  if (schemaVersion !== 1 || typeof connectionRef !== "string" || typeof displayLabel !== "string" || displayLabel.length === 0
+    || displayLabel.length > 256 || typeof created !== "boolean" || typeof readGeneration !== "number"
+    || !Number.isSafeInteger(readGeneration) || readGeneration < 0) throw new TypeError("invalid Cloudflare connection");
+  return { schemaVersion, connectionRef: boundedOpaqueRef(connectionRef), displayLabel, created, readGeneration };
 }
 
 function boundedOpaqueRef(value: string): string {

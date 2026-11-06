@@ -30,6 +30,7 @@ import {
   connectionStatus,
   leaseHolder,
   settingsSections,
+  storageIntegrityChecks,
   type AboutView,
   type DeviceRuntimeEntry,
   type DeviceRuntimeView,
@@ -47,13 +48,16 @@ export interface SettingsPanelProps {
   readonly onConnectionAction?: (connection: ConnectionSettingsItemViewModel, action: ConnectionSettingsAction) => void;
   readonly onAddConnection?: () => void;
   readonly onRunOnboarding?: () => void;
-  readonly devices: DeviceRuntimeView;
+  /** Null while the Host has no device projection; the section says so instead of inventing one. */
+  readonly devices: DeviceRuntimeView | null;
   /** Fires only after the handoff acknowledgement, for a target the Host admitted. */
   readonly onHandoff?: (deviceId: string) => void;
-  readonly license: LicenseView | null;
+  /** Null is an uninitialized license; `"unavailable"` means the Host does not report one yet. */
+  readonly license: LicenseView | null | "unavailable";
   readonly onManageSubscription?: () => void;
   readonly onRenew?: () => void;
-  readonly sync: SyncSettingsViewModel;
+  /** Null while the pull cadence is not a Host setting; the mandatory policies still render. */
+  readonly sync: SyncSettingsViewModel | null;
   readonly onPullRefreshChange?: (cadence: PullRefreshCadence) => void;
   readonly about: AboutView;
   readonly onLocaleChange?: (locale: Locale) => void;
@@ -64,7 +68,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 }
 
 const cadences: readonly PullRefreshCadence[] = ["when_visible", "every_5_minutes", "every_15_minutes"];
-const methodLabel = { api: "API", browser: "Browser", csv: "CSV", oauth: "OAuth" } as const;
+const methodLabel = { api: "API", oauth: "OAuth" } as const;
 
 /** Settings: connections, the device lease and handoff ceremony, license, sync policy, and about. */
 export function SettingsPanel({
@@ -95,7 +99,9 @@ export function SettingsPanel({
     sync: copy.syncPreferences,
     about: copy.about,
   };
-  const holder = leaseHolder(devices);
+  const holder = devices === null ? null : leaseHolder(devices);
+  const integrity = about.storageIntegrity;
+  const integrityIssues = integrity === null ? [] : storageIntegrityChecks.flatMap((check) => integrity[check] === 0 ? [] : [[check, integrity[check]] as const]);
   const closeHandoff = () => { setHandoffTarget(null); setHandoffAck(false); };
   const cadenceLabel = (cadence: PullRefreshCadence) => cadence === "when_visible" ? copy.whenVisible : cadence === "every_5_minutes" ? copy.every5Minutes : copy.every15Minutes;
 
@@ -116,7 +122,6 @@ export function SettingsPanel({
           {section === "connections" ? (
             <div className="settings-notes">
               <span className="gd-t-meta">{connections.surface === "standby" ? copy.connectionReadOnlyNotice : copy.platformCredentialNotice}</span>
-              {connections.surface === "active" ? <span className="gd-t-meta">{copy.multiAccountIsolationNotice}</span> : null}
               {connections.surface === "active" && (onAddConnection !== undefined || onRunOnboarding !== undefined) ? (
                 <div className="settings-row">
                   {onAddConnection === undefined ? null : <Button size="sm" variant="primary" onClick={onAddConnection}>{copy.addAccountConnection}</Button>}
@@ -127,7 +132,10 @@ export function SettingsPanel({
             </div>
           ) : null}
 
-          {section === "devices" ? (
+          {section === "devices" && devices === null ? (
+            <Panel title={copy.deviceExecutionTitle}><span className="gd-t-meta">{copy.devicesUnavailable}</span></Panel>
+          ) : null}
+          {section === "devices" && devices !== null ? (
             <>
               <Panel flush title={copy.deviceExecutionTitle} actions={devices.leaseEpoch === null ? null : <span className="settings-mono settings-gold">{copy.epoch} {formatNumber(locale, devices.leaseEpoch)}</span>}>
                 {devices.devices.map((device) => (
@@ -147,7 +155,10 @@ export function SettingsPanel({
             </>
           ) : null}
 
-          {section === "license" ? (
+          {section === "license" && license === "unavailable" ? (
+            <Panel title={copy.licenseOwnership}><span className="gd-t-meta">{copy.licenseUnavailable}</span></Panel>
+          ) : null}
+          {section === "license" && license !== "unavailable" ? (
             <Panel title={copy.licenseOwnership} actions={license === null ? <Badge mono={false}>{copy.notInitialized}</Badge> : <Badge tone="gold" mono={false}>{license.planLabel}</Badge>}>
               {license === null ? <span className="gd-t-meta">{copy.notInitialized}</span> : (
                 <div className="settings-license">
@@ -172,8 +183,8 @@ export function SettingsPanel({
             <Panel title={copy.syncPreferences}>
               <KeyValueList>
                 {/* Business synchronization is mandatory, so the switch only reports the policy. */}
-                <KeyValueRow label={copy.autoSync} value={<Switch checked={sync.businessSynchronization === "mandatory"} disabled label={<span className="settings-sr">{copy.autoSync}</span>} />} />
-                <KeyValueRow
+                <KeyValueRow label={copy.autoSync} value={<Switch checked disabled label={<span className="settings-sr">{copy.autoSync}</span>} />} />
+                {sync === null ? null : <KeyValueRow
                   label={copy.pullRefresh}
                   value={(
                     <Select
@@ -185,8 +196,8 @@ export function SettingsPanel({
                       onChange={(event) => { const next = cadences.find((cadence) => cadence === event.currentTarget.value); if (next !== undefined) onPullRefreshChange?.(next); }}
                     />
                   )}
-                />
-                <KeyValueRow label={copy.conflictPolicy} value={<Select size="sm" aria-label={copy.conflictPolicy} disabled options={[{ value: sync.conflictResolution, label: copy.alwaysManual }]} value={sync.conflictResolution} />} />
+                />}
+                <KeyValueRow label={copy.conflictPolicy} value={<Select size="sm" aria-label={copy.conflictPolicy} disabled options={[{ value: "manual_review", label: copy.alwaysManual }]} value="manual_review" />} />
               </KeyValueList>
               <div className="settings-notes settings-notes--inset">
                 <span className="gd-t-meta">{copy.cloudSyncRequired}</span>
@@ -212,10 +223,24 @@ export function SettingsPanel({
                     />
                   )}
                 />
-                <KeyValueRow label={copy.version} value={about.version} mono tone="muted" />
-                <KeyValueRow label={copy.localDataDirectory} value={about.dataDirectory} mono tone="muted" />
-                <KeyValueRow label={copy.revisionBase} value={formatNumber(locale, about.revisionBase)} mono tone="muted" />
+                <KeyValueRow label={copy.version} value={about.version ?? copy.notAvailable} mono={about.version !== null} tone="muted" />
+                <KeyValueRow label={copy.localDataDirectory} value={about.dataDirectory ?? copy.notAvailable} mono={about.dataDirectory !== null} tone="muted" />
+                <KeyValueRow label={copy.revisionBase} value={about.revisionBase === null ? copy.notAvailable : formatNumber(locale, about.revisionBase)} mono={about.revisionBase !== null} tone="muted" />
+                <KeyValueRow
+                  label={copy.storageIntegrity}
+                  tone={integrityIssues.length === 0 ? "muted" : "danger"}
+                  value={about.storageIntegrity === null ? copy.notAvailable : integrityIssues.length === 0 ? copy.storageIntegrityClean : (
+                    <span className="settings-notes">
+                      {integrityIssues.map(([check, count]) => <span key={check}>{fill(copy[check], { count: formatNumber(locale, count) })}</span>)}
+                    </span>
+                  )}
+                />
               </KeyValueList>
+              {integrityIssues.length === 0 ? null : (
+                <div className="settings-notes settings-notes--inset">
+                  <span className="gd-t-meta">{copy.storageRepairUnavailable}</span>
+                </div>
+              )}
             </Panel>
           ) : null}
         </div>
@@ -239,7 +264,7 @@ export function SettingsPanel({
             <div className="settings-steps">
               <span><b>{copy.handoffDrainStep}</b>{copy.handoffDrainDetail}</span>
               <span><b>{copy.handoffActivateStep}</b>{fill(copy.handoffActivateDetail, { name: handoffTarget.name })}</span>
-              {devices.leaseEpoch === null ? null : (
+              {devices === null || devices.leaseEpoch === null ? null : (
                 <span><b>{copy.handoffEpochStep}</b>{fill(copy.handoffEpochDetail, { from: formatNumber(locale, devices.leaseEpoch), to: formatNumber(locale, devices.leaseEpoch + 1) })}</span>
               )}
             </div>
@@ -259,7 +284,15 @@ function ConnectionsSection({ locale, view, onAction }: {
   const copy = getPresentationCopy(locale, "settings");
   const groups = { registrar: [copy.registrar, copy.registrarDescription], dns: [copy.dnsProvider, copy.dnsProviderDescription], marketplace: [copy.salesPlatform, copy.salesPlatformDescription] } as const;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const checked = (value: string | null) => value === null ? "—" : formatDate(locale, Date.parse(value), { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  // A check from an earlier day keeps its date so an old validation never reads as current.
+  const checked = (value: string | null) => {
+    if (value === null) return "—";
+    const at = Date.parse(value);
+    const sameDay = formatDate(locale, at, { dateStyle: "short", timeZone }) === formatDate(locale, Date.now(), { dateStyle: "short", timeZone });
+    return formatDate(locale, at, sameDay
+      ? { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }
+      : { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  };
   const actionLabel = (action: ConnectionSettingsAction) => action === "connect" ? copy.connect : action === "reauthorize" ? copy.reauthorize : copy.manage;
 
   return (

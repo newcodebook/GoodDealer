@@ -272,6 +272,50 @@ pub struct MarkedCloudflareProvision {
     pub(crate) plan: DesktopCloudflareKeychainPlanData,
 }
 
+/// Opaque Host-owned revocation, durably prepared with credential use already denied. Distinct
+/// from the provision handles so a revocation can only be published as a tombstone.
+pub struct PreparedCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for PreparedCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PreparedCloudflareRevocation([REDACTED])")
+    }
+}
+
+/// Opaque proof that Host durably entered prewrite inspection for a revocation.
+pub struct InspectingCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for InspectingCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("InspectingCloudflareRevocation([REDACTED])")
+    }
+}
+
+impl InspectingCloudflareRevocation {
+    pub fn with_keychain_plan<T>(
+        self,
+        use_plan: impl FnOnce(DesktopCloudflareKeychainPlan<'_>, Self) -> T,
+    ) -> T {
+        let data = self.plan.clone();
+        let plan = DesktopCloudflareKeychainPlan { data: &data };
+        use_plan(plan, self)
+    }
+}
+
+pub struct MarkedCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
 /// Opaque Host-owned admission for one stored-credential Provider observation.
 pub struct PreparedCloudflareObservation {
     pub(crate) admission: DesktopNativeCloudAdmission,
@@ -1551,7 +1595,7 @@ mod tests {
     }
 
     fn empty_host() -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6a; 32]),
@@ -1574,7 +1618,7 @@ mod tests {
     }
 
     fn push_host_with_mutations(count: u8) -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6b; 32]),
@@ -1971,9 +2015,440 @@ mod tests {
         assert_eq!(other_host.native_checkpoint_due(&other_admission), Ok(true));
     }
 
+    use crate::active_workspace::capability_qualification::{
+        CLOUDFLARE_DNS_OBSERVE, test_qualification::qualify,
+    };
+
+    fn credential_host() -> (tempfile::TempDir, DesktopLocalHost) {
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
+        let mut database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6d; 32]),
+            WORKSPACE_ID,
+        )
+        .expect("open test database");
+        database
+            .upsert_domain_asset(
+                "revoke-asset",
+                "2026-09-15T00:00:00Z",
+                &DomainAssetWrite {
+                    entity_id: "revoke.test".to_owned(),
+                    note: None,
+                    portfolio_id: None,
+                    tags: Vec::new(),
+                    target_price: None,
+                },
+            )
+            .expect("seed asset");
+        database.seed_verified_cloudflare_binding_for_test("revoke.test");
+        let local_host = host(database, &directory);
+        (directory, local_host)
+    }
+
+    fn create_request(label: &str) -> crate::DesktopCloudflareConnectionCreateRequest {
+        crate::DesktopCloudflareConnectionCreateRequest {
+            schema_version: 1,
+            display_label: label.to_owned(),
+        }
+    }
+
+    #[test]
+    fn cloudflare_connection_is_created_once_only_for_a_qualified_capability() {
+        let (_directory, local_host) = empty_host();
+        let before = business_generation(&local_host);
+        assert_eq!(
+            local_host.create_cloudflare_connection(&create_request("Cloudflare DNS")),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        let qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        for (label, schema_version) in [("", 1), ("bad\u{7}label", 1), ("Cloudflare DNS", 2)] {
+            let request = crate::DesktopCloudflareConnectionCreateRequest {
+                schema_version,
+                display_label: label.to_owned(),
+            };
+            assert!(local_host.create_cloudflare_connection(&request).is_err());
+        }
+        assert_eq!(business_generation(&local_host), before);
+
+        let created = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection");
+        assert!(created.created);
+        assert_eq!(created.display_label, "Cloudflare DNS");
+        assert_eq!(created.read_generation, before + 1);
+        assert_eq!(business_generation(&local_host), before + 1);
+        // Repeating returns the never-activated connection instead of adding another.
+        let repeated = local_host
+            .create_cloudflare_connection(&create_request("Another label"))
+            .expect("repeat create");
+        assert!(!repeated.created);
+        assert_eq!(repeated.connection_ref, created.connection_ref);
+        assert_eq!(repeated.display_label, "Cloudflare DNS");
+        assert_eq!(business_generation(&local_host), before + 1);
+        // It holds no credential, so it is not published as a usable connection, but activation
+        // now has a row to provision into.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .begin_cloudflare_activation(activation, &created.connection_ref)
+                .is_ok()
+        );
+        // Settings lists the new connection as inactive with its role unavailable. The settings
+        // contract has no executable state yet, so it is read with the capability unqualified.
+        drop(qualified);
+        let settings = serde_json::to_value(local_host.read_settings().expect("read settings"))
+            .expect("serialize settings");
+        let connections = settings["connections"].as_array().expect("connections");
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0]["credentialUseState"], "inactive");
+        assert_eq!(connections[0]["lifecycleStatus"], "invalid");
+        assert_eq!(connections[0]["roles"][0]["availability"], "unavailable");
+        assert!(!settings.to_string().contains(&created.connection_ref));
+    }
+
+    fn zone_observation(zone: &str) -> crate::DesktopCloudflareCheckedObservation {
+        crate::DesktopCloudflareCheckedObservation {
+            entity_id: zone.to_owned(),
+            zone_binding_digest: "c".repeat(64),
+            zone_name_ascii: zone.to_owned(),
+            authoritative_nameservers: vec!["ns1.example.test".to_owned()],
+            dnssec_status: "unknown".to_owned(),
+            availability: "available".to_owned(),
+            zone_status: "active".to_owned(),
+            records: vec![crate::CloudflareDnsRecordWrite {
+                record_key: "a-root".to_owned(),
+                record_type: "A".to_owned(),
+                owner_name_ascii: zone.to_owned(),
+                ttl_seconds: Some(300),
+                priority: None,
+                canonical_value: "192.0.2.1".to_owned(),
+                proxied: Some(true),
+            }],
+            provider_version_token: "provider-version-1".to_owned(),
+        }
+    }
+
+    fn detail_exists(local_host: &DesktopLocalHost, zone: &str) -> bool {
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": zone }))
+                .expect("detail request");
+        local_host.read_domain_detail(request).is_ok()
+    }
+
+    #[test]
+    fn activation_imports_the_zone_through_the_create_path_once() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        assert!(!detail_exists(&local_host, "imported.test"));
+        let before = business_generation(&local_host);
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("imported.test"))
+            .expect("prepare provision with the imported Zone");
+        // The Zone became an ordinary asset through the same create path: one committed add.
+        assert!(detail_exists(&local_host, "imported.test"));
+        assert_eq!(business_generation(&local_host), before + 1);
+    }
+
+    #[test]
+    fn zone_import_writes_nothing_when_authority_changes_during_activation() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": business_generation(&local_host),
+            "asset": { "entityId": "held.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        // The authority is renewed to a new lease epoch while the Provider call is in flight. The
+        // workspace stays readable and writable, but this activation's admission is now stale, so
+        // the import must write nothing.
+        let lease = serde_json::to_value(local_host.device_lease().expect("read lease"))
+            .expect("serialize lease");
+        let epoch = lease["leaseEpoch"].as_u64().expect("lease epoch");
+        local_host
+            .renew_business_authority_for_test(epoch + 1)
+            .expect("renew authority");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("stale.test"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        );
+        assert_eq!(business_generation(&local_host), before);
+        // Reads still work under the renewed authority, so the missing Zone is a real absence.
+        assert!(detail_exists(&local_host, "held.test"));
+        assert!(!detail_exists(&local_host, "stale.test"));
+    }
+
+    #[test]
+    fn activation_keeps_an_existing_asset_and_refuses_a_non_canonical_zone() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+
+        // A Zone name the create path rejects is never imported, and nothing is prepared.
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        assert!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("Not Canonical"))
+                .is_err()
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        // A domain the person already added is kept as it is; the import adds nothing.
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": before,
+            "asset": { "entityId": "held.test", "note": "mine", "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let held_generation = business_generation(&local_host);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("held.test"))
+            .expect("prepare provision over the held domain");
+        assert_eq!(business_generation(&local_host), held_generation);
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": "held.test" }))
+                .expect("detail request");
+        let detail =
+            serde_json::to_value(local_host.read_domain_detail(request).expect("read held"))
+                .expect("serialize detail");
+        assert_eq!(detail["asset"]["note"], "mine");
+    }
+
+    #[test]
+    fn unqualified_capability_is_refused_at_every_provider_admission_but_revocation_is_not() {
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        // Even with a valid Active credential in place, no unqualified capability may run.
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .begin_cloudflare_activation(activation, &connection)
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let observation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        // Once qualified, the same admissions run for the same credential.
+        {
+            let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+            let activation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .begin_cloudflare_activation(activation, &connection)
+                    .is_ok()
+            );
+            let observation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                    .is_ok()
+            );
+        }
+        // Withdrawing access never waits for qualification.
+        let revocation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(revocation, &connection)
+                .expect("prepare revocation")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
+        // Qualified for this test, so a refused observation proves revocation, not the gate.
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let before = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_observation(before, &connection, "revoke.test")
+                .is_ok(),
+            "a qualified Active credential is observable before revocation"
+        );
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        // Revocation takes effect in the Host at preparation: the credential is no longer
+        // published, and no Provider observation can be admitted with it.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
+        assert_eq!(
+            prepared.plan.target.kind,
+            crate::CloudflareCredentialEnvelopeKind::Tombstone
+        );
+        assert_eq!(
+            prepared.plan.expected_base.kind,
+            crate::CloudflareCredentialEnvelopeKind::Active
+        );
+        assert_eq!(
+            prepared.plan.target.scope_digest,
+            prepared.plan.expected_base.scope_digest
+        );
+        assert_eq!(
+            prepared.plan.target.zone_digest,
+            prepared.plan.expected_base.zone_digest
+        );
+        assert!(prepared.plan.target.generation > prepared.plan.expected_base.generation);
+
+        // A second revocation while this one is unresolved is refused, not queued.
+        let concurrent = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(concurrent, &connection)
+                .is_err()
+        );
+
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        let marked = local_host
+            .mark_cloudflare_revocation_write_started(inspecting)
+            .expect("mark Keychain write");
+        assert_eq!(
+            local_host.resolve_cloudflare_revocation(
+                marked,
+                crate::DesktopCloudflareCustodyComparison::ExactTarget
+            ),
+            Ok(crate::DesktopCloudflareResolution::Confirmed)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let replay = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(replay, &connection)
+                .is_err()
+        );
+        let unknown = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(unknown, "cloudflare-unknown")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn revocation_prewrite_contradiction_remediates_and_keeps_the_credential_denied() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        assert_eq!(
+            local_host.remediate_cloudflare_revocation_prewrite(
+                inspecting,
+                crate::DesktopCloudflarePrewriteFailure::BaseMismatch
+            ),
+            Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
+    }
+
     #[test]
     fn projection_acknowledgement_is_exactly_correlated() {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6c; 32]),

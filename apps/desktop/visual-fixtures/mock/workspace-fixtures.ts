@@ -56,6 +56,14 @@ export interface MockAssetRecord {
   readonly listing: AssetListingSummary;
 }
 
+const mockExpiringUntil = new Date(Date.parse(`${mockReferenceDate}T00:00:00Z`) + 61 * 86_400_000).toISOString().slice(0, 10);
+
+/** The Host's renewals predicate on the mock's fixed date: a kept asset expiring in `[today, today + 61 days)`. */
+function mockExpiring(asset: Pick<AssetLibraryRow, "lifecycleStatus" | "expiresOn">): boolean {
+  return (asset.lifecycleStatus === "active" || asset.lifecycleStatus === "expired")
+    && asset.expiresOn !== null && asset.expiresOn >= mockReferenceDate && asset.expiresOn < mockExpiringUntil;
+}
+
 export function initialMockAssets(): readonly MockAssetRecord[] {
   return mockAssets.map((asset, index) => ({
     row: {
@@ -67,6 +75,7 @@ export function initialMockAssets(): readonly MockAssetRecord[] {
       syncStatus: asset.syncStatus,
       targetPrice: asset.bin === null ? null : { currency: "USD", amount: asset.bin },
       expiresOn: asset.expiresOn,
+      expiring: mockExpiring(asset),
       assetVersion: index + 3,
     },
     listing: { dnsProvider: asset.dnsProvider, platforms: asset.platforms },
@@ -124,7 +133,7 @@ export function projectMockLibrary(
     },
     totalRows: sorted.length,
     totalValue: { currency: "USD", amount: String(total) },
-    expiringWithin60Days: records.filter(({ row }) => row.expiresOn !== null && row.expiresOn <= "2026-10-19").length,
+    expiringWithin60Days: records.filter(({ row }) => row.expiring).length,
     conflictCount: records.filter(({ row }) => row.syncStatus === "conflicted").length,
     listingCount: records.filter(({ listing }) => listing.platforms.length > 0).length,
     window: { startIndex, size: request.size, rows: sorted.slice(startIndex, startIndex + request.size).map(({ row }) => row) },
