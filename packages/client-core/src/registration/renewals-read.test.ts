@@ -38,6 +38,8 @@ describe("renewals read", () => {
     // bidirectional and invisible formatting characters do not.
     const named = (registrarName: string) => read({ totalRows: 1 }, [{ entityId: "soon.test", expiresOn: "2026-11-08", autoRenew: null, registrarName }]);
     expect(parseRenewalsRead(named("\u{1d538}".repeat(128))).window.rows[0]?.registrarName).toHaveLength(256);
+    // A format character outside the safe-text set is accepted here, unlike in connection labels.
+    expect(parseRenewalsRead(named("Arabic\u0600Sign")).window.rows[0]?.registrarName).toBe("Arabic\u0600Sign");
     for (const name of ["Bad\u0000", "Bad\nRegistrar", "x".repeat(129), "", "Zero\u200bWidth", "Bidi\u202eName", "Soft\u00adHyphen", "\ufeffBom"]) {
       expect(() => parseRenewalsRead(named(name)), JSON.stringify(name)).toThrow();
     }

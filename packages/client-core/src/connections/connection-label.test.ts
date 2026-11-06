@@ -13,7 +13,7 @@ describe("connection label", () => {
   });
 
   it("rejects empty labels and hidden control or format characters", () => {
-    for (const label of ["", "Cloud\u0007flare", "Cloud​flare", "Cloud‮flare", "Cloud﻿flare", "Cloud\u{E0041}flare"]) {
+    for (const label of ["", "Cloud\u0007flare", "Cloud​flare", "Cloud‮flare", "Cloud﻿flare", "Cloud\u{E0041}flare", "Cloud\u0600flare"]) {
       expect(connectionLabelSchema.safeParse(label).success, JSON.stringify(label)).toBe(false);
     }
   });

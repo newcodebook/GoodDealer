@@ -301,6 +301,13 @@ pub(crate) fn is_forbidden_text_character(character: char) -> bool {
 /// One rule for a registrar name wherever a read reports it (asset rows and renewals), matching the
 /// Renderer's `registrarNameSchema`: 1–128 characters (Zod 4 counts code points, as `chars` does)
 /// with no control, bidirectional or invisible formatting characters.
+///
+/// Two display-text rules exist on purpose. Registrar names and asset text (tags, notes) use this
+/// safe-text set, counted in code points: they come from providers or the person's portfolio, and
+/// script-specific format characters such as U+0600 ARABIC NUMBER SIGN are legitimate there, so
+/// only the characters that can hide or reorder text are refused. Connection labels
+/// (`valid_connection_label`) are short names the person types for an account, counted in UTF-16
+/// units like the Renderer's input, and refuse every control and format character.
 pub(crate) fn valid_registrar_name(value: &str) -> bool {
     !value.is_empty()
         && value.chars().count() <= 128
@@ -363,6 +370,8 @@ mod connection_label_tests {
             "Cloud\u{202E}flare".to_owned(),
             "Cloud\u{FEFF}flare".to_owned(),
             "Cloud\u{E0041}flare".to_owned(),
+            // Labels reject every format character, unlike registrar names: see `valid_registrar_name`.
+            "Cloud\u{600}flare".to_owned(),
         ] {
             assert!(!valid_connection_label(&rejected), "{rejected:?}");
         }

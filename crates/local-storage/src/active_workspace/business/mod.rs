@@ -8916,6 +8916,24 @@ mod tests {
             accepted.window.rows[0].registrar_name.as_deref(),
             Some(longest.as_str())
         );
+        // A format character outside the safe-text set is accepted here, unlike in connection
+        // labels, as in the Renderer's matrix.
+        let arabic_sign = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[(
+                "soon.test",
+                "Arabic\u{600}Sign",
+                "available",
+                TIMESTAMP,
+                "succeeded",
+            )],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            arabic_sign.window.rows[0].registrar_name.as_deref(),
+            Some("Arabic\u{600}Sign")
+        );
         for name in [
             "Bad\nRegistrar",
             &"x".repeat(129),

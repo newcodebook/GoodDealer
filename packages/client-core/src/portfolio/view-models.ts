@@ -29,7 +29,12 @@ const safeTextSchema = (maximum: number) => z.string().max(maximum).refine(
   "text contains forbidden controls",
 );
 
-/** One registrar name rule for every read, matching the Host's `valid_registrar_name`. */
+/**
+ * One registrar name rule for every read, matching the Host's `valid_registrar_name`. Registrar names
+ * and asset text use this safe-text set (code points; script format characters such as U+0600 are
+ * allowed), while connection labels (`connectionLabelSchema`) refuse every control and format
+ * character and count UTF-16 units. The Host documents why the two differ.
+ */
 export const registrarNameSchema = safeTextSchema(128).min(1);
 
 export const lifecycleStatusSchema = z.enum(["active", "expired", "sold", "dropped", "archived"]);

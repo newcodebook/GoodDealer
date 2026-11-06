@@ -121,7 +121,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 注册商名称校验在 Rust（字符数、控制字符）与 Zod（UTF-16 长度、格式字符）之间对齐（Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 共用资产行的安全文本规则：1–128 个码点，拒绝控制、双向与不可见格式字符；两侧测试使用同一矩阵） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 资产库读取只取一次 Host 日期，行 `expiring` 与到期计数共用（当前分属两条语句，跨 UTC 午夜的读取可能相差一天）（资产库与续费读取在事务开始时各读取一次 `HostDay`（SQLite `date('now')`，校验为规范日期），计数、名称校验、行标记与 `asOfDate` 全部使用它；谓词测试固定日期并跨年） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 决定到期窗口的“今天”采用 UTC 还是本地日（当前 Host 用 UTC 日期，与续费页一致；历史页已改用本地日），并在 V1 前记录决定（决定：到期窗口保持 UTC。`expires_on` 是注册局 UTC 到期时刻的日期部分，注册局按该时刻到期；按本地日会让 UTC 以西/以东的用户在午夜前后提前或推迟一天，并与续费页不一致。历史页的“今日变更”统计的是用户自己的操作，因此按本地日。决定写在 `renewals.rs` 的 `HostDay` 说明中） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受
+- [x] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受（两种规则的适用范围与原因写在 Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 的说明中；四组测试固定 U+0600：注册商名称两侧接受，连接标签两侧拒绝） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
@@ -172,6 +172,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 逐笔资金确认组件（含出价）
 - [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败
 - [ ] Cloudflare Registrar 能力
+- [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试
 - [ ] Cloudflare DNS 写入与 DNSSEC
 - [ ] Cloudflare 监控
 - [ ] 核对 Cloudflare 平台事实并更新快照
