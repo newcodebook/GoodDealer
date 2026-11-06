@@ -498,6 +498,7 @@ const enUSDictionary = {
   },
   dnsVerification: {
     title: "DNS & verification",
+    bindZone: "Bind Zone",
     all: "All",
     verified: "Verified",
     pending: "Pending",

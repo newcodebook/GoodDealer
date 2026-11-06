@@ -74,6 +74,19 @@ describe("DNS health Host read", () => {
     expect(plain).toMatchObject({ recordHealth: "unobserved", recordCount: null, propagationStatus: "unobserved", providerDisplayName: "—" });
   });
 
+  it("offers binding only for an unbound asset with confirmed Cloudflare evidence of its own Zone", () => {
+    const project = (row: Record<string, unknown>) => projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: [row] } }))], 50).rows[0]!.availableActions;
+    expect(project({ entityId: "observed.test", zoneBinding: null, observation })).toEqual(["bind_zone"]);
+    const detached = { providerKind: "cloudflare", connectionLabel: "Cloudflare", zoneLabel: "observed.test", validationStatus: "detached" };
+    expect(project({ entityId: "observed.test", zoneBinding: detached, observation })).toEqual(["bind_zone"]);
+    // Already bound, unconfirmed, unavailable, or a Zone with another name: nothing to bind.
+    expect(project({ entityId: "observed.test", zoneBinding: { ...detached, validationStatus: "verified" }, observation })).toEqual([]);
+    for (const changed of [{ evidenceStatus: "stale" }, { evidenceStatus: "unknown" }, { availability: "unavailable" }, { zoneLabel: "other.test" }]) {
+      expect(project({ entityId: "observed.test", zoneBinding: null, observation: { ...observation, ...changed } }), JSON.stringify(changed)).toEqual([]);
+    }
+    expect(project({ entityId: "plain.test", zoneBinding: null, observation: null })).toEqual([]);
+  });
+
   it("treats stale or unavailable evidence as needing attention, never as current", () => {
     const rows = [{ entityId: "observed.test", zoneBinding: null, observation: { ...observation, evidenceStatus: "stale" } }];
     const view = projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, warningCount: 1, window: { startIndex: 0, size: 50, rows } }))], 50);

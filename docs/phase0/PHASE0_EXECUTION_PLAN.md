@@ -153,15 +153,16 @@ dead-letter outbox 和 Session 撤销；
 
 - [x] 引导流程：欢迎 → 设备门 → 连接 Cloudflare（可跳过）→ 从观察结果导入或手动添加 → 完成（观察导入必须逐个经 `local_domain_asset_create` 新增，不得另开写入路径，否则去重失效）（生产组合：Active 且无域名的工作区每次会话首次进入时显示 kit 接入向导，可在欢迎页跳过；设备门显示新 Host 读取 `local_device_lease_read` 校验过的设备与 Lease Epoch（无签名信封与密钥，非 Active 时拒绝），Host 没有设备名，不显示也不编造；Cloudflare 在 Q-CF 关闭前显示不可用、无连接路径，观察导入同样不可用，手动添加复用 `local_domain_asset_create`，重复域名如实提示；完成页取 Host 的域名数与已应用的服务器 revision。连接与观察导入的可执行路径随下方 Cloudflare 进入生产组合与 Q-CF 一并交付） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 资产创建，并对导入和手动添加去重（Host 经 `local_domain_asset_create` 在当前 Host 提交栅栏下以一个同步 upsert 新增资产；规范域名是去重键，工作区已有的域名返回 `DESKTOP_LOCAL_ASSET_EXISTS` 且不写入任何数据，已删除仍有墓碑的域名被拒绝；Host 与 Renderer 都拒绝非规范名称与 IP 字面量；资产库在 kit 的工具栏次按钮位提供“添加域名”，Standby/只读时不可用；kit 无加号图标，按钮不带图标。导入的去重依赖引导导入也走该命令，见上一项） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 绑定 UI
+- [x] 绑定 UI（DNS 页的 kit 行操作列：Host 读取显示无有效绑定、且有本资产同名 Zone 的已确认可用 Cloudflare 观察时，可写界面提供“绑定 Zone”，经 `local_domain_asset_provider_bind` 由 Host 复核证据与读取代后提交，提交后按回执代重新发布；kit 没有绑定专用画面，沿用 DNS 页行操作按钮；生产导航尚无建立连接或观察的入口，所以目前不会出现该操作） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Grant/Lease 能力门禁接入生产导航
 - [ ] 凭据原子撤销，revoke/deactivate 的 Host capability
-- [ ] Cloudflare generation/auth fences 从 `features/connections` 进入生产组合（含：全新安装没有 Cloudflare 连接行、凭据采集仅 macOS、观察表对 `domain_assets` 有外键，所以“连接后从观察导入”需要新建连接与按区域导入的 Host 能力；交付时让引导的连接与导入步骤改用它，导入仍逐个经 `local_domain_asset_create`）
+- [ ] Cloudflare generation/auth fences 从 `features/connections` 进入生产组合（含：全新安装没有 Cloudflare 连接行、凭据采集仅 macOS、观察表对 `domain_assets` 有外键，所以“连接后从观察导入”需要新建连接与按区域导入的 Host 能力；交付时让引导的连接与导入步骤改用它，导入仍逐个经 `local_domain_asset_create`；同时决定 DNS 页“绑定 Zone”在 Q-CF 关闭前是否可见，若不可见，把 `bind_zone` 绑定到连接或能力状态上）
 - [ ] 断网、Token 失效、权限不足、撤销后，都失败关闭并给出可恢复提示
 - [ ] 操作历史把新增显示为编辑（Outbox 只有 `upsert`/`delete`，新增无独立操作类型）：在历史中把资产的首个本地版本标为新增，或为同步协议增加新增操作类型（后者需先评估 Cloud 合同）
 - [ ] 重新添加近期删除且仍有墓碑的域名时给出可恢复的说明（当前映射为 `LOCAL_STORAGE_REJECTED`，界面只显示通用失败）：为墓碑拒绝提供独立错误码与“已删除，同步清除后可重新添加”的文案
 - [ ] `local_device_lease_read` 的负向测试补齐 Standby、授权过期与授权切换进行中三种拒绝（目前只覆盖无 Active 授权）
 - [ ] 引导连接步骤的“不可连接”规则改为逐个平台判定（目前仅在全部平台不可用时拒绝 `connect_provider`）；第二个平台进入引导前完成
+- [ ] DNS 健康读取逐行报告能否绑定（Host 为唯一依据：凭据撤销或失效、凭据代不符、Zone 暂停、资产已归档时不提供“绑定 Zone”），避免界面提供 Host 必然拒绝的操作
 
 ### 4. 当前范围全系统 V1 汇合验收
 

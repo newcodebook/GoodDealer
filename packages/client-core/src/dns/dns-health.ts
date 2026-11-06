@@ -124,8 +124,24 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     propagationStatus: observationStatus(observation),
     lastCheckedAt: observation?.observedAt ?? null,
     records: [],
-    availableActions: [],
+    availableActions: bindable(row) ? ["bind_zone"] : [],
   };
+}
+
+/**
+ * A row may be bound when it has no live binding and a confirmed, available Cloudflare observation
+ * of the Zone with the asset's own name. The Host binds only from that committed evidence and
+ * checks it again; this only decides whether to offer the action.
+ */
+function bindable(row: DnsHealthRow): boolean {
+  const unbound = row.zoneBinding === null || row.zoneBinding.validationStatus === "detached";
+  const observation = row.observation;
+  return unbound
+    && observation !== null
+    && observation.providerKind === "cloudflare"
+    && observation.availability === "available"
+    && observation.evidenceStatus === "confirmed"
+    && observation.zoneLabel === row.entityId;
 }
 
 /**

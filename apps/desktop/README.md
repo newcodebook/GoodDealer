@@ -207,8 +207,11 @@ The traffic-light position and undecorated resizing still need checking on each 
 committed Host-verified Cloudflare Zone evidence. It performs no Provider API write and exposes no
 credential or resource selector. The concrete adapter implements the required narrow
 `PortfolioProviderBindingPort` through its validating wrapper. The broad injected
-`LocalBusinessPort` retains an optional binding method until the asset-detail UI exposes a bind
-action; read-only adapters need not supply write capabilities. No bind action is currently exposed.
+`LocalBusinessPort` keeps the binding method optional, so read-only adapters need not supply write
+capabilities. The DNS page offers "Bind Zone" on a row only when the Host read shows no live binding
+and a confirmed, available Cloudflare observation of the asset's own Zone, and only on a writable
+surface; a committed bind republishes the workspace at the receipt generation. Production navigation
+has no entry that creates a Cloudflare connection or observation yet, so the action does not appear.
 First commit advances Host generation once; replay may return the current generation after
 intervening commits.
 

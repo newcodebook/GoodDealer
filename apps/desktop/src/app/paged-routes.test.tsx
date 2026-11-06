@@ -267,6 +267,41 @@ describe("paged Host routes", () => {
     }
   });
 
+  it("binds an observed Zone through the Host and republishes at the receipt's generation", async () => {
+    const next = generation + 1;
+    const observed = { providerKind: "cloudflare", observedAt: "2026-09-20T00:00:00Z", availability: "available", evidenceStatus: "confirmed", zoneLabel: "vault.io", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus: "unknown", recordCounts: { a: 1, aaaa: 0, cname: 0, txt: 0, other: 0 } };
+    const loadDnsHealth = vi.fn(async () => parseDnsHealthRead({
+      schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
+      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0,
+      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", zoneBinding: null, observation: observed }] },
+    }));
+    const bindDomainAssetProvider = vi.fn(async () => ({ readGeneration: next }));
+    const status = (readGeneration: number) => ({ schemaVersion: 2, state: "active", capabilities: ["local:read", "workspace:mutate"], readGeneration });
+    const ports = {
+      dns: { loadDnsHealth },
+      business: { status: vi.fn(async () => status(next)), bindDomainAssetProvider },
+      portfolio: { loadAssetLibrary: vi.fn(async () => ({ ...portfolio, readGeneration: next })) },
+      conflicts: { conflictCenter: vi.fn(async () => ({ ...publication.conflicts!, readGeneration: next })) },
+      sync: { status: vi.fn(async () => ({ ...sync, readGeneration: next })) },
+    } as unknown as AuthoritativeWorkspacePorts;
+    const writable = { ...publication, status: status(generation) } as AuthoritativeWorkspacePublication;
+    const presentation = adjudicateDesktopPresentation(false, writable, "authenticated");
+    if (presentation.view !== "workspace") throw new Error("expected a workspace");
+    const onPublication = vi.fn();
+    await act(async () => {
+      root.render(
+        <WorkspaceView locale="en-US" presentation={presentation} ports={ports} windowFrame={{ platform: "linux", framed: false }}
+          onPublication={onPublication} onRefresh={vi.fn()} onLocaleChange={vi.fn()} />,
+      );
+    });
+    await click(named("DNS & verification"));
+    await click(named("Bind Zone"));
+    for (let index = 0; index < 5; index += 1) await act(async () => { await Promise.resolve(); });
+    expect(bindDomainAssetProvider).toHaveBeenCalledWith({ schemaVersion: 1, expectedReadGeneration: generation, entityId: "vault.io" });
+    expect(onPublication).toHaveBeenCalledOnce();
+    expect(onPublication.mock.calls[0]?.[0].status.readGeneration).toBe(next);
+  });
+
   it("sends the DNS search to the Host and keeps the search box focused while it reads", async () => {
     const host = hostPorts();
     const answer = host.loadDnsHealth.getMockImplementation()!;

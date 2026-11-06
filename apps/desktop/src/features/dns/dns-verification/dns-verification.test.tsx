@@ -142,6 +142,17 @@ describe("DNS & verification from the Host DNS health projection", () => {
     expect(renderToStaticMarkup(<DnsVerification locale={locale} view={hostView(status)} />)).toContain(label);
   });
 
+  it("offers to bind only a row with confirmed evidence of its own Zone, and only when a bind handler is composed", () => {
+    const html = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={hostView()} onBindZone={() => undefined} />);
+    // One observed, unbound row: exactly one bind button.
+    expect(html.split("绑定 Zone").length - 1).toBe(1);
+    expect(renderToStaticMarkup(<DnsVerification locale="zh-CN" view={hostView()} />)).not.toContain("绑定 Zone");
+    const busy = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={hostView()} onBindZone={() => undefined} bindingId="observed.test" />);
+    expect(busy).toMatch(/<button[^>]*disabled=""[^>]*>绑定 Zone<\/button>/u);
+    const standby = renderToStaticMarkup(<DnsVerification locale="zh-CN" view={{ ...hostView(), readSource: "standby_cloud" }} onBindZone={() => undefined} />);
+    expect(standby).not.toContain("绑定 Zone");
+  });
+
   it("labels a confirmed Zone as observed, never as healthy", () => {
     const html = renderToStaticMarkup(<DnsVerification locale="en-US" view={hostView()} />);
 

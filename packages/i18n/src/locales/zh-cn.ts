@@ -432,6 +432,7 @@ const zhCNDictionary = {
   },
   dnsVerification: {
     title: "DNS 与验证",
+    bindZone: "绑定 Zone",
     all: "全部",
     verified: "已验证",
     pending: "待验证",

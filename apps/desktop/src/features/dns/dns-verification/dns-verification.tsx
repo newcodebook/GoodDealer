@@ -43,6 +43,10 @@ export interface DnsVerificationProps {
   readonly onRequestTxtPlan?: (row: DnsVerificationRowViewModel) => void;
   /** Requests a high-risk Nameserver plan after the acknowledgement gate. */
   readonly onRequestNameserverPlan?: (row: DnsVerificationRowViewModel, nameservers: readonly string[]) => void;
+  /** Binds the row to the Zone the Host observed; offered only for rows that carry `bind_zone`. */
+  readonly onBindZone?: (row: DnsVerificationRowViewModel) => void;
+  /** The row whose binding is in flight; every bind action is disabled meanwhile. */
+  readonly bindingId?: string | null;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -58,7 +62,7 @@ function isNameserverHost(value: string): boolean {
  * DNS & verification: delegation, record health, and TXT ownership per domain, each fixed at its own
  * platform. Until ownership is composed, the page shows only the Zone facts the Host observed.
  */
-export function DnsVerification({ locale, view, query: hostQuery, onQueryChange, onPageChange, busy = false, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan }: DnsVerificationProps) {
+export function DnsVerification({ locale, view, query: hostQuery, onQueryChange, onPageChange, busy = false, verifyingIds = new Set(), onReverify, onRequestTxtPlan, onRequestNameserverPlan, onBindZone, bindingId = null }: DnsVerificationProps) {
   const copy = getPresentationCopy(locale, "dnsVerification");
   const [localQuery, setLocalQuery] = useState("");
   // A paged view is searched by the Host; only an unpaged view filters its own rows.
@@ -130,6 +134,9 @@ export function DnsVerification({ locale, view, query: hostQuery, onQueryChange,
     }
     if (row.challenge !== null) {
       return <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: "challenge", row })}>{copy.viewTxt}</Button>;
+    }
+    if (can("bind_zone") && onBindZone !== undefined) {
+      return <Button size="sm" disabled={bindingId !== null} onClick={() => onBindZone(row)}>{copy.bindZone}</Button>;
     }
     return null;
   };

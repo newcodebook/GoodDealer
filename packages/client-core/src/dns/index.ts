@@ -150,6 +150,8 @@ export const dnsExecutionActionSchema = z.enum([
   "reverify_ownership",
   "plan_txt_append",
   "plan_nameserver_change",
+  // Local association with Host-verified Zone evidence; no Provider write.
+  "bind_zone",
 ]);
 
 const admittedDnsActionSchema = z.object({ domainAssetId: identifier, action: dnsExecutionActionSchema }).strict();

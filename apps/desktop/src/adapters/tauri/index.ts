@@ -89,7 +89,7 @@ export interface LocalBusinessPort {
   createDomainAsset(request: LocalDomainAssetCreateRequest): Promise<LocalDomainAssetMutationReceipt>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
-  /** Optional until the asset-detail UI exposes the explicit bind action. */
+  /** Optional so read-only adapters need not supply it; the DNS page binds through it only when writable. */
   bindDomainAssetProvider?(request: LocalDomainAssetProviderBindingRequest): Promise<LocalDomainAssetProviderBindingReceipt>;
 }
 

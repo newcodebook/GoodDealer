@@ -168,7 +168,10 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               locale={locale}
               ports={ports}
               readGeneration={publication.status.readGeneration}
+              writable={readOnly === null}
               onStale={onRefresh}
+              onPublication={onPublication}
+              onFailure={reportFailure}
             />
           ),
           "operations.batch": () => (
@@ -477,13 +480,31 @@ const dnsPageSize = 50;
  * workspace-wide counts, so the page never reads every window. A window from a newer generation
  * means the workspace publication is stale, so the root republishes instead of stitching reads.
  */
-function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
+function DnsHealthRoute({ locale, ports, readGeneration, writable, onStale, onPublication, onFailure }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly readGeneration: number;
+  readonly writable: boolean;
   readonly onStale: () => void;
+  readonly onPublication: (publication: AuthoritativeWorkspacePublication) => void;
+  readonly onFailure: () => void;
 }) {
   const copy = getPresentationCopy(locale, "dnsVerification");
+  const [bindingId, setBindingId] = useState<string | null>(null);
+  // Binding is a local write from Host-verified Zone evidence; the Host re-checks that evidence
+  // and the read generation, and a committed bind republishes the workspace at its receipt. A
+  // read-only surface is never handed the write.
+  const bindProvider = writable ? ports.business.bindDomainAssetProvider : undefined;
+  const bindZone = bindProvider !== undefined
+    ? (row: { readonly domainAssetId: string }) => {
+      if (bindingId !== null) return;
+      setBindingId(row.domainAssetId);
+      void bindProvider.call(ports.business, { schemaVersion: 1, expectedReadGeneration: readGeneration, entityId: row.domainAssetId as CanonicalDomainName })
+        .then((receipt) => readAuthoritativeWorkspacePublication(ports, receipt.readGeneration))
+        .then(onPublication, onFailure)
+        .finally(() => setBindingId(null));
+    }
+    : undefined;
   const [page, setPage] = useState({ startIndex: 0, size: dnsPageSize });
   const [text, setText] = useState("");
   // The Host accepts the asset library's canonical prefix; other text can match no domain, so it is
@@ -513,6 +534,8 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
         query={text}
         onQueryChange={(next) => { setText(next); setPage({ startIndex: 0, size: page.size }); }}
         onPageChange={(startIndex, size) => changeHostPage(state, page, { startIndex, size }, setPage, retry)}
+        bindingId={bindingId}
+        {...(bindZone === undefined ? {} : { onBindZone: bindZone })}
       />
     ));
   }
