@@ -1,4 +1,4 @@
-import { historyEntryLimit, localHistoryDay, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -17,6 +17,7 @@ import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
 import { DesktopRouter } from "./desktop-router";
 import { recoverHostPage, useHostRouteRead, type HostPage, type HostRouteReadState } from "./host-route-read";
+import { useLocalHistoryDay } from "./local-history-day";
 import { HostRouteStatus, type HostRouteStatusCopy } from "./host-route-status";
 import {
   createPortfolioMutationController,
@@ -339,13 +340,12 @@ function HistoryRoute({ locale, ports, readGeneration, onStale }: {
 }) {
   const copy = getPresentationCopy(locale, "operationHistory");
   const [selected, setSelected] = useState<string | null>(null);
+  // Every window of one read asks for the same local day, and the read restarts with the next day
+  // when this one ends, so "changes today" never mixes two days or keeps counting yesterday.
+  const today = useLocalHistoryDay();
   const { state, retry } = useHostRouteRead(
-    // Each window asks for the local day at the moment it is requested. When a read straddles
-    // midnight and the two days' counts differ, the projection rejects the windows as different
-    // reads and the person can read again; equal counts pass, which is still a correct count for
-    // one of the two days. A page left open past midnight keeps its last count until re-read.
-    ports.history, (port, request) => port.loadHistory({ ...request, ...localHistoryDay(new Date()) }), readGeneration, onStale,
-    keepWindows<HistoryRead>, { windowSize: hostWindowSize, rowLimit: historyEntryLimit },
+    ports.history, (port, request) => port.loadHistory({ ...request, ...today }), readGeneration, onStale,
+    keepWindows<HistoryRead>, { windowSize: hostWindowSize, rowLimit: historyEntryLimit, restartKey: today.todayFrom },
   );
 
   const view = useMemo(() => {

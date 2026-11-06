@@ -18,6 +18,7 @@ Customer Desktop application that composes the Renderer and native Host around t
   opening the platform, marking done, re-checking and accepting risk are unavailable until their
   capabilities are qualified, and there is no browser session or authorized-execution control. Operation history reads the newest 500 local revisions from `local_history_read`,
   with today's changes counted by the Host over the whole ledger within the person's local day
+  (one day for every window of a read, read again when that day ends)
   (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
   revision when no remote change or conflict can lie in between; otherwise previous values show as
   unknown); every Revision is read-only, with no

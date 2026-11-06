@@ -241,6 +241,32 @@ describe("paged Host routes", () => {
     expect(metric?.textContent).toContain("2");
   });
 
+  it("reads today's changes again with the next local day when the day ends", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 10, 6, 23, 59, 50));
+      const host = hostPorts();
+      await render(host.ports);
+      await click(named("Operation history"));
+      const before = host.loadHistory.mock.calls.length;
+      const yesterday = localHistoryDay(new Date(2026, 10, 6, 12));
+      expect(host.loadHistory.mock.calls.at(-1)?.[0]).toMatchObject(yesterday);
+
+      // Nothing is re-read before the day ends.
+      await act(async () => { vi.advanceTimersByTime(5_000); });
+      expect(host.loadHistory.mock.calls.length).toBe(before);
+
+      await act(async () => { vi.advanceTimersByTime(6_000); });
+      const next = localHistoryDay(new Date(2026, 10, 7, 12));
+      expect(next.todayFrom).toBe(yesterday.todayUntil);
+      expect(host.loadHistory.mock.calls.length).toBeGreaterThan(before);
+      // Every window of the new read asks for the new day.
+      for (const [request] of host.loadHistory.mock.calls.slice(before)) expect(request).toMatchObject(next);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sends the DNS search to the Host and keeps the search box focused while it reads", async () => {
     const host = hostPorts();
     const answer = host.loadDnsHealth.getMockImplementation()!;
