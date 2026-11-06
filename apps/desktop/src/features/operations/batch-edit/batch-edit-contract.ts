@@ -1,4 +1,4 @@
-import type { CanonicalMoneyView } from "@gooddealer/client-core";
+import { adjustAmountByTenthsOfPercent, type CanonicalMoneyView } from "@gooddealer/client-core";
 
 import { parseTargetPriceInput } from "../../portfolio";
 
@@ -43,9 +43,9 @@ export function applyPriceRule(target: BatchEditTarget, rule: BatchPriceRule): s
   if (rule.mode === "uniform") return rule.amount;
   if (rule.mode === "each") return rule.amounts[target.id] ?? target.targetPrice?.amount ?? null;
   if (target.targetPrice === null) return null;
-  const factor = rule.direction === "decrease" ? 1 - rule.percent / 100 : 1 + rule.percent / 100;
-  const cents = Math.max(0, Math.round(Number(target.targetPrice.amount) * factor * 100));
-  return parseTargetPriceInput((cents / 100).toFixed(2));
+  // `parsePercentInput` allows one decimal, so the percent is a whole number of tenths.
+  const tenths = Math.round(rule.percent * 10) * (rule.direction === "decrease" ? -1 : 1);
+  return parseTargetPriceInput(adjustAmountByTenthsOfPercent(target.targetPrice.amount, tenths));
 }
 
 /** Percent adjustments stay within 0–90 % so a typo cannot zero out a portfolio. */

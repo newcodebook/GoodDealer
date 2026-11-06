@@ -6,6 +6,7 @@ import {
   dataFreshnessSchema,
 } from "../portfolio/index";
 import { registrarNameSchema } from "../portfolio/view-models";
+import { amountUnits, unitsAmount } from "../pricing/decimal-amount";
 
 export const renewalTermYearsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
@@ -234,29 +235,17 @@ function sumRenewalItems(
   items: readonly { readonly annualPrice: { readonly currency: string; readonly amount: string }; readonly termYears: number }[],
 ): { currency: string; amount: string } {
   const currency = items[0]?.annualPrice.currency ?? "USD";
-  const total = items.reduce((sum, item) => sum + decimalToUnits(item.annualPrice.amount) * BigInt(item.termYears), 0n);
-  return { currency, amount: unitsToDecimal(total) };
+  const total = items.reduce((sum, item) => sum + amountUnits(item.annualPrice.amount) * BigInt(item.termYears), 0n);
+  return { currency, amount: unitsAmount(total) };
 }
 
 function moneyEqual(left: { currency: string; amount: string }, right: { currency: string; amount: string }): boolean {
-  return left.currency === right.currency && decimalToUnits(left.amount) === decimalToUnits(right.amount);
+  return left.currency === right.currency && amountUnits(left.amount) === amountUnits(right.amount);
 }
 
 function subtractMoney(left: { amount: string }, right: { amount: string }): string {
-  return unitsToDecimal(decimalToUnits(left.amount) - decimalToUnits(right.amount));
+  return unitsAmount(amountUnits(left.amount) - amountUnits(right.amount));
 }
 
-function decimalToUnits(amount: string): bigint {
-  const [whole = "0", fraction = ""] = amount.split(".");
-  return BigInt(whole) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
-}
-
-function unitsToDecimal(units: bigint): string {
-  const negative = units < 0n;
-  const absolute = negative ? -units : units;
-  const whole = absolute / 100_000_000n;
-  const fraction = (absolute % 100_000_000n).toString().padStart(8, "0").replace(/0+$/u, "");
-  return `${negative ? "-" : ""}${whole}${fraction.length > 0 ? `.${fraction}` : ""}`;
-}
 
 export * from "./renewals-read";

@@ -87,14 +87,15 @@ export function formatDate(
 
 export function formatNumber(
   locale: Locale,
-  value: NumericValue,
+  value: NumericValue | DecimalString,
   options: NumberFormatOptions = defaultNumberOptions,
 ): string {
   assertNumericValue(value);
   return new Intl.NumberFormat(parseLocale(locale), {
     ...defaultNumberOptions,
     ...options,
-  }).format(value);
+    // As in `formatMoney`: Intl formats a decimal string exactly, and the shape is already checked.
+  }).format(value as Parameters<Intl.NumberFormat["format"]>[0]);
 }
 
 export function formatMoney(

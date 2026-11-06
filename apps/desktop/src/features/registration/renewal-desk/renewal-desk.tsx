@@ -1,4 +1,4 @@
-import type { RenewalDeskItem, RenewalTermYears } from "@gooddealer/client-core";
+import { amountSign, multiplyAmount, subtractAmounts, type RenewalDeskItem, type RenewalTermYears } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   AlertTriangleIcon,
@@ -19,7 +19,7 @@ import {
 import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
-import { formatAssetMoney } from "../../portfolio";
+import { formatAssetAmount, formatAssetMoney } from "../../portfolio";
 import {
   isRenewalTerm,
   renewalTerms,
@@ -58,9 +58,6 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
   return template.replace(/\{(\w+)\}/gu, (match, key: string) => values[key] ?? match);
 }
 
-function moneyValue(amount: string): number {
-  return Number(amount);
-}
 
 /** Renewal desk: due list with per-row term and auto-renew, a budgeted plan, then one-by-one confirmation. */
 export function RenewalDesk({
@@ -90,8 +87,8 @@ export function RenewalDesk({
   const due = view.items.filter((item) => item.status === "due");
   const selectedIds = due.filter((item) => item.selected).map((item) => item.id);
   const { budget, selectedTotal } = view;
-  const remaining = budget === null || selectedTotal === null ? null : moneyValue(budget.amount) - moneyValue(selectedTotal.amount);
-  const overBudget = remaining !== null && remaining < 0;
+  const remaining = budget === null || selectedTotal === null ? null : amountSign(subtractAmounts(budget.amount, selectedTotal.amount));
+  const overBudget = remaining !== null && remaining.sign < 0;
   // A paged view shows one Host page, so its metrics come from the Host's whole-desk counts.
   const { page } = view;
   const dueCount = page?.totalItems ?? due.length;
@@ -142,7 +139,7 @@ export function RenewalDesk({
         />
       ),
     },
-    { key: "annualPrice", label: copy.unitPricePerYear, numeric: true, width: 90, render: (item) => item.annualPrice === null ? dash : <Money amount={moneyValue(item.annualPrice.amount)} tone="body" /> },
+    { key: "annualPrice", label: copy.unitPricePerYear, numeric: true, width: 90, render: (item) => item.annualPrice === null ? dash : <Money amount={formatAssetAmount(locale, item.annualPrice.amount)} tone="body" /> },
     {
       key: "subtotal",
       label: copy.subtotal,
@@ -150,7 +147,7 @@ export function RenewalDesk({
       width: 104,
       render: (item) => item.status === "planned"
         ? <Badge tone="sync" mono={false}>{copy.planned}</Badge>
-        : item.annualPrice === null || item.termYears === null ? dash : <Money amount={moneyValue(item.annualPrice.amount) * item.termYears} />,
+        : item.annualPrice === null || item.termYears === null ? dash : <Money amount={formatAssetAmount(locale, multiplyAmount(item.annualPrice.amount, item.termYears))} />,
     },
   ];
 
@@ -167,7 +164,7 @@ export function RenewalDesk({
           { key: "due", label: copy.expiringDomains, value: formatNumber(locale, dueCount) },
           { key: "budget", label: copy.renewalBudget, ...(budget === null ? unavailable : { value: money(budget), tone: "gold" as const }) },
           { key: "selected", label: copy.selectedRenewalAmount, ...(selectedTotal === null ? unavailable : { value: money(selectedTotal), tone: overBudget ? "danger" as const : "gold" as const }) },
-          { key: "remaining", label: copy.budgetRemaining, ...(remaining === null || budget === null ? unavailable : { value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, Math.abs(remaining).toFixed(2), budget.currency)}`, tone: overBudget ? "danger" as const : "body" as const }) },
+          { key: "remaining", label: copy.budgetRemaining, ...(remaining === null || budget === null ? unavailable : { value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, remaining.magnitude, budget.currency)}`, tone: overBudget ? "danger" as const : "body" as const }) },
           { key: "auto", label: copy.autoRenewCoverage, value: `${formatNumber(locale, autoCovered)} / ${formatNumber(locale, dueCount)}`, tone: "blue", meta: `${copy.autoRenewOff} ${formatNumber(locale, autoOff)} · ${copy.autoRenewUnrecorded} ${formatNumber(locale, autoUnrecorded)}` },
         ]}
       />

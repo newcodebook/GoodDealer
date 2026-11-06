@@ -19,6 +19,12 @@ describe("deterministic Intl formatters", () => {
     expect(formatNumber("zh-CN", 1_234_567.891)).toBe("1,234,567.89");
     expect(formatNumber("en-US", 12n)).toBe("12");
     expect(formatNumber("en-US", 0.125, { style: "percent" })).toBe("12.5%");
+    // Decimal strings are formatted exactly, as money is.
+    const twoDecimals = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+    expect(formatNumber("en-US", "9999999999999999.99", twoDecimals)).toBe("9,999,999,999,999,999.99");
+    expect(formatNumber("en-US", 9_999_999_999_999_999.99, twoDecimals)).not.toBe("9,999,999,999,999,999.99");
+    expect(formatNumber("zh-CN", "-36900", twoDecimals)).toBe("-36,900.00");
+    for (const bad of ["1e3", "", "01", "1,000"]) expect(() => formatNumber("en-US", bad)).toThrow(RangeError);
   });
 
   it("formats money using an explicit ISO currency", () => {

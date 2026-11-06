@@ -109,8 +109,8 @@ dead-letter outbox 和 Session 撤销；
 - [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 精确金额格式化依赖各 Tauri WebView（WebKitGTK、WKWebView、WebView2）支持 ECMA-402 NumberFormat v3 的字符串格式化，不支持时会静默退回双精度舍入；在打包构件中验证或在 VERIFICATION 写明最低 WebView 版本
-- [ ] 其余金额显示与求和仍经 `Number`：kit `Money` 组件（资产库目标价、域名详情挂牌价）、资产库本页估值、域名详情利润、批量编辑示例与合计、续费金额、报价中间价；改为十进制字符串格式化与精确求和
+- [ ] 精确金额格式化（`formatMoney` 与 `formatNumber` 的十进制字符串）依赖各 Tauri WebView（WebKitGTK、WKWebView、WebView2）支持 ECMA-402 NumberFormat v3 的字符串格式化，不支持时会静默退回双精度舍入；在打包构件中验证或在 VERIFICATION 写明最低 WebView 版本
+- [x] 其余金额显示与求和仍经 `Number`：kit `Money` 组件（资产库目标价、域名详情挂牌价）、资产库本页估值、域名详情利润、批量编辑示例与合计、续费金额、报价中间价；改为十进制字符串格式化与精确求和（`client-core` `pricing/decimal-amount` 以 10⁻⁸ 单位的 BigInt 做求和、相减、乘年限、按百分比调整到分（四舍五入）、中间价与相对百分比，运算接受任意整数位以容纳超过 16 位的合计，16 位上限仍由合同 schema 把关；`registration` 改用同一模块；i18n `formatNumber` 与 `formatMoney` 一样精确格式化十进制字符串，`Money` 收到已格式化的金额文本；资产库本页估值只在单一币种时求和，混合币种显示“—”；各页面测试覆盖超出双精度与半分进位的情形） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、DNS 健康与销售的分页标签改为共享分页文案组而非借用资产库文案（分页标签移入 `shell` 文案组，其清单同时以品牌 `controls.jsx` 对账；资产库、续费、DNS 健康与销售共用） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 分页路由（续费、DNS 健康、销售）补翻页接线测试（`onPageChange` → 页起点 → Host 读取）；与 `useHostRouteRead` 的 hook 级重试测试一起需要渲染环境（桌面测试新增 `happy-dom` 开发依赖；`app/paged-routes.test.tsx` 在 DOM 中渲染真实工作区，从导航或资产库进入三个分页路由并点击页码；后页读取失败回到首页、DNS 搜索在读取进行中保持输入框挂载与焦点（对去掉保留上一视图的变体失败）；桩读取经真实读取解析器；`happy-dom` 已登记到仓库拓扑依赖目录） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售域名超限在分页前改为提前停止读取（读到超过上限的不同域名即失败），并以“超出本视图容量”文案替代可重试的读取失败（由分页取代：销售按域名分页后不再有视图域名上限，`salesListingLimit` 已移除） https://github.com/newcodebook/GoodDealer/pull/53

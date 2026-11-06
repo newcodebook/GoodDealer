@@ -53,6 +53,21 @@ describe("Renewal desk", () => {
     expect(html).toContain("续费所选 · 1");
   });
 
+  it("multiplies a price by its term and subtracts the budget exactly", () => {
+    const base = list();
+    const view = renewalDeskViewModelSchema.parse({
+      ...base,
+      budget: { currency: "USD", amount: "0.3" },
+      items: [{ ...base.items[0], termYears: 3, annualPrice: { currency: "USD", amount: "0.1" } }],
+      selectedTotal: { currency: "USD", amount: "0.3" },
+    }) as RenewalListView;
+    const html = renderToStaticMarkup(<RenewalDesk locale="en-US" view={view} onReviewPlan={() => undefined} />);
+    // 0.1 × 3 and 0.3 − 0.3 are exact; in doubles they are 0.30000000000000004 and −5.5e-17.
+    expect(html).toContain(">0.30<");
+    expect(html).toContain("$0.00");
+    expect(html).not.toContain("−$0.00");
+  });
+
   it("states that creating a plan charges nothing and flags an over-budget plan", () => {
     const html = renderToStaticMarkup(<RenewalDesk locale="zh-CN" view={list()} plan={plan} />);
 

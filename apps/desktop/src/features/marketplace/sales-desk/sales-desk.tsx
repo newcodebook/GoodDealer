@@ -1,5 +1,6 @@
 import {
   hasMarketplaceActionGrant,
+  midpointWholeAmount,
   type CommerceMoney,
   type DealView,
   type ListingView,
@@ -394,5 +395,5 @@ export function SalesDesk({
 
 /** Suggested counter halfway between the offer and BIN, rounded to whole units. */
 function midpoint(offer: OfferView): string {
-  return String(Math.round((Number(offer.offer.amount) + Number(offer.bin.amount)) / 2));
+  return midpointWholeAmount(offer.offer.amount, offer.bin.amount);
 }

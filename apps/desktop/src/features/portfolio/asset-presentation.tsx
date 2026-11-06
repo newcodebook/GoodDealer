@@ -1,4 +1,4 @@
-import { formatMoney, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatMoney, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge } from "@gooddealer/ui";
 
 import type { AssetRowStatus } from "./asset-library/asset-library-contract";
@@ -7,6 +7,14 @@ import type { AssetRowStatus } from "./asset-library/asset-library-contract";
 export function formatAssetMoney(locale: Locale, amount: string, currency: string): string {
   // The amount string goes to Intl unchanged: a Number would round contract amounts past 15 digits.
   return formatMoney(locale, amount, currency, { currencyDisplay: "narrowSymbol" });
+}
+
+/**
+ * An amount without its currency, as the kit's `Money` shows it ("3,500.00"). The decimal text goes
+ * to Intl unchanged, so it is never rounded through a double; it shows two fraction digits.
+ */
+export function formatAssetAmount(locale: Locale, amount: string): string {
+  return formatNumber(locale, amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** One status vocabulary for library rows and the detail header. */

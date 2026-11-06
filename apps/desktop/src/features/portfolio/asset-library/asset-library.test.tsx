@@ -97,6 +97,21 @@ describe("Asset Library presentation", () => {
     expect(render({ presentation: { state: "ready", data: library(null) }, query: "  " })).not.toContain("全工作区");
   });
 
+  it("shows prices and the page value exactly, and no page value for mixed currencies", () => {
+    const exact = render({ presentation: { state: "ready", data: library(null, [
+      row("big.com", { targetPrice: { currency: "USD", amount: "9007199254740993" } }),
+      row("cent.com", { targetPrice: { currency: "USD", amount: "0.1" } }),
+      row("dime.com", { targetPrice: { currency: "USD", amount: "0.2" } }),
+    ]) } });
+    expect(exact).toContain("9,007,199,254,740,993.00");
+    expect(exact).toContain("$9,007,199,254,740,993.30");
+    const mixed = render({ presentation: { state: "ready", data: library(null, [
+      row("usd.com", { targetPrice: { currency: "USD", amount: "10" } }),
+      row("eur.com", { targetPrice: { currency: "EUR", amount: "10" } }),
+    ]) } });
+    expect(mixed).toMatch(/<span class="asset-library-gold">—<\/span>/u);
+  });
+
   it("marks only the assets the Host reports as expiring, whatever the Renderer's date", () => {
     // Same expiry date: the sold asset is no longer the workspace's to renew, so the Host leaves it unmarked.
     const html = render({

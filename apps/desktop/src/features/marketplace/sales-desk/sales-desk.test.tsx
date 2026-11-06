@@ -56,6 +56,7 @@ describe("Sales desk contract", () => {
   it("parses counteroffers in the offer currency and rejects malformed amounts", () => {
     expect(parseCounterInput(" 37,000.5 ", "USD")).toEqual({ currency: "USD", amount: "37000.5" });
     expect(parseCounterInput("0", "USD")).toBeNull();
+    expect(parseCounterInput("0.00", "USD")).toBeNull();
     expect(parseCounterInput("-5", "USD")).toBeNull();
     expect(parseCounterInput("1e5", "USD")).toBeNull();
     expect(parseCounterInput("12.345", "USD")).toBeNull();
@@ -67,6 +68,9 @@ describe("Sales desk contract", () => {
     expect(commissionPercent(1250)).toBe("12.5%");
     expect(offerBinDelta({ offer: usd("212000"), bin: usd("280000") })).toBe(-24);
     expect(offerBinDelta({ offer: usd("1"), bin: usd("0") })).toBeNull();
+    // Compared exactly: a double cannot tell these two amounts apart.
+    expect(offerBinDelta({ offer: usd("9007199254740993"), bin: usd("9007199254740992") })).toBe(0);
+    expect(offerBinDelta({ offer: usd("1.005"), bin: usd("1") })).toBe(1);
   });
 
   it("binds the transfer confirmation to exactly one deal target", () => {

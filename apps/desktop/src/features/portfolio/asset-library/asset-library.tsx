@@ -1,4 +1,4 @@
-import type { AssetLibraryRow } from "@gooddealer/client-core";
+import { sumAmounts, type AssetLibraryRow } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   BatchBar,
@@ -19,7 +19,7 @@ import {
 import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
-import { AssetStatusBadge, formatAssetMoney } from "../asset-presentation";
+import { AssetStatusBadge, formatAssetAmount, formatAssetMoney } from "../asset-presentation";
 
 import {
   assetRowStatus,
@@ -146,7 +146,7 @@ export function AssetLibrary({
       sortable: true,
       priority: "essential",
       render: (row) => {
-        const display = <Money amount={row.targetPrice === null ? null : Number(row.targetPrice.amount)} />;
+        const display = <Money amount={row.targetPrice === null ? null : formatAssetAmount(locale, row.targetPrice.amount)} />;
         if (!canEdit || onTargetPriceCommit === undefined) return display;
         return (
           <EditableCell
@@ -211,8 +211,11 @@ export function AssetLibrary({
 
   const pageSize = data?.window.size ?? 25;
   const page = data === null ? 1 : Math.floor(data.window.startIndex / pageSize) + 1;
-  const pageValue = data?.window.rows.reduce((sum, row) => sum + (row.targetPrice === null ? 0 : Number(row.targetPrice.amount)), 0) ?? 0;
   const currency = data?.totalValue?.currency ?? "USD";
+  // Summed exactly, and only in one currency: a page that mixes currencies has no single value, as
+  // the Host's portfolio value has none for a workspace that mixes them.
+  const pagePrices = data?.window.rows.flatMap((row) => row.targetPrice === null ? [] : [row.targetPrice]) ?? [];
+  const pageValue = pagePrices.every((price) => price.currency === currency) ? sumAmounts(pagePrices.map((price) => price.amount)) : null;
   const selectedCount = selectedIds.length;
 
   const stateMessage = presentation.state === "loading"
@@ -304,7 +307,7 @@ export function AssetLibrary({
                   pageSize={pageSize}
                   total={data.totalRows}
                   labels={shellPaginationLabels(locale)}
-                  note={<>{copy.viewValue} <span className="asset-library-gold">{money(String(pageValue), currency)}</span></>}
+                  note={<>{copy.viewValue} <span className="asset-library-gold">{pageValue === null ? "—" : money(pageValue, currency)}</span></>}
                   {...(onWindowChange === undefined ? {} : {
                     onPageChange: (next: number) => onWindowChange((next - 1) * pageSize, pageSize),
                     onPageSizeChange: (size: number) => onWindowChange(0, size),

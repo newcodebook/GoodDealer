@@ -1,4 +1,4 @@
-import type { DomainDetailViewModel } from "@gooddealer/client-core";
+import { amountSign, subtractAmounts, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   Badge,
@@ -22,7 +22,7 @@ import { shellTableLabels } from "../../../app-shell";
 import { useState } from "react";
 
 import { assetRowStatus, parseTargetPriceInput } from "../asset-library/asset-library-contract";
-import { AssetStatusBadge, formatAssetMoney } from "../asset-presentation";
+import { AssetStatusBadge, formatAssetAmount, formatAssetMoney } from "../asset-presentation";
 import type { DomainDetailPresentation, DomainDetailSections, DomainDnsRecord, DomainListing } from "./domain-detail-contract";
 import "./domain-detail.css";
 
@@ -90,7 +90,7 @@ export function DomainDetail({
   const expiringSoon = asset.expiring;
   const money = (amount: string, currency: string) => formatAssetMoney(locale, amount, currency);
   const gain = asset.targetPrice !== null && asset.acquisitionCost !== null && asset.targetPrice.currency === asset.acquisitionCost.currency
-    ? Number(asset.targetPrice.amount) - Number(asset.acquisitionCost.amount)
+    ? amountSign(subtractAmounts(asset.targetPrice.amount, asset.acquisitionCost.amount))
     : null;
 
   const openPriceDialog = () => {
@@ -139,7 +139,7 @@ export function DomainDetail({
             tone: "gold",
             value: asset.targetPrice === null ? "—" : money(asset.targetPrice.amount, asset.targetPrice.currency),
             ...(gain === null || asset.targetPrice === null ? {} : {
-              meta: `${gain >= 0 ? copy.unrealizedGain : copy.unrealizedLoss}${money(String(Math.abs(gain)), asset.targetPrice.currency)}`,
+              meta: `${gain.sign < 0 ? copy.unrealizedLoss : copy.unrealizedGain}${money(gain.magnitude, asset.targetPrice.currency)}`,
             }),
           },
           { key: "status", label: copy.currentStatus, mono: false, value: <AssetStatusBadge locale={locale} status={status} /> },
@@ -248,7 +248,7 @@ export function DomainDetail({
                     columns={[
                       { key: "platform", label: copy.platform },
                       { key: "status", label: copy.status, render: listingBadge },
-                      { key: "price", label: copy.price, numeric: true, render: (row) => <Money amount={row.price === null ? null : Number(row.price.amount)} /> },
+                      { key: "price", label: copy.price, numeric: true, render: (row) => <Money amount={row.price === null ? null : formatAssetAmount(locale, row.price.amount)} /> },
                       { key: "updatedLabel", label: copy.updated, numeric: true, muted: true },
                     ]}
                     rows={listings}
