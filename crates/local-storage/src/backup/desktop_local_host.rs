@@ -64,6 +64,8 @@ pub enum DesktopLocalHostError {
     Unavailable,
     /// The workspace already holds the domain being added; nothing was written.
     AssetExists,
+    /// The capability has not passed ADR-0024 qualification; nothing was attempted.
+    CapabilityUnqualified,
 }
 
 impl fmt::Display for DesktopLocalHostError {
@@ -75,6 +77,7 @@ impl fmt::Display for DesktopLocalHostError {
             Self::CloudProtocolRejected => "DESKTOP_CLOUD_PROTOCOL_REJECTED",
             Self::Unavailable => "DESKTOP_LOCAL_HOST_UNAVAILABLE",
             Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
+            Self::CapabilityUnqualified => "DESKTOP_CAPABILITY_UNQUALIFIED",
         })
     }
 }
@@ -4429,7 +4432,8 @@ impl DesktopLocalHost {
             | DesktopLocalHostError::ApplicationRootRejected
             | DesktopLocalHostError::CloudProtocolRejected
             | DesktopLocalHostError::Unavailable
-            | DesktopLocalHostError::AssetExists => DesktopBackupError::StorageRejected,
+            | DesktopLocalHostError::AssetExists
+            | DesktopLocalHostError::CapabilityUnqualified => DesktopBackupError::StorageRejected,
         })
     }
 
@@ -5062,6 +5066,7 @@ fn map_sync_error(error: DesktopSyncError) -> DesktopLocalHostError {
         | DesktopSyncError::InvalidInput
         | DesktopSyncError::AcknowledgementMismatch => DesktopLocalHostError::AuthorityRejected,
         DesktopSyncError::StorageRejected => DesktopLocalHostError::StorageRejected,
+        DesktopSyncError::CapabilityUnqualified => DesktopLocalHostError::CapabilityUnqualified,
     }
 }
 

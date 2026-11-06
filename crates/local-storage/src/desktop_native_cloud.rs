@@ -2015,6 +2015,10 @@ mod tests {
         assert_eq!(other_host.native_checkpoint_due(&other_admission), Ok(true));
     }
 
+    use crate::active_workspace::capability_qualification::{
+        CLOUDFLARE_DNS_OBSERVE, test_qualification::qualify,
+    };
+
     fn credential_host() -> (tempfile::TempDir, DesktopLocalHost) {
         let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
@@ -2042,13 +2046,71 @@ mod tests {
     }
 
     #[test]
-    fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
+    fn unqualified_capability_is_refused_at_every_provider_admission_but_revocation_is_not() {
         let (_directory, local_host) = credential_host();
         let connection = local_host
             .read_cloudflare_connection()
             .expect("read connection")
             .connection_ref
             .expect("an Active credential is published");
+        // Even with a valid Active credential in place, no unqualified capability may run.
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .begin_cloudflare_activation(activation, &connection)
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let observation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        // Once qualified, the same admissions run for the same credential.
+        {
+            let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+            let activation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .begin_cloudflare_activation(activation, &connection)
+                    .is_ok()
+            );
+            let observation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                    .is_ok()
+            );
+        }
+        // Withdrawing access never waits for qualification.
+        let revocation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(revocation, &connection)
+                .expect("prepare revocation")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
+        // Qualified for this test, so a refused observation proves revocation, not the gate.
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let before = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_observation(before, &connection, "revoke.test")
+                .is_ok(),
+            "a qualified Active credential is observable before revocation"
+        );
 
         let admission = local_host.begin_native_cloud_run().expect("admit run");
         let prepared = local_host
@@ -2065,11 +2127,11 @@ mod tests {
             None
         );
         let observe = local_host.begin_native_cloud_run().expect("admit run");
-        assert!(
-            local_host
-                .prepare_cloudflare_observation(observe, &connection, "revoke.test")
-                .is_err()
-        );
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
         assert_eq!(
             prepared.plan.target.kind,
             crate::CloudflareCredentialEnvelopeKind::Tombstone
@@ -2132,6 +2194,7 @@ mod tests {
 
     #[test]
     fn revocation_prewrite_contradiction_remediates_and_keeps_the_credential_denied() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
         let (_directory, local_host) = credential_host();
         let connection = local_host
             .read_cloudflare_connection()
@@ -2161,11 +2224,11 @@ mod tests {
             None
         );
         let observe = local_host.begin_native_cloud_run().expect("admit run");
-        assert!(
-            local_host
-                .prepare_cloudflare_observation(observe, &connection, "revoke.test")
-                .is_err()
-        );
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
     }
 
     #[test]

@@ -113,6 +113,9 @@ fences as activation, and contradicting custody remediates while the credential 
 denied at once; the token leaves custody only once the tombstone is confirmed. Revocation withdraws
 GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. No
 production screen offers revocation until the Cloudflare capability is qualified (ADR-0024).
+The Host's qualification register (`crates/local-storage/src/active_workspace/capability_qualification.rs`)
+is empty, so activation, credential preparation and observation are refused in the Host with
+`DESKTOP_CAPABILITY_UNQUALIFIED` even when a valid credential exists; revocation and recovery are not gated.
 
 - `cloudflare_connection_activate`
 - `cloudflare_connection_revoke`

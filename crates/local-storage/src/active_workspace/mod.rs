@@ -1,5 +1,7 @@
 pub(crate) mod batch_operations;
 
+pub(crate) mod capability_qualification;
+
 pub(crate) mod dns_health;
 
 pub(crate) mod history;

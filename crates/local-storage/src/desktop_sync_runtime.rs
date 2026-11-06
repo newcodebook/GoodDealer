@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::active_workspace::business::SyncProjectionEffect;
+use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -35,6 +36,8 @@ pub(crate) enum DesktopSyncError {
     StorageRejected,
     InvalidInput,
     AcknowledgementMismatch,
+    /// The capability has not passed ADR-0024 qualification, so the Host refuses to run it.
+    CapabilityUnqualified,
 }
 
 impl fmt::Display for DesktopSyncError {
@@ -45,6 +48,7 @@ impl fmt::Display for DesktopSyncError {
             Self::StorageRejected => "SYNC_STORAGE_REJECTED",
             Self::InvalidInput => "SYNC_INPUT_REJECTED",
             Self::AcknowledgementMismatch => "SYNC_ACKNOWLEDGEMENT_MISMATCH",
+            Self::CapabilityUnqualified => "SYNC_CAPABILITY_UNQUALIFIED",
         })
     }
 }
@@ -197,6 +201,7 @@ impl DesktopSyncRuntime {
         connection_hint: &str,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         database
             .cloudflare_provision_seed(connection_hint)
             .map(|_| ())
@@ -235,6 +240,7 @@ impl DesktopSyncRuntime {
         entity_hint: &str,
     ) -> Result<PreparedCloudflareObservationData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let credential = database
             .cloudflare_connection_observation_admission(connection_hint)
             .map_err(map_database_error)?;
@@ -325,6 +331,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PreparedCloudflareProvisionData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let seed = database
             .cloudflare_provision_seed(connection_hint)
             .map_err(map_database_error)?;
@@ -955,6 +962,16 @@ impl DesktopSyncRuntime {
                 || commit_guard.verify(self, admission),
             )
             .map_err(map_database_error)
+    }
+}
+
+/// Refuses a capability the Host's ADR-0024 register has not qualified. Checked at every
+/// admission that would reach the Provider, so no caller can reach an unqualified capability.
+fn require_qualified(capability: &str) -> Result<(), DesktopSyncError> {
+    if crate::active_workspace::capability_qualification::capability_qualified(capability) {
+        Ok(())
+    } else {
+        Err(DesktopSyncError::CapabilityUnqualified)
     }
 }
 

@@ -2,8 +2,9 @@
 //! whether each role's capabilities are executable.
 //!
 //! Connection, credential and Provider account identifiers stay in the Host. No capability has an
-//! ADR-0024 qualification yet, so every declared role is reported as unavailable with
-//! `qualification_pending` instead of letting the Renderer infer availability from credential state.
+//! ADR-0024 qualification yet: each declared role is reported from the Host's qualification
+//! register, so today every role is unavailable with `qualification_pending`, instead of letting
+//! the Renderer infer availability from credential state.
 //!
 //! It also reports stored rows that other reads reject. Integrity triggers keep new writes valid,
 //! but rows written before them are not rewritten, and the reads fail closed on them rather than
@@ -240,6 +241,11 @@ fn project_connection(raw: RawConnection) -> Result<SettingsConnection, Portfoli
             .iter()
             .any(|known: &SettingsConnectionRole| known.role == role)
         {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
+        // The settings contract has no executable state yet. A qualified role must extend it with
+        // that state, so until then a qualification fails this read instead of being misreported.
+        if super::capability_qualification::role_qualified(&provider_kind, &role) {
             return Err(PortfolioReadError::ProjectionRejected);
         }
         roles.push(SettingsConnectionRole {

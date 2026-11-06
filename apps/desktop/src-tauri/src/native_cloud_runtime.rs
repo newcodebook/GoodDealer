@@ -815,8 +815,11 @@ const fn stage_from_host_error(
         gooddealer_local_storage::DesktopLocalHostError::AuthorityRejected => {
             SyncStageOutcome::NotAttempted
         }
+        // Sync never consults the qualification register, so an unqualified refusal here is a
+        // contract breach and blocks like a protocol violation.
         gooddealer_local_storage::DesktopLocalHostError::CloudProtocolRejected
-        | gooddealer_local_storage::DesktopLocalHostError::ApplicationRootRejected => {
+        | gooddealer_local_storage::DesktopLocalHostError::ApplicationRootRejected
+        | gooddealer_local_storage::DesktopLocalHostError::CapabilityUnqualified => {
             SyncStageOutcome::SecurityBlocked
         }
         gooddealer_local_storage::DesktopLocalHostError::StorageRejected
