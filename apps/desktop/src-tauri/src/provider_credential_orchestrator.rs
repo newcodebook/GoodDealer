@@ -244,12 +244,6 @@ impl RevocationOutcome {
             DesktopCloudflareResolution::RecoveryRequired => Self::RecoveryRequired,
         }
     }
-
-    /// Whether the Host's connection state changed, so projections must be re-read. Preparing a
-    /// revocation already commits the denial, so every outcome but `NothingToRevoke` does.
-    pub(crate) const fn changed_host_state(self) -> bool {
-        !matches!(self, Self::NothingToRevoke)
-    }
 }
 
 /// Revokes a connection's credential. Preparation denies credential use in the Host in the same
@@ -677,10 +671,22 @@ mod tests {
                 RevocationOutcome::RecoveryRequired,
             ]
         );
-        // Every prepared revocation committed the denial, so each must re-read projections;
-        // only finding no credential leaves the Host unchanged.
-        assert!(outcomes.iter().all(|outcome| outcome.changed_host_state()));
-        assert!(!RevocationOutcome::NothingToRevoke.changed_host_state());
+        assert!(!outcomes.contains(&RevocationOutcome::NothingToRevoke));
+    }
+
+    #[test]
+    fn every_provider_operation_ends_by_re_reading_projections() {
+        // An operation can commit Host state before it fails or returns an unconfirmed result,
+        // so the wake must not depend on the outcome.
+        let runtime = include_str!("native_cloud_runtime.rs");
+        let start = runtime
+            .find("async fn run_provider_operation(")
+            .expect("provider operation runner");
+        let end = start + runtime[start..].find("\n}\n").expect("end of the runner");
+        let runner = &runtime[start..end];
+        assert!(runner.trim_end().ends_with("projection.wake();"));
+        assert_eq!(runner.matches("projection.wake()").count(), 1);
+        assert!(!runner.contains("if "));
     }
 
     #[test]

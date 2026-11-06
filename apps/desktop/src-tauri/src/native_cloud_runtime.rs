@@ -274,32 +274,35 @@ async fn run_provider_operation(
     projection: ProjectionLaneHandle,
     operation: ProviderOperation,
 ) {
-    let result = match operation {
+    // The outcome is read back through the Host's connection status, not from here. Every
+    // operation may have committed before it ended, whatever it returned: activation imports the
+    // Zone and records its prewrite state, revocation commits the denial when it is prepared, and
+    // a non-confirmed resolution still changes the connection. So projections are always re-read;
+    // a re-read is idempotent and cheap next to a rate-limited Provider call.
+    let _outcome = match operation {
         ProviderOperation::Activate { connection_id } => {
             crate::provider_credential_orchestrator::activate(host, connection_id, cancel_fence)
                 .await
+                .map(drop)
         }
         ProviderOperation::Revoke { connection_id } => {
             crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
                 .await
-                .map(crate::provider_credential_orchestrator::RevocationOutcome::changed_host_state)
+                .map(drop)
         }
         ProviderOperation::Observe {
             connection_id,
             entity_id,
-        } => {
-            crate::provider_credential_orchestrator::observe(
-                host,
-                connection_id,
-                entity_id,
-                cancel_fence,
-            )
-            .await
-        }
+        } => crate::provider_credential_orchestrator::observe(
+            host,
+            connection_id,
+            entity_id,
+            cancel_fence,
+        )
+        .await
+        .map(drop),
     };
-    if matches!(result, Ok(true)) {
-        projection.wake();
-    }
+    projection.wake();
 }
 
 async fn run_sync_cycle(

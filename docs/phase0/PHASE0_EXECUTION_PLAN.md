@@ -172,7 +172,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 墓碑清除与已删除域名的重新添加：当前没有生产路径把墓碑置为 `purge_eligible` 或删除墓碑与已删除行，创建对带 `deleted_at` 的行一律拒绝，所以删除的域名永远不能重新添加。需要在服务端确认删除且保留期过后清除墓碑并允许重新创建，或为已确认的删除设计经同步的重新创建（两者都需先评估 Cloud 合同）；交付后把“目前不能重新添加”改为说明何时可重新添加
 - [x] 写入口门禁的渲染测试覆盖全部写入口：目前只逐状态证明“添加域名”，补上域名详情目标价、冲突中心解决、DNS“绑定 Zone”，Cloudflare 连接、激活与观察入口进入生产组合时一并加入；若 Host 将来产生 Active 但无 mutate 的“受限”状态，补一条说明写入口缺失原因的横幅（`apps/desktop/src/app/write-entries.test.tsx` 在 DOM 中渲染真实工作区，对 Active+mutate、Active 无 mutate、Standby 只读、商业只读四种状态逐一证明域名详情“编辑价格”、冲突中心“保留本地”/“接受平台”与 DNS“绑定 Zone”只在可写时出现；夹具的数据本身都允许写入（详情可编辑、冲突裁决可用、Zone 已观察），所以门禁是唯一能隐藏它们的条件。Cloudflare 连接、激活与观察入口的同类测试由生产界面组合一项交付。Host 的 Active 状态总是同时带 `workspace:mutate`，“受限”横幅随该状态出现时再加） https://github.com/newcodebook/GoodDealer/pull/53
 
-- [ ] 准备已提交后失败的 Provider 操作也唤醒投影：撤销在准备时已提交 `revocation_pending` 与拒绝使用，激活在准备时已提交 prewrite 状态，但其后 prewrite 检查、标记或解析返回 `Err` 时 `run_provider_operation` 只在 `Ok(true)` 时唤醒，投影保持旧状态直到下一次唤醒；让编排器区分“未准备”与“准备后失败”，后者同样唤醒
+- [x] 准备已提交后失败的 Provider 操作也唤醒投影：撤销在准备时已提交 `revocation_pending` 与拒绝使用，激活在准备时已提交 prewrite 状态，但其后 prewrite 检查、标记或解析返回 `Err` 时 `run_provider_operation` 只在 `Ok(true)` 时唤醒，投影保持旧状态直到下一次唤醒；让编排器区分“未准备”与“准备后失败”，后者同样唤醒（`run_provider_operation` 在每次 Provider 操作结束后无条件唤醒投影：激活在 Zone 导入与 prewrite 时、撤销在准备时已提交，非确认结果同样改变连接，所以不按结果判断；重读是幂等的，相对限速的 Provider 调用成本很小；源码策略测试防止唤醒再次依赖结果） https://github.com/newcodebook/GoodDealer/pull/53
 
 ### 4. 当前范围全系统 V1 汇合验收
 
