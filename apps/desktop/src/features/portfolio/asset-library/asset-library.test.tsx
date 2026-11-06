@@ -84,6 +84,19 @@ describe("Asset Library presentation", () => {
     expect(render({ presentation: { state: "ready", data: library(null) } })).toContain("gd-editable-value");
   });
 
+  it("labels the expiring count as workspace-wide only while a search filters the other metrics", () => {
+    const onRenew = () => undefined;
+    const plain = render({ presentation: { state: "ready", data: library(null) }, onRenew });
+    const searched = render({ presentation: { state: "ready", data: library(null) }, onRenew, query: "gold" });
+    expect(plain).not.toContain("全工作区");
+    expect(plain).toContain("去续费 →");
+    expect(searched).toContain("全工作区 · 去续费 →");
+    expect(searched).toContain('aria-label="60 天内到期 · 全工作区 · 去续费 →"');
+    // Without the renewals link the note still shows, as plain text.
+    expect(render({ presentation: { state: "ready", data: library(null) }, query: "gold" })).toContain("全工作区");
+    expect(render({ presentation: { state: "ready", data: library(null) }, query: "  " })).not.toContain("全工作区");
+  });
+
   it("marks only the assets the Host reports as expiring, whatever the Renderer's date", () => {
     // Same expiry date: the sold asset is no longer the workspace's to renew, so the Host leaves it unmarked.
     const html = render({

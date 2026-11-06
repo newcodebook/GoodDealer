@@ -65,6 +65,17 @@ function isStatusFilter(value: string): value is AssetStatusFilter {
   return (statusFilters as readonly string[]).includes(value);
 }
 
+/** The expiring metric's meta line: its notes, then the renewals link, joined as the kit joins them. */
+function expiringMeta(
+  notes: readonly string[],
+  renew: { readonly label: string; readonly onClick: () => void } | null,
+  label: string,
+): { readonly meta?: string; readonly onClick?: () => void; readonly ariaLabel?: string } {
+  const parts = renew === null ? notes : [...notes, renew.label];
+  const meta = parts.length === 0 ? {} : { meta: parts.join(" · ") };
+  return renew === null ? meta : { ...meta, onClick: renew.onClick, ariaLabel: [label, ...parts].join(" · ") };
+}
+
 /** Asset Library: KPI ribbon, filter region, windowed asset table, and the floating batch action layer. */
 export function AssetLibrary({
   locale,
@@ -165,6 +176,7 @@ export function AssetLibrary({
     },
   ];
 
+  const searching = query.trim() !== "";
   const ribbon = data === null ? null : (
     <MetricStrip
       label={copy.title}
@@ -181,7 +193,9 @@ export function AssetLibrary({
           label: copy.expiringSoon,
           tone: data.expiringWithin60Days > 0 ? "warning" : "body",
           value: formatNumber(locale, data.expiringWithin60Days),
-          ...(onRenew === undefined ? {} : { meta: copy.goRenew, onClick: onRenew, ariaLabel: `${copy.expiringSoon} · ${copy.goRenew}` }),
+          // Unlike the other metrics this one ignores the search: it is the number of rows the
+          // renewals desk lists, so a search says so instead of implying it was filtered too.
+          ...expiringMeta(searching ? [copy.wholeWorkspace] : [], onRenew === undefined ? null : { label: copy.goRenew, onClick: onRenew }, copy.expiringSoon),
         },
         { key: "listings", label: copy.activeListings, value: formatNumber(locale, data.listingCount) },
         {

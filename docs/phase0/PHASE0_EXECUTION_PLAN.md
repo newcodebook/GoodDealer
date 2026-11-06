@@ -123,7 +123,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 决定到期窗口的“今天”采用 UTC 还是本地日（当前 Host 用 UTC 日期，与续费页一致；历史页已改用本地日），并在 V1 前记录决定（决定：到期窗口保持 UTC。`expires_on` 是注册局 UTC 到期时刻的日期部分，注册局按该时刻到期；按本地日会让 UTC 以西/以东的用户在午夜前后提前或推迟一天，并与续费页不一致。历史页的“今日变更”统计的是用户自己的操作，因此按本地日。决定写在 `renewals.rs` 的 `HostDay` 说明中） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 记录两套显示文本规则的适用范围（连接标签：Cc+全部 Cf、120 个 UTF-16 单元；注册商名称与资产文本：安全文本集、128 个码点），并在两侧测试中固定安全文本集之外的 Cf 字符（如 U+0600）被接受（两种规则的适用范围与原因写在 Host `valid_registrar_name` 与 Renderer `registrarNameSchema` 的说明中；四组测试固定 U+0600：注册商名称两侧接受，连接标签两侧拒绝） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）
+- [x] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）（UI 已完成：搜索生效时到期指标的说明行显示“全工作区”，与去续费入口按 kit 的“ · ”连接，并写入按钮的无障碍名称；en-US/zh-CN 文案与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
 - [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53

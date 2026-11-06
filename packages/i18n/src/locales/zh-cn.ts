@@ -168,6 +168,7 @@ const zhCNDictionary = {
     domainTotal: "域名总数",
     portfolioValue: "组合估值",
     expiringSoon: "60 天内到期",
+    wholeWorkspace: "全工作区",
     activeListings: "活跃 Listing",
     pendingConflicts: "待裁决冲突",
     remoteFieldChanged: "同字段被远端修改",

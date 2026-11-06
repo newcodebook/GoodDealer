@@ -217,6 +217,7 @@ const enUSDictionary = {
     domainTotal: "Total domains",
     portfolioValue: "Portfolio value",
     expiringSoon: "Expiring within 60 days",
+    wholeWorkspace: "Whole workspace",
     activeListings: "Active listings",
     pendingConflicts: "Conflicts pending decision",
     remoteFieldChanged: "The same field changed remotely",
