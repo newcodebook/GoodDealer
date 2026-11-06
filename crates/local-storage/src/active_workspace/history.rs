@@ -101,16 +101,24 @@ impl<'a> ActiveHistoryReader<'a> {
             return Err(PortfolioReadError::WindowRejected);
         }
         // Commit times are written as canonical UTC seconds, so they compare as text with the
-        // canonical bounds; the day is counted in the same pass as the totals.
-        let (total_rows, pending_rows, changes_today): (i64, i64, i64) = transaction
-            .query_row(
-                "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
-                        coalesce(sum(created_at >= ?2 AND created_at < ?3), 0)
+        // canonical bounds; the day is counted in the same pass as the totals. The outbox integrity
+        // triggers enforce that form only on new writes, so an older malformed row anywhere in the
+        // ledger fails the read rather than being silently miscounted on a page nobody reads.
+        let (total_rows, pending_rows, changes_today, malformed): (i64, i64, i64, i64) =
+            transaction
+                .query_row(
+                    "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
+                        coalesce(sum(created_at >= ?2 AND created_at < ?3), 0),
+                        coalesce(sum(created_at IS NOT strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
+                                     OR substr(created_at, 12, 2) > '23'), 0)
                  FROM sync_outbox WHERE workspace_id = ?1",
-                params![requested_workspace_id, today.0, today.1],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .map_err(|_| PortfolioReadError::StorageRejected)?;
+                    params![requested_workspace_id, today.0, today.1],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(|_| PortfolioReadError::StorageRejected)?;
+        if malformed != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         let revisions = {
             let mut statement = transaction
                 .prepare(

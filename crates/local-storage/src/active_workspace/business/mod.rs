@@ -9047,6 +9047,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn history_fails_closed_on_a_legacy_outbox_time_anywhere_in_the_ledger() {
+        let database = database();
+        let connection = database.store.raw_connection();
+        let insert = |mutation_id: &str, created_at: &str| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at)
+                 VALUES ('workspace-local',?1,'domain_asset','ledger.test','{}',?2)",
+                [mutation_id, created_at],
+            )
+        };
+        // New writes cannot store a non-canonical time at all.
+        assert!(insert("new-offset", "2026-08-28T08:00:00+08:00").is_err());
+        insert("canonical", "2026-08-28T12:00:00Z").unwrap();
+        assert_eq!(
+            database
+                .read_history(0, 1, HISTORY_DAY)
+                .unwrap()
+                .changes_today,
+            1
+        );
+        // A row written before the trigger existed is still refused by the read, even when it is
+        // not on the requested page, rather than being counted against the wrong day.
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        for legacy in ["2026-08-28 12:00:00", "2026-08-28T24:00:00Z"] {
+            insert("legacy", legacy).unwrap();
+            assert!(
+                matches!(
+                    database.read_history(0, 1, HISTORY_DAY),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{legacy:?}"
+            );
+            connection
+                .execute("DELETE FROM sync_outbox WHERE mutation_id = 'legacy'", [])
+                .unwrap();
+        }
+        assert!(database.read_history(0, 1, HISTORY_DAY).is_ok());
+    }
+
     fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
         DomainAssetWrite {
             entity_id: "ledger.test".to_owned(),

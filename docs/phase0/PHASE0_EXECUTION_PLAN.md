@@ -97,7 +97,7 @@ dead-letter outbox 和 Session 撤销；
   - [x] 销售：Host 按域名分页（多市场合并在 Host 侧完成）与全量指标（在售数、单一价格规则下的挂牌估值） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康与续费只读一页后（销售仍每次全表校验），页外坏行（平台不一致的绑定、非法标签）不再让每次读取失败关闭，但仍计入全量计数；补一次全表完整性检查或在设置/诊断中报告（已改为每次读取全量校验并失败关闭：DNS 对每个有绑定或适用观察的资产复用逐行校验；续费先校验全部可用注册商观察的去重名称，仅在有非法名称时再逐资产解析实际显示的名称；100k 基准下续费约 0.20 s、DNS 约 0.21 s） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费 Host 投影校验 `domain_assets.expires_on` 的日期格式并纳入全量校验（该列无 schema CHECK，当前只由 Renderer 逐页校验；页外格式错误但按字符串比较落入窗口的日期会被计入而不被拒绝），或在后续迁移中加 CHECK；若续费精确名称扫描因历史非法名称而常态触发，记录非法名称计数以便发现（已完成：续费计数查询把 `expires_on IS NOT date(expires_on)` 计为异常并让整次读取失败） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 续费读取因历史非法注册商名称而每次触发逐资产精确扫描时，在设置/诊断中报告非法名称计数，避免静默变慢；同时在设置/诊断中报告并提供修复让读取失败关闭的存储坏行（非法到期日期、平台不一致的绑定等），避免单行坏数据让整页长期不可读；读取侧的全表校验（DNS 绑定、续费名称与到期日期、资产库到期日期）只能在迁移或修复步骤清理完迁移前的旧行之后移除
+- [ ] 续费读取因历史非法注册商名称而每次触发逐资产精确扫描时，在设置/诊断中报告非法名称计数，避免静默变慢；同时在设置/诊断中报告并提供修复让读取失败关闭的存储坏行（非法到期日期、平台不一致的绑定、迁移前写入的非规范 Outbox `created_at` 等），避免单行坏数据让整页长期不可读；读取侧的全表校验（DNS 绑定、续费名称与到期日期、资产库到期日期、历史的 Outbox 时间）只能在迁移或修复步骤清理完迁移前的旧行之后移除
 - [x] 到期日期的 `date()` 往返校验同样用于资产库：资产库每次读取统计全工作区非法到期日期并失败关闭，资产行与域名详情逐行校验 `YYYY-MM-DD` 日历日期（与 `validate_timestamp`、Renderer `z.iso.date()` 同规则）；测试覆盖闰日、2 月 30 日等不可能日期与后缀；100k 基准资产库末页约 0.78 s（新增一次全表扫描，计入 O(N) 预算项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `domain_assets.expires_on` 写入时校验：存储完整性迁移以插入/更新触发器要求 `NULL` 或 `date()` 原样往返的 `YYYY-MM-DD` 日期（SQLite 不能为已有表追加 CHECK，触发器等效）；迁移前的旧行不改写，资产库与续费读取的全表日期校验保留并继续失败关闭（两侧差异：资产库拒绝全工作区非法日期，续费只拒绝窗口内的） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 分页/搜索读取进行中时，旧页只以 `aria-busy` 标记；按 `brand/ui_kits/desktop` 是否有加载态核实视觉忙碌提示；搜索后读取失败时考虑保留上一视图并内联显示失败，而不是整页替换（kit 的进行中提示是 Settings/Sign-in 中缓慢旋转的弱化 RefreshCw，复用在 Pagination 备注位并尊重减少动效；同一来源的读取失败保留上一结果和搜索框，失败横幅与重试内联在台面上方，换端口或代际不沿用旧值） https://github.com/newcodebook/GoodDealer/pull/53
@@ -128,7 +128,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
 - [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）
-- [ ] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）
+- [x] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）（新迁移 `outbox_integrity.sql` 的插入与更新触发器只接受 `YYYY-MM-DDTHH:MM:SSZ` 且小时不超过 23，与 Host `validate_timestamp` 一致；历史读取在同一次聚合中发现任何迁移前的非规范时间即整体拒绝，而不是按错误的日期计数） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `local-storage` 业务测试数据库随测试结束删除（原 `tempdir().keep()` 每次运行在临时目录残留上万个目录，耗尽配额；改为 `TestDatabase` 持有目录） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
 - [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）
