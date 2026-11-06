@@ -13,7 +13,7 @@ const systemNow = () => new Date();
  *
  * The timer is re-armed from the clock each time it fires: a timer that fires early (or a clock
  * that moved back) recomputes the same day and waits again, and one delayed by sleep moves straight
- * to the current day.
+ * to the current day. The day is also recomputed when the window becomes visible or focused.
  */
 export function useLocalHistoryDay(now: () => Date = systemNow): LocalHistoryDay {
   const [day, setDay] = useState(() => localHistoryDay(now()));
@@ -26,5 +26,20 @@ export function useLocalHistoryDay(now: () => Date = systemNow): LocalHistoryDay
     }, wait);
     return () => clearTimeout(timer);
   }, [day, now]);
+  useEffect(() => {
+    // Waking from sleep or moving to another time zone changes the day without the timer firing
+    // on time, so the day is also checked whenever the window comes back to the person.
+    const check = () => {
+      if (document.visibilityState === "hidden") return;
+      const next = localHistoryDay(now());
+      setDay((current) => (current.todayFrom === next.todayFrom && current.todayUntil === next.todayUntil ? current : next));
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, [now]);
   return day;
 }

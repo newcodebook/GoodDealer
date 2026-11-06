@@ -127,7 +127,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
 - [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53
-- [x] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）（`useLocalHistoryDay` 持有本地日并在其结束时按时钟重新计算；本地日作为读取的重启键，因此同一次读取的各窗口不会跨两天，翻日后重新读取并保留上次结果直到新结果到达；DOM 测试用假时钟跨过午夜） https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）（`useLocalHistoryDay` 持有本地日并在其结束时按时钟重新计算；本地日作为读取的重启键，因此同一次读取的各窗口不会跨两天，翻日或窗口在新的一天回到前台时重新读取，并保留上次结果直到新结果到达；DOM 测试用假时钟跨过午夜） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）（新迁移 `outbox_integrity.sql` 的插入与更新触发器只接受 `YYYY-MM-DDTHH:MM:SSZ` 且小时不超过 23，与 Host `validate_timestamp` 一致；历史读取在同一次聚合中发现任何迁移前的非规范时间即整体拒绝，而不是按错误的日期计数） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `local-storage` 业务测试数据库随测试结束删除（原 `tempdir().keep()` 每次运行在临时目录残留上万个目录，耗尽配额；改为 `TestDatabase` 持有目录） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
