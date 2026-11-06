@@ -187,11 +187,11 @@ Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 
   1024 条、4 MiB 的 page envelope，Manifest 最多绑定 256 个有序 section。旧式单次数组仍只用于
   当前窄路径，规模化实现必须使用 page/cursor，不能提高单次内存上限代替分页。
 - 正式规模声明需要 1 万、10 万和 100 万资产基准，以及 Outbox 积压、冲突和恢复故障测试。
-- 分页 Host 读取（资产库、域名详情、续费、DNS 健康、销售）的提议延迟预算（工程临时值，用户确认前不作为 V1 验收条件）：release 构建下，每次读取连同其全量计数，
+- 分页 Host 读取（资产库、域名详情、续费、DNS 健康、销售）的延迟预算（用户已于 2026-11-06 确认 10 万资产每页 1 s，作为阶段 4 V1 验收条件；1 万资产 150 ms 为工程回归上限）：release 构建下，每次读取连同其全量计数，
   1 万资产不超过 150 ms，10 万资产（每个挂牌域名 2 个市场）不超过 1 s。被忽略的基准 `scale_reads_at_10k_assets`
   与 `scale_reads_at_100k_assets` 以此为上限断言（参考机 AMD Ryzen 5 3600，空闲机器上用 `--test-threads=1` 逐个运行；负载下超限不代表回归，也不得据此放宽上限）；`scale_reads_at_100k_assets_on_8_markets`
   中每个数据 generation 的首次销售读取须合并全部挂牌（约 2 s，超出预算），合并结果按 generation 缓存后同一数据的其余页约 0.1 ms，
-  除首次合并外其余读取同样以 1 s 为上限；`scale_reads_at_1m_assets` 只记录耗时。
+  除首次合并外其余读取同样以 1 s 为上限；`scale_reads_at_1m_assets` 只记录耗时，100 万资产不设 V1 预算。
   这些是本机基准，不是正式规模声明。被忽略的 `paged_reads_never_scan_a_base_table` 固定这些读取的查询计划：
   任何语句都不得扫描基表（含覆盖索引扫描），全量计数只经工作区索引查找。
 
