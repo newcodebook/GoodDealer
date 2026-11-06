@@ -116,8 +116,12 @@ production screen offers revocation until the Cloudflare capability is qualified
 The Host's qualification register (`crates/local-storage/src/active_workspace/capability_qualification.rs`)
 is empty, so activation, credential preparation and observation are refused in the Host with
 `DESKTOP_CAPABILITY_UNQUALIFIED` even when a valid credential exists; revocation and recovery are not gated.
+`cloudflare_connection_create` creates the credential-less connection activation provisions into (a fresh
+install has none). It takes only a display label, is refused the same way while unqualified, returns a
+never-activated connection instead of adding another, and answers with only the opaque `connectionRef`.
 
 - `cloudflare_connection_activate`
+- `cloudflare_connection_create`
 - `cloudflare_connection_revoke`
 - `cloudflare_connection_status`
 - `cloudflare_observation_read`

@@ -153,7 +153,95 @@ pub(crate) struct CloudflareProvisionSeed {
     pub(crate) expected_base: CloudflareCredentialWitness,
 }
 
+/// A Cloudflare connection row as created or reused; it holds no credential yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CloudflareConnectionCreated {
+    pub connection_id: String,
+    pub display_label: String,
+    pub created: bool,
+}
+
 impl BusinessDatabase {
+    /// Creates the workspace's Cloudflare DNS connection, holding no credential, so activation
+    /// has a row to provision into. A connection that was created but never activated is
+    /// returned instead of adding another, so repeating the request cannot pile up empty rows.
+    ///
+    /// The row is `inactive` and `invalid` until activation confirms a credential.
+    pub(crate) fn create_cloudflare_connection_guarded(
+        &mut self,
+        connection_id: &str,
+        connection_incarnation_id: &str,
+        display_label: &str,
+        created_at: &str,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<CloudflareConnectionCreated, BusinessDatabaseError> {
+        if !is_uuid_v4(connection_id) || !is_uuid_v4(connection_incarnation_id) {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        validate_connection_label(display_label)?;
+        validate_timestamp(Some(created_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let unused = transaction
+            .query_row(
+                "SELECT c.connection_id,c.display_label FROM local_provider_connections c
+                  WHERE c.workspace_id=?1 AND c.provider_kind='cloudflare'
+                    AND c.credential_use_state='inactive'
+                    AND c.active_credential_generation IS NULL
+                    AND c.lifecycle_status='invalid'
+                    AND c.connection_incarnation_id IS NOT NULL
+                    AND NOT EXISTS (
+                      SELECT 1 FROM cloudflare_credential_roots r
+                       WHERE r.workspace_id=c.workspace_id
+                         AND r.connection_incarnation_id=c.connection_incarnation_id)
+                  ORDER BY c.connection_id LIMIT 1",
+                params![self.workspace_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let result = if let Some((connection_id, display_label)) = unused {
+            validate_connection_label(&display_label)?;
+            CloudflareConnectionCreated {
+                connection_id,
+                display_label,
+                created: false,
+            }
+        } else {
+            transaction
+                .execute(
+                    "INSERT INTO local_provider_connections
+                     (workspace_id,connection_id,provider_kind,display_label,
+                      active_credential_changed_at,lifecycle_status,capabilities_json,created_at,
+                      validation_status,connection_incarnation_id,credential_use_state)
+                     VALUES (?1,?2,'cloudflare',?3,?4,'invalid','[\"dns\"]',?4,'unknown',?5,
+                             'inactive')",
+                    params![
+                        self.workspace_id,
+                        connection_id,
+                        display_label,
+                        created_at,
+                        connection_incarnation_id
+                    ],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            CloudflareConnectionCreated {
+                connection_id: connection_id.to_owned(),
+                display_label: display_label.to_owned(),
+                created: true,
+            }
+        };
+        pre_commit_guard()?;
+        transaction
+            .commit()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok(result)
+    }
+
     pub(crate) fn cloudflare_provision_seed(
         &self,
         connection_hint: &str,

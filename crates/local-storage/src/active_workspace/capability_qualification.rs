@@ -115,11 +115,36 @@ mod tests {
                 entry.capability
             );
             assert!(
-                entry.evidence.starts_with("docs/") && root.join(entry.evidence).is_file(),
+                evidence_is_under_docs(entry.evidence),
+                "{}",
+                entry.capability
+            );
+            assert!(
+                root.join(entry.evidence).is_file(),
                 "{} has no evidence",
                 entry.capability
             );
         }
+        for escaping in [
+            "docs/../Cargo.toml",
+            "../docs/x.md",
+            "/docs/x.md",
+            "docs/",
+            "docs\\x.md",
+        ] {
+            assert!(!evidence_is_under_docs(escaping), "{escaping}");
+        }
+        assert!(evidence_is_under_docs("docs/qualification/cloudflare.md"));
+    }
+
+    /// Evidence is a plain relative path inside `docs/`: no parent, root or empty segment can
+    /// point it at a file the qualification review never looked at.
+    fn evidence_is_under_docs(path: &str) -> bool {
+        let mut segments = path.split('/');
+        segments.next() == Some("docs")
+            && path.len() > "docs/".len()
+            && !path.contains('\\')
+            && segments.all(|segment| !segment.is_empty() && segment != "." && segment != "..")
     }
 
     #[test]

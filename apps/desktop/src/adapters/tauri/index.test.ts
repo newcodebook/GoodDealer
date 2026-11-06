@@ -14,6 +14,25 @@ describe("Desktop Tauri local-business adapter", () => {
     invokeMock.mockReset();
   });
 
+  it("creates a connection through its own command and rejects hostile receipts", async () => {
+    const receipt = { schemaVersion: 1, connectionRef: "5f0c1e4a-8c1b-4d2e-9f3a-0b1c2d3e4f50", displayLabel: "Cloudflare DNS", created: true, readGeneration: 3 };
+    invokeMock.mockResolvedValueOnce(receipt);
+    await expect(createCloudflarePort().create("Cloudflare DNS")).resolves.toEqual(receipt);
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_connection_create", { request: { schemaVersion: 1, displayLabel: "Cloudflare DNS" } });
+    for (const hostile of [
+      { ...receipt, connectionIncarnationId: "leak" },
+      { ...receipt, connectionRef: "with space" },
+      { ...receipt, created: "yes" },
+      { ...receipt, readGeneration: -1 },
+      { ...receipt, schemaVersion: 2 },
+      null,
+    ]) {
+      invokeMock.mockResolvedValueOnce(hostile);
+      await expect(createCloudflarePort().create("Cloudflare DNS")).rejects.toThrow(TypeError);
+    }
+    await expect(createCloudflarePort().create("")).rejects.toThrow(TypeError);
+  });
+
   it("revokes through its own command with only a bounded connection reference", async () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await createCloudflarePort().revoke("connection-opaque");

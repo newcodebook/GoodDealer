@@ -146,8 +146,20 @@ export interface CloudflareObservation {
   }[];
 }
 
+/** The Cloudflare connection activation provisions into; it holds no credential yet. */
+export interface CloudflareConnectionCreated {
+  readonly schemaVersion: 1;
+  readonly connectionRef: string;
+  readonly displayLabel: string;
+  /** False when a connection that was never activated is returned instead of adding another. */
+  readonly created: boolean;
+  readonly readGeneration: number;
+}
+
 export interface CloudflarePort {
   status(): Promise<CloudflareConnectionStatus>;
+  /** Refused by the Host with `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified. */
+  create(displayLabel: string): Promise<CloudflareConnectionCreated>;
   /** Native opens the bounded credential capture; the token never enters this argument. */
   activate(connectionRef: string): Promise<void>;
   /** Queues revocation; the Host denies the credential at once and tombstones it in custody. */
@@ -177,6 +189,7 @@ const commands = {
   readDeviceLease: "local_device_lease_read",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
+  cloudflareCreate: "cloudflare_connection_create",
   cloudflareRevoke: "cloudflare_connection_revoke",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
@@ -186,6 +199,10 @@ export function createCloudflarePort(): CloudflarePort {
   return {
     async status() {
       return parseCloudflareStatus(await invoke(commands.cloudflareStatus));
+    },
+    async create(displayLabel) {
+      if (typeof displayLabel !== "string" || displayLabel.length === 0 || displayLabel.length > 256) throw new TypeError("invalid Cloudflare connection label");
+      return parseCloudflareConnectionCreated(await invoke(commands.cloudflareCreate, { request: { schemaVersion: 1, displayLabel } }));
     },
     async activate(connectionRef) {
       await invoke(commands.cloudflareActivate, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
@@ -532,6 +549,18 @@ function exactRecord(value: unknown, keys: readonly string[]): Record<string, un
     throw new TypeError("invalid local business response shape");
   }
   return record;
+}
+
+function parseCloudflareConnectionCreated(value: unknown): CloudflareConnectionCreated {
+  const keys = ["connectionRef", "created", "displayLabel", "readGeneration", "schemaVersion"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("invalid Cloudflare connection");
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join() !== keys.join()) throw new TypeError("invalid Cloudflare connection");
+  const { schemaVersion, connectionRef, displayLabel, created, readGeneration } = record;
+  if (schemaVersion !== 1 || typeof connectionRef !== "string" || typeof displayLabel !== "string" || displayLabel.length === 0
+    || displayLabel.length > 256 || typeof created !== "boolean" || typeof readGeneration !== "number"
+    || !Number.isSafeInteger(readGeneration) || readGeneration < 0) throw new TypeError("invalid Cloudflare connection");
+  return { schemaVersion, connectionRef: boundedOpaqueRef(connectionRef), displayLabel, created, readGeneration };
 }
 
 function boundedOpaqueRef(value: string): string {

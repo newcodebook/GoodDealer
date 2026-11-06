@@ -200,6 +200,8 @@ const expectedLocalStoragePublicExports = [
   "DesktopCheckpointExchange",
   "DesktopCloudflareActivationAdmission",
   "DesktopCloudflareCheckedObservation",
+  "DesktopCloudflareConnectionCreateRequest",
+  "DesktopCloudflareConnectionCreated",
   "DesktopCloudflareConnectionRead",
   "DesktopCloudflareCustodyComparison",
   "DesktopCloudflareEnvelopeKind",

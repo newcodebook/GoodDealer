@@ -16,6 +16,7 @@ function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "gooddealer-tauri-command-"));
   const commands = [
     "cloudflare_connection_activate",
+    "cloudflare_connection_create",
     "cloudflare_connection_revoke",
     "cloudflare_connection_status",
     "cloudflare_observation_read",

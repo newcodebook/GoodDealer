@@ -2681,6 +2681,41 @@ impl DesktopLocalHost {
         })
     }
 
+    /// Creates the workspace's Cloudflare connection, holding no credential, so activation has a
+    /// row to provision into. Refused before any authority or storage work while the Cloudflare
+    /// capability is unqualified (ADR-0024): a connection is only useful to run that capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CapabilityUnqualified`, or a closed authority or storage error when mutation
+    /// admission, validation, or the final durable commit fence fails.
+    pub fn create_cloudflare_connection(
+        &self,
+        request: &crate::DesktopCloudflareConnectionCreateRequest,
+    ) -> Result<crate::DesktopCloudflareConnectionCreated, DesktopLocalHostError> {
+        if !crate::active_workspace::capability_qualification::capability_qualified(
+            crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE,
+        ) {
+            return Err(DesktopLocalHostError::CapabilityUnqualified);
+        }
+        let connection_id = crate::desktop_sync_runtime::random_uuid_v4()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let incarnation_id = crate::desktop_sync_runtime::random_uuid_v4()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let created_at = format_timestamp(
+                current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+            );
+            runtime.create_cloudflare_connection_guarded(
+                request,
+                &connection_id,
+                &incarnation_id,
+                &created_at,
+                || self.require_business_commit_fence(captured_epoch, authority),
+            )
+        })
+    }
+
     /// Deletes one domain asset under the current Host commit fence.
     ///
     /// # Errors

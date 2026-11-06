@@ -191,6 +191,7 @@ pub use backup::{
 pub use backup::{DesktopDeviceLease, DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
     DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
+    DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated,
     DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,
     DesktopCloudflareObservationReadRequest, DesktopCloudflareObservationRecord, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolutionReceipt,

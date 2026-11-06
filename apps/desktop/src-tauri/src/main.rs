@@ -180,6 +180,7 @@ fn main() {
             oauth_runtime::desktop_authentication_begin,
             oauth_runtime::desktop_authentication_refresh,
             command_handlers::cloudflare_connection_activate,
+            command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,
             command_handlers::cloudflare_zone_observe,
             command_handlers::cloudflare_connection_status,

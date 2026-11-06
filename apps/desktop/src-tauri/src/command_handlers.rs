@@ -5,7 +5,8 @@ use std::sync::Arc;
 use gooddealer_local_storage::{
     AssetLibraryReadSnapshot, BatchOperationsReadSnapshot, DesktopAssetLibraryReadRequest,
     DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
-    DesktopBatchOperationsReadRequest, DesktopCloudflareObservationReadRequest,
+    DesktopBatchOperationsReadRequest, DesktopCloudflareConnectionCreateRequest,
+    DesktopCloudflareConnectionCreated, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
     DesktopDeviceLease, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
     DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
@@ -297,6 +298,18 @@ pub(crate) async fn local_backup_restore_begin(
 
 fn map_desktop_backup_error(error: DesktopBackupError) -> String {
     error.code().to_owned()
+}
+
+/// Creates the Cloudflare connection activation provisions into. The Host refuses it with
+/// `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified (ADR-0024).
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn cloudflare_connection_create(
+    request: DesktopCloudflareConnectionCreateRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopCloudflareConnectionCreated, String> {
+    host.create_cloudflare_connection(&request)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

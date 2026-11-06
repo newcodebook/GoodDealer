@@ -30,6 +30,7 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
+    expect(handlers).toMatch(/fn cloudflare_connection_create/u);
     expect(handlers).toMatch(/fn cloudflare_connection_revoke/u);
     expect(handlers).toMatch(/fn cloudflare_connection_status/u);
     expect(handlers).toMatch(/fn cloudflare_observation_read/u);
@@ -67,6 +68,7 @@ describe("Desktop native policy", () => {
       "core:window:allow-toggle-maximize",
       "core:window:allow-close",
       "allow-cloudflare-connection-activate",
+      "allow-cloudflare-connection-create",
       "allow-cloudflare-connection-revoke",
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",

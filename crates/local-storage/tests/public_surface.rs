@@ -1,7 +1,8 @@
 use gooddealer_local_storage::{
     AssetLibraryReadSnapshot, AssetLibraryRow, AssetLibraryWindow, DesktopApplicationRoot,
     DesktopApplicationRootError, DesktopAssetLibraryReadRequest, DesktopBackupError,
-    DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopConflict,
+    DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolveRequest,
     DesktopDeviceLease, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
     DesktopDomainAssetEditRequest, DesktopDomainAssetWrite, DesktopDomainDetailReadRequest,
@@ -30,6 +31,8 @@ fn dependent_crate_can_name_only_the_reviewed_local_host_contract() {
     name::<DesktopDomainDetailReadRequest>();
     name::<DesktopDomainAssetEditRequest>();
     name::<DesktopDomainAssetCreateRequest>();
+    name::<DesktopCloudflareConnectionCreateRequest>();
+    name::<DesktopCloudflareConnectionCreated>();
     name::<DesktopDeviceLease>();
     name::<DesktopDomainAssetDeleteRequest>();
     name::<DesktopDomainAssetWrite>();

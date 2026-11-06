@@ -2045,6 +2045,76 @@ mod tests {
         (directory, local_host)
     }
 
+    fn create_request(label: &str) -> crate::DesktopCloudflareConnectionCreateRequest {
+        crate::DesktopCloudflareConnectionCreateRequest {
+            schema_version: 1,
+            display_label: label.to_owned(),
+        }
+    }
+
+    #[test]
+    fn cloudflare_connection_is_created_once_only_for_a_qualified_capability() {
+        let (_directory, local_host) = empty_host();
+        let before = business_generation(&local_host);
+        assert_eq!(
+            local_host.create_cloudflare_connection(&create_request("Cloudflare DNS")),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        let qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        for (label, schema_version) in [("", 1), ("bad\u{7}label", 1), ("Cloudflare DNS", 2)] {
+            let request = crate::DesktopCloudflareConnectionCreateRequest {
+                schema_version,
+                display_label: label.to_owned(),
+            };
+            assert!(local_host.create_cloudflare_connection(&request).is_err());
+        }
+        assert_eq!(business_generation(&local_host), before);
+
+        let created = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection");
+        assert!(created.created);
+        assert_eq!(created.display_label, "Cloudflare DNS");
+        assert_eq!(created.read_generation, before + 1);
+        assert_eq!(business_generation(&local_host), before + 1);
+        // Repeating returns the never-activated connection instead of adding another.
+        let repeated = local_host
+            .create_cloudflare_connection(&create_request("Another label"))
+            .expect("repeat create");
+        assert!(!repeated.created);
+        assert_eq!(repeated.connection_ref, created.connection_ref);
+        assert_eq!(repeated.display_label, "Cloudflare DNS");
+        assert_eq!(business_generation(&local_host), before + 1);
+        // It holds no credential, so it is not published as a usable connection, but activation
+        // now has a row to provision into.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .begin_cloudflare_activation(activation, &created.connection_ref)
+                .is_ok()
+        );
+        // Settings lists the new connection as inactive with its role unavailable. The settings
+        // contract has no executable state yet, so it is read with the capability unqualified.
+        drop(qualified);
+        let settings = serde_json::to_value(local_host.read_settings().expect("read settings"))
+            .expect("serialize settings");
+        let connections = settings["connections"].as_array().expect("connections");
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0]["credentialUseState"], "inactive");
+        assert_eq!(connections[0]["lifecycleStatus"], "invalid");
+        assert_eq!(connections[0]["roles"][0]["availability"], "unavailable");
+        assert!(!settings.to_string().contains(&created.connection_ref));
+    }
+
     #[test]
     fn unqualified_capability_is_refused_at_every_provider_admission_but_revocation_is_not() {
         let (_directory, local_host) = credential_host();

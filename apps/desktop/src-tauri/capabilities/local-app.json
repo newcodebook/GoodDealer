@@ -10,6 +10,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "allow-cloudflare-connection-activate",
+    "allow-cloudflare-connection-create",
     "allow-cloudflare-connection-revoke",
     "allow-cloudflare-connection-status",
     "allow-cloudflare-observation-read",

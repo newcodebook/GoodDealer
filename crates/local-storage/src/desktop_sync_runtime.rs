@@ -1066,7 +1066,7 @@ fn checked_timestamp(now: i64, seconds: i64) -> Result<String, DesktopSyncError>
     timestamp(now.checked_add(seconds).ok_or(DesktopSyncError::Blocked)?)
 }
 
-fn random_uuid_v4() -> Result<String, DesktopSyncError> {
+pub(crate) fn random_uuid_v4() -> Result<String, DesktopSyncError> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| DesktopSyncError::StorageRejected)?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;

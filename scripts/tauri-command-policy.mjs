@@ -5,6 +5,7 @@ const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
   "cloudflare_connection_activate",
+  "cloudflare_connection_create",
   "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
