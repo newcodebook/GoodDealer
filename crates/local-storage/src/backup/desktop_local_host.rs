@@ -38,7 +38,8 @@ use crate::BusinessDatabase;
 use crate::desktop_business_runtime::DesktopBusinessRuntime;
 use crate::desktop_business_runtime::{
     BusinessMutationContext, DesktopAssetLibraryReadRequest, DesktopConflictCenterView,
-    DesktopConflictResolveRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopConflictResolveRequest, DesktopDomainAssetCreateRequest,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainDetailReadRequest,
 };
@@ -61,6 +62,8 @@ pub enum DesktopLocalHostError {
     AuthorityRejected,
     CloudProtocolRejected,
     Unavailable,
+    /// The workspace already holds the domain being added; nothing was written.
+    AssetExists,
 }
 
 impl fmt::Display for DesktopLocalHostError {
@@ -71,6 +74,7 @@ impl fmt::Display for DesktopLocalHostError {
             Self::AuthorityRejected => "DESKTOP_LOCAL_HOST_AUTHORITY_REJECTED",
             Self::CloudProtocolRejected => "DESKTOP_CLOUD_PROTOCOL_REJECTED",
             Self::Unavailable => "DESKTOP_LOCAL_HOST_UNAVAILABLE",
+            Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
         })
     }
 }
@@ -2461,6 +2465,30 @@ impl DesktopLocalHost {
         })
     }
 
+    /// Adds one domain the workspace does not hold yet, under the current Host commit fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when mutation admission, validation, the
+    /// duplicate check, or the final durable commit fence fails.
+    pub fn create_domain_asset(
+        &self,
+        request: DesktopDomainAssetCreateRequest,
+    ) -> Result<crate::DomainAssetMutationReceipt, DesktopLocalHostError> {
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let context = BusinessMutationContext::new(
+                authority.device_id.clone(),
+                authority.lease_epoch,
+                format_timestamp(
+                    current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+                ),
+            )?;
+            runtime.create_domain_asset_guarded(request, &context, || {
+                self.require_business_commit_fence(captured_epoch, authority)
+            })
+        })
+    }
+
     /// Deletes one domain asset under the current Host commit fence.
     ///
     /// # Errors
@@ -4211,7 +4239,8 @@ impl DesktopLocalHost {
             DesktopLocalHostError::StorageRejected
             | DesktopLocalHostError::ApplicationRootRejected
             | DesktopLocalHostError::CloudProtocolRejected
-            | DesktopLocalHostError::Unavailable => DesktopBackupError::StorageRejected,
+            | DesktopLocalHostError::Unavailable
+            | DesktopLocalHostError::AssetExists => DesktopBackupError::StorageRejected,
         })
     }
 
@@ -4831,6 +4860,8 @@ fn map_host_database_error(error: BusinessDatabaseError) -> DesktopLocalHostErro
         BusinessDatabaseError::WorkspaceRejected | BusinessDatabaseError::MutationStale => {
             DesktopLocalHostError::AuthorityRejected
         }
+        // A duplicate is the one rejection the person can act on, so it keeps its own code.
+        BusinessDatabaseError::AssetExists => DesktopLocalHostError::AssetExists,
         _ => DesktopLocalHostError::StorageRejected,
     }
 }
@@ -7795,6 +7826,80 @@ mod tests {
             restore_outbox_rows,
             restore_history_rows,
         }
+    }
+
+    fn create_request(
+        mutation_id: &str,
+        read_generation: u64,
+        domain: &str,
+    ) -> DesktopDomainAssetCreateRequest {
+        serde_json::from_value(serde_json::json!({
+            "mutationId": mutation_id,
+            "expectedReadGeneration": read_generation,
+            "asset": {
+                "entityId": domain,
+                "note": null,
+                "portfolioId": null,
+                "tags": [],
+                "targetPrice": null
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn business_create_adds_a_new_domain_and_names_a_duplicate() {
+        let (_directory, host) = development_business_host();
+        let generation = host.business_status().read_generation;
+        let receipt = host
+            .create_domain_asset(create_request("host-create", generation, "added.example"))
+            .unwrap();
+        assert_eq!(receipt.operation, "create");
+        assert!(
+            host.read_domain_detail(
+                serde_json::from_value(serde_json::json!({"entityId": "added.example"})).unwrap()
+            )
+            .is_ok()
+        );
+        // The seeded domain is already held: the duplicate keeps its own code and writes nothing.
+        let pending = pending_mutation_count(&host);
+        let generation = host.business_status().read_generation;
+        assert_eq!(
+            host.create_domain_asset(create_request(
+                "host-duplicate",
+                generation,
+                "backup.example"
+            )),
+            Err(DesktopLocalHostError::AssetExists)
+        );
+        assert_eq!(pending_mutation_count(&host), pending);
+        assert_eq!(
+            DesktopLocalHostError::AssetExists.to_string(),
+            "DESKTOP_LOCAL_ASSET_EXISTS"
+        );
+    }
+
+    #[test]
+    fn business_create_transition_at_final_fence_writes_nothing() {
+        let (_directory, host) = development_business_host();
+        let generation = host.business_status().read_generation;
+        let pending = pending_mutation_count(&host);
+        host.publish_transition_at_next_business_commit_for_test()
+            .unwrap();
+        assert_eq!(
+            host.create_domain_asset(create_request(
+                "fenced-create",
+                generation,
+                "fenced.example"
+            )),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        );
+        let runtime = host.runtime_state.lock().unwrap();
+        let business = &runtime.as_ref().unwrap().business;
+        assert!(business.read_domain_detail("fenced.example").is_err());
+        assert_eq!(business.read_generation(), generation);
+        drop(runtime);
+        assert_eq!(pending_mutation_count(&host), pending);
     }
 
     #[test]

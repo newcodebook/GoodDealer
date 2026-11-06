@@ -21,6 +21,7 @@ const reviewedCommands = [
   "local_conflict_center_read",
   "local_conflict_resolve",
   "local_dns_health_read",
+  "local_domain_asset_create",
   "local_domain_asset_delete",
   "local_domain_asset_edit",
   "local_domain_asset_provider_bind",

@@ -590,6 +590,7 @@ pub enum BusinessDatabaseError {
     MutationConflict,
     MutationStale,
     AssetDeleted,
+    AssetExists,
     SequenceExhausted,
     ProviderBindingUnavailable,
 }
@@ -611,6 +612,7 @@ impl Display for BusinessDatabaseError {
             Self::MutationConflict => "LOCAL_MUTATION_IDEMPOTENCY_CONFLICT",
             Self::MutationStale => "LOCAL_MUTATION_STALE_AUTHORITY",
             Self::AssetDeleted => "LOCAL_ASSET_DELETED",
+            Self::AssetExists => "LOCAL_ASSET_EXISTS",
             Self::SequenceExhausted => "LOCAL_MUTATION_SEQUENCE_EXHAUSTED",
             Self::ProviderBindingUnavailable => "LOCAL_PROVIDER_BINDING_UNAVAILABLE",
         })
@@ -1833,6 +1835,62 @@ impl BusinessDatabase {
         )
     }
 
+    /// Adds a domain the workspace does not hold yet, as one synced upsert mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AssetExists` when the workspace already holds the domain and `AssetDeleted` while a
+    /// deleted one keeps its tombstone; otherwise a closed validation, authorization, transaction, or
+    /// pre-COMMIT guard error.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the guarded port carries explicit authority and critical-section callbacks"
+    )]
+    pub fn create_domain_asset_guarded<G, F, A>(
+        &mut self,
+        mutation_id: &str,
+        device_id: &str,
+        active_lease_epoch: u64,
+        committed_at: &str,
+        asset: &DomainAssetWrite,
+        allow_new: bool,
+        guard: F,
+        after_commit: A,
+    ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError>
+    where
+        F: FnOnce(bool) -> Result<G, BusinessDatabaseError>,
+        A: FnOnce(&mut G, bool) -> Result<(), BusinessDatabaseError>,
+    {
+        validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_identifier(device_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_timestamp(Some(committed_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_domain_asset(asset)?;
+        // A new identity is also held to the Renderer's canonical form: an all-numeric last label
+        // would be an IP literal, not a registrable domain.
+        if !asset
+            .entity_id
+            .rsplit('.')
+            .next()
+            .is_some_and(|label| label.bytes().any(|byte| byte.is_ascii_lowercase()))
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        self.mutate_domain_asset(
+            "create",
+            mutation_id,
+            &asset.entity_id,
+            0,
+            device_id,
+            active_lease_epoch,
+            committed_at,
+            Some(asset),
+            allow_new,
+            guard,
+            after_commit,
+        )
+    }
+
     /// # Errors
     ///
     /// Returns a closed validation, authorization, CAS, transaction, or pre-COMMIT guard error.
@@ -1930,10 +1988,10 @@ impl BusinessDatabase {
             payload_schema,
         )) = existing
         {
-            let expected_op = if operation == "edit" {
-                "upsert"
-            } else {
+            let expected_op = if operation == "delete" {
                 "delete"
+            } else {
+                "upsert"
             };
             if stored_entity != entity_id
                 || kind != "domain_asset"
@@ -1975,15 +2033,50 @@ impl BusinessDatabase {
         if !allow_new {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let (current_version, deleted): (i64, Option<String>) = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?.ok_or(BusinessDatabaseError::AssetNotFound)?;
-        if deleted.is_some() {
-            return Err(BusinessDatabaseError::AssetDeleted);
-        }
-        if u64::try_from(current_version).ok() != Some(expected_asset_version) {
-            return Err(BusinessDatabaseError::MutationStale);
+        let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The entity ID is the canonical domain, so the domain is the deduplication key: adding
+            // a domain the workspace already holds, from an import or by hand, is refused rather
+            // than merged. A deleted domain keeps its tombstone until the delete has synced and
+            // been purged, so it cannot be recreated under the same identity before then.
+            if expected_asset_version != 0 {
+                return Err(BusinessDatabaseError::InvalidInput);
+            }
+            let tombstoned: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)", params![self.workspace_id, entity_id], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            match stored {
+                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+                Some((_, Some(_))) => return Err(BusinessDatabaseError::AssetDeleted),
+                None if tombstoned => return Err(BusinessDatabaseError::AssetDeleted),
+                None => {}
+            }
+        } else {
+            let (current_version, deleted) = stored.ok_or(BusinessDatabaseError::AssetNotFound)?;
+            if deleted.is_some() {
+                return Err(BusinessDatabaseError::AssetDeleted);
+            }
+            if u64::try_from(current_version).ok() != Some(expected_asset_version) {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
         }
         let (local_seq, base_rev, device_seq): (i64, i64, i64) = transaction.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1, next_device_mutation_sequence=next_device_mutation_sequence+1, updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence, applied_through_server_revision, next_device_mutation_sequence-1", [committed_at], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
-        if operation == "edit" {
+        if operation == "create" {
+            let asset = edit.expect("create operation carries asset");
+            let tags_json = serde_json::to_string(&asset.tags)
+                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+            let (currency, amount) = (
+                asset.target_price.as_ref().map(|money| &money.currency),
+                asset.target_price.as_ref().map(|money| &money.amount),
+            );
+            transaction.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES (?1,?2,'active',?3,?3,?4)", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            transaction.execute("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at) VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, currency, amount, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for tag in &asset.tags {
+                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![self.workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+            transaction.execute("INSERT INTO portfolio_domain_assets (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,target_price_amount,note_server_revision,portfolio_id_server_revision,tags_server_revision,target_price_server_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)", params![self.workspace_id, entity_id, asset.note, asset.portfolio_id, tags_json, currency, amount]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+                transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6)", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+        } else if operation == "edit" {
             let asset = edit.expect("edit operation carries asset");
             transaction.execute("UPDATE domain_assets SET updated_at=?3, local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?3,note=?4,target_price_currency=?5,target_price_amount=?6,local_commit_sequence=?7,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount), local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -2007,10 +2100,10 @@ impl BusinessDatabase {
         }
         let lease_epoch =
             i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let operation_kind = if operation == "edit" {
-            "upsert"
-        } else {
+        let operation_kind = if operation == "delete" {
             "delete"
+        } else {
+            "upsert"
         };
         transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending')", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         if let Some(asset) = edit {
@@ -7178,6 +7271,135 @@ mod tests {
             ),
             Err(BusinessDatabaseError::AssetDeleted)
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one create story: commit, replay, duplicate, stale, tombstone and invalid input share state"
+    )]
+    fn creating_a_domain_commits_one_synced_upsert_and_refuses_duplicates() {
+        let mut database = database();
+        let write = |note: &str| DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: vec!["new".to_owned()],
+            target_price: Some(Money {
+                currency: "USD".to_owned(),
+                amount: "2500".to_owned(),
+            }),
+        };
+        let create = |database: &mut BusinessDatabase, mutation: &str, asset: &DomainAssetWrite| {
+            database.create_domain_asset_guarded(
+                mutation,
+                "device-1",
+                7,
+                TIMESTAMP,
+                asset,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+        };
+        let receipt = create(&mut database, "create-1", &write("first")).unwrap();
+        assert_eq!(
+            (receipt.disposition.as_str(), receipt.operation.as_str()),
+            ("committed", "create")
+        );
+        let detail = database.read_domain_detail("added.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("first"));
+        assert_eq!(detail.asset.tags, ["new"]);
+        let (kind, state, fields): (String, String, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT operation_kind, state, (SELECT count(*) FROM sync_outbox_fields f WHERE f.mutation_id = o.mutation_id)
+                 FROM sync_outbox o WHERE mutation_id = 'create-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (kind.as_str(), state.as_str(), fields),
+            ("upsert", "pending", 4)
+        );
+
+        // The same request replays; a different one for the same domain is a duplicate, whether it
+        // comes from an import or by hand, and changes nothing.
+        assert_eq!(
+            create(&mut database, "create-1", &write("first"))
+                .unwrap()
+                .disposition,
+            "replayed"
+        );
+        assert_eq!(
+            create(&mut database, "create-2", &write("second")),
+            Err(BusinessDatabaseError::AssetExists)
+        );
+        assert_eq!(
+            database
+                .read_domain_detail("added.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("first")
+        );
+        // A stale read generation is refused before anything is written.
+        assert_eq!(
+            database.create_domain_asset_guarded(
+                "create-3",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "other.test".to_owned(),
+                    ..write("x")
+                },
+                false,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            ),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        // A deleted domain keeps its tombstone, so it cannot come back under the same identity yet.
+        database
+            .delete_domain_asset("delete-1", 1, "device-1", 7, TIMESTAMP, "added.test", true)
+            .unwrap();
+        assert_eq!(
+            create(&mut database, "create-4", &write("again")),
+            Err(BusinessDatabaseError::AssetDeleted)
+        );
+        // An invalid domain, or an IP literal, never reaches storage.
+        assert_eq!(
+            create(
+                &mut database,
+                "create-6",
+                &DomainAssetWrite {
+                    entity_id: "10.0.0.1".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(
+            create(
+                &mut database,
+                "create-5",
+                &DomainAssetWrite {
+                    entity_id: "Not A Domain".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let outbox: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_outbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outbox, 2);
     }
 
     #[test]

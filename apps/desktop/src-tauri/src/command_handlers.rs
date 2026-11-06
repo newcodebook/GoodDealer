@@ -7,14 +7,14 @@ use gooddealer_local_storage::{
     DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
     DesktopBatchOperationsReadRequest, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopLocalBusinessStatus,
-    DesktopLocalHost, DesktopManualTasksReadRequest, DesktopRenewalsReadRequest,
-    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact,
-    DnsHealthReadSnapshot, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
-    HistoryReadSnapshot, ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot,
-    SettingsReadSnapshot,
+    DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
+    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest,
+    DesktopHistoryReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
+    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
+    DomainAssetMutationReceipt, DomainDetailReadSnapshot, HistoryReadSnapshot,
+    ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot, SettingsReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -148,6 +148,16 @@ pub(crate) fn local_domain_asset_edit(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DomainAssetMutationReceipt, String> {
     host.edit_domain_asset(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_domain_asset_create(
+    request: DesktopDomainAssetCreateRequest,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DomainAssetMutationReceipt, String> {
+    host.create_domain_asset(request)
         .map_err(|error| error.to_string())
 }
 

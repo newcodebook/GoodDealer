@@ -88,7 +88,7 @@ dead-letter outbox 和 Session 撤销；
   - [x] 8 市场最坏情况：按数据 generation（连接 `total_changes()` 与 `data_version`，读取前后一致才存取）缓存销售合并结果，同一数据的后续页约 0.1 ms；8 市场基准除首次合并外以 1 s 为上限；资产库 8 市场约 0.89 s 在预算内，未缓存 https://github.com/newcodebook/GoodDealer/pull/53
   - [ ] 销售合并缓存的内存：100 万资产约 33 万个挂牌域名时估计 2 市场约 60–80 MB、8 市场约 170–200 MB；用 100 万基准测峰值 RSS，并考虑以平台索引与状态枚举代替字符串或按行数设上限
   - [ ] 每次写入后的首次销售读取仍需全量合并（10 万 8 市场约 2 s，超出 1 s 预算）：确定该首读是否计入预算，或改为增量维护合并结果（写入后、销售读取前的首次设置读取扫描同一批挂牌，8 市场约 2.1 s，随同处理）
-  - [ ] 由用户确认分页读取延迟预算（含 100 万资产目标），确认后才作为阶段 4 V1 验收条件
+  - [x] 由用户确认分页读取延迟预算（含 100 万资产目标），确认后才作为阶段 4 V1 验收条件（用户于 2026-11-06 确认：10 万资产每次分页读取 ≤ 1 s 作为阶段 4 V1 验收条件；100 万资产只记录、不设 V1 预算；8 市场写入后首读仍超预算，见上一项） https://github.com/newcodebook/GoodDealer/pull/53
   - [ ] 100 万资产的全量计数随资产线性增长（约 7 s）：正式规模声明前确定 100 万预算与做法（缓存或增量计数）
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售、续费与 DNS 读取在 100k 规模下改为 Host 侧分页与聚合指标，遵守 DATABASE_SCHEMA 的 keyset/窗口分页规则，不在 Renderer 汇总全部窗口（拆为以下三项，三项完成后勾选） https://github.com/newcodebook/GoodDealer/pull/53
@@ -151,13 +151,15 @@ dead-letter outbox 和 Session 撤销；
 
 ### 3. Cloudflare 路径稳定
 
-- [ ] 引导流程：欢迎 → 设备门 → 连接 Cloudflare（可跳过）→ 从观察结果导入或手动添加 → 完成
-- [ ] 资产创建，并对导入和手动添加去重
+- [ ] 引导流程：欢迎 → 设备门 → 连接 Cloudflare（可跳过）→ 从观察结果导入或手动添加 → 完成（观察导入必须逐个经 `local_domain_asset_create` 新增，不得另开写入路径，否则去重失效）
+- [x] 资产创建，并对导入和手动添加去重（Host 经 `local_domain_asset_create` 在当前 Host 提交栅栏下以一个同步 upsert 新增资产；规范域名是去重键，工作区已有的域名返回 `DESKTOP_LOCAL_ASSET_EXISTS` 且不写入任何数据，已删除仍有墓碑的域名被拒绝；Host 与 Renderer 都拒绝非规范名称与 IP 字面量；资产库在 kit 的工具栏次按钮位提供“添加域名”，Standby/只读时不可用；kit 无加号图标，按钮不带图标。导入的去重依赖引导导入也走该命令，见上一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 绑定 UI
 - [ ] Grant/Lease 能力门禁接入生产导航
 - [ ] 凭据原子撤销，revoke/deactivate 的 Host capability
 - [ ] Cloudflare generation/auth fences 从 `features/connections` 进入生产组合
 - [ ] 断网、Token 失效、权限不足、撤销后，都失败关闭并给出可恢复提示
+- [ ] 操作历史把新增显示为编辑（Outbox 只有 `upsert`/`delete`，新增无独立操作类型）：在历史中把资产的首个本地版本标为新增，或为同步协议增加新增操作类型（后者需先评估 Cloud 合同）
+- [ ] 重新添加近期删除且仍有墓碑的域名时给出可恢复的说明（当前映射为 `LOCAL_STORAGE_REJECTED`，界面只显示通用失败）：为墓碑拒绝提供独立错误码与“已删除，同步清除后可重新添加”的文案
 
 ### 4. 当前范围全系统 V1 汇合验收
 

@@ -817,7 +817,8 @@ const fn stage_from_host_error(
             SyncStageOutcome::SecurityBlocked
         }
         gooddealer_local_storage::DesktopLocalHostError::StorageRejected
-        | gooddealer_local_storage::DesktopLocalHostError::Unavailable => {
+        | gooddealer_local_storage::DesktopLocalHostError::Unavailable
+        | gooddealer_local_storage::DesktopLocalHostError::AssetExists => {
             SyncStageOutcome::Retryable
         }
     }

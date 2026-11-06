@@ -1,4 +1,4 @@
-import { sumAmounts, type AssetLibraryRow } from "@gooddealer/client-core";
+import { sumAmounts, type AssetLibraryRow, type CanonicalDomainName } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   BatchBar,
@@ -20,6 +20,7 @@ import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
 import { AssetStatusBadge, formatAssetAmount, formatAssetMoney } from "../asset-presentation";
+import { AddDomainDialog, type AddDomainOutcome } from "./add-domain-dialog";
 
 import {
   assetRowStatus,
@@ -49,6 +50,11 @@ export interface AssetLibraryProps {
   readonly onOpenAsset?: (id: string) => void;
   readonly onRenew?: () => void;
   readonly onCreatePlan?: (ids: readonly string[]) => void;
+  /**
+   * Adds one domain by hand; omitted where the workspace is not writable. An empty workspace has no
+   * freshness to consult, so writability is the caller's to decide.
+   */
+  readonly onAddDomain?: (domain: CanonicalDomainName) => Promise<AddDomainOutcome>;
   readonly onBatchAction?: (action: AssetBatchAction, ids: readonly string[]) => void;
   /** Called after the user confirms "save and sync" for an inline BIN edit. */
   readonly onTargetPriceCommit?: (row: AssetLibraryRow, amount: string) => void;
@@ -93,10 +99,12 @@ export function AssetLibrary({
   onOpenAsset,
   onRenew,
   onCreatePlan,
+  onAddDomain,
   onBatchAction,
   onTargetPriceCommit,
 }: AssetLibraryProps) {
   const copy = getPresentationCopy(locale, "assetLibrary");
+  const [adding, setAdding] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<{ readonly row: AssetLibraryRow; readonly amount: string } | null>(null);
   const data = presentation.state === "ready" ? presentation.data : presentation.state === "invalid-query" ? presentation.data : null;
   const canEdit = data?.freshness.canEdit ?? false;
@@ -265,6 +273,9 @@ export function AssetLibrary({
         )}
         right={(
           <>
+            {onAddDomain === undefined ? null : (
+              <Button size="sm" disabled={data !== null && !canEdit} onClick={() => setAdding(true)}>{copy.addDomain}</Button>
+            )}
             {onCreatePlan === undefined ? null : (
               <Button size="sm" variant="primary" disabled={!canEdit || selectedCount === 0} onClick={() => onCreatePlan(selectedIds)}>
                 {copy.createBatchPlan}{selectedCount > 0 ? ` · ${selectedCount}` : ""}
@@ -337,6 +348,9 @@ export function AssetLibrary({
           </div>
         ) : null}
       </div>
+      {onAddDomain === undefined ? null : (
+        <AddDomainDialog locale={locale} open={adding} onClose={() => setAdding(false)} onSubmit={onAddDomain} />
+      )}
       <Dialog
         open={pendingEdit !== null}
         onClose={() => setPendingEdit(null)}

@@ -34,6 +34,7 @@ import {
   type SalesReadPort,
   type SettingsRead,
   type SettingsReadPort,
+  localDomainAssetCreateRequestSchema,
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
@@ -47,6 +48,7 @@ import {
   type ConflictResolutionIntent,
   type ConflictResolutionReceipt,
   type SyncSnapshotViewModel,
+  type LocalDomainAssetCreateRequest,
   type LocalDomainAssetEditRequest,
   type LocalDomainAssetDeleteRequest,
   type LocalDomainAssetMutationReceipt,
@@ -70,8 +72,21 @@ export interface LocalBusinessStatus {
   readonly readGeneration: number;
 }
 
+/**
+ * A write the Host refused for a reason the person can act on. Only the duplicate is named; every
+ * other refusal stays an opaque failure, as for edits.
+ */
+export class LocalWriteError extends Error {
+  constructor(readonly code: "DESKTOP_LOCAL_ASSET_EXISTS") {
+    super(code);
+    this.name = "LocalWriteError";
+  }
+}
+
 export interface LocalBusinessPort {
   status(): Promise<LocalBusinessStatus>;
+  /** Adds a domain the workspace does not hold; a held one rejects with `LocalWriteError`. */
+  createDomainAsset(request: LocalDomainAssetCreateRequest): Promise<LocalDomainAssetMutationReceipt>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
   /** Optional until the asset-detail UI exposes the explicit bind action. */
@@ -138,6 +153,7 @@ const commands = {
   readHistory: "local_history_read",
   readManualTasks: "local_manual_tasks_read",
   readSales: "local_sales_read",
+  createDomainAsset: "local_domain_asset_create",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
@@ -385,6 +401,22 @@ export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProvider
   return {
     async status() {
       return parseStatus(await invoke(commands.status));
+    },
+    async createDomainAsset(request) {
+      const parsed = localDomainAssetCreateRequestSchema.parse(request);
+      let receipt: unknown;
+      try {
+        receipt = await invoke(commands.createDomainAsset, { request: parsed });
+      } catch (error) {
+        if (error === "DESKTOP_LOCAL_ASSET_EXISTS") throw new LocalWriteError(error);
+        throw error;
+      }
+      const parsedReceipt = localDomainAssetMutationReceiptSchema.parse(receipt);
+      // The Host answers for the request it was given; anything else is not this write's receipt.
+      if (parsedReceipt.operation !== "create" || parsedReceipt.entityId !== parsed.asset.entityId || parsedReceipt.mutationId !== parsed.mutationId) {
+        throw new TypeError("create receipt does not match the request");
+      }
+      return parsedReceipt;
     },
     async editDomainAsset(request) {
       const parsed = localDomainAssetEditRequestSchema.parse(request);

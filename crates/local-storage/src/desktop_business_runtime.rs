@@ -71,6 +71,15 @@ pub struct DesktopDomainAssetEditRequest {
     pub(crate) asset: DesktopDomainAssetWrite,
 }
 
+/// Inputs for adding one domain. The read generation is the CAS value from a prior local read.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopDomainAssetCreateRequest {
+    pub(crate) mutation_id: String,
+    pub(crate) expected_read_generation: u64,
+    pub(crate) asset: DesktopDomainAssetWrite,
+}
+
 /// Inputs for one delete mutation.  The expected versions are CAS values from a prior local read.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -640,6 +649,40 @@ impl DesktopBusinessRuntime {
         let receipt = self.database.edit_domain_asset_guarded(
             &request.mutation_id,
             request.expected_asset_version,
+            &context.device_id,
+            context.active_lease_epoch,
+            &context.committed_at,
+            &asset,
+            allow_new,
+            |replay| {
+                if !replay && !has_generation_capacity {
+                    return Err(BusinessDatabaseError::SequenceExhausted);
+                }
+                commit_fence()?;
+                Ok(())
+            },
+            |(), _| Ok(()),
+        )?;
+        if receipt.disposition == "committed" {
+            self.bump_read_generation_after_preflight();
+        }
+        Ok(receipt)
+    }
+
+    pub(crate) fn create_domain_asset_guarded(
+        &mut self,
+        request: DesktopDomainAssetCreateRequest,
+        context: &BusinessMutationContext,
+        commit_fence: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError> {
+        if request.expected_read_generation > MAX_SAFE_INTEGER {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        let has_generation_capacity = self.read_generation < MAX_SAFE_INTEGER;
+        let allow_new = request.expected_read_generation == self.read_generation;
+        let asset: DomainAssetWrite = request.asset.into();
+        let receipt = self.database.create_domain_asset_guarded(
+            &request.mutation_id,
             &context.device_id,
             context.active_lease_epoch,
             &context.committed_at,

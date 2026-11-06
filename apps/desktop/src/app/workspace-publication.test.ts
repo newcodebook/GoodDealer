@@ -93,6 +93,7 @@ function ports(readGeneration: number) {
   return {
     business: {
       status: vi.fn(async () => status(readGeneration)),
+      createDomainAsset: vi.fn(),
       editDomainAsset: vi.fn(),
       deleteDomainAsset: vi.fn(),
     },

@@ -442,7 +442,8 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
         DesktopLocalHostError::Unavailable => CloudflareKeychainError::Unavailable,
         DesktopLocalHostError::ApplicationRootRejected
         | DesktopLocalHostError::StorageRejected
-        | DesktopLocalHostError::CloudProtocolRejected => CloudflareKeychainError::StateUnknown,
+        | DesktopLocalHostError::CloudProtocolRejected
+        | DesktopLocalHostError::AssetExists => CloudflareKeychainError::StateUnknown,
     }
 }
 

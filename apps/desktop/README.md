@@ -11,8 +11,10 @@ Customer Desktop application that composes the Renderer and native Host around t
   is a separate Vite root outside the production graph and grants no authority.
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
-  sign-in, and locked pages plus a workspace with the asset library, domain detail (target-price
-  edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
+  sign-in, and locked pages plus a workspace with the asset library (manual add through
+  `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
+  domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
+  cannot duplicate an asset), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
   history, and settings. Manual tasks reads `local_manual_tasks_read` (plan items waiting on the
   person in a platform's own console, grouped per operation, platform connection and capability);
   opening the platform, marking done, re-checking and accepting risk are unavailable until their
@@ -117,6 +119,7 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `local_history_read`
 - `local_manual_tasks_read`
 - `local_domain_asset_edit`
+- `local_domain_asset_create`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`
 - `local_sync_status`

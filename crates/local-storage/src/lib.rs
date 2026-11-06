@@ -194,12 +194,12 @@ pub use desktop_business_runtime::{
     DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,
     DesktopCloudflareObservationReadRequest, DesktopCloudflareObservationRecord, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolutionReceipt,
-    DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetDeleteRequest,
-    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
-    DesktopDomainAssetProviderBindingRequest, DesktopDomainAssetWrite,
-    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopManualTasksReadRequest,
-    DesktopRenewalsReadRequest, DesktopSalesReadRequest, DesktopSyncSnapshotView,
-    DesktopSyncTransportState,
+    DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
+    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopHistoryReadRequest,
+    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopSyncSnapshotView, DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -20,6 +20,7 @@ import { recoverHostPage, useHostRouteRead, type HostPage, type HostRouteReadSta
 import { useLocalHistoryDay } from "./local-history-day";
 import { HostRouteStatus, type HostRouteStatusCopy } from "./host-route-status";
 import {
+  addDomainAsset,
   createPortfolioMutationController,
   createPortfolioReadController,
   presentAssetLibraryRead,
@@ -123,8 +124,12 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               locale={locale}
               ports={ports}
               initial={publication.portfolio}
+              readGeneration={publication.status.readGeneration}
+              writable={readOnly === null}
               onOpenAsset={(domainId) => setRoute({ id: "portfolio.detail", domainId })}
               onRenew={surface.availableRouteIds.includes("renewals.desk") ? () => setRoute(createAppRoute("renewals.desk")) : undefined}
+              onPublication={onPublication}
+              onFailure={reportFailure}
             />
           ),
           "portfolio.detail": (current) => current.id !== "portfolio.detail" ? null : (
@@ -514,14 +519,28 @@ function DnsHealthRoute({ locale, ports, readGeneration, onStale }: {
   return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
 }
 
-function AssetLibraryRoute({ locale, ports, initial, onOpenAsset, onRenew }: {
+function AssetLibraryRoute({ locale, ports, initial, readGeneration, writable, onOpenAsset, onRenew, onPublication, onFailure }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly initial: AssetLibraryViewModel;
+  readonly readGeneration: number;
+  readonly writable: boolean;
   readonly onOpenAsset: (domainId: string) => void;
   readonly onRenew: (() => void) | undefined;
+  readonly onPublication: (publication: AuthoritativeWorkspacePublication) => void;
+  readonly onFailure: () => void;
 }) {
   const controller = useRef(createPortfolioReadController(ports.portfolio)).current;
+  const mutations = useRef(createPortfolioMutationController(ports.business)).current;
+  useEffect(() => () => mutations.unmount(), [mutations]);
+  // An added domain republishes the workspace at the receipt's generation, as an edit does.
+  const addDomain = async (domain: CanonicalDomainName) => {
+    const result = await addDomainAsset(ports.business, mutations, domain, readGeneration);
+    if (result.outcome === "added") {
+      void readAuthoritativeWorkspacePublication(ports, result.accepted.receipt.readGeneration).then(onPublication, onFailure);
+    }
+    return result.outcome;
+  };
   const [query, setQuery] = useState("");
   const [presentation, setPresentation] = useState<AssetLibraryPresentation>(presentAssetLibraryRead(initial));
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
@@ -557,6 +576,7 @@ function AssetLibraryRoute({ locale, ports, initial, onOpenAsset, onRenew }: {
       onWindowChange={(startIndex, size) => load(startIndex, size, query)}
       onOpenAsset={onOpenAsset}
       {...(onRenew === undefined ? {} : { onRenew })}
+      {...(writable ? { onAddDomain: addDomain } : {})}
     />
   );
 }

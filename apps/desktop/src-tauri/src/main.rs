@@ -165,6 +165,7 @@ fn main() {
             command_handlers::local_history_read,
             command_handlers::local_manual_tasks_read,
             command_handlers::local_domain_asset_edit,
+            command_handlers::local_domain_asset_create,
             command_handlers::local_domain_asset_delete,
             command_handlers::local_domain_asset_provider_bind,
             command_handlers::local_conflict_center_read,

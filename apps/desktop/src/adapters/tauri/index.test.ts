@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError } from "./index";
+import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -36,6 +36,34 @@ describe("Desktop Tauri local-business adapter", () => {
     }
     invokeMock.mockClear();
     await expect(port.bindDomainAssetProvider({ ...request, workspaceId: "canary" } as never)).rejects.toThrow();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("adds a domain through the narrow command, names a duplicate, and checks the receipt is this write's", async () => {
+    const request = { mutationId: "create-1", expectedReadGeneration: 4, asset: { entityId: "added.test", note: null, portfolioId: null, tags: [], targetPrice: null } };
+    const receipt = {
+      schemaVersion: 1, disposition: "committed", operation: "create", mutationId: "create-1", entityId: "added.test",
+      localCommitSequence: 3, deviceMutationSequence: 2, baseServerRevision: 0, activeLeaseEpoch: 7,
+      committedAt: "2026-11-06T00:00:00Z", readGeneration: 0,
+    };
+    const port = createLocalBusinessPort();
+    invokeMock.mockResolvedValueOnce(receipt);
+    await expect(port.createDomainAsset(request)).resolves.toEqual(receipt);
+    expect(invokeMock).toHaveBeenCalledWith("local_domain_asset_create", { request });
+
+    invokeMock.mockRejectedValueOnce("DESKTOP_LOCAL_ASSET_EXISTS");
+    await expect(port.createDomainAsset(request)).rejects.toBeInstanceOf(LocalWriteError);
+    invokeMock.mockRejectedValueOnce("DESKTOP_LOCAL_HOST_STORAGE_REJECTED");
+    await expect(port.createDomainAsset(request)).rejects.toBe("DESKTOP_LOCAL_HOST_STORAGE_REJECTED");
+    for (const foreign of [{ ...receipt, operation: "edit" }, { ...receipt, entityId: "other.test" }, { ...receipt, mutationId: "create-2" }]) {
+      invokeMock.mockResolvedValueOnce(foreign);
+      await expect(port.createDomainAsset(request)).rejects.toThrow();
+    }
+    // Only canonical domains reach the Host.
+    invokeMock.mockClear();
+    for (const entityId of ["Added.Test", "added.test.", "1.2.3", "https://added.test"]) {
+      await expect(port.createDomainAsset({ ...request, asset: { ...request.asset, entityId } })).rejects.toThrow();
+    }
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

@@ -3,11 +3,12 @@ use gooddealer_local_storage::{
     DesktopApplicationRootError, DesktopAssetLibraryReadRequest, DesktopBackupError,
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest, DesktopDomainAssetWrite,
-    DesktopDomainDetailReadRequest, DesktopHostAuthorizationStatus, DesktopLocalBusinessState,
-    DesktopLocalBusinessStatus, DesktopLocalHost, DesktopLocalHostError,
-    DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt, DomainDetailAsset,
-    DomainDetailReadSnapshot, Money, PortfolioReadFreshness,
+    DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetWrite, DesktopDomainDetailReadRequest,
+    DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
+    DesktopLocalHost, DesktopLocalHostError, DesktopVerifiedBackupArtifact,
+    DomainAssetMutationReceipt, DomainDetailAsset, DomainDetailReadSnapshot, Money,
+    PortfolioReadFreshness,
 };
 
 fn name<T>() {}
@@ -28,6 +29,7 @@ fn dependent_crate_can_name_only_the_reviewed_local_host_contract() {
     name::<DesktopAssetLibraryReadRequest>();
     name::<DesktopDomainDetailReadRequest>();
     name::<DesktopDomainAssetEditRequest>();
+    name::<DesktopDomainAssetCreateRequest>();
     name::<DesktopDomainAssetDeleteRequest>();
     name::<DesktopDomainAssetWrite>();
     name::<DesktopConflictResolveRequest>();

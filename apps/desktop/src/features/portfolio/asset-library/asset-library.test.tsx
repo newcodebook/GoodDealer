@@ -126,6 +126,16 @@ describe("Asset Library presentation", () => {
     expect(html).toMatch(/<span class="asset-library-expiring">2026-12-20<\/span>/u);
   });
 
+  it("offers adding a domain only where the caller allows it, also in an empty workspace, and never on a read-only view", () => {
+    const onAddDomain = async () => "added" as const;
+    expect(render({ presentation: { state: "ready", data: library(null) } })).not.toContain("添加域名");
+    expect(render({ presentation: { state: "ready", data: library(null) }, onAddDomain })).toMatch(/<button[^>]*>添加域名<\/button>/u);
+    expect(render({ presentation: { state: "empty" }, onAddDomain })).toMatch(/<button[^>]*>添加域名<\/button>/u);
+    expect(render({ presentation: { state: "ready", data: library("standby") }, onAddDomain })).toMatch(/<button[^>]*disabled=""[^>]*>添加域名<\/button>/u);
+    // The kit's import slot holds manual add only: there is no CSV import.
+    expect(render({ presentation: { state: "empty" }, onAddDomain })).not.toContain("CSV");
+  });
+
   it("renders explicit empty, loading, and unavailable states instead of an empty table", () => {
     expect(render({ presentation: { state: "empty" } })).toContain("还没有域名资产");
     expect(render({ presentation: { state: "loading" } })).toContain("正在读取本地资产");
