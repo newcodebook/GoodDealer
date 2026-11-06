@@ -322,6 +322,44 @@ impl DesktopSyncRuntime {
             .map_err(map_database_error)
     }
 
+    /// Imports the activated Zone as a domain asset under this activation's own admission, through
+    /// the same Host create path as `local_domain_asset_create`
+    /// (`DesktopBusinessRuntime::create_domain_asset_guarded`), so deduplication, the deletion
+    /// tombstone rule and the sync Outbox apply unchanged. The admission recheck and the commit
+    /// guard bind the write to the workspace, device, lease and authority the Provider was observed
+    /// under: a change of authority during the Provider call writes nothing. A domain the
+    /// workspace already holds is left as it is.
+    ///
+    /// The read generation is the runtime's own: this create is decided by the Host, not by a
+    /// Renderer view, and it only adds a bare asset keyed by name, so no update can be lost.
+    pub(crate) fn import_cloudflare_zone_asset(
+        &self,
+        business: &mut crate::desktop_business_runtime::DesktopBusinessRuntime,
+        admission: &DesktopSyncRunAdmission,
+        entity_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(business.database_for_backup_mut(), admission)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
+        let context = crate::desktop_business_runtime::BusinessMutationContext::new(
+            admission.device_id.clone(),
+            admission.lease_epoch,
+            timestamp(trusted_now()?)?,
+        )
+        .map_err(map_database_error)?;
+        let request = crate::DesktopDomainAssetCreateRequest {
+            mutation_id: random_uuid_v4()?,
+            expected_read_generation: business.read_generation(),
+            asset: crate::DesktopDomainAssetWrite::bare(entity_id),
+        };
+        match business
+            .create_domain_asset_guarded(request, &context, || commit_guard.verify(self, admission))
+        {
+            Ok(_) | Err(BusinessDatabaseError::AssetExists) => Ok(()),
+            Err(error) => Err(map_database_error(error)),
+        }
+    }
+
     pub(crate) fn prepare_cloudflare_provision(
         &self,
         database: &mut BusinessDatabase,

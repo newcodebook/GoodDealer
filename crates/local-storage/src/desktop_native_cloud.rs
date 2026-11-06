@@ -2115,6 +2115,151 @@ mod tests {
         assert!(!settings.to_string().contains(&created.connection_ref));
     }
 
+    fn zone_observation(zone: &str) -> crate::DesktopCloudflareCheckedObservation {
+        crate::DesktopCloudflareCheckedObservation {
+            entity_id: zone.to_owned(),
+            zone_binding_digest: "c".repeat(64),
+            zone_name_ascii: zone.to_owned(),
+            authoritative_nameservers: vec!["ns1.example.test".to_owned()],
+            dnssec_status: "unknown".to_owned(),
+            availability: "available".to_owned(),
+            zone_status: "active".to_owned(),
+            records: vec![crate::CloudflareDnsRecordWrite {
+                record_key: "a-root".to_owned(),
+                record_type: "A".to_owned(),
+                owner_name_ascii: zone.to_owned(),
+                ttl_seconds: Some(300),
+                priority: None,
+                canonical_value: "192.0.2.1".to_owned(),
+                proxied: Some(true),
+            }],
+            provider_version_token: "provider-version-1".to_owned(),
+        }
+    }
+
+    fn detail_exists(local_host: &DesktopLocalHost, zone: &str) -> bool {
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": zone }))
+                .expect("detail request");
+        local_host.read_domain_detail(request).is_ok()
+    }
+
+    #[test]
+    fn activation_imports_the_zone_through_the_create_path_once() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        assert!(!detail_exists(&local_host, "imported.test"));
+        let before = business_generation(&local_host);
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("imported.test"))
+            .expect("prepare provision with the imported Zone");
+        // The Zone became an ordinary asset through the same create path: one committed add.
+        assert!(detail_exists(&local_host, "imported.test"));
+        assert_eq!(business_generation(&local_host), before + 1);
+    }
+
+    #[test]
+    fn zone_import_writes_nothing_when_authority_changes_during_activation() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": business_generation(&local_host),
+            "asset": { "entityId": "held.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        // The authority is renewed to a new lease epoch while the Provider call is in flight. The
+        // workspace stays readable and writable, but this activation's admission is now stale, so
+        // the import must write nothing.
+        let lease = serde_json::to_value(local_host.device_lease().expect("read lease"))
+            .expect("serialize lease");
+        let epoch = lease["leaseEpoch"].as_u64().expect("lease epoch");
+        local_host
+            .renew_business_authority_for_test(epoch + 1)
+            .expect("renew authority");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("stale.test"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        );
+        assert_eq!(business_generation(&local_host), before);
+        // Reads still work under the renewed authority, so the missing Zone is a real absence.
+        assert!(detail_exists(&local_host, "held.test"));
+        assert!(!detail_exists(&local_host, "stale.test"));
+    }
+
+    #[test]
+    fn activation_keeps_an_existing_asset_and_refuses_a_non_canonical_zone() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+
+        // A Zone name the create path rejects is never imported, and nothing is prepared.
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        assert!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("Not Canonical"))
+                .is_err()
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        // A domain the person already added is kept as it is; the import adds nothing.
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": before,
+            "asset": { "entityId": "held.test", "note": "mine", "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let held_generation = business_generation(&local_host);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("held.test"))
+            .expect("prepare provision over the held domain");
+        assert_eq!(business_generation(&local_host), held_generation);
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": "held.test" }))
+                .expect("detail request");
+        let detail =
+            serde_json::to_value(local_host.read_domain_detail(request).expect("read held"))
+                .expect("serialize detail");
+        assert_eq!(detail["asset"]["note"], "mine");
+    }
+
     #[test]
     fn unqualified_capability_is_refused_at_every_provider_admission_but_revocation_is_not() {
         let (_directory, local_host) = credential_host();

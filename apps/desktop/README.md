@@ -119,6 +119,10 @@ is empty, so activation, credential preparation and observation are refused in t
 `cloudflare_connection_create` creates the credential-less connection activation provisions into (a fresh
 install has none). It takes only a display label, is refused the same way while unqualified, returns a
 never-activated connection instead of adding another, and answers with only the opaque `connectionRef`.
+Activation imports the observed Zone as a domain asset when the workspace does not hold it yet, under the
+activation's own admission and through the same Host create path as `local_domain_asset_create`
+(`DesktopBusinessRuntime::create_domain_asset_guarded`); an authority change during the Provider call
+writes nothing, and a domain already held is left as it is.
 
 - `cloudflare_connection_activate`
 - `cloudflare_connection_create`

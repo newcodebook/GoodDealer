@@ -1398,6 +1398,20 @@ impl DesktopLocalHost {
         Ok(desktop_cloudflare_resolution(resolution))
     }
 
+    /// Imports the activated Zone under the activation's own admission; see
+    /// `DesktopSyncRuntime::import_cloudflare_zone_asset`. It runs after the Provider observed the
+    /// Zone and before the credential is prepared. If a later step fails, the domain stays added:
+    /// the person connected that Zone, and the asset is an ordinary one they can delete.
+    fn import_cloudflare_zone_asset(
+        &self,
+        admission: &crate::DesktopNativeCloudAdmission,
+        entity_id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, admitted, guard| {
+            sync.import_cloudflare_zone_asset(business, admitted, entity_id, guard)
+        })
+    }
+
     /// Derives and durably prepares one Cloudflare provision from Host-owned state.
     ///
     /// # Errors
@@ -1412,6 +1426,7 @@ impl DesktopLocalHost {
             admission,
             connection_hint,
         } = activation;
+        self.import_cloudflare_zone_asset(&admission, &observation.entity_id)?;
         let prepared =
             self.with_sync_write(&admission.inner, |sync, database, admitted, guard| {
                 sync.prepare_cloudflare_provision(
@@ -4389,7 +4404,7 @@ impl DesktopLocalHost {
 
     #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
-    fn renew_business_authority_for_test(
+    pub(crate) fn renew_business_authority_for_test(
         &self,
         lease_epoch: u64,
     ) -> Result<(), DesktopLocalHostError> {
