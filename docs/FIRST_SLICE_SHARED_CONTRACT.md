@@ -68,7 +68,8 @@ outcome-unknown、retry-wait、manual-resolution 和最终 `refunded` 状态都�
 
 Desktop Host 通过 `AccountActivationClient`、`DesktopAuthorizationClient`、`WorkspaceSyncClient`
 和 `DomainAssetReplicaRecoveryClient` 消费合同。Renderer 不接收 grant、Lease、Mutation、Checkpoint
-或恢复 DTO，也不直接持有 `CloudTransport`。
+或恢复 DTO，也不直接持有 `CloudTransport`。唯一例外是只读的脱敏投影 `local_device_lease_read`：仅在
+当前 Active 授权下返回已验证授权中绑定的 `deviceId` 与 `leaseEpoch` 供展示，不含签名信封、密钥或能力。
 
 `DesktopAuthorizationClient.issue()` 只验证 wire 形状。Host 在消费 Grant v3 前必须先验证覆盖
 Workspace、scope、窗口和完整嵌套 Lease 的外层目的限定签名，再独立验证 ActiveDeviceLease 的

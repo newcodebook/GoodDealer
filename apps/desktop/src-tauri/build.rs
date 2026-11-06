@@ -7,6 +7,7 @@ fn main() {
             "cloudflare_connection_status",
             "cloudflare_observation_read",
             "local_business_status",
+            "local_device_lease_read",
             "local_asset_library_read",
             "local_domain_detail_read",
             "local_dns_health_read",

@@ -15,7 +15,7 @@ mod restore;
 mod source;
 
 pub use desktop_local_host::{
-    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopDeviceLease,
     DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
     DesktopLocalHost, DesktopLocalHostError, DesktopVerifiedBackupArtifact,
 };

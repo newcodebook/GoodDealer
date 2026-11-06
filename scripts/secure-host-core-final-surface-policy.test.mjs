@@ -219,6 +219,7 @@ const expectedLocalStoragePublicExports = [
   "DesktopConflictFreshness",
   "DesktopConflictResolutionReceipt",
   "DesktopConflictResolveRequest",
+  "DesktopDeviceLease",
   "DesktopDnsHealthReadRequest",
   "DesktopDomainAssetCreateRequest",
   "DesktopDomainAssetDeleteRequest",

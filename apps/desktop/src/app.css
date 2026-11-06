@@ -1,3 +1,5 @@
 html, body, #root { height: 100%; }
 /* The window chrome draws its own frame, so the root only hands it the full viewport. */
 .desktop-root { display: flex; height: 100%; min-width: 0; min-height: 0; }
+/* Onboarding centres the kit wizard card in the window body, as Onboarding.jsx does. */
+.onboarding-stage { display: flex; flex: 1; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 0; padding: var(--space-4); }

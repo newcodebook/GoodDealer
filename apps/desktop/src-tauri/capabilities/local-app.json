@@ -18,6 +18,7 @@
     "allow-local-backup-artifact-select",
     "allow-local-backup-restore-begin",
     "allow-local-business-status",
+    "allow-local-device-lease-read",
     "allow-local-asset-library-read",
     "allow-local-domain-detail-read",
     "allow-local-dns-health-read",

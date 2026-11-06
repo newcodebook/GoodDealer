@@ -3,7 +3,7 @@ use gooddealer_local_storage::{
     DesktopApplicationRootError, DesktopAssetLibraryReadRequest, DesktopBackupError,
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolveRequest,
-    DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDeviceLease, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
     DesktopDomainAssetEditRequest, DesktopDomainAssetWrite, DesktopDomainDetailReadRequest,
     DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
     DesktopLocalHost, DesktopLocalHostError, DesktopVerifiedBackupArtifact,
@@ -30,6 +30,7 @@ fn dependent_crate_can_name_only_the_reviewed_local_host_contract() {
     name::<DesktopDomainDetailReadRequest>();
     name::<DesktopDomainAssetEditRequest>();
     name::<DesktopDomainAssetCreateRequest>();
+    name::<DesktopDeviceLease>();
     name::<DesktopDomainAssetDeleteRequest>();
     name::<DesktopDomainAssetWrite>();
     name::<DesktopConflictResolveRequest>();

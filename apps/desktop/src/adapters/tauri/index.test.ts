@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
+import { createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -268,6 +268,28 @@ describe("Desktop Tauri local-business adapter", () => {
       else invokeMock.mockResolvedValueOnce(hostile);
       await expect(port.loadSettings()).rejects.toBeInstanceOf(LocalReadError);
     }
+  });
+
+  it("reads the Active lease for display and rejects anything beyond the identifiers", async () => {
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3 });
+    await expect(createLocalDeviceLeasePort().read()).resolves.toEqual({ schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3 });
+    expect(invokeMock).toHaveBeenLastCalledWith("local_device_lease_read");
+
+    for (const response of [
+      { schemaVersion: 2, deviceId: "device-01HZX", leaseEpoch: 3 },
+      { schemaVersion: 1, deviceId: "device 01", leaseEpoch: 3 },
+      { schemaVersion: 1, deviceId: "", leaseEpoch: 3 },
+      { schemaVersion: 1, deviceId: "d".repeat(129), leaseEpoch: 3 },
+      { schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 0 },
+      { schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 2 ** 53 },
+      { schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3, envelope: "signed" },
+      null,
+    ]) {
+      invokeMock.mockResolvedValueOnce(response);
+      await expect(createLocalDeviceLeasePort().read()).rejects.toThrow(TypeError);
+    }
+    invokeMock.mockRejectedValueOnce("LOCAL_LEASE_UNAVAILABLE");
+    await expect(createLocalDeviceLeasePort().read()).rejects.toBe("LOCAL_LEASE_UNAVAILABLE");
   });
 
   it("accepts only the closed schema-v2 retryable lock fixture", async () => {

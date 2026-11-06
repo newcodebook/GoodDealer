@@ -155,6 +155,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             command_handlers::local_business_status,
+            command_handlers::local_device_lease_read,
             command_handlers::local_asset_library_read,
             command_handlers::local_domain_detail_read,
             command_handlers::local_dns_health_read,

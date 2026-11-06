@@ -26,6 +26,7 @@ describe("Desktop native policy", () => {
     expect(main).not.toMatch(/local_portfolio_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_edit/u);
     expect(handlers).toMatch(/fn local_domain_asset_create/u);
+    expect(handlers).toMatch(/fn local_device_lease_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
@@ -73,6 +74,7 @@ describe("Desktop native policy", () => {
       "allow-local-backup-artifact-select",
       "allow-local-backup-restore-begin",
       "allow-local-business-status",
+      "allow-local-device-lease-read",
       "allow-local-asset-library-read",
       "allow-local-domain-detail-read",
       "allow-local-dns-health-read",

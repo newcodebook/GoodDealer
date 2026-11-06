@@ -20,6 +20,7 @@ const reviewedCommands = [
   "local_business_status",
   "local_conflict_center_read",
   "local_conflict_resolve",
+  "local_device_lease_read",
   "local_dns_health_read",
   "local_domain_asset_create",
   "local_domain_asset_delete",

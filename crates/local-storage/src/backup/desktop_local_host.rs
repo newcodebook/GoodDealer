@@ -155,6 +155,19 @@ pub struct DesktopLocalBusinessStatus {
     read_generation: u64,
 }
 
+/// The device and lease that currently hold execution authority, for display only.
+///
+/// It carries no signed envelope, key or capability: only the identifiers Cloud already bound
+/// into the verified Active authority. The Host reports it only while that authority is current,
+/// so a Standby, locked or continuation workspace never shows a lease it does not hold.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopDeviceLease {
+    schema_version: u8,
+    device_id: String,
+    lease_epoch: u64,
+}
+
 const MAX_REQUEST_WIRE_BYTES: usize = 4_096;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const OPAQUE_IDENTIFIER_MIN_BYTES: usize = 16;
@@ -2085,6 +2098,44 @@ impl DesktopLocalHost {
                 read_generation: snapshot.read_generation,
             },
         }
+    }
+
+    /// The current Active device and lease epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` unless the business state is Active under a current authority read
+    /// in the same lock order as [`Self::business_status`].
+    pub fn device_lease(&self) -> Result<DesktopDeviceLease, DesktopLocalHostError> {
+        let Ok(_operation) = self.operation_selection.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let Ok(authority) = self.authority_publication.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let Ok(runtime) = self.runtime_state.lock() else {
+            return Err(DesktopLocalHostError::Unavailable);
+        };
+        let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::Unavailable)?;
+        if runtime.is_none()
+            || self.transition_requested_epoch.load(Ordering::Acquire)
+                != authority.applied_authority_epoch
+            || authority.restriction != RuntimeRestriction::Active
+        {
+            return Err(DesktopLocalHostError::Unavailable);
+        }
+        authority
+            .authority
+            .as_ref()
+            .filter(|current| {
+                current.kind == BackupAuthorityKind::Active && current.is_current_at(now)
+            })
+            .map(|current| DesktopDeviceLease {
+                schema_version: 1,
+                device_id: current.device_id.clone(),
+                lease_epoch: current.lease_epoch,
+            })
+            .ok_or(DesktopLocalHostError::Unavailable)
     }
 
     fn status_snapshot(&self) -> DesktopStatusSnapshot {
@@ -5459,6 +5510,12 @@ mod tests {
             host.business_status().state,
             DesktopLocalBusinessState::Active
         );
+        let lease = serde_json::to_value(host.device_lease().unwrap()).unwrap();
+        assert_eq!(
+            lease,
+            serde_json::json!({ "schemaVersion": 1, "deviceId": device_id, "leaseEpoch": lease["leaseEpoch"] })
+        );
+        assert!(lease["leaseEpoch"].as_u64().is_some_and(|epoch| epoch > 0));
         let snapshot = host
             .read_asset_library(DesktopAssetLibraryReadRequest {
                 start_index: 0,
@@ -5478,6 +5535,8 @@ mod tests {
         assert_eq!(business["schemaVersion"], 2);
         assert_eq!(business["state"], "activation_required");
         assert_eq!(business["capabilities"], serde_json::json!([]));
+        // Without an Active authority there is no lease to show, and nothing is invented.
+        assert_eq!(host.device_lease(), Err(DesktopLocalHostError::Unavailable));
         let value = serde_json::to_value(host.backup_status()).unwrap();
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["kind"], "local_backup_restore_status");

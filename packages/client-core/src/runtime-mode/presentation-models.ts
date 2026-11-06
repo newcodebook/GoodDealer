@@ -194,7 +194,8 @@ const providerSchema = z.object({
   displayName: displayText,
   metadata: displayText,
   category: z.enum(["registrar", "dns", "marketplace"]),
-  connectionState: z.enum(["disconnected", "connecting", "connected", "failed"]),
+  // `unavailable`: the capability is not qualified (ADR-0024), so no connection path exists.
+  connectionState: z.enum(["disconnected", "connecting", "connected", "failed", "unavailable"]),
 }).strict();
 
 /** Redacted Host-owned identity lifecycle; no private key material crosses this boundary. */
@@ -223,7 +224,8 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
   z.object({
     ...activationBase,
     step: z.literal("device"),
-    deviceName: displayText,
+    // Null when the Host has no device name to report; the step never invents one.
+    deviceName: displayText.nullable(),
     activationState: z.enum(["ready", "activating", "awaiting_cloud", "active", "failed"]),
     deviceIdentity: hostDeviceIdentityProjectionSchema,
     activeLease: activeDeviceLeaseProjectionSchema,
@@ -238,7 +240,8 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
     ...activationBase,
     step: z.literal("initial_import"),
     connectedCount: safeCount,
-    importState: z.enum(["ready", "in_progress", "completed", "failed"]),
+    // `unavailable`: there is nothing qualified to import from; domains can still be added by hand.
+    importState: z.enum(["ready", "in_progress", "completed", "failed", "unavailable"]),
     progress: progressPercent,
     importedDomains: safeCount.nullable(),
     importedListings: safeCount.nullable(),
@@ -248,7 +251,7 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
   z.object({
     ...activationBase,
     step: z.literal("complete"),
-    deviceName: displayText,
+    deviceName: displayText.nullable(),
     importedDomains: safeCount,
     baselineServerRevision: safeCount,
     syncReady: z.boolean(),
@@ -265,6 +268,11 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
     context.addIssue({ code: "custom", path: ["availableActions"], message: "action is unavailable for the activation step" });
   }
   if (value.step === "connections") {
+    if (value.providers.some(({ connectionState }) => connectionState === "unavailable")
+      && value.providers.every(({ connectionState }) => connectionState === "unavailable")
+      && (value.availableActions.includes("connect_provider") || value.availableActions.includes("disconnect_provider"))) {
+      context.addIssue({ code: "custom", path: ["availableActions"], message: "unavailable providers cannot be connected" });
+    }
     const connected = value.providers.filter(({ connectionState }) => connectionState === "connected").length;
     if (connected !== value.connectedCount) {
       context.addIssue({ code: "custom", path: ["connectedCount"], message: "connected count disagrees" });
@@ -317,6 +325,9 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
     }
   }
   if (value.step === "initial_import") {
+    if (value.importState === "unavailable" && value.availableActions.includes("start_import")) {
+      context.addIssue({ code: "custom", path: ["availableActions"], message: "an unavailable import cannot start" });
+    }
     const completed = value.importState === "completed";
     const summary = [value.importedDomains, value.importedListings, value.conflicts, value.baselineServerRevision];
     if (completed !== summary.every((entry) => entry !== null)) {

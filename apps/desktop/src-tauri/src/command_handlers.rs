@@ -7,14 +7,15 @@ use gooddealer_local_storage::{
     DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
     DesktopBatchOperationsReadRequest, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
-    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
-    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest,
-    DesktopHistoryReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
-    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
-    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
-    DomainAssetMutationReceipt, DomainDetailReadSnapshot, HistoryReadSnapshot,
-    ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot, SettingsReadSnapshot,
+    DesktopDeviceLease, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
+    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
+    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
+    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopLocalBusinessStatus,
+    DesktopLocalHost, DesktopManualTasksReadRequest, DesktopRenewalsReadRequest,
+    DesktopSalesReadRequest, DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact,
+    DnsHealthReadSnapshot, DomainAssetMutationReceipt, DomainDetailReadSnapshot,
+    HistoryReadSnapshot, ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot,
+    SettingsReadSnapshot,
 };
 use serde::Deserialize;
 use tauri::State;
@@ -52,6 +53,16 @@ pub(crate) fn local_business_status(
     host: State<'_, Arc<DesktopLocalHost>>,
 ) -> DesktopLocalBusinessStatus {
     host.business_status()
+}
+
+/// The Active device and lease epoch for display; refused unless the workspace is Active.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn local_device_lease_read(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<DesktopDeviceLease, String> {
+    host.device_lease()
+        .map_err(|_| "LOCAL_LEASE_UNAVAILABLE".to_owned())
 }
 
 #[tauri::command]

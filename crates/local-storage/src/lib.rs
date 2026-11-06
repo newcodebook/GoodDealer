@@ -188,7 +188,7 @@ pub use backup::{
     DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
     DesktopVerifiedBackupArtifact,
 };
-pub use backup::{DesktopLocalBusinessState, DesktopLocalBusinessStatus};
+pub use backup::{DesktopDeviceLease, DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
     DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
     DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,

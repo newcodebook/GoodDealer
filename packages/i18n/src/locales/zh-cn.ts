@@ -85,6 +85,12 @@ const zhCNDictionary = {
     connectionFailed: "连接失败",
     awaitingCloud: "等待 Cloud 签发 Lease",
     stepProgress: "{index} / {total}",
+    providerUnavailable: "不可用",
+    connectOptionalSubtitle: "Cloudflare 能力取得资格前暂不可连接；可跳过此步，取得资格后再连接。",
+    importUnavailableSubtitle: "尚无已连接的账户可供导入。手动添加域名，或跳过此步稍后添加。",
+    observationImportUnavailable: "从观察结果导入不可用：没有已连接的 Cloudflare 区域",
+    addedDomains: "本次已添加 {count} 个域名",
+    completionDetailNoDevice: "此设备已激活为执行设备 · 共 {count} 个域名 · 基线 rev {revision}",
   },
   shell: {
     // Shared pagination control (brand controls.jsx), used by every paged desk.

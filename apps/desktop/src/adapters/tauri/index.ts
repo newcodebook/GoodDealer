@@ -98,6 +98,18 @@ export interface LocalConflictPort {
   resolveConflict(request: ConflictResolutionIntent): Promise<ConflictResolutionReceipt>;
 }
 
+/** The Active device and its lease epoch, for display. No envelope, key or capability crosses here. */
+export interface LocalDeviceLease {
+  readonly schemaVersion: 1;
+  readonly deviceId: string;
+  readonly leaseEpoch: number;
+}
+
+export interface LocalDeviceLeasePort {
+  /** Rejects whenever this device does not hold a current Active lease. */
+  read(): Promise<LocalDeviceLease>;
+}
+
 export interface LocalSyncStatusPort {
   status(): Promise<SyncSnapshotViewModel>;
 }
@@ -160,6 +172,7 @@ const commands = {
   conflictCenter: "local_conflict_center_read",
   resolveConflict: "local_conflict_resolve",
   localSyncStatus: "local_sync_status",
+  readDeviceLease: "local_device_lease_read",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
   cloudflareObserve: "cloudflare_zone_observe",
@@ -444,6 +457,25 @@ export function createLocalConflictPort(): LocalConflictPort {
 
 export function createLocalSyncStatusPort(): LocalSyncStatusPort {
   return { async status() { return parseSyncSnapshotViewModel(await invoke(commands.localSyncStatus)); } };
+}
+
+export function createLocalDeviceLeasePort(): LocalDeviceLeasePort {
+  return { async read() { return parseDeviceLease(await invoke(commands.readDeviceLease)); } };
+}
+
+function parseDeviceLease(value: unknown): LocalDeviceLease {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "deviceId", "leaseEpoch"]);
+  const deviceId = record["deviceId"];
+  if (
+    record["schemaVersion"] !== 1
+    || typeof deviceId !== "string" || deviceId.length === 0 || deviceId.length > 128
+    // The Host admits only printable ASCII device identifiers; anything else is not its value.
+    || [...deviceId].some((char) => { const code = char.codePointAt(0) ?? 0; return code < 0x21 || code > 0x7e; })
+    || !Number.isSafeInteger(record["leaseEpoch"]) || (record["leaseEpoch"] as number) < 1
+  ) {
+    throw new TypeError("invalid device lease");
+  }
+  return Object.freeze({ schemaVersion: 1, deviceId, leaseEpoch: record["leaseEpoch"] as number });
 }
 
 function parseStatus(value: unknown): LocalBusinessStatus {

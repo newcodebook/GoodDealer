@@ -122,6 +122,12 @@ const enUSDictionary = {
     connectionFailed: "Connection failed",
     awaitingCloud: "Waiting for Cloud to issue the lease",
     stepProgress: "{index} / {total}",
+    providerUnavailable: "Unavailable",
+    connectOptionalSubtitle: "Cloudflare can't be connected until its capability is qualified. Skip this step and connect once it is.",
+    importUnavailableSubtitle: "No connected account to import from yet. Add domains by hand, or skip and add them later.",
+    observationImportUnavailable: "Import from observations is unavailable: no Cloudflare zone is connected",
+    addedDomains: "Domains added: {count}",
+    completionDetailNoDevice: "This device is the Active device · domains: {count} · baseline rev {revision}",
   },
   startupRecovery: {
     title: "Crash recovery",

@@ -11,7 +11,11 @@ Customer Desktop application that composes the Renderer and native Host around t
   is a separate Vite root outside the production graph and grants no authority.
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
   layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
-  sign-in, and locked pages plus a workspace with the asset library (manual add through
+  sign-in, and locked pages; first-run onboarding (`src/app/onboarding.tsx`, the kit wizard), shown
+  once per session to an Active workspace with no domain, where the device step shows only the lease
+  `local_device_lease_read` verified (device id and epoch, no envelope or key; the Host has no device
+  name), Cloudflare and observation import are unavailable until qualified, and domains are added by
+  hand through `local_domain_asset_create`; plus a workspace with the asset library (manual add through
   `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
   domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
   cannot duplicate an asset), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
@@ -109,6 +113,7 @@ a Host-owned atomic custody and fencing capability is delivered.
 - `cloudflare_observation_read`
 - `cloudflare_zone_observe`
 - `local_business_status`
+- `local_device_lease_read`
 - `local_asset_library_read`
 - `local_domain_detail_read`
 - `local_dns_health_read`

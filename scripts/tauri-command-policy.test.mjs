@@ -29,6 +29,7 @@ function createFixture() {
     "local_backup_restore_status",
     "local_conflict_center_read",
     "local_conflict_resolve",
+    "local_device_lease_read",
     "local_sync_status",
     "local_domain_asset_edit",
     "local_domain_asset_create",
