@@ -196,11 +196,11 @@ export function mockDnsHealthView(): DnsVerificationViewModel {
       rows: [
         {
           entityId: "goldrail.com",
-          zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
+          bindable: false, zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
           observation: observation("goldrail.com", ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"], "active", "active"),
         },
-        { entityId: "helio.systems", zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
-        { entityId: "north.capital", zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
+        { entityId: "helio.systems", bindable: false, zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
+        { entityId: "north.capital", bindable: false, zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
       ],
     },
   })], 50);

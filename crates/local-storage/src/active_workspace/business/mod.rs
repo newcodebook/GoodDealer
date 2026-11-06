@@ -1062,6 +1062,132 @@ pub(crate) fn verify_rebootstrap_recovery_read_only(
     )
 }
 
+/// The latest committed Cloudflare Zone observation an asset may be bound from: a live asset, a
+/// confirmed-available Zone with the asset's own name, observed through the connection's current
+/// active credential for that Zone. The bind and the DNS health read both ask this one question, so
+/// the read never offers a bind the Host would refuse for its evidence.
+#[derive(Clone)]
+pub(crate) struct BindableZone {
+    pub(crate) connection_id: String,
+    pub(crate) resource_binding_digest: String,
+    pub(crate) observation_digest: String,
+    pub(crate) resource_label: String,
+    pub(crate) generation: u64,
+    pub(crate) observed_at: String,
+}
+
+impl BindableZone {
+    /// The bind's identity rule for an existing binding of this asset's Zone: the same connection,
+    /// platform, Zone and name, at a credential generation no newer than this evidence. A binding
+    /// identity is immutable, so anything else is a conflict, never a replacement.
+    pub(crate) fn admits_existing(
+        &self,
+        connection_id: &str,
+        provider_kind: &str,
+        resource_binding_digest: &str,
+        resource_label: &str,
+        binding_generation: u64,
+    ) -> bool {
+        connection_id == self.connection_id
+            && provider_kind == "cloudflare"
+            && resource_binding_digest == self.resource_binding_digest
+            && resource_label == self.resource_label
+            && binding_generation <= self.generation
+    }
+}
+
+/// # Errors
+///
+/// Returns `StorageRejected` when the query fails or a selected field is not in its stored form,
+/// so a malformed row is never offered or bound.
+pub(crate) fn latest_bindable_zone(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<Option<BindableZone>, BusinessDatabaseError> {
+    let selected: Option<(String, String, String, String, i64, String)> = connection
+        .prepare(
+            "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
+                        c.active_credential_generation,b.observed_at
+                   FROM cloudflare_dns_staged_batches b
+                   JOIN domain_assets a
+                     ON a.workspace_id=b.workspace_id
+                    AND a.entity_id=b.entity_id
+                   JOIN cloudflare_credential_roots r
+                     ON r.workspace_id=b.workspace_id
+                    AND r.connection_incarnation_id=b.connection_incarnation_id
+                   JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id
+                    AND c.connection_id=r.logical_connection_id
+                  WHERE b.workspace_id=?1
+                    AND b.entity_id=?2
+                    AND b.entity_id=b.zone_name_ascii
+                    AND a.deleted_at IS NULL
+                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
+                    AND b.visibility='committed'
+                    AND b.observation_availability='available'
+                    AND b.cloudflare_zone_status IN ('active','pending')
+                    AND r.retired_at IS NULL
+                    AND r.known_envelope_kind='active'
+                    AND r.known_envelope_generation=c.active_credential_generation
+                    AND r.known_zone_digest=b.zone_digest
+                    AND c.provider_kind='cloudflare'
+                    AND c.lifecycle_status='active'
+                    AND c.validation_status='valid'
+                    AND c.credential_use_state='active'
+                    AND c.active_credential_generation IS NOT NULL
+                    AND c.active_credential_zone_digest=b.zone_digest
+                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
+                   LIMIT 1",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_row(params![workspace_id, entity_id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })
+                .optional()
+        })
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation,
+        observed_at,
+    )) = selected
+    else {
+        return Ok(None);
+    };
+    let stored = |valid: bool| {
+        if valid {
+            Ok(())
+        } else {
+            Err(BusinessDatabaseError::StorageRejected)
+        }
+    };
+    stored(validate_sha256_hex(&resource_binding_digest).is_ok())?;
+    stored(validate_sha256_hex(&observation_digest).is_ok())?;
+    stored(validate_local_text(&connection_id).is_ok())?;
+    stored(validate_domain_asset_id(&resource_label).is_ok())?;
+    Ok(Some(BindableZone {
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation: u64::try_from(generation)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        observed_at,
+    }))
+}
+
 impl BusinessDatabase {
     #[cfg(test)]
     pub(crate) fn provider_binding_snapshot_for_test(&self) -> Vec<Vec<Vec<String>>> {
@@ -1122,72 +1248,17 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let latest: Option<(String, String, String, String, i64, String)> = transaction
-            .query_row(
-                "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
-                        c.active_credential_generation,b.observed_at
-                   FROM cloudflare_dns_staged_batches b
-                   JOIN domain_assets a
-                     ON a.workspace_id=b.workspace_id
-                    AND a.entity_id=b.entity_id
-                   JOIN cloudflare_credential_roots r
-                     ON r.workspace_id=b.workspace_id
-                    AND r.connection_incarnation_id=b.connection_incarnation_id
-                   JOIN local_provider_connections c
-                     ON c.workspace_id=r.workspace_id
-                    AND c.connection_id=r.logical_connection_id
-                  WHERE b.workspace_id=?1
-                    AND b.entity_id=?2
-                    AND b.entity_id=b.zone_name_ascii
-                    AND a.deleted_at IS NULL
-                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
-                    AND b.visibility='committed'
-                    AND b.observation_availability='available'
-                    AND b.cloudflare_zone_status IN ('active','pending')
-                    AND r.retired_at IS NULL
-                    AND r.known_envelope_kind='active'
-                    AND r.known_envelope_generation=c.active_credential_generation
-                    AND r.known_zone_digest=b.zone_digest
-                    AND c.provider_kind='cloudflare'
-                    AND c.lifecycle_status='active'
-                    AND c.validation_status='valid'
-                    AND c.credential_use_state='active'
-                    AND c.active_credential_generation IS NOT NULL
-                    AND c.active_credential_zone_digest=b.zone_digest
-                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
-                   LIMIT 1",
-                params![self.workspace_id, entity_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let Some((
+        let Some(zone) = latest_bindable_zone(&transaction, &self.workspace_id, entity_id)? else {
+            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
+        };
+        let BindableZone {
             connection_id,
             resource_binding_digest,
             observation_digest,
             resource_label,
-            generation,
+            generation: binding_generation,
             observed_at,
-        )) = latest
-        else {
-            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
-        };
-        let binding_generation =
-            u64::try_from(generation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        validate_sha256_hex(&resource_binding_digest)?;
-        validate_sha256_hex(&observation_digest)?;
-        validate_local_text(&connection_id)?;
-        validate_domain_asset_id(&resource_label)
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        } = zone.clone();
         if resource_label != entity_id {
             return Err(BusinessDatabaseError::MutationConflict);
         }
@@ -1236,16 +1307,15 @@ impl BusinessDatabase {
             old_last_observed_at,
         )) = existing
         {
-            if old_connection != connection_id
-                || old_provider != "cloudflare"
-                || old_digest != resource_binding_digest
-                || old_label != resource_label
-            {
-                return Err(BusinessDatabaseError::MutationConflict);
-            }
             let old_generation = u64::try_from(old_generation)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if binding_generation < old_generation {
+            if !zone.admits_existing(
+                &old_connection,
+                &old_provider,
+                &old_digest,
+                &old_label,
+                old_generation,
+            ) {
                 return Err(BusinessDatabaseError::MutationConflict);
             }
             if old_observation == observation_digest
@@ -1325,7 +1395,8 @@ impl BusinessDatabase {
                     resource_binding_digest,
                     observation_digest,
                     resource_label,
-                    generation,
+                    i64::try_from(binding_generation)
+                        .map_err(|_| BusinessDatabaseError::StorageRejected)?,
                     local_commit_sequence,
                     committed_at,
                     observed_at,
@@ -10561,6 +10632,72 @@ mod tests {
             .unwrap();
         database.seed_verified_cloudflare_binding_for_test("example.com");
         database
+    }
+
+    #[test]
+    fn dns_health_offers_a_bind_exactly_when_the_bind_would_be_admitted() {
+        let bindable = |database: &TestDatabase| {
+            database.read_dns_health(0, 10, "").unwrap().window.rows[0].bindable
+        };
+        // Every evidence refusal the bind makes: revoked or invalid credentials, a changed
+        // credential generation or Zone, an archived asset, unavailable or uncommitted evidence.
+        let refusals = [
+            "UPDATE cloudflare_dns_staged_batches SET observation_availability='unavailable'",
+            "UPDATE cloudflare_dns_staged_batches SET visibility='staged'",
+            "UPDATE domain_assets SET lifecycle_status='archived' WHERE entity_id='example.com'",
+            "UPDATE local_provider_connections SET lifecycle_status='invalid'",
+            "UPDATE local_provider_connections SET credential_use_state='revocation_pending'",
+            "UPDATE local_provider_connections SET credential_use_state='remediation_required'",
+            "UPDATE local_provider_connections SET active_credential_zone_digest='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+            "UPDATE cloudflare_credential_roots SET known_envelope_generation=2,highest_resolved_generation=2,head_ledger_generation=2",
+        ];
+        for mutation in refusals {
+            let mut database = binding_database();
+            assert!(bindable(&database), "fixture is bindable before {mutation}");
+            database
+                .store
+                .fixture_connection()
+                .execute_batch(&format!(
+                    "PRAGMA foreign_keys=OFF; DROP TRIGGER cloudflare_dns_staged_batch_immutable; {mutation}"
+                ))
+                .unwrap();
+            assert!(!bindable(&database), "{mutation}");
+            assert_eq!(
+                database
+                    .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+                Err(BusinessDatabaseError::ProviderBindingUnavailable),
+                "{mutation}"
+            );
+        }
+
+        // Once bound, the live binding is not offered again; detached with the same identity it is,
+        // and detached under another Zone it is not, because the bind would refuse the change.
+        let mut database = binding_database();
+        database
+            .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(()))
+            .unwrap();
+        assert!(!bindable(&database));
+        let connection = database.store.fixture_connection();
+        connection
+            .execute_batch(
+                "UPDATE domain_asset_provider_bindings SET validation_status='detached', verified_at=NULL",
+            )
+            .unwrap();
+        assert!(bindable(&database));
+        database
+            .store
+            .fixture_connection()
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 DROP TRIGGER domain_asset_provider_bindings_identity_immutable;
+                 UPDATE domain_asset_provider_bindings SET resource_binding_digest='dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'",
+            )
+            .unwrap();
+        assert!(!bindable(&database));
+        assert_eq!(
+            database.bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
     }
 
     #[test]

@@ -66,7 +66,7 @@ function ports(): AuthoritativeWorkspacePorts {
     dns: { loadDnsHealth: vi.fn(async () => parseDnsHealthRead({
       schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
       totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0,
-      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", zoneBinding: null, observation }] },
+      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, zoneBinding: null, observation }] },
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;

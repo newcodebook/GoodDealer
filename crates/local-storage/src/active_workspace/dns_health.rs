@@ -5,7 +5,7 @@
 //! health or ownership: those need registrar and verification capabilities that are not composed,
 //! so the Renderer presents them as unavailable instead of inferring a healthy state.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 
 use crate::portfolio_projection::{
@@ -49,6 +49,10 @@ pub struct DnsHealthRow {
     pub entity_id: String,
     pub zone_binding: Option<DnsZoneBinding>,
     pub observation: Option<DnsZoneObservationSummary>,
+    /// Whether binding the Zone would be admitted now: the Host's own bind selection finds
+    /// evidence for it and no live or conflicting binding stands in the way. The Renderer offers
+    /// "Bind Zone" only on this, never from the observation it shows.
+    pub bindable: bool,
 }
 
 /// The asset's Zone binding on any launch platform. Connection identity and Provider resource IDs
@@ -215,8 +219,12 @@ impl<'a> ActiveDnsHealthReader<'a> {
             .map_err(|_| PortfolioReadError::ProjectionRejected)?;
         let rows = raw
             .into_iter()
-            .map(project_row)
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|raw| {
+                let mut row = project_row(raw)?;
+                row.bindable = row_bindable(&transaction, requested_workspace_id, &row.entity_id)?;
+                Ok(row)
+            })
+            .collect::<Result<Vec<_>, PortfolioReadError>>()?;
         let freshness = read_freshness(&transaction)?;
         drop(statement);
         transaction
@@ -416,5 +424,56 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
         entity_id,
         zone_binding,
         observation,
+        bindable: false,
+    })
+}
+
+/// Whether the Host would bind this asset's Zone now. It asks the bind's own evidence query, then
+/// applies the bind's identity rule to an existing binding: none, or a detached one for the same
+/// connection, Zone and name at no newer credential generation. A live binding is never offered
+/// again here, even where the bind would refresh it. Malformed evidence fails the page closed; the
+/// staged-batch CHECKs keep both digests canonical hex and the evidence must name its asset's own
+/// canonical ID, so only a corrupted database reaches that, and it is not counted separately.
+fn row_bindable(
+    connection: &Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<bool, PortfolioReadError> {
+    let Some(zone) = super::business::latest_bindable_zone(connection, workspace_id, entity_id)
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    else {
+        return Ok(false);
+    };
+    if zone.resource_label != entity_id {
+        return Ok(false);
+    }
+    let existing: Option<(String, String, String, String, i64, String)> = connection
+        .query_row(
+            "SELECT connection_id, provider_kind, resource_binding_digest, resource_label,
+                    binding_generation, validation_status
+               FROM domain_asset_provider_bindings
+              WHERE workspace_id = ?1 AND entity_id = ?2 AND resource_kind = 'zone'",
+            params![workspace_id, entity_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    Ok(match existing {
+        None => true,
+        Some((connection_id, provider_kind, digest, label, generation, status)) => {
+            let generation =
+                u64::try_from(generation).map_err(|_| PortfolioReadError::ProjectionRejected)?;
+            status == "detached"
+                && zone.admits_existing(&connection_id, &provider_kind, &digest, &label, generation)
+        }
     })
 }

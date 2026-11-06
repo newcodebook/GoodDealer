@@ -32,7 +32,16 @@ const dnsHealthRowSchema = z.object({
   entityId: canonicalDomainNameSchema,
   zoneBinding: dnsZoneBindingSchema.nullable(),
   observation: dnsZoneObservationSummarySchema.nullable(),
-}).strict();
+  /** The Host's verdict that binding the Zone would be admitted now; the only basis for offering it. */
+  bindable: z.boolean(),
+}).strict().superRefine((row, context) => {
+  // The Host binds only from an observation of the asset's own Zone and never over a live binding,
+  // so a row claiming otherwise is inconsistent and rejected rather than offered.
+  const live = row.zoneBinding !== null && row.zoneBinding.validationStatus !== "detached";
+  if (row.bindable && (live || row.observation?.zoneLabel !== row.entityId)) {
+    context.addIssue({ code: "custom", path: ["bindable"], message: "a bindable row needs an unbound asset and its own Zone observed" });
+  }
+});
 
 export const dnsHealthWindowRequestSchema = z.object({
   startIndex: z.number().int().nonnegative().max(1_000_000),
@@ -124,24 +133,10 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     propagationStatus: observationStatus(observation),
     lastCheckedAt: observation?.observedAt ?? null,
     records: [],
-    availableActions: bindable(row) ? ["bind_zone"] : [],
+    // The Host decides: revoked or invalid credentials, a credential generation that no longer
+    // matches the observation, a paused Zone or an archived asset all leave this false.
+    availableActions: row.bindable ? ["bind_zone"] : [],
   };
-}
-
-/**
- * A row may be bound when it has no live binding and a confirmed, available Cloudflare observation
- * of the Zone with the asset's own name. The Host binds only from that committed evidence and
- * checks it again; this only decides whether to offer the action.
- */
-function bindable(row: DnsHealthRow): boolean {
-  const unbound = row.zoneBinding === null || row.zoneBinding.validationStatus === "detached";
-  const observation = row.observation;
-  return unbound
-    && observation !== null
-    && observation.providerKind === "cloudflare"
-    && observation.availability === "available"
-    && observation.evidenceStatus === "confirmed"
-    && observation.zoneLabel === row.entityId;
 }
 
 /**

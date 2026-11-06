@@ -80,14 +80,14 @@ describe("DNS & verification from the Host DNS health projection", () => {
       startIndex: 0, size: 200,
       rows: [
         {
-          entityId: "observed.test", zoneBinding: null,
+          entityId: "observed.test", bindable: true, zoneBinding: null,
           observation: {
             providerKind: "cloudflare", observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed",
             zoneLabel: "observed.test", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus,
             recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 0, other: 0 },
           },
         },
-        { entityId: "plain.test", zoneBinding: null, observation: null },
+        { entityId: "plain.test", bindable: false, zoneBinding: null, observation: null },
       ],
     },
   })], 200);

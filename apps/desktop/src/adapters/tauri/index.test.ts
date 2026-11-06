@@ -111,7 +111,7 @@ describe("Desktop Tauri local-business adapter", () => {
       assetCount: 1,
       observedCount: 0,
       warningCount: 0,
-      window: { startIndex: 0, size: 200, rows: [{ entityId: "example.test", zoneBinding: null, observation: null }] },
+      window: { startIndex: 0, size: 200, rows: [{ entityId: "example.test", bindable: false, zoneBinding: null, observation: null }] },
     };
     const port = createLocalDnsHealthPort();
     invokeMock.mockResolvedValueOnce(read);

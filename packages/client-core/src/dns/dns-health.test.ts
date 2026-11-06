@@ -39,10 +39,10 @@ function read(overrides: Record<string, unknown> = {}): unknown {
       rows: [
         {
           entityId: "observed.test",
-          zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare", zoneLabel: "observed.test", validationStatus: "verified" },
+          bindable: false, zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare", zoneLabel: "observed.test", validationStatus: "verified" },
           observation,
         },
-        { entityId: "plain.test", zoneBinding: null, observation: null },
+        { entityId: "plain.test", bindable: false, zoneBinding: null, observation: null },
       ],
     },
     ...overrides,
@@ -74,21 +74,28 @@ describe("DNS health Host read", () => {
     expect(plain).toMatchObject({ recordHealth: "unobserved", recordCount: null, propagationStatus: "unobserved", providerDisplayName: "—" });
   });
 
-  it("offers binding only for an unbound asset with confirmed Cloudflare evidence of its own Zone", () => {
+  it("offers binding exactly when the Host reports the row bindable", () => {
     const project = (row: Record<string, unknown>) => projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: [row] } }))], 50).rows[0]!.availableActions;
-    expect(project({ entityId: "observed.test", zoneBinding: null, observation })).toEqual(["bind_zone"]);
     const detached = { providerKind: "cloudflare", connectionLabel: "Cloudflare", zoneLabel: "observed.test", validationStatus: "detached" };
-    expect(project({ entityId: "observed.test", zoneBinding: detached, observation })).toEqual(["bind_zone"]);
-    // Already bound, unconfirmed, unavailable, or a Zone with another name: nothing to bind.
-    expect(project({ entityId: "observed.test", zoneBinding: { ...detached, validationStatus: "verified" }, observation })).toEqual([]);
-    for (const changed of [{ evidenceStatus: "stale" }, { evidenceStatus: "unknown" }, { availability: "unavailable" }, { zoneLabel: "other.test" }]) {
-      expect(project({ entityId: "observed.test", zoneBinding: null, observation: { ...observation, ...changed } }), JSON.stringify(changed)).toEqual([]);
-    }
-    expect(project({ entityId: "plain.test", zoneBinding: null, observation: null })).toEqual([]);
+    expect(project({ entityId: "observed.test", zoneBinding: null, observation, bindable: true })).toEqual(["bind_zone"]);
+    expect(project({ entityId: "observed.test", zoneBinding: detached, observation, bindable: true })).toEqual(["bind_zone"]);
+    // Confirmed evidence is not enough: a revoked credential, a changed credential generation, a
+    // paused Zone or an archived asset are known only to the Host, which then reports false.
+    expect(project({ entityId: "observed.test", zoneBinding: null, observation, bindable: false })).toEqual([]);
+    expect(project({ entityId: "plain.test", zoneBinding: null, observation: null, bindable: false })).toEqual([]);
+  });
+
+  it("rejects a bindable row over a live binding or without its own Zone observed", () => {
+    const parse = (row: Record<string, unknown>) => parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: [row] } }));
+    const bound = { providerKind: "cloudflare", connectionLabel: "Cloudflare", zoneLabel: "observed.test", validationStatus: "verified" };
+    expect(() => parse({ entityId: "observed.test", zoneBinding: bound, observation, bindable: true })).toThrow();
+    expect(() => parse({ entityId: "observed.test", zoneBinding: null, observation: { ...observation, zoneLabel: "other.test" }, bindable: true })).toThrow();
+    expect(() => parse({ entityId: "plain.test", zoneBinding: null, observation: null, bindable: true })).toThrow();
+    expect(() => parse({ entityId: "plain.test", zoneBinding: null, observation: null })).toThrow();
   });
 
   it("treats stale or unavailable evidence as needing attention, never as current", () => {
-    const rows = [{ entityId: "observed.test", zoneBinding: null, observation: { ...observation, evidenceStatus: "stale" } }];
+    const rows = [{ entityId: "observed.test", bindable: false, zoneBinding: null, observation: { ...observation, evidenceStatus: "stale" } }];
     const view = projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, warningCount: 1, window: { startIndex: 0, size: 50, rows } }))], 50);
     // The page state follows the Host's workspace-wide warning count.
     expect(view.state).toBe("warning");
@@ -98,7 +105,7 @@ describe("DNS health Host read", () => {
 
   it("flags a confirmed but pending or unknown Zone, because delegation has not been observed", () => {
     for (const zoneStatus of ["pending", "unknown"] as const) {
-      const rows = [{ entityId: "observed.test", zoneBinding: null, observation: { ...observation, zoneStatus } }];
+      const rows = [{ entityId: "observed.test", bindable: false, zoneBinding: null, observation: { ...observation, zoneStatus } }];
       const view = projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows } }))], 50);
       expect(view.rows[0]?.propagationStatus).toBe("warning");
     }
@@ -107,7 +114,7 @@ describe("DNS health Host read", () => {
   it("shows a Zone bound on another launch platform without borrowing a Cloudflare observation", () => {
     const rows = [{
       entityId: "observed.test",
-      zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship main", zoneLabel: "observed.test", validationStatus: "verified" },
+      bindable: false, zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship main", zoneLabel: "observed.test", validationStatus: "verified" },
       observation,
     }];
     const view = projectDnsHealthViewModel([parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows } }))], 50);
@@ -130,10 +137,10 @@ describe("DNS health Host read", () => {
 
   it("rejects a Zone bound on a platform outside ADR-0027", () => {
     for (const providerKind of ["registrar_dns", "custom", "route53"]) {
-      const rows = [{ entityId: "plain.test", zoneBinding: { providerKind, connectionLabel: "Other", zoneLabel: "plain.test", validationStatus: "verified" }, observation: null }];
+      const rows = [{ entityId: "plain.test", bindable: false, zoneBinding: { providerKind, connectionLabel: "Other", zoneLabel: "plain.test", validationStatus: "verified" }, observation: null }];
       expect(() => parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows } }))).toThrow();
     }
-    const observed = [{ entityId: "plain.test", zoneBinding: null, observation: { ...observation, providerKind: "spaceship" } }];
+    const observed = [{ entityId: "plain.test", bindable: false, zoneBinding: null, observation: { ...observation, providerKind: "spaceship" } }];
     expect(() => parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: observed } }))).toThrow();
   });
 
@@ -141,9 +148,9 @@ describe("DNS health Host read", () => {
     expect(() => parseDnsHealthRead({ ...(read() as object), extra: true })).toThrow();
     const base = read() as { window: { rows: unknown[] } };
     expect(() => parseDnsHealthRead(read({ window: { startIndex: 0, size: 50, rows: [...base.window.rows].reverse() } }))).toThrow();
-    const smuggled = [{ entityId: "plain.test", zoneBinding: null, observation: { ...observation, zoneId: "0".repeat(32) } }];
+    const smuggled = [{ entityId: "plain.test", bindable: false, zoneBinding: null, observation: { ...observation, zoneId: "0".repeat(32) } }];
     expect(() => parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: smuggled } }))).toThrow();
-    const control = [{ entityId: "plain.test", zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloud\u0007flare", zoneLabel: "plain.test", validationStatus: "verified" }, observation: null }];
+    const control = [{ entityId: "plain.test", bindable: false, zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloud\u0007flare", zoneLabel: "plain.test", validationStatus: "verified" }, observation: null }];
     expect(() => parseDnsHealthRead(read({ totalRows: 1, window: { startIndex: 0, size: 50, rows: control } }))).toThrow();
     expect(() => parseDnsHealthRead(read({ totalRows: 1 }))).toThrow();
   });
@@ -159,7 +166,7 @@ describe("DNS health Host read", () => {
     const second = parseDnsHealthRead(read({
       readGeneration: 8,
       totalRows: 3,
-      window: { startIndex: 2, size: 50, rows: [{ entityId: "zeta.test", zoneBinding: null, observation: null }] },
+      window: { startIndex: 2, size: 50, rows: [{ entityId: "zeta.test", bindable: false, zoneBinding: null, observation: null }] },
     })) as DnsHealthRead;
     expect(() => projectDnsHealthViewModel([first, second], 3)).toThrow();
     expect(() => projectDnsHealthViewModel([first], 3)).toThrow();

@@ -59,7 +59,7 @@ function hostPorts() {
   const loadDnsHealth = vi.fn(async (request: HostWindowRequest & { readonly query: string }) => parseDnsHealthRead({
     schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
     totalRows: total, assetCount: total, observedCount: 0, warningCount: 0,
-    window: { startIndex: request.startIndex, size: request.size, rows: rows(request, (index) => ({ entityId: domain(index), zoneBinding: null, observation: null })) },
+    window: { startIndex: request.startIndex, size: request.size, rows: rows(request, (index) => ({ entityId: domain(index), bindable: false, zoneBinding: null, observation: null })) },
   }));
   const loadSales = vi.fn(async (request: HostWindowRequest) => parseSalesRead({
     schemaVersion: 1, kind: "sales", readGeneration: generation, freshness,
@@ -273,7 +273,7 @@ describe("paged Host routes", () => {
     const loadDnsHealth = vi.fn(async () => parseDnsHealthRead({
       schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
       totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0,
-      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", zoneBinding: null, observation: observed }] },
+      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, zoneBinding: null, observation: observed }] },
     }));
     const bindDomainAssetProvider = vi.fn(async () => ({ readGeneration: next }));
     const status = (readGeneration: number) => ({ schemaVersion: 2, state: "active", capabilities: ["local:read", "workspace:mutate"], readGeneration });

@@ -228,9 +228,14 @@ committed Host-verified Cloudflare Zone evidence. It performs no Provider API wr
 credential or resource selector. The concrete adapter implements the required narrow
 `PortfolioProviderBindingPort` through its validating wrapper. The broad injected
 `LocalBusinessPort` keeps the binding method optional, so read-only adapters need not supply write
-capabilities. The DNS page offers "Bind Zone" on a row only when the Host read shows no live binding
-and a confirmed, available Cloudflare observation of the asset's own Zone, and only on a writable
-surface; a committed bind republishes the workspace at the receipt generation. Production navigation
+capabilities. The DNS page offers "Bind Zone" on a row only when the Host's DNS health read reports
+the row `bindable`, and only on a writable surface. The Host computes it with the bind's own
+evidence query (`latest_bindable_zone`: a live asset, a committed available Zone of its own name,
+seen through the connection's current active credential for that Zone) and the bind's identity rule
+for an existing binding (none, or a detached one of the same connection, Zone and name), so a
+revoked or invalid credential, a changed credential generation, a paused Zone or an archived asset
+is never offered; the Renderer rejects a row that claims bindability over a live binding or without
+its own Zone observed; a committed bind republishes the workspace at the receipt generation. Production navigation
 has no entry that creates a Cloudflare connection or observation yet, so the action does not appear.
 First commit advances Host generation once; replay may return the current generation after
 intervening commits.
