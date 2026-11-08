@@ -194,6 +194,7 @@ const expectedLocalStoragePublicExports = [
   "DesktopApplicationRoot",
   "DesktopApplicationRootError",
   "DesktopAssetLibraryReadRequest",
+  "DesktopAuthorityIdentity",
   "DesktopBackupError",
   "DesktopBackupExportStatus",
   "DesktopBackupRestoreStatus",

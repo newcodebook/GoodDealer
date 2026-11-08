@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use gooddealer_local_storage::{
-    DesktopCloudflareProjectionWork, DesktopLocalHost, DesktopSyncCheckpointDisposition,
-    DesktopSyncPullDisposition, DesktopSyncPushClaim, DesktopSyncPushDisposition,
-    DesktopSyncPushWork, DesktopSyncTransportState,
+    DesktopAuthorityIdentity, DesktopCloudflareProjectionWork, DesktopLocalHost,
+    DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition, DesktopSyncPushClaim,
+    DesktopSyncPushDisposition, DesktopSyncPushWork, DesktopSyncTransportState,
 };
 use tauri::async_runtime::JoinHandle;
 
@@ -53,7 +53,7 @@ pub(crate) struct NativeCloudCoordinator {
     session: Arc<NativeCloudSession>,
     tasks: Mutex<Option<[JoinHandle<()>; 3]>>,
     transport: Arc<Mutex<TransportObservation>>,
-    last_provider_operation: Arc<Mutex<Option<ProviderOperationRecord>>>,
+    provider_operations: Arc<ProviderOperationLog>,
 }
 
 /// The kind and closed outcome of the latest Provider operation, for the connection status. It
@@ -83,6 +83,39 @@ impl ProviderOperationRecord {
         Self { kind, outcome }
     }
 }
+
+/// A recorded outcome with the authority and connection generation it was produced under. It is
+/// reported only while both still match:
+/// - the authority identity (account, workspace, device, lease epoch, security epoch) is not the
+///   applied authority epoch, which also advances on every access-token refresh; a refresh or a
+///   read-only round trip under the same identity keeps the outcome, any other authority hides it;
+/// - the Host's connection generation advances on both sides of every connection create and
+///   backup restore, so an outcome about a replaced connection is never shown beside the new one,
+///   while a revoke or a failed activation that moved its own connection out of the active state
+///   stays visible.
+///
+/// Both are captured before the operation starts, so a change during it also hides the outcome,
+/// and an unknown authority never matches: it fails closed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StampedProviderOperation<A> {
+    record: ProviderOperationRecord,
+    authority: Option<A>,
+    connection_generation: u64,
+}
+
+impl<A: PartialEq> StampedProviderOperation<A> {
+    fn current_for(
+        &self,
+        authority: Option<&A>,
+        connection_generation: u64,
+    ) -> Option<ProviderOperationRecord> {
+        let same_authority = matches!((self.authority.as_ref(), authority), (Some(stamped), Some(current)) if stamped == current);
+        (same_authority && self.connection_generation == connection_generation)
+            .then_some(self.record)
+    }
+}
+
+type ProviderOperationLog = Mutex<Option<StampedProviderOperation<DesktopAuthorityIdentity>>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TransportObservation {
@@ -171,8 +204,8 @@ impl NativeCloudCoordinator {
         let provider_host = Arc::clone(host);
         let provider_recovery_host = Arc::clone(host);
         let provider_cancel_fence = Arc::clone(&cancel_fence);
-        let last_provider_operation = Arc::new(Mutex::new(None));
-        let provider_record = Arc::clone(&last_provider_operation);
+        let provider_operations: Arc<ProviderOperationLog> = Arc::new(Mutex::new(None));
+        let provider_record = Arc::clone(&provider_operations);
         let provider_task = tauri::async_runtime::spawn(async move {
             provider_lane
                 .run(
@@ -204,7 +237,7 @@ impl NativeCloudCoordinator {
             session: Arc::clone(session),
             tasks: Mutex::new(Some([sync_task, projection_task, provider_task])),
             transport,
-            last_provider_operation,
+            provider_operations,
         });
         coordinator.wake();
         coordinator
@@ -244,14 +277,19 @@ impl NativeCloudCoordinator {
     /// It is read apart from `provider_status`, so while an operation runs it still names the
     /// previous one: a `busy` status takes precedence over it, and readers must not present it
     /// as the in-flight operation's result.
-    pub(crate) fn last_provider_operation(&self) -> Option<ProviderOperationRecord> {
+    pub(crate) fn last_provider_operation(
+        &self,
+        authority: Option<&DesktopAuthorityIdentity>,
+        connection_generation: u64,
+    ) -> Option<ProviderOperationRecord> {
         if self.cancel_fence.is_cancelled() {
             return None;
         }
-        self.last_provider_operation
-            .lock()
-            .ok()
-            .and_then(|record| *record)
+        self.provider_operations.lock().ok().and_then(|stamped| {
+            stamped
+                .as_ref()
+                .and_then(|stamped| stamped.current_for(authority, connection_generation))
+        })
     }
 
     pub(crate) fn transport_observation(&self) -> Option<TransportObservation> {
@@ -320,7 +358,7 @@ async fn run_provider_operation(
     host: Arc<DesktopLocalHost>,
     cancel_fence: Arc<NativeCloudCancelFence>,
     projection: ProjectionLaneHandle,
-    record: Arc<Mutex<Option<ProviderOperationRecord>>>,
+    record: Arc<ProviderOperationLog>,
     operation: ProviderOperation,
 ) {
     use crate::provider_credential_orchestrator::RevocationOutcome;
@@ -336,6 +374,8 @@ async fn run_provider_operation(
             "unconfirmed"
         }
     };
+    let authority = host.authority_identity();
+    let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
         ProviderOperation::Activate { connection_id } => {
             let result = crate::provider_credential_orchestrator::activate(
@@ -377,7 +417,11 @@ async fn run_provider_operation(
         }
     };
     if let Ok(mut current) = record.lock() {
-        *current = Some(outcome);
+        *current = Some(StampedProviderOperation {
+            record: outcome,
+            authority,
+            connection_generation,
+        });
     }
     projection.wake();
 }
@@ -915,6 +959,29 @@ const fn stage_from_host_error(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_operation_record_is_reported_only_under_its_authority_and_connection() {
+        use super::{ProviderOperationRecord, StampedProviderOperation};
+        let stamped = StampedProviderOperation {
+            record: ProviderOperationRecord::of("revoke", Ok("confirmed")),
+            authority: Some("device-a/lease-7"),
+            connection_generation: 2,
+        };
+        assert_eq!(
+            stamped.current_for(Some(&"device-a/lease-7"), 2),
+            Some(stamped.record)
+        );
+        // Another authority, a later connection generation, or an unknown authority hides it.
+        assert_eq!(stamped.current_for(Some(&"device-a/lease-8"), 2), None);
+        assert_eq!(stamped.current_for(Some(&"device-a/lease-7"), 3), None);
+        assert_eq!(stamped.current_for(None, 2), None);
+        let unstamped = StampedProviderOperation {
+            authority: None,
+            ..stamped
+        };
+        assert_eq!(unstamped.current_for(None, 2), None);
+    }
+
     #[test]
     fn provider_operation_record_keeps_only_closed_outcomes() {
         use super::ProviderOperationRecord;

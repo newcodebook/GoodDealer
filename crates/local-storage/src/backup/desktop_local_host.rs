@@ -162,6 +162,40 @@ pub struct DesktopLocalBusinessStatus {
     read_generation: u64,
 }
 
+/// Advances the connection generation when created and again when dropped, so a create or
+/// restore that returns early or fails part-way still leaves it advanced past both edges.
+struct ConnectionGenerationAdvance<'a>(&'a AtomicU64);
+
+impl<'a> ConnectionGenerationAdvance<'a> {
+    fn new(generation: &'a AtomicU64) -> Self {
+        generation.fetch_add(1, Ordering::AcqRel);
+        Self(generation)
+    }
+}
+
+impl Drop for ConnectionGenerationAdvance<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// An opaque authority identity, compared only for equality. Its fields stay private and its
+/// `Debug` output names none of them.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DesktopAuthorityIdentity {
+    account_id: String,
+    workspace_id: String,
+    device_id: String,
+    lease_epoch: u64,
+    account_security_epoch: u64,
+}
+
+impl std::fmt::Debug for DesktopAuthorityIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("DesktopAuthorityIdentity(..)")
+    }
+}
+
 /// The device and lease that currently hold execution authority, for display only.
 ///
 /// It carries no signed envelope, key or capability: only the identifiers Cloud already bound
@@ -1151,6 +1185,10 @@ pub struct DesktopLocalHost {
     authority_verifier: Option<BackupAuthorityVerifier>,
     /// Published before any authority transition waits for the operation lock.
     transition_requested_epoch: AtomicU64,
+    /// Advances on both sides of every Cloudflare connection create and backup restore, the only
+    /// production writers that can replace the connection rows; see
+    /// [`Self::provider_connection_generation`].
+    provider_connection_generation: AtomicU64,
     /// Lock order begins here for every backup selection or operation.
     operation_selection: Mutex<BackupOperationState>,
     /// Authority and publication are fenced while the operation lock is held.
@@ -1776,6 +1814,7 @@ impl DesktopLocalHost {
             production_custody: None,
             authority_verifier: None,
             transition_requested_epoch: AtomicU64::new(0),
+            provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(BackupOperationState::default()),
             authority_publication: Mutex::new(BackupAuthorityPublicationState::default()),
             runtime_state: Mutex::new(None),
@@ -2260,6 +2299,39 @@ impl DesktopLocalHost {
         }
     }
 
+    /// A counter that differs whenever the Cloudflare connection rows may have been replaced
+    /// since it was last read. Callers stamp a Provider outcome with it before the operation
+    /// starts and show the outcome only while it is unchanged, so an outcome about a replaced
+    /// connection is never shown beside the new one, and one from an operation that ran beside a
+    /// create or restore does not survive it either.
+    #[must_use]
+    pub fn provider_connection_generation(&self) -> u64 {
+        self.provider_connection_generation.load(Ordering::Acquire)
+    }
+
+    /// Who the current authority is: account, workspace, device, lease epoch and account security
+    /// epoch. Callers stamp results with it so a result produced under one authority is never
+    /// presented under another.
+    ///
+    /// It deliberately leaves out the applied authority epoch, which also advances on every
+    /// access-token refresh, and the runtime restriction: a refresh or a read-only round trip
+    /// under the same account, workspace, device, lease and security epoch is the same authority.
+    /// `None` without a current authority or when the publication lock is poisoned.
+    #[must_use]
+    pub fn authority_identity(&self) -> Option<DesktopAuthorityIdentity> {
+        let authority = self.authority_publication.lock().ok()?;
+        authority
+            .authority
+            .as_ref()
+            .map(|current| DesktopAuthorityIdentity {
+                account_id: current.account_id.clone(),
+                workspace_id: current.workspace_id.clone(),
+                device_id: current.device_id.clone(),
+                lease_epoch: current.lease_epoch,
+                account_security_epoch: current.account_security_epoch,
+            })
+    }
+
     /// The current Active device and lease epoch.
     ///
     /// # Errors
@@ -2717,6 +2789,7 @@ impl DesktopLocalHost {
         ) {
             return Err(DesktopLocalHostError::CapabilityUnqualified);
         }
+        let _generation = ConnectionGenerationAdvance::new(&self.provider_connection_generation);
         let connection_id = crate::desktop_sync_runtime::random_uuid_v4()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
         let incarnation_id = crate::desktop_sync_runtime::random_uuid_v4()
@@ -3953,6 +4026,7 @@ impl DesktopLocalHost {
             production_custody: None,
             authority_verifier: None,
             transition_requested_epoch: AtomicU64::new(generation),
+            provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(BackupOperationState::default()),
             authority_publication: Mutex::new(BackupAuthorityPublicationState {
                 native: NativeBackupComposition::Development(DevelopmentNativeBackup::new(
@@ -4805,6 +4879,7 @@ impl DesktopLocalHost {
     ) -> Result<DesktopBackupRestoreStatus, DesktopBackupError> {
         let request: BackupRestoreRequest = parse_request(untrusted_request_wire)?;
         validate_restore_request(&request)?;
+        let _generation = ConnectionGenerationAdvance::new(&self.provider_connection_generation);
         let mut operation = self
             .operation_selection
             .lock()
@@ -5845,6 +5920,35 @@ mod tests {
         let business = serde_json::to_value(host.business_status()).unwrap();
         assert_eq!(business["state"], "security_locked");
         assert_eq!(business["capabilities"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn authority_identity_names_no_identifier_and_changes_only_with_the_authority() {
+        let directory = tempdir().unwrap();
+        let database = BusinessDatabase::open(
+            &directory.path().join("active.db"),
+            &LocalDatabaseKey::from_bytes([0x5a; 32]),
+            "workspace-local",
+        )
+        .unwrap();
+        let host = DesktopLocalHost::development(
+            database,
+            directory.path().join("native-backup"),
+            "account-local",
+            "workspace-local",
+            "device-local",
+        )
+        .unwrap();
+        let first = host.authority_identity().unwrap();
+        assert_eq!(host.authority_identity().as_ref(), Some(&first));
+        let shown = format!("{first:?}");
+        for identifier in ["account-local", "workspace-local", "device-local"] {
+            assert!(!shown.contains(identifier));
+        }
+        // A new lease is a new authority, so results stamped under the old one stop matching.
+        host.renew_business_authority_for_test(2).unwrap();
+        let renewed = host.authority_identity().unwrap();
+        assert_ne!(renewed, first);
     }
 
     #[test]
@@ -7891,10 +7995,17 @@ mod tests {
             host.inspect_backup(inspect.as_bytes()),
             Err(DesktopBackupError::OperationRejected)
         );
+        let before = host.provider_connection_generation();
         assert_eq!(
             host.restore_backup(restore.as_bytes()),
             Err(DesktopBackupError::OperationRejected)
         );
+        // A refused restore still advances the connection generation past both of its edges, so
+        // no Provider outcome stamped before or during it is shown afterwards.
+        assert_eq!(host.provider_connection_generation(), before + 2);
+        // A request refused before any restore work leaves it alone.
+        assert!(host.restore_backup(b"{}").is_err());
+        assert_eq!(host.provider_connection_generation(), before + 2);
     }
 
     #[test]

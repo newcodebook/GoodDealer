@@ -184,11 +184,14 @@ pub use application_root::{DesktopApplicationRoot, DesktopApplicationRootError};
 mod backup;
 
 pub use backup::{
+    DesktopAuthorityIdentity, DesktopDeviceLease, DesktopLocalBusinessState,
+    DesktopLocalBusinessStatus,
+};
+pub use backup::{
     DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
     DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
     DesktopVerifiedBackupArtifact,
 };
-pub use backup::{DesktopDeviceLease, DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
     DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
     DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated,

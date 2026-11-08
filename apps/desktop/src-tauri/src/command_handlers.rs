@@ -372,7 +372,10 @@ pub(crate) fn cloudflare_connection_status(
         ProviderStatus::Ready => "ready",
     };
     let last_operation = cloud
-        .last_provider_operation()
+        .last_provider_operation(
+            host.authority_identity().as_ref(),
+            host.provider_connection_generation(),
+        )
         .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
         serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "lastOperation": last_operation, "readGeneration": local.read_generation }),
