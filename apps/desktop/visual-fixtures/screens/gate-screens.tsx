@@ -109,6 +109,14 @@ const providerCatalog = [
   { providerId: "afternic", displayName: "Afternic", metadata: "Portfolio API", category: "marketplace" },
 ] as const;
 
+/** Each fixture platform admits what its own state allows, as the Host would report it. */
+function fixtureProviders(states: Readonly<Record<string, string>>) {
+  return providerCatalog.map((provider) => {
+    const connectionState = states[provider.providerId] ?? "disconnected";
+    return { ...provider, connectionState, admittedActions: connectionState === "connected" ? ["disconnect"] : connectionState === "connecting" ? [] : ["connect"] };
+  });
+}
+
 function wizardView(state: WizardState): ActivationWizardViewModel {
   const connected = Object.values(state.providers).filter((value) => value === "connected").length;
   const input = state.step === "welcome" ? { step: "welcome", availableActions: ["skip", "continue"] }
@@ -120,13 +128,17 @@ function wizardView(state: WizardState): ActivationWizardViewModel {
     }
       : state.step === "connections" && state.unqualified ? {
         step: "connections", connectedCount: 0,
-        providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable" }],
+        providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable", admittedActions: [] }],
         availableActions: ["back", "continue"],
       }
       : state.step === "connections" ? {
         step: "connections", connectedCount: connected,
-        providers: providerCatalog.map((provider) => ({ ...provider, connectionState: state.providers[provider.providerId] ?? "disconnected" })),
-        availableActions: ["back", "connect_provider", "disconnect_provider", ...(connected > 0 ? ["continue"] : [])],
+        providers: fixtureProviders(state.providers),
+        availableActions: [
+          "back",
+          ...(fixtureProviders(state.providers).some(({ admittedActions }) => admittedActions.includes("connect")) ? ["connect_provider"] : []),
+          ...(connected > 0 ? ["disconnect_provider", "continue"] : []),
+        ],
       }
         : state.step === "initial_import" && state.unqualified ? {
           step: "initial_import", connectedCount: 0, importState: "unavailable", progress: 0,

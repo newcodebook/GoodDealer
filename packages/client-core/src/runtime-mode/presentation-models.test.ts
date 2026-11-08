@@ -137,9 +137,10 @@ describe("runtime presentation boundary corpus", () => {
           metadata: "OAuth",
           category: "registrar",
           connectionState: "connected",
+          admittedActions: ["disconnect"],
         }],
         connectedCount: 1,
-        availableActions: ["connect_provider", "continue"],
+        availableActions: ["disconnect_provider", "continue"],
       },
       {
         step: "initial_import",
@@ -181,12 +182,24 @@ describe("runtime presentation boundary corpus", () => {
   it("lets unqualified providers and imports show as unavailable without any way to start them", () => {
     const connections = {
       step: "connections",
-      providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable" }],
+      providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable", admittedActions: [] }],
       connectedCount: 0,
       availableActions: ["back", "continue"],
     };
     expect(projectActivationWizardViewModel(connections).ok).toBe(true);
     expect(projectActivationWizardViewModel({ ...connections, availableActions: ["connect_provider", "continue"] })).toEqual({ ok: false, issue: "invalid_state" });
+    // Each platform decides alone: an unqualified one stays closed next to one that can connect,
+    // and can never claim an action of its own.
+    const qualified = { providerId: "spaceship", displayName: "Spaceship", metadata: "API key", category: "registrar", connectionState: "disconnected", admittedActions: ["connect"] };
+    const mixed = { ...connections, providers: [...connections.providers, qualified], availableActions: ["back", "connect_provider", "continue"] };
+    expect(projectActivationWizardViewModel(mixed).ok).toBe(true);
+    expect(projectActivationWizardViewModel({ ...mixed, availableActions: ["back", "continue"] })).toEqual({ ok: false, issue: "invalid_state" });
+    // Nor may the step offer what no platform admits.
+    expect(projectActivationWizardViewModel({ ...mixed, availableActions: ["back", "connect_provider", "disconnect_provider", "continue"] })).toEqual({ ok: false, issue: "invalid_state" });
+    expect(projectActivationWizardViewModel({ ...mixed, providers: [{ ...connections.providers[0]!, admittedActions: ["connect"] }, qualified] })).toEqual({ ok: false, issue: "invalid_state" });
+    for (const [connectionState, admittedActions] of [["connected", ["connect"]], ["connecting", ["connect"]], ["disconnected", ["disconnect"]]] as const) {
+      expect(projectActivationWizardViewModel({ ...mixed, providers: [connections.providers[0]!, { ...qualified, connectionState, admittedActions }] }), connectionState).toEqual({ ok: false, issue: "invalid_state" });
+    }
     const importStep = {
       step: "initial_import",
       connectedCount: 0,

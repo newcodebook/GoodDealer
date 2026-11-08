@@ -76,7 +76,7 @@ export function onboardingView(
       case "connections":
         return {
           step,
-          providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable" }],
+          providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable", admittedActions: [] }],
           connectedCount: 0,
           availableActions: ["back", "continue"],
         };

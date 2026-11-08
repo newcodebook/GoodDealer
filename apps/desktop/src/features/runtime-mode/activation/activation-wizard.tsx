@@ -96,7 +96,7 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
                 <div key={category} className="activation-group">
                   <span className="gd-t-label">{label}</span>
                   <div className="activation-providers">
-                    {providers.map((provider) => <ProviderCard key={provider.providerId} locale={locale} provider={provider} {...(onToggleProvider === undefined ? {} : { onToggle: onToggleProvider })} canConnect={can("connect_provider")} canDisconnect={can("disconnect_provider")} />)}
+                    {providers.map((provider) => <ProviderCard key={provider.providerId} locale={locale} provider={provider} {...(onToggleProvider === undefined ? {} : { onToggle: onToggleProvider })} canConnect={provider.admittedActions.includes("connect")} canDisconnect={provider.admittedActions.includes("disconnect")} />)}
                   </div>
                 </div>
               );

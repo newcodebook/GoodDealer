@@ -196,7 +196,19 @@ const providerSchema = z.object({
   category: z.enum(["registrar", "dns", "marketplace"]),
   // `unavailable`: the capability is not qualified (ADR-0024), so no connection path exists.
   connectionState: z.enum(["disconnected", "connecting", "connected", "failed", "unavailable"]),
-}).strict();
+  /**
+   * What this platform admits now. Each platform is qualified on its own, so one platform's
+   * availability never opens another's: the card offers only what its own entry lists.
+   */
+  admittedActions: z.array(z.enum(["connect", "disconnect"])).max(1).readonly(),
+}).strict().superRefine((provider, context) => {
+  const allowed = provider.connectionState === "connected" ? ["disconnect"]
+    : provider.connectionState === "disconnected" || provider.connectionState === "failed" ? ["connect"]
+      : [];
+  if (provider.admittedActions.some((action) => !allowed.includes(action))) {
+    context.addIssue({ code: "custom", path: ["admittedActions"], message: "action is not admitted for the platform's state" });
+  }
+});
 
 /** Redacted Host-owned identity lifecycle; no private key material crosses this boundary. */
 export const hostDeviceIdentityProjectionSchema = z.discriminatedUnion("status", [
@@ -268,10 +280,11 @@ export const activationWizardSnapshotSchema = z.discriminatedUnion("step", [
     context.addIssue({ code: "custom", path: ["availableActions"], message: "action is unavailable for the activation step" });
   }
   if (value.step === "connections") {
-    if (value.providers.some(({ connectionState }) => connectionState === "unavailable")
-      && value.providers.every(({ connectionState }) => connectionState === "unavailable")
-      && (value.availableActions.includes("connect_provider") || value.availableActions.includes("disconnect_provider"))) {
-      context.addIssue({ code: "custom", path: ["availableActions"], message: "unavailable providers cannot be connected" });
+    // The step offers connecting or disconnecting exactly when some platform admits it.
+    for (const [step, provider] of [["connect_provider", "connect"], ["disconnect_provider", "disconnect"]] as const) {
+      if (value.availableActions.includes(step) !== value.providers.some(({ admittedActions }) => admittedActions.includes(provider))) {
+        context.addIssue({ code: "custom", path: ["availableActions"], message: `${step} must match the platforms that admit it` });
+      }
     }
     const connected = value.providers.filter(({ connectionState }) => connectionState === "connected").length;
     if (connected !== value.connectedCount) {
