@@ -37,7 +37,7 @@
     "release:issue": "node scripts/collect-release-identity.mjs --issue --manifest"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "ajv": "8.20.0",
     "esbuild": "0.28.2",
     "typescript": "7.0.2",
