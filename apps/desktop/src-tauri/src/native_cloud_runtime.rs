@@ -53,6 +53,35 @@ pub(crate) struct NativeCloudCoordinator {
     session: Arc<NativeCloudSession>,
     tasks: Mutex<Option<[JoinHandle<()>; 3]>>,
     transport: Arc<Mutex<TransportObservation>>,
+    last_provider_operation: Arc<Mutex<Option<ProviderOperationRecord>>>,
+}
+
+/// The kind and closed outcome of the latest Provider operation, for the connection status. It
+/// carries no identifier, token, digest or error text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderOperationRecord {
+    pub(crate) kind: &'static str,
+    pub(crate) outcome: &'static str,
+}
+
+impl ProviderOperationRecord {
+    fn of(
+        kind: &'static str,
+        result: Result<
+            &'static str,
+            &crate::provider_credential_orchestrator::ProviderCredentialError,
+        >,
+    ) -> Self {
+        use crate::provider_credential_orchestrator::ProviderCredentialError;
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            // An unqualified capability is the one refusal a person can act on; every other
+            // failure stays one closed outcome.
+            Err(ProviderCredentialError::Unqualified) => "unqualified",
+            Err(_) => "failed",
+        };
+        Self { kind, outcome }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,6 +171,8 @@ impl NativeCloudCoordinator {
         let provider_host = Arc::clone(host);
         let provider_recovery_host = Arc::clone(host);
         let provider_cancel_fence = Arc::clone(&cancel_fence);
+        let last_provider_operation = Arc::new(Mutex::new(None));
+        let provider_record = Arc::clone(&last_provider_operation);
         let provider_task = tauri::async_runtime::spawn(async move {
             provider_lane
                 .run(
@@ -158,6 +189,7 @@ impl NativeCloudCoordinator {
                             Arc::clone(&provider_host),
                             Arc::clone(&provider_cancel_fence),
                             provider_projection.clone(),
+                            Arc::clone(&provider_record),
                             operation,
                         )
                     },
@@ -172,6 +204,7 @@ impl NativeCloudCoordinator {
             session: Arc::clone(session),
             tasks: Mutex::new(Some([sync_task, projection_task, provider_task])),
             transport,
+            last_provider_operation,
         });
         coordinator.wake();
         coordinator
@@ -204,6 +237,21 @@ impl NativeCloudCoordinator {
 
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
+    }
+
+    /// The latest Provider operation's closed outcome; none after the session is cancelled.
+    ///
+    /// It is read apart from `provider_status`, so while an operation runs it still names the
+    /// previous one: a `busy` status takes precedence over it, and readers must not present it
+    /// as the in-flight operation's result.
+    pub(crate) fn last_provider_operation(&self) -> Option<ProviderOperationRecord> {
+        if self.cancel_fence.is_cancelled() {
+            return None;
+        }
+        self.last_provider_operation
+            .lock()
+            .ok()
+            .and_then(|record| *record)
     }
 
     pub(crate) fn transport_observation(&self) -> Option<TransportObservation> {
@@ -272,36 +320,65 @@ async fn run_provider_operation(
     host: Arc<DesktopLocalHost>,
     cancel_fence: Arc<NativeCloudCancelFence>,
     projection: ProjectionLaneHandle,
+    record: Arc<Mutex<Option<ProviderOperationRecord>>>,
     operation: ProviderOperation,
 ) {
-    // The outcome is read back through the Host's connection status, not from here. Every
-    // operation may have committed before it ended, whatever it returned: activation imports the
-    // Zone and records its prewrite state, revocation commits the denial when it is prepared, and
-    // a non-confirmed resolution still changes the connection. So projections are always re-read;
+    use crate::provider_credential_orchestrator::RevocationOutcome;
+    // The outcome is recorded for the connection status as a closed value only. Every operation
+    // may have committed before it ended, whatever it returned: activation imports the Zone and
+    // records its prewrite state, revocation commits the denial when it is prepared, and a
+    // non-confirmed resolution still changes the connection. So projections are always re-read;
     // a re-read is idempotent and cheap next to a rate-limited Provider call.
-    let _outcome = match operation {
+    let confirmed = |confirmed: bool| {
+        if confirmed {
+            "confirmed"
+        } else {
+            "unconfirmed"
+        }
+    };
+    let outcome = match operation {
         ProviderOperation::Activate { connection_id } => {
-            crate::provider_credential_orchestrator::activate(host, connection_id, cancel_fence)
-                .await
-                .map(drop)
+            let result = crate::provider_credential_orchestrator::activate(
+                host,
+                connection_id,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("activate", result.as_ref().map(|done| confirmed(*done)))
         }
         ProviderOperation::Revoke { connection_id } => {
-            crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
-                .await
-                .map(drop)
+            let result =
+                crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
+                    .await;
+            ProviderOperationRecord::of(
+                "revoke",
+                result.as_ref().map(|outcome| match outcome {
+                    RevocationOutcome::Revoked => "confirmed",
+                    RevocationOutcome::NothingToRevoke => "nothing_to_revoke",
+                    RevocationOutcome::PrewriteRemediated
+                    | RevocationOutcome::NotObservedBurned
+                    | RevocationOutcome::AuthorityStaleBurned
+                    | RevocationOutcome::RecoveryRequired => "unconfirmed",
+                }),
+            )
         }
         ProviderOperation::Observe {
             connection_id,
             entity_id,
-        } => crate::provider_credential_orchestrator::observe(
-            host,
-            connection_id,
-            entity_id,
-            cancel_fence,
-        )
-        .await
-        .map(drop),
+        } => {
+            let result = crate::provider_credential_orchestrator::observe(
+                host,
+                connection_id,
+                entity_id,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("observe", result.as_ref().map(|done| confirmed(*done)))
+        }
     };
+    if let Ok(mut current) = record.lock() {
+        *current = Some(outcome);
+    }
     projection.wake();
 }
 
@@ -838,6 +915,37 @@ const fn stage_from_host_error(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_operation_record_keeps_only_closed_outcomes() {
+        use super::ProviderOperationRecord;
+        use crate::provider_credential_orchestrator::ProviderCredentialError;
+        assert_eq!(
+            ProviderOperationRecord::of("activate", Ok("confirmed")),
+            ProviderOperationRecord {
+                kind: "activate",
+                outcome: "confirmed"
+            }
+        );
+        // The unqualified refusal stays distinct; every other failure is one closed outcome.
+        assert_eq!(
+            ProviderOperationRecord::of("observe", Err(&ProviderCredentialError::Unqualified))
+                .outcome,
+            "unqualified"
+        );
+        for error in [
+            ProviderCredentialError::Host,
+            ProviderCredentialError::Capture,
+            ProviderCredentialError::Provider,
+            ProviderCredentialError::Keychain,
+            ProviderCredentialError::Unavailable,
+        ] {
+            assert_eq!(
+                ProviderOperationRecord::of("revoke", Err(&error)).outcome,
+                "failed"
+            );
+        }
+    }
+
     use std::{
         sync::{
             Arc, Mutex,

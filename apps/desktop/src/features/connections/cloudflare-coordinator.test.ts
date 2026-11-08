@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCloudflareJourney } from "./cloudflare-coordinator";
 import type { CloudflareConnectionStatus, CloudflarePort } from "../../adapters/tauri";
 
-const status = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare", readGeneration: 1 };
+const status = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare", qualified: true, lastOperation: null, readGeneration: 1 };
 const observation = {
   schemaVersion: 1 as const, readGeneration: 1, entityId: "example.com", observedAt: "2026-01-01T00:00:00Z", version: 1,
   availability: "available" as const, uncertainty: "confirmed" as const, zoneLabel: "example.com", zoneStatus: "active" as const, records: [],

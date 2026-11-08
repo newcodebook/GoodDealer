@@ -21,18 +21,16 @@ use gooddealer_secure_host_core::{
 
 pub(crate) async fn recover(host: Arc<DesktopLocalHost>) -> Result<(), ProviderCredentialError> {
     tauri::async_runtime::spawn_blocking(move || {
-        let admission = host
-            .begin_native_cloud_run()
-            .map_err(|_| ProviderCredentialError::Host)?;
+        let admission = host.begin_native_cloud_run().map_err(host_error)?;
         host.recover_cloudflare_credential_orphans(&admission)
-            .map_err(|_| ProviderCredentialError::Host)?;
+            .map_err(host_error)?;
         let mut scan = host
             .begin_cloudflare_recovery_scan(admission)
-            .map_err(|_| ProviderCredentialError::Host)?;
+            .map_err(host_error)?;
         loop {
             let Some(handle) = host
                 .next_cloudflare_recovery(&mut scan)
-                .map_err(|_| ProviderCredentialError::Host)?
+                .map_err(host_error)?
             else {
                 return Ok(());
             };
@@ -60,12 +58,10 @@ pub(crate) async fn activate(
         return Err(ProviderCredentialError::Host);
     }
     let quarantine_connection = connection_hint.clone();
-    let admission = host
-        .begin_native_cloud_run()
-        .map_err(|_| ProviderCredentialError::Host)?;
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
     let activation = host
         .begin_cloudflare_activation(admission, &connection_hint)
-        .map_err(|_| ProviderCredentialError::Host)?;
+        .map_err(host_error)?;
     let capture_host = Arc::clone(&host);
     let capture_cancel_fence = Arc::clone(&cancel_fence);
     let candidate = tauri::async_runtime::spawn_blocking(move || {
@@ -107,13 +103,13 @@ pub(crate) async fn activate(
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Host)?;
+    .map_err(host_error)?;
 
     let prewrite_host = Arc::clone(&host);
     let inspecting = cancel_fence
         .commit(|| prewrite_host.begin_cloudflare_provision_prewrite_inspection(prepared))
         .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
-        .map_err(|_| ProviderCredentialError::Host)?;
+        .map_err(host_error)?;
 
     let publish_host = Arc::clone(&host);
     tauri::async_runtime::spawn_blocking(move || {
@@ -177,16 +173,14 @@ pub(crate) async fn observe(
     if provider_custody_quarantined(&connection_hint) {
         return Err(ProviderCredentialError::Host);
     }
-    let admission = host
-        .begin_native_cloud_run()
-        .map_err(|_| ProviderCredentialError::Host)?;
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
     let prepare_host = Arc::clone(&host);
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         prepare_host.prepare_cloudflare_observation(admission, &connection_hint, &entity_hint)
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Host)?;
+    .map_err(host_error)?;
 
     let mut provider = CloudflareProviderClient::production();
     let plan = ForwardedObservationPlan(&prepared);
@@ -210,7 +204,7 @@ pub(crate) async fn observe(
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map(|_| true)
-    .map_err(|_| ProviderCredentialError::Host)
+    .map_err(host_error)
 }
 
 /// What one revocation did. Every outcome but `NothingToRevoke` left credential use denied in
@@ -257,16 +251,14 @@ pub(crate) async fn revoke(
     connection_hint: String,
     cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
 ) -> Result<RevocationOutcome, ProviderCredentialError> {
-    let admission = host
-        .begin_native_cloud_run()
-        .map_err(|_| ProviderCredentialError::Host)?;
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
     let prepare_host = Arc::clone(&host);
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         prepare_host.prepare_cloudflare_revocation(admission, &connection_hint)
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Host)?;
+    .map_err(host_error)?;
     let Some(prepared) = prepared else {
         return Ok(RevocationOutcome::NothingToRevoke);
     };
@@ -275,7 +267,7 @@ pub(crate) async fn revoke(
     let inspecting = cancel_fence
         .commit(|| prewrite_host.begin_cloudflare_revocation_prewrite_inspection(prepared))
         .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
-        .map_err(|_| ProviderCredentialError::Host)?;
+        .map_err(host_error)?;
 
     tauri::async_runtime::spawn_blocking(move || {
         inspecting.with_keychain_plan(|plan, inspecting| {
@@ -534,6 +526,15 @@ const fn map_comparison(
     }
 }
 
+/// Keeps the one Host refusal a person can act on, an unqualified capability, apart from every
+/// other Host failure.
+const fn host_error(error: DesktopLocalHostError) -> ProviderCredentialError {
+    match error {
+        DesktopLocalHostError::CapabilityUnqualified => ProviderCredentialError::Unqualified,
+        _ => ProviderCredentialError::Host,
+    }
+}
+
 const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychainError {
     match error {
         DesktopLocalHostError::AuthorityRejected => CloudflareKeychainError::AuthorityStale,
@@ -550,6 +551,8 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
 #[derive(Debug)]
 pub(crate) enum ProviderCredentialError {
     Host,
+    /// The capability has not passed ADR-0024 qualification; the Host attempted nothing.
+    Unqualified,
     Capture,
     Provider,
     Keychain,
@@ -684,9 +687,17 @@ mod tests {
             .expect("provider operation runner");
         let end = start + runtime[start..].find("\n}\n").expect("end of the runner");
         let runner = &runtime[start..end];
-        assert!(runner.trim_end().ends_with("projection.wake();"));
+        // Exactly one wake, as the runner's last statement at function-body depth, so no branch
+        // or early return can skip it.
+        assert!(
+            runner
+                .trim_end_matches('\n')
+                .ends_with("\n    projection.wake();")
+        );
         assert_eq!(runner.matches("projection.wake()").count(), 1);
-        assert!(!runner.contains("if "));
+        assert!(
+            !runner.contains("return ") && !runner.contains("return;") && !runner.contains(")?")
+        );
     }
 
     #[test]

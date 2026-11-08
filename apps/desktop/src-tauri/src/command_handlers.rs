@@ -371,8 +371,11 @@ pub(crate) fn cloudflare_connection_status(
         ProviderStatus::Ready if local.connection_ref.is_none() => "not-configured",
         ProviderStatus::Ready => "ready",
     };
+    let last_operation = cloud
+        .last_provider_operation()
+        .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
-        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "readGeneration": local.read_generation }),
+        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "lastOperation": last_operation, "readGeneration": local.read_generation }),
     )
 }
 

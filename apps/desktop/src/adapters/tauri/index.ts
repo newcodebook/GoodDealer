@@ -125,7 +125,16 @@ export interface CloudflareConnectionStatus {
   readonly state: CloudflareConnectionStatusState;
   readonly connectionRef: string | null;
   readonly displayLabel: string | null;
+  /** False until Cloudflare DNS observation passes ADR-0024 qualification; nothing can run before then. */
+  readonly qualified: boolean;
+  /** The latest Provider operation's closed outcome, or null when none ran this session. */
+  readonly lastOperation: CloudflareProviderOperation | null;
   readonly readGeneration: number;
+}
+
+export interface CloudflareProviderOperation {
+  readonly kind: "activate" | "revoke" | "observe";
+  readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "failed";
 }
 
 export type CloudflareRecordType = "A" | "AAAA" | "CAA" | "CNAME" | "MX" | "NS" | "SRV" | "TXT";
@@ -585,8 +594,22 @@ function boundedEntityId(value: string): string {
   return value;
 }
 
+function parseProviderOperation(value: unknown): CloudflareProviderOperation | null {
+  if (value === null) return null;
+  const record = exactRecord(value, ["kind", "outcome"]);
+  const kinds: readonly CloudflareProviderOperation["kind"][] = ["activate", "revoke", "observe"];
+  const outcomes: readonly CloudflareProviderOperation["outcome"][] = ["confirmed", "unconfirmed", "nothing_to_revoke", "unqualified", "failed"];
+  const kind = kinds.find((candidate) => candidate === record.kind);
+  const outcome = outcomes.find((candidate) => candidate === record.outcome);
+  // Only a revocation can find nothing to revoke.
+  if (kind === undefined || outcome === undefined || (outcome === "nothing_to_revoke" && kind !== "revoke")) {
+    throw new TypeError("invalid Cloudflare operation outcome");
+  }
+  return Object.freeze({ kind, outcome });
+}
+
 function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
-  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "readGeneration"]);
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "lastOperation", "readGeneration"]);
   const states: readonly CloudflareConnectionStatusState[] = ["not-configured", "recovering", "ready", "busy", "blocked"];
   const bounded = (field: unknown): string | null => field === null ? null
     : typeof field === "string" && field.length > 0 && field.length <= 256 && [...field].every((char) => {
@@ -594,6 +617,7 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
       return code >= 0x20 && code !== 0x7f;
     }) ? field : (() => { throw new TypeError("invalid Cloudflare status text"); })();
   if (record.schemaVersion !== 1 || !states.includes(record.state as CloudflareConnectionStatusState)
+    || typeof record.qualified !== "boolean"
     || !Number.isSafeInteger(record.readGeneration) || (record.readGeneration as number) < 0) {
     throw new TypeError("invalid Cloudflare status");
   }
@@ -602,6 +626,8 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
     state: record.state as CloudflareConnectionStatusState,
     connectionRef: bounded(record.connectionRef),
     displayLabel: bounded(record.displayLabel),
+    qualified: record.qualified,
+    lastOperation: parseProviderOperation(record.lastOperation),
     readGeneration: record.readGeneration as number,
   });
 }

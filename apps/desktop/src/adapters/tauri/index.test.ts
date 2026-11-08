@@ -33,6 +33,27 @@ describe("Desktop Tauri local-business adapter", () => {
     await expect(createCloudflarePort().create("")).rejects.toThrow(TypeError);
   });
 
+  it("reads the Host status with qualification and only closed operation outcomes", async () => {
+    const status = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, lastOperation: { kind: "observe", outcome: "unqualified" }, readGeneration: 2 };
+    invokeMock.mockResolvedValueOnce(status);
+    await expect(createCloudflarePort().status()).resolves.toEqual(status);
+    invokeMock.mockResolvedValueOnce({ ...status, lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
+    await expect(createCloudflarePort().status()).resolves.toMatchObject({ lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
+    for (const hostile of [
+      { ...status, qualified: "yes" },
+      { ...status, qualified: undefined },
+      { ...status, lastOperation: undefined },
+      { ...status, lastOperation: { kind: "observe", outcome: "nothing_to_revoke" } },
+      { ...status, lastOperation: { kind: "bid", outcome: "confirmed" } },
+      { ...status, lastOperation: { kind: "observe", outcome: "ok" } },
+      { ...status, lastOperation: { kind: "observe", outcome: "failed", reason: "token rejected" } },
+      { ...status, secret: "leak" },
+    ]) {
+      invokeMock.mockResolvedValueOnce(hostile);
+      await expect(createCloudflarePort().status()).rejects.toThrow(TypeError);
+    }
+  });
+
   it("revokes through its own command with only a bounded connection reference", async () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await createCloudflarePort().revoke("connection-opaque");

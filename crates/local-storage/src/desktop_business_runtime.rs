@@ -369,6 +369,9 @@ pub struct DesktopCloudflareConnectionRead {
     pub schema_version: u8,
     pub connection_ref: Option<String>,
     pub display_label: Option<String>,
+    /// Whether Cloudflare DNS observation has passed its ADR-0024 qualification; until it has,
+    /// connecting, activating and observing are refused and surfaces show why.
+    pub qualified: bool,
     pub read_generation: u64,
 }
 
@@ -612,6 +615,9 @@ impl DesktopBusinessRuntime {
             schema_version: 1,
             connection_ref,
             display_label,
+            qualified: crate::active_workspace::capability_qualification::capability_qualified(
+                crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE,
+            ),
             read_generation: self.read_generation,
         })
     }
