@@ -29,6 +29,11 @@ pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER: &str =
     "active-workspace/outbox-local-creations";
 pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL: &str =
     include_str!("outbox_local_creations.sql");
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_ID: i64 = 202_611_080_001;
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-generation";
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_generation.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
@@ -667,6 +672,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "wire_mutation_digest",
         ],
     ),
+    ("sales_listing_generation", &["singleton", "generation"]),
     (
         "sync_outbox_local_creations",
         &["workspace_id", "mutation_id"],

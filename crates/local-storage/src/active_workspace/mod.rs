@@ -161,6 +161,12 @@ mod portfolio_connection {
             )
         }
 
+        /// The heap the cached sales desk holds; `None` when nothing is cached.
+        #[cfg(test)]
+        pub(crate) fn sales_desk_bytes(&self) -> Option<usize> {
+            self.sales_cache.desk_bytes()
+        }
+
         pub(crate) fn read_settings(
             &self,
             workspace_id: &str,

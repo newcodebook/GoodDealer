@@ -8,8 +8,8 @@
 //! The merge happens here so that a page of domains and the workspace-wide metrics use one rule: a
 //! read scans the confirmed listings once in domain order, validates every row (a bad row on
 //! another page still fails the read closed), merges each domain and counts it toward the metrics.
-//! That scan is linear in listings, so the merged desk is kept for the data generation it was read
-//! at and later pages of the same data are sliced from it.
+//! That scan is linear in listings, so the merged desk is kept for the listing generation it was
+//! read at and later pages, and reads after writes that touch no listing, are sliced from it.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -23,29 +23,82 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// The latest listing per (asset, marketplace) among observations the Host finished confirming:
-/// the run completed and this asset's target in it succeeded. A newer observation from a run that
-/// is still running or failed never hides an older confirmed listing.
-fn latest_listings() -> String {
-    format!(
-        "WITH latest AS (
-       SELECT m.entity_id, m.marketplace_kind, m.listing_status, m.asking_price_currency,
-              m.asking_price_amount, m.observed_at, m.observation_availability, m.evidence_status,
-              row_number() OVER (
-                PARTITION BY m.entity_id, m.marketplace_kind
-                ORDER BY m.observed_at DESC, m.listing_observation_id DESC
-              ) AS position
-       FROM marketplace_listing_observations m
-       JOIN domain_assets a
-         ON a.workspace_id = m.workspace_id AND a.entity_id = m.entity_id AND a.deleted_at IS NULL
-       WHERE m.workspace_id = ?1 AND {confirmed}
-     )
-     SELECT entity_id, marketplace_kind, listing_status, asking_price_currency, asking_price_amount,
-            observation_availability, evidence_status
-     FROM latest WHERE position = 1 AND listing_status <> 'unlisted'
-     ORDER BY entity_id COLLATE BINARY, marketplace_kind COLLATE BINARY",
-        confirmed = super::observation_runs::confirmed("m")
-    )
+/// Every confirmed listing observation of a live asset: the run completed and this asset's target in
+/// it succeeded. Rows come newest first within each (asset, marketplace) group, in the order of the
+/// `marketplace_listing_observations_latest` index, so the walk in `for_each_latest` keeps the
+/// first row of a group without a sort. A newer observation from a run that is still running or
+/// failed never hides an older confirmed listing, because it is not a row here at all.
+///
+/// Plain joins rather than a window function: at 100k assets on 8 markets the window and its two
+/// sorts cost about twice the scan.
+const CONFIRMED_LISTINGS: &str = "SELECT m.entity_id, m.marketplace_kind, m.listing_status,
+        m.asking_price_currency, m.asking_price_amount, m.observation_availability,
+        m.evidence_status
+     FROM marketplace_listing_observations m
+     JOIN domain_assets a
+       ON a.workspace_id = m.workspace_id AND a.entity_id = m.entity_id AND a.deleted_at IS NULL
+     JOIN provider_observation_targets target
+       ON target.workspace_id = m.workspace_id AND target.observation_run_id = m.observation_run_id
+      AND target.entity_id = m.entity_id AND target.status = 'succeeded'
+     JOIN provider_observation_runs run
+       ON run.workspace_id = m.workspace_id AND run.observation_run_id = m.observation_run_id
+      AND run.status IN ('succeeded', 'partial')
+     WHERE m.workspace_id = ?1
+     ORDER BY m.entity_id, m.marketplace_kind, m.observed_at DESC, m.listing_observation_id DESC";
+
+/// Calls `visit` with the latest confirmed listing of every (asset, marketplace) whose state is not
+/// `unlisted`, in domain then marketplace order. Older rows of a group are skipped unread, as the
+/// window function this replaces never selected them.
+fn for_each_latest(
+    connection: &Connection,
+    workspace_id: &str,
+    mut visit: impl FnMut(rusqlite::Result<RawListing>) -> Result<(), PortfolioReadError>,
+) -> Result<(), PortfolioReadError> {
+    let mut statement = connection
+        .prepare(CONFIRMED_LISTINGS)
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let mut rows = statement
+        .query(params![workspace_id])
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut group: Option<(String, String)> = None;
+    while let Some(row) = rows
+        .next()
+        .map_err(|_| PortfolioReadError::StorageRejected)?
+    {
+        let key = row
+            .get::<_, String>(0)
+            .and_then(|entity_id| Ok((entity_id, row.get::<_, String>(1)?)));
+        let (entity_id, kind) = match key {
+            Ok(key) => key,
+            // A key of the wrong type belongs to no group; the visit rejects it.
+            Err(error) => {
+                visit(Err(error))?;
+                continue;
+            }
+        };
+        if group
+            .as_ref()
+            .is_some_and(|(entity, market)| *entity == entity_id && *market == kind)
+        {
+            continue;
+        }
+        group = Some((entity_id.clone(), kind.clone()));
+        let listing = (|| {
+            Ok((
+                entity_id,
+                kind,
+                row.get::<_, String>(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })();
+        if !matches!(&listing, Ok((_, _, status, ..)) if status == "unlisted") {
+            visit(listing)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -103,24 +156,112 @@ type RawListing = (
     String,
 );
 
+/// A listing state as the desk keeps it: one byte instead of a string per domain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ListingStatus {
+    Draft,
+    Active,
+    Reserved,
+    Sold,
+    Suspended,
+    /// A market whose state is unconfirmed, or a domain with such a market.
+    Unknown,
+    /// Two markets report different definite states; never a stored state.
+    Conflict,
+}
+
+impl ListingStatus {
+    /// The stored states a listing observation may carry; anything else fails the read.
+    fn stored(value: &str) -> Option<Self> {
+        Some(match value {
+            "draft" => Self::Draft,
+            "active" => Self::Active,
+            "reserved" => Self::Reserved,
+            "sold" => Self::Sold,
+            "suspended" => Self::Suspended,
+            "unknown" => Self::Unknown,
+            _ => return None,
+        })
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Active => "active",
+            Self::Reserved => "reserved",
+            Self::Sold => "sold",
+            Self::Suspended => "suspended",
+            Self::Unknown => "unknown",
+            Self::Conflict => "conflict",
+        }
+    }
+}
+
+/// A validated asking price: the currency code and the amount exactly as observed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Price {
+    currency: [u8; 3],
+    amount: Box<str>,
+}
+
+impl Price {
+    fn money(&self) -> SalesMoney {
+        SalesMoney {
+            // `money` admitted only three ASCII capitals.
+            currency: self.currency.iter().copied().map(char::from).collect(),
+            amount: self.amount.to_string(),
+        }
+    }
+}
+
 /// One market's validated listing, as the merge sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MarketListing {
-    kind: String,
-    /// The listing status, or `unknown` when the evidence is unavailable or unconfirmed.
-    status: String,
-    price: Option<SalesMoney>,
+    /// The market's position in `LAUNCH_PLATFORMS`.
+    market: u8,
+    /// The listing status, or `Unknown` when the evidence is unavailable or unconfirmed.
+    status: ListingStatus,
+    price: Option<Price>,
+}
+
+/// One merged domain as the desk keeps it. The desk holds every listed domain for as long as its
+/// generation lasts, so a row stays small: markets are a bit set over the eight launch platforms
+/// and the state is one byte, making a row roughly a hundred bytes however many markets list it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DeskRow {
+    entity_id: Box<str>,
+    /// Bit `i` set when `LAUNCH_PLATFORMS[i]` lists the domain.
+    markets: u8,
+    status: ListingStatus,
+    price: Option<Price>,
+}
+
+impl DeskRow {
+    fn row(&self) -> SalesListingRow {
+        SalesListingRow {
+            entity_id: self.entity_id.to_string(),
+            // `LAUNCH_PLATFORMS` is in code-point order, so the bits read out in that order.
+            marketplaces: LAUNCH_PLATFORMS
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| self.markets & (1 << index) != 0)
+                .map(|(_, kind)| (*kind).to_owned())
+                .collect(),
+            listing_status: self.status.as_str().to_owned(),
+            asking_price: self.price.as_ref().map(Price::money),
+        }
+    }
 }
 
 /// The merged desk of one workspace at one data generation.
 ///
-/// The generation is the connection's `total_changes()`, which counts every row this connection
-/// inserted, updated or deleted (trigger and cascade changes included), with `PRAGMA data_version`,
-/// which changes whenever another connection commits. Neither moves while nothing writes, so equal
-/// generations read equal data; any write, even an unrelated one, makes the next read merge again.
-/// `total_changes()` does not count DDL, `VACUUM` or backup-API writes into this connection, so
-/// anything that rewrites the open database that way must reopen the connection, which drops the
-/// cache.
+/// The generation pairs `sales_listing_generation`, which every committed change to a row the merge
+/// reads advances (its migration lists them), with `PRAGMA data_version`, which changes whenever
+/// another connection commits. Neither moves while nothing the merge reads is written here, so
+/// equal generations read equal listings, and a write elsewhere (a note, a DNS record, a target
+/// price) keeps the desk. Only DDL, `VACUUM` or a backup-API write into the open database could
+/// change listings without moving either, so anything that rewrites the open database that way must
+/// reopen the connection, which drops the cache.
 #[derive(Default)]
 pub(crate) struct SalesCache(RefCell<Option<(String, DataGeneration, Arc<MergedDesk>)>>);
 
@@ -136,6 +277,25 @@ impl SalesCache {
     }
 }
 
+impl SalesCache {
+    /// The heap the cached desk requests from the allocator: a lower bound without allocator
+    /// overhead.
+    #[cfg(test)]
+    pub(super) fn desk_bytes(&self) -> Option<usize> {
+        self.0.borrow().as_ref().map(|(_, _, desk)| {
+            desk.rows.capacity() * std::mem::size_of::<DeskRow>()
+                + desk
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        row.entity_id.len()
+                            + row.price.as_ref().map_or(0, |price| price.amount.len())
+                    })
+                    .sum::<usize>()
+        })
+    }
+}
+
 pub(super) type DataGeneration = (i64, i64);
 
 pub(super) fn data_generation(
@@ -144,15 +304,19 @@ pub(super) fn data_generation(
     let data_version = connection
         .pragma_query_value(None, "data_version", |row| row.get(0))
         .map_err(|_| PortfolioReadError::StorageRejected)?;
-    let total_changes = connection
-        .query_row("SELECT total_changes()", [], |row| row.get(0))
+    let listings = connection
+        .query_row(
+            "SELECT generation FROM sales_listing_generation WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|_| PortfolioReadError::StorageRejected)?;
-    Ok((data_version, total_changes))
+    Ok((data_version, listings))
 }
 
 /// Every listed domain of the workspace, merged and in domain order, with the desk's metrics.
 struct MergedDesk {
-    rows: Vec<SalesListingRow>,
+    rows: Vec<DeskRow>,
     active: usize,
     listed_value: Option<SalesMoney>,
 }
@@ -238,7 +402,7 @@ impl<'a> ActiveSalesReader<'a> {
             .iter()
             .skip(start)
             .take(usize::from(size))
-            .cloned()
+            .map(DeskRow::row)
             .collect();
         Ok(Some(SalesReadSnapshot {
             schema_version: 1,
@@ -266,30 +430,26 @@ fn merge_desk(
     transaction: &Connection,
     requested_workspace_id: &str,
 ) -> Result<MergedDesk, PortfolioReadError> {
-    let mut statement = transaction
-        .prepare(&latest_listings())
-        .map_err(|_| PortfolioReadError::SchemaRejected)?;
-    let raw = statement
-        .query_map(params![requested_workspace_id], raw_listing)
-        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
     let mut desk = SalesDesk::new();
     let mut domain: Option<(String, Vec<MarketListing>)> = None;
-    for raw in raw {
-        let raw: RawListing = raw.map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    for_each_latest(transaction, requested_workspace_id, |raw| {
+        let raw = raw.map_err(|_| PortfolioReadError::ProjectionRejected)?;
         let (entity_id, market) = project_listing(raw)?;
         match &mut domain {
             Some((current, markets)) if *current == entity_id => markets.push(market),
             _ => {
                 if let Some((entity_id, markets)) = domain.take() {
-                    desk.add(merge(entity_id, &markets));
+                    desk.add(merge(entity_id.into_boxed_str(), &markets));
                 }
                 domain = Some((entity_id, vec![market]));
             }
         }
-    }
+        Ok(())
+    })?;
     if let Some((entity_id, markets)) = domain {
-        desk.add(merge(entity_id, &markets));
+        desk.add(merge(entity_id.into_boxed_str(), &markets));
     }
+    desk.rows.shrink_to_fit();
     Ok(MergedDesk {
         listed_value: desk.listed_value(),
         rows: desk.rows,
@@ -303,40 +463,22 @@ pub(super) fn rejected_listings(
     connection: &Connection,
     workspace_id: &str,
 ) -> Result<u32, PortfolioReadError> {
-    let mut statement = connection
-        .prepare(&latest_listings())
-        .map_err(|_| PortfolioReadError::SchemaRejected)?;
     let mut rejected = 0_u32;
-    for raw in statement
-        .query_map(params![workspace_id], raw_listing)
-        .map_err(|_| PortfolioReadError::ProjectionRejected)?
-    {
+    for_each_latest(connection, workspace_id, |raw| {
         if super::unreadable_row(raw, project_listing)? {
             rejected = rejected.saturating_add(1);
         }
-    }
+        Ok(())
+    })?;
     Ok(rejected)
-}
-
-/// One row of `latest_listings`, in its column order.
-fn raw_listing(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawListing> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-        row.get(5)?,
-        row.get(6)?,
-    ))
 }
 
 /// Folds merged domains, in order, into the desk and its workspace-wide metrics.
 struct SalesDesk {
-    rows: Vec<SalesListingRow>,
+    rows: Vec<DeskRow>,
     active: usize,
     /// The running sum of active prices in units of 10^-8; `Err` once no single total exists.
-    value: Result<Option<(String, i128)>, ()>,
+    value: Result<Option<([u8; 3], i128)>, ()>,
 }
 
 impl SalesDesk {
@@ -348,14 +490,11 @@ impl SalesDesk {
         }
     }
 
-    fn add(&mut self, row: SalesListingRow) {
-        if row.listing_status == "active" {
+    fn add(&mut self, row: DeskRow) {
+        if row.status == ListingStatus::Active {
             self.active += 1;
-            self.value = match (
-                std::mem::replace(&mut self.value, Err(())),
-                &row.asking_price,
-            ) {
-                (Ok(None), Some(price)) => Ok(Some((price.currency.clone(), units(&price.amount)))),
+            self.value = match (std::mem::replace(&mut self.value, Err(())), &row.price) {
+                (Ok(None), Some(price)) => Ok(Some((price.currency, units(&price.amount)))),
                 (Ok(Some((currency, sum))), Some(price)) if currency == price.currency => {
                     Ok(Some((currency, sum + units(&price.amount))))
                 }
@@ -377,7 +516,7 @@ impl SalesDesk {
         // The money contract allows at most 16 whole digits; a larger total is not reported.
         let whole = whole.to_string();
         (whole.len() <= 16).then(|| SalesMoney {
-            currency: currency.clone(),
+            currency: currency.iter().copied().map(char::from).collect(),
             amount: if fraction.is_empty() {
                 whole
             } else {
@@ -403,35 +542,43 @@ fn units(amount: &str) -> i128 {
 /// The domain's listing across markets, never chosen on the person's behalf: two different definite
 /// states are a conflict, a state another market has not confirmed stays unknown, and differing
 /// prices have no single value.
-fn merge(entity_id: String, markets: &[MarketListing]) -> SalesListingRow {
-    let definite: BTreeSet<&str> = markets
+fn merge(entity_id: Box<str>, markets: &[MarketListing]) -> DeskRow {
+    let definite: BTreeSet<ListingStatus> = markets
         .iter()
-        .map(|market| market.status.as_str())
-        .filter(|status| *status != "unknown")
+        .map(|market| market.status)
+        .filter(|status| *status != ListingStatus::Unknown)
         .collect();
-    let listing_status = match definite.iter().copied().collect::<Vec<_>>().as_slice() {
-        [only] if markets.iter().all(|market| market.status != "unknown") => (*only).to_owned(),
-        [_, _, ..] => "conflict".to_owned(),
-        _ => "unknown".to_owned(),
+    let status = match definite.iter().copied().collect::<Vec<_>>().as_slice() {
+        [only]
+            if markets
+                .iter()
+                .all(|market| market.status != ListingStatus::Unknown) =>
+        {
+            *only
+        }
+        [_, _, ..] => ListingStatus::Conflict,
+        _ => ListingStatus::Unknown,
     };
     let first = markets.first().and_then(|market| market.price.as_ref());
-    let same = |price: Option<&SalesMoney>| match (first, price) {
+    let same = |price: Option<&Price>| match (first, price) {
         (None, None) => true,
         (Some(left), Some(right)) => {
             left.currency == right.currency && units(&left.amount) == units(&right.amount)
         }
         _ => false,
     };
-    let asking_price = markets
+    let price = markets
         .iter()
         .all(|market| same(market.price.as_ref()))
         .then(|| first.cloned())
         .flatten();
-    SalesListingRow {
+    DeskRow {
         entity_id,
-        marketplaces: markets.iter().map(|market| market.kind.clone()).collect(),
-        listing_status,
-        asking_price,
+        markets: markets
+            .iter()
+            .fold(0, |markets, market| markets | (1 << market.market)),
+        status,
+        price,
     }
 }
 
@@ -446,7 +593,7 @@ fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError>
 fn money(
     currency: Option<String>,
     amount: Option<String>,
-) -> Result<Option<SalesMoney>, PortfolioReadError> {
+) -> Result<Option<Price>, PortfolioReadError> {
     match (currency, amount) {
         (None, None) => Ok(None),
         (Some(currency), Some(amount)) => {
@@ -465,10 +612,12 @@ fn money(
                 (1..=8).contains(&fraction.len())
                     && fraction.bytes().all(|byte| byte.is_ascii_digit())
             });
-            if currency_ok && whole_ok && fraction_ok {
-                Ok(Some(SalesMoney { currency, amount }))
-            } else {
-                Err(PortfolioReadError::ProjectionRejected)
+            match (currency_ok && whole_ok && fraction_ok, currency.as_bytes()) {
+                (true, &[a, b, c]) => Ok(Some(Price {
+                    currency: [a, b, c],
+                    amount: amount.into_boxed_str(),
+                })),
+                _ => Err(PortfolioReadError::ProjectionRejected),
             }
         }
         _ => Err(PortfolioReadError::ProjectionRejected),
@@ -477,28 +626,23 @@ fn money(
 
 fn project_listing(raw: RawListing) -> Result<(String, MarketListing), PortfolioReadError> {
     let (entity_id, kind, status, currency, amount, availability, evidence) = raw;
-    let status = closed(
-        status,
-        &[
-            "draft",
-            "active",
-            "reserved",
-            "sold",
-            "suspended",
-            "unknown",
-        ],
-    )?;
+    let status = ListingStatus::stored(&status).ok_or(PortfolioReadError::ProjectionRejected)?;
     let availability = closed(availability, &["available", "unavailable"])?;
     let evidence = closed(evidence, &["confirmed", "stale", "conflicted", "unknown"])?;
+    let market = LAUNCH_PLATFORMS
+        .iter()
+        .position(|platform| *platform == kind)
+        .and_then(|index| u8::try_from(index).ok())
+        .ok_or(PortfolioReadError::ProjectionRejected)?;
     Ok((
         entity_id,
         MarketListing {
-            kind: closed(kind, &LAUNCH_PLATFORMS)?,
+            market,
             // Unconfirmed or unavailable evidence never presents as a definite listing state.
             status: if availability == "available" && evidence == "confirmed" {
                 status
             } else {
-                "unknown".to_owned()
+                ListingStatus::Unknown
             },
             price: money(currency, amount)?,
         },
@@ -507,22 +651,26 @@ fn project_listing(raw: RawListing) -> Result<(String, MarketListing), Portfolio
 
 #[cfg(test)]
 mod tests {
-    use super::{MarketListing, SalesDesk, SalesMoney, merge};
+    use super::{ListingStatus, MarketListing, SalesDesk, SalesMoney, merge, money};
+    use crate::active_workspace::launch_platforms::LAUNCH_PLATFORMS;
 
     fn market(kind: &str, status: &str, price: Option<(&str, &str)>) -> MarketListing {
         MarketListing {
-            kind: kind.to_owned(),
-            status: status.to_owned(),
-            price: price.map(|(currency, amount)| SalesMoney {
-                currency: currency.to_owned(),
-                amount: amount.to_owned(),
-            }),
+            market: u8::try_from(LAUNCH_PLATFORMS.iter().position(|p| *p == kind).unwrap())
+                .unwrap(),
+            status: ListingStatus::stored(status).unwrap(),
+            price: money(
+                price.map(|(currency, _)| currency.to_owned()),
+                price.map(|(_, amount)| amount.to_owned()),
+            )
+            .unwrap(),
         }
     }
 
     #[test]
     fn merge_never_chooses_a_state_or_price_for_the_person() {
-        let status = |markets: &[MarketListing]| merge("a.test".to_owned(), markets).listing_status;
+        let status =
+            |markets: &[MarketListing]| merge("a.test".into(), markets).row().listing_status;
         assert_eq!(status(&[market("atom", "active", None)]), "active");
         assert_eq!(
             status(&[
@@ -549,7 +697,7 @@ mod tests {
             ]),
             "conflict"
         );
-        let price = |markets: &[MarketListing]| merge("a.test".to_owned(), markets).asking_price;
+        let price = |markets: &[MarketListing]| merge("a.test".into(), markets).row().asking_price;
         assert_eq!(
             price(&[
                 market("afternic", "active", Some(("USD", "10.50"))),
@@ -576,7 +724,7 @@ mod tests {
         let mut desk = SalesDesk::new();
         for amount in ["0.00000001", "0.1", "0.2"] {
             desk.add(merge(
-                "a.test".to_owned(),
+                "a.test".into(),
                 &[market("atom", "active", Some(("USD", amount)))],
             ));
         }
@@ -586,7 +734,7 @@ mod tests {
         let mut large = SalesDesk::new();
         for _ in 0..2 {
             large.add(merge(
-                "a.test".to_owned(),
+                "a.test".into(),
                 &[market("atom", "active", Some(("USD", "9999999999999999")))],
             ));
         }

@@ -117,9 +117,14 @@ report different definite states) and the price only when every market agrees on
 read scans the listings once in domain order, so the page and the workspace-wide active count and
 exact listed value (none when prices span currencies, an active domain has no single price, or the
 sum exceeds 16 whole digits) come from the same merge, and a bad row on any page still fails the
-read. The merged desk is kept for the data generation it was read at (the connection's
-`total_changes()` with `PRAGMA data_version`), so later pages of unchanged data are sliced from it;
-any write, from this or another connection, makes the next read merge again. Observation, run and Provider version identifiers stay in the Host. Marketplaces outside
+read. The merged desk is kept for the listing generation it was read at (`sales_listing_generation`,
+which triggers advance whenever a listing observation, the marketplace run or target status
+confirming it, or its asset's deletion changes, with `PRAGMA data_version`), so later pages, and
+reads after any other write (a note, a DNS record, a registrar or DNS observation run), are sliced
+from it; a write to those inputs here or any commit from another connection makes the next read
+merge again. Each desk row keeps its markets as a bit set over the
+launch platforms and its status as a one-byte enum. Observation, run and Provider version
+identifiers stay in the Host. Marketplaces outside
 ADR-0027's launch list and malformed prices fail the whole read.
 Every read that reports a Provider observation — sales, renewals, and the asset library and
 domain detail registrar and listing count — keeps only observations confirmed by a completed run

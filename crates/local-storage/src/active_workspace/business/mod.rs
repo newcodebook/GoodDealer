@@ -8209,7 +8209,7 @@ mod tests {
     }
 
     #[test]
-    fn sales_rereads_after_any_write_on_this_or_another_connection() {
+    fn sales_rereads_after_a_listing_write_on_this_or_another_connection() {
         // Observations are append-only, so each change is a newer confirmed observation.
         fn observe(connection: &rusqlite::Connection, run: &str, status: &str, observed_at: &str) {
             connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
@@ -8257,6 +8257,141 @@ mod tests {
         observe(&other, "run-3", "reserved", "2026-03-01T00:00:00Z");
         drop(other);
         assert_eq!(status(&database), ("reserved".to_owned(), 0));
+    }
+
+    /// The sales desk is kept for as long as `sales_listing_generation` stands still, so every row
+    /// the merge reads must move it and nothing else should.
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture walks every merge input and non-input in write order"
+    )]
+    fn sales_listing_generation_moves_with_every_merge_input_and_nothing_else() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("10"),
+            TIMESTAMP,
+        )]);
+        let connection = database.store.fixture_connection();
+        let generation = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT generation FROM sales_listing_generation WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let moves = |connection: &rusqlite::Connection, sql: &str| {
+            let before = generation(connection);
+            connection
+                .execute(&sql.replace("{T}", TIMESTAMP), [])
+                .unwrap();
+            generation(connection) > before
+        };
+        for (sql, expected) in [
+            // Writes the merge does not read.
+            (
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z' WHERE entity_id = 'bravo.test'",
+                false,
+            ),
+            (
+                "UPDATE domain_assets SET lifecycle_status = 'archived' WHERE entity_id = 'bravo.test'",
+                false,
+            ),
+            (
+                "UPDATE local_provider_connections SET display_label = 'Renamed', capabilities_json = '[\"marketplace\",\"registrar\"]'",
+                false,
+            ),
+            // A registrar run and its targets can never confirm a listing.
+            (
+                "INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-registrar','market-1','registrar','{T}','running')",
+                false,
+            ),
+            (
+                "INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-registrar','alpha.test',0,'requested','{T}')",
+                false,
+            ),
+            (
+                "UPDATE provider_observation_targets SET status = 'missing', completed_at = '{T}' WHERE observation_run_id = 'run-registrar'",
+                false,
+            ),
+            // A new asset cannot have a listing yet.
+            (
+                "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','delta.test','active','{T}','{T}',1)",
+                false,
+            ),
+            // Every input of the merge.
+            (
+                "INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-new','market-1','marketplace','{T}','running')",
+                true,
+            ),
+            (
+                "INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-new','bravo.test',0,'requested','{T}')",
+                true,
+            ),
+            (
+                "INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local','listing-new','run-new','bravo.test','atom','sold','{T}','v','available','confirmed')",
+                true,
+            ),
+            (
+                "UPDATE provider_observation_targets SET status = 'succeeded', completed_at = '{T}' WHERE observation_run_id = 'run-new'",
+                true,
+            ),
+            (
+                "UPDATE provider_observation_runs SET status = 'succeeded', completed_at = '{T}' WHERE observation_run_id = 'run-new'",
+                true,
+            ),
+            (
+                "UPDATE domain_assets SET deleted_at = '{T}' WHERE entity_id = 'bravo.test'",
+                true,
+            ),
+            (
+                "INSERT INTO sync_tombstones (workspace_id, entity_kind, entity_id, deleted_local_commit_sequence, deleted_server_revision, deleted_at, purge_after, state, barrier_state, order_server_revision, order_source_device_id, order_mutation_id) VALUES ('workspace-local', 'domain_asset', 'delta.test', 1, 1, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 'purge_eligible', 'purge_eligible', 1, 'test-source', 'test-delete')",
+                false,
+            ),
+            (
+                "DELETE FROM domain_assets WHERE entity_id = 'delta.test'",
+                true,
+            ),
+        ] {
+            assert_eq!(moves(connection, sql), expected, "{sql}");
+        }
+        // The counter only ever advances by the triggers' single step and is never removed.
+        assert!(
+            connection
+                .execute("UPDATE sales_listing_generation SET generation = 0", [])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM sales_listing_generation", [])
+                .is_err()
+        );
+        // A write that rolls back takes its step back with it.
+        let before = generation(connection);
+        let transaction = connection.unchecked_transaction().unwrap();
+        transaction
+            .execute(
+                "UPDATE domain_assets SET lifecycle_status = 'archived', deleted_at = ?1
+                 WHERE entity_id = 'charlie.test'",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert!(generation(&transaction) > before);
+        drop(transaction);
+        assert_eq!(generation(connection), before);
+        // Deleting a listed asset cascades to its listings and moves the counter.
+        connection.execute("INSERT INTO sync_tombstones (workspace_id, entity_kind, entity_id, deleted_local_commit_sequence, deleted_server_revision, deleted_at, purge_after, state, barrier_state, order_server_revision, order_source_device_id, order_mutation_id) VALUES ('workspace-local', 'domain_asset', 'alpha.test', 1, 1, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 'purge_eligible', 'purge_eligible', 1, 'test-source', 'test-delete-alpha')", []).unwrap();
+        assert!(moves(
+            connection,
+            "DELETE FROM domain_assets WHERE entity_id = 'alpha.test'"
+        ));
+        let _ = connection;
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 0);
     }
 
     #[test]
@@ -8503,9 +8638,10 @@ mod tests {
     }
 
     /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
-    /// after a write merges every listing and exceeds the budget, and so does a settings read before
-    /// it, which scans the same listings for its integrity count; every other read, later sales
-    /// pages and settings included, is held to it.
+    /// after a write to the merge's inputs merges every listing (about 1.1 s), and a settings read
+    /// before it scans the same listings for its integrity count; whether those two count toward
+    /// the budget awaits the person's decision, so they are recorded, not asserted. Every other read, sales and settings after an
+    /// unrelated write included, is held to the budget.
     #[test]
     #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
     fn scale_reads_at_100k_assets_on_8_markets() {
@@ -8513,7 +8649,7 @@ mod tests {
         assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
     }
 
-    /// The first sales read of a data generation, which merges every listing.
+    /// The first sales read of a listing generation, which merges every listing.
     const SALES_MERGE: &str = "sales page 1 (merge)";
     /// A settings read before any sales read of the generation, which scans every listing.
     const SETTINGS_SCAN: &str = "settings (listing scan)";
@@ -8610,7 +8746,7 @@ mod tests {
 
     /// Times every paged Host read over `scale_database(assets, markets)`.
     fn scale_reads(assets: u32, markets: usize) -> Vec<(&'static str, std::time::Duration)> {
-        let database = scale_database(assets, markets);
+        let mut database = scale_database(assets, markets);
         let expiring = assets.div_ceil(2);
         let listed = assets.div_ceil(3);
         let mut timings = Vec::new();
@@ -8665,11 +8801,34 @@ mod tests {
             assert_eq!(snapshot.total_rows, listed);
             assert_eq!(snapshot.window.rows[0].marketplaces.len(), markets);
         });
+        // The heap the cached desk requests from the allocator: a lower bound that leaves out
+        // allocator overhead and the merge's transient peak. A resident-set delta reads zero here
+        // because the merge reuses heap the seeding freed.
+        println!(
+            "sales desk held: {} KiB",
+            database.store.sales_desk_bytes().unwrap() / 1024
+        );
         time("sales last page (same data)", &mut || {
             database.read_sales(listed - 50, 50).unwrap();
         });
         time("settings (sales desk merged)", &mut || {
             database.read_settings().unwrap();
+        });
+        // A write the merge does not read keeps the desk, so neither read merges or scans again.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z'
+                 WHERE workspace_id = 'workspace-local' AND entity_id = 'd0000001.test'",
+                [],
+            )
+            .unwrap();
+        time("settings after an unrelated write", &mut || {
+            database.read_settings().unwrap();
+        });
+        time("sales page 1 after an unrelated write", &mut || {
+            assert_eq!(database.read_sales(0, 50).unwrap().total_rows, listed);
         });
         timings
     }
@@ -9970,7 +10129,19 @@ mod tests {
         // A desk merged at this generation vouches for them.
         database.read_sales(0, 10).unwrap();
         assert_eq!(listing_scans(&database), (0, 0));
-        // Any write moves the generation, so a listing written since is counted, not vouched for.
+        // A write the merge does not read keeps the desk and what it vouches for.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z'
+                 WHERE workspace_id = 'workspace-local' AND entity_id = 'charlie.test'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(listing_scans(&database), (0, 0));
+        // A listing write moves the generation, so a listing written since is counted, not
+        // vouched for.
         {
             let connection = database.store.fixture_connection();
             connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-late','market-1','marketplace',?1,'running')", [TIMESTAMP]).unwrap();
