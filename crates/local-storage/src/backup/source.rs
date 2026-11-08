@@ -415,7 +415,7 @@ impl<'a> BackupSource<'a> {
         after_snapshot_pinned: impl FnOnce(),
     ) -> Result<BackupProjection, BusinessDatabaseError> {
         let workspace_id = Zeroizing::new(self.database.workspace_id().to_owned());
-        let temporary = TempDir::new().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let temporary = private_snapshot_directory()?;
         let snapshot_path = temporary.path().join("active-workspace.snapshot.db");
         let mut key = Zeroizing::new([0_u8; 32]);
         fill_random(key.as_mut()).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -440,6 +440,54 @@ impl<'a> BackupSource<'a> {
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         Ok(projection)
     }
+}
+
+/// A fresh temporary directory only this user can enter, for the encrypted snapshot and the
+/// journal SQLite writes beside it.
+///
+/// `TempDir::new()` creates the directory with the process umask, so a desktop session's usual
+/// umask 002 left it group-readable and -writable in the shared temporary directory, and SQLite's
+/// `0644` files inside it readable by every local user. The directory is created `0700` and then
+/// checked: the umask can only remove bits, but an owner or mode that is not this user's alone
+/// (another user's directory raced into place, an unusual filesystem) fails the snapshot closed.
+/// Outside Unix (Windows) the system temporary directory sits under the user's profile, which is
+/// that user's alone by default; no further ACL check is made there.
+fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder
+        .tempdir()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    require_private_directory(directory.path())?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if !metadata.is_dir()
+        || metadata.uid() != rustix::process::geteuid().as_raw()
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err(BusinessDatabaseError::StorageRejected);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .filter(std::fs::Metadata::is_dir)
+        .map(|_| ())
+        .ok_or(BusinessDatabaseError::StorageRejected)
 }
 
 fn export_snapshot(
@@ -900,6 +948,41 @@ mod tests {
         .unwrap();
         assert_eq!(candidate.body.assets[0].entity_id, "a.example");
         assert_eq!(candidate.body.assets[1].entity_id, "z.example");
+    }
+
+    /// The snapshot slot is the user's alone whatever the process umask: a desktop session's
+    /// umask 002 must not leave the encrypted snapshot or its journal reachable by other users.
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_directory_is_owner_only_and_anything_else_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = super::private_snapshot_directory().unwrap();
+        let mode = std::fs::metadata(directory.path())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        for exposed in [0o750, 0o705, 0o770, 0o777] {
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(exposed))
+                .unwrap();
+            assert_eq!(
+                super::require_private_directory(directory.path()),
+                Err(BusinessDatabaseError::StorageRejected),
+                "{exposed:o}"
+            );
+        }
+        // A symlink to a private directory is not the directory itself.
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let parent = tempdir().unwrap();
+        let link = parent.path().join("link");
+        std::os::unix::fs::symlink(directory.path(), &link).unwrap();
+        assert_eq!(
+            super::require_private_directory(&link),
+            Err(BusinessDatabaseError::StorageRejected)
+        );
+        assert_eq!(super::require_private_directory(directory.path()), Ok(()));
     }
 
     #[test]

@@ -72,7 +72,7 @@ v1 按以下阶段推进。阶段编号只表示顺序，不是新的工作包�
   Q-OPS/Q-AUDIT、Q-CF、Q-PROV、payment/live sales、Q-NATIVE 和 Q-REL 各自的证据。
 - **生产备份/rebootstrap。** 不属于 V1 主路径。native picker/稳定 handle、真实 KEK custody、独立
   non-rollbackable anchor、true create-only slot custody、safe active-DB move detection 和目标平台故障验证缺一
-  不可；`backup/source.rs` 中按进程 umask 创建的快照临时目录必须先改为仅属主可访问。此前能力保持 `unavailable`。
+  不可（`backup/source.rs` 的快照临时目录已改为仅属主可访问）。此前能力保持 `unavailable`。
 
 ### 终止条件
 
