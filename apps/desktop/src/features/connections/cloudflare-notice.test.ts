@@ -16,6 +16,7 @@ describe("Cloudflare notice", () => {
     [{ ...base, qualified: false, lastOperation: { kind: "observe", outcome: "unqualified" } }, "unqualified"],
     [{ ...base, lastOperation: { kind: "observe", outcome: "unconfirmed" } }, "operationUnconfirmed"],
     [{ ...base, lastOperation: { kind: "activate", outcome: "failed" } }, "operationFailed"],
+    [{ ...base, state: "not-configured", lastOperation: { kind: "activate", outcome: "zone_unimportable" } }, "zoneUnimportable"],
     [{ ...base, lastOperation: { kind: "observe", outcome: "unreachable" } }, "providerUnreachable"],
     [{ ...base, lastOperation: { kind: "observe", outcome: "retry_later" } }, "providerRetryLater"],
     [{ ...base, lastOperation: { kind: "activate", outcome: "credential_rejected" } }, "credentialRejected"],

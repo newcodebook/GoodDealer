@@ -235,6 +235,7 @@ describe("first-run onboarding", () => {
     [{ ...unqualified, qualified: true, state: "busy" as const }, "Cloudflare 操作正在进行。"],
     [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "credential_rejected" as const } }, "请在 Cloudflare 确认该 Token 处于有效状态并具备所需权限"],
     [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "unreachable" as const } }, "无法连接 Cloudflare，未做任何更改。"],
+    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "zone_unimportable" as const } }, "该 Zone 的名称不能作为域名添加"],
   ])("shows the Host's Cloudflare reason and still offers no connect or disconnect (%#)", async (cloudflareStatus, reason) => {
     const { ports } = host(cloudflareStatus);
     act(() => root.render(

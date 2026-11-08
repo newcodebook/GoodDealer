@@ -39,7 +39,7 @@ describe("Desktop Tauri local-business adapter", () => {
     await expect(createCloudflarePort().status()).resolves.toEqual(status);
     invokeMock.mockResolvedValueOnce({ ...status, lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
     await expect(createCloudflarePort().status()).resolves.toMatchObject({ lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
-    for (const outcome of ["unreachable", "retry_later", "credential_rejected"] as const) {
+    for (const outcome of ["unreachable", "retry_later", "credential_rejected", "zone_unimportable"] as const) {
       invokeMock.mockResolvedValueOnce({ ...status, lastOperation: { kind: "activate", outcome } });
       await expect(createCloudflarePort().status()).resolves.toMatchObject({ lastOperation: { kind: "activate", outcome } });
     }
@@ -50,6 +50,8 @@ describe("Desktop Tauri local-business adapter", () => {
       { ...status, lastOperation: { kind: "observe", outcome: "nothing_to_revoke" } },
       { ...status, lastOperation: { kind: "revoke", outcome: "unreachable" } },
       { ...status, lastOperation: { kind: "revoke", outcome: "credential_rejected" } },
+      { ...status, lastOperation: { kind: "observe", outcome: "zone_unimportable" } },
+      { ...status, lastOperation: { kind: "revoke", outcome: "zone_unimportable" } },
       { ...status, lastOperation: { kind: "bid", outcome: "confirmed" } },
       { ...status, lastOperation: { kind: "observe", outcome: "ok" } },
       { ...status, lastOperation: { kind: "observe", outcome: "failed", reason: "token rejected" } },

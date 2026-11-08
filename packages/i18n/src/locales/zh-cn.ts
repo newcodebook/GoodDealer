@@ -901,6 +901,7 @@ const zhCNDictionary = {
     cloudflareUnqualified: "Cloudflare DNS 尚未通过资格认证，连接、观察与撤销暂不可用。",
     cloudflareOperationUnconfirmed: "上一次 Cloudflare 操作未能确认。",
     cloudflareOperationFailed: "上一次 Cloudflare 操作失败。",
+    cloudflareZoneUnimportable: "该 Zone 的名称不能作为域名添加：它不是规范域名，或该域名已被删除。未连接也未导入任何内容。",
     cloudflareProviderUnreachable: "无法连接 Cloudflare，未做任何更改。请检查网络后重试。",
     cloudflareProviderRetryLater: "Cloudflare 正在限制请求或暂不可用，未做任何更改。请几分钟后重试。",
     cloudflareCredentialRejected: "Cloudflare 拒绝了该 API Token，未做任何更改。请在 Cloudflare 确认该 Token 处于有效状态并具备所需权限，然后重新连接。",

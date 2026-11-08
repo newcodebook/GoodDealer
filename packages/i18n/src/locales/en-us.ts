@@ -1072,6 +1072,7 @@ const enUSDictionary = {
     cloudflareUnqualified: "Cloudflare DNS is not qualified yet; connecting, observing, and revoking are unavailable.",
     cloudflareOperationUnconfirmed: "The last Cloudflare operation could not be confirmed.",
     cloudflareOperationFailed: "The last Cloudflare operation failed.",
+    cloudflareZoneUnimportable: "The Zone's name can't be added as a domain here: it isn't a canonical domain name, or that domain was deleted. Nothing was connected or imported.",
     cloudflareProviderUnreachable: "Cloudflare could not be reached, so nothing was changed. Check the network connection and try again.",
     cloudflareProviderRetryLater: "Cloudflare is limiting requests or is unavailable, so nothing was changed. Try again in a few minutes.",
     cloudflareCredentialRejected: "Cloudflare refused the API token, so nothing was changed. In Cloudflare, check that the token is active and has the required permissions, then connect again.",

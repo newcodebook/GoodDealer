@@ -78,6 +78,7 @@ impl ProviderOperationRecord {
             // The refusals a person can act on stay apart; every other failure is one closed
             // outcome. None of them carries Provider or Host text.
             Err(ProviderCredentialError::Unqualified) => "unqualified",
+            Err(ProviderCredentialError::ZoneUnimportable) => "zone_unimportable",
             Err(ProviderCredentialError::ProviderUnreachable) => "unreachable",
             Err(ProviderCredentialError::ProviderRetryLater) => "retry_later",
             Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
@@ -948,7 +949,8 @@ const fn stage_from_host_error(
         // contract breach and blocks like a protocol violation.
         gooddealer_local_storage::DesktopLocalHostError::CloudProtocolRejected
         | gooddealer_local_storage::DesktopLocalHostError::ApplicationRootRejected
-        | gooddealer_local_storage::DesktopLocalHostError::CapabilityUnqualified => {
+        | gooddealer_local_storage::DesktopLocalHostError::CapabilityUnqualified
+        | gooddealer_local_storage::DesktopLocalHostError::ZoneUnimportable => {
             SyncStageOutcome::SecurityBlocked
         }
         gooddealer_local_storage::DesktopLocalHostError::StorageRejected
@@ -1008,6 +1010,10 @@ mod tests {
             (
                 ProviderCredentialError::CredentialRejected,
                 "credential_rejected",
+            ),
+            (
+                ProviderCredentialError::ZoneUnimportable,
+                "zone_unimportable",
             ),
         ] {
             assert_eq!(

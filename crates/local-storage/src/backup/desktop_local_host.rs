@@ -69,6 +69,9 @@ pub enum DesktopLocalHostError {
     AssetDeleted,
     /// The capability has not passed ADR-0024 qualification; nothing was attempted.
     CapabilityUnqualified,
+    /// The activated Cloudflare Zone's name cannot become a domain asset (the create path
+    /// rejects it, or the domain was deleted); nothing was written or prepared.
+    ZoneUnimportable,
 }
 
 impl fmt::Display for DesktopLocalHostError {
@@ -82,6 +85,7 @@ impl fmt::Display for DesktopLocalHostError {
             Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
             Self::AssetDeleted => "DESKTOP_LOCAL_ASSET_DELETED",
             Self::CapabilityUnqualified => "DESKTOP_CAPABILITY_UNQUALIFIED",
+            Self::ZoneUnimportable => "DESKTOP_CLOUDFLARE_ZONE_UNIMPORTABLE",
         })
     }
 }
@@ -4562,7 +4566,8 @@ impl DesktopLocalHost {
             | DesktopLocalHostError::Unavailable
             | DesktopLocalHostError::AssetExists
             | DesktopLocalHostError::AssetDeleted
-            | DesktopLocalHostError::CapabilityUnqualified => DesktopBackupError::StorageRejected,
+            | DesktopLocalHostError::CapabilityUnqualified
+            | DesktopLocalHostError::ZoneUnimportable => DesktopBackupError::StorageRejected,
         })
     }
 
@@ -5199,6 +5204,7 @@ fn map_sync_error(error: DesktopSyncError) -> DesktopLocalHostError {
         | DesktopSyncError::AcknowledgementMismatch => DesktopLocalHostError::AuthorityRejected,
         DesktopSyncError::StorageRejected => DesktopLocalHostError::StorageRejected,
         DesktopSyncError::CapabilityUnqualified => DesktopLocalHostError::CapabilityUnqualified,
+        DesktopSyncError::ZoneUnimportable => DesktopLocalHostError::ZoneUnimportable,
     }
 }
 

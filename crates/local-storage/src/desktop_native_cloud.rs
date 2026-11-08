@@ -2211,7 +2211,7 @@ mod tests {
     }
 
     #[test]
-    fn activation_keeps_an_existing_asset_and_refuses_a_non_canonical_zone() {
+    fn activation_keeps_an_existing_asset_and_refuses_a_non_canonical_or_deleted_zone() {
         let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
         let (_directory, local_host) = empty_host();
         let connection = local_host
@@ -2225,17 +2225,54 @@ mod tests {
             .begin_cloudflare_activation(admission, &connection)
             .expect("admit activation");
         let before = business_generation(&local_host);
-        assert!(
+        // The refusal is its own closed reason, so the person learns the Zone name is the problem.
+        assert_eq!(
             local_host
                 .prepare_cloudflare_provision(activation, &zone_observation("Not Canonical"))
-                .is_err()
+                .map(|_| ()),
+            Err(DesktopLocalHostError::ZoneUnimportable)
         );
         assert_eq!(business_generation(&local_host), before);
+
+        // A deleted domain keeps its tombstone, so its Zone is refused with the same reason and
+        // nothing is written or prepared.
+        let gone: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "gone-mutation",
+            "expectedReadGeneration": before,
+            "asset": { "entityId": "gone.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(gone)
+            .expect("add gone domain");
+        let delete: crate::DesktopDomainAssetDeleteRequest =
+            serde_json::from_value(serde_json::json!({
+                "mutationId": "delete-gone",
+                "expectedReadGeneration": business_generation(&local_host),
+                "expectedAssetVersion": 1,
+                "entityId": "gone.test"
+            }))
+            .expect("delete request");
+        local_host
+            .delete_domain_asset(delete)
+            .expect("delete gone domain");
+        let deleted_generation = business_generation(&local_host);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("gone.test"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::ZoneUnimportable)
+        );
+        assert_eq!(business_generation(&local_host), deleted_generation);
 
         // A domain the person already added is kept as it is; the import adds nothing.
         let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
             "mutationId": "held-mutation",
-            "expectedReadGeneration": before,
+            "expectedReadGeneration": deleted_generation,
             "asset": { "entityId": "held.test", "note": "mine", "portfolioId": null, "tags": [], "targetPrice": null }
         }))
         .expect("create request");

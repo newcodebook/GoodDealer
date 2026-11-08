@@ -38,6 +38,9 @@ pub(crate) enum DesktopSyncError {
     AcknowledgementMismatch,
     /// The capability has not passed ADR-0024 qualification, so the Host refuses to run it.
     CapabilityUnqualified,
+    /// The activated Zone's name cannot become a domain asset: the create path rejects it, or
+    /// the domain was deleted and keeps its tombstone. Nothing was written.
+    ZoneUnimportable,
 }
 
 impl fmt::Display for DesktopSyncError {
@@ -49,6 +52,7 @@ impl fmt::Display for DesktopSyncError {
             Self::InvalidInput => "SYNC_INPUT_REJECTED",
             Self::AcknowledgementMismatch => "SYNC_ACKNOWLEDGEMENT_MISMATCH",
             Self::CapabilityUnqualified => "SYNC_CAPABILITY_UNQUALIFIED",
+            Self::ZoneUnimportable => "SYNC_ZONE_UNIMPORTABLE",
         })
     }
 }
@@ -356,6 +360,12 @@ impl DesktopSyncRuntime {
             .create_domain_asset_guarded(request, &context, || commit_guard.verify(self, admission))
         {
             Ok(_) | Err(BusinessDatabaseError::AssetExists) => Ok(()),
+            // Every other input of this create is Host generated (a fresh mutation id, the
+            // admission's device, a trusted timestamp, the runtime's own read generation), so an
+            // invalid input can only be the Zone name itself.
+            Err(BusinessDatabaseError::InvalidInput | BusinessDatabaseError::AssetDeleted) => {
+                Err(DesktopSyncError::ZoneUnimportable)
+            }
             Err(error) => Err(map_database_error(error)),
         }
     }

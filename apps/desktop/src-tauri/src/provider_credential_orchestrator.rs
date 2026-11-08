@@ -543,11 +543,12 @@ const fn provider_error(error: CloudflareProviderError) -> ProviderCredentialErr
     }
 }
 
-/// Keeps the one Host refusal a person can act on, an unqualified capability, apart from every
-/// other Host failure.
+/// Keeps the Host refusals a person can act on, an unqualified capability and a Zone name that
+/// cannot be imported, apart from every other Host failure.
 const fn host_error(error: DesktopLocalHostError) -> ProviderCredentialError {
     match error {
         DesktopLocalHostError::CapabilityUnqualified => ProviderCredentialError::Unqualified,
+        DesktopLocalHostError::ZoneUnimportable => ProviderCredentialError::ZoneUnimportable,
         _ => ProviderCredentialError::Host,
     }
 }
@@ -561,7 +562,8 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
         | DesktopLocalHostError::CloudProtocolRejected
         | DesktopLocalHostError::AssetExists
         | DesktopLocalHostError::AssetDeleted
-        | DesktopLocalHostError::CapabilityUnqualified => CloudflareKeychainError::StateUnknown,
+        | DesktopLocalHostError::CapabilityUnqualified
+        | DesktopLocalHostError::ZoneUnimportable => CloudflareKeychainError::StateUnknown,
     }
 }
 
@@ -570,6 +572,8 @@ pub(crate) enum ProviderCredentialError {
     Host,
     /// The capability has not passed ADR-0024 qualification; the Host attempted nothing.
     Unqualified,
+    /// The observed Zone's name cannot become a domain asset; nothing was imported or prepared.
+    ZoneUnimportable,
     Capture,
     /// Cloudflare could not be reached; nothing was written.
     ProviderUnreachable,
