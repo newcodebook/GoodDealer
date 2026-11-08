@@ -9,7 +9,7 @@ license.workspace = true
 default = []
 
 [dependencies]
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 chacha20poly1305.workspace = true
 fs2 = "=0.4.3"
 getrandom = "=0.4.3"
