@@ -134,7 +134,7 @@ export interface CloudflareConnectionStatus {
 
 export interface CloudflareProviderOperation {
   readonly kind: "activate" | "revoke" | "observe";
-  readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "failed";
+  readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "unreachable" | "retry_later" | "credential_rejected" | "failed";
 }
 
 export type CloudflareRecordType = "A" | "AAAA" | "CAA" | "CNAME" | "MX" | "NS" | "SRV" | "TXT";
@@ -598,11 +598,15 @@ function parseProviderOperation(value: unknown): CloudflareProviderOperation | n
   if (value === null) return null;
   const record = exactRecord(value, ["kind", "outcome"]);
   const kinds: readonly CloudflareProviderOperation["kind"][] = ["activate", "revoke", "observe"];
-  const outcomes: readonly CloudflareProviderOperation["outcome"][] = ["confirmed", "unconfirmed", "nothing_to_revoke", "unqualified", "failed"];
+  const outcomes: readonly CloudflareProviderOperation["outcome"][] = ["confirmed", "unconfirmed", "nothing_to_revoke", "unqualified", "unreachable", "retry_later", "credential_rejected", "failed"];
+  // Only a Provider call can be unreachable, asked to retry, or refuse the credential; a
+  // revocation makes none, it only withdraws this device's custody.
+  const providerOutcomes: readonly CloudflareProviderOperation["outcome"][] = ["unreachable", "retry_later", "credential_rejected"];
   const kind = kinds.find((candidate) => candidate === record.kind);
   const outcome = outcomes.find((candidate) => candidate === record.outcome);
   // Only a revocation can find nothing to revoke.
-  if (kind === undefined || outcome === undefined || (outcome === "nothing_to_revoke" && kind !== "revoke")) {
+  if (kind === undefined || outcome === undefined || (outcome === "nothing_to_revoke" && kind !== "revoke")
+    || (providerOutcomes.includes(outcome) && kind === "revoke")) {
     throw new TypeError("invalid Cloudflare operation outcome");
   }
   return Object.freeze({ kind, outcome });

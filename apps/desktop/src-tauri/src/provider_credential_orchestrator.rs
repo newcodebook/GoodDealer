@@ -94,7 +94,7 @@ pub(crate) async fn activate(
                 .map_err(|_| CloudflareProviderError::AuthorityStale)
         })
         .await
-        .map_err(|_| ProviderCredentialError::Provider)?;
+        .map_err(provider_error)?;
     let checked = checked_observation(&candidate.zone_binding_digest(), observation);
 
     let prepared_host = Arc::clone(&host);
@@ -196,7 +196,7 @@ pub(crate) async fn observe(
                 .map_err(|_| CloudflareProviderError::AuthorityStale)
         })
         .await
-        .map_err(|_| ProviderCredentialError::Provider)?;
+        .map_err(provider_error)?;
     let checked = checked_observation(prepared.zone_digest(), observation);
     tauri::async_runtime::spawn_blocking(move || {
         host.commit_checked_cloudflare_observation(prepared, &checked)
@@ -526,6 +526,23 @@ const fn map_comparison(
     }
 }
 
+/// Keeps the Provider failures a person can act on apart: a transport failure, a retryable
+/// refusal (rate limit or server error), and a refusal of the credential (401 or 403). Every
+/// other failure (any other non-retryable status, malformed input or response, a response over
+/// its limit, stale authority) stays one closed outcome.
+const fn provider_error(error: CloudflareProviderError) -> ProviderCredentialError {
+    match error {
+        CloudflareProviderError::Transport => ProviderCredentialError::ProviderUnreachable,
+        CloudflareProviderError::Retryable => ProviderCredentialError::ProviderRetryLater,
+        CloudflareProviderError::CredentialRefused => ProviderCredentialError::CredentialRejected,
+        CloudflareProviderError::AuthorityStale
+        | CloudflareProviderError::Deterministic
+        | CloudflareProviderError::InvalidInput
+        | CloudflareProviderError::InvalidResponse
+        | CloudflareProviderError::ResponseLimit => ProviderCredentialError::Provider,
+    }
+}
+
 /// Keeps the one Host refusal a person can act on, an unqualified capability, apart from every
 /// other Host failure.
 const fn host_error(error: DesktopLocalHostError) -> ProviderCredentialError {
@@ -548,12 +565,20 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ProviderCredentialError {
     Host,
     /// The capability has not passed ADR-0024 qualification; the Host attempted nothing.
     Unqualified,
     Capture,
+    /// Cloudflare could not be reached; nothing was written.
+    ProviderUnreachable,
+    /// Cloudflare rate limited the request or failed on its side; nothing was written.
+    ProviderRetryLater,
+    /// Cloudflare refused the credential (401 or 403). Its documentation does not say which of
+    /// the two an invalid token and which a missing permission produces, so both stay one
+    /// outcome; nothing was written.
+    CredentialRejected,
     Provider,
     Keychain,
     Unavailable,
@@ -561,6 +586,35 @@ pub(crate) enum ProviderCredentialError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_failures_a_person_can_act_on_stay_apart() {
+        use super::{ProviderCredentialError, provider_error};
+        use gooddealer_secure_host_core::CloudflareProviderError;
+        assert_eq!(
+            provider_error(CloudflareProviderError::Transport),
+            ProviderCredentialError::ProviderUnreachable
+        );
+        assert_eq!(
+            provider_error(CloudflareProviderError::Retryable),
+            ProviderCredentialError::ProviderRetryLater
+        );
+        assert_eq!(
+            provider_error(CloudflareProviderError::CredentialRefused),
+            ProviderCredentialError::CredentialRejected
+        );
+        // Any other non-retryable refusal (a redirect, a missing zone, a malformed 200) says
+        // nothing about the credential, so it stays generic.
+        for error in [
+            CloudflareProviderError::Deterministic,
+            CloudflareProviderError::AuthorityStale,
+            CloudflareProviderError::InvalidInput,
+            CloudflareProviderError::InvalidResponse,
+            CloudflareProviderError::ResponseLimit,
+        ] {
+            assert_eq!(provider_error(error), ProviderCredentialError::Provider);
+        }
+    }
+
     #[test]
     fn credential_orchestrator_is_the_only_native_forwarding_callsite() {
         let orchestrator = include_str!("provider_credential_orchestrator.rs");

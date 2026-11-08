@@ -119,6 +119,16 @@ DNS、过后再补它的注册商或市场能力，同一平台账户会出现�
 | [GoDaddy](https://developer.godaddy.com/en/docs/api-users) | Personal Access Token（Classic key 不能用于 v3 Domains） | 读取任意账户；付费写操作需账户有支付方式或余额 | 未核实 | 未核实 | DNSSEC 与授权码未写明 |
 | [Porkbun](https://porkbun.com/api/json/v3/documentation) | `X-API-Key` + `X-Secret-API-Key`；需开启账户内 API 访问 | 无额外门槛 | 沙箱端点 + mock；计费类调用支持 `dryRun` | 未见 | 市场只能浏览，不能经 API 上架自己的域名 |
 
+Cloudflare API 失败语义（2026-11-08 核对）：
+[API 限制](https://developers.cloudflare.com/fundamentals/api/reference/limits/)只写明超限返回 `HTTP 429 - Too Many Requests`、
+之后 5 分钟内的调用都被拒绝，并带 `retry-after`；[故障排查](https://developers.cloudflare.com/fundamentals/api/troubleshooting/)
+对 Token 无效与权限不足只建议确认 Token 校验结果为 `"status": "active"` 并检查权限组，未写明对应的 HTTP 状态或错误码；
+[Token 校验](https://developers.cloudflare.com/api/resources/user/subresources/tokens/methods/verify/)的 `status` 为
+`active`、`disabled` 或 `expired`，只记录了 200 响应。因此 Desktop 不区分“Token 失效”与“权限不足”：
+只有 RFC 9110 定义为认证与授权拒绝的 401 与 403 作为同一个“凭据被拒绝”结果，提示用户在 Cloudflare 确认
+Token 有效并具备所需权限；其他非重试状态（重定向、400、404 等）与格式不符的 200 说明不了凭据，仍为通用失败；
+429、408、425 与服务端错误为“稍后重试”，传输失败为“无法连接”。
+
 ## 安全约束
 
 - **URL 中的凭据（Atom）**：Atom 市场 API 把 token 放在查询参数中。Atom Service 必须在内部构造请求 URL，

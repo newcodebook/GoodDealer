@@ -122,7 +122,10 @@ function cloudflareCardState(cloudflare: CloudflareRead | null): "disconnected" 
   const { notice, status } = cloudflare;
   if (notice === "connected") return "connected";
   if (notice === "notConfigured") return "disconnected";
-  if (notice === "operationFailed" || notice === "operationUnconfirmed") return status?.state === "ready" ? "connected" : "failed";
+  if (notice === "operationFailed" || notice === "operationUnconfirmed" || notice === "providerUnreachable"
+    || notice === "providerRetryLater" || notice === "credentialRejected") {
+    return status?.state === "ready" ? "connected" : "failed";
+  }
   return "unavailable";
 }
 

@@ -233,6 +233,8 @@ describe("first-run onboarding", () => {
     [{ ...unqualified, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "请同时到 Cloudflare 删除或轮换该 API Token。"],
     [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "unconfirmed" as const } }, "上一次 Cloudflare 操作未能确认。"],
     [{ ...unqualified, qualified: true, state: "busy" as const }, "Cloudflare 操作正在进行。"],
+    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "credential_rejected" as const } }, "请在 Cloudflare 确认该 Token 处于有效状态并具备所需权限"],
+    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "unreachable" as const } }, "无法连接 Cloudflare，未做任何更改。"],
   ])("shows the Host's Cloudflare reason and still offers no connect or disconnect (%#)", async (cloudflareStatus, reason) => {
     const { ports } = host(cloudflareStatus);
     act(() => root.render(

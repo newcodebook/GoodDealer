@@ -75,9 +75,12 @@ impl ProviderOperationRecord {
         use crate::provider_credential_orchestrator::ProviderCredentialError;
         let outcome = match result {
             Ok(outcome) => outcome,
-            // An unqualified capability is the one refusal a person can act on; every other
-            // failure stays one closed outcome.
+            // The refusals a person can act on stay apart; every other failure is one closed
+            // outcome. None of them carries Provider or Host text.
             Err(ProviderCredentialError::Unqualified) => "unqualified",
+            Err(ProviderCredentialError::ProviderUnreachable) => "unreachable",
+            Err(ProviderCredentialError::ProviderRetryLater) => "retry_later",
+            Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
             Err(_) => "failed",
         };
         Self { kind, outcome }
@@ -999,6 +1002,19 @@ mod tests {
                 .outcome,
             "unqualified"
         );
+        for (error, outcome) in [
+            (ProviderCredentialError::ProviderUnreachable, "unreachable"),
+            (ProviderCredentialError::ProviderRetryLater, "retry_later"),
+            (
+                ProviderCredentialError::CredentialRejected,
+                "credential_rejected",
+            ),
+        ] {
+            assert_eq!(
+                ProviderOperationRecord::of("observe", Err(&error)).outcome,
+                outcome
+            );
+        }
         for error in [
             ProviderCredentialError::Host,
             ProviderCredentialError::Capture,

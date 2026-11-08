@@ -2626,10 +2626,23 @@ mod tests {
             true,
             &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
         );
+        // The active credential admits observation, so the refusal below is the revocation's.
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_ok()
+        );
         let revoke = revoke_preparation(&first);
         database
             .prepare_cloudflare_credential_operation_guarded(&revoke, || Ok(()))
             .unwrap();
+        // Preparing the revocation already denies credential use: no observation is admitted, so
+        // no Provider call is made with a credential being withdrawn.
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
         assert_eq!(
             database
                 .recover_cloudflare_credential_orphans_guarded(AT, || Ok(()))
@@ -2659,6 +2672,11 @@ mod tests {
             database.cloudflare_provision_seed(&first.logical_connection_id),
             Err(BusinessDatabaseError::InvalidInput)
         ));
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
     }
 
     #[test]

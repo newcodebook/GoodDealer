@@ -9,6 +9,9 @@ export type CloudflareNotice =
   | "revoked"
   | "unqualified"
   | "operationUnconfirmed"
+  | "providerUnreachable"
+  | "providerRetryLater"
+  | "credentialRejected"
   | "operationFailed"
   | "notConfigured"
   | "connected";
@@ -33,6 +36,10 @@ export function cloudflareNotice(status: CloudflareConnectionStatus | null): Clo
   if (last !== null && last.kind === "revoke" && last.outcome === "confirmed") return "revoked";
   if (!status.qualified) return "unqualified";
   if (last !== null && last.outcome === "unconfirmed") return "operationUnconfirmed";
+  // Each failed Provider call fails closed (nothing is written) and says how to recover.
+  if (last !== null && last.outcome === "unreachable") return "providerUnreachable";
+  if (last !== null && last.outcome === "retry_later") return "providerRetryLater";
+  if (last !== null && last.outcome === "credential_rejected") return "credentialRejected";
   if (last !== null && last.outcome === "failed") return "operationFailed";
   return status.state === "ready" ? "connected" : "notConfigured";
 }
@@ -56,6 +63,9 @@ export const cloudflareNoticeCopyKey = {
   revoked: "cloudflareRevoked",
   unqualified: "cloudflareUnqualified",
   operationUnconfirmed: "cloudflareOperationUnconfirmed",
+  providerUnreachable: "cloudflareProviderUnreachable",
+  providerRetryLater: "cloudflareProviderRetryLater",
+  credentialRejected: "cloudflareCredentialRejected",
   operationFailed: "cloudflareOperationFailed",
   notConfigured: "cloudflareNotConfigured",
   connected: "cloudflareConnected",
