@@ -378,7 +378,7 @@ pub(crate) fn cloudflare_connection_status(
         )
         .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
-        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "lastOperation": last_operation, "readGeneration": local.read_generation }),
+        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation }),
     )
 }
 

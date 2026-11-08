@@ -111,13 +111,16 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
           <>
             <header className="activation-head">
               <h2>{copy.firstImportTitle}</h2>
-              <p className="gd-t-body-2">{view.importState === "unavailable" ? copy.importUnavailableSubtitle : copy.importSubtitlePrefix}</p>
+              <p className="gd-t-body-2">
+                {view.importState !== "unavailable" ? copy.importSubtitlePrefix
+                  : view.connectedCount > 0 ? copy.importConnectedSubtitle : copy.importUnavailableSubtitle}
+              </p>
             </header>
             {view.importState === "unavailable" ? (
               <div className="activation-card">
                 <div className="activation-row">
                   <RefreshCwIcon size={16} className="activation-muted" />
-                  <span className="gd-t-body-2">{copy.observationImportUnavailable}</span>
+                  <span className="gd-t-body-2">{view.connectedCount > 0 ? copy.zoneImportedOnConnect : copy.observationImportUnavailable}</span>
                   <span className="activation-spacer" />
                   {importActions}
                 </div>

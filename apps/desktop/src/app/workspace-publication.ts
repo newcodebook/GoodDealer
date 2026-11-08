@@ -20,7 +20,7 @@ import type {
   LocalConflictPort,
   LocalSyncStatusPort,
 } from "../adapters/tauri";
-import type { CloudflareStatusPort } from "../features/connections";
+import type { CloudflareConnectionPort } from "../features/connections";
 import type { AppRouteId } from "./app-route";
 
 export interface AuthoritativeWorkspacePublication {
@@ -46,8 +46,11 @@ export interface AuthoritativeWorkspacePorts {
   readonly history: HistoryReadPort;
   /** Read by the manual task route on demand; not part of the workspace publication. */
   readonly manualTasks: ManualTasksReadPort;
-  /** Read by settings and onboarding on demand; the Host status carries qualification and the last outcome. */
-  readonly cloudflare: CloudflareStatusPort;
+  /**
+   * Read by settings and onboarding on demand; the Host status carries qualification and the last
+   * outcome. Onboarding also connects and revokes through it, under the Host's own gates.
+   */
+  readonly cloudflare: CloudflareConnectionPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;

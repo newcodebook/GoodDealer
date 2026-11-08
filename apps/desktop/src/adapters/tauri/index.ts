@@ -128,6 +128,8 @@ export interface CloudflareConnectionStatus {
   readonly displayLabel: string | null;
   /** False until Cloudflare DNS observation passes ADR-0024 qualification; nothing can run before then. */
   readonly qualified: boolean;
+  /** Whether this Host build can capture a token at all (macOS only); connecting needs it. */
+  readonly capturable: boolean;
   /** The latest Provider operation's closed outcome, or null when none ran this session. */
   readonly lastOperation: CloudflareProviderOperation | null;
   readonly readGeneration: number;
@@ -625,7 +627,7 @@ function parseProviderOperation(value: unknown): CloudflareProviderOperation | n
 }
 
 function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
-  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "lastOperation", "readGeneration"]);
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "capturable", "lastOperation", "readGeneration"]);
   const states: readonly CloudflareConnectionStatusState[] = ["not-configured", "recovering", "ready", "busy", "blocked"];
   const bounded = (field: unknown): string | null => field === null ? null
     : typeof field === "string" && field.length > 0 && field.length <= 256 && [...field].every((char) => {
@@ -633,7 +635,7 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
       return code >= 0x20 && code !== 0x7f;
     }) ? field : (() => { throw new TypeError("invalid Cloudflare status text"); })();
   if (record.schemaVersion !== 1 || !states.includes(record.state as CloudflareConnectionStatusState)
-    || typeof record.qualified !== "boolean"
+    || typeof record.qualified !== "boolean" || typeof record.capturable !== "boolean"
     || !Number.isSafeInteger(record.readGeneration) || (record.readGeneration as number) < 0) {
     throw new TypeError("invalid Cloudflare status");
   }
@@ -643,6 +645,7 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
     connectionRef: bounded(record.connectionRef),
     displayLabel: connectionLabel(record.displayLabel),
     qualified: record.qualified,
+    capturable: record.capturable,
     lastOperation: parseProviderOperation(record.lastOperation),
     readGeneration: record.readGeneration as number,
   });

@@ -43,7 +43,7 @@ describe("Desktop Tauri local-business adapter", () => {
   });
 
   it("reads the Host status with qualification and only closed operation outcomes", async () => {
-    const status = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, lastOperation: { kind: "observe", outcome: "unqualified" }, readGeneration: 2 };
+    const status = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: { kind: "observe", outcome: "unqualified" }, readGeneration: 2 };
     invokeMock.mockResolvedValueOnce(status);
     await expect(createCloudflarePort().status()).resolves.toEqual(status);
     invokeMock.mockResolvedValueOnce({ ...status, lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
@@ -55,6 +55,8 @@ describe("Desktop Tauri local-business adapter", () => {
     for (const hostile of [
       { ...status, qualified: "yes" },
       { ...status, qualified: undefined },
+      { ...status, capturable: "yes" },
+      { ...status, capturable: undefined },
       { ...status, lastOperation: undefined },
       { ...status, lastOperation: { kind: "observe", outcome: "nothing_to_revoke" } },
       { ...status, lastOperation: { kind: "revoke", outcome: "unreachable" } },

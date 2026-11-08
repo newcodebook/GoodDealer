@@ -14,8 +14,14 @@ Customer Desktop application that composes the Renderer and native Host around t
   sign-in, and locked pages; first-run onboarding (`src/app/onboarding.tsx`, the kit wizard), shown
   once per session to an Active workspace with no domain, where the device step shows only the lease
   `local_device_lease_read` verified (device id and epoch, no envelope or key; the Host has no device
-  name), Cloudflare and observation import are unavailable until qualified, and domains are added by
-  hand through `local_domain_asset_create`; plus a workspace with the asset library (manual add through
+  name), the Cloudflare card admits connecting (`cloudflare_connection_create`, then
+  `cloudflare_connection_activate`, where the Host opens the native token capture and imports the
+  zone's domain) or disconnecting (`cloudflare_connection_revoke`) only while the workspace is
+  writable, the Host reports the capability qualified, and its build can capture a token
+  (`capturable`, macOS only; elsewhere the card says why it is unavailable), and nothing while an operation runs (so it
+  is unavailable until qualified); the import step says a connected zone was imported when it
+  connected, and domains are added by hand through `local_domain_asset_create`. Settings offers
+  "Run setup again" only while writable, which is how connecting and revoking are reached there; plus a workspace with the asset library (manual add through
   `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
   domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
   cannot duplicate an asset, and a deleted one, which keeps its tombstone, with
@@ -113,8 +119,9 @@ use, so the connection is deactivated before custody changes; Secure Host then r
 envelope with a tokenless tombstone at the next generation under the same prewrite, marker and read-back
 fences as activation, and contradicting custody remediates while the credential stays denied. Use is
 denied at once; the token leaves custody only once the tombstone is confirmed. Revocation withdraws
-GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. No
-production screen offers revocation until the Cloudflare capability is qualified (ADR-0024).
+GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. Onboarding's
+Cloudflare card offers revocation only once the capability is qualified (ADR-0024), and the
+status then keeps asking the person to delete or roll the token at Cloudflare.
 The Host's qualification register (`crates/local-storage/src/active_workspace/capability_qualification.rs`)
 is empty, so activation, credential preparation and observation are refused in the Host with
 `DESKTOP_CAPABILITY_UNQUALIFIED` even when a valid credential exists; revocation and recovery are not gated.
@@ -235,8 +242,9 @@ seen through the connection's current active credential for that Zone) and the b
 for an existing binding (none, or a detached one of the same connection, Zone and name), so a
 revoked or invalid credential, a changed credential generation, a paused Zone or an archived asset
 is never offered; the Renderer rejects a row that claims bindability over a live binding or without
-its own Zone observed; a committed bind republishes the workspace at the receipt generation. Production navigation
-has no entry that creates a Cloudflare connection or observation yet, so the action does not appear.
+its own Zone observed; a committed bind republishes the workspace at the receipt generation. A Zone is
+observed only through a qualified Cloudflare connection, and connecting is unavailable until
+qualification, so the action does not appear yet.
 First commit advances Host generation once; replay may return the current generation after
 intervening commits.
 

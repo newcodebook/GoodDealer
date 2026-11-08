@@ -196,6 +196,15 @@ export function App() {
     );
   }, [workspaceReady, workspace, onboarding.state]);
   const finishOnboarding = useCallback(() => setOnboarding({ state: "declined" }), []);
+  // Settings re-enters onboarding on request, under the same writability rule as the first offer.
+  const runOnboarding = useCallback(() => {
+    if (workspace === null || !onboardingWritable(workspace)) return;
+    setOnboarding({ state: "checking" });
+    void deviceLease.read().then(
+      (lease) => setOnboarding({ state: "offered", lease }),
+      () => setOnboarding({ state: "declined" }),
+    );
+  }, [workspace]);
   const page = (() => {
     switch (presentation.view) {
       case "opening":
@@ -249,6 +258,7 @@ export function App() {
             onPublication={setWorkspace}
             onRefresh={() => synchronizeRef.current()}
             onLocaleChange={setLocale}
+            onRunOnboarding={runOnboarding}
           />
         );
     }

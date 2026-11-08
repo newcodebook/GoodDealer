@@ -14,6 +14,7 @@ import {
 
 import type { CloudflareConnectionStatus } from "../adapters/tauri";
 import { adjudicateDesktopPresentation } from "./desktop-presentation";
+import { Onboarding } from "./onboarding";
 import type { AuthoritativeWorkspacePorts, AuthoritativeWorkspacePublication } from "./workspace-publication";
 import { WorkspaceView } from "./workspace-view";
 
@@ -52,7 +53,7 @@ const sync: SyncSnapshotViewModel = {
   appliedThroughServerRevision: 8, lastReplicationActivityAt: null, transportObservedAt: "2026-09-20T00:00:00Z",
 };
 
-const cloudflareStatus: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, lastOperation: null, readGeneration: generation };
+const cloudflareStatus: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, readGeneration: generation };
 const settingsRead = parseSettingsRead({
   schemaVersion: 2, kind: "settings", readGeneration: generation, freshness,
   connections: [{ providerKind: "cloudflare", connectionLabel: "Cloudflare", lifecycleStatus: "active", validationStatus: "valid", credentialUseState: "active", lastValidatedAt: null, roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }] }],
@@ -79,7 +80,7 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
     settings: { loadSettings: vi.fn(async () => settingsRead) },
-    cloudflare: { status: vi.fn(cloudflare) },
+    cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
 }
 
@@ -97,7 +98,7 @@ afterEach(() => {
   container.remove();
 });
 
-async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"], workspacePorts: AuthoritativeWorkspacePorts = ports()) {
+async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"], workspacePorts: AuthoritativeWorkspacePorts = ports(), onRunOnboarding = vi.fn()) {
   const publication: AuthoritativeWorkspacePublication = {
     status: { schemaVersion: 2, state, capabilities, readGeneration: generation } as BusinessStatus,
     portfolio, conflicts, sync,
@@ -107,7 +108,7 @@ async function render(state: BusinessStatus["state"], capabilities: BusinessStat
   await act(async () => {
     root.render(
       <WorkspaceView locale="en-US" presentation={presentation} ports={workspacePorts} windowFrame={{ platform: "linux", framed: false }}
-        onPublication={vi.fn()} onRefresh={vi.fn()} onLocaleChange={vi.fn()} />,
+        onPublication={vi.fn()} onRefresh={vi.fn()} onLocaleChange={vi.fn()} onRunOnboarding={onRunOnboarding} />,
     );
   });
 }
@@ -160,14 +161,23 @@ describe("write entries follow the presentation gate", () => {
   });
 
   it.each([
-    ["active", ["local:read", "workspace:mutate"]],
-    ["standby_read_only", ["local:read"]],
-  ] as const)("settings shows the Host's Cloudflare reason with no connection action for %s", async (state, capabilities) => {
-    await render(state, [...capabilities]);
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("settings shows the Host's Cloudflare reason, no row action, and setup again only when writable for %s %j", async (state, capabilities, writable) => {
+    const onRunOnboarding = vi.fn();
+    await render(state, [...capabilities], ports(), onRunOnboarding);
     await clickButton("Settings");
     for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain("Cloudflare DNS is not qualified yet; connecting, observing, and revoking are unavailable.");
     for (const action of ["Connect", "Reauthorize", "Manage"]) expect(buttons().includes(action)).toBe(false);
+    // Connecting and revoking go through setup, which applies its own Host gates on the card.
+    expect(buttons().includes("Run setup again")).toBe(writable);
+    if (writable) {
+      await clickButton("Run setup again");
+      expect(onRunOnboarding).toHaveBeenCalledOnce();
+    }
   });
 
   it("settings keeps the revoke hint and reports an unreadable status as only that", async () => {
@@ -181,5 +191,36 @@ describe("write entries follow the presentation gate", () => {
     for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain("Cloudflare status could not be read from the Host.");
     expect(container.textContent).not.toContain("not qualified yet");
+  });
+
+  // Onboarding is offered only to a writable workspace, but its Cloudflare card is gated on its own:
+  // a publication that stops being writable while the step is open takes the action away.
+  it.each([
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("offers the onboarding Cloudflare connect for %s %j only when writable and qualified", async (state, capabilities, writable) => {
+    for (const qualified of [true, false]) {
+      const workspacePorts = ports(async () => ({ ...cloudflareStatus, state: "not-configured", connectionRef: null, qualified }));
+      const publication: AuthoritativeWorkspacePublication = {
+        status: { schemaVersion: 2, state, capabilities: [...capabilities], readGeneration: generation } as BusinessStatus,
+        portfolio: { ...portfolio, totalRows: 0, window: { ...portfolio.window, rows: [] } }, conflicts, sync,
+      };
+      await act(async () => {
+        root.render(
+          <Onboarding locale="en-US" windowFrame={{ platform: "linux", framed: false }} lease={{ schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3 }}
+            publication={publication} ports={workspacePorts} onPublication={vi.fn()} onFinish={vi.fn()} />,
+        );
+      });
+      await clickButton("Get started");
+      await clickButton("Continue");
+      for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
+      const card = [...container.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"));
+      expect(card?.disabled).toBe(!(writable && qualified));
+      await act(async () => { card?.click(); });
+      expect(vi.mocked(workspacePorts.cloudflare.create).mock.calls.length).toBe(writable && qualified ? 1 : 0);
+      act(() => root.render(<></>));
+    }
   });
 });

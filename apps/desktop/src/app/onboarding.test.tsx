@@ -82,7 +82,7 @@ function receipt(entityId: string, readGeneration: number): LocalDomainAssetMuta
   } as LocalDomainAssetMutationReceipt;
 }
 
-const unqualified: CloudflareConnectionStatus = { schemaVersion: 1, state: "not-configured", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, lastOperation: null, readGeneration: 1 };
+const unqualified: CloudflareConnectionStatus = { schemaVersion: 1, state: "not-configured", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, readGeneration: 1 };
 
 /** A Host with one generation counter: each committed add advances it and adds a row. */
 function host(cloudflare: CloudflareConnectionStatus = unqualified) {
@@ -108,7 +108,12 @@ function host(cloudflare: CloudflareConnectionStatus = unqualified) {
     batches: { loadBatchOperations: vi.fn() },
     history: { loadHistory: vi.fn() },
     manualTasks: { loadManualTasks: vi.fn() },
-    cloudflare: { status: vi.fn(async () => cloudflare) },
+    cloudflare: {
+      status: vi.fn(async () => cloudflare),
+      create: vi.fn(async () => ({ schemaVersion: 1, connectionRef: "fresh-ref", displayLabel: "Cloudflare", created: true, readGeneration: 1 })),
+      activate: vi.fn(async () => undefined),
+      revoke: vi.fn(async () => undefined),
+    },
   } as unknown as AuthoritativeWorkspacePorts;
   return { ports, createDomainAsset };
 }
@@ -228,15 +233,17 @@ describe("first-run onboarding", () => {
   });
 
   it.each([
-    [{ ...unqualified, qualified: true }, "Cloudflare 尚未连接。"],
-    [{ ...unqualified, qualified: true, state: "ready" as const }, "Cloudflare 已连接。"],
-    [{ ...unqualified, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "请同时到 Cloudflare 删除或轮换该 API Token。"],
-    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "unconfirmed" as const } }, "上一次 Cloudflare 操作未能确认。"],
-    [{ ...unqualified, qualified: true, state: "busy" as const }, "Cloudflare 操作正在进行。"],
-    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "credential_rejected" as const } }, "请在 Cloudflare 确认该 Token 处于有效状态并具备所需权限"],
-    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "unreachable" as const } }, "无法连接 Cloudflare，未做任何更改。"],
-    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "zone_unimportable" as const } }, "该 Zone 的名称不能作为域名添加"],
-  ])("shows the Host's Cloudflare reason and still offers no connect or disconnect (%#)", async (cloudflareStatus, reason) => {
+    [{ ...unqualified, qualified: true }, "Cloudflare 尚未连接。", true],
+    [{ ...unqualified, qualified: true, state: "ready" as const }, "Cloudflare 已连接。", true],
+    [{ ...unqualified, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "请同时到 Cloudflare 删除或轮换该 API Token。", false],
+    [{ ...unqualified, qualified: true, capturable: true, lastOperation: { kind: "activate" as const, outcome: "unconfirmed" as const } }, "上一次 Cloudflare 操作未能确认。", true],
+    [{ ...unqualified, qualified: true, state: "busy" as const }, "Cloudflare 操作正在进行。", false],
+    [{ ...unqualified, qualified: true, capturable: true, lastOperation: { kind: "activate" as const, outcome: "credential_rejected" as const } }, "请在 Cloudflare 确认该 Token 处于有效状态并具备所需权限", true],
+    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "unreachable" as const } }, "无法连接 Cloudflare，未做任何更改。", true],
+    [{ ...unqualified, qualified: true, capturable: true, lastOperation: { kind: "activate" as const, outcome: "zone_unimportable" as const } }, "该 Zone 的名称不能作为域名添加", true],
+    // Qualified and writable, but this Host cannot capture a token: nothing to connect with.
+    [{ ...unqualified, qualified: true, capturable: false }, "目前仅 macOS 支持连接", false],
+  ])("shows the Host's Cloudflare reason and offers the card only when qualified and idle (%#)", async (cloudflareStatus, reason, offered) => {
     const { ports } = host(cloudflareStatus);
     act(() => root.render(
       <Onboarding locale="zh-CN" windowFrame={frame} lease={lease} publication={publication(1)} ports={ports} onPublication={vi.fn()} onFinish={vi.fn()} />,
@@ -246,16 +253,78 @@ describe("first-run onboarding", () => {
     await settle();
     expect(document.body.textContent).toContain(reason);
     const card = [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"));
-    expect(card?.disabled).toBe(true);
+    expect(card?.disabled).toBe(!offered);
   });
 
   it.each([
-    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "failed" as const } }, "connected"],
-    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "failed" as const } }, "failed"],
-    [{ ...unqualified, qualified: true, state: "busy" as const }, "unavailable"],
-  ])("claims only the credential state on the card (%#)", (cloudflareStatus, connectionState) => {
+    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "failed" as const } }, "connected", ["disconnect"]],
+    [{ ...unqualified, qualified: true, capturable: true, lastOperation: { kind: "activate" as const, outcome: "failed" as const } }, "failed", ["connect"]],
+    [{ ...unqualified, qualified: true, state: "busy" as const }, "unavailable", []],
+    [{ ...unqualified, qualified: true, state: "recovering" as const }, "unavailable", []],
+    [{ ...unqualified, qualified: true, state: "blocked" as const }, "unavailable", []],
+    [{ ...unqualified, state: "ready" as const }, "unavailable", []],
+    [{ ...unqualified, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "disconnected", []],
+    [{ ...unqualified, qualified: true, capturable: true, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "disconnected", ["connect"]],
+    [{ ...unqualified, qualified: true, capturable: false }, "unavailable", []],
+    [{ ...unqualified, qualified: true, capturable: false, lastOperation: { kind: "activate" as const, outcome: "failed" as const } }, "unavailable", []],
+  ] as const)("claims only the credential state on the card and admits only what the Host allows (%#)", (cloudflareStatus, connectionState, admitted) => {
+    const admittedActions: readonly string[] = admitted;
     const view = onboardingView("connections", lease, publication(1), "zh-CN", { status: cloudflareStatus, notice: cloudflareNotice(cloudflareStatus) });
-    expect(view).toMatchObject({ providers: [{ providerId: "cloudflare", connectionState, admittedActions: [] }] });
+    expect(view).toMatchObject({ providers: [{ providerId: "cloudflare", connectionState, admittedActions }] });
+    expect(view?.availableActions.includes("connect_provider")).toBe(admittedActions.includes("connect"));
+    expect(view?.availableActions.includes("disconnect_provider")).toBe(admittedActions.includes("disconnect"));
+  });
+
+  it("admits nothing on a workspace that cannot take writes, or while an operation it started runs", () => {
+    const qualified = { ...unqualified, qualified: true };
+    const read = { status: qualified, notice: cloudflareNotice(qualified) };
+    const standby = { ...publication(1), status: status(1, "standby_read_only") };
+    expect(onboardingView("connections", lease, standby, "zh-CN", read)).toMatchObject({ providers: [{ admittedActions: [] }] });
+    expect(onboardingView("connections", lease, publication(1), "zh-CN", read, true)).toMatchObject({ providers: [{ connectionState: "connecting", admittedActions: [] }] });
+  });
+
+  it("connects through create and activate, then shows what the Host reports", async () => {
+    const { ports } = host({ ...unqualified, qualified: true, connectionRef: null });
+    const ready: CloudflareConnectionStatus = { ...unqualified, qualified: true, state: "ready", connectionRef: "fresh-ref" };
+    const statusRead = ports.cloudflare.status as ReturnType<typeof vi.fn>;
+    act(() => root.render(
+      <Onboarding locale="zh-CN" windowFrame={frame} lease={lease} publication={publication(1)} ports={ports} onPublication={vi.fn()} onFinish={vi.fn()} />,
+    ));
+    await click("开始接入");
+    await click("继续");
+    await settle();
+    statusRead.mockResolvedValue(ready);
+    await act(async () => { [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"))!.click(); await Promise.resolve(); });
+    await settle();
+    expect(ports.cloudflare.create).toHaveBeenCalledWith("Cloudflare");
+    expect(ports.cloudflare.activate).toHaveBeenCalledWith("fresh-ref");
+    expect(ports.cloudflare.revoke).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Cloudflare 已连接。");
+    await click("继续 · 已连接 1");
+    // The zone was imported when it connected, so the import step says so instead of "none connected".
+    expect(document.body.textContent).toContain("Cloudflare 区域在连接时导入");
+    expect(document.body.textContent).not.toContain("从观察结果导入不可用");
+  });
+
+  it("revokes the ready credential it read, and a refused call still shows the Host's reason", async () => {
+    const ready: CloudflareConnectionStatus = { ...unqualified, qualified: true, state: "ready", connectionRef: "ready-ref" };
+    const { ports } = host(ready);
+    (ports.cloudflare.revoke as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DESKTOP_CAPABILITY_UNQUALIFIED"));
+    const statusRead = ports.cloudflare.status as ReturnType<typeof vi.fn>;
+    act(() => root.render(
+      <Onboarding locale="zh-CN" windowFrame={frame} lease={lease} publication={publication(1)} ports={ports} onPublication={vi.fn()} onFinish={vi.fn()} />,
+    ));
+    await click("开始接入");
+    await click("继续");
+    await settle();
+    statusRead.mockResolvedValue({ ...ready, qualified: false });
+    await act(async () => { [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"))!.click(); await Promise.resolve(); });
+    await settle();
+    expect(ports.cloudflare.revoke).toHaveBeenCalledWith("ready-ref");
+    expect(ports.cloudflare.create).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Cloudflare DNS 尚未通过资格认证");
+    const card = [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"));
+    expect(card?.disabled).toBe(true);
   });
 
   it("says only that the status is unreadable when the Host read fails", async () => {

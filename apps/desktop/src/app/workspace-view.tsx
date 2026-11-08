@@ -47,6 +47,11 @@ export interface WorkspaceViewProps {
   readonly onPublication: (publication: AuthoritativeWorkspacePublication) => void;
   readonly onRefresh: () => void;
   readonly onLocaleChange: (locale: Locale) => void;
+  /**
+   * Re-enters onboarding, where Cloudflare is connected or revoked under the Host's gates. Settings
+   * offers it only while the presentation is writable; the app root checks again before entering.
+   */
+  readonly onRunOnboarding?: () => void;
 }
 
 const windowSize = 25;
@@ -56,7 +61,7 @@ const windowSize = 25;
  * are passed only when the adjudicated presentation is writable, so a read-only surface cannot
  * reach a mutation even if a feature would otherwise render the control.
  */
-export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh, onLocaleChange }: WorkspaceViewProps) {
+export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh, onLocaleChange, onRunOnboarding }: WorkspaceViewProps) {
   const shellCopy = getPresentationCopy(locale, "shell");
   const runtimeCopy = getCapabilityCopy(locale, "runtimeMode");
   const { surface, publication, readOnly } = presentation;
@@ -205,6 +210,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               ports={ports}
               revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
               onLocaleChange={onLocaleChange}
+              {...(readOnly === null && onRunOnboarding !== undefined ? { onRunOnboarding } : {})}
             />
           ),
           "sync.conflicts": () => (
@@ -229,15 +235,17 @@ type SettingsState =
   | { readonly kind: "failed" };
 
 /**
- * Settings from the Host projection. Connections carry no action and every role shows as
- * unavailable until qualified; devices, license, pull cadence and build facts have no Host source
- * yet, so the panel shows those as unavailable instead of placeholder values.
+ * Settings from the Host projection. Connection rows carry no action and every role shows as
+ * unavailable until qualified; connecting and revoking go through re-running onboarding, offered
+ * only when writable. Devices, license, pull cadence and build facts have no Host source yet, so
+ * the panel shows those as unavailable instead of placeholder values.
  */
-function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
+function SettingsRoute({ locale, ports, revisionBase, onLocaleChange, onRunOnboarding }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly revisionBase: number | null;
   readonly onLocaleChange: (locale: Locale) => void;
+  readonly onRunOnboarding?: () => void;
 }) {
   const copy = getPresentationCopy(locale, "settings");
   const [state, setState] = useState<SettingsState>({ kind: "loading" });
@@ -274,6 +282,7 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
       sync={null}
       about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}
       onLocaleChange={onLocaleChange}
+      {...(onRunOnboarding === undefined ? {} : { onRunOnboarding })}
     />
   );
 }
