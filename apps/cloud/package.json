@@ -20,7 +20,7 @@
     "@paypal/paypal-server-sdk": "2.5.0",
     "fastify": "5.12.7",
     "pg": "8.23.1",
-    "stripe": "23.0.1"
+    "stripe": "23.1.0"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
