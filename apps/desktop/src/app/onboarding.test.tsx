@@ -4,7 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LocalWriteError, type LocalBusinessStatus } from "../adapters/tauri";
+import { LocalWriteError, type CloudflareConnectionStatus, type LocalBusinessStatus } from "../adapters/tauri";
+import { cloudflareNotice } from "../features/connections";
 import { Onboarding, onboardingOffer, onboardingView } from "./onboarding";
 import type { AuthoritativeWorkspacePorts, AuthoritativeWorkspacePublication } from "./workspace-publication";
 
@@ -81,8 +82,10 @@ function receipt(entityId: string, readGeneration: number): LocalDomainAssetMuta
   } as LocalDomainAssetMutationReceipt;
 }
 
+const unqualified: CloudflareConnectionStatus = { schemaVersion: 1, state: "not-configured", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, lastOperation: null, readGeneration: 1 };
+
 /** A Host with one generation counter: each committed add advances it and adds a row. */
-function host() {
+function host(cloudflare: CloudflareConnectionStatus = unqualified) {
   let generation = 1;
   let rows = 0;
   const held = new Set<string>();
@@ -105,6 +108,7 @@ function host() {
     batches: { loadBatchOperations: vi.fn() },
     history: { loadHistory: vi.fn() },
     manualTasks: { loadManualTasks: vi.fn() },
+    cloudflare: { status: vi.fn(async () => cloudflare) },
   } as unknown as AuthoritativeWorkspacePorts;
   return { ports, createDomainAsset };
 }
@@ -191,6 +195,9 @@ describe("first-run onboarding", () => {
     const cloudflare = [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"));
     expect(cloudflare?.disabled).toBe(true);
     expect(document.body.textContent).toContain("Cloudflare 能力取得资格前暂不可连接");
+    await settle();
+    expect(document.body.textContent).toContain("Cloudflare DNS 尚未通过资格认证，连接、观察与撤销暂不可用。");
+    expect(cloudflare?.disabled).toBe(true);
     await click("继续");
     expect(document.body.textContent).toContain("从观察结果导入不可用");
 
@@ -218,6 +225,47 @@ describe("first-run onboarding", () => {
     expect(onFinish).not.toHaveBeenCalled();
     await click("进入 GoodDealer");
     expect(onFinish).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [{ ...unqualified, qualified: true }, "Cloudflare 尚未连接。"],
+    [{ ...unqualified, qualified: true, state: "ready" as const }, "Cloudflare 已连接。"],
+    [{ ...unqualified, lastOperation: { kind: "revoke" as const, outcome: "confirmed" as const } }, "请同时到 Cloudflare 删除或轮换该 API Token。"],
+    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "unconfirmed" as const } }, "上一次 Cloudflare 操作未能确认。"],
+    [{ ...unqualified, qualified: true, state: "busy" as const }, "Cloudflare 操作正在进行。"],
+  ])("shows the Host's Cloudflare reason and still offers no connect or disconnect (%#)", async (cloudflareStatus, reason) => {
+    const { ports } = host(cloudflareStatus);
+    act(() => root.render(
+      <Onboarding locale="zh-CN" windowFrame={frame} lease={lease} publication={publication(1)} ports={ports} onPublication={vi.fn()} onFinish={vi.fn()} />,
+    ));
+    await click("开始接入");
+    await click("继续");
+    await settle();
+    expect(document.body.textContent).toContain(reason);
+    const card = [...document.body.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes("Cloudflare"));
+    expect(card?.disabled).toBe(true);
+  });
+
+  it.each([
+    [{ ...unqualified, qualified: true, state: "ready" as const, lastOperation: { kind: "observe" as const, outcome: "failed" as const } }, "connected"],
+    [{ ...unqualified, qualified: true, lastOperation: { kind: "activate" as const, outcome: "failed" as const } }, "failed"],
+    [{ ...unqualified, qualified: true, state: "busy" as const }, "unavailable"],
+  ])("claims only the credential state on the card (%#)", (cloudflareStatus, connectionState) => {
+    const view = onboardingView("connections", lease, publication(1), "zh-CN", { status: cloudflareStatus, notice: cloudflareNotice(cloudflareStatus) });
+    expect(view).toMatchObject({ providers: [{ providerId: "cloudflare", connectionState, admittedActions: [] }] });
+  });
+
+  it("says only that the status is unreadable when the Host read fails", async () => {
+    const { ports } = host();
+    (ports.cloudflare.status as ReturnType<typeof vi.fn>).mockRejectedValue(new TypeError("invalid Cloudflare status"));
+    act(() => root.render(
+      <Onboarding locale="zh-CN" windowFrame={frame} lease={lease} publication={publication(1)} ports={ports} onPublication={vi.fn()} onFinish={vi.fn()} />,
+    ));
+    await click("开始接入");
+    await click("继续");
+    await settle();
+    expect(document.body.textContent).toContain("无法从 Host 读取 Cloudflare 状态。");
+    expect(document.body.textContent).not.toContain("尚未通过资格认证");
   });
 
   it("can be skipped from the welcome step without writing anything", async () => {

@@ -7,10 +7,12 @@ import {
   parseConflictCenterViewModel,
   parseDnsHealthRead,
   parseDomainDetailViewModel,
+  parseSettingsRead,
   type AssetLibraryViewModel,
   type SyncSnapshotViewModel,
 } from "@gooddealer/client-core";
 
+import type { CloudflareConnectionStatus } from "../adapters/tauri";
 import { adjudicateDesktopPresentation } from "./desktop-presentation";
 import type { AuthoritativeWorkspacePorts, AuthoritativeWorkspacePublication } from "./workspace-publication";
 import { WorkspaceView } from "./workspace-view";
@@ -50,7 +52,14 @@ const sync: SyncSnapshotViewModel = {
   appliedThroughServerRevision: 8, lastReplicationActivityAt: null, transportObservedAt: "2026-09-20T00:00:00Z",
 };
 
-function ports(): AuthoritativeWorkspacePorts {
+const cloudflareStatus: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, lastOperation: null, readGeneration: generation };
+const settingsRead = parseSettingsRead({
+  schemaVersion: 2, kind: "settings", readGeneration: generation, freshness,
+  connections: [{ providerKind: "cloudflare", connectionLabel: "Cloudflare", lifecycleStatus: "active", validationStatus: "valid", credentialUseState: "active", lastValidatedAt: null, roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }] }],
+  storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
+});
+
+function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () => cloudflareStatus): AuthoritativeWorkspacePorts {
   const detail = parseDomainDetailViewModel({
     schemaVersion: 3, kind: "domain_detail", readGeneration: generation, freshness, state: "conflict",
     asset: {
@@ -69,6 +78,8 @@ function ports(): AuthoritativeWorkspacePorts {
       window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, zoneBinding: null, observation }] },
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
+    settings: { loadSettings: vi.fn(async () => settingsRead) },
+    cloudflare: { status: vi.fn(cloudflare) },
   } as unknown as AuthoritativeWorkspacePorts;
 }
 
@@ -86,7 +97,7 @@ afterEach(() => {
   container.remove();
 });
 
-async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"]) {
+async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"], workspacePorts: AuthoritativeWorkspacePorts = ports()) {
   const publication: AuthoritativeWorkspacePublication = {
     status: { schemaVersion: 2, state, capabilities, readGeneration: generation } as BusinessStatus,
     portfolio, conflicts, sync,
@@ -95,7 +106,7 @@ async function render(state: BusinessStatus["state"], capabilities: BusinessStat
   if (presentation.view !== "workspace") throw new Error("expected a workspace");
   await act(async () => {
     root.render(
-      <WorkspaceView locale="en-US" presentation={presentation} ports={ports()} windowFrame={{ platform: "linux", framed: false }}
+      <WorkspaceView locale="en-US" presentation={presentation} ports={workspacePorts} windowFrame={{ platform: "linux", framed: false }}
         onPublication={vi.fn()} onRefresh={vi.fn()} onLocaleChange={vi.fn()} />,
     );
   });
@@ -146,5 +157,29 @@ describe("write entries follow the presentation gate", () => {
     for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain("vault.io");
     expect(buttons().includes("Bind Zone")).toBe(writable);
+  });
+
+  it.each([
+    ["active", ["local:read", "workspace:mutate"]],
+    ["standby_read_only", ["local:read"]],
+  ] as const)("settings shows the Host's Cloudflare reason with no connection action for %s", async (state, capabilities) => {
+    await render(state, [...capabilities]);
+    await clickButton("Settings");
+    for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain("Cloudflare DNS is not qualified yet; connecting, observing, and revoking are unavailable.");
+    for (const action of ["Connect", "Reauthorize", "Manage"]) expect(buttons().includes(action)).toBe(false);
+  });
+
+  it("settings keeps the revoke hint and reports an unreadable status as only that", async () => {
+    await render("active", ["local:read", "workspace:mutate"], ports(async () => ({ ...cloudflareStatus, lastOperation: { kind: "revoke", outcome: "confirmed" } })));
+    await clickButton("Settings");
+    for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain("Also delete or roll the API token in Cloudflare.");
+
+    await render("active", ["local:read", "workspace:mutate"], ports(async () => { throw new TypeError("invalid Cloudflare status"); }));
+    await clickButton("Settings");
+    for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain("Cloudflare status could not be read from the Host.");
+    expect(container.textContent).not.toContain("not qualified yet");
   });
 });

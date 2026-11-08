@@ -2,6 +2,7 @@ import { defaultLocale, type Locale } from "@gooddealer/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  createCloudflarePort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
   createLocalBatchOperationsPort,
@@ -47,6 +48,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   batches: createLocalBatchOperationsPort(),
   history: createLocalHistoryPort(),
   manualTasks: createLocalManualTasksPort(),
+  cloudflare: createCloudflarePort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

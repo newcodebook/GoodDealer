@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { LocalDeviceLease } from "../adapters/tauri";
 import { NativeWindow, type ShellWindowFrame } from "../app-shell";
+import { cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { AddDomainDialog, type AddDomainOutcome } from "../features/portfolio";
 import { ActivationWizard } from "../features/runtime-mode";
 import { addDomainAsset, createPortfolioMutationController } from "./portfolio-controllers";
@@ -48,8 +49,10 @@ export function onboardingOffer(publication: AuthoritativeWorkspacePublication):
  * schema. Null means the facts do not form a valid step, and the caller leaves onboarding.
  *
  * - The device step shows the lease the Host verified; the Host has no device name, so none shows.
- * - Cloudflare is listed as unavailable: no capability is qualified (ADR-0024), so no connection
- *   path exists in production, and there is nothing to import from observations either.
+ * - Cloudflare's card follows the Host status (`cloudflare` is null until it is read). It is
+ *   unavailable unless the capability is qualified (ADR-0024), and it admits no action even then:
+ *   the production connect path is not composed here yet, so offering one would promise a write
+ *   that does not exist. There is nothing to import from observations either.
  * - Completion reports the workspace's domain count and the applied server revision.
  */
 export function onboardingView(
@@ -57,6 +60,7 @@ export function onboardingView(
   lease: LocalDeviceLease,
   publication: AuthoritativeWorkspacePublication,
   locale: Locale,
+  cloudflare: CloudflareRead | null = null,
 ): ActivationWizardViewModel | null {
   const copy = getPresentationCopy(locale, "activation");
   const sync = publication.sync;
@@ -76,8 +80,8 @@ export function onboardingView(
       case "connections":
         return {
           step,
-          providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable", admittedActions: [] }],
-          connectedCount: 0,
+          providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: cloudflareCardState(cloudflare), admittedActions: [] }],
+          connectedCount: cloudflareCardState(cloudflare) === "connected" ? 1 : 0,
           availableActions: ["back", "continue"],
         };
       case "initial_import":
@@ -107,6 +111,23 @@ export function onboardingView(
   return projected.ok ? projected.value : null;
 }
 
+/**
+ * The card claims only the credential state. `busy` may be a revoke or an observation, not a
+ * connect, so it is shown as unavailable rather than connecting; a failed or unconfirmed operation
+ * is shown as failed only while no ready credential exists, because a failed observation leaves a
+ * ready credential ready. The meta line carries the operation's own reason either way.
+ */
+function cloudflareCardState(cloudflare: CloudflareRead | null): "disconnected" | "connected" | "failed" | "unavailable" {
+  if (cloudflare === null) return "unavailable";
+  const { notice, status } = cloudflare;
+  if (notice === "connected") return "connected";
+  if (notice === "notConfigured") return "disconnected";
+  if (notice === "operationFailed" || notice === "operationUnconfirmed") return status?.state === "ready" ? "connected" : "failed";
+  return "unavailable";
+}
+
+type CloudflareRead = Awaited<ReturnType<typeof readCloudflareNotice>>;
+
 export interface OnboardingProps {
   readonly locale: Locale;
   readonly windowFrame: ShellWindowFrame;
@@ -129,7 +150,16 @@ export function Onboarding({ locale, windowFrame, lease, publication, ports, onP
   const mutations = useRef(createPortfolioMutationController(ports.business)).current;
   useEffect(() => () => mutations.unmount(), [mutations]);
 
-  const view = onboardingView(step, lease, publication, locale);
+  const settingsCopy = getPresentationCopy(locale, "settings");
+  const [cloudflare, setCloudflare] = useState<CloudflareRead | null>(null);
+  useEffect(() => {
+    if (step !== "connections") return undefined;
+    let current = true;
+    void readCloudflareNotice(ports.cloudflare).then((read) => { if (current) setCloudflare(read); });
+    return () => { current = false; };
+  }, [step, ports]);
+
+  const view = onboardingView(step, lease, publication, locale, cloudflare);
   useEffect(() => { if (view === null) onFinish(); }, [view, onFinish]);
   if (view === null) return null;
 
@@ -157,6 +187,7 @@ export function Onboarding({ locale, windowFrame, lease, publication, ports, onP
           locale={locale}
           view={view}
           onAction={onAction}
+          {...(cloudflare === null ? {} : { connectionsNotice: settingsCopy[cloudflareNoticeCopyKey[cloudflare.notice]] })}
           importActions={(
             <>
               {added > 0 ? <span className="gd-t-meta">{copy.addedDomains.replace("{count}", formatNumber(locale, added))}</span> : null}

@@ -113,6 +113,7 @@ function ports(readGeneration: number) {
     batches: { loadBatchOperations: vi.fn() },
     history: { loadHistory: vi.fn() },
     manualTasks: { loadManualTasks: vi.fn() },
+    cloudflare: { status: vi.fn() },
   };
 }
 

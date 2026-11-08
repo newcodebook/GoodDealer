@@ -19,6 +19,8 @@ export interface ActivationWizardProps {
   readonly onToggleProvider?: (providerId: string, connect: boolean) => void;
   /** Controls the composition places beside an unavailable import, such as adding a domain by hand. */
   readonly importActions?: ReactNode;
+  /** The Host-reported reason the composition shows under the providers, such as a capability not yet qualified. */
+  readonly connectionsNotice?: ReactNode;
 }
 
 const steps = ["welcome", "device", "connections", "initial_import", "complete"] as const;
@@ -28,7 +30,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 }
 
 /** First-run activation: welcome, device gate, connections, initial import, and completion. */
-export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onToggleProvider, importActions }: ActivationWizardProps) {
+export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onToggleProvider, importActions, connectionsNotice }: ActivationWizardProps) {
   const copy = getPresentationCopy(locale, "activation");
   const index = steps.indexOf(view.step);
   const can = (action: ActivationAction) => view.availableActions.includes(action);
@@ -101,6 +103,7 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
                 </div>
               );
             })}
+            {connectionsNotice === undefined ? null : <p className="gd-t-meta">{connectionsNotice}</p>}
             {footer({ label: view.connectedCount > 0 ? fill(copy.continueConnected, { count: formatNumber(locale, view.connectedCount) }) : copy.continue, action: "continue" })}
           </>
         ) : null}

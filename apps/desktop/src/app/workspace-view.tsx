@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel, type SettingsConnection } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -11,6 +11,7 @@ import { BatchList } from "../features/operations/batch-operations";
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
+import { cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -245,9 +246,11 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange }: {
   useEffect(() => {
     let cancelled = false;
     setState({ kind: "loading" });
-    ports.settings.loadSettings()
-      .then((read) => {
-        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, () => copy.capabilityPendingSummary), storageIntegrity: read.storageIntegrity });
+    // The Cloudflare reason comes from its own Host status; an unreadable status says only that.
+    Promise.all([ports.settings.loadSettings(), readCloudflareNotice(ports.cloudflare)])
+      .then(([read, cloudflare]) => {
+        const summary = (connection: SettingsConnection) => connection.providerKind === "cloudflare" ? copy[cloudflareNoticeCopyKey[cloudflare.notice]] : copy.capabilityPendingSummary;
+        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, summary), storageIntegrity: read.storageIntegrity });
       })
       .catch(() => { if (!cancelled) setState({ kind: "failed" }); });
     return () => { cancelled = true; };
