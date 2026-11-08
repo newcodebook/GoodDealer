@@ -23,6 +23,8 @@ describe("Desktop Tauri local-business adapter", () => {
       { ...receipt, connectionIncarnationId: "leak" },
       { ...receipt, connectionRef: "with space" },
       { ...receipt, created: "yes" },
+      { ...receipt, displayLabel: "Cloud\u200bflare" },
+      { ...receipt, displayLabel: "x".repeat(121) },
       { ...receipt, readGeneration: -1 },
       { ...receipt, schemaVersion: 2 },
       null,
@@ -31,6 +33,13 @@ describe("Desktop Tauri local-business adapter", () => {
       await expect(createCloudflarePort().create("Cloudflare DNS")).rejects.toThrow(TypeError);
     }
     await expect(createCloudflarePort().create("")).rejects.toThrow(TypeError);
+    // The same label rule as every Host read: format and control characters, and more than 120
+    // UTF-16 units, are refused before any IPC.
+    for (const label of ["Cloud\u200bflare", "Cloud\u0007flare", "x".repeat(121)]) {
+      invokeMock.mockClear();
+      await expect(createCloudflarePort().create(label)).rejects.toThrow(TypeError);
+      expect(invokeMock).not.toHaveBeenCalled();
+    }
   });
 
   it("reads the Host status with qualification and only closed operation outcomes", async () => {
@@ -56,6 +65,9 @@ describe("Desktop Tauri local-business adapter", () => {
       { ...status, lastOperation: { kind: "observe", outcome: "ok" } },
       { ...status, lastOperation: { kind: "observe", outcome: "failed", reason: "token rejected" } },
       { ...status, secret: "leak" },
+      { ...status, displayLabel: "Cloud\u200bflare" },
+      { ...status, displayLabel: "a".repeat(121) },
+      { ...status, displayLabel: "" },
     ]) {
       invokeMock.mockResolvedValueOnce(hostile);
       await expect(createCloudflarePort().status()).rejects.toThrow(TypeError);

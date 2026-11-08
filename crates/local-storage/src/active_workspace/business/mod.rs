@@ -266,11 +266,21 @@ impl BusinessDatabase {
     pub(crate) fn read_cloudflare_connection(
         &self,
     ) -> Result<(Option<String>, Option<String>), BusinessDatabaseError> {
-        self.store.raw_connection().query_row(
+        let row: Option<(String, String)> = self.store.raw_connection().query_row(
             "SELECT connection_id, display_label FROM local_provider_connections WHERE workspace_id=?1 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' ORDER BY connection_id LIMIT 1",
             [&self.workspace_id],
-            |row| Ok((Some(row.get(0)?), Some(row.get(1)?))),
-        ).optional().map(|value| value.unwrap_or((None, None))).map_err(|_| BusinessDatabaseError::StorageRejected)
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        // Every other Host read applies the one connection-label rule; a row written outside the
+        // create path (a migration or a restore) that breaks it fails this read closed rather
+        // than reaching the Renderer.
+        match row {
+            None => Ok((None, None)),
+            Some((_, label)) if !crate::portfolio_projection::valid_connection_label(&label) => {
+                Err(BusinessDatabaseError::StorageRejected)
+            }
+            Some((connection_id, label)) => Ok((Some(connection_id), Some(label))),
+        }
     }
 
     pub(crate) fn read_cloudflare_observation(
@@ -6682,6 +6692,45 @@ mod tests {
 
     fn database() -> TestDatabase {
         TestDatabase::open([0x31; 32])
+    }
+
+    #[test]
+    fn cloudflare_connection_read_applies_the_connection_label_rule() {
+        let mut database = database();
+        assert_eq!(database.read_cloudflare_connection().unwrap(), (None, None));
+        let insert = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,validation_status) VALUES ('workspace-local','connection-1','cloudflare',?1,?2,'valid')";
+        database
+            .store
+            .fixture_connection()
+            .execute(insert, rusqlite::params!["Cloudflare DNS", TIMESTAMP])
+            .unwrap();
+        assert_eq!(
+            database.read_cloudflare_connection().unwrap(),
+            (
+                Some("connection-1".to_owned()),
+                Some("Cloudflare DNS".to_owned())
+            )
+        );
+        // A label written outside the create path that breaks the shared rule (a format
+        // character, a control character, or more than 120 UTF-16 units) fails the read closed.
+        for label in [
+            "Cloud\u{200B}flare".to_owned(),
+            "Cloud\u{7}flare".to_owned(),
+            "a".repeat(121),
+        ] {
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE local_provider_connections SET display_label=?1 WHERE connection_id='connection-1'",
+                    [&label],
+                )
+                .unwrap();
+            assert!(matches!(
+                database.read_cloudflare_connection(),
+                Err(BusinessDatabaseError::StorageRejected)
+            ));
+        }
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
+  connectionLabelSchema,
   copyPlainData,
   batchOperationsWindowRequestSchema,
   parseBatchOperationsRead,
@@ -215,7 +216,8 @@ export function createCloudflarePort(): CloudflarePort {
       return parseCloudflareStatus(await invoke(commands.cloudflareStatus));
     },
     async create(displayLabel) {
-      if (typeof displayLabel !== "string" || displayLabel.length === 0 || displayLabel.length > 256) throw new TypeError("invalid Cloudflare connection label");
+      // The Host applies the same label rule; refusing here keeps an invalid label off the wire.
+      if (!connectionLabelSchema.safeParse(displayLabel).success) throw new TypeError("invalid Cloudflare connection label");
       return parseCloudflareConnectionCreated(await invoke(commands.cloudflareCreate, { request: { schemaVersion: 1, displayLabel } }));
     },
     async activate(connectionRef) {
@@ -572,10 +574,18 @@ function parseCloudflareConnectionCreated(value: unknown): CloudflareConnectionC
   const record = value as Record<string, unknown>;
   if (Object.keys(record).sort().join() !== keys.join()) throw new TypeError("invalid Cloudflare connection");
   const { schemaVersion, connectionRef, displayLabel, created, readGeneration } = record;
-  if (schemaVersion !== 1 || typeof connectionRef !== "string" || typeof displayLabel !== "string" || displayLabel.length === 0
-    || displayLabel.length > 256 || typeof created !== "boolean" || typeof readGeneration !== "number"
+  if (schemaVersion !== 1 || typeof connectionRef !== "string" || !connectionLabelSchema.safeParse(displayLabel).success
+    || typeof created !== "boolean" || typeof readGeneration !== "number"
     || !Number.isSafeInteger(readGeneration) || readGeneration < 0) throw new TypeError("invalid Cloudflare connection");
-  return { schemaVersion, connectionRef: boundedOpaqueRef(connectionRef), displayLabel, created, readGeneration };
+  return { schemaVersion, connectionRef: boundedOpaqueRef(connectionRef), displayLabel: displayLabel as string, created, readGeneration };
+}
+
+/** A connection label under the one label rule every Host read applies, or none. */
+function connectionLabel(value: unknown): string | null {
+  if (value === null) return null;
+  const parsed = connectionLabelSchema.safeParse(value);
+  if (!parsed.success) throw new TypeError("invalid Cloudflare connection label");
+  return parsed.data;
 }
 
 function boundedOpaqueRef(value: string): string {
@@ -631,7 +641,7 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
     schemaVersion: 1,
     state: record.state as CloudflareConnectionStatusState,
     connectionRef: bounded(record.connectionRef),
-    displayLabel: bounded(record.displayLabel),
+    displayLabel: connectionLabel(record.displayLabel),
     qualified: record.qualified,
     lastOperation: parseProviderOperation(record.lastOperation),
     readGeneration: record.readGeneration as number,
