@@ -13,6 +13,7 @@ import {
 import { identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 
 import type { TenantTransaction } from "../../../db/index";
+import type { MutationWriter } from "./stale-field-rule";
 
 const lockedDomainBrand: unique symbol = Symbol("locked mutation drain domain");
 
@@ -323,6 +324,40 @@ export class PostgresWorkspaceMutationRepository {
     return headers.rows.map((header) => parseStoredMutation(transaction, header, fieldsByRevision));
   }
 
+  /**
+   * The writers of the given accepted revisions. A revision whose replay row was compacted is
+   * absent from the result, and callers must treat an absent writer as unknown.
+   */
+  async readWriters(
+    transaction: TenantTransaction,
+    values: readonly number[],
+  ): Promise<ReadonlyMap<number, MutationWriter>> {
+    const serverRevisions = [...new Set(values.map((value) => positiveRevision(serverRevisionSchema.parse(value))))];
+    if (serverRevisions.length === 0) return new Map();
+    const result = await transaction.query<{
+      server_revision: unknown; source_device_id: unknown; active_lease_epoch: unknown;
+      device_mutation_sequence: unknown; base_server_revision: unknown;
+    }>(
+      `SELECT server_revision::text AS server_revision, source_device_id,
+              active_lease_epoch::text AS active_lease_epoch,
+              device_mutation_sequence::text AS device_mutation_sequence,
+              base_server_revision::text AS base_server_revision
+       FROM workspace_mutations
+       WHERE account_id = $1 AND workspace_id = $2 AND server_revision = ANY($3::bigint[])`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, serverRevisions],
+    );
+    return new Map(result.rows.map((row) => [
+      positiveRevision(parseUnsignedInteger(storedText(row.server_revision), "stored writer revision")),
+      {
+        sourceDeviceId: identifier.parse(row.source_device_id),
+        activeLeaseEpoch: safePositiveInteger.parse(parseUnsignedInteger(storedText(row.active_lease_epoch), "stored writer epoch")),
+        deviceMutationSequence: safePositiveInteger.parse(
+          parseUnsignedInteger(storedText(row.device_mutation_sequence), "stored writer sequence")),
+        baseServerRevision: serverRevisionSchema.parse(parseUnsignedInteger(storedText(row.base_server_revision), "stored writer base")),
+      },
+    ]));
+  }
+
   async hasCompleteRange(
     transaction: TenantTransaction,
     fromServerRevisionExclusive: number,
@@ -501,6 +536,11 @@ function parseUnsignedInteger(value: string, label: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${label} is unsafe`);
   return parsed;
+}
+
+function storedText(value: unknown): string {
+  if (typeof value !== "string") throw new TypeError("stored writer column is not text");
+  return value;
 }
 
 function positiveRevision(value: number): number {

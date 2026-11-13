@@ -49,6 +49,8 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "rejects a poison item without persisting any prefix of the v2 batch",
     "creates an asset the replica does not hold from its first upsert, in this tenant only",
     "serializes two concurrent first upserts of one asset into one creation",
+    "accepts a device's consecutive unacknowledged edits of one field, separately or batched",
+    "still rejects a same-field write it did not build on: an older base or another Lease epoch",
     "rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry",
     "rejects expired Lease authority at the database-time boundary before mutation state changes",
     "binds direct app drain routines to the current active device Lease and proof-only sealing",

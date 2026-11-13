@@ -7234,6 +7234,77 @@ mod tests {
     }
 
     #[test]
+    fn consecutive_unacknowledged_edits_share_the_applied_base_and_rise_in_device_sequence() {
+        // Cloud's stale-field rule exempts a device's own earlier write only because the Host
+        // freezes each edit against the head it has applied: two edits before any ACK both name
+        // that head, and their device sequences rise. This pins the Host half of that contract.
+        let mut database = database();
+        database
+            .upsert_domain_asset(
+                "seed",
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "twice.test".to_owned(),
+                    note: Some("old".to_owned()),
+                    portfolio_id: None,
+                    tags: vec![],
+                    target_price: None,
+                },
+            )
+            .unwrap();
+        let current_version = |database: &BusinessDatabase| -> u64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets
+                     WHERE workspace_id='workspace-local' AND entity_id='twice.test'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        for (mutation_id, note) in [("edit-a", "first"), ("edit-b", "second")] {
+            let version = current_version(&database);
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    version,
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &DomainAssetWrite {
+                        entity_id: "twice.test".to_owned(),
+                        note: Some(note.to_owned()),
+                        portfolio_id: None,
+                        tags: vec![],
+                        target_price: None,
+                    },
+                    true,
+                )
+                .unwrap();
+        }
+        let rows: Vec<(i64, i64)> = database
+            .store
+            .raw_connection()
+            .prepare(
+                "SELECT base_server_revision, device_mutation_sequence FROM sync_outbox
+                 WHERE workspace_id='workspace-local' AND mutation_id IN ('edit-a','edit-b')
+                 ORDER BY device_mutation_sequence",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, rows[1].0);
+        assert!(rows[0].1 < rows[1].1);
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "end-to-end edit/delete atomicity assertions stay together"

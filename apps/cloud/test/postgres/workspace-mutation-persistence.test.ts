@@ -370,11 +370,9 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       note_revision: 1, portfolio_revision: 2, tags_revision: 1, price_revision: 0,
       lifecycle_status: "active", materialization_origin: "workspace_sync",
     }]);
-    // A later writer that did not observe the creation is stale on the fields it set.
-    const late = submittedSyncMutationSchema.parse({ ...submitted("late-writer", 3, 0), entityId: "added.test" });
-    await expect(service.ingest(scopeA, pushRequest(late))).resolves.toMatchObject({
-      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ fieldPath: "note", lastModifiedRevision: 1 }],
-    });
+    // The device's own later edit from the same base is not a conflict with its creation.
+    const later = submittedSyncMutationSchema.parse({ ...submitted("later-edit", 3, 0), entityId: "added.test" });
+    await expect(service.ingest(scopeA, pushRequest(later))).resolves.toMatchObject({ accepted: true, headRevision: 3 });
     // The other tenant shares the workspace id but neither sees nor holds the created asset.
     const other = await transactions.withTenant(scopeB, (transaction) => transaction.query(
       "SELECT count(*)::int AS count FROM workspace_replica_domain_assets"));
@@ -406,6 +404,62 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(stored.rows).toEqual([{ entity_id: "raced.test" }]);
     expect(stored.receipts).toEqual({ count: stored.head });
     expect(stored.head).toBe(results.filter((result) => result.accepted).length);
+  });
+
+  it("accepts a device's consecutive unacknowledged edits of one field, separately or batched", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    // The desktop commits each edit with its applied head as the base and freezes the wire, so two
+    // edits made before the first is acknowledged both carry base 0.
+    const first = submitted("edit-1", 1, 0);
+    const second = submitted("edit-2", 2, 0);
+    await expect(service.ingest(scopeA, pushRequest(first))).resolves.toMatchObject({ accepted: true, headRevision: 1 });
+    await expect(service.ingest(scopeA, pushRequest(second))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 2, duplicate: false }],
+    });
+    // Two more, pushed together in one batch.
+    await expect(service.ingest(scopeA, pushRequest(submitted("edit-3", 3, 2), submitted("edit-4", 4, 2))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 4 });
+    const stored = await transactions.withTenant(scopeA, (transaction) => transaction.query(
+      "SELECT note, note_server_revision::int AS revision FROM workspace_replica_domain_assets"));
+    expect(stored.rows).toEqual([{ note: "note-edit-4", revision: 4 }]);
+  });
+
+  it("still rejects a same-field write it did not build on: an older base or another Lease epoch", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0))))
+      .resolves.toMatchObject({ accepted: true });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)))).resolves.toMatchObject({ accepted: true });
+    // A later sequence of the same device naming an older base than its earlier write did not
+    // build on it.
+    await expect(service.ingest(scopeA, pushRequest(tags("tags-from-1", 4, 1)))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ fieldPath: "tags", lastModifiedRevision: 3 }],
+    });
+    // The lease rotates to epoch 2; a write of epoch 2 did not see epoch 1's note write.
+    await ownerPool.query(`UPDATE device_active_leases SET released_at = transaction_timestamp(), release_reason = 'rotated'
+      WHERE account_id = $1 AND lease_epoch = 1`, [scopeA.accountId]);
+    await ownerPool.query(`INSERT INTO device_lease_epoch_allocations
+      (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)
+      VALUES ($1, $2, 'mutation-ingest-2', 2, 'activated', transaction_timestamp())`, [scopeA.accountId, scopeA.workspaceId]);
+    await ownerPool.query(`INSERT INTO device_active_leases
+      (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
+       offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
+      VALUES ($1, 2, 'device-1', 'mutation-lease-epoch-2', transaction_timestamp() - interval '2 minutes',
+        transaction_timestamp() - interval '1 minute', transaction_timestamp() + interval '5 minutes',
+        transaction_timestamp() + interval '1 hour', decode('02', 'hex'),
+        jsonb_build_object('fixture', 'workspace-mutation-2'), pg_catalog.sha256(decode('02', 'hex')))`, [scopeA.accountId]);
+    const otherEpoch = submittedSyncMutationSchema.parse({ ...submitted("epoch-2-note", 5, 0), activeLeaseEpoch: 2 });
+    await expect(service.ingest(scopeA, pushRequest(otherEpoch))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ fieldPath: "note", lastModifiedRevision: 2 }],
+    });
   });
 
   it("rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry", async () => {
@@ -815,9 +869,11 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(duplicateResults.map((result) => result.accepted && result.assignments[0]?.serverRevision))
       .toEqual([1, 1]);
 
+    // Each was made without the other: whichever lands second is either not the later sequence
+    // or names an older base than the first, so it is stale under either order.
     const sameField = [
       submitted("same-field-a", 2, 1),
-      submitted("same-field-b", 3, 1),
+      submitted("same-field-b", 3, 0),
     ];
     const sameFieldResults = await Promise.all(sameField.map((mutation) =>
       service.ingest(scopeA, pushRequest(mutation))));

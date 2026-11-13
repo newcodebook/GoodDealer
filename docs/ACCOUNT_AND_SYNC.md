@@ -77,6 +77,12 @@ Cloud pull --> strict validation --> conflict decision --> local transaction -->
 同步是本地业务数据库的异步复制机制，不是业务调用链。Cloud transport 失败时，本地事务仍成功，
 并保持待同步状态。Cloud 空结果不是删除指令；删除必须是具名、经过验证并可冲突处理的 Mutation。
 
+Cloud 按字段判定过期：字段最后一次被写入的 revision 大于 Mutation 的 `baseServerRevision` 即为
+`MUTATION_FIELD_STALE`，只有一种例外——那次写入来自同一设备、同一 Lease epoch、更小的设备序号，且其
+base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已应用 head 为 base，所以同一字段在 ACK 前的
+连续编辑都带同一个 base；这些是本设备自己的先后编辑，不是冲突。其他设备、其他 epoch、以更旧 base 提交的
+写入，以及 replay 行已被压缩而无法确认写入者的情况，仍判为过期。
+
 ### 客户同步快照与冲突路由
 
 客户只消费 Native 读取的持久化 `SyncSnapshot`，不消费内部复制 drain 进度。快照包含

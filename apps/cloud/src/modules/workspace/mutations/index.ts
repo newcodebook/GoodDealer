@@ -34,6 +34,7 @@ import type { WorkspaceBindingPort } from "../revisions/index";
 import type { WorkspaceTenantScope } from "../tenant-scope";
 import { workspaceTenantKey } from "../tenant-scope";
 import type { PortfolioMutationPort } from "../state/portfolio/index";
+import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
 
@@ -426,15 +427,20 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     for (const index of request.mutations.keys()) {
       if (!duplicateRevisions.has(index)) proposedRevisionByIndex.set(index, ++proposedRevision);
     }
-    const simulatedFieldRevisions = new Map<string, number>();
+    const simulatedFieldRevisions = new Map<string, { readonly revision: number; readonly writer: MutationWriter }>();
     const staleFailures: MutationIngestFailure[] = [];
+    const records = this.#recordsByRevision.get(workspaceTenantKey(scope));
     for (const [index, mutation] of request.mutations.entries()) {
       if (duplicateRevisions.has(index)) continue;
       for (const field of mutation.changedFields) {
         const key = `${mutation.entityId}\u0000${field.fieldPath}`;
-        const lastModifiedRevision = simulatedFieldRevisions.get(key) ??
+        const batched = simulatedFieldRevisions.get(key);
+        const lastModifiedRevision = batched?.revision ??
           this.#portfolio.readFieldRevision(scope, mutation.entityId, field.fieldPath) ?? 0;
-        if (lastModifiedRevision > mutation.baseServerRevision) {
+        if (lastModifiedRevision <= mutation.baseServerRevision) continue;
+        const stored = records?.get(lastModifiedRevision);
+        const writer = batched?.writer ?? (stored === undefined ? undefined : writerOf(stored));
+        if (!isOwnEarlierWrite(writer, mutation)) {
           staleFailures.push({
             ...failure(index, mutation),
             fieldPath: field.fieldPath,
@@ -446,7 +452,9 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
       const assigned = proposedRevisionByIndex.get(index);
       if (assigned === undefined) throw new TypeError("proposed revision disappeared");
       for (const field of mutation.changedFields) {
-        simulatedFieldRevisions.set(`${mutation.entityId}\u0000${field.fieldPath}`, assigned);
+        simulatedFieldRevisions.set(`${mutation.entityId}\u0000${field.fieldPath}`, {
+          revision: assigned, writer: writerOf(mutation),
+        });
       }
     }
     if (staleFailures.length > 0) return reject("MUTATION_FIELD_STALE", staleFailures);

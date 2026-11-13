@@ -24,6 +24,7 @@ import {
   PostgresWorkspaceMutationRepository,
   type MutationPersistenceFaultPoint,
 } from "./postgres-repository";
+import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
 const MAX_TRANSACTION_ATTEMPTS = 3;
@@ -147,11 +148,14 @@ export class PostgresWorkspaceMutationIngest {
       if (!Number.isSafeInteger(proposedHead)) throw new TypeError("workspace revision overflow");
       assignedRevisionByIndex.set(index, proposedHead);
     }
+    const writers = await this.dependencies.mutations.readWriters(transaction, assets.flatMap((asset) =>
+      Object.values(asset.lastModifiedRevision).filter((value) => value > 0)));
     const staleFailures = findStaleFields(
       request.mutations,
       duplicateRevisionByIndex,
       assignedRevisionByIndex,
       assetsById,
+      writers,
       revision.serverRevision,
     );
     if (staleFailures.length > 0) throw new IngestRejected(reject("MUTATION_FIELD_STALE", staleFailures));
@@ -214,9 +218,10 @@ function findStaleFields(
   duplicates: ReadonlyMap<number, number>,
   assignments: ReadonlyMap<number, number>,
   assets: ReadonlyMap<string, LockedDomainAsset>,
+  writers: ReadonlyMap<number, MutationWriter>,
   headRevision: number,
 ): readonly MutationIngestFailure[] {
-  const simulated = new Map<string, number>();
+  const simulated = new Map<string, { readonly revision: number; readonly writer: MutationWriter }>();
   const failures: MutationIngestFailure[] = [];
   for (const [index, mutation] of mutations.entries()) {
     if (duplicates.has(index)) continue;
@@ -224,14 +229,19 @@ function findStaleFields(
     const asset = assets.get(mutation.entityId);
     for (const field of mutation.changedFields) {
       const key = `${mutation.entityId}\u0000${field.fieldPath}`;
-      const lastModifiedRevision = simulated.get(key) ?? asset?.lastModifiedRevision[field.fieldPath] ?? 0;
-      if (lastModifiedRevision > mutation.baseServerRevision) {
-        failures.push({ ...failure(index, mutation), fieldPath: field.fieldPath, lastModifiedRevision, headRevision });
-      }
+      const batched = simulated.get(key);
+      const lastModifiedRevision = batched?.revision ?? asset?.lastModifiedRevision[field.fieldPath] ?? 0;
+      if (lastModifiedRevision <= mutation.baseServerRevision) continue;
+      const writer = batched?.writer ?? writers.get(lastModifiedRevision);
+      if (isOwnEarlierWrite(writer, mutation)) continue;
+      failures.push({ ...failure(index, mutation), fieldPath: field.fieldPath, lastModifiedRevision, headRevision });
     }
     const assigned = assignments.get(index);
     if (assigned === undefined) throw new TypeError("accepted mutation revision disappeared");
-    for (const field of mutation.changedFields) simulated.set(`${mutation.entityId}\u0000${field.fieldPath}`, assigned);
+    const writer = writerOf(mutation);
+    for (const field of mutation.changedFields) {
+      simulated.set(`${mutation.entityId}\u0000${field.fieldPath}`, { revision: assigned, writer });
+    }
   }
   return failures;
 }

@@ -179,6 +179,23 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     await expect(subject.ingest.ingest(scopeB, request([otherCreate]))).resolves.toMatchObject({ accepted: true });
   });
 
+  it("accepts a device's own consecutive unacknowledged edits of a field but not one from an older base", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    // Both edits were committed locally before the first was acknowledged, so both name base 0.
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })])))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(subject.ingest.ingest(scopeA, request([
+      mutation({ sequence: 2, baseServerRevision: 0 }), mutation({ sequence: 3, baseServerRevision: 0 }),
+    ]))).resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "shared.test")?.tags).toEqual(["tag-0003"]);
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 3 })])))
+      .resolves.toMatchObject({ accepted: true });
+    // A later sequence naming an older base than the device's own last write did not build on it.
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2 })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ lastModifiedRevision: 4 }] });
+  });
+
   it("P20-INV-17/18/19 property: arbitrary acceptance, rejection, and replay never burns a revision", async () => {
     const subject = harness();
     subject.bind(scopeA);
