@@ -78,7 +78,14 @@ Desktop 运行数据库是由 Host 管理的本地 SQLCipher Active Workspace。
    issuer、Provider ingress、Provider worker 凭据互不复用。M015/M019 会在创建 capability schema
    前失败关闭地复核这些角色与 membership。
 5. 从仓库根目录运行 `pnpm test:postgres`。命令自动读取 `.env.local`；不需要先在 shell 中
-   export 变量。
+   export 变量。其中 `workspace-sync-durability.test.ts` 的持续负载默认 15 秒，可用
+   `GOODDEALER_POSTGRES_SOAK_SECONDS` 调整。
+6. 同步持久性证据（容量、持续负载与服务器崩溃恢复）由 `pnpm evidence:wp2:workspace-sync-durability`
+   收集。它会在多租户写入途中杀掉 PostgreSQL 服务器再重启，所以必须由能控制该服务器的环境提供
+   `GOODDEALER_POSTGRES_CRASH_ARGV` 与 `GOODDEALER_POSTGRES_RESTART_ARGV`（JSON argv 数组，不经 shell，
+   只允许 `docker` 或 `pg_ctl`；本机集群用 `pg_ctl -D <data> -m immediate stop` 与对应的 `start`），
+   不得对共享数据库运行。只有 PostgreSQL 18.6 上的 CI 运行（`wp2-workspace-sync-durability`）构成证据；
+   本机版本不同时设 `GOODDEALER_UNQUALIFIED_POSTGRES_DIAGNOSTIC=true`，报告永远不会通过策略。
 
 不得提交 `.env.local`、输出完整连接串，或把本地凭据复用到 CI、预发布或生产。CI 使用工作流
 显式提供的隔离测试凭据；生产凭据由部署环境的秘密管理系统注入。

@@ -27,6 +27,7 @@
     "evidence:wp2:devices-persistence": "node scripts/collect-devices-persistence-report.mjs",
     "evidence:wp2:bootstrap-persistence": "node scripts/collect-bootstrap-persistence-report.mjs",
     "evidence:wp2:workspace-sync-persistence": "node scripts/collect-workspace-sync-persistence-report.mjs",
+    "evidence:wp2:workspace-sync-durability": "node scripts/collect-sync-durability-report.mjs",
     "evidence:wp4": "node scripts/collect-wp0-evidence.mjs --slice cloud-boundary",
     "evidence:wp4:persistence": "node scripts/collect-cloud-persistence-report.mjs",
     "evidence:wp4:jobs": "node scripts/collect-wp0-evidence.mjs --slice jobs",

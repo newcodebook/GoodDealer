@@ -120,6 +120,7 @@ export const repositoryTopology = Object.freeze([
         "collect-workspace-sync-persistence",
         "scripts/collect-workspace-sync-persistence-report.mjs",
       ),
+      publicEntrypoint("collect-sync-durability", "scripts/collect-sync-durability-report.mjs"),
       publicEntrypoint("collect-cloud-persistence", "scripts/collect-cloud-persistence-report.mjs"),
       publicEntrypoint("collect-jobs-persistence", "scripts/collect-jobs-persistence-report.mjs"),
       publicEntrypoint("collect-recovery-persistence", "scripts/collect-recovery-persistence-report.mjs"),
