@@ -250,7 +250,9 @@ impl DesktopSyncRuntime {
                 .cloudflare_retirement_candidates()
                 .map_err(map_database_error)?
                 .into_iter()
-                .filter(|candidate| candidate.pending)
+                .filter(|candidate| {
+                    candidate.action == crate::DesktopCloudflareMaintenanceAction::RetryRetirement
+                })
                 .map(|candidate| database.cloudflare_retirement_seed(&candidate.connection_ref))
                 .collect::<Result<VecDeque<_>, _>>()
                 .map_err(map_database_error)?;

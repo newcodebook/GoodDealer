@@ -36,13 +36,18 @@ impl BusinessDatabase {
                 Ok(crate::DesktopCloudflareRetirementCandidate {
                     connection_ref: row.get(0)?,
                     display_label: row.get(1)?,
-                    pending: row.get(2)?,
+                    action: if row.get(2)? {
+                        crate::DesktopCloudflareMaintenanceAction::RetryRetirement
+                    } else {
+                        crate::DesktopCloudflareMaintenanceAction::Retire
+                    },
                 })
             })
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let candidates = rows
+        let mut candidates = rows
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        candidates.extend(self.cloudflare_revoke_retry_candidates()?);
         if candidates.len() > 64 {
             return Err(BusinessDatabaseError::StorageRejected);
         }
@@ -50,6 +55,44 @@ impl BusinessDatabase {
             validate_local_text(&candidate.connection_ref)?;
             if !crate::portfolio_projection::valid_connection_label(&candidate.display_label) {
                 return Err(BusinessDatabaseError::InvalidInput);
+            }
+        }
+        Ok(candidates)
+    }
+
+    /// Cases 1 and 2 are offered only when the same seed admission the revoke path uses accepts
+    /// them, so the list can never offer a retry that the Host would refuse.
+    fn cloudflare_revoke_retry_candidates(
+        &self,
+    ) -> Result<Vec<crate::DesktopCloudflareRetirementCandidate>, BusinessDatabaseError> {
+        let connection = self.store.raw_connection();
+        let mut statement = connection
+            .prepare(
+                "SELECT connection_id FROM local_provider_connections
+                  WHERE workspace_id=?1 AND provider_kind='cloudflare' AND deleted_at IS NULL
+                    AND lifecycle_status<>'deleted'
+                    AND credential_use_state IN ('revocation_pending','revoked')
+                  ORDER BY connection_id LIMIT 65",
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let connection_ids = statement
+            .query_map([&self.workspace_id], |row| row.get::<_, String>(0))
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let mut candidates = Vec::new();
+        for connection_id in connection_ids {
+            // A refusal is the expected answer for an ordinary confirmed revocation; a storage
+            // failure must fail the whole read rather than silently shrink the list.
+            match self.cloudflare_revocation_seed(&connection_id) {
+                Ok(seed) => candidates.push(crate::DesktopCloudflareRetirementCandidate {
+                    connection_ref: seed.logical_connection_id,
+                    display_label: seed.display_label,
+                    action: crate::DesktopCloudflareMaintenanceAction::RetryRevoke,
+                }),
+                Err(BusinessDatabaseError::InvalidInput | BusinessDatabaseError::MutationStale) => {
+                }
+                Err(error) => return Err(error),
             }
         }
         Ok(candidates)

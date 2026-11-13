@@ -140,10 +140,12 @@ export interface CloudflareProviderOperation {
   readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "zone_unimportable" | "unreachable" | "retry_later" | "credential_rejected" | "failed";
 }
 
+/** The only maintenance the Host admits for a refused credential (ADR-0028). */
+export type CloudflareMaintenanceAction = "retire" | "retry_retirement" | "retry_revoke";
 export interface CloudflareRetirementCandidate {
   readonly connectionRef: string;
   readonly displayLabel: string;
-  readonly pending: boolean;
+  readonly action: CloudflareMaintenanceAction;
 }
 
 export type CloudflareRecordType = "A" | "AAAA" | "CAA" | "CNAME" | "MX" | "NS" | "SRV" | "TXT";
@@ -630,15 +632,17 @@ function parseCloudflareRetirementCandidates(value: unknown): readonly Cloudflar
   }
   const seen = new Set<string>();
   return Object.freeze(record.candidates.map((value: unknown) => {
-    const candidate = exactRecord(value, ["connectionRef", "displayLabel", "pending"]);
-    if (typeof candidate.connectionRef !== "string" || typeof candidate.pending !== "boolean"
+    const candidate = exactRecord(value, ["connectionRef", "displayLabel", "action"]);
+    const actions: readonly CloudflareMaintenanceAction[] = ["retire", "retry_retirement", "retry_revoke"];
+    const action = actions.find((item) => item === candidate.action);
+    if (typeof candidate.connectionRef !== "string" || action === undefined
       || !connectionLabelSchema.safeParse(candidate.displayLabel).success || typeof candidate.displayLabel !== "string") {
       throw new TypeError("invalid retirement candidate");
     }
     const connectionRef = boundedOpaqueRef(candidate.connectionRef);
     if (seen.has(connectionRef)) throw new TypeError("duplicate retirement candidate");
     seen.add(connectionRef);
-    return Object.freeze({ connectionRef, displayLabel: candidate.displayLabel, pending: candidate.pending });
+    return Object.freeze({ connectionRef, displayLabel: candidate.displayLabel, action });
   }));
 }
 

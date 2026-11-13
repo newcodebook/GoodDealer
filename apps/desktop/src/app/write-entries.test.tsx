@@ -187,7 +187,7 @@ describe("write entries follow the presentation gate", () => {
     ["commercial_read_only", ["local:read"], false],
   ] as const)("only writable settings reads cleanup targets for %s %j", async (state, capabilities, writable) => {
     const native = ports(async () => ({ ...cloudflareStatus, capturable: true }));
-    vi.mocked(native.cloudflare.retirementCandidates).mockResolvedValue([{ connectionRef: "refused", displayLabel: "Refused Cloudflare", pending: true }]);
+    vi.mocked(native.cloudflare.retirementCandidates).mockResolvedValue([{ connectionRef: "refused", displayLabel: "Refused Cloudflare", action: "retry_retirement" as const }]);
     await render(state, [...capabilities], native);
     await clickButton("Settings");
     for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });

@@ -211,6 +211,7 @@ const expectedLocalStoragePublicExports = [
   "DesktopCloudflareCustodyComparison",
   "DesktopCloudflareEnvelopeKind",
   "DesktopCloudflareKeychainPlan",
+  "DesktopCloudflareMaintenanceAction",
   "DesktopCloudflarePrewriteFailure",
   "DesktopCloudflareObservationRead",
   "DesktopCloudflareObservationReadRequest",

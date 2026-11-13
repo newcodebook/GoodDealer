@@ -209,7 +209,8 @@ pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{
     DesktopCheckpointExchange, DesktopCloudflareActivationAdmission,
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
-    DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
+    DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan,
+    DesktopCloudflareMaintenanceAction, DesktopCloudflarePrewriteFailure,
     DesktopCloudflareProjectionClaim, DesktopCloudflareProjectionDisposition,
     DesktopCloudflareProjectionWork, DesktopCloudflarePurgeOutcome,
     DesktopCloudflareRecoveryHandle, DesktopCloudflareRecoveryPlan, DesktopCloudflareRecoveryScan,

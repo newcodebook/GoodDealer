@@ -8,7 +8,7 @@ import type { CloudflareConnectionPort } from "./cloudflare-notice";
 import { CloudflareRetirementPanel } from "./cloudflare-retirement-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", pending: false };
+const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", action: "retire" as const };
 const status: CloudflareConnectionStatus = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: null, readGeneration: 1 };
 function port(): CloudflareConnectionPort {
   return {
@@ -50,7 +50,7 @@ describe("Cloudflare local cleanup", () => {
 
   it("resumes pending requests without confirmation and preserves unknown results", async () => {
     const native = port();
-    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, pending: true }]);
+    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, action: "retry_retirement" as const }]);
     await mount(native);
     expect(container.textContent).toContain("清理未完成");
     await click("重试清理");
@@ -65,7 +65,7 @@ describe("Cloudflare local cleanup", () => {
     await mount(native);
     await click("清理");
     vi.mocked(native.purge).mockRejectedValueOnce(new Error("lost response"));
-    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, pending: true }]);
+    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, action: "retry_retirement" as const }]);
     await click("确认清理");
     expect(container.textContent).toContain("重试清理");
     expect(native.purge).toHaveBeenCalledTimes(1);
@@ -86,6 +86,31 @@ describe("Cloudflare local cleanup", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(container.textContent).toContain("本机清理已完成");
     expect(native.purge).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a refused revocation without confirmation or deletion and reports only a confirmed revoke", async () => {
+    const native = port();
+    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, action: "retry_revoke" as const }]);
+    await mount(native);
+    expect(container.textContent).toContain("撤销未完成");
+    vi.mocked(native.retirementCandidates).mockResolvedValueOnce([]);
+    vi.mocked(native.status).mockResolvedValueOnce({ ...status, lastOperation: { kind: "revoke", outcome: "confirmed" } });
+    await click("重试撤销");
+    expect(native.revoke).toHaveBeenCalledExactlyOnceWith("opaque");
+    expect(native.purge).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain("已在本设备撤销");
+  });
+
+  it("does not treat a confirmed purge as a revoke retry result", async () => {
+    const native = port();
+    vi.mocked(native.retirementCandidates).mockResolvedValue([{ ...candidate, action: "retry_revoke" as const }]);
+    await mount(native);
+    vi.mocked(native.retirementCandidates).mockResolvedValueOnce([]);
+    vi.mocked(native.status).mockResolvedValueOnce({ ...status, lastOperation: { kind: "purge", outcome: "confirmed" } });
+    await click("重试撤销");
+    expect(container.textContent).toContain("无法确认撤销结果");
+    expect(container.textContent).not.toContain("已在本设备撤销");
   });
 
   it("keeps unsupported or busy hosts from reaching the confirmation action", async () => {

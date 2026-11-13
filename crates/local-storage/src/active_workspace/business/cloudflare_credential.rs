@@ -2801,6 +2801,18 @@ mod tests {
         );
     }
 
+    fn revoke_retry_targets(database: &BusinessDatabase) -> Vec<String> {
+        database
+            .cloudflare_retirement_candidates()
+            .unwrap()
+            .into_iter()
+            .filter(|candidate| {
+                candidate.action == crate::DesktopCloudflareMaintenanceAction::RetryRevoke
+            })
+            .map(|candidate| candidate.connection_ref)
+            .collect()
+    }
+
     #[test]
     fn cancelled_revoke_retries_the_same_generation_without_losing_the_old_attempt() {
         let mut database = database();
@@ -2821,9 +2833,15 @@ mod tests {
                 .cloudflare_revocation_seed(&first.logical_connection_id)
                 .is_err()
         );
+        // A live intent is never offered as a retry target.
+        assert!(revoke_retry_targets(&database).is_empty());
         database
             .recover_cloudflare_credential_orphans_guarded(AT, || Ok(()))
             .unwrap();
+        assert_eq!(
+            revoke_retry_targets(&database),
+            vec![first.logical_connection_id.clone()]
+        );
         let seed = database
             .cloudflare_revocation_seed(&first.logical_connection_id)
             .unwrap();
@@ -2861,6 +2879,8 @@ mod tests {
                     (SELECT count(*) FROM cloudflare_credential_generation_ledger), credential_use_state
                FROM local_provider_connections", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
         assert_eq!(rows, (1, 2, "revoked".to_owned()));
+        // An ordinary confirmed revocation offers no further maintenance.
+        assert!(revoke_retry_targets(&database).is_empty());
     }
 
     #[test]
@@ -2884,6 +2904,10 @@ mod tests {
                 &CloudflareCredentialRecoveryObservation::Canonical(target(&first))
             ),
             CloudflareCredentialResolution::TargetNotObservedBurned
+        );
+        assert_eq!(
+            revoke_retry_targets(&database),
+            vec![first.logical_connection_id.clone()]
         );
         assert!(
             database

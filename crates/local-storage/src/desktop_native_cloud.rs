@@ -35,7 +35,20 @@ pub enum DesktopCloudflarePurgeOutcome {
 pub struct DesktopCloudflareRetirementCandidate {
     pub connection_ref: String,
     pub display_label: String,
-    pub pending: bool,
+    pub action: DesktopCloudflareMaintenanceAction,
+}
+
+/// The only maintenance the Host will admit for a refused credential (ADR-0028). Cases 1 and 2
+/// still hold an exact baseline and are revoked again; cases 3 and 4 can only be retired.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopCloudflareMaintenanceAction {
+    /// Case 3/4 without a request yet: the first retirement needs explicit user confirmation.
+    Retire,
+    /// A durable, irreversible retirement request whose slot deletion is not yet confirmed.
+    RetryRetirement,
+    /// Case 1/2: a revocation that can be prepared again against the recorded exact baseline.
+    RetryRevoke,
 }
 
 /// One-shot Host handle issued only after the irreversible retirement request commits.
@@ -2285,7 +2298,10 @@ mod tests {
         let candidates = local_host.read_cloudflare_retirement_candidates().unwrap();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].connection_ref, connection);
-        assert!(!candidates[0].pending);
+        assert_eq!(
+            candidates[0].action,
+            crate::DesktopCloudflareMaintenanceAction::Retire
+        );
         // The first writable-open scan freezes an empty set of pending requests.
         assert!(
             local_host
@@ -2297,7 +2313,10 @@ mod tests {
         let retirement = local_host
             .request_cloudflare_retirement(admission, &connection)
             .unwrap();
-        assert!(local_host.read_cloudflare_retirement_candidates().unwrap()[0].pending);
+        assert_eq!(
+            local_host.read_cloudflare_retirement_candidates().unwrap()[0].action,
+            crate::DesktopCloudflareMaintenanceAction::RetryRetirement
+        );
         local_host
             .resolve_cloudflare_retirement(retirement, DesktopCloudflarePurgeOutcome::Unknown)
             .unwrap();

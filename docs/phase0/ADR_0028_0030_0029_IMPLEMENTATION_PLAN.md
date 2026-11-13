@@ -11,10 +11,10 @@
 
 | 批次 | 所有者与范围 | 验收条件 | 依赖与状态 |
 | --- | --- | --- | --- |
-| A0 | local-storage：确切基线撤销重试；保留已取消尝试，前向迁移 credential schema V3。 | 取消重试、burned 重试、恢复、基线不符、权限栅栏与迁移保留证据测试。 | 已实现；上一批根检查通过；专用界面入口待 A3。 |
+| A0 | local-storage：确切基线撤销重试；保留已取消尝试，前向迁移 credential schema V3。 | 取消重试、burned 重试、恢复、基线不符、权限栅栏与迁移保留证据测试。 | 已实现；专用界面入口已在 A3 接入。 |
 | A1 | local-storage：持久退役请求、终止 recovery intent、退役完成与准入阻断；schema V4。 | prepared/prewrite/write-started 拒绝退役；recovery_required 只可原子放弃；不伪造账本；请求/完成不可回退；迟到回调零写入；连接证据保留。 | 已实现，专项测试及本批根检查通过，依赖 A0。 |
 | A2 | Native Host 与 secure-host-core：不透明退役计划、准入工作区推导槽位、同锁删除与不存在回读。 | 错误工作区/incarnation、无请求、过期准入被拒绝；Unknown 保留请求；非 macOS 不可用；不解析未知槽位内容、不返回 Token。 | Host、Secure Host 及 Native 生产适配已实现；macOS 真实 custody 资格待取得，依赖 A1。 |
-| A3 | Desktop 编排、设置与恢复：首次确认、清理/重试入口、每次可写打开每 incarnation 一次；备份恢复单调合并。 | 两段式每个崩溃点可恢复；不与凭据写入交错；recovery_required 不阻止清理自身；退役行隐藏；旧备份不回退请求/完成；本地清理与 Cloudflare 吊销文案准确。 | 清理通道、首次确认/手动重试、可写打开单次重试及备份保留已实现；情况 1、2 的专用撤销重试界面与 macOS 资格仍待完成，依赖 A2。 |
+| A3 | Desktop 编排、设置与恢复：首次确认、清理/重试入口、每次可写打开每 incarnation 一次；备份恢复单调合并。 | 两段式每个崩溃点可恢复；不与凭据写入交错；recovery_required 不阻止清理自身；退役行隐藏；旧备份不回退请求/完成；本地清理与 Cloudflare 吊销文案准确。 | 清理通道、首次确认/手动重试、可写打开单次重试及备份保留已实现；情况 1、2 的专用撤销重试入口已由 Host 动作 `retry_revoke` 驱动；仅 macOS 实机资格待完成。 |
 | B1 | protocol、Cloud devices：独立结果 envelope 与 drain proof/manifest 版本、保留旧证据及 accepted 链重建。 | 冻结 mutation wire/digest 不变；新旧版本不混算；缺失证据失败关闭；execution_fact/device_audit 合同不变。 | 待实施，ADR-0030 的第一批。 |
 | B2 | Cloud mutations/PostgreSQL：accepted/rejected 联合 ledger、权限与前向迁移；单项业务拒绝和序号/drain 同事务提交。 | 先查回执；全局设备序号唯一；接受/拒绝竞争只占用一次；多项失败全回滚；存储失败可重试；响应丢失精确重放；跨租户/epoch/lease/seal 负向测试。 | 待实施，依赖 B1；兼容链未就绪不启用生产拒绝计入 drain。 |
 | B3 | Desktop/local-storage：持久化 Cloud 终止结果，生成同版本 drain 证据，串通设备切换验证。 | 响应落盘前崩溃不自行终结序号；拒绝后后续同步及 drain 成功；无持久回执的输入/schema 拒绝保留缺口。 | 待实施，依赖 B2；PostgreSQL 资格通过后关闭 ADR-0030。 |

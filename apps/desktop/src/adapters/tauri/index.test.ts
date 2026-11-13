@@ -79,10 +79,10 @@ describe("Desktop Tauri local-business adapter", () => {
   });
 
   it("validates cleanup targets and sends only closed first-confirmed or pending-retry actions", async () => {
-    const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", pending: true };
+    const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", action: "retry_revoke" };
     invokeMock.mockResolvedValueOnce({ schemaVersion: 1, candidates: [candidate] });
     await expect(createCloudflarePort().retirementCandidates()).resolves.toEqual([candidate]);
-    for (const candidates of [[{ ...candidate, digest: "leak" }], [{ ...candidate, pending: "yes" }], [candidate, candidate], [{ ...candidate, connectionRef: "with space" }], Array(65).fill(candidate)]) {
+    for (const candidates of [[{ ...candidate, digest: "leak" }], [{ ...candidate, action: "yes" }], [{ ...candidate, action: undefined }], [{ connectionRef: "opaque", displayLabel: "Cloudflare DNS", pending: true }], [candidate, candidate], [{ ...candidate, connectionRef: "with space" }], Array(65).fill(candidate)]) {
       invokeMock.mockResolvedValueOnce({ schemaVersion: 1, candidates });
       await expect(createCloudflarePort().retirementCandidates()).rejects.toThrow(TypeError);
     }
