@@ -7,6 +7,7 @@ import {
   DRAIN_STREAM_GENESIS_DIGEST,
   encodeDrainChainStepInput,
   encodeDrainStreamEnvelope,
+  encodeMutationDrainResultEnvelope,
 } from "@gooddealer/protocol/execution-events";
 import { submittedSyncMutationSchema } from "@gooddealer/protocol/workspace";
 
@@ -725,6 +726,64 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     });
   });
 
+  it("seals a v2 proof only against the accepted result chain rebuilt from retained v1 evidence", async () => {
+    await seedDirectMutationSealAuthority();
+    const envelopes = [Buffer.from("v2-chain-one", "utf8"), Buffer.from("v2-chain-two", "utf8")];
+    for (const [index, envelope] of envelopes.entries()) {
+      await transactions.withTenant(scopeA, (transaction) => transaction.query(
+        `SELECT public.workspace_mutation_drain_append_record($1::text, $2::bigint, $3::bigint, $4::bytea)`,
+        ["device-1", 1, index + 1, envelope],
+      ));
+    }
+    const sha256 = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    let v2Digest = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const envelope of envelopes) {
+      v2Digest = sha256(encodeDrainChainStepInput(
+        v2Digest,
+        encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: sha256(envelope) }),
+      ));
+    }
+    const v1Head = await transactions.withTenant(scopeA, (transaction) => transaction.query<{ rolling_digest: Buffer }>(`
+      SELECT rolling_digest FROM mutation_drain_heads
+      WHERE source_device_id = 'device-1' AND active_lease_epoch = 1`));
+    const v1Digest = v1Head.rows[0]?.rolling_digest;
+    if (v1Digest === undefined) throw new TypeError("v2 seal test head is absent");
+    expect(v1Digest.equals(v2Digest)).toBe(false);
+
+    const sealOnce = (proofId: string) => transactions.withTenant(scopeA, async (transaction) => {
+      await transaction.query(`SELECT accepted FROM public.device_consume_drain_proof(
+        $1::text, $2::bytea, $3::text, $4::bigint, $5::text)`,
+      [proofId, Buffer.alloc(32, 6), "direct-app-seal-workflow", 1, "device-2"]);
+      const installed = await transaction.query<{ accepted: boolean }>(
+        `SELECT public.workspace_mutation_drain_install_accepted_seal($1::text) AS accepted`, [proofId]);
+      if (installed.rows[0]?.accepted !== true) throw new Error(`seal refused for ${proofId}`);
+      return transaction.query<{ rolling_digest: Buffer; proof_schema_version: number }>(`
+        SELECT rolling_digest, proof_schema_version FROM mutation_drain_seals WHERE proof_id = $1`, [proofId]);
+    });
+
+    // A v2 proof that claims the v1 digest of the same records is never verified against v1.
+    await seedDirectMutationSealProof("v2-claims-v1-digest", 2, v1Digest, 2);
+    await expect(sealOnce("v2-claims-v1-digest")).rejects.toThrow("seal refused for v2-claims-v1-digest");
+    await seedDirectMutationSealProof("v1-claims-v2-digest", 2, v2Digest);
+    await expect(sealOnce("v1-claims-v2-digest")).rejects.toThrow("seal refused for v1-claims-v2-digest");
+
+    await seedDirectMutationSealProof("v2-valid", 2, v2Digest, 2);
+    const sealed = await sealOnce("v2-valid");
+    expect(sealed.rows).toHaveLength(1);
+    expect(sealed.rows[0]?.proof_schema_version).toBe(2);
+    expect(sealed.rows[0]?.rolling_digest.equals(v2Digest)).toBe(true);
+
+    // Retained v1 evidence is unchanged: the derived head still carries the v1 chain and the
+    // unconsumed historical proof row defaulted to schema v1.
+    const retained = await withOwnerTenant(scopeA, (transaction) => transaction.query<{
+      rolling_digest: Buffer; historical_version: number;
+    }>(`SELECT h.rolling_digest,
+        (SELECT proof_schema_version FROM device_drain_proofs WHERE proof_id = 'direct-app-mismatched-proof') AS historical_version
+      FROM mutation_drain_heads AS h WHERE h.source_device_id = 'device-1' AND h.active_lease_epoch = 1`));
+    expect(retained.rows[0]?.rolling_digest.equals(v1Digest)).toBe(true);
+    expect(retained.rows[0]?.historical_version).toBe(1);
+  });
+
   it("serializes a real Drain transition against mutation ingest with one coherent winner", async () => {
     await seedDrainRace();
     const ingest = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
@@ -1198,12 +1257,14 @@ async function seedDirectMutationSealProof(
   proofId: string,
   deviceMutationSequence: number,
   mutationDigest: Buffer,
+  proofSchemaVersion?: 2,
 ): Promise<void> {
   await withOwnerTenant(scopeA, (transaction) => seedDirectMutationSealProofInTransaction(
     transaction,
     proofId,
     deviceMutationSequence,
     mutationDigest,
+    proofSchemaVersion,
   ));
 }
 
@@ -1212,18 +1273,21 @@ function seedDirectMutationSealProofInTransaction(
   proofId: string,
   deviceMutationSequence: number,
   mutationDigest: Buffer,
+  proofSchemaVersion?: 2,
 ) {
+  // Omitting the version exercises the migration default that keeps historical proofs at v1.
   return transaction.query(`INSERT INTO device_drain_proofs
     (account_id, workspace_id, proof_id, proof_digest, purpose, workflow_id, source_device_id,
      active_lease_epoch, signing_key_id, signing_key_version, issued_at, expires_at, verified_at,
      device_mutation_sequence, mutation_digest, execution_fact_sequence, execution_fact_digest,
-     device_audit_sequence, device_audit_digest)
+     device_audit_sequence, device_audit_digest${proofSchemaVersion === undefined ? "" : ", proof_schema_version"})
     VALUES ($1, $2, $3, $4, 'handoff', 'direct-app-seal-workflow', 'device-1', 1,
       'direct-app-seal-key', 1, transaction_timestamp() - interval '1 minute',
       transaction_timestamp() + interval '5 minutes', transaction_timestamp(),
-      $5, $6, 0, $7, 0, $8)`, [
+      $5, $6, 0, $7, 0, $8${proofSchemaVersion === undefined ? "" : ", $9"})`, [
     scopeA.accountId, scopeA.workspaceId, proofId, Buffer.alloc(32, 6), deviceMutationSequence,
     mutationDigest, Buffer.alloc(32, 7), Buffer.alloc(32, 8),
+    ...(proofSchemaVersion === undefined ? [] : [proofSchemaVersion]),
   ]);
 }
 

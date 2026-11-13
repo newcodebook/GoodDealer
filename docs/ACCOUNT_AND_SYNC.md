@@ -92,7 +92,7 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 `MUTATION_DRAIN_SEALED`、`MUTATION_BASE_REVISION_AHEAD`（只在 Cloud 状态回退时出现）与
 `MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。Cloud 接受序号缺口，但设备切换的 drain
 验证要求序号连续，被拒绝序号如何结束见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
-（Accepted，尚未实现）。
+（Accepted，实现中：drain proof v2 与结果 envelope 已交付，拒绝回执与 Desktop proof 尚未启用）。
 
 ### Cloudflare 本机凭据清理
 

@@ -279,6 +279,7 @@ export class DrainVerifier implements DrainVerificationPort {
         sourceDeviceId: proof.sourceDeviceId,
         activeLeaseEpoch: proof.activeLeaseEpoch,
         stream,
+        proofSchemaVersion: proof.schemaVersion,
       });
     } catch {
       return {

@@ -207,6 +207,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       });
       let result;
       if (step % 5 === 0 && accepted.length > 0) {
@@ -241,6 +242,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
           sourceDeviceId: "shared-device",
           activeLeaseEpoch: 7,
           stream: "mutation",
+          proofSchemaVersion: 1,
         })).toEqual(watermarkBefore);
       }
     }
@@ -268,6 +270,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       })).toMatchObject({ contiguousReceivedThrough: 0, highestReceivedSequence: 0 });
     });
   }
@@ -319,6 +322,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "shared-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual({
       contiguousReceivedThrough: 0,
       highestReceivedSequence: 0,
@@ -334,6 +338,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
     };
 
@@ -370,6 +375,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "shared-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(aBefore.watermark);
   });
 
@@ -388,6 +394,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "standby-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
     };
     expect(await subject.ingest.ingest(scopeA, request([standbyMutation]))).toMatchObject({
@@ -405,6 +412,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "standby-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(before.watermark);
     const cursorSource = readFileSync(new URL("../src/modules/workspace/cursors/index.ts", import.meta.url), "utf8");
     expect(cursorSource).not.toMatch(/from ["']\.\.\/(mutations|revisions)/);

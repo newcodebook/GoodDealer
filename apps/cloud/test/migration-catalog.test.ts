@@ -155,6 +155,16 @@ const expectedCatalog = [
     owner: "identity",
     checksum: "1f6a78085fd7080c78c7af7bf9da8f1c87cea17027fd62f0eef65b4932de1947",
   },
+  {
+    id: "202611130001-drain-proof-schema-version",
+    owner: "devices",
+    checksum: "e39b9763a756164c352834540f0c3a7ca9ab535dc23a22eef6a4c6d96737be97",
+  },
+  {
+    id: "202611130002-mutation-drain-result-chain",
+    owner: "workspace/mutations",
+    checksum: "933171c32adbf804bd7421c7e03d3ebfeb7e633d26d532fd15eac91afed82e2b",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -181,7 +191,8 @@ describe("Cloud migration catalog", () => {
       + "  syncV2LedgerMigration,\n  workspaceCheckpointV2Migration,\n  cloudflareDnsObservationMigration,\n"
       + "  accountRecoveryMigration,\n  commercialEntitlementSnapshotMigration,\n"
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
-      + "  desktopCodeLoopbackRedirectMigration,\n];",
+      + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
+      + "  mutationDrainResultChainMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -194,7 +205,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(27);
+    expect(checkedCloudMigrationCatalog).toHaveLength(29);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

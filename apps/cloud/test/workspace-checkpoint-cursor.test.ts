@@ -223,6 +223,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       sourceDeviceId: "device-a",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toMatchObject({ contiguousReceivedThrough: 3, highestReceivedSequence: 3 });
   });
 
@@ -253,6 +254,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
         sourceDeviceId: "device-b",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
       deviceCursors: subject.deviceCursors.snapshot(scope),
     };
@@ -317,6 +319,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       sourceDeviceId: "device-b",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(before.watermark);
     expect(subject.deviceCursors.snapshot(scope)).toEqual(before.deviceCursors);
     const source = readFileSync(new URL("../src/modules/workspace/cursors/index.ts", import.meta.url), "utf8");

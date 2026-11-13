@@ -15,9 +15,9 @@
 | A1 | local-storage：持久退役请求、终止 recovery intent、退役完成与准入阻断；schema V4。 | prepared/prewrite/write-started 拒绝退役；recovery_required 只可原子放弃；不伪造账本；请求/完成不可回退；迟到回调零写入；连接证据保留。 | 已实现，专项测试及本批根检查通过，依赖 A0。 |
 | A2 | Native Host 与 secure-host-core：不透明退役计划、准入工作区推导槽位、同锁删除与不存在回读。 | 错误工作区/incarnation、无请求、过期准入被拒绝；Unknown 保留请求；非 macOS 不可用；不解析未知槽位内容、不返回 Token。 | Host、Secure Host 及 Native 生产适配已实现；macOS 真实 custody 资格待取得，依赖 A1。 |
 | A3 | Desktop 编排、设置与恢复：首次确认、清理/重试入口、每次可写打开每 incarnation 一次；备份恢复单调合并。 | 两段式每个崩溃点可恢复；不与凭据写入交错；recovery_required 不阻止清理自身；退役行隐藏；旧备份不回退请求/完成；本地清理与 Cloudflare 吊销文案准确。 | 清理通道、首次确认/手动重试、可写打开单次重试及备份保留已实现；情况 1、2 的专用撤销重试入口已由 Host 动作 `retry_revoke` 驱动；仅 macOS 实机资格待完成。 |
-| B1 | protocol、Cloud devices：独立结果 envelope 与 drain proof/manifest 版本、保留旧证据及 accepted 链重建。 | 冻结 mutation wire/digest 不变；新旧版本不混算；缺失证据失败关闭；execution_fact/device_audit 合同不变。 | 待实施，ADR-0030 的第一批。 |
+| B1 | protocol、Cloud devices：独立结果 envelope 与 drain proof/manifest 版本、保留旧证据及 accepted 链重建。 | 冻结 mutation wire/digest 不变；新旧版本不混算；缺失证据失败关闭；execution_fact/device_audit 合同不变。 | 已实现：结果 envelope、proof v2、按版本验证与 PostgreSQL v2 seal 重建；PostgreSQL 18.6 资格以 PR CI 为准。 |
 | B2 | Cloud mutations/PostgreSQL：accepted/rejected 联合 ledger、权限与前向迁移；单项业务拒绝和序号/drain 同事务提交。 | 先查回执；全局设备序号唯一；接受/拒绝竞争只占用一次；多项失败全回滚；存储失败可重试；响应丢失精确重放；跨租户/epoch/lease/seal 负向测试。 | 待实施，依赖 B1；兼容链未就绪不启用生产拒绝计入 drain。 |
-| B3 | Desktop/local-storage：持久化 Cloud 终止结果，生成同版本 drain 证据，串通设备切换验证。 | 响应落盘前崩溃不自行终结序号；拒绝后后续同步及 drain 成功；无持久回执的输入/schema 拒绝保留缺口。 | 待实施，依赖 B2；PostgreSQL 资格通过后关闭 ADR-0030。 |
+| B3 | Desktop/local-storage：持久化 Cloud 终止结果，生成同版本 drain 证据，串通设备切换验证。 | 响应落盘前崩溃不自行终结序号；拒绝后后续同步及 drain 成功；无持久回执的输入/schema 拒绝保留缺口。 | 待实施，依赖 B2；proof 接受路径写入 `device_drain_proofs` 时必须保存 `proof.schemaVersion`（默认 1 会让 v2 失败关闭）；B2 引入拒绝回执后内存账本的 v2 重建须改为按结果 ledger。PostgreSQL 资格通过后关闭 ADR-0030。 |
 | C1 | protocol、Cloud、本地存储：generation 迁移与 wire 版本；首次添加 generation 1；删除 ingest、墓碑物化及重建。 | 普通 upsert/delete generation 精确匹配；删除可 ACK/拉取；checkpoint、rebootstrap、连续性恢复保留墓碑与 generation。 | 待实施；可先于 B3 开发，重新添加入口须等 B3 完成。 |
 | C2 | local-storage/Host 与 Cloud：已确认墓碑上重新添加、暂定指针、实体冻结、ACK 确认与拒绝撤回。 | ACK/pending 与 replicated/replicated 墓碑可用；contested、未 ACK、未结束 Outbox/冲突拒绝；冻结涵盖冲突裁决；撤回保留 Outbox/字段/创建标记；同一 g+1 可再次尝试。 | 待实施，依赖 B3、C1。 |
 | C3 | 备份、Inbox、快照、连续性恢复与 Desktop 界面：按已确认 generation 拒绝旧数据，解释可重加条件。 | 旧格式按 generation 1；旧备份/旧设备 mutation 不复活前代；暂定期间旧墓碑不覆盖新行；跨设备删除后重新添加成功；并发只接受一次。 | 待实施，依赖 C2；PostgreSQL 资格通过后关闭 ADR-0029。 |
@@ -41,7 +41,9 @@
 - 自动重试：Host 可写运行时快照仅记录本次打开已有的请求，每 incarnation 消费一次；首次确认新请求前冻结旧集合，后续 wake 不重试失败或本次新请求。
 - 备份：现行格式不恢复凭据控制数据；业务白名单合并保持当前请求与完成时间，无需给备份增加凭据表合并。新增旧快照恢复同时保留 pending/retired 的回归测试。
 - 本批验证：根 `pnpm check` 通过（含平台中立检查与 Rust workspace/all-targets）；local-storage 326 passed、6 ignored，Desktop Native 69 passed，secure-host-core 37 passed。随后最新 Desktop 310 项测试与类型检查通过；`cargo fmt --all --check`、`git diff --check` 通过。接手复核时发现 `cargo clippy --workspace --all-targets -D warnings` 未通过（根 `pnpm check` 不含 Rust lint），已修正测试闭包模式、一次性句柄的按值消费说明、超长测试说明与整数转换；修正后 clippy 通过。持久证据以 PR CI 运行为准。
-- 下一批：补情况 1、2 的专用撤销重试界面及剩余验收证据，再进入 B1。macOS 真实 custody 资格单独取得；本机 Linux 检查不能替代。
+- A3 收尾：设置页按 Host 给出的 `retry_revoke` 动作提供情况 1、2 撤销重试（无首次确认、不删除），仅在撤销确认且目标消失后显示成功；候选读取对存储故障失败关闭。macOS 真实 custody 资格单独取得；本机 Linux 检查不能替代。
+- B1：协议 `encodeMutationDrainResultEnvelope`（二进制、独立 domain，只接收已算好的 32 字节摘要）与 proof schema v2（typ、codec、签名/摘要 domain 同步升级；v1 字节冻结测试保留）。Cloud `DrainStreamWatermarkPort` 必须带 proof 版本；内存 mutation 账本从保留 envelope 重建 v2 accepted 链。PostgreSQL 迁移 `202611130001`（devices）为 proof 增加版本列并提供只供 definer 使用的读取函数，`202611130002`（workspace/mutations）替换 mutation seal：v2 逐条核对 `envelope_digest = sha256(canonical_envelope)` 后按与 TypeScript 逐字节一致的结果 envelope 成链，seal 行记录版本。独立 Python 计算的结果链向量与 PostgreSQL 实测一致；本机 PostgreSQL 18.4 诊断运行受影响的 4 个套件 57 项通过（非资格）。
+- 下一批：B2（结果联合 ledger、单项业务拒绝与回执同事务）。
 
 上位执行计划：[Phase 0 执行计划](PHASE0_EXECUTION_PLAN.md)。
 架构依据：[ADR-0028](../adr/0028-refused-cloudflare-custody-purge.md)、

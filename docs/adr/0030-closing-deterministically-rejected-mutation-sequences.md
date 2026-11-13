@@ -1,6 +1,6 @@
 # ADR-0030：结束被确定性拒绝的 mutation 设备序号
 
-状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；尚未实现。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
+状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1 已实现，B2/B3 待实施）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
 [ADR-0005](0005-single-active-device-and-continuity.md) 的 drain 合同。
 
 ## 背景
@@ -93,3 +93,13 @@ drain 合同，因而需要本 ADR。
 - Desktop 在响应落盘前崩溃时不自行终结序号，重试恢复后结果与 Cloud 一致。
 
 完成条件：上述验证与相关完整检查通过；本 ADR 接受及兼容链交付前不启用生产路径。
+
+## 实施状态
+
+B1 已实现：协议新增独立结果 envelope `GOODDEALER-MUTATION-DRAIN-RESULT-V1`（二进制布局，绑定冻结提交 envelope
+的 SHA-256 与 `accepted`/`rejected`，不含拒绝 code）与 drain proof schema v2（`gd.drain-proof.v2`、codec 2、
+独立签名/摘要 domain）；v1 proof、mutation wire 与既有摘要字节不变，版本不可混算。Cloud 验证按 proof 版本
+读取水位；PostgreSQL 前向迁移 `202611130001`（devices，proof 版本，历史行为 v1）与 `202611130002`
+（workspace/mutations，v2 seal 从保留的 v1 记录重建 accepted 链，记录摘要不符即失败关闭）。拒绝结果入链
+等 B2 的结果 ledger；生产拒绝回执与 Desktop v2 proof 均未启用。
+批次与验收见[专项落地计划](../phase0/ADR_0028_0030_0029_IMPLEMENTATION_PLAN.md)。

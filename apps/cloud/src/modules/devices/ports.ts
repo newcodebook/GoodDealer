@@ -1,6 +1,7 @@
 import { bootstrapCapabilityEnvelopeSchema } from "@gooddealer/protocol/devices";
 import {
   DRAIN_STREAM_GENESIS_DIGEST,
+  type DrainProofSchemaVersion,
   type DrainStream,
 } from "@gooddealer/protocol/execution-events";
 import type { CheckpointDescriptor, MutationPage } from "@gooddealer/protocol/workspace";
@@ -199,10 +200,16 @@ export interface TransactionalMutationAuthorityPort {
 }
 
 export interface DrainStreamWatermarkPort {
+  /**
+   * `proofSchemaVersion` selects the chain the claim was computed over. Only the mutation stream
+   * differs (v2 chains ADR-0030 result envelopes); execution_fact and device_audit envelopes are
+   * identical in both versions, so their ledgers may ignore it.
+   */
   readWatermark(scope: WorkspaceTenantScope, domain: {
     readonly sourceDeviceId: string;
     readonly activeLeaseEpoch: number;
     readonly stream: DrainStream;
+    readonly proofSchemaVersion: DrainProofSchemaVersion;
   }): Promise<{
     readonly contiguousReceivedThrough: number;
     readonly highestReceivedSequence: number;

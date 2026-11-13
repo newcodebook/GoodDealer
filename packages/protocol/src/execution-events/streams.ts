@@ -140,6 +140,37 @@ function executionFactWithoutServerEnrichment(record: ExecutionFact): ExecutionF
   return executionFactSchema.parse(copy);
 }
 
+export const MUTATION_DRAIN_RESULT_DOMAIN = "GOODDEALER-MUTATION-DRAIN-RESULT-V1" as const;
+export const MUTATION_DRAIN_OUTCOMES = ["accepted", "rejected"] as const;
+export type MutationDrainOutcome = (typeof MUTATION_DRAIN_OUTCOMES)[number];
+
+/**
+ * ADR-0030 drain-only result envelope, chained by drain proof schema v2 for the mutation stream.
+ *
+ * It binds the SHA-256 of the frozen submitted envelope (`encodeDrainStreamEnvelope("mutation", …)`,
+ * whose bytes and digest stay unchanged because mutation commit evidence also uses them) to the
+ * outcome Cloud durably recorded. The rejection code stays in the receipt and never enters this
+ * envelope. The layout is binary so PostgreSQL can rebuild it byte-exactly from retained records:
+ * `u32be(len) ‖ domain ‖ u32be(len) ‖ outcome ‖ u32be(32) ‖ submittedEnvelopeDigest`.
+ * Protocol code never hashes, so callers pass the digest they computed or stored.
+ */
+export function encodeMutationDrainResultEnvelope(input: {
+  readonly outcome: MutationDrainOutcome;
+  readonly submittedEnvelopeDigest: Uint8Array;
+}): Uint8Array {
+  if (!MUTATION_DRAIN_OUTCOMES.includes(input.outcome)) {
+    throw new TypeError("mutation drain outcome is not recognized");
+  }
+  if (!(input.submittedEnvelopeDigest instanceof Uint8Array) || input.submittedEnvelopeDigest.byteLength !== 32) {
+    throw new TypeError("submitted envelope digest must contain exactly 32 bytes");
+  }
+  return concatenateDrainBytes([
+    encodeLengthPrefixedDrainBytes(encoder.encode(MUTATION_DRAIN_RESULT_DOMAIN)),
+    encodeLengthPrefixedDrainBytes(encoder.encode(input.outcome)),
+    encodeLengthPrefixedDrainBytes(input.submittedEnvelopeDigest),
+  ]);
+}
+
 export function encodeDrainStreamEnvelope(
   stream: "mutation",
   record: SubmittedSyncMutation | SyncMutation,

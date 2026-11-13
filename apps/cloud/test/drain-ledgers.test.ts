@@ -51,7 +51,7 @@ class InMemoryMutationDrainWatermarks {
     return this.#delegate.installAcceptedDrainSeal(scope, input);
   }
 
-  readWatermark(input: typeof domain & { readonly stream: "mutation" }) {
+  readWatermark(input: typeof domain & { readonly stream: "mutation"; readonly proofSchemaVersion: 1 | 2 }) {
     return this.#delegate.readWatermark(scope, input);
   }
 }
@@ -79,7 +79,7 @@ class InMemoryDeviceAuditLedger {
     return this.#delegate.quarantined(scope);
   }
 
-  readWatermark(input: typeof domain & { readonly stream: "device_audit" }) {
+  readWatermark(input: typeof domain & { readonly stream: "device_audit"; readonly proofSchemaVersion: 1 | 2 }) {
     return this.#delegate.readWatermark(scope, input);
   }
 
@@ -115,7 +115,7 @@ class InMemoryExecutionLedger {
     return this.#delegate.accepted(scope);
   }
 
-  readWatermark(input: typeof domain & { readonly stream: "execution_fact" }) {
+  readWatermark(input: typeof domain & { readonly stream: "execution_fact"; readonly proofSchemaVersion: 1 | 2 }) {
     return this.#delegate.readWatermark(scope, input);
   }
 }
@@ -166,7 +166,7 @@ describe("per-module drain watermark ledgers", () => {
     const first = new TextEncoder().encode("mutation-1");
     const second = new TextEncoder().encode("mutation-2");
     ledger.recordLandedEnvelope(domain, 2, second);
-    expect(await ledger.readWatermark({ ...domain, stream: "mutation" })).toEqual({
+    expect(await ledger.readWatermark({ ...domain, stream: "mutation", proofSchemaVersion: 1 })).toEqual({
       contiguousReceivedThrough: 0,
       highestReceivedSequence: 2,
       missingRanges: [{ fromSequence: 1, toSequence: 1 }],
@@ -174,7 +174,7 @@ describe("per-module drain watermark ledgers", () => {
     });
 
     ledger.recordLandedEnvelope(domain, 1, first);
-    const afterFill = await ledger.readWatermark({ ...domain, stream: "mutation" });
+    const afterFill = await ledger.readWatermark({ ...domain, stream: "mutation", proofSchemaVersion: 1 });
     let expected = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
     expected = createHash("sha256").update(encodeDrainChainStepInput(expected, first)).digest();
     expected = createHash("sha256").update(encodeDrainChainStepInput(expected, second)).digest();
@@ -185,7 +185,7 @@ describe("per-module drain watermark ledgers", () => {
       rollingDigest: expected.toString("base64url"),
     });
     ledger.recordLandedEnvelope(domain, 2, second);
-    expect(await ledger.readWatermark({ ...domain, stream: "mutation" })).toEqual(afterFill);
+    expect(await ledger.readWatermark({ ...domain, stream: "mutation", proofSchemaVersion: 1 })).toEqual(afterFill);
     expect(ledger.recordLandedEnvelope(domain, 2, new TextEncoder().encode("rewrite"))).toEqual({
       outcome: "quarantined",
       reason: "sequence_replay",
@@ -227,7 +227,7 @@ describe("per-module drain watermark ledgers", () => {
 
     const event1 = { ...workspaceAudit, auditEventId: "audit-workspace-1", auditSequence: 1 };
     expect(ledger.appendAdjudicatedEvent(event1)).toEqual({ outcome: "accepted", duplicate: false });
-    const watermark = await ledger.readWatermark({ ...domain, stream: "device_audit" });
+    const watermark = await ledger.readWatermark({ ...domain, stream: "device_audit", proofSchemaVersion: 1 });
     expect(watermark).toMatchObject({
       contiguousReceivedThrough: 1,
       highestReceivedSequence: 1,
@@ -262,7 +262,7 @@ describe("LateExecutionEvent classification and drain seals", () => {
       duplicate: false,
     });
     expect(ledger.accepted()[0]).toMatchObject({ classification: "late", fact: { activeLeaseEpoch: 2 } });
-    expect(await ledger.readWatermark({ ...domain, stream: "execution_fact" })).toMatchObject({
+    expect(await ledger.readWatermark({ ...domain, stream: "execution_fact", proofSchemaVersion: 1 })).toMatchObject({
       contiguousReceivedThrough: 1,
       highestReceivedSequence: 1,
       missingRanges: [],
@@ -284,7 +284,7 @@ describe("LateExecutionEvent classification and drain seals", () => {
     });
     expect(ledger.quarantined()).toHaveLength(1);
     expect(ledger.accepted()).toHaveLength(1);
-    expect(await ledger.readWatermark({ ...domain, stream: "execution_fact" })).toMatchObject({
+    expect(await ledger.readWatermark({ ...domain, stream: "execution_fact", proofSchemaVersion: 1 })).toMatchObject({
       contiguousReceivedThrough: 1,
       highestReceivedSequence: 1,
     });

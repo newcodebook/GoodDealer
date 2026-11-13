@@ -54,6 +54,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry",
     "rejects expired Lease authority at the database-time boundary before mutation state changes",
     "binds direct app drain routines to the current active device Lease and proof-only sealing",
+    "seals a v2 proof only against the accepted result chain rebuilt from retained v1 evidence",
     "serializes a real Drain transition against mutation ingest with one coherent winner",
     "rolls materialization, receipt, replay, Drain, and revision back together on service faults",
     "serializes concurrent duplicates and stale same-field writers while preserving different-field progress",

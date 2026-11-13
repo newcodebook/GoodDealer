@@ -19,6 +19,8 @@ import {
   DRAIN_STREAM_GENESIS_DIGEST,
   encodeDrainChainStepInput,
   encodeDrainStreamEnvelope,
+  encodeMutationDrainResultEnvelope,
+  type DrainProofSchemaVersion,
 } from "@gooddealer/protocol/execution-events";
 import { identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 import {
@@ -252,10 +254,10 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
 
   async readWatermark(
     scope: WorkspaceTenantScope,
-    domain: MutationDrainDomain & { readonly stream: "mutation" },
+    domain: MutationDrainDomain & { readonly stream: "mutation"; readonly proofSchemaVersion: DrainProofSchemaVersion },
   ) {
     if (domain.stream !== "mutation") throw new TypeError("mutation ledger serves only the mutation stream");
-    return projectWatermark(this.#records.get(domainKey(scope, domain)));
+    return projectWatermark(this.#records.get(domainKey(scope, domain)), domain.proofSchemaVersion);
   }
 
   #recordDiagnostic(
@@ -674,7 +676,13 @@ function recordEnvelope(
   records.set(sequence, Uint8Array.from(envelope));
 }
 
-function projectWatermark(records: Map<number, Uint8Array> | undefined) {
+/**
+ * v1 chains the retained submitted envelopes as-is. v2 rebuilds the ADR-0030 result chain from the
+ * same retained envelopes: every record this ledger holds was accepted, so each step is
+ * `accepted(sha256(envelope))`. The v1 evidence is never rewritten; an unknown version fails closed.
+ */
+function projectWatermark(records: Map<number, Uint8Array> | undefined, version: DrainProofSchemaVersion) {
+  if (version !== 1 && version !== 2) throw new TypeError("mutation drain chain version is not recognized");
   const highestReceivedSequence = records === undefined || records.size === 0
     ? 0
     : Math.max(...records.keys());
@@ -685,7 +693,13 @@ function projectWatermark(records: Map<number, Uint8Array> | undefined) {
   for (let sequence = 1; sequence <= contiguousReceivedThrough; sequence += 1) {
     const envelope = records?.get(sequence);
     if (envelope === undefined) throw new TypeError("contiguous mutation envelope disappeared");
-    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, envelope)).digest();
+    const step = version === 1
+      ? envelope
+      : encodeMutationDrainResultEnvelope({
+        outcome: "accepted",
+        submittedEnvelopeDigest: createHash("sha256").update(envelope).digest(),
+      });
+    digest = createHash("sha256").update(encodeDrainChainStepInput(digest, step)).digest();
   }
   return {
     contiguousReceivedThrough,

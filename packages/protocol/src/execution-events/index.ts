@@ -9,8 +9,12 @@ export type { DeviceAuditEvent } from "./device-audit";
 
 export {
   DRAIN_PROOF_DIGEST_DOMAIN,
+  DRAIN_PROOF_DIGEST_DOMAIN_V2,
   DRAIN_PROOF_SCHEMA_VERSION,
+  DRAIN_PROOF_SCHEMA_VERSION_V2,
+  DRAIN_PROOF_SCHEMA_VERSIONS,
   DRAIN_PROOF_SIGNATURE_DOMAIN,
+  DRAIN_PROOF_SIGNATURE_DOMAIN_V2,
   drainManifestSchema,
   drainProofSchema,
   drainStreamsSchema,
@@ -21,6 +25,7 @@ export {
 export type {
   DrainManifest,
   DrainProof,
+  DrainProofSchemaVersion,
   DrainStreamClaim,
   SynchronizedBackupDrainProof,
 } from "./drain-proof";
@@ -48,12 +53,15 @@ export {
   DRAIN_STREAMS,
   DRAIN_STREAM_GENESIS_DIGEST,
   DRAIN_STREAM_GENESIS_DOMAIN,
+  MUTATION_DRAIN_OUTCOMES,
+  MUTATION_DRAIN_RESULT_DOMAIN,
   drainSequenceDomainSchema,
   drainStreamSchema,
   encodeAccountDeviceAuditChainDomain,
   encodeDrainChainStepInput,
   encodeDrainSequenceDomain,
   encodeDrainStreamEnvelope,
+  encodeMutationDrainResultEnvelope,
   encodeWorkspaceDeviceAuditChainDomain,
 } from "./streams";
-export type { DrainSequenceDomain, DrainStream } from "./streams";
+export type { DrainSequenceDomain, DrainStream, MutationDrainOutcome } from "./streams";

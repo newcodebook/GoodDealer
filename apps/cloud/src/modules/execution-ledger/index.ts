@@ -8,6 +8,7 @@ import {
   encodeDrainStreamEnvelope,
   executionFactSchema,
   type ExecutionFact,
+  type DrainProofSchemaVersion,
 } from "@gooddealer/protocol/execution-events";
 
 import type { DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
@@ -198,7 +199,8 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainS
 
   async readWatermark(
     scope: WorkspaceTenantScope,
-    domain: ExecutionDomain & { readonly stream: "execution_fact" },
+    // ExecutionFact envelopes are identical in every drain proof version.
+    domain: ExecutionDomain & { readonly stream: "execution_fact"; readonly proofSchemaVersion: DrainProofSchemaVersion },
   ) {
     if (domain.stream !== "execution_fact") throw new TypeError("execution ledger serves only execution facts");
     const records = this.#records.get(domainKey(scope, domain));
