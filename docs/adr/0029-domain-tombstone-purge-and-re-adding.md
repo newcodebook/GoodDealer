@@ -73,9 +73,20 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 
 ### 4. 本地前提与本地写入
 
-- **前提**：本地墓碑的 `state` 为 `acknowledged` 或 `replicated` 且 `deleted_server_revision = R`
-  （本设备删除经 ACK，或经 Inbox 应用）。本地删除未经 Cloud 确认时不能重新添加。Outbox 按序排空，删除
-  已 ACK 意味着该实体更早的 Outbox 行也都已 ACK，不存在属于上一代的待发送 mutation。
+- **前提**（全部在写入事务内检查，任一不满足即以独立错误码拒绝，界面引导先到冲突中心处理）：
+  1. 本地墓碑 `state` 为 `acknowledged` 或 `replicated`，`deleted_server_revision = R`（本设备删除经
+     ACK，或经 Inbox 应用）；本地删除未经 Cloud 确认时不能重新添加；
+  2. 墓碑 barrier 已收敛：`barrier_state` 不是 `contested`；为 `pending` 时要求 `state='acknowledged'`。
+     现有代码中本设备删除写入 `state='pending'`、`barrier_state='pending'`，ACK 只把 `state` 改为
+     `acknowledged` 而不推进 `barrier_state`，所以本设备已 ACK 的删除停在 `acknowledged`/`pending`，属于
+     已收敛；Inbox 在本地仍有待发送字段时写入的 `state='replicated'`、`barrier_state='contested'` 墓碑不
+     满足，接受远端删除后才变为 `replicated`/`replicated`；
+  3. 资产行已物化为删除状态（`deleted_at` 非空）；
+  4. 该实体没有未结束的 Outbox 行（`pending`/`sending`），也没有开放的冲突候选。被拒绝的重新添加
+     （`conflicted`）本身不产生冲突候选，所以不阻止修正后的再次尝试。
+
+  不能只凭“删除已 ACK”推出没有上一代的待发送写入：该论证只覆盖本设备的删除，经 Inbox 收到的删除可以
+  与本地待发送编辑和冲突候选并存，所以第 2–4 项必须显式检查。
 - **写入**：在一个事务内把已删除行重置为 generation g + 1 的新行（清空 `deleted_at` 与全部字段，只写入
   本次提供的字段），写入 Outbox 行（带 `entityGeneration` 与 `reAddsDeletedRevision`）及其创建标记。
   g + 1 在 ACK 前是**暂定**的：generation g 的墓碑行保留，并记录指向该 Outbox 行的暂定重新添加；收到
@@ -107,9 +118,13 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
     `entityGeneration = 1`（实现时须核对经 Inbox 应用的行如何写入可比较的 `local_commit_sequence`）；
   - 重新添加：该实体本地**已确认**状态是 generation g、删除 revision R 的墓碑（来源是本设备删除的
     ACK 或 Inbox 应用，二者等价），该 Outbox 行带 `entityGeneration = g + 1` 与
-    `reAddsDeletedRevision = R`，且不存在更早的 generation g + 1 Outbox 行。
-  标记以 `(entity_kind, entity_id, entity_generation)` 为键，不可修改，重放同一 mutation 不会产生第二个
-  标记。操作历史因此把重新添加显示为“添加资产”。
+    `reAddsDeletedRevision = R`，且该实体没有其他未结束（`pending`/`sending`）的 Outbox 行。
+  **generation 与创建尝试分开**：同一 generation g + 1 可以有多次已终止（`rejected`/`conflicted`）的
+  尝试，每次尝试是一条独立的 Outbox 行与创建标记；标记沿用现有以 `mutation_id` 为键的表，不以
+  generation 为键，不可修改，重放同一 mutation 不会产生第二个标记。限制只有一条：同一实体至多一个
+  未结束的重新添加（与暂定期间的冻结一致）。第一次尝试被拒绝并撤回后，Cloud 仍是 g 的墓碑，用户修正后
+  再次添加仍提交 g + 1，旧尝试的行与标记作为证据保留，不阻止新尝试。操作历史把每次尝试显示为
+  “添加资产”，已终止的尝试同时显示其结果。
 
 ### 5. 所有入口都按 generation 拒绝旧数据
 
@@ -160,6 +175,11 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 - 另一台设备删除、本设备只经 Inbox 收到墓碑并晋升为 Active 后重新添加：创建标记成立、Cloud 接受；
 - 重新添加后立即编辑或删除被拒绝；随后收到 Cloud 拒绝：业务撤回到 generation g 墓碑，Outbox 行为
   `conflicted`（`sync_mutation_conflict`）且字段与创建标记保留，冻结解除；
+- 本设备删除经 ACK（墓碑 `acknowledged`/`pending`）后重新添加被接受；
+- 重新添加被拒绝 → 撤回 → 修正 → 以同一 generation g + 1 再次添加并被 Cloud 接受；旧尝试的行与标记
+  保留；
+- 远端删除与本地待发送编辑冲突（墓碑 `barrier_state='contested'`，有开放冲突候选）后尝试重新添加：
+  被拒绝且不写入任何数据，冲突处理完成后才可重新添加；
 - 重新添加被拒绝后，该设备后续 mutation 仍能同步，设备切换的 drain 不因该序列被阻塞（依赖
   ADR-0030）；
 
