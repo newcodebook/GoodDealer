@@ -54,6 +54,11 @@
       "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_IDEMPOTENCY_CONFLICT\",\"correlationId\":\"correlation-push-sync_idempotency_conflict\"}"
     },
     {
+      "name": "push-rejected-sync-mutation-conflict",
+      "kind": "push-response",
+      "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_MUTATION_CONFLICT\",\"correlationId\":\"correlation-push-sync_mutation_conflict\"}"
+    },
+    {
       "name": "push-rejected-sync-storage-rejected",
       "kind": "push-response",
       "wire": "{\"schemaVersion\":2,\"accepted\":false,\"code\":\"SYNC_STORAGE_REJECTED\",\"correlationId\":\"correlation-push-sync_storage_rejected\"}"

@@ -31,6 +31,7 @@ const pushRejectionCodes = [
   "SYNC_AUTHORIZATION_REJECTED",
   "SYNC_TENANT_UNRESOLVED",
   "SYNC_IDEMPOTENCY_CONFLICT",
+  "SYNC_MUTATION_CONFLICT",
   "SYNC_STORAGE_REJECTED",
 ] as const;
 const pullRejectionCodes = [

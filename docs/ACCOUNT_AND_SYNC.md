@@ -83,6 +83,17 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 连续编辑都带同一个 base；这些是本设备自己的先后编辑，不是冲突。其他设备、其他 epoch、以更旧 base 提交的
 写入，以及 replay 行已被压缩而无法确认写入者的情况，仍判为过期。
 
+推送拒绝码逐个映射，Desktop 只重试 `SYNC_STORAGE_REJECTED`。字段过期与目标实体在 Cloud 为墓碑以
+`SYNC_MUTATION_CONFLICT` 返回：多项批次先拆分隔离，单项的 Outbox 行终止为 `conflicted`
+（`last_error_code='sync_mutation_conflict'`），行、冻结的 wire 与字段保留，其后的 Outbox 继续发送。
+字段自身的 `sync_state` 不变，所以拉取到对方写入时按字段规则进入冲突中心，而不是覆盖本地值。
+在拉取之前，客户快照不单独计数 `conflicted` 行（`rejectedMutationCount` 只计 `rejected`），冲突在下一次拉取打开
+候选后才计入 `openConflictCount`。
+`MUTATION_DRAIN_SEALED`、`MUTATION_BASE_REVISION_AHEAD`（只在 Cloud 状态回退时出现）与
+`MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。Cloud 接受序号缺口，但设备切换的 drain
+验证要求序号连续，被拒绝序号如何结束见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
+（Proposed）。
+
 ### 客户同步快照与冲突路由
 
 客户只消费 Native 读取的持久化 `SyncSnapshot`，不消费内部复制 drain 进度。快照包含

@@ -232,6 +232,18 @@ pub struct CloudflareDnsProjectionAcknowledgement {
     pub disposition: String,
 }
 
+/// How a claimed batch ends when Cloud rejects it deterministically. Each kind keeps the row,
+/// its frozen wire, and its fields as evidence; it differs only in the terminal state and code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncRejectionKind {
+    /// Cloud cannot interpret the mutation (input or schema).
+    Deterministic,
+    /// The mutation id or device sequence was already used with different content.
+    IdempotencyConflict,
+    /// Cloud state holds a newer write to a field or a tombstone for the entity.
+    MutationConflict,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaimedSyncMutation {
     pub mutation_id: String,
@@ -5155,9 +5167,9 @@ impl BusinessDatabase {
         &mut self,
         delivery_owner: &str,
         mutations: &[ClaimedSyncMutation],
-        conflicted: bool,
+        kind: SyncRejectionKind,
     ) -> Result<(), BusinessDatabaseError> {
-        self.reject_sync_batch_v2_guarded(delivery_owner, mutations, conflicted, |_| Ok(()))
+        self.reject_sync_batch_v2_guarded(delivery_owner, mutations, kind, |_| Ok(()))
             .map(|_| ())
     }
 
@@ -5170,7 +5182,7 @@ impl BusinessDatabase {
         &mut self,
         delivery_owner: &str,
         mutations: &[ClaimedSyncMutation],
-        conflicted: bool,
+        kind: SyncRejectionKind,
         pre_commit_guard: impl FnOnce(SyncProjectionEffect) -> Result<(), BusinessDatabaseError>,
     ) -> Result<SyncProjectionEffect, BusinessDatabaseError> {
         validate_identifier(delivery_owner).map_err(|_| BusinessDatabaseError::InvalidInput)?;
@@ -5182,11 +5194,10 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let terminal_state = if conflicted { "conflicted" } else { "rejected" };
-        let error_code = if conflicted {
-            "sync_idempotency_conflict"
-        } else {
-            "sync_deterministic_rejection"
+        let (terminal_state, error_code) = match kind {
+            SyncRejectionKind::Deterministic => ("rejected", "sync_deterministic_rejection"),
+            SyncRejectionKind::IdempotencyConflict => ("conflicted", "sync_idempotency_conflict"),
+            SyncRejectionKind::MutationConflict => ("conflicted", "sync_mutation_conflict"),
         };
         for mutation in mutations {
             validate_identifier(&mutation.mutation_id)
@@ -11638,7 +11649,11 @@ mod tests {
         assert!(second[0].delivery_attempt_fence > first[0].delivery_attempt_fence);
 
         database
-            .reject_sync_batch_v2("owner-generation-2", &second, true)
+            .reject_sync_batch_v2(
+                "owner-generation-2",
+                &second,
+                SyncRejectionKind::IdempotencyConflict,
+            )
             .unwrap();
         let terminal: (String, String, Option<String>) = database
             .store
@@ -11740,7 +11755,7 @@ mod tests {
             )
         );
         database
-            .reject_sync_batch_v2("bounded-owner-1", &first, false)
+            .reject_sync_batch_v2("bounded-owner-1", &first, SyncRejectionKind::Deterministic)
             .unwrap();
 
         let second = database
@@ -11854,9 +11869,12 @@ mod tests {
             Err(BusinessDatabaseError::MutationStale)
         );
         assert_eq!(
-            database.reject_sync_batch_v2_guarded("guard-owner", &claimed, false, |_| Err(
-                BusinessDatabaseError::MutationStale
-            ),),
+            database.reject_sync_batch_v2_guarded(
+                "guard-owner",
+                &claimed,
+                SyncRejectionKind::Deterministic,
+                |_| Err(BusinessDatabaseError::MutationStale),
+            ),
             Err(BusinessDatabaseError::MutationStale)
         );
         assert_eq!(
@@ -12175,6 +12193,137 @@ mod tests {
             Some("local")
         );
         assert_eq!(database.current_server_revision().unwrap(), 1);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one scenario follows a conflicting row from rejection through the next Pull"
+    )]
+    fn mutation_conflict_ends_one_mutation_and_the_next_pull_still_opens_a_conflict() {
+        let mut database = database();
+        let seed = |entity_id: &str| DomainAssetWrite {
+            entity_id: entity_id.to_owned(),
+            note: None,
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        for (revision, mutation_id, entity_id) in [
+            (1, "seed-remote", "remote.test"),
+            (2, "seed-other", "other.test"),
+        ] {
+            database
+                .upsert_domain_asset(mutation_id, TIMESTAMP, &seed(entity_id))
+                .unwrap();
+            database
+                .acknowledge_sync_mutation(mutation_id, revision, "2026-08-28T00:00:01Z")
+                .unwrap();
+        }
+        for (mutation_id, entity_id, note) in [
+            ("conflicting-edit", "remote.test", "local"),
+            ("later-edit", "other.test", "later"),
+        ] {
+            let version = database
+                .read_domain_detail(entity_id)
+                .unwrap()
+                .asset
+                .asset_version;
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    version,
+                    "device-local",
+                    1,
+                    TIMESTAMP,
+                    &DomainAssetWrite {
+                        note: Some(note.to_owned()),
+                        ..seed(entity_id)
+                    },
+                    true,
+                )
+                .unwrap();
+        }
+        let head = database
+            .claim_sync_mutations_v2(
+                "conflict-owner-1",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                1,
+            )
+            .unwrap();
+        assert_eq!(head.len(), 1);
+        assert_eq!(head[0].mutation_id, "conflicting-edit");
+        database
+            .reject_sync_batch_v2(
+                "conflict-owner-1",
+                &head,
+                SyncRejectionKind::MutationConflict,
+            )
+            .unwrap();
+
+        // The row and its frozen wire remain as evidence; only its delivery ends.
+        let (state, code): (String, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state,last_error_code FROM sync_outbox WHERE mutation_id='conflicting-edit'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (state.as_str(), code.as_str()),
+            ("conflicted", "sync_mutation_conflict")
+        );
+        let field_state: String = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT sync_state FROM domain_asset_field_versions
+                 WHERE entity_id='remote.test' AND field_path='note'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(field_state, "pending");
+
+        // The rejected row no longer holds the Outbox head.
+        let next = database
+            .claim_sync_mutations_v2(
+                "conflict-owner-2",
+                "2026-08-28T00:04:00Z",
+                "2026-08-28T00:05:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(next[0].mutation_id, "later-edit");
+        assert_eq!(
+            next[0].device_mutation_sequence,
+            head[0].device_mutation_sequence + 1
+        );
+
+        // The other writer's value arrives by Pull and becomes a candidate, not an overwrite.
+        let revision = database.current_server_revision().unwrap() + 1;
+        database
+            .apply_sync_page_v2(
+                "reader-local",
+                &test_sync_page(revision, "remote"),
+                "confirm",
+            )
+            .unwrap();
+        let candidates = database.read_sync_conflicts(10).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].field_path, "note");
+        assert_eq!(
+            database
+                .read_domain_detail("remote.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("local")
+        );
     }
 
     #[test]

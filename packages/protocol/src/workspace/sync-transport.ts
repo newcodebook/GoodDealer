@@ -77,6 +77,10 @@ export const workspaceMutationPushRejectionCodeSchema = z.enum([
   "SYNC_AUTHORIZATION_REJECTED",
   "SYNC_TENANT_UNRESOLVED",
   "SYNC_IDEMPOTENCY_CONFLICT",
+  // A deterministic conflict with Cloud state (a field written by another writer after the
+  // mutation's base, or an entity Cloud holds as a tombstone). Retrying cannot succeed, so the
+  // client ends that one mutation and resolves the field through the next Pull.
+  "SYNC_MUTATION_CONFLICT",
   "SYNC_STORAGE_REJECTED",
 ]);
 

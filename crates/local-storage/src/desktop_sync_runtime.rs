@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-use crate::active_workspace::business::SyncProjectionEffect;
+use crate::active_workspace::business::{SyncProjectionEffect, SyncRejectionKind};
 use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
@@ -64,6 +64,7 @@ impl std::error::Error for DesktopSyncError {}
 pub(crate) enum DesktopSyncRejectDisposition {
     Rejected,
     Conflicted,
+    MutationConflicted,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -714,10 +715,15 @@ impl DesktopSyncRuntime {
             .reject_sync_batch_v2_guarded(
                 rejection.delivery_owner,
                 rejection.mutations,
-                matches!(
-                    rejection.disposition,
-                    DesktopSyncRejectDisposition::Conflicted
-                ),
+                match rejection.disposition {
+                    DesktopSyncRejectDisposition::Rejected => SyncRejectionKind::Deterministic,
+                    DesktopSyncRejectDisposition::Conflicted => {
+                        SyncRejectionKind::IdempotencyConflict
+                    }
+                    DesktopSyncRejectDisposition::MutationConflicted => {
+                        SyncRejectionKind::MutationConflict
+                    }
+                },
                 |effect| {
                     if effect == SyncProjectionEffect::VisibleStateChanged
                         && !has_read_generation_capacity

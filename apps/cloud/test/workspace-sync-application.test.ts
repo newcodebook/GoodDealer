@@ -86,3 +86,29 @@ describe("workspace sync authenticated application", () => {
     expect(subject.readLatestAvailable).toHaveBeenCalledWith(scope);
   });
 });
+
+describe("workspace sync push rejection mapping", () => {
+  const cases = [
+    ["MUTATION_FIELD_STALE", "SYNC_MUTATION_CONFLICT"],
+    ["MUTATION_ENTITY_UNKNOWN", "SYNC_MUTATION_CONFLICT"],
+    ["MUTATION_ID_CONFLICT", "SYNC_IDEMPOTENCY_CONFLICT"],
+    ["MUTATION_SEQUENCE_CONFLICT", "SYNC_IDEMPOTENCY_CONFLICT"],
+    ["MUTATION_MALFORMED", "SYNC_INPUT_REJECTED"],
+    ["MUTATION_BATCH_UNORDERED", "SYNC_INPUT_REJECTED"],
+    ["MUTATION_SCHEMA_VERSION_UNSUPPORTED", "SYNC_SCHEMA_UNSUPPORTED"],
+    ["MUTATION_DEVICE_NOT_ACTIVE", "SYNC_AUTHORIZATION_REJECTED"],
+    ["MUTATION_EPOCH_STALE", "SYNC_AUTHORIZATION_REJECTED"],
+    ["WORKSPACE_TENANT_UNRESOLVED", "SYNC_TENANT_UNRESOLVED"],
+    // Only conditions a later identical push can outlive stay retryable.
+    ["MUTATION_DRAIN_SEALED", "SYNC_STORAGE_REJECTED"],
+    ["MUTATION_BASE_REVISION_AHEAD", "SYNC_STORAGE_REJECTED"],
+    ["MUTATION_WORKSPACE_MISMATCH", "SYNC_STORAGE_REJECTED"],
+  ] as const;
+
+  it.each(cases)("maps ingest %s to push %s", async (ingestCode, pushCode) => {
+    const subject = fixture([]);
+    subject.ingest.mockResolvedValueOnce({ accepted: false, code: ingestCode, failures: [] } as never);
+    const result = await subject.application.push({ schemaVersion: 2, mutations: [mutation] }, principal);
+    expect(result).toMatchObject({ accepted: false, code: pushCode });
+  });
+});

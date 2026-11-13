@@ -720,6 +720,22 @@ impl DesktopLocalHost {
                         )?;
                         Ok(DesktopSyncPushDisposition::DeterministicRejected)
                     }
+                    // Cloud state already holds a newer write to a field or a tombstone for the
+                    // entity, so no retry can succeed. Only the identified mutation ends; the
+                    // field's own sync state stays pending, so the next Pull of the other write
+                    // still opens a Conflict Center candidate instead of overwriting the edit.
+                    "SYNC_MUTATION_CONFLICT" => {
+                        if claim.claimed.len() > 1 {
+                            return Ok(DesktopSyncPushDisposition::IsolationRequired);
+                        }
+                        self.sync_reject(
+                            &admission.inner,
+                            &claim.delivery_owner,
+                            &claim.claimed,
+                            DesktopSyncRejectDisposition::MutationConflicted,
+                        )?;
+                        Ok(DesktopSyncPushDisposition::DeterministicRejected)
+                    }
                     "SYNC_AUTHORIZATION_REJECTED" | "SYNC_TENANT_UNRESOLVED" => {
                         Ok(DesktopSyncPushDisposition::AuthorizationBlocked)
                     }
@@ -1168,6 +1184,7 @@ fn validate_push_rejection(response: &SyncRejectedWire) -> Result<(), DesktopLoc
                 | "SYNC_AUTHORIZATION_REJECTED"
                 | "SYNC_TENANT_UNRESOLVED"
                 | "SYNC_IDEMPOTENCY_CONFLICT"
+                | "SYNC_MUTATION_CONFLICT"
                 | "SYNC_STORAGE_REJECTED"
         )
     {
@@ -1772,6 +1789,36 @@ mod tests {
             Ok(DesktopSyncPushDisposition::DeterministicRejected)
         );
         assert_eq!(business_generation(&local_host), 1);
+    }
+
+    #[test]
+    fn mutation_conflict_isolates_a_batch_and_ends_only_the_conflicting_mutation() {
+        let (_directory, local_host) = push_host_with_mutations(2);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let response = br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_MUTATION_CONFLICT","correlationId":"conflict-1"}"#;
+        let batch = ready_push(
+            local_host
+                .claim_native_sync_push(&admission)
+                .expect("claim batch"),
+        );
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &batch, response),
+            Ok(DesktopSyncPushDisposition::IsolationRequired)
+        );
+        assert_eq!(business_generation(&local_host), 0);
+        let (left, right) = local_host
+            .split_native_sync_push(batch)
+            .expect("split conflicting batch");
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &left, response),
+            Ok(DesktopSyncPushDisposition::DeterministicRejected)
+        );
+        assert_eq!(business_generation(&local_host), 1);
+        // The sibling was never judged by this rejection and still completes normally.
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &right, &accepted_push_wire(&right)),
+            Ok(DesktopSyncPushDisposition::Completed)
+        );
     }
 
     #[test]

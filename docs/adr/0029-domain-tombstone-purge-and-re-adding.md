@@ -90,13 +90,14 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   - **业务撤回**：在一个事务中撤回暂定的 g + 1——活跃行恢复为 generation g 的已删除行，删除暂定记录，
     解除冻结——本地回到 Cloud 的墓碑状态。无法撤回时按 rebootstrap 处理，以 Cloud 状态为准。
   - **Outbox 证据**：Outbox 行与其字段、创建标记都不删除（`sync_outbox_fields_v2_immutable_delete`
-    禁止删除已认领行的字段），而是经现有的 `reject_sync_batch_v2` 路径置为终止的 `rejected` 并记录
-    `last_error_code`，作为操作历史与审计证据；创建标记仍指向这条已拒绝的行，界面把它显示为“重新添加被拒绝”。
+    禁止删除已认领行的字段），而是经现有的 `reject_sync_batch_v2` 路径终止：`MUTATION_GENERATION_MISMATCH` 映射为
+    `SYNC_MUTATION_CONFLICT`，行为 `conflicted` 且 `last_error_code='sync_mutation_conflict'`（与 ADR-0030
+    计入 drain 的行一致）；输入或 schema 拒绝为 `rejected`。作为操作历史与审计证据；创建标记仍指向这条已终止的行，界面把它显示为“重新添加被拒绝”。
   - **序列**：被拒绝的行占用了一个 `device_mutation_sequence`，Cloud 从未收到它，而 drain 验证要求
     Cloud 的连续接收水位等于租约的最后分配序列且没有缺口，否则 `DRAIN_STREAM_GAP`。这不是重新添加
-    特有的问题：今天任何确定性拒绝都会留下同样的缺口，且推送拒绝码映射为可重试，导致无限重试。
-    重新添加依赖执行台账“确定性的推送拒绝不应无限重试”一项先定义被拒绝序列如何结束（例如 Cloud 在
-    拒绝时持久化一条消耗该序列的拒绝回执，使连续水位越过它），不另造跳过协议。
+    特有的问题：任何确定性拒绝都会留下同样的缺口。被拒绝序列如何结束由
+    [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md) 提议（Cloud 拒绝回执计入 drain
+    水位），重新添加以它为前置，不另造跳过协议。
   暂定期间 Inbox 或快照带来的 generation g 墓碑与本地已确认状态一致，只确认该墓碑行，不被第 5 条
   拒绝，也不覆盖暂定的 g + 1 行与其 Outbox 项——后者仍由 ACK 或拒绝决定。
 - **创建标记触发器**改为不依赖本地是否有 delete 的 Outbox 行（删除可能发生在另一台设备，本设备只经
@@ -150,8 +151,7 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 1. 首次添加 ingest 补上 generation 1；
 2. 删除 ingest、Cloud 墓碑物化、重建与 Inbox 的删除物化；
 3. generation 的 Cloud/本地迁移与 wire 版本；
-4. 经同步的重新添加（Cloud 合同、本地写入、暂定期间冻结、触发器、Host 创建路径），前置为台账“确定性的
-   推送拒绝不应无限重试”；
+4. 经同步的重新添加（Cloud 合同、本地写入、暂定期间冻结、触发器、Host 创建路径），前置为 ADR-0030；
 5. 第 5 条所有入口的 generation 防护；
 6. 界面把“目前不能重新添加”改为说明何时可以重新添加。
 
@@ -159,9 +159,9 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 
 - 另一台设备删除、本设备只经 Inbox 收到墓碑并晋升为 Active 后重新添加：创建标记成立、Cloud 接受；
 - 重新添加后立即编辑或删除被拒绝；随后收到 Cloud 拒绝：业务撤回到 generation g 墓碑，Outbox 行为
-  `rejected` 且字段与创建标记保留，冻结解除；
-- 重新添加被拒绝后，该设备后续 mutation 仍能同步，设备切换的 drain 不因该序列被阻塞（依赖台账
-  “确定性的推送拒绝不应无限重试”）；
+  `conflicted`（`sync_mutation_conflict`）且字段与创建标记保留，冻结解除；
+- 重新添加被拒绝后，该设备后续 mutation 仍能同步，设备切换的 drain 不因该序列被阻塞（依赖
+  ADR-0030）；
 
 负向测试至少覆盖：本地删除未经 Cloud 确认；`reAddsDeletedRevision` 或 `entityGeneration` 不符；
 `baseServerRevision < R`；实体当前不是墓碑；同一重新添加并发提交两次只分配一个 generation；Standby
