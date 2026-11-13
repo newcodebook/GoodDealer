@@ -80,14 +80,35 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   本次提供的字段），写入 Outbox 行（带 `entityGeneration` 与 `reAddsDeletedRevision`）及其创建标记。
   g + 1 在 ACK 前是**暂定**的：generation g 的墓碑行保留，并记录指向该 Outbox 行的暂定重新添加；收到
   该 mutation 的 ACK 时才在同一事务中删除墓碑行，g + 1 成为已确认 generation。
-- **被拒绝的重新添加**：Cloud 拒绝该 mutation（generation 不符、版本不匹配或其他原因）时，在一个事务中
-  撤回暂定的 g + 1——活跃行恢复为 generation g 的已删除行，丢弃该 Outbox 行与创建标记——本地回到
-  Cloud 的墓碑状态；无法撤回时按 rebootstrap 处理，以 Cloud 状态为准。暂定期间 Inbox 或快照带来的
-  generation g 墓碑与本地已确认状态一致，只确认该墓碑行，不被第 5 条拒绝，也不覆盖暂定的 g + 1 行
-  与其 Outbox 项——后者仍由 ACK 或拒绝决定。
-- **创建标记触发器**改为：标记的 upsert 必须是同一 `(entity_kind, entity_id)` 在最近一条 delete 之后的
-  首个 Outbox 行（无 delete 时即首个 Outbox 行）。标记不可修改，重放同一 mutation 不会产生第二个标记。
-  操作历史因此把重新添加显示为“添加资产”。
+- **暂定期间冻结该实体**：从写入重新添加到它被 ACK 或拒绝之前，本地对该 `(entity_kind, entity_id)` 的
+  任何写入（编辑、删除、再次重新添加，以及冲突中心对该实体的裁决写入）都在写入事务中拒绝，返回独立的错误码；界面把该域名显示为
+  “正在同步重新添加”，不提供编辑与删除入口。因此暂定的 g + 1 之后不会有依赖它的 Outbox 行，撤回只
+  涉及这一行。其他实体不受影响。选择冻结而不是定义依赖 mutation 的级联撤回，是因为后者需要逐条区分
+  已发送、已拒绝与未发送的后续行，复杂度远超“稍后再编辑”的代价。
+- **被拒绝的重新添加**：Cloud 拒绝该 mutation（generation 不符、版本不匹配或其他确定性原因）时，业务
+  撤回与序列处理分开：
+  - **业务撤回**：在一个事务中撤回暂定的 g + 1——活跃行恢复为 generation g 的已删除行，删除暂定记录，
+    解除冻结——本地回到 Cloud 的墓碑状态。无法撤回时按 rebootstrap 处理，以 Cloud 状态为准。
+  - **Outbox 证据**：Outbox 行与其字段、创建标记都不删除（`sync_outbox_fields_v2_immutable_delete`
+    禁止删除已认领行的字段），而是经现有的 `reject_sync_batch_v2` 路径置为终止的 `rejected` 并记录
+    `last_error_code`，作为操作历史与审计证据；创建标记仍指向这条已拒绝的行，界面把它显示为“重新添加被拒绝”。
+  - **序列**：被拒绝的行占用了一个 `device_mutation_sequence`，Cloud 从未收到它，而 drain 验证要求
+    Cloud 的连续接收水位等于租约的最后分配序列且没有缺口，否则 `DRAIN_STREAM_GAP`。这不是重新添加
+    特有的问题：今天任何确定性拒绝都会留下同样的缺口，且推送拒绝码映射为可重试，导致无限重试。
+    重新添加依赖执行台账“确定性的推送拒绝不应无限重试”一项先定义被拒绝序列如何结束（例如 Cloud 在
+    拒绝时持久化一条消耗该序列的拒绝回执，使连续水位越过它），不另造跳过协议。
+  暂定期间 Inbox 或快照带来的 generation g 墓碑与本地已确认状态一致，只确认该墓碑行，不被第 5 条
+  拒绝，也不覆盖暂定的 g + 1 行与其 Outbox 项——后者仍由 ACK 或拒绝决定。
+- **创建标记触发器**改为不依赖本地是否有 delete 的 Outbox 行（删除可能发生在另一台设备，本设备只经
+  Inbox 收到墓碑，随后才晋升为 Active）。标记的 upsert 必须满足以下之一：
+  - 首次添加：在本 mutation 的 `local_commit_sequence` 之前没有已提交的活跃行或墓碑（创建路径在同一
+    事务中先写入资产行、后写入标记，所以不能以“当前没有活跃行”判断），没有更早的 Outbox 行，且
+    `entityGeneration = 1`（实现时须核对经 Inbox 应用的行如何写入可比较的 `local_commit_sequence`）；
+  - 重新添加：该实体本地**已确认**状态是 generation g、删除 revision R 的墓碑（来源是本设备删除的
+    ACK 或 Inbox 应用，二者等价），该 Outbox 行带 `entityGeneration = g + 1` 与
+    `reAddsDeletedRevision = R`，且不存在更早的 generation g + 1 Outbox 行。
+  标记以 `(entity_kind, entity_id, entity_generation)` 为键，不可修改，重放同一 mutation 不会产生第二个
+  标记。操作历史因此把重新添加显示为“添加资产”。
 
 ### 5. 所有入口都按 generation 拒绝旧数据
 
@@ -129,9 +150,18 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 1. 首次添加 ingest 补上 generation 1；
 2. 删除 ingest、Cloud 墓碑物化、重建与 Inbox 的删除物化；
 3. generation 的 Cloud/本地迁移与 wire 版本；
-4. 经同步的重新添加（Cloud 合同、本地写入与触发器、Host 创建路径）；
+4. 经同步的重新添加（Cloud 合同、本地写入、暂定期间冻结、触发器、Host 创建路径），前置为台账“确定性的
+   推送拒绝不应无限重试”；
 5. 第 5 条所有入口的 generation 防护；
 6. 界面把“目前不能重新添加”改为说明何时可以重新添加。
+
+测试至少覆盖：
+
+- 另一台设备删除、本设备只经 Inbox 收到墓碑并晋升为 Active 后重新添加：创建标记成立、Cloud 接受；
+- 重新添加后立即编辑或删除被拒绝；随后收到 Cloud 拒绝：业务撤回到 generation g 墓碑，Outbox 行为
+  `rejected` 且字段与创建标记保留，冻结解除；
+- 重新添加被拒绝后，该设备后续 mutation 仍能同步，设备切换的 drain 不因该序列被阻塞（依赖台账
+  “确定性的推送拒绝不应无限重试”）；
 
 负向测试至少覆盖：本地删除未经 Cloud 确认；`reAddsDeletedRevision` 或 `entityGeneration` 不符；
 `baseServerRevision < R`；实体当前不是墓碑；同一重新添加并发提交两次只分配一个 generation；Standby
