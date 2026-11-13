@@ -305,9 +305,13 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     }));
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
     const good = submitted("poison-prefix-good", 1, 0);
+    // A tombstoned asset stays unknown until ADR-0029's generation exists; it poisons the batch.
+    await ownerPool.query(`INSERT INTO workspace_replica_tombstones
+      (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at)
+      VALUES ($1, $2, 'domain_asset', 'deleted.test', 1, now())`, [scopeA.accountId, scopeA.workspaceId]);
     const poison = submittedSyncMutationSchema.parse({
       ...submitted("poison-unknown-entity", 2, 0),
-      entityId: "unknown.test",
+      entityId: "deleted.test",
     });
 
     await expect(service.ingest(scopeA, pushRequest(good, poison))).resolves.toMatchObject({
@@ -327,6 +331,81 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(state.rows[0]).toEqual({
       revision: "0", receipts: "0", replay: "0", ledger: "0", heads: "0", drain: "0",
     });
+  });
+
+  it("creates an asset the replica does not hold from its first upsert, in this tenant only", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const created = submittedSyncMutationSchema.parse({
+      ...submitted("first-add", 1, 0),
+      entityId: "added.test",
+      changedFields: [{ fieldPath: "note", value: "first note" }, { fieldPath: "tags", value: ["new"] }],
+    });
+    // The same device edits the new asset's untouched field in the same push.
+    const edited = submittedSyncMutationSchema.parse({
+      ...submitted("first-add-edit", 2, 0),
+      entityId: "added.test",
+      changedFields: [{ fieldPath: "portfolioId", value: "portfolio-1" }],
+    });
+    const request = pushRequest(created, edited);
+    await expect(service.ingest(scopeA, request)).resolves.toMatchObject({
+      accepted: true,
+      assignments: [{ serverRevision: 1, duplicate: false }, { serverRevision: 2, duplicate: false }],
+      headRevision: 2,
+    });
+    // A lost-response retry is answered with the exact duplicates and creates nothing twice.
+    await expect(service.ingest(scopeA, request)).resolves.toMatchObject({
+      accepted: true,
+      assignments: [{ serverRevision: 1, duplicate: true }, { serverRevision: 2, duplicate: true }],
+      headRevision: 2,
+    });
+    const stored = await transactions.withTenant(scopeA, (transaction) => transaction.query(
+      `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount,
+              note_server_revision::int AS note_revision, portfolio_id_server_revision::int AS portfolio_revision,
+              tags_server_revision::int AS tags_revision, target_price_server_revision::int AS price_revision,
+              lifecycle_status, materialization_origin
+       FROM workspace_replica_domain_assets`));
+    expect(stored.rows).toEqual([{
+      entity_id: "added.test", note: "first note", portfolio_id: "portfolio-1", tags: ["new"],
+      target_price_currency: null, target_price_amount: null,
+      note_revision: 1, portfolio_revision: 2, tags_revision: 1, price_revision: 0,
+      lifecycle_status: "active", materialization_origin: "workspace_sync",
+    }]);
+    // A later writer that did not observe the creation is stale on the fields it set.
+    const late = submittedSyncMutationSchema.parse({ ...submitted("late-writer", 3, 0), entityId: "added.test" });
+    await expect(service.ingest(scopeA, pushRequest(late))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ fieldPath: "note", lastModifiedRevision: 1 }],
+    });
+    // The other tenant shares the workspace id but neither sees nor holds the created asset.
+    const other = await transactions.withTenant(scopeB, (transaction) => transaction.query(
+      "SELECT count(*)::int AS count FROM workspace_replica_domain_assets"));
+    expect(other.rows).toEqual([{ count: 0 }]);
+    await expect(transactions.withTenant(scopeB, (transaction) => revisions.read(transaction)))
+      .resolves.toMatchObject({ serverRevision: 0 });
+  });
+
+  it("serializes two concurrent first upserts of one asset into one creation", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    // Two submissions of different fields race to create the same asset; the revision lock orders
+    // them, so the asset is created once and both fields land at distinct revisions.
+    const first = submittedSyncMutationSchema.parse({ ...submitted("race-note", 1, 0), entityId: "raced.test" });
+    const second = submittedSyncMutationSchema.parse({
+      ...submitted("race-tags", 2, 0), entityId: "raced.test", changedFields: [{ fieldPath: "tags", value: ["raced"] }],
+    });
+    const results = await Promise.all([
+      service.ingest(scopeA, pushRequest(first)),
+      service.ingest(scopeA, pushRequest(second)),
+    ]);
+    // The Drain domain requires device sequences in order, so the later sequence may have to wait
+    // for the earlier one; whichever outcome, at most one row exists and nothing is applied twice.
+    expect(results.every((result) => result.accepted || result.code !== "MUTATION_ENTITY_UNKNOWN")).toBe(true);
+    const stored = await transactions.withTenant(scopeA, async (transaction) => ({
+      rows: (await transaction.query("SELECT entity_id FROM workspace_replica_domain_assets")).rows,
+      head: (await revisions.read(transaction))?.serverRevision,
+      receipts: (await transaction.query("SELECT count(*)::int AS count FROM workspace_mutation_receipts")).rows[0],
+    }));
+    expect(stored.rows).toEqual([{ entity_id: "raced.test" }]);
+    expect(stored.receipts).toEqual({ count: stored.head });
+    expect(stored.head).toBe(results.filter((result) => result.accepted).length);
   });
 
   it("rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry", async () => {

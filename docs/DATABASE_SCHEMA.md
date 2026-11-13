@@ -117,6 +117,10 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 不得用裸 `payload` 或把普通 SHA-256 冒充协议 digest。
 同步 wire 和 Cloud mutation log 已区分 upsert 与显式 delete；delete 必须带规范删除时间且不能伪造
 changed fields。端到端 tombstone materializer 上线前，Cloud ingest 对 delete 保持 fail-closed 拒绝。
+Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内以默认字段与
+revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产仍以 `MUTATION_ENTITY_UNKNOWN` 拒绝，重新添加
+见 [ADR-0029](adr/0029-domain-tombstone-purge-and-re-adding.md)。Cloud 与 client-core 的 checkpoint 重建
+对同一情形同样创建默认行。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 

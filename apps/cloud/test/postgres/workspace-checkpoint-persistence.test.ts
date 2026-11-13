@@ -683,6 +683,20 @@ describe("deterministic checkpoint rebuild", () => {
       .toEqual([{ ...initialRows[0]!, note: "two" }]);
   });
 
+  it("creates an asset the snapshot does not hold from its first upsert, as ingest does", () => {
+    const created = { ...mutation(1, "first"), entityId: "added.test" };
+    expect(replayDomainAssets(initialRows, [created, mutation(2, "two")], 0, 2, tenantA.workspaceId)).toEqual([
+      { ...initialRows[0]!, note: "two" },
+      { entityId: "added.test", note: "first", portfolioId: null, tags: [], targetPrice: null },
+    ]);
+    // A delete of an asset the snapshot never held is a corrupt range, not a creation.
+    const orphanDelete = {
+      ...mutation(1, "gone"), entityId: "never.test", operationKind: "delete",
+      deletedAt: "2026-01-01T00:00:00Z", changedFields: [],
+    };
+    expect(() => replayDomainAssets(initialRows, [orphanDelete], 0, 1, tenantA.workspaceId)).toThrow(/unknown entity/);
+  });
+
   it("rejects missing duplicate reordered and corrupt persisted mutation ranges", () => {
     const invalidRanges = [
       [mutation(1, "one")],

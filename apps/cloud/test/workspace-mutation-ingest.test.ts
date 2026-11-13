@@ -149,6 +149,36 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     expect(landed).toEqual(encodeDrainStreamEnvelope("mutation", stored!));
   });
 
+  it("creates an asset the replica does not hold from its first upsert, in this tenant only", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    subject.bind(scopeB);
+    const created = { ...mutation({ sequence: 1, baseServerRevision: 0, fieldPath: "note" }), entityId: "added.test" };
+    await expect(subject.ingest.ingest(scopeA, request([created]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: false }], headRevision: 1,
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "added.test")).toEqual({
+      entityId: "added.test", note: "note-1", portfolioId: null, tags: [], targetPrice: null,
+      lastModifiedRevision: { note: 1, portfolioId: 0, tags: 0, targetPrice: 0 },
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeB, "added.test")).toBeNull();
+    // The checkpoint at the creating revision holds the created asset.
+    expect(subject.portfolio.snapshotAtRevision(scopeA, 1).map(({ entityId }) => entityId))
+      .toEqual(["added.test", "shared.test"]);
+    // A tombstoned asset stays unknown and poisons its batch without advancing the head.
+    subject.portfolio.seedDomainAssetTombstone(scopeA, "deleted.test");
+    const good = mutation({ sequence: 2, baseServerRevision: 1 });
+    const poison = { ...mutation({ sequence: 3, baseServerRevision: 1, fieldPath: "note" }), entityId: "deleted.test" };
+    await expect(subject.ingest.ingest(scopeA, request([good, poison]))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1 }],
+    });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(1);
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "deleted.test")).toBeNull();
+    // The tombstone is this tenant's alone: the other tenant creates the same name.
+    const otherCreate = { ...mutation({ sequence: 1, baseServerRevision: 0, fieldPath: "note" }), entityId: "deleted.test" };
+    await expect(subject.ingest.ingest(scopeB, request([otherCreate]))).resolves.toMatchObject({ accepted: true });
+  });
+
   it("P20-INV-17/18/19 property: arbitrary acceptance, rejection, and replay never burns a revision", async () => {
     const subject = harness();
     subject.bind(scopeA);

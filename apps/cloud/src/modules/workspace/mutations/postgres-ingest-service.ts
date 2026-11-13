@@ -107,6 +107,10 @@ export class PostgresWorkspaceMutationIngest {
       request.mutations.map(({ entityId }) => entityId),
     );
     const assetsById = new Map(assets.map((asset) => [asset.entityId, asset]));
+    const tombstoned = await this.dependencies.portfolio.readDomainAssetTombstones(
+      transaction,
+      request.mutations.map(({ entityId }) => entityId),
+    );
 
     const duplicateRevisionByIndex = new Map<number, number>();
     for (const [index, mutation] of request.mutations.entries()) {
@@ -122,8 +126,10 @@ export class PostgresWorkspaceMutationIngest {
       }
     }
 
+    // An asset the replica does not hold is created by its first upsert (a local add); one whose
+    // current state is a tombstone stays unknown, because re-adding needs ADR-0029's generation.
     const entityFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisionByIndex.has(index) || assetsById.has(mutation.entityId) ? [] : [failure(index, mutation)]);
+      duplicateRevisionByIndex.has(index) || !tombstoned.has(mutation.entityId) ? [] : [failure(index, mutation)]);
     if (entityFailures.length > 0) throw new IngestRejected(reject("MUTATION_ENTITY_UNKNOWN", entityFailures));
 
     const baseFailures = request.mutations.flatMap((mutation, index) =>
@@ -214,11 +220,11 @@ function findStaleFields(
   const failures: MutationIngestFailure[] = [];
   for (const [index, mutation] of mutations.entries()) {
     if (duplicates.has(index)) continue;
+    // A created asset starts with every field at revision 0, exactly as the replica row is inserted.
     const asset = assets.get(mutation.entityId);
-    if (asset === undefined) continue;
     for (const field of mutation.changedFields) {
       const key = `${mutation.entityId}\u0000${field.fieldPath}`;
-      const lastModifiedRevision = simulated.get(key) ?? asset.lastModifiedRevision[field.fieldPath];
+      const lastModifiedRevision = simulated.get(key) ?? asset?.lastModifiedRevision[field.fieldPath] ?? 0;
       if (lastModifiedRevision > mutation.baseServerRevision) {
         failures.push({ ...failure(index, mutation), fieldPath: field.fieldPath, lastModifiedRevision, headRevision });
       }

@@ -243,7 +243,7 @@ describe("BootstrapRebuildAccumulator", () => {
     expect(getterCalls).toBe(0);
   });
 
-  it("rejects page digest, cursor, target, workspace, schema, and unknown-entity drift atomically", async () => {
+  it("rejects page digest, cursor, target, workspace, schema, and delete drift atomically", async () => {
     const cases: {
       mutate(value: { cursor: string | null; page: Record<string, unknown> }): void;
       pattern?: RegExp;
@@ -258,9 +258,12 @@ describe("BootstrapRebuildAccumulator", () => {
         mutations[0]!["workspaceSchemaVersion"] = 999;
       } },
       { mutate: (value) => {
+        // Cloud does not yet accept deletes, so a rebuild page carrying one is drift, not data.
         const mutations = value.page["mutations"] as Record<string, unknown>[];
-        mutations[0]!["entityId"] = "missing-asset.test";
-      }, pattern: /unknown entity/i, refreshDigest: true },
+        mutations[0]!["operationKind"] = "delete";
+        mutations[0]!["deletedAt"] = "2026-01-01T00:00:00Z";
+        mutations[0]!["changedFields"] = [];
+      }, pattern: /deletes an entity/i, refreshDigest: true },
     ];
     for (const testCase of cases) {
       const accumulator = await start();
@@ -275,6 +278,23 @@ describe("BootstrapRebuildAccumulator", () => {
         (corpus.checkpointSnapshot as { rows: unknown }).rows,
       );
     }
+  });
+
+  it("creates an asset the checkpoint does not hold from its first upsert, with default fields", async () => {
+    const accumulator = await start();
+    const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+    const mutations = changed.page["mutations"] as Record<string, unknown>[];
+    mutations[0]!["entityId"] = "added-locally.test";
+    mutations[0]!["changedFields"] = [{ fieldPath: "note", value: "first note" }];
+    changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+    await accumulator.appendPage(changed);
+    const projection = accumulator.snapshot().projection as readonly { entityId: string }[];
+    expect(projection.find(({ entityId }) => entityId === "added-locally.test")).toEqual({
+      entityId: "added-locally.test", note: "first note", portfolioId: null, tags: [], targetPrice: null,
+    });
+    // The rows the checkpoint held are unchanged by the creation.
+    const held = (corpus.checkpointSnapshot as { rows: { entityId: string }[] }).rows;
+    expect(projection.filter(({ entityId }) => entityId !== "added-locally.test")).toEqual(held);
   });
 
   it("rejects missing, duplicate, and reordered revisions without partial advancement", async () => {

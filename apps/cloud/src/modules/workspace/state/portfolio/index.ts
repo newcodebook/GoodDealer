@@ -40,7 +40,8 @@ export interface DomainAssetProjection extends DomainAssetProjectionRow {
 }
 
 export interface PortfolioMutationPort {
-  hasDomainAsset(scope: WorkspaceTenantScope, entityId: string): boolean;
+  /** True when the asset's current state is a tombstone; an asset never seen is not tombstoned. */
+  isDomainAssetTombstoned(scope: WorkspaceTenantScope, entityId: string): boolean;
   readFieldRevision(scope: WorkspaceTenantScope, entityId: string, fieldPath: DomainAssetFieldPath): number | null;
   applyAcceptedMutations(
     scope: WorkspaceTenantScope,
@@ -52,6 +53,7 @@ export interface PortfolioMutationPort {
 export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   readonly #rows = new Map<string, Map<string, StoredDomainAsset>>();
   readonly #history = new Map<string, Map<number, Map<string, StoredDomainAsset>>>();
+  readonly #tombstones = new Map<string, Set<string>>();
 
   seedDomainAsset(scope: WorkspaceTenantScope, seed: DomainAssetSeed): void {
     const rows = this.#workspaceRows(scope);
@@ -66,8 +68,17 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     this.#recordSnapshot(scope, 0, rows);
   }
 
-  hasDomainAsset(scope: WorkspaceTenantScope, entityId: string): boolean {
-    return this.#rows.get(workspaceTenantKey(scope))?.has(entityId) === true;
+  /** Test double only: records a tombstone as Cloud would after a synced delete, since this in-memory ingest has no delete path. */
+  seedDomainAssetTombstone(scope: WorkspaceTenantScope, entityId: string): void {
+    if (this.#workspaceRows(scope).has(entityId)) throw new TypeError("a tombstoned domain asset has no live row");
+    const key = workspaceTenantKey(scope);
+    const tombstones = this.#tombstones.get(key) ?? new Set<string>();
+    tombstones.add(entityId);
+    this.#tombstones.set(key, tombstones);
+  }
+
+  isDomainAssetTombstoned(scope: WorkspaceTenantScope, entityId: string): boolean {
+    return this.#tombstones.get(workspaceTenantKey(scope))?.has(entityId) === true;
   }
 
   readFieldRevision(scope: WorkspaceTenantScope, entityId: string, fieldPath: DomainAssetFieldPath): number | null {
@@ -84,8 +95,8 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     const key = workspaceTenantKey(scope);
     const previousHistory = cloneHistory(this.#history.get(key));
     for (const { mutation, serverRevision } of mutations) {
-      const row = rows.get(mutation.entityId);
-      if (row === undefined) throw new TypeError("accepted mutation names an unknown domain asset");
+      // The first upsert of an asset creates it with every field at its default and revision 0.
+      const row = rows.get(mutation.entityId) ?? createDefaultRow(rows, mutation.entityId);
       for (const field of mutation.changedFields) applyField(row, field, serverRevision);
       this.#recordSnapshot(scope, serverRevision, rows);
     }
@@ -154,6 +165,18 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     history.set(revision, cloneRows(rows));
     this.#history.set(key, history);
   }
+}
+
+function createDefaultRow(rows: Map<string, StoredDomainAsset>, entityId: string): StoredDomainAsset {
+  const row: StoredDomainAsset = {
+    entityId,
+    note: { value: null, lastModifiedRevision: 0 },
+    portfolioId: { value: null, lastModifiedRevision: 0 },
+    tags: { value: [], lastModifiedRevision: 0 },
+    targetPrice: { value: null, lastModifiedRevision: 0 },
+  };
+  rows.set(entityId, row);
+  return row;
 }
 
 function applyField(row: StoredDomainAsset, field: DomainAssetChangedField, serverRevision: number): void {

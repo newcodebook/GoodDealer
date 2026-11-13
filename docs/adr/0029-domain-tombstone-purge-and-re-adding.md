@@ -14,10 +14,11 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 - **Cloud 缺失的部分**：
   - ingest 的 wire 解析遇到任何 `operationKind === "delete"` 即拒绝整个请求（`mutations/index.ts`）；
   - 没有把 delete 物化到 `workspace_replica_tombstones` 的路径；
-  - checkpoint 重建遇到 delete 时直接移除该行而不留墓碑（`checkpoints/postgres-service.ts`）；
-  - ingest 对副本中不存在的实体返回 `MUTATION_ENTITY_UNKNOWN`，所以本地新增的域名同样无法同步到
-    Cloud——首次添加的 ingest 也尚未交付。
-- **本地**：没有路径把墓碑置为 `purge_eligible` 或删除墓碑；创建对带 `deleted_at` 的行一律拒绝；
+  - checkpoint 重建遇到 delete 时直接移除该行而不留墓碑（`checkpoints/postgres-service.ts`）。
+- **首次添加**已交付：副本中既无活跃行也无墓碑的实体，其首个 upsert 创建默认活跃行；当前状态为墓碑的
+  实体仍以 `MUTATION_ENTITY_UNKNOWN` 拒绝。
+- **本地**：Inbox 收到 delete 时已写入同一 entity/revision 的墓碑（`state='replicated'`；有待发送字段时
+  `barrier_state='contested'`）；没有路径把墓碑置为 `purge_eligible` 或删除墓碑；创建对带 `deleted_at` 的行一律拒绝；
   `sync_outbox_local_creations` 的触发器只允许标记实体的首个本地 upsert，且检查不含 `entity_kind`；
   备份恢复的 `reject_candidate_tombstone_conflicts` 只依赖墓碑或 `deleted_at` 行。
 - [DATABASE_SCHEMA](../DATABASE_SCHEMA.md) 规定：端到端墓碑 materializer 上线前，Cloud ingest 对 delete
@@ -44,11 +45,10 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 
 在任何重新添加路径之前，先交付（可作为独立任务）：
 
-- **首次添加 ingest**：对副本中既无活跃行也无墓碑的实体，`entityGeneration = 1` 的 upsert 创建活跃行，
-  未提供的字段取默认值。
+- **首次添加 ingest**（已交付，见背景）：引入 generation 后，其 `entityGeneration` 必须为 1。
 - **删除 ingest 与物化**：`entityGeneration` 等于活跃行 generation 的 delete，在 ingest 事务内删除活跃
-  行并写入同一 generation 的墓碑行；checkpoint 重建同样把 delete 物化为墓碑而不是移除行；Inbox 下行
-  时本地写入同一 entity/revision/generation 的墓碑。
+  行并写入同一 generation 的墓碑行；checkpoint 重建同样把 delete 物化为墓碑而不是移除行；本地 Inbox 已写入的墓碑
+  补上 generation。
 
 ### 3. 经同步的重新添加
 
@@ -120,13 +120,13 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 ## 待产品负责人确认
 
 - 是否接受“经同步的重新添加”与“旧字段不复活”的语义，以及引入实体 generation 与 wire 字段。
-- 首次添加 ingest 与端到端删除（第 2 条）作为阶段 3 的前置任务追加到执行台账（推荐）。
+- 端到端删除（第 2 条）作为阶段 3 的前置任务追加到执行台账（推荐）。
 
 ## 后果与验收
 
 接受后，执行台账中的对应项拆为：
 
-1. 首次添加 ingest；
+1. 首次添加 ingest 补上 generation 1；
 2. 删除 ingest、Cloud 墓碑物化、重建与 Inbox 的删除物化；
 3. generation 的 Cloud/本地迁移与 wire 版本；
 4. 经同步的重新添加（Cloud 合同、本地写入与触发器、Host 创建路径）；

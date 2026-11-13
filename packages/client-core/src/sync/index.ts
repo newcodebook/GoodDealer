@@ -498,8 +498,14 @@ function canonicalProjection(input: Map<string, MutableDomainAsset>): DomainAsse
 }
 
 function applyDomainAssetMutation(projection: Map<string, MutableDomainAsset>, mutation: SyncMutation): void {
-  const row = projection.get(mutation.entityId);
-  if (row === undefined) throw new TypeError("rebuild mutation references an unknown entity");
+  if (mutation.operationKind === "delete") throw new TypeError("rebuild mutation deletes an entity");
+  // The first upsert of an asset the checkpoint does not hold creates it with default fields, as
+  // the Cloud ingest does for a local add.
+  let row = projection.get(mutation.entityId);
+  if (row === undefined) {
+    row = { entityId: mutation.entityId, note: null, portfolioId: null, tags: [], targetPrice: null };
+    projection.set(mutation.entityId, row);
+  }
   for (const field of mutation.changedFields) {
     switch (field.fieldPath) {
       case "note": row.note = field.value; break;

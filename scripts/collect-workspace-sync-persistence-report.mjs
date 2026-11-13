@@ -47,6 +47,8 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "persists an explicit DomainAsset deletion without manufacturing changed fields",
     "orchestrates authority, Drain, revision, state, receipt, and replay atomically without production composition",
     "rejects a poison item without persisting any prefix of the v2 batch",
+    "creates an asset the replica does not hold from its first upsert, in this tenant only",
+    "serializes two concurrent first upserts of one asset into one creation",
     "rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry",
     "rejects expired Lease authority at the database-time boundary before mutation state changes",
     "binds direct app drain routines to the current active device Lease and proof-only sealing",
@@ -95,6 +97,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "rejects a corrupt persisted checkpoint snapshot during service rebuild",
     "rejects missing and corrupt persisted mutation ranges during service rebuild",
     "replays a complete ordered range deterministically",
+    "creates an asset the snapshot does not hold from its first upsert, as ingest does",
     "rejects missing duplicate reordered and corrupt persisted mutation ranges",
   ],
 });

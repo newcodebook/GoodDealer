@@ -73,6 +73,21 @@ describe("workspace sync transaction-aware owner ports", () => {
     await expect(repository.lockDomainAssets(transaction, ["b.test"])).rejects.toThrow();
   });
 
+  it("reads tombstoned domain assets in the transaction's tenant and validates stored ids", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [{ entity_id: "b.test" }], rowCount: 1 });
+    const repository = new PostgresPortfolioRepository();
+    const transaction = { scope, query } as unknown as TenantTransaction;
+    await expect(repository.readDomainAssetTombstones(transaction, ["b.test", "a.test", "b.test"]))
+      .resolves.toEqual(new Set(["b.test"]));
+    expect(query.mock.calls[0]?.[1]).toEqual([scope.accountId, scope.workspaceId, ["b.test", "a.test"]]);
+    expect(query.mock.calls[0]?.[0]).toContain("entity_type = 'domain_asset'");
+    await expect(repository.readDomainAssetTombstones(transaction, [])).resolves.toEqual(new Set());
+    expect(query).toHaveBeenCalledTimes(1);
+    query.mockResolvedValueOnce({ rows: [{ entity_id: "NOT A DOMAIN" }], rowCount: 1 });
+    await expect(repository.readDomainAssetTombstones(transaction, ["a.test"])).rejects.toThrow();
+    await expect(repository.readDomainAssetTombstones(transaction, ["NOT A DOMAIN"])).rejects.toThrow();
+  });
+
   it("applies only the closed field union and preserves owner transaction scope", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
     const repository = new PostgresPortfolioRepository();
@@ -96,9 +111,12 @@ describe("workspace sync transaction-aware owner ports", () => {
     });
 
     await repository.applyAcceptedMutations(transaction, [{ mutation, serverRevision: 1 }]);
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[0]?.[0]).toContain("note_server_revision");
-    expect(query.mock.calls[1]?.[0]).toContain("target_price_server_revision");
+    expect(query).toHaveBeenCalledTimes(3);
+    // The create-if-absent insert names only the tenant key and entity, so it never overwrites.
+    expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (account_id, workspace_id, entity_id) DO NOTHING");
+    expect(query.mock.calls[0]?.[1]).toEqual([scope.accountId, scope.workspaceId, "asset-1.test"]);
+    expect(query.mock.calls[1]?.[0]).toContain("note_server_revision");
+    expect(query.mock.calls[2]?.[0]).toContain("target_price_server_revision");
     await expect(repository.applyAcceptedMutations(transaction, [{
       mutation: { ...mutation, workspaceId: "workspace-b" }, serverRevision: 2,
     }])).rejects.toThrow("binding is invalid");

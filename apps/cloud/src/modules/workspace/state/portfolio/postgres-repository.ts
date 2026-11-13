@@ -45,6 +45,11 @@ export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPo
     transaction: TenantTransaction,
     entityIds: readonly string[],
   ): Promise<readonly LockedDomainAsset[]>;
+  /** Domain assets among `entityIds` whose current state is a tombstone; a delete keeps them unknown. */
+  readDomainAssetTombstones(
+    transaction: TenantTransaction,
+    entityIds: readonly string[],
+  ): Promise<ReadonlySet<string>>;
   applyAcceptedMutations(
     transaction: TenantTransaction,
     assignments: readonly { readonly mutation: SubmittedSyncMutation; readonly serverRevision: number }[],
@@ -141,6 +146,23 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
     return result.rows.map(parseLockedDomainAsset);
   }
 
+  async readDomainAssetTombstones(
+    transaction: TenantTransaction,
+    values: readonly string[],
+  ): Promise<ReadonlySet<string>> {
+    const entityIds = [...new Set(values.map((value) => domainAssetProjectionRowSchema.shape.entityId.parse(value)))];
+    if (entityIds.length === 0) return new Set();
+    // Tombstones are written only by an ingest or materialization that holds the workspace revision
+    // lock, which every caller already holds, so this read cannot race a concurrent delete.
+    const result = await transaction.query<{ entity_id: unknown }>(
+      `SELECT entity_id FROM workspace_replica_tombstones
+       WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'domain_asset' AND entity_id = ANY($3::text[])`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, entityIds],
+    );
+    return new Set(result.rows.map(({ entity_id: entityId }) =>
+      domainAssetProjectionRowSchema.shape.entityId.parse(entityId)));
+  }
+
   async applyAcceptedMutations(
     transaction: TenantTransaction,
     values: readonly { readonly mutation: SubmittedSyncMutation; readonly serverRevision: number }[],
@@ -151,6 +173,13 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
       if (revision < 1 || mutation.workspaceId !== transaction.scope.workspaceId) {
         throw new TypeError("accepted portfolio mutation binding is invalid");
       }
+      // The first upsert of an asset the replica does not hold creates it with every field at its
+      // default and revision 0; the ingest has already refused assets that are tombstoned.
+      await transaction.query(
+        `INSERT INTO workspace_replica_domain_assets (account_id, workspace_id, entity_id)
+         VALUES ($1, $2, $3) ON CONFLICT (account_id, workspace_id, entity_id) DO NOTHING`,
+        [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId],
+      );
       for (const field of mutation.changedFields) {
         const { assignments, parameters } = fieldAssignment(field, revision);
         const result = await transaction.query(

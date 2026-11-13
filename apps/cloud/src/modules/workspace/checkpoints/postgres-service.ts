@@ -327,15 +327,22 @@ export function replayDomainAssets(
     if (mutation.serverRevision !== expectedRevision) throw new TypeError("rebuild revisions are missing or reordered");
     if (mutation.workspaceId !== workspaceId) throw new TypeError("rebuild mutation crosses workspace scope");
     const row = rows.get(mutation.entityId);
-    if (row === undefined) throw new TypeError("rebuild mutation references an unknown entity");
     if (mutation.operationKind === "delete") {
+      if (row === undefined) throw new TypeError("rebuild delete references an unknown entity");
       rows.delete(mutation.entityId);
     } else {
-      applyMutation(row, mutation);
+      // The first upsert of an asset the snapshot does not hold creates it, as ingest did.
+      applyMutation(row ?? createDefaultRow(rows, mutation.entityId), mutation);
     }
     expectedRevision += 1;
   }
   return domainAssetProjectionSchema.parse([...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)));
+}
+
+function createDefaultRow(rows: Map<string, MutableDomainAsset>, entityId: string): MutableDomainAsset {
+  const row: MutableDomainAsset = { entityId, note: null, portfolioId: null, tags: [], targetPrice: null };
+  rows.set(entityId, row);
+  return row;
 }
 
 function applyMutation(row: MutableDomainAsset, mutation: SyncMutation): void {

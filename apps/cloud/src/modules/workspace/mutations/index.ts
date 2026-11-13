@@ -407,7 +407,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     if (sequenceFailures.length > 0) return reject("MUTATION_SEQUENCE_CONFLICT", sequenceFailures);
 
     const entityFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisions.has(index) || this.#portfolio.hasDomainAsset(scope, mutation.entityId)
+      duplicateRevisions.has(index) || !this.#portfolio.isDomainAssetTombstoned(scope, mutation.entityId)
         ? []
         : [failure(index, mutation)],
     );
