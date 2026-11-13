@@ -10,7 +10,7 @@ const observation = {
 };
 
 function port(overrides: Partial<CloudflarePort> = {}): CloudflarePort {
-  return { status: vi.fn(async () => status), create: vi.fn(async () => ({ schemaVersion: 1 as const, connectionRef: "opaque", displayLabel: "Cloudflare", created: true, readGeneration: 1 })), activate: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
+  return { retirementCandidates: vi.fn(async () => []), purge: vi.fn(async () => undefined), status: vi.fn(async () => status), create: vi.fn(async () => ({ schemaVersion: 1 as const, connectionRef: "opaque", displayLabel: "Cloudflare", created: true, readGeneration: 1 })), activate: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
 }
 
 describe("CloudflareJourney", () => {

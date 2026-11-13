@@ -21,6 +21,72 @@ const MAX_SYNC_PULL_REQUEST_BYTES: usize = 2 * 1024;
 const MAX_PROJECTION_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
+/// Native-only result of deleting and checking a retired Cloudflare custody slot under its lock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesktopCloudflarePurgeOutcome {
+    Purged,
+    AlreadyAbsent,
+    Unknown,
+}
+
+/// Bounded, non-secret settings action target. Slot identity remains native-only.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopCloudflareRetirementCandidate {
+    pub connection_ref: String,
+    pub display_label: String,
+    pub pending: bool,
+}
+
+/// One-shot Host handle issued only after the irreversible retirement request commits.
+pub struct DesktopCloudflareRetirement {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) seed: crate::active_workspace::business::CloudflareRetirementSeed,
+    pub(crate) connection_digest: String,
+}
+
+/// Borrowed non-secret slot identity; callers cannot construct or serialize this plan.
+pub struct DesktopCloudflareRetirementPlan<'a> {
+    seed: &'a crate::active_workspace::business::CloudflareRetirementSeed,
+    connection_digest: &'a str,
+}
+
+impl DesktopCloudflareRetirementPlan<'_> {
+    #[must_use]
+    pub fn connection_incarnation_id(&self) -> &str {
+        &self.seed.connection_incarnation_id
+    }
+
+    #[must_use]
+    pub fn connection_digest(&self) -> &str {
+        self.connection_digest
+    }
+}
+
+impl DesktopCloudflareRetirement {
+    pub fn with_keychain_plan<T>(
+        self,
+        use_plan: impl FnOnce(DesktopCloudflareRetirementPlan<'_>, Self) -> T,
+    ) -> T {
+        // The borrowed plan and consumed handle describe the same committed request.
+        let seed = self.seed.clone();
+        let connection_digest = self.connection_digest.clone();
+        use_plan(
+            DesktopCloudflareRetirementPlan {
+                seed: &seed,
+                connection_digest: &connection_digest,
+            },
+            self,
+        )
+    }
+}
+
+impl fmt::Debug for DesktopCloudflareRetirement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DesktopCloudflareRetirement([REDACTED])")
+    }
+}
+
 #[derive(Debug)]
 pub struct DesktopCloudflareCheckedObservation {
     pub entity_id: String,
@@ -2097,6 +2163,206 @@ mod tests {
             schema_version: 1,
             display_label: label.to_owned(),
         }
+    }
+
+    fn cloudflare_retirement_host() -> (tempfile::TempDir, DesktopLocalHost, String) {
+        let (directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let revoke = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .unwrap()
+            .unwrap();
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(revoke)
+            .unwrap();
+        local_host
+            .remediate_cloudflare_revocation_prewrite(
+                inspecting,
+                DesktopCloudflarePrewriteFailure::Malformed,
+            )
+            .unwrap();
+        (directory, local_host, connection)
+    }
+
+    #[test]
+    fn cloudflare_retirement_host_plan_is_opaque_and_unknown_can_resume_to_completion() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let (_other_directory, other_host) = empty_host();
+        let wrong_admission = other_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(wrong_admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .resume_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        assert_eq!(
+            format!("{retirement:?}"),
+            "DesktopCloudflareRetirement([REDACTED])"
+        );
+        assert!(other_host.check_cloudflare_retirement(&retirement).is_err());
+        local_host.check_cloudflare_retirement(&retirement).unwrap();
+        let (incarnation, digest) = retirement.with_keychain_plan(|plan, handle| {
+            let identity = (
+                plan.connection_incarnation_id().to_owned(),
+                plan.connection_digest().to_owned(),
+            );
+            assert_eq!(identity.1.len(), 64);
+            assert!(
+                !local_host
+                    .resolve_cloudflare_retirement(handle, DesktopCloudflarePurgeOutcome::Unknown)
+                    .unwrap()
+            );
+            identity
+        });
+        // Even when the opening's recovery scan has not run, first confirmation freezes its
+        // prior request set before adding this one; a later wake cannot re-delete this slot.
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        let settings = serde_json::to_value(local_host.read_settings().unwrap()).unwrap();
+        assert_eq!(
+            settings["connections"][0]["credentialUseState"],
+            "remediation_required"
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retry = local_host
+            .resume_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        retry.with_keychain_plan(|plan, handle| {
+            assert_eq!(plan.connection_incarnation_id(), incarnation);
+            assert_eq!(plan.connection_digest(), digest);
+            assert!(
+                local_host
+                    .resolve_cloudflare_retirement(
+                        handle,
+                        DesktopCloudflarePurgeOutcome::AlreadyAbsent
+                    )
+                    .unwrap()
+            );
+        });
+        let settings = serde_json::to_value(local_host.read_settings().unwrap()).unwrap();
+        assert!(settings["connections"].as_array().unwrap().is_empty());
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .resume_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn retirement_candidates_and_open_retry_snapshot_follow_durable_requests() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let candidates = local_host.read_cloudflare_retirement_candidates().unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].connection_ref, connection);
+        assert!(!candidates[0].pending);
+        // The first writable-open scan freezes an empty set of pending requests.
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        assert!(local_host.read_cloudflare_retirement_candidates().unwrap()[0].pending);
+        local_host
+            .resolve_cloudflare_retirement(retirement, DesktopCloudflarePurgeOutcome::Unknown)
+            .unwrap();
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        // A new writable runtime receives one attempt; failure does not allow another wake to
+        // retry, but a later opening or explicit manual resume still can.
+        local_host.renew_business_authority_for_test(2).unwrap();
+        let retry = local_host
+            .claim_cloudflare_retirement_retry()
+            .unwrap()
+            .unwrap();
+        local_host
+            .resolve_cloudflare_retirement(retry, DesktopCloudflarePurgeOutcome::Unknown)
+            .unwrap();
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        local_host.renew_business_authority_for_test(3).unwrap();
+        let retry = local_host
+            .claim_cloudflare_retirement_retry()
+            .unwrap()
+            .unwrap();
+        local_host
+            .resolve_cloudflare_retirement(retry, DesktopCloudflarePurgeOutcome::AlreadyAbsent)
+            .unwrap();
+        assert!(
+            local_host
+                .read_cloudflare_retirement_candidates()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        local_host.enter_commercial_read_only().unwrap();
+        assert!(local_host.read_cloudflare_retirement_candidates().is_err());
+        assert!(local_host.claim_cloudflare_retirement_retry().is_err());
+    }
+
+    #[test]
+    fn cloudflare_retirement_host_rechecks_authority_before_delete_and_before_commit() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        local_host.check_cloudflare_retirement(&retirement).unwrap();
+        local_host.enter_commercial_read_only().unwrap();
+        assert!(local_host.check_cloudflare_retirement(&retirement).is_err());
+        assert!(
+            local_host
+                .resolve_cloudflare_retirement(retirement, DesktopCloudflarePurgeOutcome::Purged)
+                .is_err()
+        );
     }
 
     #[test]

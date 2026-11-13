@@ -29,6 +29,142 @@ pub enum CloudflareKeychainError {
 
 /// Host authority/deadline callback used to fence cross-process credential publication.
 pub type CloudflareKeychainGuard<'a> = dyn FnMut() -> Result<(), CloudflareKeychainError> + 'a;
+
+/// Read-only identity forwarded from a committed, irreversible Host retirement request.
+pub trait CloudflareCredentialRetirementPlan {
+    fn connection_incarnation(&self) -> &str;
+    fn connection_digest(&self) -> &str;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudflarePurgeOutcome {
+    Purged,
+    AlreadyAbsent,
+    Unknown,
+}
+
+/// Deletes only a permanently refused slot, without loading or decoding its secret value.
+/// Admission and completion callbacks run while the existing per-slot custody lock is held.
+///
+/// # Errors
+///
+/// Rejects malformed plans, unsupported platforms, unavailable locks, or stale Host admission.
+/// A deletion/readback failure resolves as Unknown so the durable request can be retried.
+pub fn purge_retired_cloudflare_slot<Plan, Handle, Resolved>(
+    plan: &Plan,
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    if !is_local_identifier(plan.connection_incarnation())
+        || !is_connection_digest(plan.connection_digest())
+    {
+        return Err(CloudflareKeychainError::Malformed);
+    }
+    purge_retired_cloudflare_slot_platform(plan, handle, admit_once, resolve_once)
+}
+
+#[cfg(target_os = "macos")]
+fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
+    plan: &Plan,
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    let _lock = KeychainLock::acquire(plan.connection_digest())?;
+    purge_admitted_retirement(
+        handle,
+        admit_once,
+        || match security_framework::passwords::delete_generic_password_options(keychain_options(
+            plan.connection_digest(),
+            false,
+        )) {
+            Ok(()) => Ok(true),
+            Err(error) if error.code() == -25300 => Ok(false),
+            Err(_) => Err(CloudflareKeychainError::Unavailable),
+        },
+        || retired_slot_exists(plan.connection_digest()),
+        resolve_once,
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
+    _plan: &Plan,
+    _handle: Handle,
+    _admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    _resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    Err(CloudflareKeychainError::Unavailable)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn purge_admitted_retirement<Handle, Resolved>(
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    delete_once: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    exists_after: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError> {
+    admit_once(&handle)?;
+    resolve_once(handle, purge_and_verify_absence(delete_once, exists_after))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn purge_and_verify_absence(
+    delete_once: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    exists_after: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+) -> CloudflarePurgeOutcome {
+    let Ok(deleted) = delete_once() else {
+        return CloudflarePurgeOutcome::Unknown;
+    };
+    match exists_after() {
+        Ok(false) if deleted => CloudflarePurgeOutcome::Purged,
+        Ok(false) => CloudflarePurgeOutcome::AlreadyAbsent,
+        Ok(true) | Err(_) => CloudflarePurgeOutcome::Unknown,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn retired_slot_exists(connection_digest: &str) -> Result<bool, CloudflareKeychainError> {
+    use security_framework::item::{CloudSync, ItemClass, ItemSearchOptions};
+    let mut query = ItemSearchOptions::new();
+    // Attributes prove presence only. Unknown custody bytes must never enter an envelope parser.
+    query
+        .class(ItemClass::generic_password())
+        .service(SERVICE)
+        .account(connection_digest)
+        .cloud_sync(CloudSync::MatchSyncNo)
+        .ignore_legacy_keychains()
+        .load_attributes(true)
+        .limit(1);
+    match query.search() {
+        Ok(results) => Ok(!results.is_empty()),
+        Err(error) if error.code() == -25300 => Ok(false),
+        Err(_) => Err(CloudflareKeychainError::Unavailable),
+    }
+}
 impl fmt::Display for CloudflareKeychainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -1450,6 +1586,134 @@ mod tests {
     const INCARNATION: &str = "cloudflare-incarnation-1";
     const SCOPE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const PROOF: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+
+    struct RetirementPlan<'a> {
+        incarnation: &'a str,
+        digest: &'a str,
+    }
+
+    impl CloudflareCredentialRetirementPlan for RetirementPlan<'_> {
+        fn connection_incarnation(&self) -> &str {
+            self.incarnation
+        }
+        fn connection_digest(&self) -> &str {
+            self.digest
+        }
+    }
+
+    #[test]
+    fn purge_requires_valid_plan_before_any_callback() {
+        let digest = "a".repeat(64);
+        for plan in [
+            RetirementPlan {
+                incarnation: "",
+                digest: &digest,
+            },
+            RetirementPlan {
+                incarnation: INCARNATION,
+                digest: "not-a-slot-digest",
+            },
+            RetirementPlan {
+                incarnation: INCARNATION,
+                digest: &"A".repeat(64),
+            },
+        ] {
+            let result: Result<(), _> = purge_retired_cloudflare_slot(
+                &plan,
+                (),
+                |()| panic!("invalid plan must not be admitted"),
+                |(), _| panic!("invalid plan must not resolve"),
+            );
+            assert_eq!(result, Err(CloudflareKeychainError::Malformed));
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn purge_is_unavailable_without_native_custody_and_does_not_complete_retirement() {
+        let digest = "a".repeat(64);
+        let plan = RetirementPlan {
+            incarnation: INCARNATION,
+            digest: &digest,
+        };
+        let result: Result<(), _> = purge_retired_cloudflare_slot(
+            &plan,
+            (),
+            |()| panic!("unsupported platform must not be admitted"),
+            |(), _| panic!("unsupported platform must not complete retirement"),
+        );
+        assert_eq!(result, Err(CloudflareKeychainError::Unavailable));
+    }
+
+    #[test]
+    fn purge_checks_admission_before_delete_and_keeps_unknown_retryable() {
+        let refused: Result<(), _> = purge_admitted_retirement(
+            (),
+            |()| Err(CloudflareKeychainError::AuthorityStale),
+            || panic!("stale authority must not delete"),
+            || panic!("stale authority must not query custody"),
+            |(), _| panic!("stale authority must not complete retirement"),
+        );
+        assert_eq!(refused, Err(CloudflareKeychainError::AuthorityStale));
+        for (deleted, exists, expected) in [
+            (Ok(true), Ok(false), CloudflarePurgeOutcome::Purged),
+            (Ok(false), Ok(false), CloudflarePurgeOutcome::AlreadyAbsent),
+            (Ok(true), Ok(true), CloudflarePurgeOutcome::Unknown),
+            (Ok(false), Ok(true), CloudflarePurgeOutcome::Unknown),
+            (
+                Ok(true),
+                Err(CloudflareKeychainError::Unavailable),
+                CloudflarePurgeOutcome::Unknown,
+            ),
+            (
+                Err(CloudflareKeychainError::Unavailable),
+                Ok(false),
+                CloudflarePurgeOutcome::Unknown,
+            ),
+        ] {
+            let order = std::cell::RefCell::new(Vec::new());
+            let result = purge_admitted_retirement(
+                "opaque-handle",
+                |handle| {
+                    assert_eq!(*handle, "opaque-handle");
+                    order.borrow_mut().push("admit");
+                    Ok(())
+                },
+                || {
+                    order.borrow_mut().push("delete");
+                    deleted
+                },
+                || {
+                    order.borrow_mut().push("read-presence");
+                    exists
+                },
+                |handle, outcome| {
+                    assert_eq!(handle, "opaque-handle");
+                    order.borrow_mut().push("resolve");
+                    Ok(outcome)
+                },
+            );
+            assert_eq!(result, Ok(expected));
+            assert_eq!(
+                order.into_inner(),
+                if deleted.is_ok() {
+                    vec!["admit", "delete", "read-presence", "resolve"]
+                } else {
+                    vec!["admit", "delete", "resolve"]
+                }
+            );
+        }
+        assert_eq!(
+            purge_admitted_retirement(
+                (),
+                |()| Ok(()),
+                || Ok(true),
+                || Ok(false),
+                |(), _| Err::<(), _>(CloudflareKeychainError::AuthorityStale)
+            ),
+            Err(CloudflareKeychainError::AuthorityStale)
+        );
+    }
 
     struct Plan {
         base_kind: CloudflareCredentialPublicKind,

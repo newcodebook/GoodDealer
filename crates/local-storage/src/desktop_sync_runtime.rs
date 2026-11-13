@@ -5,13 +5,17 @@
 //! generation used to perform the operation.  `DesktopLocalHost` can embed this runtime and
 //! expose the methods as its native boundary without widening the IPC contract.
 
+use std::collections::VecDeque;
 use std::fmt::{self, Write as _};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-use crate::active_workspace::business::{SyncProjectionEffect, SyncRejectionKind};
+use crate::active_workspace::business::{
+    CloudflareRetirementSeed, SyncProjectionEffect, SyncRejectionKind,
+};
 use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
@@ -190,6 +194,7 @@ pub(crate) struct DesktopSyncRuntime {
     authority_snapshot_digest: String,
     authority_epoch: u64,
     next_run_sequence: AtomicU64,
+    retirement_open_retries: Mutex<Option<VecDeque<CloudflareRetirementSeed>>>,
 }
 
 impl fmt::Debug for DesktopSyncRuntime {
@@ -199,6 +204,118 @@ impl fmt::Debug for DesktopSyncRuntime {
 }
 
 impl DesktopSyncRuntime {
+    pub(crate) fn read_cloudflare_retirement_candidates(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Vec<crate::DesktopCloudflareRetirementCandidate>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .cloudflare_retirement_candidates()
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn claim_cloudflare_retirement_retry(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Option<(CloudflareRetirementSeed, String)>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        self.initialize_cloudflare_retirement_retries(database)?;
+        let mut retries = self
+            .retirement_open_retries
+            .lock()
+            .map_err(|_| DesktopSyncError::StorageRejected)?;
+        Ok(retries.as_mut().and_then(VecDeque::pop_front).map(|seed| {
+            let digest = cloudflare_connection_digest(
+                &admission.workspace_id,
+                &seed.connection_incarnation_id,
+            );
+            (seed, digest)
+        }))
+    }
+
+    fn initialize_cloudflare_retirement_retries(
+        &self,
+        database: &BusinessDatabase,
+    ) -> Result<(), DesktopSyncError> {
+        let mut retries = self
+            .retirement_open_retries
+            .lock()
+            .map_err(|_| DesktopSyncError::StorageRejected)?;
+        if retries.is_none() {
+            // Snapshot only requests present on this writable opening. Later wakes must not
+            // become a background retry loop, nor pick up a newly confirmed request.
+            let seeds = database
+                .cloudflare_retirement_candidates()
+                .map_err(map_database_error)?
+                .into_iter()
+                .filter(|candidate| candidate.pending)
+                .map(|candidate| database.cloudflare_retirement_seed(&candidate.connection_ref))
+                .collect::<Result<VecDeque<_>, _>>()
+                .map_err(map_database_error)?;
+            *retries = Some(seeds);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn request_cloudflare_retirement(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(CloudflareRetirementSeed, String), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        // Freeze the opening's retry set before introducing this new request, even if no
+        // recovery wake has successfully obtained writable admission yet.
+        self.initialize_cloudflare_retirement_retries(database)?;
+        let seed = database
+            .request_cloudflare_retirement_guarded(
+                connection_hint,
+                &timestamp(trusted_now()?)?,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)?;
+        let digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        Ok((seed, digest))
+    }
+
+    pub(crate) fn resume_cloudflare_retirement(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+    ) -> Result<(CloudflareRetirementSeed, String), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let seed = database
+            .cloudflare_retirement_seed(connection_hint)
+            .map_err(map_database_error)?;
+        let digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        Ok((seed, digest))
+    }
+
+    pub(crate) fn resolve_cloudflare_retirement(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        seed: &CloudflareRetirementSeed,
+        verified_absent: bool,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<bool, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .resolve_cloudflare_retirement_guarded(
+                seed,
+                verified_absent,
+                &timestamp(trusted_now()?)?,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
+    }
+
     pub(crate) fn admit_cloudflare_activation(
         &self,
         database: &BusinessDatabase,
@@ -464,7 +581,7 @@ impl DesktopSyncRuntime {
     ) -> Result<Option<PreparedCloudflareProvisionData>, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
         let seed = database
-            .cloudflare_provision_seed(connection_hint)
+            .cloudflare_revocation_seed(connection_hint)
             .map_err(map_database_error)?;
         let (scope_digest, zone_digest) = match &seed.expected_base {
             base if base.kind == CloudflareCredentialEnvelopeKind::Absent => return Ok(None),
@@ -547,6 +664,7 @@ impl DesktopSyncRuntime {
             authority_snapshot_digest,
             authority_epoch,
             next_run_sequence: AtomicU64::new(0),
+            retirement_open_retries: Mutex::new(None),
         })
     }
 

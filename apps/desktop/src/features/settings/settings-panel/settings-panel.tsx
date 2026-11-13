@@ -23,7 +23,7 @@ import {
 } from "@gooddealer/ui";
 import activeLeaseUrl from "@gooddealer/ui/assets/icons/active-lease.svg";
 import keyholeUrl from "@gooddealer/ui/assets/icons/keyhole.svg";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
   canHandoffTo,
@@ -48,6 +48,7 @@ export interface SettingsPanelProps {
   readonly onConnectionAction?: (connection: ConnectionSettingsItemViewModel, action: ConnectionSettingsAction) => void;
   readonly onAddConnection?: () => void;
   readonly onRunOnboarding?: () => void;
+  readonly connectionMaintenance?: ReactNode;
   /** Null while the Host has no device projection; the section says so instead of inventing one. */
   readonly devices: DeviceRuntimeView | null;
   /** Fires only after the handoff acknowledgement, for a target the Host admitted. */
@@ -78,6 +79,7 @@ export function SettingsPanel({
   onConnectionAction,
   onAddConnection,
   onRunOnboarding,
+  connectionMaintenance,
   devices,
   onHandoff,
   license,
@@ -131,6 +133,8 @@ export function SettingsPanel({
               ) : null}
             </div>
           ) : null}
+
+          {section === "connections" ? connectionMaintenance : null}
 
           {section === "devices" && devices === null ? (
             <Panel title={copy.deviceExecutionTitle}><span className="gd-t-meta">{copy.devicesUnavailable}</span></Panel>

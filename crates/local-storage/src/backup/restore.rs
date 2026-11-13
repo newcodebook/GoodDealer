@@ -967,6 +967,99 @@ mod tests {
     }
 
     #[test]
+    fn restoring_business_data_preserves_pending_and_completed_custody_retirement() {
+        let directory = tempdir().unwrap();
+        let key = LocalDatabaseKey::from_bytes([0x57; 32]);
+        let mut database =
+            BusinessDatabase::open(&directory.path().join("active.db"), &key, "workspace-local")
+                .unwrap();
+        database
+            .upsert_domain_asset("seed-old", TIME, &asset("one.example", "old"))
+            .unwrap();
+        // Backup bodies contain business data only. Restore merges that whitelist into the
+        // current database rather than replacing custody with the artifact's older database.
+        let old = candidate(&mut database, "artifact-before-retirement", 7);
+        database
+            .upsert_domain_asset("seed-new", TIME, &asset("one.example", "new"))
+            .unwrap();
+        database.backup_connection_mut().execute(
+            "UPDATE active_workspace_metadata SET applied_through_server_revision=7 WHERE singleton=1", [],
+        ).unwrap();
+        for connection in ["pending-control", "retired-control"] {
+            database.backup_connection_mut().execute(
+                "INSERT INTO local_provider_connections
+                   (workspace_id,connection_id,connection_incarnation_id,provider_kind,display_label,
+                    active_credential_changed_at,capabilities_json,credential_use_state,lifecycle_status)
+                 VALUES ('workspace-local',?1,?1,'cloudflare','Refused custody',?2,'[]','remediation_required','invalid')",
+                params![connection, TIME],
+            ).unwrap();
+            database
+                .backup_connection_mut()
+                .execute(
+                    "INSERT INTO cloudflare_credential_roots
+                   (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local',?1,?1,?2)",
+                    params![connection, TIME],
+                )
+                .unwrap();
+            let seed = database
+                .request_cloudflare_retirement_guarded(connection, TIME, || Ok(()))
+                .unwrap();
+            if connection == "retired-control" {
+                assert!(
+                    database
+                        .resolve_cloudflare_retirement_guarded(&seed, true, TIME, || Ok(()))
+                        .unwrap()
+                );
+            }
+        }
+        let before = database.recovery_proof().unwrap().local_commit_sequence;
+        let digest = "c".repeat(64);
+        database
+            .restore_backup_candidate_guarded(
+                &old,
+                &request("restore-before-retirement", before, 7, &digest),
+                &mut (),
+                &authority(&digest),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        for (connection, completed, state) in [
+            ("pending-control", false, "remediation_required"),
+            ("retired-control", true, "retired"),
+        ] {
+            let stored: (String, Option<String>, String) = database
+                .backup_connection_mut()
+                .query_row(
+                    "SELECT r.retirement_requested_at,r.retired_at,c.credential_use_state
+                   FROM cloudflare_credential_roots r JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id AND c.connection_id=r.logical_connection_id
+                  WHERE r.connection_incarnation_id=?1",
+                    [connection],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                stored,
+                (
+                    TIME.to_owned(),
+                    completed.then(|| TIME.to_owned()),
+                    state.to_owned()
+                )
+            );
+        }
+        assert_eq!(
+            database
+                .read_domain_detail("one.example")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("old")
+        );
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "the restore integration proof keeps control-floor, history, outbox, and pull assertions together"

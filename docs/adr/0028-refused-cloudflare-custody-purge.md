@@ -1,6 +1,6 @@
 # ADR-0028：清理已拒绝使用的 Cloudflare 凭据 custody 并退役连接 incarnation
 
-状态：Proposed — 待产品负责人确认；未实现，下述四种情况继续失败关闭。
+状态：Accepted — 产品负责人于 2026-11-13 确认决策及执行前显式确认；实现中：情况 1、2 已接入 Host 撤销重试；情况 3、4 已接入持久退役、Native 串行清理、设置确认/重试与可写打开单次重试；情况 1、2 的专用界面重试及 macOS 实机资格待完成。
 
 ## 背景
 
@@ -15,8 +15,8 @@ incarnation)`），调用方不能提供工作区、账户名或路径。
 scope/zone digest、public proof）比较，一致才写入目标状态，不一致则失败关闭。本 ADR 首次把该规则写成
 决定（见“决策”第 0 条）。
 
-以下四种情况中，本地已经拒绝使用该凭据（失败关闭），但 Token 可能仍留在 Keychain，而现有路径无法再
-撤销——撤销的准入只接受 `credential_use_state IN ('inactive','active')`：
+以下为本 ADR 实施前的四种情况：本地已经拒绝使用该凭据（失败关闭），但 Token 可能仍留在 Keychain，
+原撤销准入只接受 `credential_use_state IN ('inactive','active')`：
 
 1. **`revocation_pending`，撤销 intent 为 `cancelled`**：撤销在准备后、prewrite 前被锁定或登出取消。
    Keychain 从未被写，`known_envelope_*` 仍是该槽位的确切基线（Active 信封）。
@@ -45,7 +45,7 @@ scope/zone digest、public proof）比较，一致才写入目标状态，不一
 `cloudflare_credential_one_live_intent` 保证每个 incarnation 至多一个未结束的 intent（`prepared`、
 `prewrite_inspection_started`、`keychain_write_started`、`recovery_required`）。
 
-## 决策（提议）
+## 决策
 
 0. **写明现行规则**：Cloudflare custody 槽位的任何写入（激活、轮换、撤销）都必须在该 incarnation 的
    Keychain 锁内对 `known_envelope_*` 记录的确切基线比较后进行，不一致即失败关闭。第 2 条的删除原语是
@@ -57,7 +57,10 @@ scope/zone digest、public proof）比较，一致才写入目标状态，不一
    - 两者都要求 `known_envelope_kind='active'`、`retired_at IS NULL`。
 
    新撤销走现有协议：期望头为 `highest_resolved_generation`，基线为 `known_envelope_*`，目标为下一
-   generation 的墓碑，准备时连接保持（或回到）`revocation_pending`。`Confirmed` 后连接为 `revoked`，root
+   generation 的墓碑，准备时连接保持（或回到）`revocation_pending`。已取消且未记录写入 marker 的 intent
+   不消耗 generation：保留旧尝试，以新 intent ID 与 public proof 重试相同目标 generation；目标 generation
+   的唯一性约束仅排除 `revoke/cancelled/cancelled_before_inspection` 尝试，未结束 intent 的唯一性保持不变。已写入 marker 的 intent 不可取消，
+   因而不能释放 generation。`Confirmed` 后连接为 `revoked`，root
    `known_envelope_kind='tombstone'`，与任何一次正常撤销的结果相同，不再需要退役。若基线比较失败，按
    现有路径进入 `remediation_required`，即情况 3。
 
@@ -148,11 +151,9 @@ scope/zone digest、public proof）比较，一致才写入目标状态，不一
 - **情况 4 把 intent 记为 `consumed` 或写一条 burned 账本结果后再退役**：会让审计记录声称一个从未观察到
   的 custody 结果。不采用；改用不写账本的终止 phase。
 
-## 待产品负责人确认
+## 产品确认
 
-- 是否接受第 0 条写明的 custody 规则；情况 1、2 按基线再次撤销；情况 3、4 使用无基线删除原语作为
-  唯一例外，情况 4 的 intent 以 `abandoned_for_retirement` 终止。或维持失败关闭、把清理留给用户。
-- 退役是否需要用户在界面上显式确认（推荐：需要）。
+产品负责人于 2026-11-13 确认本 ADR 的决策：情况 1、2 按确切基线再次撤销；情况 3、4 使用受限的无基线删除原语；情况 4 的 intent 以 `abandoned_for_retirement` 终止。首次执行前必须显式确认，确认后按第 5 条重试，不重复要求确认。架构决策已接受，交付状态仍以执行台账与测试证据为准。
 
 ## 后果与验收
 
@@ -179,3 +180,35 @@ scope/zone digest、public proof）比较，一致才写入目标状态，不一
 - **界面**：设置中的“清理”与“重试清理”入口、确认文案、完成后的 Cloudflare 提示与渲染测试。
 
 完成条件：上述测试全部通过；生产入口在本 ADR 接受前不存在可执行路径。
+
+## 实现进度（2026-11-13）
+
+已实现存储与 Host 的确切基线撤销重试（情况 1、2）：前向迁移
+`202611130001` 保留全部旧 intent，重建目标 generation 的部分唯一索引与原阶段/身份触发器，
+credential schema guard 升为 V3。准备事务重新核验重试证据；prewrite、写入 marker 与恢复扫描仅对
+已证实 `target_not_observed` 的撤销允许“无发布权限但仍有确切 Active 基线”，不恢复凭据使用。
+该变化复用现有受限 Host 撤销入口，尚未提供拒绝状态的专用界面重试按钮。
+
+情况 3、4 已实现持久退役与 V4 前向迁移（`202611130002`）：扩展 `retired` 连接状态，重建 intent
+的 CHECK/触发器，支持 `recovery_required → abandoned_for_retirement`；请求/完成不可回退，已请求 root
+的已知凭据身份和 ledger head 不可改变。准备、prewrite、观察、恢复、DNS 发布同时拒绝已请求退役的 root。
+请求与 intent 放弃、发布权限撤回在同一 IMMEDIATE 事务内完成，完成时原子标记 root 与连接，历史证据保留。
+
+Host 提供不透明的请求、恢复请求、删除前复核和完成句柄；槽位 digest 只从准入工作区与数据库返回的
+incarnation 推导。Secure Host 的 `purge_retired_cloudflare_slot` 在既有槽位锁内复核 Host 准入、删除、
+只查询属性判断槽位是否不存在，再调用 Host 完成事务；不调用加载/解析信封的方法。删除或存在性回读失败
+返回 `Unknown`，请求保留；非 macOS 返回不可用且不调用完成回调。
+
+原语已接入 Native 生产编排与 ProviderLane 串行清理通道。清理可在恢复未成功时排队，但不会与正在
+执行的恢复或凭据操作重叠；Host 继续拒绝可能存在写入者的 prepared/prewrite/write-started 状态。
+设置页以独立有界维护目标读取提供首次确认和手动重试，只在可写时出现。确认文案说明永久禁用、重新连接
+及需在 Cloudflare 删除/轮换 Token；仅在 Host 返回确认完成且目标已隐藏后显示成功。失败重新读取持久状态，
+渲染器只轮询读取，不重复提交删除。生产命令权限与生成 schema 同步更新。
+
+Host 运行时对打开时已有的请求建立一次性重试集合；首次确认新请求前也冻结旧集合，避免后续 wake 自动
+重试本次新请求。每个请求在本次可写运行时消费一次；Unknown 保持持久请求，等待手动重试或下次可写打开。
+现行备份格式只恢复业务白名单，不覆盖凭据控制表；旧快照恢复回归测试确认请求/完成状态均保留。
+情况 1、2 的专用界面撤销重试入口及 macOS 真实 custody 资格仍待完成，本 ADR 整体保持未完成。
+具体批次见[专项落地计划](../phase0/ADR_0028_0030_0029_IMPLEMENTATION_PLAN.md)。
+
+各批验证记录见[专项落地计划](../phase0/ADR_0028_0030_0029_IMPLEMENTATION_PLAN.md)；本节只记录实现状态。

@@ -80,7 +80,7 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
     settings: { loadSettings: vi.fn(async () => settingsRead) },
-    cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), revoke: vi.fn() },
+    cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
 }
 
@@ -178,6 +178,22 @@ describe("write entries follow the presentation gate", () => {
       await clickButton("Run setup again");
       expect(onRunOnboarding).toHaveBeenCalledOnce();
     }
+  });
+
+  it.each([
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("only writable settings reads cleanup targets for %s %j", async (state, capabilities, writable) => {
+    const native = ports(async () => ({ ...cloudflareStatus, capturable: true }));
+    vi.mocked(native.cloudflare.retirementCandidates).mockResolvedValue([{ connectionRef: "refused", displayLabel: "Refused Cloudflare", pending: true }]);
+    await render(state, [...capabilities], native);
+    await clickButton("Settings");
+    for (let index = 0; index < 3; index += 1) await act(async () => { await Promise.resolve(); });
+    expect(buttons().includes("Retry cleanup")).toBe(writable);
+    expect(vi.mocked(native.cloudflare.retirementCandidates).mock.calls.length).toBe(writable ? 1 : 0);
+    expect(native.cloudflare.purge).not.toHaveBeenCalled();
   });
 
   it("settings keeps the revoke hint and reports an unreadable status as only that", async () => {

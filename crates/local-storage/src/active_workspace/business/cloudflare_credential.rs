@@ -246,93 +246,24 @@ impl BusinessDatabase {
         &self,
         connection_hint: &str,
     ) -> Result<CloudflareProvisionSeed, BusinessDatabaseError> {
-        validate_local_text(connection_hint)?;
-        let (connection_incarnation_id, display_label, published_generation) = self
-            .store
-            .raw_connection()
-            .query_row(
-                "SELECT connection_incarnation_id,display_label,active_credential_generation
-                   FROM local_provider_connections
-                  WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare'
-                    AND connection_incarnation_id IS NOT NULL
-                    AND credential_use_state IN ('inactive','active')
-                    AND json_array_length(capabilities_json)=1
-                    AND json_extract(capabilities_json,'$[0]')='dns'",
-                params![self.workspace_id, connection_hint],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<i64>>(2)?,
-                    ))
-                },
-            )
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        validate_local_text(&connection_incarnation_id)?;
-        validate_connection_label(&display_label)?;
-        let root = self
-            .store
-            .raw_connection()
-            .query_row(
-                "SELECT highest_resolved_generation,known_envelope_kind,
-                        known_envelope_generation,known_scope_digest,known_zone_digest,
-                        known_public_proof,retired_at
-                   FROM cloudflare_credential_roots
-                  WHERE workspace_id=?1 AND connection_incarnation_id=?2
-                    AND logical_connection_id=?3",
-                params![
-                    self.workspace_id,
-                    connection_incarnation_id,
-                    connection_hint
-                ],
-                |row| {
-                    let kind = row.get::<_, String>(1)?;
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        witness_from_columns(
-                            &kind,
-                            row.get(2)?,
-                            row.get(3)?,
-                            row.get(4)?,
-                            row.get(5)?,
-                        )?,
-                        row.get::<_, Option<String>>(6)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let (expected_head_generation, expected_base) = match root {
-            Some((head, base, None)) => (
-                u64::try_from(head).map_err(|_| BusinessDatabaseError::InvalidInput)?,
-                base,
-            ),
-            None if published_generation.is_none() => (0, CloudflareCredentialWitness::absent()),
-            Some((_, _, Some(_))) | None => return Err(BusinessDatabaseError::MutationStale),
-        };
-        let live_intent_exists = self
-            .store
-            .raw_connection()
-            .query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM cloudflare_credential_intents
-                     WHERE workspace_id=?1 AND connection_incarnation_id=?2
-                       AND phase IN ('prepared','prewrite_inspection_started',
-                                     'keychain_write_started','recovery_required'))",
-                params![self.workspace_id, connection_incarnation_id],
-                |row| row.get::<_, bool>(0),
-            )
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if live_intent_exists {
-            return Err(BusinessDatabaseError::MutationStale);
-        }
-        Ok(CloudflareProvisionSeed {
-            logical_connection_id: connection_hint.to_owned(),
-            connection_incarnation_id,
-            display_label,
-            expected_head_generation,
-            expected_base,
-        })
+        cloudflare_credential_seed(
+            self.store.raw_connection(),
+            &self.workspace_id,
+            connection_hint,
+            false,
+        )
+    }
+
+    pub(crate) fn cloudflare_revocation_seed(
+        &self,
+        connection_hint: &str,
+    ) -> Result<CloudflareProvisionSeed, BusinessDatabaseError> {
+        cloudflare_credential_seed(
+            self.store.raw_connection(),
+            &self.workspace_id,
+            connection_hint,
+            true,
+        )
     }
 
     pub(crate) fn prepare_cloudflare_credential_operation_guarded(
@@ -347,6 +278,14 @@ impl BusinessDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
 
+        if input.operation_kind == CloudflareCredentialOperationKind::Revoke {
+            cloudflare_credential_seed(
+                &transaction,
+                &self.workspace_id,
+                &input.logical_connection_id,
+                true,
+            )?;
+        }
         let known = load_or_create_credential_root(&transaction, &self.workspace_id, input)?;
         if revoke_is_idempotent_noop(&transaction, &self.workspace_id, input, &known)? {
             pre_commit_guard()?;
@@ -391,7 +330,8 @@ impl BusinessDatabase {
                    FROM cloudflare_credential_intents i
                    JOIN cloudflare_credential_roots r USING (workspace_id,connection_incarnation_id)
                   WHERE i.workspace_id=?1 AND i.connection_incarnation_id=?2
-                    AND i.intent_id=?3 AND i.phase='prepared'",
+                    AND i.intent_id=?3 AND i.phase='prepared'
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL",
                 params![self.workspace_id, connection_incarnation_id, intent_id],
                 |row| {
                     let known_kind = row.get::<_, String>(0)?;
@@ -415,11 +355,18 @@ impl BusinessDatabase {
         }
         let publication =
             connection_publication(&transaction, &self.workspace_id, &logical_connection_id)?;
-        if !publication_matches_root(&known, publication.as_ref()) {
+        if !publication_matches_operation(
+            &transaction,
+            &self.workspace_id,
+            connection_incarnation_id,
+            operation,
+            &known,
+            publication.as_ref(),
+        )? {
             return Err(BusinessDatabaseError::MutationStale);
         }
         if operation == CloudflareCredentialOperationKind::Revoke
-            && (known.kind != CloudflareCredentialEnvelopeKind::Active || publication.is_none())
+            && known.kind != CloudflareCredentialEnvelopeKind::Active
         {
             return Err(BusinessDatabaseError::MutationStale);
         }
@@ -476,15 +423,16 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let (base, logical_connection_id, prepared_authority) = transaction
+        let (base, logical_connection_id, prepared_authority, operation) = transaction
             .query_row(
                 "SELECT r.known_envelope_kind,r.known_envelope_generation,
                         r.known_scope_digest,r.known_zone_digest,r.known_public_proof,
-                        r.logical_connection_id,i.prepared_authority_snapshot_digest
+                        r.logical_connection_id,i.prepared_authority_snapshot_digest,i.operation_kind
                    FROM cloudflare_credential_intents i
                    JOIN cloudflare_credential_roots r USING (workspace_id,connection_incarnation_id)
                   WHERE i.workspace_id=?1 AND i.connection_incarnation_id=?2
-                    AND i.intent_id=?3 AND i.phase='prewrite_inspection_started'",
+                    AND i.intent_id=?3 AND i.phase='prewrite_inspection_started'
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL",
                 params![self.workspace_id, connection_incarnation_id, intent_id],
                 |row| {
                     let kind = row.get::<_, String>(0)?;
@@ -498,6 +446,7 @@ impl BusinessDatabase {
                         )?,
                         row.get::<_, String>(5)?,
                         row.get::<_, String>(6)?,
+                        parse_operation(&row.get::<_, String>(7)?)?,
                     ))
                 },
             )
@@ -507,7 +456,14 @@ impl BusinessDatabase {
         }
         let publication =
             connection_publication(&transaction, &self.workspace_id, &logical_connection_id)?;
-        if !publication_matches_root(&base, publication.as_ref()) {
+        if !publication_matches_operation(
+            &transaction,
+            &self.workspace_id,
+            connection_incarnation_id,
+            operation,
+            &base,
+            publication.as_ref(),
+        )? {
             return Err(BusinessDatabaseError::MutationStale);
         }
         let changed = transaction
@@ -564,7 +520,8 @@ impl BusinessDatabase {
                    FROM cloudflare_credential_intents i
                    JOIN cloudflare_credential_roots r USING (workspace_id,connection_incarnation_id)
                   WHERE i.workspace_id=?1 AND i.connection_incarnation_id=?2
-                    AND i.intent_id=?3 AND i.phase='prewrite_inspection_started'",
+                    AND i.intent_id=?3 AND i.phase='prewrite_inspection_started'
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL",
                 params![self.workspace_id, connection_incarnation_id, intent_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -710,6 +667,7 @@ impl BusinessDatabase {
                    JOIN cloudflare_credential_roots r
                      USING (workspace_id,connection_incarnation_id)
                   WHERE i.workspace_id=?1
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL
                     AND i.phase IN ('keychain_write_started','recovery_required')
                     AND i.marker_base_recorded=1
                     AND (i.connection_incarnation_id>?2
@@ -751,7 +709,18 @@ impl BusinessDatabase {
                 &self.workspace_id,
                 &seed.logical_connection_id,
             )?;
-            if !publication_matches_root(&seed.expected_base, publication.as_ref()) {
+            if !publication_matches_operation(
+                self.store.raw_connection(),
+                &self.workspace_id,
+                &seed.connection_incarnation_id,
+                if seed.target.kind == CloudflareCredentialEnvelopeKind::Tombstone {
+                    CloudflareCredentialOperationKind::Revoke
+                } else {
+                    CloudflareCredentialOperationKind::Provision
+                },
+                &seed.expected_base,
+                publication.as_ref(),
+            )? {
                 return Err(BusinessDatabaseError::MutationStale);
             }
         }
@@ -779,6 +748,18 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let writable: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM cloudflare_credential_roots
+              WHERE workspace_id=?1 AND connection_incarnation_id=?2
+                AND retirement_requested_at IS NULL AND retired_at IS NULL)",
+                params![self.workspace_id, connection_incarnation_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if !writable {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
         let intent = load_intent(
             &transaction,
             &self.workspace_id,
@@ -823,6 +804,112 @@ impl BusinessDatabase {
     }
 }
 
+fn cloudflare_credential_seed(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    connection_hint: &str,
+    revoke: bool,
+) -> Result<CloudflareProvisionSeed, BusinessDatabaseError> {
+    validate_local_text(connection_hint)?;
+    let (connection_incarnation_id, display_label, published_generation) = connection
+            .query_row(
+                "SELECT connection_incarnation_id,display_label,active_credential_generation
+                   FROM local_provider_connections
+                  WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare'
+                    AND connection_incarnation_id IS NOT NULL
+                    AND (credential_use_state IN ('inactive','active')
+                      OR (?3 AND (
+                        (credential_use_state='revocation_pending' AND EXISTS (
+                          SELECT 1 FROM cloudflare_credential_intents i
+                          JOIN cloudflare_credential_roots r USING (workspace_id,connection_incarnation_id)
+                          WHERE i.workspace_id=local_provider_connections.workspace_id
+                            AND i.connection_incarnation_id=local_provider_connections.connection_incarnation_id
+                            AND i.operation_kind='revoke' AND i.phase='cancelled'
+                            AND i.terminal_reason='cancelled_before_inspection'
+                            AND i.target_generation=r.highest_resolved_generation+1
+                            AND r.known_envelope_kind='active'))
+                        OR (credential_use_state='revoked' AND EXISTS (
+                          SELECT 1 FROM cloudflare_credential_roots r
+                          JOIN cloudflare_credential_generation_ledger l
+                            ON l.workspace_id=r.workspace_id
+                           AND l.connection_incarnation_id=r.connection_incarnation_id
+                           AND l.generation=r.head_ledger_generation
+                          WHERE r.workspace_id=local_provider_connections.workspace_id
+                            AND r.connection_incarnation_id=local_provider_connections.connection_incarnation_id
+                            AND r.known_envelope_kind='active'
+                            AND l.operation_kind='revoke' AND l.result='burned'
+                            AND l.burn_reason='target_not_observed')))))
+                    AND json_array_length(capabilities_json)=1
+                    AND json_extract(capabilities_json,'$[0]')='dns'",
+                params![workspace_id, connection_hint, revoke],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                },
+            )
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    validate_local_text(&connection_incarnation_id)?;
+    validate_connection_label(&display_label)?;
+    let root = connection
+        .query_row(
+            "SELECT highest_resolved_generation,known_envelope_kind,
+                        known_envelope_generation,known_scope_digest,known_zone_digest,
+                        known_public_proof,COALESCE(retirement_requested_at,retired_at)
+                   FROM cloudflare_credential_roots
+                  WHERE workspace_id=?1 AND connection_incarnation_id=?2
+                    AND logical_connection_id=?3",
+            params![workspace_id, connection_incarnation_id, connection_hint],
+            |row| {
+                let kind = row.get::<_, String>(1)?;
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    witness_from_columns(
+                        &kind,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    )?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let (expected_head_generation, expected_base) = match root {
+        Some((head, base, None)) => (
+            u64::try_from(head).map_err(|_| BusinessDatabaseError::InvalidInput)?,
+            base,
+        ),
+        None if published_generation.is_none() => (0, CloudflareCredentialWitness::absent()),
+        Some((_, _, Some(_))) | None => return Err(BusinessDatabaseError::MutationStale),
+    };
+    let live_intent_exists = connection
+        .query_row(
+            "SELECT EXISTS(
+                    SELECT 1 FROM cloudflare_credential_intents
+                     WHERE workspace_id=?1 AND connection_incarnation_id=?2
+                       AND phase IN ('prepared','prewrite_inspection_started',
+                                     'keychain_write_started','recovery_required'))",
+            params![workspace_id, connection_incarnation_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if live_intent_exists {
+        return Err(BusinessDatabaseError::MutationStale);
+    }
+    Ok(CloudflareProvisionSeed {
+        logical_connection_id: connection_hint.to_owned(),
+        connection_incarnation_id,
+        display_label,
+        expected_head_generation,
+        expected_base,
+    })
+}
+
 fn load_or_create_credential_root(
     transaction: &Transaction<'_>,
     workspace_id: &str,
@@ -832,7 +919,7 @@ fn load_or_create_credential_root(
         .query_row(
             "SELECT highest_resolved_generation,known_envelope_kind,
                     known_envelope_generation,known_scope_digest,known_zone_digest,
-                    known_public_proof,retired_at
+                    known_public_proof,COALESCE(retirement_requested_at,retired_at)
                FROM cloudflare_credential_roots
               WHERE workspace_id=?1 AND connection_incarnation_id=?2
                 AND logical_connection_id=?3",
@@ -1719,6 +1806,41 @@ fn connection_publication(
     connection_id: &str,
 ) -> Result<Option<CloudflareCredentialWitness>, BusinessDatabaseError> {
     transaction.query_row("SELECT active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof FROM local_provider_connections WHERE workspace_id=?1 AND connection_id=?2 AND active_credential_generation IS NOT NULL",params![workspace_id,connection_id],|row|Ok(CloudflareCredentialWitness{kind:CloudflareCredentialEnvelopeKind::Active,generation:Some(u64::try_from(row.get::<_,i64>(0)?).map_err(|_|rusqlite::Error::InvalidQuery)?),scope_digest:Some(row.get(1)?),zone_digest:Some(row.get(2)?),public_proof:Some(row.get(3)?)})).optional().map_err(|_|BusinessDatabaseError::StorageRejected)
+}
+
+// A burned revoke removes publication permission, but retains the exact Active custody
+// baseline. Only another revoke may use that baseline; it never republishes credential use.
+fn publication_matches_operation(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    incarnation: &str,
+    operation: CloudflareCredentialOperationKind,
+    root: &CloudflareCredentialWitness,
+    publication: Option<&CloudflareCredentialWitness>,
+) -> Result<bool, BusinessDatabaseError> {
+    if publication_matches_root(root, publication) {
+        return Ok(true);
+    }
+    if operation != CloudflareCredentialOperationKind::Revoke
+        || root.kind != CloudflareCredentialEnvelopeKind::Active
+        || publication.is_some()
+    {
+        return Ok(false);
+    }
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM cloudflare_credential_roots r
+          JOIN cloudflare_credential_generation_ledger l
+            ON l.workspace_id=r.workspace_id AND l.connection_incarnation_id=r.connection_incarnation_id
+           AND l.generation=r.head_ledger_generation
+          JOIN local_provider_connections c
+            ON c.workspace_id=r.workspace_id AND c.connection_id=r.logical_connection_id
+           AND c.connection_incarnation_id=r.connection_incarnation_id
+         WHERE r.workspace_id=?1 AND r.connection_incarnation_id=?2 AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL
+           AND c.credential_use_state IN ('revoked','revocation_pending')
+           AND l.operation_kind='revoke' AND l.result='burned'
+           AND l.burn_reason='target_not_observed')",
+        params![workspace_id, incarnation], |row| row.get(0),
+    ).map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
 fn publication_matches_root(
@@ -2675,6 +2797,641 @@ mod tests {
         assert!(
             database
                 .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cancelled_revoke_retries_the_same_generation_without_losing_the_old_attempt() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        provision(
+            &mut database,
+            &first,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+        );
+        let revoke = revoke_preparation(&first);
+        database
+            .prepare_cloudflare_credential_operation_guarded(&revoke, || Ok(()))
+            .unwrap();
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        database
+            .recover_cloudflare_credential_orphans_guarded(AT, || Ok(()))
+            .unwrap();
+        let seed = database
+            .cloudflare_revocation_seed(&first.logical_connection_id)
+            .unwrap();
+        assert_eq!(seed.expected_head_generation, 1);
+        assert_eq!(seed.expected_base, target(&first));
+        let mut retry = revoke.clone();
+        retry.intent_id = "intent-revoke-retry".to_owned();
+        retry.target_public_proof = "6".repeat(64);
+        assert!(
+            database
+                .prepare_cloudflare_credential_operation_guarded(&retry, || Err(
+                    BusinessDatabaseError::MutationStale
+                ))
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_ok()
+        );
+        let mut tombstone = target(&retry);
+        tombstone.kind = CloudflareCredentialEnvelopeKind::Tombstone;
+        assert_eq!(
+            provision(
+                &mut database,
+                &retry,
+                &seed.expected_base,
+                true,
+                &CloudflareCredentialRecoveryObservation::Canonical(tombstone)
+            ),
+            CloudflareCredentialResolution::Confirmed
+        );
+        let rows: (i64, i64, String) = database.store.raw_connection().query_row(
+            "SELECT (SELECT count(*) FROM cloudflare_credential_intents WHERE phase='cancelled'),
+                    (SELECT count(*) FROM cloudflare_credential_generation_ledger), credential_use_state
+               FROM local_provider_connections", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(rows, (1, 2, "revoked".to_owned()));
+    }
+
+    #[test]
+    fn burned_revoke_retries_from_retained_baseline_and_recovers_without_publication() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        provision(
+            &mut database,
+            &first,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+        );
+        let revoke = revoke_preparation(&first);
+        assert_eq!(
+            provision(
+                &mut database,
+                &revoke,
+                &target(&first),
+                true,
+                &CloudflareCredentialRecoveryObservation::Canonical(target(&first))
+            ),
+            CloudflareCredentialResolution::TargetNotObservedBurned
+        );
+        assert!(
+            database
+                .cloudflare_provision_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
+        let seed = database
+            .cloudflare_revocation_seed(&first.logical_connection_id)
+            .unwrap();
+        assert_eq!(seed.expected_head_generation, 2);
+        assert_eq!(seed.expected_base, target(&first));
+        let mut retry = revoke;
+        retry.intent_id = "intent-revoke-3".to_owned();
+        retry.expected_head_generation = 2;
+        retry.target_generation = 3;
+        retry.target_public_proof = "6".repeat(64);
+        prepare_and_begin_prewrite(&mut database, &retry);
+        database
+            .mark_cloudflare_keychain_write_started_guarded(
+                &retry.connection_incarnation_id,
+                &retry.intent_id,
+                &retry.prepared_authority_snapshot_digest,
+                AT,
+                || Ok(()),
+            )
+            .unwrap();
+        let recovery = database
+            .next_cloudflare_credential_recovery(None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(recovery.expected_base, target(&first));
+        assert_eq!(recovery.target.generation, Some(3));
+        assert!(
+            database
+                .cloudflare_provision_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert_eq!(
+            database
+                .resolve_cloudflare_credential_operation_guarded(
+                    &retry.connection_incarnation_id,
+                    &retry.intent_id,
+                    &CloudflareCredentialRecoveryObservation::Canonical(recovery.target),
+                    &retry.prepared_authority_snapshot_digest,
+                    AT,
+                    || Ok(())
+                )
+                .unwrap(),
+            CloudflareCredentialResolution::Confirmed
+        );
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cancelled_revoke_retry_with_a_mismatched_slot_requires_remediation() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        provision(
+            &mut database,
+            &first,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+        );
+        let revoke = revoke_preparation(&first);
+        database
+            .prepare_cloudflare_credential_operation_guarded(&revoke, || Ok(()))
+            .unwrap();
+        database
+            .recover_cloudflare_credential_orphans_guarded(AT, || Ok(()))
+            .unwrap();
+        let mut retry = revoke;
+        retry.intent_id = "intent-mismatched-retry".to_owned();
+        prepare_and_begin_prewrite(&mut database, &retry);
+        database
+            .cancel_cloudflare_prewrite_for_remediation_guarded(
+                &retry.connection_incarnation_id,
+                &retry.intent_id,
+                CloudflarePrewriteFailureReason::BaseMismatch,
+                AT,
+                || Ok(()),
+            )
+            .unwrap();
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_provision_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
+        let state: (String, i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT credential_use_state,
+                    (SELECT highest_resolved_generation FROM cloudflare_credential_roots),
+                    (SELECT count(*) FROM cloudflare_credential_generation_ledger)
+               FROM local_provider_connections",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state, ("remediation_required".to_owned(), 1, 1));
+    }
+
+    #[test]
+    fn revoke_retry_rejects_remediation_and_non_matching_burn_evidence() {
+        for invalidation in [
+            "UPDATE local_provider_connections SET credential_use_state='remediation_required'",
+            "UPDATE local_provider_connections SET credential_use_state='transition_pending'",
+        ] {
+            let mut database = database();
+            let first = preparation(1, stage(1));
+            provision(
+                &mut database,
+                &first,
+                &CloudflareCredentialWitness::absent(),
+                true,
+                &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+            );
+            let revoke = revoke_preparation(&first);
+            provision(
+                &mut database,
+                &revoke,
+                &target(&first),
+                true,
+                &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+            );
+            database
+                .store
+                .fixture_connection()
+                .execute(invalidation, [])
+                .unwrap();
+            assert!(
+                database
+                    .cloudflare_revocation_seed(&first.logical_connection_id)
+                    .is_err()
+            );
+            let mut retry = revoke;
+            retry.intent_id = "rejected-retry".to_owned();
+            retry.expected_head_generation = 2;
+            retry.target_generation = 3;
+            assert!(
+                database
+                    .prepare_cloudflare_credential_operation_guarded(&retry, || Ok(()))
+                    .is_err()
+            );
+        }
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        provision(
+            &mut database,
+            &first,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+        );
+        // A denied row alone is not evidence of a burned revocation.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET credential_use_state='revoked',active_credential_generation=NULL,active_credential_scope_digest=NULL,active_credential_zone_digest=NULL,active_credential_public_proof=NULL",
+                [],
+            )
+            .unwrap();
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .prepare_cloudflare_credential_operation_guarded(
+                    &revoke_preparation(&first),
+                    || Ok(())
+                )
+                .is_err()
+        );
+    }
+
+    fn retirement_custody_evidence(database: &TestDatabase) -> Vec<Vec<rusqlite::types::Value>> {
+        [
+            "SELECT highest_resolved_generation,head_ledger_generation,known_envelope_kind,
+                    known_envelope_generation,known_scope_digest,known_zone_digest,known_public_proof
+               FROM cloudflare_credential_roots ORDER BY connection_incarnation_id",
+            "SELECT * FROM cloudflare_credential_generation_ledger ORDER BY generation",
+            "SELECT workspace_id,connection_incarnation_id,intent_id,operation_kind,
+                    expected_head_generation,target_generation,target_envelope_kind,
+                    scope_digest,zone_digest,target_public_proof,prepared_authority_snapshot_digest,
+                    staged_batch_id,staged_observation_digest,marker_base_recorded,marker_base_envelope_kind,
+                    marker_base_generation,marker_base_scope_digest,marker_base_zone_digest,marker_base_public_proof
+               FROM cloudflare_credential_intents ORDER BY intent_id",
+        ].into_iter().flat_map(|sql| {
+            let mut statement = database.store.raw_connection().prepare(sql).unwrap();
+            let columns = statement.column_count();
+            statement.query_map([], |row| (0..columns)
+                .map(|column| row.get::<_,rusqlite::types::Value>(column))
+                .collect::<Result<Vec<_>,_>>()).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+        }).collect()
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one scenario follows a stuck recovery intent through request, purge and completion"
+    )]
+    fn cloudflare_retirement_abandons_recovery_without_fabricating_custody_evidence() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        provision(
+            &mut database,
+            &first,
+            &CloudflareCredentialWitness::absent(),
+            true,
+            &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+        );
+        let revoke = revoke_preparation(&first);
+        assert_eq!(
+            provision(
+                &mut database,
+                &revoke,
+                &target(&first),
+                true,
+                &CloudflareCredentialRecoveryObservation::Malformed
+            ),
+            CloudflareCredentialResolution::RecoveryRequired
+        );
+        let before = retirement_custody_evidence(&database);
+        assert!(
+            database
+                .request_cloudflare_retirement_guarded(&first.logical_connection_id, AT, || Err(
+                    BusinessDatabaseError::MutationStale
+                ))
+                .is_err()
+        );
+        let phase: String = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT phase FROM cloudflare_credential_intents WHERE intent_id=?1",
+                [&revoke.intent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(phase, "recovery_required");
+        assert!(
+            database
+                .cloudflare_retirement_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        let seed = database
+            .request_cloudflare_retirement_guarded(&first.logical_connection_id, AT, || Ok(()))
+            .unwrap();
+        assert_eq!(
+            seed.connection_incarnation_id,
+            first.connection_incarnation_id
+        );
+        assert_eq!(retirement_custody_evidence(&database), before);
+        let terminal: (String,String) = database.store.raw_connection().query_row(
+            "SELECT phase,terminal_reason FROM cloudflare_credential_intents WHERE intent_id=?1", [&revoke.intent_id],
+            |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(
+            terminal,
+            ("abandoned_for_retirement".to_owned(), "retired".to_owned())
+        );
+        assert!(
+            database
+                .next_cloudflare_credential_recovery(None)
+                .unwrap()
+                .is_none()
+        );
+        // The original, delayed writer/recovery callback cannot advance the ledger after abandonment.
+        assert!(
+            database
+                .resolve_cloudflare_credential_operation_guarded(
+                    &revoke.connection_incarnation_id,
+                    &revoke.intent_id,
+                    &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+                    &revoke.prepared_authority_snapshot_digest,
+                    AT,
+                    || Ok(())
+                )
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_provision_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_revocation_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_connection_observation_admission(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            !database
+                .resolve_cloudflare_retirement_guarded(&seed, false, AT, || Ok(()))
+                .unwrap()
+        );
+        let pending = database
+            .cloudflare_retirement_seed(&first.logical_connection_id)
+            .unwrap();
+        assert_eq!(pending.requested_at, seed.requested_at);
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&pending, true, AT, || Err(
+                    BusinessDatabaseError::MutationStale
+                ))
+                .is_err()
+        );
+        assert!(
+            database
+                .cloudflare_retirement_seed(&first.logical_connection_id)
+                .is_ok()
+        );
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&pending, true, AT, || Ok(()))
+                .unwrap()
+        );
+        assert!(
+            database
+                .cloudflare_retirement_seed(&first.logical_connection_id)
+                .is_err()
+        );
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&pending, true, AT, || Ok(()))
+                .is_err()
+        );
+        assert_eq!(retirement_custody_evidence(&database), before);
+        let completed: (String, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT c.credential_use_state,r.retired_at FROM local_provider_connections c
+               JOIN cloudflare_credential_roots r ON r.workspace_id=c.workspace_id
+                AND r.logical_connection_id=c.connection_id",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(completed, ("retired".to_owned(), AT.to_owned()));
+    }
+
+    #[test]
+    fn cloudflare_retirement_refuses_possible_writers_and_ordinary_revocation_states() {
+        for phase in [
+            "active",
+            "prepared",
+            "prewrite_inspection_started",
+            "keychain_write_started",
+            "cancelled",
+            "burned",
+        ] {
+            let mut database = database();
+            let first = preparation(1, stage(1));
+            provision(
+                &mut database,
+                &first,
+                &CloudflareCredentialWitness::absent(),
+                true,
+                &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+            );
+            let revoke = revoke_preparation(&first);
+            if phase == "burned" {
+                provision(
+                    &mut database,
+                    &revoke,
+                    &target(&first),
+                    true,
+                    &CloudflareCredentialRecoveryObservation::Canonical(target(&first)),
+                );
+            } else if phase != "active" {
+                database
+                    .prepare_cloudflare_credential_operation_guarded(&revoke, || Ok(()))
+                    .unwrap();
+                if matches!(
+                    phase,
+                    "prewrite_inspection_started" | "keychain_write_started"
+                ) {
+                    database
+                        .begin_cloudflare_prewrite_inspection_guarded(
+                            &revoke.connection_incarnation_id,
+                            &revoke.intent_id,
+                            &revoke.prepared_authority_snapshot_digest,
+                            AT,
+                            || Ok(()),
+                        )
+                        .unwrap();
+                }
+                if phase == "keychain_write_started" {
+                    database
+                        .mark_cloudflare_keychain_write_started_guarded(
+                            &revoke.connection_incarnation_id,
+                            &revoke.intent_id,
+                            &revoke.prepared_authority_snapshot_digest,
+                            AT,
+                            || Ok(()),
+                        )
+                        .unwrap();
+                }
+                if phase == "cancelled" {
+                    database
+                        .recover_cloudflare_credential_orphans_guarded(AT, || Ok(()))
+                        .unwrap();
+                }
+            }
+            let before = retirement_custody_evidence(&database);
+            assert!(
+                database
+                    .request_cloudflare_retirement_guarded(&first.logical_connection_id, AT, || Ok(
+                        ()
+                    ))
+                    .is_err(),
+                "{phase}"
+            );
+            assert_eq!(retirement_custody_evidence(&database), before, "{phase}");
+            assert!(
+                database
+                    .cloudflare_retirement_seed(&first.logical_connection_id)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cloudflare_retirement_is_irreversible_and_remediation_needs_no_live_intent() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        prepare_and_begin_prewrite(&mut database, &first);
+        database
+            .cancel_cloudflare_prewrite_for_remediation_guarded(
+                &first.connection_incarnation_id,
+                &first.intent_id,
+                CloudflarePrewriteFailureReason::Malformed,
+                AT,
+                || Ok(()),
+            )
+            .unwrap();
+        assert!(
+            database
+                .request_cloudflare_retirement_guarded("unknown-connection", AT, || Ok(()))
+                .is_err()
+        );
+        let seed = database
+            .request_cloudflare_retirement_guarded(&first.logical_connection_id, AT, || Ok(()))
+            .unwrap();
+        for sql in [
+            "UPDATE cloudflare_credential_roots SET retirement_requested_at=NULL",
+            "UPDATE cloudflare_credential_roots SET retirement_requested_at='2026-11-13T00:00:00Z'",
+            "UPDATE cloudflare_credential_roots SET known_envelope_kind='tombstone'",
+            "DELETE FROM cloudflare_credential_roots",
+            "UPDATE local_provider_connections SET credential_use_state='inactive'",
+            "UPDATE local_provider_connections SET credential_use_state='retired'",
+            "UPDATE local_provider_connections SET connection_incarnation_id='reused-incarnation'",
+        ] {
+            assert!(
+                database
+                    .store
+                    .fixture_connection()
+                    .execute(sql, [])
+                    .is_err(),
+                "{sql}"
+            );
+        }
+        let mut wrong = seed.clone();
+        wrong.connection_incarnation_id = "wrong-incarnation".to_owned();
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&wrong, true, AT, || Ok(()))
+                .is_err()
+        );
+        wrong = seed.clone();
+        wrong.requested_at = "2026-11-13T00:00:00Z".to_owned();
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&wrong, true, AT, || Ok(()))
+                .is_err()
+        );
+        let workspace = database.workspace_id.clone();
+        database.workspace_id = "other-workspace".to_owned();
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&seed, true, AT, || Ok(()))
+                .is_err()
+        );
+        database.workspace_id = workspace;
+        assert!(
+            database
+                .prepare_cloudflare_credential_operation_guarded(&first, || Ok(()))
+                .is_err()
+        );
+        assert!(
+            database
+                .begin_cloudflare_prewrite_inspection_guarded(
+                    &first.connection_incarnation_id,
+                    &first.intent_id,
+                    &first.prepared_authority_snapshot_digest,
+                    AT,
+                    || Ok(())
+                )
+                .is_err()
+        );
+        assert!(
+            database
+                .mark_cloudflare_keychain_write_started_guarded(
+                    &first.connection_incarnation_id,
+                    &first.intent_id,
+                    &first.prepared_authority_snapshot_digest,
+                    AT,
+                    || Ok(())
+                )
+                .is_err()
+        );
+        assert!(
+            database
+                .resolve_cloudflare_retirement_guarded(&seed, true, AT, || Ok(()))
+                .unwrap()
+        );
+        assert!(
+            database
+                .store
+                .fixture_connection()
+                .execute("UPDATE cloudflare_credential_roots SET retired_at=NULL", [])
                 .is_err()
         );
     }

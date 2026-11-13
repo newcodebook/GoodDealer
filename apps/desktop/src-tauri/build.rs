@@ -5,6 +5,8 @@ fn main() {
             "cloudflare_connection_activate",
             "cloudflare_connection_create",
             "cloudflare_connection_revoke",
+            "cloudflare_connection_purge",
+            "cloudflare_retirement_candidates",
             "cloudflare_zone_observe",
             "cloudflare_connection_status",
             "cloudflare_observation_read",

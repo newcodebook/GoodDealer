@@ -70,6 +70,8 @@ describe("Desktop native policy", () => {
       "allow-cloudflare-connection-activate",
       "allow-cloudflare-connection-create",
       "allow-cloudflare-connection-revoke",
+      "allow-cloudflare-connection-purge",
+      "allow-cloudflare-retirement-candidates",
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",
       "allow-cloudflare-zone-observe",

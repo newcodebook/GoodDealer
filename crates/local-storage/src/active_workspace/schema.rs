@@ -37,15 +37,21 @@ pub(crate) const SALES_LISTING_GENERATION_MIGRATION_SQL: &str =
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
-pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V2";
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V4";
 pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_FINGERPRINT: &str =
-    "0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec";
+    "933492cff345e017590e8f52fd421ecf27048fcf51561db65a061469ed0829ed";
 #[cfg(test)]
 pub(crate) const CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST: &[&str] = &[
     "cloudflare_credential_intent_immutable",
     "cloudflare_credential_intent_phase_edges",
     "cloudflare_credential_ledger_no_delete",
     "cloudflare_credential_ledger_no_update",
+    "cloudflare_credential_retirement_blocks_intent_insert",
+    "cloudflare_credential_retirement_blocks_intent_update",
+    "cloudflare_credential_retirement_insert_shape",
+    "cloudflare_credential_retirement_monotonic",
+    "cloudflare_credential_retirement_no_delete",
+    "cloudflare_credential_retirement_no_live_intent",
 ];
 pub(crate) const CLOUDFLARE_V2_MIGRATION_ID: i64 = 202_609_150_005;
 pub(crate) const CLOUDFLARE_V2_MIGRATION_OWNER: &str = "active-workspace/cloudflare-observation";
@@ -242,11 +248,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "revoked_at",
             "deleted_at",
             "connection_incarnation_id",
-            "credential_use_state",
             "active_credential_generation",
             "active_credential_scope_digest",
             "active_credential_zone_digest",
             "active_credential_public_proof",
+            "credential_use_state",
         ],
     ),
     (
@@ -268,6 +274,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "known_public_proof",
             "retired_at",
             "updated_at",
+            "retirement_requested_at",
         ],
     ),
     (
@@ -774,3 +781,15 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
 ];
+
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID: i64 = 202_611_130_001;
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-revoke-retry";
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL: &str =
+    include_str!("cloudflare_revoke_retry.sql");
+
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_ID: i64 = 202_611_130_002;
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-retirement";
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_SQL: &str =
+    include_str!("cloudflare_retirement.sql");

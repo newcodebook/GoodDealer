@@ -3,6 +3,9 @@ use sha2::{Digest, Sha256};
 
 use crate::active_workspace::schema::{
     ACTIVE_SCHEMA_MIGRATION_ID, ACTIVE_SCHEMA_MIGRATION_OWNER, ACTIVE_SCHEMA_MIGRATION_SQL,
+    CLOUDFLARE_RETIREMENT_MIGRATION_ID, CLOUDFLARE_RETIREMENT_MIGRATION_OWNER,
+    CLOUDFLARE_RETIREMENT_MIGRATION_SQL, CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID,
+    CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER, CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL,
     CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
     CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
@@ -92,6 +95,16 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: SALES_LISTING_GENERATION_MIGRATION_OWNER,
         sql: SALES_LISTING_GENERATION_MIGRATION_SQL,
     },
+    ActiveMigration {
+        id: CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID,
+        owner: CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER,
+        sql: CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CLOUDFLARE_RETIREMENT_MIGRATION_ID,
+        owner: CLOUDFLARE_RETIREMENT_MIGRATION_OWNER,
+        sql: CLOUDFLARE_RETIREMENT_MIGRATION_SQL,
+    },
 ];
 
 pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), MigrationError> {
@@ -125,6 +138,33 @@ pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), M
             validate_sync_v3_legacy_rows(connection)?;
         } else if migration.id == SYNC_V4_MIGRATION_ID {
             validate_sync_v4_legacy_rows(connection)?;
+        } else if migration.id == CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID {
+            // A forward migration must not launder an unrecognized custody schema guard.
+            let valid = connection
+                .query_row(
+                    "SELECT schema_epoch='P0_07_CREDENTIAL_SCHEMA_V2' AND schema_fingerprint=
+                 '0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec'
+                 FROM cloudflare_credential_schema_guard WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if !valid {
+                return Err(MigrationError::RebuildRequiredP007CredentialSchema);
+            }
+        } else if migration.id == CLOUDFLARE_RETIREMENT_MIGRATION_ID {
+            let valid = connection
+                .query_row(
+                    "SELECT schema_epoch='P0_07_CREDENTIAL_SCHEMA_V3' AND schema_fingerprint=
+                 '3e267e4d530572b5cb4114d164068b1b619e1dec90752f5c52111bdbc2ac63b0'
+                 FROM cloudflare_credential_schema_guard WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if !valid {
+                return Err(MigrationError::RebuildRequiredP007CredentialSchema);
+            }
         }
         apply_migration(connection, migration)?;
     }
@@ -348,7 +388,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 12);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 14);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -455,6 +495,217 @@ mod tests {
             cloudflare_credential_triggers,
             crate::active_workspace::schema::CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the migration proof seeds, migrates and compares one exact pre-migration snapshot"
+    )]
+    fn credential_retry_migration_preserves_attempts_and_refuses_unknown_prior_guard() {
+        for corrupt_guard in [false, true] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", true)
+                .unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE gooddealer_active_migrations (
+                id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;",
+                )
+                .unwrap();
+            let target = super::ACTIVE_MIGRATIONS
+                .iter()
+                .position(|migration| migration.id == super::CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID)
+                .unwrap();
+            for migration in &super::ACTIVE_MIGRATIONS[..target] {
+                apply_migration(&mut connection, migration).unwrap();
+            }
+            connection.execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,0,0,1,
+                         '2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+                 INSERT INTO local_provider_connections
+                 (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,
+                  capabilities_json,connection_incarnation_id,credential_use_state)
+                 VALUES ('workspace-local','connection','cloudflare','Cloudflare','2026-11-13T00:00:00Z',
+                         '[\"dns\"]','incarnation','inactive');
+                 INSERT INTO cloudflare_credential_roots
+                 (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local','incarnation','connection','2026-11-13T00:00:00Z');
+                 INSERT INTO cloudflare_credential_intents
+                 (workspace_id,connection_incarnation_id,intent_id,operation_kind,
+                  expected_head_generation,target_generation,target_envelope_kind,
+                  scope_digest,zone_digest,target_public_proof,prepared_authority_snapshot_digest,
+                  phase,terminal_reason,created_at,updated_at)
+                 VALUES ('workspace-local','incarnation','cancelled-attempt','revoke',0,1,'tombstone',
+                         printf('%064d',1),printf('%064d',2),printf('%064d',3),printf('%064d',4),
+                         'cancelled','cancelled_before_inspection','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');"
+            ).unwrap();
+            let snapshot = |connection: &Connection| {
+                let mut statement = connection
+                    .prepare("SELECT * FROM cloudflare_credential_intents")
+                    .unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            let before = snapshot(&connection);
+            if corrupt_guard {
+                connection
+                    .execute("DELETE FROM cloudflare_credential_schema_guard", [])
+                    .unwrap();
+                assert_eq!(
+                    run_active_migrations(&mut connection),
+                    Err(super::MigrationError::RebuildRequiredP007CredentialSchema)
+                );
+            } else {
+                run_active_migrations(&mut connection).unwrap();
+                run_active_migrations(&mut connection).unwrap();
+                assert!(
+                    connection
+                        .execute(
+                            "UPDATE cloudflare_credential_intents SET intent_id='rewritten'",
+                            []
+                        )
+                        .is_err()
+                );
+                assert!(connection.execute(
+                    "UPDATE cloudflare_credential_intents SET phase='prepared',terminal_reason=NULL", []).is_err());
+                let violations: i64 = connection
+                    .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(violations, 0);
+            }
+            assert_eq!(snapshot(&connection), before);
+            let applied: i64 = connection
+                .query_row(
+                    "SELECT count(*) FROM gooddealer_active_migrations",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                usize::try_from(applied).unwrap(),
+                if corrupt_guard {
+                    target
+                } else {
+                    super::ACTIVE_MIGRATIONS.len()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn cloudflare_retirement_migration_preserves_v3_rows_and_rejects_an_unknown_guard() {
+        for corrupt_guard in [false, true] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", true)
+                .unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE gooddealer_active_migrations (
+                id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;",
+                )
+                .unwrap();
+            let target = super::ACTIVE_MIGRATIONS.len() - 1;
+            for migration in &super::ACTIVE_MIGRATIONS[..target] {
+                apply_migration(&mut connection, migration).unwrap();
+            }
+            connection.execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,0,0,1,
+                         '2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+                 INSERT INTO local_provider_connections
+                 (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,
+                  capabilities_json,connection_incarnation_id,credential_use_state)
+                 VALUES ('workspace-local','connection','cloudflare','Cloudflare','2026-11-13T00:00:00Z',
+                         '[\"dns\"]','incarnation','remediation_required');
+                 INSERT INTO cloudflare_credential_roots
+                 (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local','incarnation','connection','2026-11-13T00:00:00Z');
+                 INSERT INTO cloudflare_credential_intents
+                 (workspace_id,connection_incarnation_id,intent_id,operation_kind,
+                  expected_head_generation,target_generation,target_envelope_kind,
+                  scope_digest,zone_digest,target_public_proof,prepared_authority_snapshot_digest,
+                  phase,marker_base_recorded,marker_base_envelope_kind,created_at,updated_at)
+                 VALUES ('workspace-local','incarnation','unresolved','revoke',0,1,'tombstone',
+                         printf('%064d',1),printf('%064d',2),printf('%064d',3),printf('%064d',4),
+                         'recovery_required',1,'absent','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');"
+            ).unwrap();
+            let snapshot = |connection: &Connection| {
+                let mut statement = connection
+                    .prepare("SELECT * FROM cloudflare_credential_intents")
+                    .unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            let before = snapshot(&connection);
+            if corrupt_guard {
+                connection
+                    .execute("DELETE FROM cloudflare_credential_schema_guard", [])
+                    .unwrap();
+                assert_eq!(
+                    run_active_migrations(&mut connection),
+                    Err(super::MigrationError::RebuildRequiredP007CredentialSchema)
+                );
+                let columns:i64=connection.query_row("SELECT count(*) FROM pragma_table_info('cloudflare_credential_roots') WHERE name='retirement_requested_at'",[],|row|row.get(0)).unwrap();
+                assert_eq!(columns, 0);
+            } else {
+                run_active_migrations(&mut connection).unwrap();
+                run_active_migrations(&mut connection).unwrap();
+                let state: String = connection
+                    .query_row(
+                        "SELECT credential_use_state FROM local_provider_connections",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(state, "remediation_required");
+                // Rebuilt CHECKs require the marker and the exact retirement reason together.
+                assert!(connection.execute("UPDATE cloudflare_credential_intents SET phase='abandoned_for_retirement'",[]).is_err());
+                assert!(connection.execute("UPDATE cloudflare_credential_roots SET retirement_requested_at='2026-11-13T00:00:00Z'",[]).is_err());
+                assert_eq!(snapshot(&connection), before);
+                connection.execute("UPDATE cloudflare_credential_intents SET phase='abandoned_for_retirement',terminal_reason='retired'",[]).unwrap();
+                connection.execute("UPDATE cloudflare_credential_roots SET retirement_requested_at='2026-11-13T00:00:00Z'",[]).unwrap();
+                assert!(connection.execute("UPDATE cloudflare_credential_intents SET phase='consumed',terminal_reason=NULL",[]).is_err());
+                let violations: i64 = connection
+                    .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(violations, 0);
+            }
+            if corrupt_guard {
+                assert_eq!(snapshot(&connection), before);
+            }
+        }
     }
 
     #[test]

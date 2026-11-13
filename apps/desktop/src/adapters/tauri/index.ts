@@ -136,8 +136,14 @@ export interface CloudflareConnectionStatus {
 }
 
 export interface CloudflareProviderOperation {
-  readonly kind: "activate" | "revoke" | "observe";
+  readonly kind: "activate" | "revoke" | "observe" | "purge";
   readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "zone_unimportable" | "unreachable" | "retry_later" | "credential_rejected" | "failed";
+}
+
+export interface CloudflareRetirementCandidate {
+  readonly connectionRef: string;
+  readonly displayLabel: string;
+  readonly pending: boolean;
 }
 
 export type CloudflareRecordType = "A" | "AAAA" | "CAA" | "CNAME" | "MX" | "NS" | "SRV" | "TXT";
@@ -181,6 +187,8 @@ export interface CloudflarePort {
   activate(connectionRef: string): Promise<void>;
   /** Queues revocation; the Host denies the credential at once and tombstones it in custody. */
   revoke(connectionRef: string): Promise<void>;
+  retirementCandidates(): Promise<readonly CloudflareRetirementCandidate[]>;
+  purge(connectionRef: string, action: "confirm_retirement" | "retry_pending"): Promise<void>;
   observe(connectionRef: string, entityId: string): Promise<void>;
   readObservation(entityId: string): Promise<CloudflareObservation>;
 }
@@ -208,6 +216,8 @@ const commands = {
   cloudflareActivate: "cloudflare_connection_activate",
   cloudflareCreate: "cloudflare_connection_create",
   cloudflareRevoke: "cloudflare_connection_revoke",
+  cloudflarePurge: "cloudflare_connection_purge",
+  cloudflareRetirementCandidates: "cloudflare_retirement_candidates",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
 } as const;
@@ -227,6 +237,13 @@ export function createCloudflarePort(): CloudflarePort {
     },
     async revoke(connectionRef) {
       await invoke(commands.cloudflareRevoke, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+    },
+    async retirementCandidates() {
+      return parseCloudflareRetirementCandidates(await invoke(commands.cloudflareRetirementCandidates));
+    },
+    async purge(connectionRef, action) {
+      if (action !== "confirm_retirement" && action !== "retry_pending") throw new TypeError("invalid retirement action");
+      await invoke(commands.cloudflarePurge, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef), action } });
     },
     async observe(connectionRef, entityId) {
       await invoke(commands.cloudflareObserve, {
@@ -606,10 +623,29 @@ function boundedEntityId(value: string): string {
   return value;
 }
 
+function parseCloudflareRetirementCandidates(value: unknown): readonly CloudflareRetirementCandidate[] {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "candidates"]);
+  if (record.schemaVersion !== 1 || !Array.isArray(record.candidates) || record.candidates.length > 64) {
+    throw new TypeError("invalid retirement candidates");
+  }
+  const seen = new Set<string>();
+  return Object.freeze(record.candidates.map((value: unknown) => {
+    const candidate = exactRecord(value, ["connectionRef", "displayLabel", "pending"]);
+    if (typeof candidate.connectionRef !== "string" || typeof candidate.pending !== "boolean"
+      || !connectionLabelSchema.safeParse(candidate.displayLabel).success || typeof candidate.displayLabel !== "string") {
+      throw new TypeError("invalid retirement candidate");
+    }
+    const connectionRef = boundedOpaqueRef(candidate.connectionRef);
+    if (seen.has(connectionRef)) throw new TypeError("duplicate retirement candidate");
+    seen.add(connectionRef);
+    return Object.freeze({ connectionRef, displayLabel: candidate.displayLabel, pending: candidate.pending });
+  }));
+}
+
 function parseProviderOperation(value: unknown): CloudflareProviderOperation | null {
   if (value === null) return null;
   const record = exactRecord(value, ["kind", "outcome"]);
-  const kinds: readonly CloudflareProviderOperation["kind"][] = ["activate", "revoke", "observe"];
+  const kinds: readonly CloudflareProviderOperation["kind"][] = ["activate", "revoke", "observe", "purge"];
   const outcomes: readonly CloudflareProviderOperation["outcome"][] = ["confirmed", "unconfirmed", "nothing_to_revoke", "unqualified", "zone_unimportable", "unreachable", "retry_later", "credential_rejected", "failed"];
   // Only a Provider call can be unreachable, asked to retry, or refuse the credential; a
   // revocation makes none, it only withdraws this device's custody.
@@ -618,7 +654,8 @@ function parseProviderOperation(value: unknown): CloudflareProviderOperation | n
   const outcome = outcomes.find((candidate) => candidate === record.outcome);
   // Only a revocation can find nothing to revoke.
   if (kind === undefined || outcome === undefined || (outcome === "nothing_to_revoke" && kind !== "revoke")
-    || (providerOutcomes.includes(outcome) && kind === "revoke")
+    || (providerOutcomes.includes(outcome) && (kind === "revoke" || kind === "purge"))
+    || (kind === "purge" && !["confirmed", "unconfirmed", "failed"].includes(outcome))
     // Only an activation imports a Zone.
     || (outcome === "zone_unimportable" && kind !== "activate")) {
     throw new TypeError("invalid Cloudflare operation outcome");

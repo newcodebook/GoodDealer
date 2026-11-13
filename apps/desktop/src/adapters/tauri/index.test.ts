@@ -63,6 +63,8 @@ describe("Desktop Tauri local-business adapter", () => {
       { ...status, lastOperation: { kind: "revoke", outcome: "credential_rejected" } },
       { ...status, lastOperation: { kind: "observe", outcome: "zone_unimportable" } },
       { ...status, lastOperation: { kind: "revoke", outcome: "zone_unimportable" } },
+      { ...status, lastOperation: { kind: "purge", outcome: "unreachable" } },
+      { ...status, lastOperation: { kind: "purge", outcome: "unqualified" } },
       { ...status, lastOperation: { kind: "bid", outcome: "confirmed" } },
       { ...status, lastOperation: { kind: "observe", outcome: "ok" } },
       { ...status, lastOperation: { kind: "observe", outcome: "failed", reason: "token rejected" } },
@@ -74,6 +76,25 @@ describe("Desktop Tauri local-business adapter", () => {
       invokeMock.mockResolvedValueOnce(hostile);
       await expect(createCloudflarePort().status()).rejects.toThrow(TypeError);
     }
+  });
+
+  it("validates cleanup targets and sends only closed first-confirmed or pending-retry actions", async () => {
+    const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", pending: true };
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, candidates: [candidate] });
+    await expect(createCloudflarePort().retirementCandidates()).resolves.toEqual([candidate]);
+    for (const candidates of [[{ ...candidate, digest: "leak" }], [{ ...candidate, pending: "yes" }], [candidate, candidate], [{ ...candidate, connectionRef: "with space" }], Array(65).fill(candidate)]) {
+      invokeMock.mockResolvedValueOnce({ schemaVersion: 1, candidates });
+      await expect(createCloudflarePort().retirementCandidates()).rejects.toThrow(TypeError);
+    }
+    invokeMock.mockClear();
+    for (const action of ["confirm_retirement", "retry_pending"] as const) {
+      await createCloudflarePort().purge("opaque", action);
+      expect(invokeMock).toHaveBeenLastCalledWith("cloudflare_connection_purge", { request: { schemaVersion: 1, connectionId: "opaque", action } });
+    }
+    await expect(createCloudflarePort().purge("with space", "retry_pending")).rejects.toThrow(TypeError);
+    // @ts-expect-error Exercise the untrusted runtime boundary.
+    await expect(createCloudflarePort().purge("opaque", "force")).rejects.toThrow(TypeError);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
   it("revokes through its own command with only a bounded connection reference", async () => {

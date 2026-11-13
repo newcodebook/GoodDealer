@@ -6,24 +6,38 @@ use std::sync::{Arc, Mutex, OnceLock};
 use gooddealer_local_storage::{
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
     DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
-    DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution, DesktopLocalHost,
+    DesktopCloudflarePurgeOutcome, DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution,
+    DesktopCloudflareRetirement, DesktopCloudflareRetirementPlan, DesktopLocalHost,
     DesktopLocalHostError, InspectingCloudflareProvision, InspectingCloudflareRevocation,
 };
 use gooddealer_secure_host_core::{
     CloudflareCapture, CloudflareCaptureError, CloudflareCredentialObservationPlan,
     CloudflareCredentialProvisionPlan, CloudflareCredentialPublicKind,
-    CloudflareCredentialRecoveryPlan, CloudflareCustodyComparison, CloudflareKeychainError,
-    CloudflarePrewriteFailure, CloudflarePrewriteInspection, CloudflareProviderClient,
-    CloudflareProviderError, CloudflareProviderObservation, CloudflareProviderZoneStatus,
+    CloudflareCredentialRecoveryPlan, CloudflareCredentialRetirementPlan,
+    CloudflareCustodyComparison, CloudflareKeychainError, CloudflarePrewriteFailure,
+    CloudflarePrewriteInspection, CloudflareProviderClient, CloudflareProviderError,
+    CloudflareProviderObservation, CloudflareProviderZoneStatus, CloudflarePurgeOutcome,
     CloudflareRecordType, inspect_cloudflare_recovery_guarded,
     publish_cloudflare_candidate_guarded, publish_cloudflare_tombstone_guarded,
+    purge_retired_cloudflare_slot,
 };
 
-pub(crate) async fn recover(host: Arc<DesktopLocalHost>) -> Result<(), ProviderCredentialError> {
+pub(crate) async fn recover(
+    host: Arc<DesktopLocalHost>,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<(), ProviderCredentialError> {
     tauri::async_runtime::spawn_blocking(move || {
         let admission = host.begin_native_cloud_run().map_err(host_error)?;
         host.recover_cloudflare_credential_orphans(&admission)
             .map_err(host_error)?;
+        while let Some(handle) = host
+            .claim_cloudflare_retirement_retry()
+            .map_err(host_error)?
+        {
+            // A failed purge stays durable, but must not prevent other slots or recovery from
+            // being inspected. Claims are consumed once for this writable runtime.
+            let _ = purge_retirement_handle(&host, &cancel_fence, handle);
+        }
         let mut scan = host
             .begin_cloudflare_recovery_scan(admission)
             .map_err(host_error)?;
@@ -297,6 +311,78 @@ pub(crate) async fn revoke(
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map(RevocationOutcome::from_resolution)
     .map_err(|_| ProviderCredentialError::Keychain)
+}
+
+/// The first action requires explicit UI confirmation; retries only resume a durable request.
+/// Cancellation after the request commit leaves that request intact for a later retry.
+pub(crate) async fn purge(
+    host: Arc<DesktopLocalHost>,
+    connection_hint: String,
+    action: crate::provider_lane::RetirementAction,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<bool, ProviderCredentialError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let admission = host.begin_native_cloud_run().map_err(host_error)?;
+        let retirement = cancel_fence
+            .commit(|| match action {
+                crate::provider_lane::RetirementAction::ConfirmRetirement => {
+                    host.request_cloudflare_retirement(admission, &connection_hint)
+                }
+                crate::provider_lane::RetirementAction::RetryPending => {
+                    host.resume_cloudflare_retirement(admission, &connection_hint)
+                }
+            })
+            .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+            .map_err(host_error)?;
+        purge_retirement_handle(&host, &cancel_fence, retirement)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+}
+
+fn purge_retirement_handle(
+    host: &DesktopLocalHost,
+    cancel_fence: &crate::native_cloud_runtime::NativeCloudCancelFence,
+    retirement: DesktopCloudflareRetirement,
+) -> Result<bool, ProviderCredentialError> {
+    retirement.with_keychain_plan(|plan, handle| {
+        purge_retired_cloudflare_slot(
+            &ForwardedRetirementPlan(plan),
+            handle,
+            |handle| {
+                if cancel_fence.is_cancelled() {
+                    return Err(CloudflareKeychainError::AuthorityStale);
+                }
+                host.check_cloudflare_retirement(handle)
+                    .map_err(map_host_to_keychain)
+            },
+            |handle, outcome| {
+                let outcome = match outcome {
+                    CloudflarePurgeOutcome::Purged => DesktopCloudflarePurgeOutcome::Purged,
+                    CloudflarePurgeOutcome::AlreadyAbsent => {
+                        DesktopCloudflarePurgeOutcome::AlreadyAbsent
+                    }
+                    CloudflarePurgeOutcome::Unknown => DesktopCloudflarePurgeOutcome::Unknown,
+                };
+                cancel_fence
+                    .commit(|| host.resolve_cloudflare_retirement(handle, outcome))
+                    .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+                    .map_err(map_host_to_keychain)
+            },
+        )
+        .map_err(|_| ProviderCredentialError::Keychain)
+    })
+}
+
+struct ForwardedRetirementPlan<'a>(DesktopCloudflareRetirementPlan<'a>);
+
+impl CloudflareCredentialRetirementPlan for ForwardedRetirementPlan<'_> {
+    fn connection_incarnation(&self) -> &str {
+        self.0.connection_incarnation_id()
+    }
+    fn connection_digest(&self) -> &str {
+        self.0.connection_digest()
+    }
 }
 
 fn provider_custody_quarantine() -> &'static Mutex<HashSet<String>> {
@@ -676,7 +762,7 @@ mod tests {
             .find("publish_cloudflare_tombstone_guarded(")
             .expect("Secure Host tombstone publication");
         let revocation_end = production
-            .find("fn provider_custody_quarantine()")
+            .find("pub(crate) async fn purge(")
             .expect("end of the revocation boundary");
         assert!(revocation_prewrite < tombstone && tombstone < revocation_end);
         let post_prewrite_revocation = &production[revocation_prewrite..revocation_end];

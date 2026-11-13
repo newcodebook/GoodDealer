@@ -15,6 +15,7 @@ use crate::portfolio_projection::{
 };
 
 mod cloudflare_credential;
+mod cloudflare_retirement;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
     CloudflareCredentialPreparation, CloudflareCredentialPreparationDisposition,
@@ -22,6 +23,7 @@ pub(crate) use cloudflare_credential::{
     CloudflareCredentialStagedObservation, CloudflareCredentialWitness,
     CloudflarePrewriteFailureReason, staged_observation_digest,
 };
+pub(crate) use cloudflare_retirement::CloudflareRetirementSeed;
 
 const FORBIDDEN_SYNC_KEYS: &[&str] = &[
     "accountId",
@@ -1149,7 +1151,7 @@ pub(crate) fn latest_bindable_zone(
                     AND b.visibility='committed'
                     AND b.observation_availability='available'
                     AND b.cloudflare_zone_status IN ('active','pending')
-                    AND r.retired_at IS NULL
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL
                     AND r.known_envelope_kind='active'
                     AND r.known_envelope_generation=c.active_credential_generation
                     AND r.known_zone_digest=b.zone_digest
@@ -2503,6 +2505,11 @@ impl BusinessDatabase {
                    FROM local_provider_connections
                   WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare'
                     AND lifecycle_status='active' AND validation_status='valid'
+                    AND credential_use_state='active'
+                    AND NOT EXISTS (SELECT 1 FROM cloudflare_credential_roots r
+                      WHERE r.workspace_id=local_provider_connections.workspace_id
+                        AND r.logical_connection_id=local_provider_connections.connection_id
+                        AND (r.retirement_requested_at IS NOT NULL OR r.retired_at IS NOT NULL))
                     AND json_array_length(capabilities_json)=1
                     AND json_extract(capabilities_json,'$[0]')='dns'",
                 params![self.workspace_id, connection_id],
@@ -2639,7 +2646,7 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let connection_ready: i64 = transaction.query_row("SELECT count(*) FROM local_provider_connections WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' AND credential_use_state='active' AND active_credential_generation=?3 AND active_credential_scope_digest=?4 AND active_credential_zone_digest=?5 AND active_credential_public_proof=?6 AND json_array_length(capabilities_json)=1 AND json_extract(capabilities_json,'$[0]')='dns'", params![self.workspace_id,input.connection_id,i64::try_from(input.credential_generation).map_err(|_| BusinessDatabaseError::InvalidInput)?,input.credential_scope_digest,input.credential_zone_digest,input.credential_public_proof], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let connection_ready: i64 = transaction.query_row("SELECT count(*) FROM local_provider_connections WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' AND credential_use_state='active' AND NOT EXISTS (SELECT 1 FROM cloudflare_credential_roots r WHERE r.workspace_id=local_provider_connections.workspace_id AND r.logical_connection_id=local_provider_connections.connection_id AND (r.retirement_requested_at IS NOT NULL OR r.retired_at IS NOT NULL)) AND active_credential_generation=?3 AND active_credential_scope_digest=?4 AND active_credential_zone_digest=?5 AND active_credential_public_proof=?6 AND json_array_length(capabilities_json)=1 AND json_extract(capabilities_json,'$[0]')='dns'", params![self.workspace_id,input.connection_id,i64::try_from(input.credential_generation).map_err(|_| BusinessDatabaseError::InvalidInput)?,input.credential_scope_digest,input.credential_zone_digest,input.credential_public_proof], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         if connection_ready != 1 {
             return Err(BusinessDatabaseError::InvalidInput);
         }

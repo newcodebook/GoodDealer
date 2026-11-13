@@ -208,6 +208,7 @@ impl NativeCloudCoordinator {
         let provider_host = Arc::clone(host);
         let provider_recovery_host = Arc::clone(host);
         let provider_cancel_fence = Arc::clone(&cancel_fence);
+        let provider_recovery_cancel_fence = Arc::clone(&cancel_fence);
         let provider_operations: Arc<ProviderOperationLog> = Arc::new(Mutex::new(None));
         let provider_record = Arc::clone(&provider_operations);
         let provider_task = tauri::async_runtime::spawn(async move {
@@ -215,8 +216,9 @@ impl NativeCloudCoordinator {
                 .run(
                     move || {
                         let host = Arc::clone(&provider_recovery_host);
+                        let cancel_fence = Arc::clone(&provider_recovery_cancel_fence);
                         async move {
-                            crate::provider_credential_orchestrator::recover(host)
+                            crate::provider_credential_orchestrator::recover(host, cancel_fence)
                                 .await
                                 .is_ok()
                         }
@@ -405,6 +407,19 @@ async fn run_provider_operation(
                     | RevocationOutcome::RecoveryRequired => "unconfirmed",
                 }),
             )
+        }
+        ProviderOperation::Purge {
+            connection_id,
+            action,
+        } => {
+            let result = crate::provider_credential_orchestrator::purge(
+                host,
+                connection_id,
+                action,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("purge", result.as_ref().map(|done| confirmed(*done)))
         }
         ProviderOperation::Observe {
             connection_id,

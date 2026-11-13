@@ -133,6 +133,7 @@ impl<'a> ActiveSettingsReader<'a> {
                         credential_use_state, last_validated_at, capabilities_json
                  FROM local_provider_connections
                  WHERE workspace_id = ?1 AND deleted_at IS NULL AND lifecycle_status <> 'deleted'
+                   AND credential_use_state <> 'retired'
                  ORDER BY provider_kind COLLATE BINARY, display_label COLLATE BINARY,
                           connection_id COLLATE BINARY
                  LIMIT ?2",

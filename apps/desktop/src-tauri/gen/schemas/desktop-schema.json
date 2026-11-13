@@ -357,6 +357,12 @@
           "markdownDescription": "Enables the cloudflare_connection_create command without any pre-configured scope."
         },
         {
+          "description": "Enables the cloudflare_connection_purge command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-connection-purge",
+          "markdownDescription": "Enables the cloudflare_connection_purge command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_revoke command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-revoke",
@@ -373,6 +379,12 @@
           "type": "string",
           "const": "allow-cloudflare-observation-read",
           "markdownDescription": "Enables the cloudflare_observation_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_retirement_candidates command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-retirement-candidates",
+          "markdownDescription": "Enables the cloudflare_retirement_candidates command without any pre-configured scope."
         },
         {
           "description": "Enables the cloudflare_zone_observe command without any pre-configured scope.",
@@ -543,6 +555,12 @@
           "markdownDescription": "Denies the cloudflare_connection_create command without any pre-configured scope."
         },
         {
+          "description": "Denies the cloudflare_connection_purge command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-connection-purge",
+          "markdownDescription": "Denies the cloudflare_connection_purge command without any pre-configured scope."
+        },
+        {
           "description": "Denies the cloudflare_connection_revoke command without any pre-configured scope.",
           "type": "string",
           "const": "deny-cloudflare-connection-revoke",
@@ -559,6 +577,12 @@
           "type": "string",
           "const": "deny-cloudflare-observation-read",
           "markdownDescription": "Denies the cloudflare_observation_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_retirement_candidates command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-retirement-candidates",
+          "markdownDescription": "Denies the cloudflare_retirement_candidates command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_zone_observe command without any pre-configured scope.",

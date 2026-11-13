@@ -6,9 +6,11 @@ const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
   "cloudflare_connection_activate",
   "cloudflare_connection_create",
+  "cloudflare_connection_purge",
   "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
+  "cloudflare_retirement_candidates",
   "cloudflare_zone_observe",
   "desktop_authentication_begin",
   "desktop_authentication_refresh",

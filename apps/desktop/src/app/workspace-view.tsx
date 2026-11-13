@@ -11,7 +11,7 @@ import { BatchList } from "../features/operations/batch-operations";
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
-import { cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
+import { CloudflareRetirementPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -208,6 +208,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
             <SettingsRoute
               locale={locale}
               ports={ports}
+              writable={readOnly === null}
               revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
               onLocaleChange={onLocaleChange}
               {...(readOnly === null && onRunOnboarding !== undefined ? { onRunOnboarding } : {})}
@@ -235,15 +236,16 @@ type SettingsState =
   | { readonly kind: "failed" };
 
 /**
- * Settings from the Host projection. Connection rows carry no action and every role shows as
- * unavailable until qualified; connecting and revoking go through re-running onboarding, offered
- * only when writable. Devices, license, pull cadence and build facts have no Host source yet, so
+ * Settings from the Host projection. Role qualification remains authoritative; refused custody
+ * has a separate Host-issued maintenance target, offered only when writable. Devices, license,
+ * pull cadence and build facts have no Host source yet, so
  * the panel shows those as unavailable instead of placeholder values.
  */
-function SettingsRoute({ locale, ports, revisionBase, onLocaleChange, onRunOnboarding }: {
+function SettingsRoute({ locale, ports, revisionBase, writable, onLocaleChange, onRunOnboarding }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly revisionBase: number | null;
+  readonly writable: boolean;
   readonly onLocaleChange: (locale: Locale) => void;
   readonly onRunOnboarding?: () => void;
 }) {
@@ -253,7 +255,7 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange, onRunOnboa
 
   useEffect(() => {
     let cancelled = false;
-    setState({ kind: "loading" });
+    setState((current) => current.kind === "ready" ? current : { kind: "loading" });
     // The Cloudflare reason comes from its own Host status; an unreadable status says only that.
     Promise.all([ports.settings.loadSettings(), readCloudflareNotice(ports.cloudflare)])
       .then(([read, cloudflare]) => {
@@ -277,6 +279,7 @@ function SettingsRoute({ locale, ports, revisionBase, onLocaleChange, onRunOnboa
       locale={locale}
       initialSection="connections"
       connections={state.connections}
+      connectionMaintenance={writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
       devices={null}
       license="unavailable"
       sync={null}

@@ -113,7 +113,7 @@ function ports(readGeneration: number) {
     batches: { loadBatchOperations: vi.fn() },
     history: { loadHistory: vi.fn() },
     manualTasks: { loadManualTasks: vi.fn() },
-    cloudflare: { status: vi.fn(), create: vi.fn(), activate: vi.fn(), revoke: vi.fn() },
+    cloudflare: { status: vi.fn(), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   };
 }
 

@@ -24,7 +24,17 @@ use tauri::State;
 use crate::backup_ipc::bounded_request_wire;
 use crate::native_cloud_runtime::NativeCloudCoordinator;
 use crate::provider_ipc::decode_provider_request;
-use crate::provider_lane::{ProviderOperation, ProviderStatus, ProviderSubmission};
+use crate::provider_lane::{
+    ProviderOperation, ProviderStatus, ProviderSubmission, RetirementAction,
+};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareConnectionPurgeRequest {
+    schema_version: u8,
+    connection_id: String,
+    action: RetirementAction,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -337,6 +347,31 @@ pub(crate) async fn cloudflare_connection_revoke(
     validate_cloudflare_connection_id(&request.connection_id)?;
     map_provider_submission(cloud.submit_provider(&ProviderOperation::Revoke {
         connection_id: request.connection_id,
+    }))
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn cloudflare_retirement_candidates(
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<serde_json::Value, String> {
+    let candidates = host
+        .read_cloudflare_retirement_candidates()
+        .map_err(|_| "CLOUDFLARE_STATUS_UNAVAILABLE".to_owned())?;
+    Ok(serde_json::json!({"schemaVersion": 1, "candidates": candidates}))
+}
+
+#[tauri::command]
+pub(crate) async fn cloudflare_connection_purge(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<(), String> {
+    let request: CloudflareConnectionPurgeRequest = decode_provider_request(&request, 512)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    map_provider_submission(cloud.submit_provider(&ProviderOperation::Purge {
+        connection_id: request.connection_id,
+        action: request.action,
     }))
 }
 

@@ -182,6 +182,8 @@ fn main() {
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,
+            command_handlers::cloudflare_connection_purge,
+            command_handlers::cloudflare_retirement_candidates,
             command_handlers::cloudflare_zone_observe,
             command_handlers::cloudflare_connection_status,
             command_handlers::cloudflare_observation_read,

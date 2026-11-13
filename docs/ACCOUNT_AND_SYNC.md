@@ -92,7 +92,16 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 `MUTATION_DRAIN_SEALED`、`MUTATION_BASE_REVISION_AHEAD`（只在 Cloud 状态回退时出现）与
 `MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。Cloud 接受序号缺口，但设备切换的 drain
 验证要求序号连续，被拒绝序号如何结束见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
-（Proposed）。
+（Accepted，尚未实现）。
+
+### Cloudflare 本机凭据清理
+
+已拒绝使用的 Cloudflare 凭据可通过设置页的维护目标进入本机清理：首次操作要求显式确认，之后只重试
+不可撤回的持久请求。Native 与恢复/凭据操作共用串行 ProviderLane；删除前重新检查当前可写工作区，
+在既有槽位锁内删除并验证不存在，确认后原子完成退役并隐藏连接。Unknown 保持请求，不宣称完成。
+每次可写打开只自动尝试已有请求一次；后续唤醒不循环重试。备份恢复仅合并业务白名单，不回退这些控制状态。
+清理不撤销 Cloudflare 上的 Token，仍须到 Cloudflare 删除或轮换。实现与剩余资格见
+[ADR-0028](adr/0028-refused-cloudflare-custody-purge.md)；macOS 实机 custody 验证尚未取得。
 
 ### 客户同步快照与冲突路由
 

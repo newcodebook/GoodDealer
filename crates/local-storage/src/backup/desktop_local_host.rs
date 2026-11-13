@@ -1715,6 +1715,149 @@ impl DesktopLocalHost {
         }))
     }
 
+    /// Reads actionable refused slots under the current writable workspace admission.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority or malformed/oversized stored action targets.
+    pub fn read_cloudflare_retirement_candidates(
+        &self,
+    ) -> Result<Vec<crate::DesktopCloudflareRetirementCandidate>, DesktopLocalHostError> {
+        let admission = self.begin_native_cloud_run()?;
+        self.with_sync_runtime(Some(&admission.inner), |sync, database, admitted| {
+            sync.read_cloudflare_retirement_candidates(
+                database,
+                admitted.ok_or(DesktopSyncError::Blocked)?,
+            )
+        })
+    }
+
+    /// Claims each request pending at writable opening at most once for automatic retry.
+    /// Later wakes do not retry failed deletions or include newly confirmed requests.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority or invalid stored requests.
+    pub fn claim_cloudflare_retirement_retry(
+        &self,
+    ) -> Result<Option<crate::DesktopCloudflareRetirement>, DesktopLocalHostError> {
+        let admission = self.begin_native_cloud_run()?;
+        let claimed =
+            self.with_sync_runtime(Some(&admission.inner), |sync, database, admitted| {
+                sync.claim_cloudflare_retirement_retry(
+                    database,
+                    admitted.ok_or(DesktopSyncError::Blocked)?,
+                )
+            })?;
+        Ok(claimed.map(
+            |(seed, connection_digest)| crate::DesktopCloudflareRetirement {
+                admission,
+                seed,
+                connection_digest,
+            },
+        ))
+    }
+
+    /// Permanently denies a refused credential and issues its opaque local-only purge plan.
+    /// The native caller must obtain the user's first-cleanup confirmation before this call.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, a usable credential, or a possible in-flight Keychain writer.
+    pub fn request_cloudflare_retirement(
+        &self,
+        admission: crate::DesktopNativeCloudAdmission,
+        connection_hint: &str,
+    ) -> Result<crate::DesktopCloudflareRetirement, DesktopLocalHostError> {
+        let (seed, connection_digest) =
+            self.with_sync_write(&admission.inner, |sync, database, admitted, guard| {
+                sync.request_cloudflare_retirement(database, admitted, connection_hint, guard)
+            })?;
+        Ok(crate::DesktopCloudflareRetirement {
+            admission,
+            seed,
+            connection_digest,
+        })
+    }
+
+    /// Resumes an already committed request, without repeating user confirmation.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale authority, an unknown connection, or a request that is not pending.
+    pub fn resume_cloudflare_retirement(
+        &self,
+        admission: crate::DesktopNativeCloudAdmission,
+        connection_hint: &str,
+    ) -> Result<crate::DesktopCloudflareRetirement, DesktopLocalHostError> {
+        let (seed, connection_digest) =
+            self.with_sync_runtime(Some(&admission.inner), |sync, database, admitted| {
+                sync.resume_cloudflare_retirement(
+                    database,
+                    admitted.ok_or(DesktopSyncError::Blocked)?,
+                    connection_hint,
+                )
+            })?;
+        Ok(crate::DesktopCloudflareRetirement {
+            admission,
+            seed,
+            connection_digest,
+        })
+    }
+
+    /// Resolves a purge under the same slot lock. Unknown leaves the durable request retryable.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale handle, authority, or failed transaction. Completion is atomic with hiding
+    /// the retired connection; no Keychain deletion result is fabricated on commit failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the one-use retirement handle is consumed so it cannot resolve twice"
+    )]
+    pub fn resolve_cloudflare_retirement(
+        &self,
+        retirement: crate::DesktopCloudflareRetirement,
+        outcome: crate::DesktopCloudflarePurgeOutcome,
+    ) -> Result<bool, DesktopLocalHostError> {
+        self.with_sync_write(
+            &retirement.admission.inner,
+            |sync, database, admitted, guard| {
+                sync.resolve_cloudflare_retirement(
+                    database,
+                    admitted,
+                    &retirement.seed,
+                    outcome != crate::DesktopCloudflarePurgeOutcome::Unknown,
+                    guard,
+                )
+            },
+        )
+    }
+
+    /// Rechecks the committed request and current authority after acquiring the custody slot lock.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a request or authority that is no longer admitted; this does not touch custody.
+    pub fn check_cloudflare_retirement(
+        &self,
+        retirement: &crate::DesktopCloudflareRetirement,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_write(
+            &retirement.admission.inner,
+            |sync, database, admitted, guard| {
+                sync.resolve_cloudflare_retirement(
+                    database,
+                    admitted,
+                    &retirement.seed,
+                    false,
+                    guard,
+                )
+                .map(|_| ())
+            },
+        )
+    }
+
     /// Durably enters revocation prewrite inspection after the final cancellation fence.
     ///
     /// # Errors
