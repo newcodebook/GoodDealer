@@ -202,8 +202,9 @@ export interface TransactionalMutationAuthorityPort {
 export interface DrainStreamWatermarkPort {
   /**
    * `proofSchemaVersion` selects the chain the claim was computed over. Only the mutation stream
-   * differs (v2 chains ADR-0030 result envelopes); execution_fact and device_audit envelopes are
-   * identical in both versions, so their ledgers may ignore it.
+   * differs: v2 chains ADR-0030 result envelopes over the device's global sequence across every
+   * Lease epoch, while v1 stays within `activeLeaseEpoch`. execution_fact and device_audit
+   * envelopes are identical in both versions, so their ledgers may ignore it.
    */
   readWatermark(scope: WorkspaceTenantScope, domain: {
     readonly sourceDeviceId: string;

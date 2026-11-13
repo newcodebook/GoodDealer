@@ -66,7 +66,7 @@ function request(submitted: readonly SubmittedSyncMutation[]) {
     schemaVersion: 2,
     workspaceId: "shared-workspace",
     sourceDeviceId: submitted[0]?.sourceDeviceId ?? "shared-device",
-    activeLeaseEpoch: 7,
+    activeLeaseEpoch: submitted[0]?.activeLeaseEpoch ?? 7,
     mutations: submitted,
   };
 }
@@ -255,6 +255,44 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       missingRanges: [],
       rollingDigest: Buffer.from(expected).toString("base64url"),
     });
+  });
+
+  it("ADR-0030 folds a v2 chain over the device's global sequence across Lease epochs", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })]));
+    // The Lease rotates; the device's sequences continue from 3 under epoch 8.
+    subject.leases.bindDevice(scopeA, "shared-device", "active", 8);
+    const atEpoch8 = (input: Parameters<typeof mutation>[0]) => ({ ...mutation(input), activeLeaseEpoch: 8 });
+    const stale = atEpoch8({ sequence: 3, baseServerRevision: 1 });
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    const next = atEpoch8({ sequence: 4, baseServerRevision: 2, fieldPath: "note" });
+    await expect(subject.ingest.ingest(scopeA, request([next]))).resolves.toMatchObject({ accepted: true });
+
+    const domain8 = { sourceDeviceId: "shared-device", activeLeaseEpoch: 8, stream: "mutation" } as const;
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    let expected: Uint8Array = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const [sequence, epoch] of [[1, 7], [2, 7], [3, 8], [4, 8]] as const) {
+      const envelope = sequence === 3
+        ? encodeDrainStreamEnvelope("mutation", stale)
+        : subject.ledger.readEnvelope(scopeA, { sourceDeviceId: "shared-device", activeLeaseEpoch: epoch }, sequence);
+      if (envelope === null) throw new TypeError(`accepted envelope ${sequence} is missing`);
+      expected = sha(encodeDrainChainStepInput(expected, encodeMutationDrainResultEnvelope({
+        outcome: sequence === 3 ? "rejected" : "accepted",
+        submittedEnvelopeDigest: sha(envelope),
+      })));
+    }
+    await expect(subject.ledger.readWatermark(scopeA, { ...domain8, proofSchemaVersion: 2 })).resolves.toEqual({
+      contiguousReceivedThrough: 4,
+      highestReceivedSequence: 4,
+      missingRanges: [],
+      rollingDigest: Buffer.from(expected).toString("base64url"),
+    });
+    // v1 keeps its historical per-epoch scope, which cannot start at sequence 3.
+    await expect(subject.ledger.readWatermark(scopeA, { ...domain8, proofSchemaVersion: 1 }))
+      .resolves.toMatchObject({ contiguousReceivedThrough: 0 });
   });
 
   it("ADR-0030 leaves no rejection evidence on a storage fault and refuses to extend a sealed domain", async () => {

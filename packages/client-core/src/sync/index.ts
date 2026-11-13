@@ -6,10 +6,14 @@ import {
 } from "@gooddealer/protocol/devices";
 import {
   DRAIN_PROOF_SCHEMA_VERSION,
+  DRAIN_PROOF_SCHEMA_VERSION_V2,
   DRAIN_STREAMS,
   DRAIN_STREAM_GENESIS_DIGEST,
+  MUTATION_DRAIN_OUTCOMES,
   encodeDrainChainStepInput,
+  encodeMutationDrainResultEnvelope,
   type DrainProof,
+  type DrainProofSchemaVersion,
   type DrainStream,
 } from "@gooddealer/protocol/execution-events";
 import {
@@ -116,6 +120,146 @@ export class DrainStreamLedger {
   }
 }
 
+export type MutationDrainOutcome = (typeof MUTATION_DRAIN_OUTCOMES)[number];
+
+/**
+ * ADR-0030 proof schema v2 mutation stream state. The `chain` marker keeps a result chain from
+ * being signed as a v1 submitted-envelope chain and the reverse; it never enters the proof.
+ */
+export interface MutationResultDrainStreamState extends DrainStreamState {
+  readonly stream: "mutation";
+  readonly chain: "mutation_result";
+}
+
+/**
+ * Folds Cloud-confirmed mutation results in device sequence order (ADR-0030). Unlike the v1
+ * ledger, a step exists only once Cloud's result is durable locally, so the folded prefix is
+ * exactly the received watermark; an assigned sequence without a confirmed result stays pending.
+ */
+export class MutationResultDrainLedger {
+  readonly #sha256: Sha256Port;
+  #lastAssignedSequence = 0;
+  #contiguousReceivedThrough = 0;
+  #rollingDigestBytes = decodeSha256Digest(DRAIN_STREAM_GENESIS_DIGEST);
+  #rollingDigest: string = DRAIN_STREAM_GENESIS_DIGEST;
+  #appendInFlight = false;
+
+  constructor(deps: { readonly sha256: Sha256Port }) {
+    this.#sha256 = deps.sha256;
+  }
+
+  assignThrough(sequence: number): void {
+    assertSafeUnsignedInteger(sequence, "assigned mutation sequence");
+    if (sequence < this.#lastAssignedSequence) {
+      throw new TypeError("assigned mutation sequences must be monotone");
+    }
+    this.#lastAssignedSequence = sequence;
+  }
+
+  async recordResult(sequence: number, outcome: MutationDrainOutcome, submittedEnvelope: Uint8Array): Promise<void> {
+    assertSafePositiveInteger(sequence, "mutation result sequence");
+    if (!MUTATION_DRAIN_OUTCOMES.some((known) => known === outcome)) {
+      throw new TypeError("unknown mutation drain outcome");
+    }
+    if (!(submittedEnvelope instanceof Uint8Array)) {
+      throw new TypeError("submitted mutation envelope must be bytes");
+    }
+    if (this.#appendInFlight) throw new TypeError("a mutation result append is already in progress");
+    if (sequence !== this.#contiguousReceivedThrough + 1) {
+      throw new TypeError("mutation results must extend the contiguous prefix; gaps and rewrites are refused");
+    }
+    if (sequence > this.#lastAssignedSequence) {
+      throw new TypeError("a mutation result cannot exceed the last assigned sequence");
+    }
+
+    this.#appendInFlight = true;
+    try {
+      const submittedEnvelopeDigest = await this.#sha256.digest(submittedEnvelope);
+      const step = encodeMutationDrainResultEnvelope({ outcome, submittedEnvelopeDigest });
+      const nextDigestBytes = await this.#sha256.digest(encodeDrainChainStepInput(this.#rollingDigestBytes, step));
+      const nextDigest = encodeSha256Digest(nextDigestBytes);
+      this.#rollingDigestBytes = new Uint8Array(nextDigestBytes);
+      this.#rollingDigest = nextDigest;
+      this.#contiguousReceivedThrough = sequence;
+    } finally {
+      this.#appendInFlight = false;
+    }
+  }
+
+  state(): MutationResultDrainStreamState {
+    return {
+      stream: "mutation",
+      chain: "mutation_result",
+      lastAssignedSequence: this.#lastAssignedSequence,
+      contiguousReceivedThrough: this.#contiguousReceivedThrough,
+      pendingCount: this.#lastAssignedSequence - this.#contiguousReceivedThrough,
+      rollingDigest: this.#rollingDigest,
+    };
+  }
+}
+
+/** One device-sequence row as the local Outbox persisted it, with its frozen submitted envelope. */
+export interface PersistedMutationResult {
+  readonly deviceMutationSequence: number;
+  readonly outboxState: string;
+  readonly lastErrorCode: string | null;
+  /**
+   * `encodeDrainStreamEnvelope("mutation", m)` where `m` is the frozen wire stamped with the
+   * tenant `workspaceId`, byte-identical to the envelope Cloud recorded for this sequence; any
+   * other bytes yield a digest that Cloud's seal refuses.
+   */
+  readonly submittedEnvelope: Uint8Array;
+}
+
+/**
+ * Maps a persisted Outbox row to the Cloud result it proves, or null when no Cloud result is
+ * durable locally. Only an ACK (`acknowledged`) or a single-item `SYNC_MUTATION_CONFLICT`
+ * (`conflicted` with `sync_mutation_conflict`) is backed by a Cloud receipt. Pending, sending,
+ * input/schema rejections and idempotency conflicts are not, so their sequence stays a gap and
+ * the drain fails closed (ADR-0030 decisions 4 and 5).
+ */
+export function classifyPersistedMutationResult(row: PersistedMutationResult): MutationDrainOutcome | null {
+  if (row.outboxState === "acknowledged" && row.lastErrorCode === null) return "accepted";
+  if (row.outboxState === "conflicted" && row.lastErrorCode === "sync_mutation_conflict") return "rejected";
+  return null;
+}
+
+/**
+ * Builds the v2 mutation stream state from persisted Outbox rows. Device sequences are global per
+ * device and workspace (ADR-0030 decision 3), so the rows span every Lease epoch and the chain
+ * starts at sequence 1, as Cloud's v2 seal does. Rows must be in strictly increasing sequence
+ * order; folding stops at the first sequence without a durable Cloud result, which leaves it and
+ * everything after it pending, so proof claims refuse it.
+ */
+export async function foldPersistedMutationResults(input: {
+  readonly sha256: Sha256Port;
+  readonly lastAssignedSequence: number;
+  readonly rows: readonly PersistedMutationResult[];
+}): Promise<MutationResultDrainStreamState> {
+  const ledger = new MutationResultDrainLedger({ sha256: input.sha256 });
+  ledger.assignThrough(input.lastAssignedSequence);
+  let previous = 0;
+  let folding = true;
+  for (const row of input.rows) {
+    assertSafePositiveInteger(row.deviceMutationSequence, "persisted mutation sequence");
+    if (row.deviceMutationSequence <= previous) {
+      throw new TypeError("persisted mutation rows must be in strictly increasing sequence order");
+    }
+    if (row.deviceMutationSequence > input.lastAssignedSequence) {
+      throw new TypeError("a persisted mutation row exceeds the last assigned sequence");
+    }
+    previous = row.deviceMutationSequence;
+    if (!folding) continue;
+    const outcome = classifyPersistedMutationResult(row);
+    if (outcome === null || row.deviceMutationSequence !== ledger.state().contiguousReceivedThrough + 1) {
+      folding = false;
+      continue;
+    }
+    await ledger.recordResult(row.deviceMutationSequence, outcome, row.submittedEnvelope);
+  }
+  return ledger.state();
+}
+
 type DrainProofHostField =
   | "proofId"
   | "signingKeyId"
@@ -131,6 +275,11 @@ type WithoutDrainProofHostFields<Proof extends DrainProof> = Proof extends Drain
 export type UnsignedDrainProof = WithoutDrainProofHostFields<DrainProof>;
 
 export interface BuildDrainProofClaimsInput {
+  /**
+   * v1 chains the mutation stream over submitted envelopes and cannot express a Cloud-recorded
+   * rejection; v2 requires the mutation stream from `MutationResultDrainLedger`.
+   */
+  readonly proofSchemaVersion: DrainProofSchemaVersion;
   readonly purpose: "handoff" | "synchronized_backup";
   readonly workspaceId: string;
   readonly sourceDeviceId: string;
@@ -140,7 +289,11 @@ export interface BuildDrainProofClaimsInput {
     readonly localCommitSequence: number;
     readonly serverRevision: number;
   };
-  readonly streams: readonly [DrainStreamState, DrainStreamState, DrainStreamState];
+  readonly streams: readonly [
+    DrainStreamState | MutationResultDrainStreamState,
+    DrainStreamState,
+    DrainStreamState,
+  ];
   /** Supplied by the Host's trusted-time boundary; client-core does not interpret it. */
   readonly issuedAt: string;
   /** Supplied by the Host's trusted-time boundary; client-core does not interpret it. */
@@ -155,6 +308,16 @@ export function buildDrainProofClaims(input: BuildDrainProofClaimsInput): Unsign
   assertNonemptyString(input.issuedAt, "issued timestamp");
   assertNonemptyString(input.expiresAt, "expiry timestamp");
 
+  const version = input.proofSchemaVersion;
+  if (version !== DRAIN_PROOF_SCHEMA_VERSION && version !== DRAIN_PROOF_SCHEMA_VERSION_V2) {
+    throw new TypeError("unknown drain proof schema version");
+  }
+  // Versions never mix: only a v2 proof may carry a result chain, and it must carry one.
+  if (isMutationResultChain(input.streams[0]) !== (version === DRAIN_PROOF_SCHEMA_VERSION_V2) ||
+    isMutationResultChain(input.streams[1]) || isMutationResultChain(input.streams[2])) {
+    throw new TypeError("the mutation stream chain does not match the drain proof schema version");
+  }
+
   const readiness = projectDrainReadiness(input.streams);
   if (readiness === "blocked") {
     throw new TypeError("proof claims require the valid drain stream order and internally consistent states");
@@ -168,15 +331,16 @@ export function buildDrainProofClaims(input: BuildDrainProofClaimsInput): Unsign
     copyDrainStreamState(input.streams[1], "execution_fact"),
     copyDrainStreamState(input.streams[2], "device_audit"),
   ];
+  const versioned = version === DRAIN_PROOF_SCHEMA_VERSION
+    ? { schemaVersion: DRAIN_PROOF_SCHEMA_VERSION, typ: "gd.drain-proof.v1" as const, canonicalCodecVersion: 1 as const }
+    : { schemaVersion: DRAIN_PROOF_SCHEMA_VERSION_V2, typ: "gd.drain-proof.v2" as const, canonicalCodecVersion: 2 as const };
   const common = {
-    schemaVersion: DRAIN_PROOF_SCHEMA_VERSION,
-    typ: "gd.drain-proof.v1" as const,
+    ...versioned,
     aud: "gooddealer-cloud/drain-verification" as const,
     workspaceId: input.workspaceId,
     sourceDeviceId: input.sourceDeviceId,
     activeLeaseEpoch: input.activeLeaseEpoch,
     streams,
-    canonicalCodecVersion: 1 as const,
     digestAlgorithm: "sha256-chain-v1" as const,
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
@@ -647,7 +811,22 @@ function copyDrainStreamState<Stream extends DrainStream>(
   if (state.stream !== expectedStream) {
     throw new TypeError("drain stream state is out of order");
   }
-  return { ...state, stream: expectedStream };
+  // Copy only claim fields: the local chain marker is not part of the signed proof.
+  return {
+    stream: expectedStream,
+    lastAssignedSequence: state.lastAssignedSequence,
+    contiguousReceivedThrough: state.contiguousReceivedThrough,
+    pendingCount: state.pendingCount,
+    rollingDigest: state.rollingDigest,
+  };
+}
+
+function isMutationResultChain(state: DrainStreamState): boolean {
+  if (!Object.hasOwn(state, "chain")) return false;
+  if ((state as { readonly chain?: unknown }).chain !== "mutation_result") {
+    throw new TypeError("unknown drain stream chain");
+  }
+  return true;
 }
 
 function decodeSha256Digest(value: string): Uint8Array {

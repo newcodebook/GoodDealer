@@ -286,7 +286,17 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
   ) {
     if (domain.stream !== "mutation") throw new TypeError("mutation ledger serves only the mutation stream");
     const key = domainKey(scope, domain);
-    return projectWatermark(this.#records.get(key), this.#rejected.get(key), domain.proofSchemaVersion);
+    if (domain.proofSchemaVersion !== 2) {
+      return projectWatermark(this.#records.get(key), this.#rejected.get(key), domain.proofSchemaVersion);
+    }
+    // ADR-0030 decision 3: the v2 watermark is the device's global sequence, so it folds this
+    // device's results from every Lease epoch. A sequence held by two epochs is broken evidence.
+    const prefix = deviceKeyPrefix(scope, domain);
+    return projectWatermark(
+      mergeDeviceDomains(this.#records, prefix),
+      mergeDeviceDomains(this.#rejected, prefix),
+      2,
+    );
   }
 
   #recordDiagnostic(
@@ -734,6 +744,25 @@ function sequenceKey(mutation: SubmittedSyncMutation): string {
 
 function domainKey(scope: WorkspaceTenantScope, domain: MutationDrainDomain): string {
   return `${workspaceTenantKey(scope)}\u0000${domain.sourceDeviceId}\u0000${domain.activeLeaseEpoch}`;
+}
+
+function deviceKeyPrefix(scope: WorkspaceTenantScope, domain: MutationDrainDomain): string {
+  return `${workspaceTenantKey(scope)}\u0000${domain.sourceDeviceId}\u0000`;
+}
+
+function mergeDeviceDomains(
+  store: Map<string, Map<number, Uint8Array>>,
+  prefix: string,
+): Map<number, Uint8Array> {
+  const merged = new Map<number, Uint8Array>();
+  for (const [key, entries] of store) {
+    if (!key.startsWith(prefix)) continue;
+    for (const [sequence, value] of entries) {
+      if (merged.has(sequence)) throw new TypeError("a device mutation sequence is held by two Lease epochs");
+      merged.set(sequence, value);
+    }
+  }
+  return merged;
 }
 
 function recordEnvelope(

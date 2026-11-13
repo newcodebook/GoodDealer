@@ -1,6 +1,6 @@
 # ADR-0030：结束被确定性拒绝的 mutation 设备序号
 
-状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1、B2 已实现，B3 待实施）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
+状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1、B2 已实现；B3 的客户端合同已实现，设备切换端到端串通待 Desktop 设备切换流程交付）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
 [ADR-0005](0005-single-active-device-and-continuity.md) 的 drain 合同。
 
 ## 背景
@@ -110,4 +110,14 @@ envelope 摘要；历史行为 accepted，原字节不变），并替换 mutatio
 `MUTATION_FIELD_STALE`/`MUTATION_ENTITY_UNKNOWN` 在同一 tenant 事务内写入拒绝回执并推进全局序号水位，提交后
 才返回；回执查重先于业务重判，精确重放返回原拒绝 code（不重放字段明细），不同内容仍为 ID/序号冲突；多项批次
 仍整体回滚、不写回执；存储失败按可重试错误返回。内存参考实现同步一致。
+B3 客户端合同已实现：client-core `MutationResultDrainLedger` 只在 Cloud 结果落盘后按序折叠结果 envelope，
+`foldPersistedMutationResults` 只把 Outbox 的 `acknowledged`（ACK）与 `conflicted`+`sync_mutation_conflict`（单项
+业务拒绝回执）计为结果；仍在 `sending`、输入/schema 拒绝与幂等冲突不结束序号，首个未确认序号之后全部保持
+pending，drain 失败关闭。`buildDrainProofClaims` 必须声明 proof 版本：v2 只接受结果链，v1 不接受结果链，本地链
+标记不进入签名声明。按决策 3，v2 链覆盖该设备在全部 Lease epoch 中的全局序号并从序号 1 开始：B2 的 seal
+与内存账本只在 proof 所属 epoch 内成链，设备经历 Lease 轮换后 v2 proof 无法封存；前向迁移 `202611130004`
+（workspace/mutations）改为跨 epoch 按序合并该设备两种结果，seal 行仍按 proof 的 epoch 记录，v1 保持原有
+按 epoch 范围，所以 v1 proof 在 Lease 轮换后无法封存（历史格式，失败关闭），设备切换只能使用 v2。客户端结果链与协议向量、Cloud v2 seal 逐字节一致，含 Lease 轮换后的情形。Desktop 目前没有设备切换流程：Host 读取
+Outbox 结果、签名 proof 与 Cloud 接收 proof 的生产路径尚不存在；交付时必须使用上述合同，Cloud 写入
+`device_drain_proofs` 时必须保存 `proof.schemaVersion`（列默认 1 会让 v2 proof 封存失败关闭）。
 批次与验收见[专项落地计划](../phase0/ADR_0028_0030_0029_IMPLEMENTATION_PLAN.md)。

@@ -53,6 +53,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "still rejects a same-field write it did not build on: an older base or another Lease epoch",
     "commits a single-item business rejection with its sequence and replays the stored result",
     "seals a v2 proof over accepted and rejected results, refuses the v1 chain, and records no rejection after the seal",
+    "seals a v2 proof over the device's global sequence after a Lease rotation",
     "rolls a business rejection back on a storage fault and records it exactly once on retry",
     "lets a racing acceptance and rejection of one device sequence occupy it only once",
     "rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry",

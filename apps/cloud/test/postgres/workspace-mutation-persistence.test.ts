@@ -607,6 +607,64 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     await expect(ledgerState()).resolves.toMatchObject({ rows: [{ rows: 5, contiguous: "5" }] });
   });
 
+  it("seals a v2 proof over the device's global sequence after a Lease rotation", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0)));
+    await rotateDeviceOneLeaseToEpochTwo();
+    // Sequences continue globally under epoch 2: 3 is a recorded rejection, 4 is accepted.
+    const atEpoch2 = (mutation: ReturnType<typeof submitted>) =>
+      submittedSyncMutationSchema.parse({ ...mutation, activeLeaseEpoch: 2 });
+    const stale = atEpoch2(submitted("note-from-1", 3, 1));
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({ code: "MUTATION_FIELD_STALE" });
+    const next = atEpoch2(submittedSyncMutationSchema.parse({
+      ...submitted("tags-4", 4, 2), changedFields: [{ fieldPath: "tags", value: ["four"] }],
+    }));
+    await expect(service.ingest(scopeA, pushRequest(next))).resolves.toMatchObject({ accepted: true });
+
+    const records = await withOwnerTenant(scopeA, (transaction) => transaction.query<{
+      device_mutation_sequence: string; canonical_envelope: Buffer;
+    }>(`SELECT device_mutation_sequence, canonical_envelope FROM mutation_drain_records
+        WHERE source_device_id = 'device-1' ORDER BY device_mutation_sequence`));
+    expect(records.rows.map((row) => row.device_mutation_sequence)).toEqual(["1", "2", "4"]);
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    const envelopes = new Map(records.rows.map((row) => [Number(row.device_mutation_sequence), row.canonical_envelope]));
+    envelopes.set(3, Buffer.from(encodeDrainStreamEnvelope("mutation",
+      submittedSyncMutationSchema.parse({ ...stale, workspaceId: scopeA.workspaceId }))));
+    const chain = (sequences: readonly number[]) => {
+      let digest: Buffer = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+      for (const sequence of sequences) {
+        digest = sha(encodeDrainChainStepInput(digest, encodeMutationDrainResultEnvelope({
+          outcome: sequence === 3 ? "rejected" : "accepted",
+          submittedEnvelopeDigest: sha(envelopes.get(sequence)!),
+        })));
+      }
+      return digest;
+    };
+
+    await seedDirectMutationSealAuthority(2);
+    const sealOnce = (proofId: string) => transactions.withTenant(scopeA, async (transaction) => {
+      await transaction.query(`SELECT accepted FROM public.device_consume_drain_proof(
+        $1::text, $2::bytea, $3::text, $4::bigint, $5::text)`,
+      [proofId, Buffer.alloc(32, 6), "direct-app-seal-workflow", 1, "device-2"]);
+      const installed = await transaction.query<{ accepted: boolean }>(
+        `SELECT public.workspace_mutation_drain_install_accepted_seal($1::text) AS accepted`, [proofId]);
+      if (installed.rows[0]?.accepted !== true) throw new Error(`seal refused for ${proofId}`);
+    });
+    // A chain restarted inside epoch 2 is not the device's global chain and must not seal.
+    await seedDirectMutationSealProof("v2-epoch-only", 4, chain([3, 4]), 2, 2);
+    await expect(sealOnce("v2-epoch-only")).rejects.toThrow("seal refused for v2-epoch-only");
+    await seedDirectMutationSealProof("v2-global", 4, chain([1, 2, 3, 4]), 2, 2);
+    await expect(sealOnce("v2-global")).resolves.toBeUndefined();
+    const seal = await withOwnerTenant(scopeA, (transaction) => transaction.query<{
+      active_lease_epoch: string; last_assigned_device_mutation_sequence: string; proof_schema_version: number;
+    }>(`SELECT active_lease_epoch, last_assigned_device_mutation_sequence, proof_schema_version
+        FROM mutation_drain_seals WHERE source_device_id = 'device-1'`));
+    expect(seal.rows).toEqual([{ active_lease_epoch: "2", last_assigned_device_mutation_sequence: "4", proof_schema_version: 2 }]);
+  });
+
   it("rolls a business rejection back on a storage fault and records it exactly once on retry", async () => {
     await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
       entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
@@ -1430,8 +1488,24 @@ async function seedDrainRace(): Promise<void> {
   });
 }
 
+/** Releases device-1's epoch-1 Lease and activates epoch 2 for the same device and workspace. */
+async function rotateDeviceOneLeaseToEpochTwo(): Promise<void> {
+  await ownerPool.query(`UPDATE device_active_leases SET released_at = transaction_timestamp(), release_reason = 'rotated'
+    WHERE account_id = $1 AND lease_epoch = 1`, [scopeA.accountId]);
+  await ownerPool.query(`INSERT INTO device_lease_epoch_allocations
+    (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)
+    VALUES ($1, $2, 'mutation-ingest-2', 2, 'activated', transaction_timestamp())`, [scopeA.accountId, scopeA.workspaceId]);
+  await ownerPool.query(`INSERT INTO device_active_leases
+    (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
+     offline_execute_until, signed_envelope, wire_envelope, signer_receipt_digest)
+    VALUES ($1, 2, 'device-1', 'mutation-lease-epoch-2', transaction_timestamp() - interval '2 minutes',
+      transaction_timestamp() - interval '1 minute', transaction_timestamp() + interval '5 minutes',
+      transaction_timestamp() + interval '1 hour', decode('02', 'hex'),
+      jsonb_build_object('fixture', 'workspace-mutation-2'), pg_catalog.sha256(decode('02', 'hex')))`, [scopeA.accountId]);
+}
+
 /** Owner-only fixture setup leaves the mutation Drain domain empty for direct app-role controls. */
-async function seedDirectMutationSealAuthority(): Promise<void> {
+async function seedDirectMutationSealAuthority(leaseEpoch = 1): Promise<void> {
   await withOwnerTenant(scopeA, async (transaction) => {
     await transaction.query(`INSERT INTO identity_accounts
       (account_id, email_normalized, password_policy_id, password_hash_phc)
@@ -1442,8 +1516,8 @@ async function seedDirectMutationSealAuthority(): Promise<void> {
       VALUES ($1, 1, 'normal')
       ON CONFLICT (account_id) DO UPDATE SET account_security_epoch = 1, status = 'normal'`, [scopeA.accountId]);
     await transaction.query(`UPDATE device_account_states
-      SET binding_list_revision = 1, highest_allocated_lease_epoch = 1, current_lease_epoch = 1
-      WHERE account_id = $1`, [scopeA.accountId]);
+      SET binding_list_revision = 1, highest_allocated_lease_epoch = $2, current_lease_epoch = $2
+      WHERE account_id = $1`, [scopeA.accountId, leaseEpoch]);
     await transaction.query(`INSERT INTO device_bindings
       (account_id, device_id, slot, status, credential_epoch)
       VALUES ($1, 'device-2', 2, 'bound', 1)
@@ -1474,6 +1548,7 @@ async function seedDirectMutationSealProof(
   deviceMutationSequence: number,
   mutationDigest: Buffer,
   proofSchemaVersion?: 2,
+  leaseEpoch = 1,
 ): Promise<void> {
   await withOwnerTenant(scopeA, (transaction) => seedDirectMutationSealProofInTransaction(
     transaction,
@@ -1481,6 +1556,7 @@ async function seedDirectMutationSealProof(
     deviceMutationSequence,
     mutationDigest,
     proofSchemaVersion,
+    leaseEpoch,
   ));
 }
 
@@ -1490,6 +1566,7 @@ function seedDirectMutationSealProofInTransaction(
   deviceMutationSequence: number,
   mutationDigest: Buffer,
   proofSchemaVersion?: 2,
+  leaseEpoch = 1,
 ) {
   // Omitting the version exercises the migration default that keeps historical proofs at v1.
   return transaction.query(`INSERT INTO device_drain_proofs
@@ -1497,12 +1574,12 @@ function seedDirectMutationSealProofInTransaction(
      active_lease_epoch, signing_key_id, signing_key_version, issued_at, expires_at, verified_at,
      device_mutation_sequence, mutation_digest, execution_fact_sequence, execution_fact_digest,
      device_audit_sequence, device_audit_digest${proofSchemaVersion === undefined ? "" : ", proof_schema_version"})
-    VALUES ($1, $2, $3, $4, 'handoff', 'direct-app-seal-workflow', 'device-1', 1,
+    VALUES ($1, $2, $3, $4, 'handoff', 'direct-app-seal-workflow', 'device-1', $9,
       'direct-app-seal-key', 1, transaction_timestamp() - interval '1 minute',
       transaction_timestamp() + interval '5 minutes', transaction_timestamp(),
-      $5, $6, 0, $7, 0, $8${proofSchemaVersion === undefined ? "" : ", $9"})`, [
+      $5, $6, 0, $7, 0, $8${proofSchemaVersion === undefined ? "" : ", $10"})`, [
     scopeA.accountId, scopeA.workspaceId, proofId, Buffer.alloc(32, 6), deviceMutationSequence,
-    mutationDigest, Buffer.alloc(32, 7), Buffer.alloc(32, 8),
+    mutationDigest, Buffer.alloc(32, 7), Buffer.alloc(32, 8), leaseEpoch,
     ...(proofSchemaVersion === undefined ? [] : [proofSchemaVersion]),
   ]);
 }
