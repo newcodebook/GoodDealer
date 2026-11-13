@@ -89,7 +89,7 @@ dead-letter outbox 和 Session 撤销；
   - [x] 销售合并缓存的内存：100 万资产约 33 万个挂牌域名时估计 2 市场约 60–80 MB、8 市场约 170–200 MB；用 100 万基准测峰值 RSS，并考虑以平台索引与状态枚举代替字符串或按行数设上限（每行改为平台位集、单字节状态枚举与原样金额，行大小与市场数无关；100 万基准中缓存向分配器请求约 21 MiB、10 万约 2 MiB——这是下限，不含分配器开销（约 66 万个小块，实际堆估计约 30–35 MiB）与合并期间的瞬时峰值；未测得峰值 RSS：种子数据释放的堆被合并复用，RSS 增量读数为 0，不能反映缓存；不设行数上限） https://github.com/newcodebook/GoodDealer/pull/53
   - [ ] 每次写入后的首次销售读取仍需全量合并（10 万 8 市场约 2 s，超出 1 s 预算）：确定该首读是否计入预算，或改为增量维护合并结果（写入后、销售读取前的首次设置读取扫描同一批挂牌，8 市场约 2.1 s，随同处理）（已做：缓存键改为迁移 `sales_listing_generation` 的触发器计数与 `data_version`，只有挂牌观察、确认它们的 marketplace 运行与目标状态及资产删除才推进，备注、目标价、DNS 与注册商/DNS 观察运行等写入后销售约 0.08 ms、设置约 0.22 s；合并改为按新索引顺序的连接查询，10 万 8 市场首读 2 s → 1.1 s、设置扫描 → 1.3 s；2 市场 10 万全部读取 ≤ 0.73 s 仍断言 ≤ 1 s。暂停：待决事项——8 市场挂牌写入后的这两次首读（约 1.1 s / 1.3 s）是否计入 1 s 预算须由用户确认；仓库只记录了 10 万资产每页 1 s，未记录 8 市场是否在预算口径内。确认计入则改做增量维护） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 由用户确认分页读取延迟预算（含 100 万资产目标），确认后才作为阶段 4 V1 验收条件（用户于 2026-11-06 确认：10 万资产每次分页读取 ≤ 1 s 作为阶段 4 V1 验收条件；100 万资产只记录、不设 V1 预算；8 市场写入后首读仍超预算，见上一项） https://github.com/newcodebook/GoodDealer/pull/53
-  - [ ] 100 万资产的全量计数随资产线性增长（约 7 s）：正式规模声明前确定 100 万预算与做法（缓存或增量计数）
+  - [x] 100 万资产的全量计数随资产线性增长（约 7 s）：正式规模声明前确定 100 万预算与做法（缓存或增量计数）（已由用户 2026-11-06 的预算决定确定：100 万资产只记录、不设 V1 预算，见 VERIFICATION 阶段 4 与 DATABASE_SCHEMA；v1 不作 100 万规模声明，所以不做缓存或增量计数，基准继续只记录约 7 s；将来要作 100 万规模声明时须先另定预算并追加任务） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售视图模型上限（100,000）与 Host 窗口上限（1,000,000）对齐或改为分页（对齐：`salesListingLimit` 同时约束视图模型与投影，域名超限时投影失败而不截断；Host 行上限按每域名多市场保留） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售、续费与 DNS 读取在 100k 规模下改为 Host 侧分页与聚合指标，遵守 DATABASE_SCHEMA 的 keyset/窗口分页规则，不在 Renderer 汇总全部窗口（拆为以下三项，三项完成后勾选） https://github.com/newcodebook/GoodDealer/pull/53
   - [x] 续费：Host 页读取，到期数与自动续费开/关计数由 Host 全量返回，续费台使用 kit `Pagination`；页越界时回到末页，后页读取失败时回到首页 https://github.com/newcodebook/GoodDealer/pull/53
@@ -105,7 +105,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 搜索读取失败后，保留的行与计数属于上一查询而搜索框显示新查询；在失败横幅中经 i18n 说明当前显示的是上一次成功读取的结果（三个分页台面的 `staleResult`，en-US/zh-CN） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 为续费与销售台面补一项翻页读取失败的 DOM 测试，固定 `busy={false}` 与旧页加横幅的状态 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 翻页读取失败后分页器高亮上一结果的页码，再次点击失败页会设回同一页而不读取；失败时点击当前请求页改为重试 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 分页台面读取失败横幅放在台面头部上方（kit 无台面内错误示例）；在打包构件逐屏对照 `brand/ui_kits/desktop` 时确认或调整该位置
+- [ ] 分页台面读取失败横幅放在台面头部上方（kit 无台面内错误示例）；在打包构件逐屏对照 `brand/ui_kits/desktop` 时确认或调整该位置（暂停：随下方打包构件逐屏对照一并进行，见该项待决事项）
 - [x] 销售每次翻页都全表扫描并合并已确认挂牌（100k 域名 × 8 市场时约 80 万行，含已完成运行 `EXISTS` 与窗口函数）：在 100k 规模验证中计时并做 `EXPLAIN QUERY PLAN`，过慢时按读取 generation 缓存合并结果（已计时与检查：3.3 万个双市场域名每页约 0.55 s，查找均走索引；是否缓存并入资产库与销售 O(N) 聚合一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 销售页行价格保留首个市场的原始写法（如 `1000.50`），挂牌估值为规范化写法；核实销售台金额格式化后两者显示一致（一致：两者都经 `formatAssetMoney`，销售台测试固定） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `formatAssetMoney` 经 `Number` 转换，超过 15 位有效数字的金额（合同允许 16 位整数加 8 位小数）显示会失真；改为按十进制字符串格式化（`formatMoney` 接受经校验的十进制字符串并原样交给 Intl） https://github.com/newcodebook/GoodDealer/pull/53
@@ -134,7 +134,7 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）
 - [x] 人工任务等待时间改用 `manual_action_required` 结果的观察时间，而非尝试开始时间（每项取最新尝试最早的 `manual_action_required` 结果观察时间，结果尚未记录时退回尝试开始时间；任务按其中最早者排序） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）（Host 只发送收件箱显示的前 3 个域名（字节序），`domainCount` 仍精确；读取与视图合同共用 `manualTaskDomainSampleLimit` 并拒绝其他样本大小，Desktop 测试固定它与 Host 的 `DOMAIN_LIMIT` 相等；等待起点不早于尝试开始） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照，并记录各 WebView 的 NumberFormat v3 探测结果与超大金额的显示（当前只有源码与打包依赖图层面的证据）
+- [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照，并记录各 WebView 的 NumberFormat v3 探测结果与超大金额的显示（当前只有源码与打包依赖图层面的证据）（暂停：待决事项——工作区页面只有在真实账号经浏览器 PKCE 登录、取得商业授权与 Active Lease 后才可达，登录须由用户本人输入凭据；三种 WebView 分别只在 macOS（WKWebView）、Windows（WebView2）与 Linux（WebKitGTK）上存在，当前执行环境只有 Linux 且不能操作原生窗口。影响：阶段 2 验收“每个设计页面在真实构件中可达”与阶段 4 的真实构件证据都依赖此项。可选方案：①用户在三种系统的打包构件上登录，按页面清单逐屏截图并运行内置 NumberFormat 探测，由执行方对照 kit 记录偏差并修复；②在 Linux 上经用户批准安装 `tauri-driver` 与 WebKitWebDriver 做 WebKitGTK 的自动逐屏对照（登录仍由用户完成），macOS 与 Windows 仍按①；③先只取 Linux 证据，macOS/Windows 推迟到阶段 11 的最终候选。推荐②+①：Linux 部分可重复，其余两种系统一次人工对照）
 - [x] 历史与人工任务等显示文本的长度口径在 Rust 与 Zod 之间对齐（核实：Zod 4 的 `max` 按码点计数，与 Rust 字符数一致，无需改动；需要 UTF-16 上限的 Zod 校验须显式比较 `length`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役（已对齐：`providerKind` 改用唯一的 `launchPlatformKindSchema`，移除 `registrar_dns`/`custom`；注册商自带 DNS 即该注册商平台；补每个首发平台接受与旧值拒绝测试） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）
@@ -241,5 +241,5 @@ dead-letter outbox 和 Session 撤销；
 
 ### 并行补强
 
-- [ ] live PostgreSQL 并发/RLS、容量、崩溃恢复、长时间运行
+- [x] live PostgreSQL 并发/RLS、容量、崩溃恢复、长时间运行（CI 运行 https://github.com/newcodebook/GoodDealer/actions/runs/43413659224 ，PostgreSQL 18.6，提交 caba50a，范围仅 workspace mutation ingest 路径：16 个租户共用同一工作区 id 并发写入 760 条、8 个连接，约 262 条/s，p50/p95/p99 约 57/73/111 ms；8 个租户 600 s 混合负载 47,134 次写入、11,782 次与新写入并发的已提交项重试、每 2 s 一次共 176 次不变量检查，无违例；同一项并发重复提交只应用一次；`fsync`、`synchronous_commit`、`full_page_writes` 均为 on 时 3 次写入中 SIGKILL 容器，已确认的写入无一丢失，每租户至多 1 项已提交未确认，已提交前缀一致，重提交恰为每个已提交项 1 次重复，12 个租户都续写到 1,000 项；六张负载表强制 RLS、应用角色非属主且无 BYPASSRLS，应用角色看不到其他租户的行。不构成：完整 RLS 资格（逐策略审计、全部写路径 WITH CHECK、其他表）、操作系统崩溃或断电下的持久性、超过 10 分钟的稳定性（vacuum/膨胀、XID 年龄、内存上限）、容量 SLO 或生产规格、Gate 关闭；本机 18.4 结果只是诊断） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 把 `backup/source.rs` 的快照临时目录改为仅属主可访问（启用生产备份的前提）（`private_snapshot_directory` 在 Unix 上以 `0700` 创建，创建后对目录本身（不跟随 symlink）校验属主为当前有效用户且组与其他用户无任何权限，不符即 `StorageRejected`；macOS 与 Linux 都走 Unix 分支；Windows 沿用系统临时目录（位于用户配置目录下，默认仅该用户可访问，未另加 ACL 校验）；生产代码中唯一的临时目录创建点；负向测试覆盖 0750/0705/0770/0777 与 symlink） https://github.com/newcodebook/GoodDealer/pull/53
