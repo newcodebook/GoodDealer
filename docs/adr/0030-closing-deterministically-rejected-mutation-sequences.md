@@ -1,6 +1,6 @@
 # ADR-0030：结束被确定性拒绝的 mutation 设备序号
 
-状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1 已实现，B2/B3 待实施）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
+状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1、B2 已实现，B3 待实施）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
 [ADR-0005](0005-single-active-device-and-continuity.md) 的 drain 合同。
 
 ## 背景
@@ -101,5 +101,13 @@ B1 已实现：协议新增独立结果 envelope `GOODDEALER-MUTATION-DRAIN-RESU
 独立签名/摘要 domain）；v1 proof、mutation wire 与既有摘要字节不变，版本不可混算。Cloud 验证按 proof 版本
 读取水位；PostgreSQL 前向迁移 `202611130001`（devices，proof 版本，历史行为 v1）与 `202611130002`
 （workspace/mutations，v2 seal 从保留的 v1 记录重建 accepted 链，记录摘要不符即失败关闭）。拒绝结果入链
-等 B2 的结果 ledger；生产拒绝回执与 Desktop v2 proof 均未启用。
+等 B2 的结果 ledger；Desktop v2 proof 尚未启用。
+
+B2 已实现：前向迁移 `202611130003` 把全局设备序号 ledger 改为不可变的 accepted/rejected 结果联合（CHECK
+互斥；只有 accepted 带 server revision 并受接受回执外键约束；rejected 带白名单 code、拒绝时间与冻结提交
+envelope 摘要；历史行为 accepted，原字节不变），并替换 mutation seal：v2 按序合并 accepted 记录与 rejected
+回执，同一序号两种结果即失败关闭，v1 遇到拒绝序号即无法封存。PostgreSQL ingest 对单项的
+`MUTATION_FIELD_STALE`/`MUTATION_ENTITY_UNKNOWN` 在同一 tenant 事务内写入拒绝回执并推进全局序号水位，提交后
+才返回；回执查重先于业务重判，精确重放返回原拒绝 code（不重放字段明细），不同内容仍为 ID/序号冲突；多项批次
+仍整体回滚、不写回执；存储失败按可重试错误返回。内存参考实现同步一致。
 批次与验收见[专项落地计划](../phase0/ADR_0028_0030_0029_IMPLEMENTATION_PLAN.md)。

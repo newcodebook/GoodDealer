@@ -23,6 +23,7 @@ import { parseWorkspaceTenantScope } from "../tenant-scope";
 import {
   PostgresWorkspaceMutationRepository,
   type MutationPersistenceFaultPoint,
+  type RecordedMutationRejectionCode,
 } from "./postgres-repository";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
@@ -119,6 +120,10 @@ export class PostgresWorkspaceMutationIngest {
       if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
       const resolution = await this.dependencies.mutations.resolveReceipt(transaction, drain, mutation);
       if (resolution.status === "exact") duplicateRevisionByIndex.set(index, resolution.receipt.serverRevision);
+      // An exact replay of a recorded rejection returns the original result without re-judging.
+      if (resolution.status === "rejected") {
+        throw new IngestRejected(reject(resolution.receipt.rejectionCode, [failure(index, mutation)]));
+      }
       if (resolution.status === "mutation_id_conflict") {
         throw new IngestRejected(reject("MUTATION_ID_CONFLICT", [failure(index, mutation)]));
       }
@@ -131,7 +136,9 @@ export class PostgresWorkspaceMutationIngest {
     // current state is a tombstone stays unknown, because re-adding needs ADR-0029's generation.
     const entityFailures = request.mutations.flatMap((mutation, index) =>
       duplicateRevisionByIndex.has(index) || !tombstoned.has(mutation.entityId) ? [] : [failure(index, mutation)]);
-    if (entityFailures.length > 0) throw new IngestRejected(reject("MUTATION_ENTITY_UNKNOWN", entityFailures));
+    if (entityFailures.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN", entityFailures);
+    }
 
     const baseFailures = request.mutations.flatMap((mutation, index) =>
       duplicateRevisionByIndex.has(index) || mutation.baseServerRevision <= revision.serverRevision
@@ -158,7 +165,9 @@ export class PostgresWorkspaceMutationIngest {
       writers,
       revision.serverRevision,
     );
-    if (staleFailures.length > 0) throw new IngestRejected(reject("MUTATION_FIELD_STALE", staleFailures));
+    if (staleFailures.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_FIELD_STALE", staleFailures);
+    }
 
     const accepted = request.mutations.flatMap((mutation, index) => {
       const serverRevision = assignedRevisionByIndex.get(index);
@@ -191,6 +200,29 @@ export class PostgresWorkspaceMutationIngest {
       })),
       headRevision: proposedHead,
     };
+  }
+
+  /**
+   * ADR-0030 decision 1. Only a single-item push records its business rejection: the receipt,
+   * the global sequence head and the decision commit in this tenant transaction, and the caller
+   * sees the terminal rejection only after that commit. A multi-item batch still rolls back with
+   * no receipt; the client's batch isolation retries the item alone. A storage failure propagates
+   * as a retryable error and leaves no rejection evidence. Replay returns the stored code; the
+   * field-level detail of the first response is not replayed.
+   */
+  async #rejectBusiness(
+    transaction: Parameters<Parameters<TenantTransactionRunner["withTenant"]>[1]>[0],
+    request: MutationIngestRequest,
+    drainByEpoch: ReadonlyMap<number, Awaited<ReturnType<PostgresWorkspaceMutationRepository["lockDrainDomain"]>>>,
+    code: RecordedMutationRejectionCode,
+    failures: readonly MutationIngestFailure[],
+  ): Promise<MutationIngestResult> {
+    const [mutation] = request.mutations;
+    if (request.mutations.length !== 1 || mutation === undefined) throw new IngestRejected(reject(code, failures));
+    const drain = drainByEpoch.get(mutation.activeLeaseEpoch);
+    if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
+    await this.dependencies.mutations.appendRejected(transaction, drain, mutation, code, this.dependencies.fault);
+    return reject(code, failures);
   }
 }
 

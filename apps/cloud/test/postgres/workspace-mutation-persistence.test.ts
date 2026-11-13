@@ -463,6 +463,222 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     });
   });
 
+  it("commits a single-item business rejection with its sequence and replays the stored result", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0))))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)))).resolves.toMatchObject({ accepted: true });
+    const stale = tags("tags-from-1", 4, 1);
+    const ledger = () => transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      device_mutation_sequence: string; outcome: string; server_revision: string | null;
+      rejection_code: string | null; rejected_envelope_digest: Buffer | null; accepted_at: Date | null;
+    }>(`SELECT device_mutation_sequence, outcome, server_revision, rejection_code, rejected_envelope_digest, accepted_at
+        FROM workspace_device_mutation_sequence_ledger ORDER BY device_mutation_sequence`));
+    const head = () => transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      contiguous_received_through: string; server_revision: string;
+    }>(`SELECT h.contiguous_received_through, r.server_revision
+        FROM workspace_device_mutation_heads AS h CROSS JOIN workspace_revisions AS r
+        WHERE h.source_device_id = 'device-1'`));
+
+    // A multi-item batch still rolls back and leaves no rejection receipt.
+    await expect(service.ingest(scopeA, pushRequest(stale, submitted("note-5", 5, 3))))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    expect((await ledger()).rows.map((row) => row.outcome)).toEqual(["accepted", "accepted", "accepted"]);
+
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ fieldPath: "tags", lastModifiedRevision: 3 }],
+    });
+    const recorded = (await ledger()).rows[3];
+    const tenantStale = submittedSyncMutationSchema.parse({ ...stale, workspaceId: scopeA.workspaceId });
+    expect(recorded).toMatchObject({
+      device_mutation_sequence: "4", outcome: "rejected", server_revision: null,
+      rejection_code: "MUTATION_FIELD_STALE", accepted_at: null,
+    });
+    expect(recorded?.rejected_envelope_digest?.equals(
+      createHash("sha256").update(encodeDrainStreamEnvelope("mutation", tenantStale)).digest(),
+    )).toBe(true);
+    // The rejection ends sequence 4 without allocating a server revision.
+    await expect(head()).resolves.toMatchObject({ rows: [{ contiguous_received_through: "4", server_revision: "3" }] });
+
+    // Exact replay returns the stored rejection; differing content cannot reuse the id or sequence.
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toEqual({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "tags-from-1" }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(tags("tags-from-1", 4, 3))))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
+    await expect(service.ingest(scopeA, pushRequest(submitted("other-4", 4, 3))))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_SEQUENCE_CONFLICT" });
+    expect((await ledger()).rows).toHaveLength(4);
+
+    await expect(service.ingest(scopeA, pushRequest(submitted("note-5", 5, 3)))).resolves.toMatchObject({ accepted: true, headRevision: 4 });
+    await expect(head()).resolves.toMatchObject({ rows: [{ contiguous_received_through: "5", server_revision: "4" }] });
+
+    // The result union is enforced by the database for the app role, and history stays immutable.
+    const insertAs = (outcome: string, serverRevision: number | null, code: string | null, digest: Buffer | null) =>
+      transactions.withTenant(scopeA, (transaction) => transaction.query(`INSERT INTO workspace_device_mutation_sequence_ledger (
+        account_id, workspace_id, source_device_id, device_mutation_sequence, mutation_id, active_lease_epoch,
+        wire_schema_version, wire_mutation_digest, server_revision, accepted_at, outcome, rejection_code,
+        rejected_at, rejected_envelope_digest
+      ) VALUES ($1, $2, 'device-1', 99, 'forged-99', 1, 2, $3, $4,
+        CASE WHEN $5 = 'accepted' THEN transaction_timestamp() END, $5, $6,
+        CASE WHEN $5 = 'rejected' THEN transaction_timestamp() END, $7)`,
+      [scopeA.accountId, scopeA.workspaceId, Buffer.alloc(32, 1), serverRevision, outcome, code, digest]));
+    await expect(insertAs("rejected", 4, "MUTATION_FIELD_STALE", Buffer.alloc(32, 2))).rejects.toMatchObject({ code: "23514" });
+    await expect(insertAs("accepted", null, null, null)).rejects.toMatchObject({ code: "23514" });
+    await expect(insertAs("rejected", null, "MUTATION_BASE_REVISION_AHEAD", Buffer.alloc(32, 2))).rejects.toMatchObject({ code: "23514" });
+    await expect(insertAs("accepted", 999, null, null)).rejects.toMatchObject({ code: "23503" });
+    await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(
+      `UPDATE workspace_device_mutation_sequence_ledger SET rejection_code = 'MUTATION_ENTITY_UNKNOWN'
+       WHERE device_mutation_sequence = 4`,
+    ))).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("seals a v2 proof over accepted and rejected results, refuses the v1 chain, and records no rejection after the seal", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0)));
+    await service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)));
+    const stale = tags("tags-from-1", 4, 1);
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({ code: "MUTATION_FIELD_STALE" });
+    await expect(service.ingest(scopeA, pushRequest(submitted("note-5", 5, 3)))).resolves.toMatchObject({ accepted: true });
+
+    const records = await withOwnerTenant(scopeA, (transaction) => transaction.query<{
+      device_mutation_sequence: string; canonical_envelope: Buffer;
+    }>(`SELECT device_mutation_sequence, canonical_envelope FROM mutation_drain_records
+        WHERE source_device_id = 'device-1' AND active_lease_epoch = 1 ORDER BY device_mutation_sequence`));
+    expect(records.rows.map((row) => row.device_mutation_sequence)).toEqual(["1", "2", "3", "5"]);
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    const envelopes = new Map(records.rows.map((row) => [Number(row.device_mutation_sequence), row.canonical_envelope]));
+    envelopes.set(4, Buffer.from(encodeDrainStreamEnvelope("mutation",
+      submittedSyncMutationSchema.parse({ ...stale, workspaceId: scopeA.workspaceId }))));
+    let v2Digest: Buffer = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const sequence of [1, 2, 3, 4, 5]) {
+      v2Digest = sha(encodeDrainChainStepInput(v2Digest, encodeMutationDrainResultEnvelope({
+        outcome: sequence === 4 ? "rejected" : "accepted",
+        submittedEnvelopeDigest: sha(envelopes.get(sequence)!),
+      })));
+    }
+    const v1Head = await withOwnerTenant(scopeA, (transaction) => transaction.query<{ rolling_digest: Buffer }>(`
+      SELECT rolling_digest FROM mutation_drain_heads WHERE source_device_id = 'device-1' AND active_lease_epoch = 1`));
+    const v1Digest = v1Head.rows[0]?.rolling_digest;
+    if (v1Digest === undefined) throw new TypeError("v1 head is absent");
+
+    await seedDirectMutationSealAuthority();
+    const sealOnce = (proofId: string) => transactions.withTenant(scopeA, async (transaction) => {
+      await transaction.query(`SELECT accepted FROM public.device_consume_drain_proof(
+        $1::text, $2::bytea, $3::text, $4::bigint, $5::text)`,
+      [proofId, Buffer.alloc(32, 6), "direct-app-seal-workflow", 1, "device-2"]);
+      const installed = await transaction.query<{ accepted: boolean }>(
+        `SELECT public.workspace_mutation_drain_install_accepted_seal($1::text) AS accepted`, [proofId]);
+      if (installed.rows[0]?.accepted !== true) throw new Error(`seal refused for ${proofId}`);
+    });
+    // v1 cannot express the rejected sequence 4, so no v1 claim through 5 can seal.
+    await seedDirectMutationSealProof("v1-over-rejection", 5, v1Digest);
+    await expect(sealOnce("v1-over-rejection")).rejects.toThrow("seal refused for v1-over-rejection");
+    await seedDirectMutationSealProof("v2-over-rejection", 5, v2Digest, 2);
+    await expect(sealOnce("v2-over-rejection")).resolves.toBeUndefined();
+
+    // The sealed domain is final: a later business rejection cannot extend its evidence, whether
+    // it arrives through ingest or a direct repository append.
+    const ledgerState = () => transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      rows: number; contiguous: string;
+    }>(`SELECT (SELECT count(*)::int FROM workspace_device_mutation_sequence_ledger) AS rows,
+        (SELECT contiguous_received_through::text FROM workspace_device_mutation_heads
+         WHERE source_device_id = 'device-1') AS contiguous`));
+    await expect(ledgerState()).resolves.toMatchObject({ rows: [{ rows: 5, contiguous: "5" }] });
+    const afterSeal = tags("tags-after-seal", 6, 1);
+    await expect(service.ingest(scopeA, pushRequest(afterSeal))).rejects.toThrow("mutation drain domain is sealed");
+    await expect(transactions.withTenant(scopeA, async (transaction) => {
+      const lock = await mutations.lockDrainDomain(transaction, domain());
+      await mutations.appendRejected(transaction, lock,
+        submittedSyncMutationSchema.parse({ ...afterSeal, workspaceId: scopeA.workspaceId }), "MUTATION_FIELD_STALE");
+    })).rejects.toThrow("mutation drain domain is sealed");
+    await expect(ledgerState()).resolves.toMatchObject({ rows: [{ rows: 5, contiguous: "5" }] });
+  });
+
+  it("rolls a business rejection back on a storage fault and records it exactly once on retry", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const faulted = new PostgresWorkspaceMutationIngest({
+      transactions, authority, revisions, portfolio, mutations,
+      fault(point) { if (point === "after_rejection_record") throw new Error("rejection-fault"); },
+    });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0)));
+    await service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)));
+    const stale = tags("tags-from-1", 4, 1);
+    const state = () => transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      outcomes: string[]; contiguous: string; revision: string;
+    }>(`SELECT
+        (SELECT array_agg(outcome ORDER BY device_mutation_sequence) FROM workspace_device_mutation_sequence_ledger) AS outcomes,
+        (SELECT contiguous_received_through::text FROM workspace_device_mutation_heads WHERE source_device_id = 'device-1') AS contiguous,
+        (SELECT server_revision::text FROM workspace_revisions) AS revision`));
+
+    // The fault lands after the ledger row and before the head advances; the client only sees a
+    // retryable error and no rejection evidence survives.
+    await expect(faulted.ingest(scopeA, pushRequest(stale))).rejects.toThrow("rejection-fault");
+    await expect(state()).resolves.toMatchObject({
+      rows: [{ outcomes: ["accepted", "accepted", "accepted"], contiguous: "3", revision: "3" }],
+    });
+    // The client retries the same frozen request and the rejection is recorded exactly once.
+    await expect(service.ingest(scopeA, pushRequest(stale)))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(service.ingest(scopeA, pushRequest(stale)))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(state()).resolves.toMatchObject({
+      rows: [{ outcomes: ["accepted", "accepted", "accepted", "rejected"], contiguous: "4", revision: "3" }],
+    });
+  });
+
+  it("lets a racing acceptance and rejection of one device sequence occupy it only once", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0)));
+    await service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)));
+    // Both claim sequence 4: one is stale and would be recorded as rejected, the other would be
+    // accepted. The global device head lock orders them and the loser resolves the winner's
+    // result as a sequence conflict before any business re-evaluation.
+    const rejectable = tags("tags-from-1", 4, 1);
+    const acceptable = submitted("note-4", 4, 3);
+    const results = await Promise.all([
+      service.ingest(scopeA, pushRequest(rejectable)),
+      service.ingest(scopeA, pushRequest(acceptable)),
+    ]);
+    const conflicts = results.filter((result) => !result.accepted && result.code === "MUTATION_SEQUENCE_CONFLICT");
+    const winners = results.filter((result) => result.accepted || result.code === "MUTATION_FIELD_STALE");
+    expect(conflicts).toHaveLength(1);
+    expect(winners).toHaveLength(1);
+    const stored = await transactions.withTenant(scopeA, (transaction) => transaction.query<{
+      mutation_id: string; outcome: string;
+    }>(`SELECT mutation_id, outcome FROM workspace_device_mutation_sequence_ledger WHERE device_mutation_sequence = 4`));
+    expect(stored.rows).toEqual([winners[0]!.accepted
+      ? { mutation_id: "note-4", outcome: "accepted" }
+      : { mutation_id: "tags-from-1", outcome: "rejected" }]);
+    const receipts = await transactions.withTenant(scopeA, (transaction) => transaction.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM workspace_mutation_receipts WHERE device_mutation_sequence = 4"));
+    expect(receipts.rows).toEqual([{ count: winners[0]!.accepted ? 1 : 0 }]);
+  });
+
   it("rejects hidden symbol accessor inherited custom-prototype and sparse wire values before tenant transaction entry", async () => {
     let withTenantCalls = 0;
     let getterCalls = 0;

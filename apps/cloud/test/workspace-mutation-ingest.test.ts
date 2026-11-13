@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { DRAIN_STREAM_GENESIS_DIGEST, encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
+import {
+  DRAIN_STREAM_GENESIS_DIGEST,
+  encodeDrainChainStepInput,
+  encodeDrainStreamEnvelope,
+  encodeMutationDrainResultEnvelope,
+} from "@gooddealer/protocol/execution-events";
 import {
   computeDomainAssetEntityDigests,
   type SubmittedSyncMutation,
@@ -194,6 +199,92 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     // A later sequence naming an older base than the device's own last write did not build on it.
     await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2 })])))
       .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ lastModifiedRevision: 4 }] });
+  });
+
+  it("ADR-0030 ends a single-item business rejection's sequence and replays it exactly", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation" } as const;
+    const read = (proofSchemaVersion: 1 | 2) => subject.ledger.readWatermark(scopeA, { ...domain, proofSchemaVersion });
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([
+      mutation({ sequence: 2, baseServerRevision: 0 }), mutation({ sequence: 3, baseServerRevision: 0 }),
+    ]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 3 })]));
+    const stale = mutation({ sequence: 5, baseServerRevision: 2 });
+
+    // A multi-item batch rolls back and records nothing; batch isolation retries the item alone.
+    await expect(subject.ingest.ingest(scopeA, request([stale, mutation({ sequence: 6, baseServerRevision: 4, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(read(2)).resolves.toMatchObject({ contiguousReceivedThrough: 4, highestReceivedSequence: 4 });
+
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "mutation-5" }] });
+    const headAfterRejection = subject.revisions.readHead(scopeA).serverRevision;
+    // The rejection allocated no server revision, and the stored result answers every replay.
+    expect(headAfterRejection).toBe(4);
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toEqual({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "mutation-5" }] });
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, mutationId: "other-5", baseServerRevision: 4, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_SEQUENCE_CONFLICT" });
+
+    // v2 counts the rejection toward the contiguous watermark; v1 cannot express it and stops.
+    await expect(read(2)).resolves.toMatchObject({ contiguousReceivedThrough: 5, highestReceivedSequence: 5, missingRanges: [] });
+    await expect(read(1)).resolves.toMatchObject({ contiguousReceivedThrough: 4, highestReceivedSequence: 5 });
+
+    const next = mutation({ sequence: 6, baseServerRevision: 4, fieldPath: "note" });
+    await expect(subject.ingest.ingest(scopeA, request([next]))).resolves.toMatchObject({ accepted: true, headRevision: 5 });
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    let expected: Uint8Array = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const sequence of [1, 2, 3, 4, 5, 6]) {
+      const envelope = sequence === 5
+        ? encodeDrainStreamEnvelope("mutation", stale)
+        : subject.ledger.readEnvelope(scopeA, domain, sequence);
+      if (envelope === null) throw new TypeError(`accepted envelope ${sequence} is missing`);
+      const step = encodeMutationDrainResultEnvelope({
+        outcome: sequence === 5 ? "rejected" : "accepted",
+        submittedEnvelopeDigest: sha(envelope),
+      });
+      expected = sha(encodeDrainChainStepInput(expected, step));
+    }
+    await expect(read(2)).resolves.toEqual({
+      contiguousReceivedThrough: 6,
+      highestReceivedSequence: 6,
+      missingRanges: [],
+      rollingDigest: Buffer.from(expected).toString("base64url"),
+    });
+  });
+
+  it("ADR-0030 leaves no rejection evidence on a storage fault and refuses to extend a sealed domain", async () => {
+    let failing = true;
+    const subject = harness((point) => { if (failing && point === "after_rejection_record") throw new Error("rejection-fault"); });
+    subject.bind(scopeA);
+    const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation", proofSchemaVersion: 2 } as const;
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })]));
+    const stale = mutation({ sequence: 3, baseServerRevision: 0 });
+    const before = await subject.ledger.readWatermark(scopeA, domain);
+
+    // The fault surfaces as a retryable error and nothing of the rejection survives it.
+    await expect(subject.ingest.ingest(scopeA, request([stale]))).rejects.toThrow("rejection-fault");
+    await expect(subject.ledger.readWatermark(scopeA, domain)).resolves.toEqual(before);
+    failing = false;
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(subject.ledger.readWatermark(scopeA, domain))
+      .resolves.toMatchObject({ contiguousReceivedThrough: 3, highestReceivedSequence: 3 });
+
+    // Once the domain is sealed, a later rejection cannot extend its evidence: the seal refuses
+    // before any business re-evaluation, and the ledger itself refuses a direct append.
+    subject.ledger.installAcceptedDrainSeal(scopeA, { ...domain, lastAssignedSequence: 3 });
+    const sealed = await subject.ledger.readWatermark(scopeA, domain);
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 0 })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_DRAIN_SEALED" });
+    expect(() => subject.ledger.appendRejected(scopeA, domain, 4, new Uint8Array(32))).toThrow("immutable drain seal");
+    await expect(subject.ledger.readWatermark(scopeA, domain)).resolves.toEqual(sealed);
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(2);
   });
 
   it("P20-INV-17/18/19 property: arbitrary acceptance, rejection, and replay never burns a revision", async () => {

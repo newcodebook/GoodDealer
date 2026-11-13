@@ -141,11 +141,11 @@ test("explicit PostgreSQL test allowlists match the checked-in declarations exac
     .map(([file, names]) => [file, names.length])), {
     "test/postgres/persistence.test.ts": 11,
     "test/postgres/device-drain-persistence.test.ts": 15,
-    "test/postgres/workspace-mutation-persistence.test.ts": 23,
+    "test/postgres/workspace-mutation-persistence.test.ts": 27,
     "test/postgres/workspace-reader-cursor-persistence.test.ts": 12,
     "test/postgres/workspace-checkpoint-persistence.test.ts": 23,
   });
-  assert.equal(Object.values(POSTGRES_WORKSPACE_SYNC_TESTS).reduce((total, names) => total + names.length, 0), 84);
+  assert.equal(Object.values(POSTGRES_WORKSPACE_SYNC_TESTS).reduce((total, names) => total + names.length, 0), 88);
   assert.deepEqual(checkpointNames.slice(10, 13), [
     "lets the DeviceCursor watermark independently block compaction",
     "lets the ReaderCursor watermark independently block compaction",

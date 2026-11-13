@@ -34,7 +34,8 @@ export interface AssignedMutation {
 export type MutationPersistenceFaultPoint =
   | "after_drain_append"
   | "after_receipt_insert"
-  | "after_log_insert";
+  | "after_log_insert"
+  | "after_rejection_record";
 
 export interface MutationReceipt {
   readonly mutationId: string;
@@ -45,19 +46,39 @@ export interface MutationReceipt {
   readonly submittedEnvelopeDigest: string;
 }
 
+/** ADR-0030 business rejections Cloud records durably; every other rejection leaves no receipt. */
+export const RECORDED_MUTATION_REJECTION_CODES = ["MUTATION_FIELD_STALE", "MUTATION_ENTITY_UNKNOWN"] as const;
+export type RecordedMutationRejectionCode = (typeof RECORDED_MUTATION_REJECTION_CODES)[number];
+
+export interface RejectedMutationReceipt {
+  readonly mutationId: string;
+  readonly sourceDeviceId: string;
+  readonly activeLeaseEpoch: number;
+  readonly deviceMutationSequence: number;
+  readonly submittedEnvelopeDigest: string;
+  readonly rejectionCode: RecordedMutationRejectionCode;
+}
+
+export type StoredMutationReceipt =
+  | ({ readonly outcome: "accepted" } & MutationReceipt)
+  | ({ readonly outcome: "rejected" } & RejectedMutationReceipt);
+
 export type MutationReceiptResolution =
   | { readonly status: "missing" }
   | { readonly status: "exact"; readonly receipt: MutationReceipt }
-  | { readonly status: "mutation_id_conflict"; readonly receipt: MutationReceipt }
-  | { readonly status: "sequence_conflict"; readonly receipt: MutationReceipt };
+  | { readonly status: "rejected"; readonly receipt: RejectedMutationReceipt }
+  | { readonly status: "mutation_id_conflict"; readonly receipt: StoredMutationReceipt }
+  | { readonly status: "sequence_conflict"; readonly receipt: StoredMutationReceipt };
 
 interface ReceiptRow {
   mutation_id: string;
   source_device_id: string;
   active_lease_epoch: string;
   device_mutation_sequence: string;
-  server_revision: string;
+  server_revision: string | null;
   submitted_envelope_digest: Buffer;
+  outcome: string;
+  rejection_code: string | null;
 }
 
 interface SequenceLedgerRow extends ReceiptRow {
@@ -145,7 +166,7 @@ export class PostgresWorkspaceMutationRepository {
     const result = await transaction.query<SequenceLedgerRow>(
       `SELECT mutation_id, source_device_id, active_lease_epoch, device_mutation_sequence,
               server_revision, wire_schema_version, wire_mutation_digest,
-              wire_mutation_digest AS submitted_envelope_digest
+              wire_mutation_digest AS submitted_envelope_digest, outcome, rejection_code
        FROM workspace_device_mutation_sequence_ledger
        WHERE account_id = $1 AND workspace_id = $2
          AND (mutation_id = $3 OR
@@ -165,10 +186,60 @@ export class PostgresWorkspaceMutationRepository {
       if (bySequence === undefined || bySequence.mutationId !== mutation.mutationId) {
         return { status: "sequence_conflict", receipt: bySequence ?? byId };
       }
-      return { status: "exact", receipt: byId };
+      // Replay resolves the stored result before any business re-evaluation, so a recorded
+      // rejection can never turn into an acceptance when replica conditions later change.
+      if (byId.outcome === "rejected") {
+        const { outcome: _outcome, ...receipt } = byId;
+        return { status: "rejected", receipt };
+      }
+      const { outcome: _outcome, ...receipt } = byId;
+      return { status: "exact", receipt };
     }
     if (bySequence !== undefined) return { status: "sequence_conflict", receipt: bySequence };
     return { status: "missing" };
+  }
+
+  /**
+   * ADR-0030: durably end one device sequence with a business rejection. The caller has already
+   * validated identity, Lease, wire, schema and receipt identity, holds the global device head
+   * lock, and commits this in the same tenant transaction as its rejection decision. Nothing is
+   * materialized and no server revision is allocated.
+   */
+  async appendRejected(
+    transaction: TenantTransaction,
+    lock: LockedMutationDrainDomain,
+    value: unknown,
+    code: RecordedMutationRejectionCode,
+    fault?: (point: MutationPersistenceFaultPoint) => void,
+  ): Promise<void> {
+    this.#assertLock(transaction, lock);
+    if (!RECORDED_MUTATION_REJECTION_CODES.includes(code)) throw new TypeError("rejection code is not recordable");
+    const mutation = submittedSyncMutationSchema.parse(value);
+    assertMutationDomain(transaction, lock, mutation);
+    const envelope = Buffer.from(encodeDrainStreamEnvelope("mutation", mutation));
+    if (envelope.length > 65_536) throw new TypeError("canonical submitted mutation is oversized");
+    // Pass the same definer routine as the accepted path: it re-asserts that the submission's
+    // epoch is the device's current active, activated Lease domain and reports a seal. A sealed
+    // drain domain is final, so a later rejection must not extend its evidence.
+    const domain = await transaction.query<{ sealed: boolean }>(
+      `SELECT sealed FROM public.workspace_mutation_drain_lock_domain($1::text, $2::bigint)`,
+      [mutation.sourceDeviceId, mutation.activeLeaseEpoch],
+    );
+    if (domain.rows.length !== 1 || domain.rows[0]?.sealed !== false) {
+      throw new TypeError("mutation drain domain is sealed");
+    }
+    await transaction.query(
+      `INSERT INTO workspace_device_mutation_sequence_ledger (
+         account_id, workspace_id, source_device_id, device_mutation_sequence,
+         mutation_id, active_lease_epoch, wire_schema_version, wire_mutation_digest,
+         outcome, rejection_code, rejected_at, rejected_envelope_digest
+       ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,'rejected',$8,transaction_timestamp(),$9)`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, mutation.sourceDeviceId,
+        mutation.deviceMutationSequence, mutation.mutationId, mutation.activeLeaseEpoch,
+        wireDigest(mutation), code, digestEnvelope(envelope)],
+    );
+    fault?.("after_rejection_record");
+    await advanceGlobalHead(transaction, mutation);
   }
 
   async appendAccepted(
@@ -223,38 +294,13 @@ export class PostgresWorkspaceMutationRepository {
         `INSERT INTO workspace_device_mutation_sequence_ledger (
            account_id, workspace_id, source_device_id, device_mutation_sequence,
            mutation_id, active_lease_epoch, wire_schema_version, wire_mutation_digest,
-           server_revision, accepted_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,$8,transaction_timestamp())`,
+           server_revision, accepted_at, outcome
+         ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,$8,transaction_timestamp(),'accepted')`,
         [transaction.scope.accountId, transaction.scope.workspaceId, mutation.sourceDeviceId,
           mutation.deviceMutationSequence, mutation.mutationId, mutation.activeLeaseEpoch,
           wireDigest(mutation), serverRevision],
       );
-      const head = await transaction.query<{ contiguous_received_through: string }>(
-        `WITH RECURSIVE contiguous(sequence) AS (
-           SELECT contiguous_received_through
-           FROM workspace_device_mutation_heads
-           WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
-           UNION ALL
-           SELECT contiguous.sequence + 1
-           FROM contiguous
-           WHERE EXISTS (
-             SELECT 1
-             FROM workspace_device_mutation_sequence_ledger AS ledger
-             WHERE ledger.account_id=$1 AND ledger.workspace_id=$2
-               AND ledger.source_device_id=$3
-               AND ledger.device_mutation_sequence=contiguous.sequence + 1
-           )
-         )
-         UPDATE workspace_device_mutation_heads
-         SET contiguous_received_through=(SELECT max(sequence) FROM contiguous),
-             highest_received_sequence=greatest(highest_received_sequence, $4),
-             row_version=row_version+1, updated_at=transaction_timestamp()
-         WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
-         RETURNING contiguous_received_through`,
-        [transaction.scope.accountId, transaction.scope.workspaceId,
-          mutation.sourceDeviceId, mutation.deviceMutationSequence],
-      );
-      if (head.rowCount !== 1) throw new TypeError("global mutation sequence head is unavailable");
+      await advanceGlobalHead(transaction, mutation);
       fault?.("after_receipt_insert");
       await transaction.query(
         `INSERT INTO workspace_mutations (
@@ -416,15 +462,56 @@ function assertMutationDomain(
   }
 }
 
-function parseReceipt(row: ReceiptRow): MutationReceipt {
-  return {
+function parseReceipt(row: ReceiptRow): StoredMutationReceipt {
+  const common = {
     mutationId: identifier.parse(row.mutation_id),
     sourceDeviceId: identifier.parse(row.source_device_id),
     activeLeaseEpoch: positiveRevision(parseUnsignedInteger(row.active_lease_epoch, "stored receipt epoch")),
     deviceMutationSequence: positiveRevision(parseUnsignedInteger(row.device_mutation_sequence, "stored receipt sequence")),
-    serverRevision: positiveRevision(parseUnsignedInteger(row.server_revision, "stored receipt revision")),
     submittedEnvelopeDigest: parseDigest(row.submitted_envelope_digest, "stored receipt digest"),
   };
+  // The database CHECK keeps the branches exclusive; re-check so a drifted row fails closed.
+  if (row.outcome === "accepted" && row.server_revision !== null && row.rejection_code === null) {
+    return {
+      outcome: "accepted",
+      ...common,
+      serverRevision: positiveRevision(parseUnsignedInteger(row.server_revision, "stored receipt revision")),
+    };
+  }
+  const code = RECORDED_MUTATION_REJECTION_CODES.find((candidate) => candidate === row.rejection_code);
+  if (row.outcome === "rejected" && row.server_revision === null && code !== undefined) {
+    return { outcome: "rejected", ...common, rejectionCode: code };
+  }
+  throw new TypeError("stored mutation receipt outcome is invalid");
+}
+/** Both outcomes occupy the global device sequence, so the contiguous head counts either one. */
+async function advanceGlobalHead(transaction: TenantTransaction, mutation: SubmittedSyncMutation): Promise<void> {
+  const head = await transaction.query<{ contiguous_received_through: string }>(
+    `WITH RECURSIVE contiguous(sequence) AS (
+       SELECT contiguous_received_through
+       FROM workspace_device_mutation_heads
+       WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
+       UNION ALL
+       SELECT contiguous.sequence + 1
+       FROM contiguous
+       WHERE EXISTS (
+         SELECT 1
+         FROM workspace_device_mutation_sequence_ledger AS ledger
+         WHERE ledger.account_id=$1 AND ledger.workspace_id=$2
+           AND ledger.source_device_id=$3
+           AND ledger.device_mutation_sequence=contiguous.sequence + 1
+       )
+     )
+     UPDATE workspace_device_mutation_heads
+     SET contiguous_received_through=(SELECT max(sequence) FROM contiguous),
+         highest_received_sequence=greatest(highest_received_sequence, $4),
+         row_version=row_version+1, updated_at=transaction_timestamp()
+     WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3
+     RETURNING contiguous_received_through`,
+    [transaction.scope.accountId, transaction.scope.workspaceId,
+      mutation.sourceDeviceId, mutation.deviceMutationSequence],
+  );
+  if (head.rowCount !== 1) throw new TypeError("global mutation sequence head is unavailable");
 }
 
 function parseStoredMutation(

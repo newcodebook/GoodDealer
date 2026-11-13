@@ -60,6 +60,8 @@ export type MutationIngestRejectionCode =
   | "MUTATION_BASE_REVISION_AHEAD"
   | "MUTATION_FIELD_STALE";
 
+type RecordedRejectionCode = "MUTATION_FIELD_STALE" | "MUTATION_ENTITY_UNKNOWN";
+
 export interface MutationIngestRequest {
   readonly schemaVersion: typeof WORKSPACE_SYNC_SCHEMA_VERSION;
   readonly workspaceId: string;
@@ -143,6 +145,8 @@ export class InMemoryWorkspaceLeaseRegistry implements ActiveWorkspaceLeasePort 
  */
 export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort, DrainSealParticipantPort<"mutation"> {
   readonly #records = new Map<string, Map<number, Uint8Array>>();
+  /** ADR-0030 rejected results: sequence → digest of the frozen submitted envelope. */
+  readonly #rejected = new Map<string, Map<number, Uint8Array>>();
   readonly #seals = new Map<string, number>();
   readonly #quarantined = new Map<string, {
     readonly sequence: number;
@@ -207,6 +211,30 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
     };
   }
 
+  appendRejected(
+    scope: WorkspaceTenantScope,
+    domain: MutationDrainDomain,
+    sequence: number,
+    submittedEnvelopeDigest: Uint8Array,
+  ): { rollback(): void } {
+    assertSequence(sequence);
+    if (submittedEnvelopeDigest.byteLength !== 32) throw new TypeError("submitted envelope digest must contain 32 bytes");
+    const key = domainKey(scope, domain);
+    if (this.#seals.has(key)) throw new TypeError("rejected ingest crossed an immutable drain seal");
+    const rejected = this.#rejected.get(key) ?? new Map<number, Uint8Array>();
+    if (this.#records.get(key)?.has(sequence) === true || rejected.has(sequence)) {
+      throw new TypeError("rejected mutation conflicts with the mutation drain ledger");
+    }
+    rejected.set(sequence, Uint8Array.from(submittedEnvelopeDigest));
+    this.#rejected.set(key, rejected);
+    return {
+      rollback: () => {
+        rejected.delete(sequence);
+        if (rejected.size === 0) this.#rejected.delete(key);
+      },
+    };
+  }
+
   installAcceptedDrainSeal(
     scope: WorkspaceTenantScope,
     input: MutationDrainDomain & {
@@ -257,7 +285,8 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
     domain: MutationDrainDomain & { readonly stream: "mutation"; readonly proofSchemaVersion: DrainProofSchemaVersion },
   ) {
     if (domain.stream !== "mutation") throw new TypeError("mutation ledger serves only the mutation stream");
-    return projectWatermark(this.#records.get(domainKey(scope, domain)), domain.proofSchemaVersion);
+    const key = domainKey(scope, domain);
+    return projectWatermark(this.#records.get(key), this.#rejected.get(key), domain.proofSchemaVersion);
   }
 
   #recordDiagnostic(
@@ -300,6 +329,7 @@ export type MutationCommitFaultPoint =
   | "after_ledger_append"
   | "after_materialization"
   | "after_log_insert"
+  | "after_rejection_record"
   | "before_revision_commit";
 
 export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPort {
@@ -311,6 +341,11 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
   readonly #fault?: (point: MutationCommitFaultPoint) => void;
   readonly #recordsById = new Map<string, Map<string, SyncMutation>>();
   readonly #mutationIdBySequence = new Map<string, Map<string, string>>();
+  /** ADR-0030 recorded business rejections, keyed by mutation id; replay returns the stored code. */
+  readonly #rejectedById = new Map<string, Map<string, {
+    readonly envelope: Uint8Array;
+    readonly code: RecordedRejectionCode;
+  }>>();
   readonly #recordsByRevision = new Map<string, Map<number, SyncMutation>>();
 
   constructor(options: {
@@ -377,12 +412,22 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     const tenantKey = workspaceTenantKey(scope);
     const storedById = this.#recordsById.get(tenantKey) ?? new Map<string, SyncMutation>();
     const storedBySequence = this.#mutationIdBySequence.get(tenantKey) ?? new Map<string, string>();
+    const rejectedById = this.#rejectedById.get(tenantKey);
     const duplicateRevisions = new Map<number, number>();
     const stagedById = new Map<string, SubmittedSyncMutation>();
     const idFailures: MutationIngestFailure[] = [];
     for (const [index, mutation] of request.mutations.entries()) {
       const stored = storedById.get(mutation.mutationId);
       const staged = stagedById.get(mutation.mutationId);
+      const rejectedReceipt = rejectedById?.get(mutation.mutationId);
+      if (rejectedReceipt !== undefined) {
+        if (!equalBytes(rejectedReceipt.envelope, encodeDrainStreamEnvelope("mutation", mutation))) {
+          idFailures.push(failure(index, mutation));
+          continue;
+        }
+        // Replay returns the stored result before any business re-evaluation.
+        return reject(rejectedReceipt.code, [failure(index, mutation)]);
+      }
       if (stored !== undefined) {
         if (!equalBytes(encodeDrainStreamEnvelope("mutation", stored), encodeDrainStreamEnvelope("mutation", mutation))) {
           idFailures.push(failure(index, mutation));
@@ -414,7 +459,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
         ? []
         : [failure(index, mutation)],
     );
-    if (entityFailures.length > 0) return reject("MUTATION_ENTITY_UNKNOWN", entityFailures);
+    if (entityFailures.length > 0) return this.#rejectBusiness(scope, request, "MUTATION_ENTITY_UNKNOWN", entityFailures);
 
     const observedHead = this.#revisions.readHead(scope).serverRevision;
     const baseFailures = request.mutations.flatMap((mutation, index) =>
@@ -459,7 +504,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
         });
       }
     }
-    if (staleFailures.length > 0) return reject("MUTATION_FIELD_STALE", staleFailures);
+    if (staleFailures.length > 0) return this.#rejectBusiness(scope, request, "MUTATION_FIELD_STALE", staleFailures);
 
     const accepted = request.mutations.flatMap((mutation, index) => {
       const serverRevision = proposedRevisionByIndex.get(index);
@@ -506,6 +551,36 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
       assignments,
       headRevision: accepted.length === 0 ? observedHead : proposedRevision,
     };
+  }
+
+  /** Same rule as the PostgreSQL ingest: only a single-item push records its business rejection. */
+  #rejectBusiness(
+    scope: WorkspaceTenantScope,
+    request: MutationIngestRequest,
+    code: RecordedRejectionCode,
+    failures: readonly MutationIngestFailure[],
+  ): MutationIngestResult {
+    const [mutation] = request.mutations;
+    if (request.mutations.length !== 1 || mutation === undefined) return reject(code, failures);
+    const envelope = encodeDrainStreamEnvelope("mutation", mutation);
+    const tenantKey = workspaceTenantKey(scope);
+    const ledger = this.#ledger.appendRejected(scope, {
+      sourceDeviceId: mutation.sourceDeviceId,
+      activeLeaseEpoch: mutation.activeLeaseEpoch,
+    }, mutation.deviceMutationSequence, createHash("sha256").update(envelope).digest());
+    try {
+      this.#fault?.("after_rejection_record");
+      const rejected = this.#rejectedById.get(tenantKey) ?? new Map();
+      rejected.set(mutation.mutationId, { envelope, code });
+      this.#rejectedById.set(tenantKey, rejected);
+      const sequences = this.#mutationIdBySequence.get(tenantKey) ?? new Map<string, string>();
+      sequences.set(sequenceKey(mutation), mutation.mutationId);
+      this.#mutationIdBySequence.set(tenantKey, sequences);
+    } catch (error) {
+      ledger.rollback();
+      throw error;
+    }
+    return reject(code, failures);
   }
 
   readCommitted(
@@ -677,28 +752,40 @@ function recordEnvelope(
 }
 
 /**
- * v1 chains the retained submitted envelopes as-is. v2 rebuilds the ADR-0030 result chain from the
- * same retained envelopes: every record this ledger holds was accepted, so each step is
- * `accepted(sha256(envelope))`. The v1 evidence is never rewritten; an unknown version fails closed.
+ * v1 chains the retained submitted envelopes as-is and cannot express a rejection, so a rejected
+ * sequence stops the v1 chain while still raising the highest sequence (the seal then fails
+ * closed). v2 chains ADR-0030 result envelopes over both outcomes: accepted(sha256(envelope)) or
+ * rejected(stored digest). The v1 evidence is never rewritten; an unknown version fails closed.
+ * This mirrors the PostgreSQL mutation seal routine.
  */
-function projectWatermark(records: Map<number, Uint8Array> | undefined, version: DrainProofSchemaVersion) {
+function projectWatermark(
+  records: Map<number, Uint8Array> | undefined,
+  rejected: Map<number, Uint8Array> | undefined,
+  version: DrainProofSchemaVersion,
+) {
   if (version !== 1 && version !== 2) throw new TypeError("mutation drain chain version is not recognized");
-  const highestReceivedSequence = records === undefined || records.size === 0
-    ? 0
-    : Math.max(...records.keys());
+  const steps = new Map<number, Uint8Array>();
+  for (const [sequence, envelope] of records ?? []) {
+    steps.set(sequence, version === 1 ? envelope : encodeMutationDrainResultEnvelope({
+      outcome: "accepted",
+      submittedEnvelopeDigest: createHash("sha256").update(envelope).digest(),
+    }));
+  }
+  if (version === 2) {
+    for (const [sequence, digest] of rejected ?? []) {
+      if (steps.has(sequence)) throw new TypeError("a mutation sequence holds both outcomes");
+      steps.set(sequence, encodeMutationDrainResultEnvelope({ outcome: "rejected", submittedEnvelopeDigest: digest }));
+    }
+  }
+  const sequences = [...steps.keys(), ...(version === 1 ? rejected?.keys() ?? [] : [])];
+  const highestReceivedSequence = sequences.length === 0 ? 0 : Math.max(...sequences);
   let contiguousReceivedThrough = 0;
-  while (records?.has(contiguousReceivedThrough + 1) === true) contiguousReceivedThrough += 1;
-  const missingRanges = missingSequenceRanges(records, highestReceivedSequence);
+  while (steps.has(contiguousReceivedThrough + 1)) contiguousReceivedThrough += 1;
+  const missingRanges = missingSequenceRanges(steps, highestReceivedSequence);
   let digest = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
   for (let sequence = 1; sequence <= contiguousReceivedThrough; sequence += 1) {
-    const envelope = records?.get(sequence);
-    if (envelope === undefined) throw new TypeError("contiguous mutation envelope disappeared");
-    const step = version === 1
-      ? envelope
-      : encodeMutationDrainResultEnvelope({
-        outcome: "accepted",
-        submittedEnvelopeDigest: createHash("sha256").update(envelope).digest(),
-      });
+    const step = steps.get(sequence);
+    if (step === undefined) throw new TypeError("contiguous mutation result disappeared");
     digest = createHash("sha256").update(encodeDrainChainStepInput(digest, step)).digest();
   }
   return {

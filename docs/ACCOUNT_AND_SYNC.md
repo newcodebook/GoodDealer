@@ -90,9 +90,11 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 在拉取之前，客户快照不单独计数 `conflicted` 行（`rejectedMutationCount` 只计 `rejected`），冲突在下一次拉取打开
 候选后才计入 `openConflictCount`。
 `MUTATION_DRAIN_SEALED`、`MUTATION_BASE_REVISION_AHEAD`（只在 Cloud 状态回退时出现）与
-`MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。Cloud 接受序号缺口，但设备切换的 drain
-验证要求序号连续，被拒绝序号如何结束见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
-（Accepted，实现中：drain proof v2 与结果 envelope 已交付，拒绝回执与 Desktop proof 尚未启用）。
+`MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。单项推送的字段过期或墓碑实体由 Cloud 在同一事务内
+写入拒绝回执并结束该设备序号（不分配 server revision），回执提交后才返回 `SYNC_MUTATION_CONFLICT`；同一冻结
+请求的重放得到同一拒绝，多项批次不写回执。其余拒绝（输入、schema、权限、ID/序号冲突）不占用序号，缺口仍使
+设备切换的 drain 验证失败关闭。见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
+（Accepted，实现中：结果回执与 drain proof v2 已交付，Desktop 持久化 Cloud 结果并生成 v2 proof 尚未实现）。
 
 ### Cloudflare 本机凭据清理
 
