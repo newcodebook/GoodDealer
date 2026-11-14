@@ -3986,7 +3986,11 @@ impl BusinessDatabase {
                 continue;
             }
             let conflicted =
-                apply_sync_mutation_projection(&transaction, &self.workspace_id, mutation)?;
+                if own_echo_superseded_locally(&transaction, &self.workspace_id, mutation)? {
+                    false
+                } else {
+                    apply_sync_mutation_projection(&transaction, &self.workspace_id, mutation)?
+                };
             let inbox_state = if conflicted { "conflicted" } else { "applied" };
             transaction
                 .execute(
@@ -6206,6 +6210,78 @@ fn install_checkpoint_tombstone(
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     Ok(())
+}
+
+/// Whether `mutation` is the echo of this device's own acknowledged mutation whose entity has
+/// since moved on locally, in which case it is recorded as applied without being replayed.
+///
+/// The echo is matched by mutation id, the revision Cloud acknowledged and the wire digest under
+/// the version the Outbox row was recorded with, so only the mutation this device sent and Cloud
+/// accepted qualifies. The Inbox applies revisions in order, so no remote write after the echo has
+/// been applied yet: a tombstone the echo does not itself describe, or a row of another
+/// generation, can only come from this device's own later writes, which already include the
+/// echo's effect. Replaying it would fail against that newer state (stalling every later pull) or
+/// roll it back. Any other mutation keeps the ordinary projection and its checks.
+fn own_echo_superseded_locally(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation: &SyncMutationV2,
+) -> Result<bool, BusinessDatabaseError> {
+    let server_revision =
+        i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let acknowledged: Option<(i64, String)> = transaction
+        .query_row(
+            "SELECT wire_schema_version, wire_mutation_digest FROM sync_outbox
+             WHERE workspace_id=?1 AND mutation_id=?2 AND entity_kind='domain_asset'
+               AND entity_id=?3 AND state='acknowledged' AND server_revision=?4
+               AND wire_schema_version IS NOT NULL AND wire_mutation_digest IS NOT NULL",
+            params![
+                workspace_id,
+                mutation.mutation_id,
+                mutation.entity_id,
+                server_revision
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((wire_version, recorded_digest)) = acknowledged else {
+        return Ok(false);
+    };
+    if canonical_mutation_digest(mutation, wire_version)? != recorded_digest {
+        return Ok(false);
+    }
+    let generation = i64::try_from(mutation.entity_generation)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    // A delete's echo describes the tombstone of its own generation, which the ordinary
+    // projection settles; any other tombstone or generation is newer local state.
+    let moved_on: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM domain_assets
+                           WHERE workspace_id=?1 AND entity_id=?2 AND entity_generation!=?3)
+                 OR EXISTS(SELECT 1 FROM sync_tombstones
+                           WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                             AND (entity_generation!=?3 OR ?4!='delete'))",
+            params![
+                workspace_id,
+                mutation.entity_id,
+                generation,
+                mutation.operation_kind
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if !moved_on {
+        return Ok(false);
+    }
+    transaction
+        .execute(
+            "UPDATE active_workspace_metadata SET applied_through_server_revision=?1,
+             updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE singleton=1",
+            [server_revision],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(true)
 }
 
 /// Applies only the allowlisted domain-asset fields. A pending local field is retained and
@@ -14911,15 +14987,8 @@ mod tests {
             ),
             Err(BusinessDatabaseError::AssetReAddBlocked)
         );
-        acknowledge_claimed(&mut database, 1);
-        database
-            .store
-            .raw_connection()
-            .execute(
-                "UPDATE active_workspace_metadata SET applied_through_server_revision=2",
-                [],
-            )
-            .unwrap();
+        let echoes = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &echoes, "confirm-1").unwrap();
         database
             .re_add_domain_asset(
                 "re-add-1",
@@ -14933,6 +15002,214 @@ mod tests {
         let wire: serde_json::Value = serde_json::from_str(&wires[0]).unwrap();
         assert_eq!(wire["reAddsDeletedRevision"], serde_json::json!(2));
         assert_eq!(local_re_add_state(&database), (2, None, 0, 0, 1));
+    }
+
+    fn own_asset_version(database: &TestDatabase) -> u64 {
+        database
+            .read_domain_detail("remote.test")
+            .unwrap()
+            .asset
+            .asset_version
+    }
+
+    fn own_create(database: &mut TestDatabase) {
+        database
+            .create_domain_asset_guarded(
+                "create-local",
+                "device-local",
+                1,
+                TIMESTAMP,
+                &re_add_write("first"),
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+    }
+
+    fn own_delete(database: &mut TestDatabase, mutation_id: &str) {
+        let version = own_asset_version(database);
+        database
+            .delete_domain_asset(
+                mutation_id,
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:05:00Z",
+                "remote.test",
+                true,
+            )
+            .unwrap();
+    }
+
+    fn own_re_add(database: &mut TestDatabase) {
+        database
+            .re_add_domain_asset(
+                "re-add-local",
+                "device-local",
+                1,
+                "2026-08-28T00:06:00Z",
+                &re_add_write("again"),
+            )
+            .unwrap();
+    }
+
+    /// Pulls the given wire mutations, as Cloud returns them, from revision `from + 1`.
+    fn pull_echoes(
+        database: &mut TestDatabase,
+        from: u64,
+        wires: &[String],
+        token: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        let mutations = wires
+            .iter()
+            .map(|wire| {
+                // Cloud returns the claimed wire with the workspace and revision it assigned.
+                let mut mutation: serde_json::Value = serde_json::from_str(wire).unwrap();
+                mutation["workspaceId"] = serde_json::json!("workspace-local");
+                mutation
+            })
+            .collect();
+        database.apply_sync_page_v2("reader-local", &generation_page(from, mutations), token)
+    }
+
+    /// (generation, deleted, tombstones, applied revision, inbox rows not `applied`)
+    fn echo_state(database: &TestDatabase) -> (i64, bool, i64, i64, i64) {
+        database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT (SELECT entity_generation FROM domain_assets WHERE entity_id='remote.test'),
+                        (SELECT deleted_at IS NOT NULL FROM domain_assets
+                         WHERE entity_id='remote.test'),
+                        (SELECT count(*) FROM sync_tombstones),
+                        (SELECT applied_through_server_revision FROM active_workspace_metadata),
+                        (SELECT count(*) FROM sync_inbox WHERE state!='applied')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn own_echoes_of_a_create_and_its_delete_apply_after_both_are_acknowledged() {
+        let mut database = database();
+        own_create(&mut database);
+        own_delete(&mut database, "delete-local");
+        let wires = acknowledge_claimed(&mut database, 1);
+        assert_eq!(wires.len(), 2);
+        pull_echoes(&mut database, 0, &wires, "confirm-1").unwrap();
+        // The create is not replayed over the deletion; the delete settles its own tombstone.
+        assert_eq!(echo_state(&database), (1, true, 1, 2, 0));
+        let tombstone: (String, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state, barrier_state FROM sync_tombstones",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            tombstone,
+            ("replicated".to_owned(), "replicated".to_owned())
+        );
+        // Nothing stays owed: the next pull starts from the echoes' revision.
+        pull_echoes(&mut database, 2, &[], "confirm-2").unwrap();
+    }
+
+    #[test]
+    fn own_echo_of_an_edit_superseded_by_a_local_delete_applies() {
+        let mut database = database();
+        own_create(&mut database);
+        let create = acknowledge_claimed(&mut database, 1);
+        // An echo pulled while the entity has not moved on is projected as before.
+        pull_echoes(&mut database, 0, &create, "confirm-1").unwrap();
+        let version = own_asset_version(&database);
+        database
+            .edit_domain_asset(
+                "edit-local",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:04:00Z",
+                &re_add_write("edited"),
+                true,
+            )
+            .unwrap();
+        own_delete(&mut database, "delete-local");
+        let later = acknowledge_claimed(&mut database, 2);
+        assert_eq!(later.len(), 2);
+        pull_echoes(&mut database, 1, &later, "confirm-2").unwrap();
+        assert_eq!(echo_state(&database), (1, true, 1, 3, 0));
+    }
+
+    #[test]
+    fn own_echoes_of_a_local_re_add_and_its_later_delete_apply() {
+        // A re-add builds on its deletion's revision (R <= base), so the device has pulled the
+        // echoes up to that deletion before it can re-add; the re-add's own echo can then arrive
+        // after a later local delete of the new generation.
+        let mut database = database();
+        own_create(&mut database);
+        own_delete(&mut database, "delete-local");
+        let first = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &first, "confirm-1").unwrap();
+        assert_eq!(echo_state(&database), (1, true, 1, 2, 0));
+        own_re_add(&mut database);
+        let mut later = acknowledge_claimed(&mut database, 3);
+        own_delete(&mut database, "delete-again");
+        later.extend(acknowledge_claimed(&mut database, 4));
+        pull_echoes(&mut database, 2, &later, "confirm-2").unwrap();
+        assert_eq!(echo_state(&database), (2, true, 1, 4, 0));
+
+        // The same after another device's deletion, which this device received as a tombstone.
+        let mut database = database_with_replicated_tombstone();
+        own_re_add(&mut database);
+        let mut wires = acknowledge_claimed(&mut database, 3);
+        own_delete(&mut database, "delete-again");
+        wires.extend(acknowledge_claimed(&mut database, 4));
+        pull_echoes(&mut database, 2, &wires, "confirm-2").unwrap();
+        assert_eq!(echo_state(&database), (2, true, 1, 4, 0));
+    }
+
+    #[test]
+    fn a_page_item_that_is_not_the_acknowledged_echo_keeps_the_ordinary_checks() {
+        let mut database = database();
+        own_create(&mut database);
+        own_delete(&mut database, "delete-local");
+        let wires = acknowledge_claimed(&mut database, 1);
+        let before = echo_state(&database);
+        // Same mutation id, rewritten content: not the mutation Cloud accepted.
+        let mut forged: serde_json::Value = serde_json::from_str(&wires[0]).unwrap();
+        forged["changedFields"] = serde_json::json!([{"fieldPath": "note", "value": "forged"}]);
+        assert!(
+            pull_echoes(
+                &mut database,
+                0,
+                &[forged.to_string(), wires[1].clone()],
+                "c-1"
+            )
+            .is_err()
+        );
+        assert_eq!(echo_state(&database), before);
+        // The genuine content at a revision Cloud did not acknowledge it at.
+        let filler = generation_mutation(
+            "other-create",
+            "other.test",
+            1,
+            0,
+            &serde_json::json!([{"fieldPath": "note", "value": "unrelated"}]),
+        );
+        assert!(
+            pull_echoes(
+                &mut database,
+                0,
+                &[filler.to_string(), wires[0].clone()],
+                "c-2"
+            )
+            .is_err()
+        );
+        assert_eq!(echo_state(&database), before);
     }
 
     #[test]
