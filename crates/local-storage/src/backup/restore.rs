@@ -710,8 +710,9 @@ fn write_tombstone(
         .execute(
             "INSERT INTO sync_tombstones
          (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_server_revision,
-          deleted_at,purge_after,state,barrier_state)
-         VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending')",
+          deleted_at,purge_after,state,barrier_state,entity_generation)
+         VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending',
+          (SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2))",
             params![workspace_id, entity_id, local, authority.committed_at],
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -761,10 +762,12 @@ fn insert_outbox(
          (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
           workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,
           source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,
-          mutation_payload_sha256,state)
+          mutation_payload_sha256,state,entity_generation)
          VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,
           (SELECT applied_through_server_revision FROM active_workspace_metadata WHERE singleton=1),
-          ?7,?8,?9,?10,1,?11,'pending')",
+          ?7,?8,?9,?10,1,?11,'pending',
+          COALESCE((SELECT entity_generation FROM domain_assets
+                    WHERE workspace_id=?1 AND entity_id=?3),1))",
             params![
                 workspace_id,
                 mutation_id,

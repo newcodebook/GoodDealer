@@ -1105,9 +1105,13 @@ struct SyncMutationWire {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
-    /// ADR-0029 C1a: only generation 1 is accepted until local generation columns land (C1c);
-    /// `reAddsDeletedRevision` is not declared, so `deny_unknown_fields` refuses any re-add.
+    /// ADR-0029: the generation the mutation applies to; the Inbox refuses one that differs from
+    /// the local entity, except a re-add of the next generation.
     entity_generation: u64,
+    /// Present only on a re-add (ADR-0029 C2b), and omitted when absent so the page digest covers
+    /// exactly the bytes Cloud sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    re_adds_deleted_revision: Option<u64>,
     operation_kind: String,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1390,7 +1394,16 @@ fn validate_sync_mutation(
     expected_revision: u64,
 ) -> Result<(), DesktopLocalHostError> {
     if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
-        || mutation.entity_generation != 1
+        || mutation.entity_generation == 0
+        || mutation.entity_generation > MAX_SAFE_INTEGER
+        || mutation
+            .re_adds_deleted_revision
+            .is_some_and(|deleted_revision| {
+                mutation.operation_kind != "upsert"
+                    || mutation.entity_generation < 2
+                    || deleted_revision == 0
+                    || deleted_revision > mutation.base_server_revision
+            })
         || mutation.workspace_id != workspace_id
         || mutation.workspace_schema_version == 0
         || mutation.workspace_schema_version > MAX_SAFE_INTEGER
@@ -2043,6 +2056,51 @@ mod tests {
                 .as_deref(),
             Some("remote")
         );
+    }
+
+    #[test]
+    fn pull_admits_a_well_formed_re_add_and_refuses_a_malformed_one() {
+        // ADR-0029 C2b: the Inbox decides whether a re-add matches local state; this boundary
+        // admits only its shape: an upsert of a later generation building on the deletion.
+        let re_add = serde_json::json!({
+            "schemaVersion": 3, "mutationId": "re-add", "workspaceId": WORKSPACE_ID,
+            "workspaceSchemaVersion": 1, "entityType": "domain_asset", "entityId": "remote.test",
+            "entityGeneration": 2, "reAddsDeletedRevision": 2, "operationKind": "upsert",
+            "baseServerRevision": 2, "changedFields": [{"fieldPath": "note", "value": "again"}],
+            "sourceDeviceId": "cloud-device", "activeLeaseEpoch": 1,
+            "deviceMutationSequence": 1, "serverRevision": 3
+        });
+        let validate = |value: &Value| {
+            let mutation: SyncMutationWire =
+                serde_json::from_value(value.clone()).expect("decode mutation");
+            validate_sync_mutation(&mutation, WORKSPACE_ID, 3)
+        };
+        assert_eq!(validate(&re_add), Ok(()));
+        let mut later = re_add.clone();
+        later
+            .as_object_mut()
+            .unwrap()
+            .remove("reAddsDeletedRevision");
+        assert_eq!(validate(&later), Ok(()));
+        let malformed: [fn(&mut Value); 5] = [
+            |mutation| {
+                mutation["operationKind"] = serde_json::json!("delete");
+                mutation["changedFields"] = serde_json::json!([]);
+                mutation["deletedAt"] = serde_json::json!("2026-09-16T00:00:00Z");
+            },
+            |mutation| mutation["entityGeneration"] = serde_json::json!(1),
+            |mutation| mutation["entityGeneration"] = serde_json::json!(0),
+            |mutation| mutation["reAddsDeletedRevision"] = serde_json::json!(0),
+            |mutation| mutation["reAddsDeletedRevision"] = serde_json::json!(3),
+        ];
+        for corrupt in malformed {
+            let mut mutation = re_add.clone();
+            corrupt(&mut mutation);
+            assert_eq!(
+                validate(&mutation),
+                Err(DesktopLocalHostError::CloudProtocolRejected)
+            );
+        }
     }
 
     #[test]

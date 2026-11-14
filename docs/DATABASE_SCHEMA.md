@@ -107,12 +107,15 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_inbox` | 按连续 `server_revision` 接收、验证和原子应用下行 Mutation。 |
 | `sync_conflicts` | 本地值、远端候选、两个版本和显式解决状态。 |
 | `sync_tombstones` | 显式删除、ACK、复制和延迟清理；`entity_generation` 与所指资产行同代（ADR-0029）。 |
+| `sync_domain_asset_re_adds` | 每个被重新添加取代的 generation 一行：删除 revision、重新添加 mutation 与 revision、来源；不可改不可删（ADR-0029 C2b）。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
 | `local_backup_catalog` | 本地备份 manifest、覆盖 revision、crypto profile、验证状态、保留期和清理期限。 |
 
-`domain_assets`、`sync_tombstones` 与 `sync_outbox` 的 `entity_generation`（迁移 `202611140001`，现有行为 1）写入后不变，
-墓碑与 Outbox mutation 必须与所指资产行同代，Inbox 拒绝与本地行不同代的 mutation；重新添加（ADR-0029 C2）前
-只有 generation 1。墓碑的 `order_provenance`（迁移 `202611140002`）区分复制 mutation 写入的墓碑（revision、来源设备与
+`domain_assets`、`sync_tombstones` 与 `sync_outbox` 的 `entity_generation`（迁移 `202611140001`，现有行为 1）：
+墓碑与 Outbox mutation 必须与所指资产行同代，Inbox 拒绝与本地行不同代的 mutation。墓碑与 Outbox 行的 generation
+写入后不变；资产行的 generation 只能经重新添加改变（迁移 `202611140004`）：Inbox 应用其他设备的重新添加时先写
+`sync_domain_asset_re_adds` 记录，墓碑只在有指名其 generation 与删除 revision 的记录时可删除，资产行只在已软删除、
+墓碑已删除且有记录时恰好 +1 并恢复为活跃；墓碑存在时软删除行不能复活。本地写入的 Outbox 行与本地删除墓碑携带资产当前 generation。墓碑的 `order_provenance`（迁移 `202611140002`）区分复制 mutation 写入的墓碑（revision、来源设备与
 mutation id 作排序证据）与 rebootstrap 从 checkpoint 安装的墓碑（只有删除 revision，必须为 `replicated`，不得补上 id）。Outbox 与 Inbox 的 `wire_schema_version` 记录摘要所用的 wire 版本（迁移 `202611140003` 重建两表）：新行为 3，
 重建前的行保留 2，且版本 2 只允许 generation 1。本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
 应用不得生成回声 Outbox。墓碑在所有保留设备和恢复窗口安全越过删除 revision 前不得清理。
@@ -129,7 +132,7 @@ changed fields。Cloud ingest 接受活跃资产的 delete，并在同一事务�
 以默认字段与 revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产的 upsert 或 delete、以及副本
 从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断（重新添加除外，见上）。
 Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；重建把 delete 物化为同代墓碑，把指名该
-墓碑的重新添加物化为下一代活跃行，范围内对已删除资产的其他条目视为链损坏。Desktop 尚不能发出或应用重新添加。
+墓碑的重新添加物化为下一代活跃行，范围内对已删除资产的其他条目视为链损坏。Desktop Inbox 应用其他设备的重新添加（ADR-0029 C2b），但尚不能发出重新添加。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 

@@ -26,6 +26,9 @@ use crate::active_workspace::schema::{
     SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL, SYNC_WIRE_V3_MIGRATION_ID,
     SYNC_WIRE_V3_MIGRATION_OWNER, SYNC_WIRE_V3_MIGRATION_SQL,
 };
+use crate::active_workspace::schema::{
+    INBOX_RE_ADD_MIGRATION_ID, INBOX_RE_ADD_MIGRATION_OWNER, INBOX_RE_ADD_MIGRATION_SQL,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MigrationError {
@@ -130,6 +133,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: SYNC_WIRE_V3_MIGRATION_ID,
         owner: SYNC_WIRE_V3_MIGRATION_OWNER,
         sql: SYNC_WIRE_V3_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: INBOX_RE_ADD_MIGRATION_ID,
+        owner: INBOX_RE_ADD_MIGRATION_OWNER,
+        sql: INBOX_RE_ADD_MIGRATION_SQL,
     },
 ];
 
@@ -465,7 +473,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 18);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 19);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -490,7 +498,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 46);
+        assert_eq!(table_count, 47);
         assert!(business_index_count >= 24);
 
         connection
@@ -1558,7 +1566,8 @@ mod tests {
         };
         let before = rows(&connection);
         let schema_before = schema(&connection);
-        run_active_migrations(&mut connection).unwrap();
+        // Only the rebuild itself, so later migrations' own triggers do not count as changes.
+        super::apply_migration(&mut connection, &super::ACTIVE_MIGRATIONS[target]).unwrap();
         // Rows and their cascade children survive; the same triggers and indexes exist again.
         assert_eq!(rows(&connection), before);
         // Every recreated trigger and index is byte-identical except the intended changes: the
@@ -1608,6 +1617,7 @@ mod tests {
                 .unwrap(),
             0
         );
+        run_active_migrations(&mut connection).unwrap();
         verify_active_manifest(&connection).unwrap();
         // Claimed fields stay immutable, and the parent still cascades to them only on purpose.
         assert!(

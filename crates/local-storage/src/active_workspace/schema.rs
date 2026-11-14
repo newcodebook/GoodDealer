@@ -734,6 +734,19 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sync_domain_asset_re_adds",
+        &[
+            "workspace_id",
+            "entity_id",
+            "deleted_generation",
+            "deleted_server_revision",
+            "re_add_mutation_id",
+            "re_add_server_revision",
+            "origin",
+            "local_commit_sequence",
+        ],
+    ),
+    (
         "sync_tombstones",
         &[
             "workspace_id",
@@ -818,3 +831,7 @@ pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL: &str =
 pub(crate) const SYNC_WIRE_V3_MIGRATION_ID: i64 = 202_611_140_003;
 pub(crate) const SYNC_WIRE_V3_MIGRATION_OWNER: &str = "active-workspace/sync-wire-v3";
 pub(crate) const SYNC_WIRE_V3_MIGRATION_SQL: &str = include_str!("sync_wire_v3.sql");
+
+pub(crate) const INBOX_RE_ADD_MIGRATION_ID: i64 = 202_611_140_004;
+pub(crate) const INBOX_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/inbox-re-add";
+pub(crate) const INBOX_RE_ADD_MIGRATION_SQL: &str = include_str!("inbox_re_add.sql");
