@@ -25,7 +25,7 @@ import {
   type MutationPersistenceFaultPoint,
   type RecordedMutationRejectionCode,
 } from "./postgres-repository";
-import { findUnknownEntityIndexes } from "./entity-state-rule";
+import { judgeEntityRule } from "./entity-state-rule";
 import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
@@ -142,13 +142,23 @@ export class PostgresWorkspaceMutationIngest {
     }
 
     // Locked assets are live rows only; a soft-deleted row is known through its tombstone.
-    const entityFailures = findUnknownEntityIndexes(
+    const entityRule = judgeEntityRule(
       request.mutations,
       (index) => duplicateRevisionByIndex.has(index),
-      (entityId) => assetsById.has(entityId) ? "active" : tombstoned.has(entityId) ? "deleted" : "absent",
-    ).map((index) => failure(index, request.mutations[index]!));
-    if (entityFailures.length > 0) {
-      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN", entityFailures);
+      (entityId) => {
+        const asset = assetsById.get(entityId);
+        if (asset !== undefined) return { state: "active", generation: asset.entityGeneration };
+        const tombstone = tombstoned.get(entityId);
+        return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone };
+      },
+    );
+    if (entityRule.unknown.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN",
+        entityRule.unknown.map((index) => failure(index, request.mutations[index]!)));
+    }
+    if (entityRule.generationMismatch.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_GENERATION_MISMATCH",
+        entityRule.generationMismatch.map((index) => failure(index, request.mutations[index]!)));
     }
 
     const baseFailures = request.mutations.flatMap((mutation, index) =>

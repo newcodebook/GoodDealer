@@ -20,6 +20,8 @@ export interface DomainAssetSeed {
   readonly portfolioId?: string | null;
   readonly tags?: readonly string[];
   readonly targetPrice?: { readonly currency: string; readonly amount: string } | null;
+  /** Test double only: a later generation, as a re-add (ADR-0029 C2) would leave the row. */
+  readonly entityGeneration?: number;
 }
 
 interface StoredField<Value> {
@@ -29,6 +31,7 @@ interface StoredField<Value> {
 
 interface StoredDomainAsset {
   readonly entityId: string;
+  readonly entityGeneration: number;
   readonly note: StoredField<string | null>;
   readonly portfolioId: StoredField<string | null>;
   readonly tags: StoredField<readonly string[]>;
@@ -42,9 +45,13 @@ export interface DomainAssetProjection extends DomainAssetProjectionRow {
 /** The replica state of a DomainAsset: a live row, a tombstone, or never held. */
 export type DomainAssetReplicaState = "active" | "deleted" | "absent";
 
+/** A live row or tombstone with the generation it holds, or an asset the replica never held. */
+export type DomainAssetReplicaEntry =
+  | { readonly state: "active" | "deleted"; readonly generation: number }
+  | { readonly state: "absent" };
+
 export interface PortfolioMutationPort {
-  /** A live row, a tombstone, or an asset this replica never held. */
-  readDomainAssetState(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaState;
+  readDomainAssetEntry(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaEntry;
   readFieldRevision(scope: WorkspaceTenantScope, entityId: string, fieldPath: DomainAssetFieldPath): number | null;
   applyAcceptedMutations(
     scope: WorkspaceTenantScope,
@@ -56,13 +63,15 @@ export interface PortfolioMutationPort {
 export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   readonly #rows = new Map<string, Map<string, StoredDomainAsset>>();
   readonly #history = new Map<string, Map<number, Map<string, StoredDomainAsset>>>();
-  readonly #tombstones = new Map<string, Set<string>>();
+  /** Tombstoned entity ids with the generation each deleted. */
+  readonly #tombstones = new Map<string, Map<string, number>>();
 
   seedDomainAsset(scope: WorkspaceTenantScope, seed: DomainAssetSeed): void {
     const rows = this.#workspaceRows(scope);
     if (rows.has(seed.entityId)) throw new TypeError("domain asset already exists");
     rows.set(seed.entityId, {
       entityId: seed.entityId,
+      entityGeneration: seed.entityGeneration ?? 1,
       note: { value: seed.note ?? null, lastModifiedRevision: 0 },
       portfolioId: { value: seed.portfolioId ?? null, lastModifiedRevision: 0 },
       tags: { value: [...(seed.tags ?? [])], lastModifiedRevision: 0 },
@@ -74,13 +83,19 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   /** Test double only: records a tombstone for an asset deleted before this replica's history. */
   seedDomainAssetTombstone(scope: WorkspaceTenantScope, entityId: string): void {
     if (this.#workspaceRows(scope).has(entityId)) throw new TypeError("a tombstoned domain asset has no live row");
-    this.#workspaceTombstones(scope).add(entityId);
+    this.#workspaceTombstones(scope).set(entityId, 1);
+  }
+
+  readDomainAssetEntry(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaEntry {
+    const key = workspaceTenantKey(scope);
+    const row = this.#rows.get(key)?.get(entityId);
+    if (row !== undefined) return { state: "active", generation: row.entityGeneration };
+    const tombstone = this.#tombstones.get(key)?.get(entityId);
+    return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone };
   }
 
   readDomainAssetState(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaState {
-    const key = workspaceTenantKey(scope);
-    if (this.#rows.get(key)?.has(entityId) === true) return "active";
-    return this.#tombstones.get(key)?.has(entityId) === true ? "deleted" : "absent";
+    return this.readDomainAssetEntry(scope, entityId).state;
   }
 
   readFieldRevision(scope: WorkspaceTenantScope, entityId: string, fieldPath: DomainAssetFieldPath): number | null {
@@ -97,12 +112,14 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     const key = workspaceTenantKey(scope);
     const previousHistory = cloneHistory(this.#history.get(key));
     const tombstones = this.#workspaceTombstones(scope);
-    const previousTombstones = new Set(tombstones);
+    const previousTombstones = new Map(tombstones);
     for (const { mutation, serverRevision } of mutations) {
       if (mutation.operationKind === "delete") {
         // The ingest admitted this delete only for a live asset; the replica keeps its tombstone.
-        if (!rows.delete(mutation.entityId)) throw new TypeError("accepted delete names no live domain asset");
-        tombstones.add(mutation.entityId);
+        const deleted = rows.get(mutation.entityId);
+        if (deleted === undefined) throw new TypeError("accepted delete names no live domain asset");
+        rows.delete(mutation.entityId);
+        tombstones.set(mutation.entityId, deleted.entityGeneration);
       } else {
         if (tombstones.has(mutation.entityId)) throw new TypeError("accepted upsert names a deleted domain asset");
         // The first upsert of an asset creates it with every field at its default and revision 0.
@@ -171,11 +188,11 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     return rows;
   }
 
-  #workspaceTombstones(scope: WorkspaceTenantScope): Set<string> {
+  #workspaceTombstones(scope: WorkspaceTenantScope): Map<string, number> {
     const key = workspaceTenantKey(scope);
     let tombstones = this.#tombstones.get(key);
     if (tombstones === undefined) {
-      tombstones = new Set();
+      tombstones = new Map();
       this.#tombstones.set(key, tombstones);
     }
     return tombstones;
@@ -192,6 +209,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
 function createDefaultRow(rows: Map<string, StoredDomainAsset>, entityId: string): StoredDomainAsset {
   const row: StoredDomainAsset = {
     entityId,
+    entityGeneration: 1,
     note: { value: null, lastModifiedRevision: 0 },
     portfolioId: { value: null, lastModifiedRevision: 0 },
     tags: { value: [], lastModifiedRevision: 0 },
@@ -241,6 +259,7 @@ function projectRow(row: StoredDomainAsset): DomainAssetProjection {
 function cloneRows(rows: Map<string, StoredDomainAsset>): Map<string, StoredDomainAsset> {
   return new Map([...rows].map(([entityId, row]) => [entityId, {
     entityId: row.entityId,
+    entityGeneration: row.entityGeneration,
     note: { ...row.note },
     portfolioId: { ...row.portfolioId },
     tags: { value: [...row.tags.value], lastModifiedRevision: row.tags.lastModifiedRevision },

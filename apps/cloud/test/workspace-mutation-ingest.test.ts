@@ -232,6 +232,40 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     expect(subject.revisions.readHead(scopeA).serverRevision).toBe(4);
   });
 
+  it("refuses a write naming another generation than the live asset's and records the conflict", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    // A later-generation row stands in for a re-add (ADR-0029 C2); the wire still carries only 1.
+    subject.portfolio.seedDomainAsset(scopeA, { entityId: "readded.test", entityGeneration: 2 });
+    const items: readonly (readonly [number, SubmittedSyncMutation])[] = [
+      [1, { ...mutation({ sequence: 1, baseServerRevision: 0 }), entityId: "readded.test" }],
+      [2, { ...mutation({ sequence: 2, baseServerRevision: 0 }), entityId: "readded.test", operationKind: "delete",
+        deletedAt: "2026-11-14T01:02:03Z", changedFields: [] }],
+    ];
+    for (const [sequence, item] of items) {
+      await expect(subject.ingest.ingest(scopeA, request([item]))).resolves.toEqual({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+      // The stored rejection is replayed, not re-judged.
+      await expect(subject.ingest.ingest(scopeA, request([item]))).resolves.toMatchObject({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH",
+      });
+    }
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "readded.test")).toEqual({ state: "active", generation: 2 });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(0);
+    // An unknown entity is reported before a generation conflict in the same batch.
+    const removedUnknown: SubmittedSyncMutation = { ...mutation({ sequence: 4, baseServerRevision: 0 }),
+      entityId: "never.test", operationKind: "delete", deletedAt: "2026-11-14T01:02:03Z", changedFields: [] };
+    await expect(subject.ingest.ingest(scopeA, request([
+      { ...mutation({ sequence: 3, baseServerRevision: 0 }), entityId: "readded.test" }, removedUnknown,
+    ]))).resolves.toMatchObject({ accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1 }] });
+    // The generation-1 asset beside it is unaffected, and its delete leaves a generation-1 tombstone.
+    const removed: SubmittedSyncMutation = { ...mutation({ sequence: 5, baseServerRevision: 0 }), operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [] };
+    await expect(subject.ingest.ingest(scopeA, request([removed]))).resolves.toMatchObject({ accepted: true });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "shared.test")).toEqual({ state: "deleted", generation: 1 });
+  });
+
   it("rolls a staged delete back with its tombstone when the commit fails", async () => {
     const subject = harness((point) => { if (point === "after_log_insert") throw new Error("injected"); });
     subject.bind(scopeA);

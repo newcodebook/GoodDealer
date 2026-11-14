@@ -185,6 +185,16 @@ const expectedCatalog = [
     owner: "workspace/state/portfolio",
     checksum: "827b577aebecdcc322f7d2525b57f42edff08f8b7ac73cd0aeb66625c4a068ca",
   },
+  {
+    id: "202611140002-replica-entity-generation",
+    owner: "workspace/state/portfolio",
+    checksum: "0b752f12dd8321d3ab680cfb59b05017977d1295ba0044adf06aabf896b3ee3b",
+  },
+  {
+    id: "202611140003-mutation-generation-mismatch-receipt",
+    owner: "workspace/mutations",
+    checksum: "5e606fb7595c0f83cdf5c31261ef461446dc39fef80bc898a51f94a24a874bd5",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -213,7 +223,7 @@ describe("Cloud migration catalog", () => {
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
-      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n];",
+      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -226,7 +236,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(33);
+    expect(checkedCloudMigrationCatalog).toHaveLength(35);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

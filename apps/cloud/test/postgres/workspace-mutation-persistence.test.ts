@@ -1519,7 +1519,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       await expect(portfolio.captureSnapshot(transaction)).resolves.toEqual([]);
       await expect(portfolio.lockDomainAssets(transaction, ["asset-1.test"])).resolves.toEqual([]);
       await expect(portfolio.readDomainAssetTombstones(transaction, ["asset-1.test"]))
-        .resolves.toEqual(new Set(["asset-1.test"]));
+        .resolves.toEqual(new Map([["asset-1.test", 1]]));
     });
     // The other tenant shares the workspace id and holds no tombstone.
     await expect(replicaCounts(scopeB)).resolves.toMatchObject({ assets: "0", tombstones: "0" });
@@ -1622,6 +1622,57 @@ describe("PostgreSQL workspace Mutation persistence", () => {
         { account_id: scopeB.accountId, entity_id: "kept.test", note: "old", lifecycle_status: "active",
           deleted_at: null, deleted_revision: null },
       ]);
+    }
+  });
+
+  it("refuses a write naming another generation than the replica row's and records the conflict", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("gen-create", 1, 0)))).resolves.toMatchObject({ accepted: true });
+    // A later-generation row stands in for a re-add (ADR-0029 C2), which only the owner can write today.
+    await ownerPool.query(`UPDATE workspace_replica_domain_assets SET entity_generation = 2
+      WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'`, [scopeA.accountId, scopeA.workspaceId]);
+    const before = await replicaCounts(scopeA);
+    for (const [index, item] of [submitted("gen-edit", 2, 1), deletion("gen-delete", 3, 1)].entries()) {
+      await expect(service.ingest(scopeA, pushRequest(item))).resolves.toEqual({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: item.mutationId }],
+      });
+      await expect(service.ingest(scopeA, pushRequest(item))).resolves.toMatchObject({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH",
+      });
+      await expect(replicaCounts(scopeA)).resolves.toEqual({ ...before, ledger: String(Number(before.ledger) + index + 1) });
+    }
+    // The application role cannot choose a generation; inserts and tombstones take generation 1.
+    await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(
+      `UPDATE workspace_replica_domain_assets SET entity_generation = 3
+       WHERE account_id = $1 AND workspace_id = $2`, [scopeA.accountId, scopeA.workspaceId])))
+      .rejects.toThrow(/permission denied/u);
+    await expect(service.ingest(scopeA, pushRequest({ ...submitted("gen-other", 4, 1), entityId: "other.test" })))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(deletion("gen-other-delete", 5, 1, "other.test"))))
+      .resolves.toMatchObject({ accepted: true });
+    const generations = await ownerPool.query(`SELECT asset.entity_id, asset.entity_generation::int AS asset_generation,
+        tombstone.entity_generation::int AS tombstone_generation
+      FROM workspace_replica_domain_assets asset
+      LEFT JOIN workspace_replica_tombstones tombstone USING (account_id, workspace_id, entity_id)
+      WHERE asset.account_id = $1 ORDER BY asset.entity_id`, [scopeA.accountId]);
+    expect(generations.rows).toEqual([
+      { entity_id: "asset-1.test", asset_generation: 2, tombstone_generation: null },
+      { entity_id: "other.test", asset_generation: 1, tombstone_generation: 1 },
+    ]);
+    // A tombstone must carry its deleted row's generation, for every role.
+    const owner = await ownerPool.connect();
+    try {
+      await owner.query("BEGIN");
+      await owner.query(`UPDATE workspace_replica_domain_assets SET entity_generation = 1, deleted_at = now(),
+          lifecycle_status = 'archived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'`,
+        [scopeA.accountId, scopeA.workspaceId]);
+      await expect(owner.query(`INSERT INTO workspace_replica_tombstones
+          (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at, entity_generation)
+          VALUES ($1, $2, 'domain_asset', 'asset-1.test', 6, now(), 2)`, [scopeA.accountId, scopeA.workspaceId]))
+        .rejects.toThrow(/same generation/u);
+    } finally {
+      await owner.query("ROLLBACK");
+      owner.release();
     }
   });
 

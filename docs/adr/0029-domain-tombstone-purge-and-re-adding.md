@@ -1,6 +1,6 @@
 # ADR-0029：已删除域名的重新添加与实体 generation
 
-状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围，于 2026-11-14 确认 Cloud 删除采用软删除（决策 2）；实现中（C1a wire 版本 3 与 C1b1 删除物化已实现，generation 列与重新添加尚未实现），删除的域名目前不能重新添加。扩展
+状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围，于 2026-11-14 确认 Cloud 删除采用软删除（决策 2）；实现中（C1a wire 版本 3、C1b1 删除物化与 C1b2a Cloud generation 列已实现，checkpoint 携带墓碑、本地 generation 与重新添加尚未实现），删除的域名目前不能重新添加。扩展
 [ADR-0004](0004-cloud-business-data-sync.md) 与 [ADR-0019](0019-complete-local-business-schema-and-cloud-replica-model.md)。
 
 ## 背景
@@ -219,3 +219,5 @@ generation 列时移除。rebootstrap 计划信封仍为版本 2，其中的 rep
 在此之前不得生成 v2 drain proof（Desktop 目前不生成）。重新添加在生产入口仍不可执行。
 
 C1b1 已实现（决策 2，软删除）：Cloud ingest——PostgreSQL 与内存实现共用同一条按批次顺序的实体状态规则——接受活跃资产的 delete，在 ingest 事务内软删除资产行并写墓碑行；对已删除资产的 upsert 或 delete、对副本从未持有的资产的 delete 以 `MUTATION_ENTITY_UNKNOWN` 拒绝。迁移 `202611140001` 只授予删除所写的列，触发器保证软删除行与墓碑成对、已删除行不可再修改。迁移同时修复此前已被 PostgreSQL ingest 接受、却按 upsert 路径留成活跃行的 delete：对最新保留 mutation 为 delete 的活跃行补做软删除与墓碑（压缩只删前缀，且尚无部署组合执行过压缩，所以没有被隐藏的删除；重复执行无变化）。所有读取排除已删除行，新设备从快照引导不再看到已删除域名；Cloud 重建把 delete 物化为移除，范围内再次 upsert 视为链损坏。generation 列与精确匹配、checkpoint 携带墓碑与 generation 属于 C1b2。
+
+C1b2a 已实现：迁移 `202611140002` 给 Cloud 副本资产行与墓碑各加 `entity_generation`（现有行为 1，application role 不可写，插入取默认值），触发器要求墓碑与其软删除行 generation 相同。ingest 的实体规则在“未知实体”之后比较 generation：到达活跃行的 upsert/delete 必须等于该行 generation，新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝；单项拒绝按 ADR-0030 记回执（迁移 `202611140003` 扩展回执代码白名单），推送响应映射为 `SYNC_MUTATION_CONFLICT`，wire 不变。C1a 的事务前检查仍只放行 generation 1，所以重新添加（C2）前这条比较只防御被改写或未来的行。C1b2b：checkpoint 与 rebootstrap 携带墓碑与 generation（格式升级）。C2 必须同时解决两处在 generation ≥ 2 出现前不可达的缺口：删除物化写墓碑时不写 `entity_generation`（取默认 1，application role 也无该列授权），删除第 2 代行会触发墓碑同代触发器而以未分类的 `check_violation` 失败，须复制行的 generation 并授予该列；变更流水不存 generation，`parseStoredMutation` 固定读出 1，拉取页、重放与 drain envelope 会报告错误的 generation，须为变更流水加 generation 列（C1b2b 的重建可能先需要）。

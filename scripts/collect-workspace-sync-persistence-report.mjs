@@ -77,6 +77,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "judges a batch in order: create then delete is accepted, delete then upsert writes nothing",
     "deletes an asset that immutable DNS observation receipts still reference",
     "repairs a delete accepted before C1b1 that the replica left live, once and only for that asset",
+    "refuses a write naming another generation than the replica row's and records the conflict",
     "keeps a deleted row and its tombstone paired and final for every role",
   ],
   "test/postgres/workspace-reader-cursor-persistence.test.ts": [

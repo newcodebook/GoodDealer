@@ -37,6 +37,7 @@ describe("workspace sync transaction-aware owner ports", () => {
   it("locks domain assets in C order and reparses every stored value", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{
       entity_id: "b.test",
+      entity_generation: "3",
       note: null,
       portfolio_id: null,
       tags: ["alpha"],
@@ -53,6 +54,7 @@ describe("workspace sync transaction-aware owner ports", () => {
     await expect(repository.lockDomainAssets(transaction, ["b.test", "a.test", "b.test"]))
       .resolves.toEqual([expect.objectContaining({
         entityId: "b.test",
+        entityGeneration: 3,
         lastModifiedRevision: { note: 0, portfolioId: 1, tags: 2, targetPrice: 3 },
       })]);
     expect(query.mock.calls[0]?.[1]).toEqual([scope.accountId, scope.workspaceId, ["a.test", "b.test"]]);
@@ -71,20 +73,37 @@ describe("workspace sync transaction-aware owner ports", () => {
       target_price_server_revision: "0",
     }], rowCount: 1 });
     await expect(repository.lockDomainAssets(transaction, ["b.test"])).rejects.toThrow();
+    // The generation is reparsed like a revision: positive decimal text, nothing else.
+    for (const entityGeneration of ["0", "01", 1, null]) {
+      query.mockResolvedValueOnce({ rows: [{
+        entity_id: "b.test", entity_generation: entityGeneration, note: null, portfolio_id: null, tags: [],
+        target_price_currency: null, target_price_amount: null, note_server_revision: "0",
+        portfolio_id_server_revision: "0", tags_server_revision: "0", target_price_server_revision: "0",
+      }], rowCount: 1 });
+      await expect(repository.lockDomainAssets(transaction, ["b.test"])).rejects.toThrow();
+    }
   });
 
   it("reads tombstoned domain assets in the transaction's tenant and validates stored ids", async () => {
-    const query = vi.fn().mockResolvedValueOnce({ rows: [{ entity_id: "b.test" }], rowCount: 1 });
+    const query = vi.fn().mockResolvedValueOnce({ rows: [{ entity_id: "b.test", entity_generation: "2" }], rowCount: 1 });
     const repository = new PostgresPortfolioRepository();
     const transaction = { scope, query } as unknown as TenantTransaction;
     await expect(repository.readDomainAssetTombstones(transaction, ["b.test", "a.test", "b.test"]))
-      .resolves.toEqual(new Set(["b.test"]));
+      .resolves.toEqual(new Map([["b.test", 2]]));
     expect(query.mock.calls[0]?.[1]).toEqual([scope.accountId, scope.workspaceId, ["b.test", "a.test"]]);
     expect(query.mock.calls[0]?.[0]).toContain("entity_type = 'domain_asset'");
-    await expect(repository.readDomainAssetTombstones(transaction, [])).resolves.toEqual(new Set());
+    await expect(repository.readDomainAssetTombstones(transaction, [])).resolves.toEqual(new Map());
     expect(query).toHaveBeenCalledTimes(1);
-    query.mockResolvedValueOnce({ rows: [{ entity_id: "NOT A DOMAIN" }], rowCount: 1 });
-    await expect(repository.readDomainAssetTombstones(transaction, ["a.test"])).rejects.toThrow();
+    for (const row of [
+      { entity_id: "NOT A DOMAIN", entity_generation: "1" },
+      { entity_id: "a.test", entity_generation: "0" },
+      { entity_id: "a.test", entity_generation: 1 },
+      { entity_id: "a.test" },
+      { entity_id: "a.test", entity_generation: "1", extra: true },
+    ]) {
+      query.mockResolvedValueOnce({ rows: [row], rowCount: 1 });
+      await expect(repository.readDomainAssetTombstones(transaction, ["a.test"])).rejects.toThrow();
+    }
     await expect(repository.readDomainAssetTombstones(transaction, ["NOT A DOMAIN"])).rejects.toThrow();
   });
 

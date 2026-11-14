@@ -36,7 +36,7 @@ import type { WorkspaceBindingPort } from "../revisions/index";
 import type { WorkspaceTenantScope } from "../tenant-scope";
 import { workspaceTenantKey } from "../tenant-scope";
 import type { PortfolioMutationPort } from "../state/portfolio/index";
-import { findUnknownEntityIndexes } from "./entity-state-rule";
+import { judgeEntityRule } from "./entity-state-rule";
 import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
@@ -59,10 +59,11 @@ export type MutationIngestRejectionCode =
   | "MUTATION_ID_CONFLICT"
   | "MUTATION_SEQUENCE_CONFLICT"
   | "MUTATION_ENTITY_UNKNOWN"
+  | "MUTATION_GENERATION_MISMATCH"
   | "MUTATION_BASE_REVISION_AHEAD"
   | "MUTATION_FIELD_STALE";
 
-type RecordedRejectionCode = "MUTATION_FIELD_STALE" | "MUTATION_ENTITY_UNKNOWN";
+type RecordedRejectionCode = "MUTATION_FIELD_STALE" | "MUTATION_ENTITY_UNKNOWN" | "MUTATION_GENERATION_MISMATCH";
 
 export interface MutationIngestRequest {
   readonly schemaVersion: typeof WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION;
@@ -470,12 +471,19 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     }
     if (sequenceFailures.length > 0) return reject("MUTATION_SEQUENCE_CONFLICT", sequenceFailures);
 
-    const entityFailures = findUnknownEntityIndexes(
+    const entityRule = judgeEntityRule(
       request.mutations,
       (index) => duplicateRevisions.has(index),
-      (entityId) => this.#portfolio.readDomainAssetState(scope, entityId),
-    ).map((index) => failure(index, request.mutations[index]!));
-    if (entityFailures.length > 0) return this.#rejectBusiness(scope, request, "MUTATION_ENTITY_UNKNOWN", entityFailures);
+      (entityId) => this.#portfolio.readDomainAssetEntry(scope, entityId),
+    );
+    if (entityRule.unknown.length > 0) {
+      return this.#rejectBusiness(scope, request, "MUTATION_ENTITY_UNKNOWN",
+        entityRule.unknown.map((index) => failure(index, request.mutations[index]!)));
+    }
+    if (entityRule.generationMismatch.length > 0) {
+      return this.#rejectBusiness(scope, request, "MUTATION_GENERATION_MISMATCH",
+        entityRule.generationMismatch.map((index) => failure(index, request.mutations[index]!)));
+    }
 
     const observedHead = this.#revisions.readHead(scope).serverRevision;
     const baseFailures = request.mutations.flatMap((mutation, index) =>

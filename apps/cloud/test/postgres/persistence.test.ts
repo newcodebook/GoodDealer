@@ -322,19 +322,23 @@ describe("PostgreSQL tenant persistence", () => {
        WHERE c.table_schema = 'public'
          AND (c.table_name = 'workspace_replica_tombstones'
           OR (c.table_name = 'workspace_replica_domain_assets'
-            AND c.column_name IN ('deleted_at', 'lifecycle_status', 'lifecycle_status_server_revision', 'expires_on')))
+            AND c.column_name IN ('deleted_at', 'entity_generation', 'lifecycle_status',
+              'lifecycle_status_server_revision', 'expires_on')))
        ORDER BY c.table_name, c.column_name`,
     );
     expect(result.rows).toEqual([
       { table_name: "workspace_replica_domain_assets", column_name: "deleted_at", can_insert: false, can_update: true },
+      { table_name: "workspace_replica_domain_assets", column_name: "entity_generation", can_insert: false, can_update: false },
       { table_name: "workspace_replica_domain_assets", column_name: "expires_on", can_insert: false, can_update: false },
       { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status", can_insert: false, can_update: true },
       { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status_server_revision", can_insert: false, can_update: true },
-      ...["account_id", "deleted_at", "deleted_server_revision", "entity_id", "entity_type", "purge_after", "workspace_id"]
+      ...["account_id", "deleted_at", "deleted_server_revision", "entity_generation", "entity_id", "entity_type",
+        "purge_after", "workspace_id"]
         .map((column_name) => ({
           table_name: "workspace_replica_tombstones",
           column_name,
-          can_insert: column_name !== "purge_after",
+          // Generation takes its default until re-add (ADR-0029 C2) needs to write a later one.
+          can_insert: column_name !== "purge_after" && column_name !== "entity_generation",
           can_update: false,
         })),
     ]);

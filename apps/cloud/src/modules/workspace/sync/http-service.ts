@@ -150,6 +150,7 @@ function mapPushCode(code: MutationIngestRejectionCode): WorkspaceMutationPushRe
       return "SYNC_AUTHORIZATION_REJECTED";
     case "MUTATION_FIELD_STALE":
     case "MUTATION_ENTITY_UNKNOWN":
+    case "MUTATION_GENERATION_MISMATCH":
       return "SYNC_MUTATION_CONFLICT";
     case "MUTATION_DRAIN_SEALED":
     case "MUTATION_BASE_REVISION_AHEAD":

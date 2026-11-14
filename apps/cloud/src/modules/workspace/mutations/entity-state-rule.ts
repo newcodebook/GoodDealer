@@ -1,32 +1,46 @@
 import type { SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
 
-import type { DomainAssetReplicaState } from "../state/portfolio/index";
+import type { DomainAssetReplicaEntry } from "../state/portfolio/index";
+
+/** Item indexes refused by the entity rule, by the business code each one earns. */
+export interface EntityRuleFailures {
+  readonly unknown: readonly number[];
+  readonly generationMismatch: readonly number[];
+}
 
 /**
- * ADR-0029 decision 2. An upsert creates an asset the replica never held and edits a live one; a
- * delete needs a live one. A tombstoned asset stays unknown to both until re-add exists, and a
- * delete of an asset the replica never held is unknown rather than a creation. The batch is judged
- * in order, so an earlier item's accepted create or delete is what a later item sees. Exact replays
- * were judged when first accepted and are skipped.
+ * ADR-0029 decisions 2 and 3. An upsert creates an asset the replica never held (as generation 1)
+ * and edits a live one; a delete needs a live one. A tombstoned asset stays unknown to both until
+ * re-add exists, and a delete of an asset the replica never held is unknown rather than a creation.
+ * Every item that reaches a live asset must name that asset's generation exactly, so a write from an
+ * earlier generation can never land on a later one; an item creating an asset must name generation
+ * 1. The batch is judged in order, so an earlier item's accepted create or delete is what a later
+ * item sees. Exact replays were judged when first accepted and are skipped. The ingest refuses
+ * with the unknown code before the generation code, matching the order the checks are listed here.
  */
-export function findUnknownEntityIndexes(
-  mutations: readonly Pick<SubmittedSyncMutation, "entityId" | "operationKind">[],
+export function judgeEntityRule(
+  mutations: readonly Pick<SubmittedSyncMutation, "entityId" | "operationKind" | "entityGeneration">[],
   isDuplicate: (index: number) => boolean,
-  stateBeforeBatch: (entityId: string) => DomainAssetReplicaState,
-): readonly number[] {
-  const batched = new Map<string, DomainAssetReplicaState>();
+  entryBeforeBatch: (entityId: string) => DomainAssetReplicaEntry,
+): EntityRuleFailures {
+  const batched = new Map<string, DomainAssetReplicaEntry>();
   const unknown: number[] = [];
+  const generationMismatch: number[] = [];
   for (const [index, mutation] of mutations.entries()) {
     if (isDuplicate(index)) continue;
-    const state = batched.get(mutation.entityId) ?? stateBeforeBatch(mutation.entityId);
-    if (mutation.operationKind === "delete") {
-      if (state === "active") batched.set(mutation.entityId, "deleted");
-      else unknown.push(index);
-    } else if (state === "deleted") {
+    const entry = batched.get(mutation.entityId) ?? entryBeforeBatch(mutation.entityId);
+    if (entry.state === "deleted" || (entry.state === "absent" && mutation.operationKind === "delete")) {
       unknown.push(index);
-    } else {
-      batched.set(mutation.entityId, "active");
+      continue;
     }
+    const generation = entry.state === "active" ? entry.generation : 1;
+    if (mutation.entityGeneration !== generation) {
+      generationMismatch.push(index);
+      continue;
+    }
+    batched.set(mutation.entityId, mutation.operationKind === "delete"
+      ? { state: "deleted", generation }
+      : { state: "active", generation });
   }
-  return unknown;
+  return { unknown, generationMismatch };
 }

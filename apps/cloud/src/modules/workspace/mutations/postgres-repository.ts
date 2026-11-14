@@ -49,7 +49,11 @@ export interface MutationReceipt {
 }
 
 /** ADR-0030 business rejections Cloud records durably; every other rejection leaves no receipt. */
-export const RECORDED_MUTATION_REJECTION_CODES = ["MUTATION_FIELD_STALE", "MUTATION_ENTITY_UNKNOWN"] as const;
+export const RECORDED_MUTATION_REJECTION_CODES = [
+  "MUTATION_FIELD_STALE",
+  "MUTATION_ENTITY_UNKNOWN",
+  "MUTATION_GENERATION_MISMATCH",
+] as const;
 export type RecordedMutationRejectionCode = (typeof RECORDED_MUTATION_REJECTION_CODES)[number];
 
 export interface RejectedMutationReceipt {

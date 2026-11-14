@@ -36,6 +36,7 @@ export interface PortfolioMaterializationPort {
 type DomainAssetFieldPath = SubmittedSyncMutation["changedFields"][number]["fieldPath"];
 
 export interface LockedDomainAsset extends DomainAssetProjectionRow {
+  readonly entityGeneration: number;
   readonly lastModifiedRevision: Readonly<Record<DomainAssetFieldPath, number>>;
 }
 
@@ -46,11 +47,11 @@ export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPo
     transaction: TenantTransaction,
     entityIds: readonly string[],
   ): Promise<readonly LockedDomainAsset[]>;
-  /** Domain assets among `entityIds` whose current state is a tombstone; a delete keeps them unknown. */
+  /** Tombstoned domain assets among `entityIds`, each with the generation it deleted. */
   readDomainAssetTombstones(
     transaction: TenantTransaction,
     entityIds: readonly string[],
-  ): Promise<ReadonlySet<string>>;
+  ): Promise<ReadonlyMap<string, number>>;
   applyAcceptedMutations(
     transaction: TenantTransaction,
     assignments: readonly { readonly mutation: SubmittedSyncMutation; readonly serverRevision: number }[],
@@ -141,7 +142,8 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
       .sort(compareUtf8);
     if (entityIds.length === 0) return [];
     const result = await transaction.query<StoredDomainAssetRow>(
-      `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount,
+      `SELECT entity_id, entity_generation::text AS entity_generation,
+              note, portfolio_id, tags, target_price_currency, target_price_amount,
               note_server_revision, portfolio_id_server_revision, tags_server_revision, target_price_server_revision
        FROM workspace_replica_domain_assets
        WHERE account_id = $1 AND workspace_id = $2 AND entity_id = ANY($3::text[]) AND deleted_at IS NULL
@@ -154,18 +156,23 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
   async readDomainAssetTombstones(
     transaction: TenantTransaction,
     values: readonly string[],
-  ): Promise<ReadonlySet<string>> {
+  ): Promise<ReadonlyMap<string, number>> {
     const entityIds = [...new Set(values.map((value) => domainAssetProjectionRowSchema.shape.entityId.parse(value)))];
-    if (entityIds.length === 0) return new Set();
+    if (entityIds.length === 0) return new Map();
     // Tombstones are written only by an ingest or materialization that holds the workspace revision
     // lock, which every caller already holds, so this read cannot race a concurrent delete.
-    const result = await transaction.query<{ entity_id: unknown }>(
-      `SELECT entity_id FROM workspace_replica_tombstones
+    const result = await transaction.query<{ entity_id: unknown; entity_generation: unknown }>(
+      `SELECT entity_id, entity_generation::text AS entity_generation FROM workspace_replica_tombstones
        WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'domain_asset' AND entity_id = ANY($3::text[])`,
       [transaction.scope.accountId, transaction.scope.workspaceId, entityIds],
     );
-    return new Set(result.rows.map(({ entity_id: entityId }) =>
-      domainAssetProjectionRowSchema.shape.entityId.parse(entityId)));
+    return new Map(result.rows.map((row) => {
+      const tombstone = strictRow(row, ["entity_id", "entity_generation"] as const);
+      return [
+        domainAssetProjectionRowSchema.shape.entityId.parse(tombstone.entity_id),
+        parseStoredGeneration(tombstone.entity_generation),
+      ] as const;
+    }));
   }
 
   async applyAcceptedMutations(
@@ -321,6 +328,7 @@ function parseLockedDomainAsset(value: unknown): LockedDomainAsset {
   const row = strictRow(value, LOCKED_ROW_KEYS);
   return {
     ...parseProjection(pickRow(row, PROJECTION_ROW_KEYS)),
+    entityGeneration: parseStoredGeneration(row.entity_generation),
     lastModifiedRevision: {
       note: parseStoredRevision(row.note_server_revision),
       portfolioId: parseStoredRevision(row.portfolio_id_server_revision),
@@ -328,6 +336,12 @@ function parseLockedDomainAsset(value: unknown): LockedDomainAsset {
       targetPrice: parseStoredRevision(row.target_price_server_revision),
     },
   };
+}
+
+function parseStoredGeneration(value: unknown): number {
+  const generation = parseStoredRevision(value);
+  if (generation < 1) throw new TypeError("stored entity generation must be positive");
+  return generation;
 }
 
 function parseStoredRevision(value: unknown): number {
@@ -349,6 +363,7 @@ const PROJECTION_ROW_KEYS = [
 
 const LOCKED_ROW_KEYS = [
   ...PROJECTION_ROW_KEYS,
+  "entity_generation",
   "note_server_revision",
   "portfolio_id_server_revision",
   "tags_server_revision",
