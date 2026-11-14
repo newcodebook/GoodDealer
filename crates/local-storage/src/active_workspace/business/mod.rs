@@ -3985,12 +3985,19 @@ impl BusinessDatabase {
                 }
                 continue;
             }
-            let conflicted =
-                if own_echo_superseded_locally(&transaction, &self.workspace_id, mutation)? {
-                    false
-                } else {
-                    apply_sync_mutation_projection(&transaction, &self.workspace_id, mutation)?
-                };
+            let own_echo = is_own_acknowledged_echo(&transaction, &self.workspace_id, mutation)?;
+            let conflicted = if own_echo
+                && own_echo_superseded_locally(&transaction, &self.workspace_id, mutation)?
+            {
+                false
+            } else {
+                apply_sync_mutation_projection(
+                    &transaction,
+                    &self.workspace_id,
+                    mutation,
+                    own_echo,
+                )?
+            };
             let inbox_state = if conflicted { "conflicted" } else { "applied" };
             transaction
                 .execute(
@@ -6212,17 +6219,11 @@ fn install_checkpoint_tombstone(
     Ok(())
 }
 
-/// Whether `mutation` is the echo of this device's own acknowledged mutation whose entity has
-/// since moved on locally, in which case it is recorded as applied without being replayed.
-///
-/// The echo is matched by mutation id, the revision Cloud acknowledged and the wire digest under
-/// the version the Outbox row was recorded with, so only the mutation this device sent and Cloud
-/// accepted qualifies. The Inbox applies revisions in order, so no remote write after the echo has
-/// been applied yet: a tombstone the echo does not itself describe, or a row of another
-/// generation, can only come from this device's own later writes, which already include the
-/// echo's effect. Replaying it would fail against that newer state (stalling every later pull) or
-/// roll it back. Any other mutation keeps the ordinary projection and its checks.
-fn own_echo_superseded_locally(
+/// Whether `mutation` is the echo of a mutation this device sent and Cloud accepted: matched by
+/// mutation id, entity, the revision Cloud acknowledged and the wire digest under the version the
+/// Outbox row was recorded with. Anything else, including a rewritten item reusing the id, is
+/// treated as another device's write.
+fn is_own_acknowledged_echo(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
     mutation: &SyncMutationV2,
@@ -6248,9 +6249,54 @@ fn own_echo_superseded_locally(
     let Some((wire_version, recorded_digest)) = acknowledged else {
         return Ok(false);
     };
-    if canonical_mutation_digest(mutation, wire_version)? != recorded_digest {
-        return Ok(false);
-    }
+    Ok(canonical_mutation_digest(mutation, wire_version)? == recorded_digest)
+}
+
+/// Whether a write this device committed after the echoed `mutation`, still `pending` or
+/// `sending`, carries `field_path` of the same entity. The Outbox payload is keyed by field path;
+/// local edits, creates and keep-local resolutions all write the full projection (a null field is
+/// present as JSON `null`), so in practice any later in-flight upsert covers every field.
+fn own_later_write_in_flight(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation: &SyncMutationV2,
+    field_path: &str,
+) -> Result<bool, BusinessDatabaseError> {
+    transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_outbox AS later
+                 WHERE later.workspace_id=?1 AND later.entity_kind='domain_asset'
+                   AND later.entity_id=?2 AND later.state IN ('pending','sending')
+                   AND later.operation_kind='upsert'
+                   AND json_type(later.mutation_payload_json, '$.' || ?4) IS NOT NULL
+                   AND later.local_commit_sequence > (
+                     SELECT echoed.local_commit_sequence FROM sync_outbox AS echoed
+                     WHERE echoed.workspace_id=?1 AND echoed.mutation_id=?3))",
+            params![
+                workspace_id,
+                mutation.entity_id,
+                mutation.mutation_id,
+                field_path
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)
+}
+
+/// Whether this device's own acknowledged echo (`is_own_acknowledged_echo`) finds its entity
+/// already moved on locally, in which case it is recorded as applied without being replayed.
+///
+/// The Inbox applies revisions in order, so no remote write after the echo has been applied yet:
+/// a tombstone the echo does not itself describe, or a row of another generation, can only come
+/// from this device's own later writes, which already include the echo's effect. Replaying it
+/// would fail against that newer state (stalling every later pull) or roll it back.
+fn own_echo_superseded_locally(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation: &SyncMutationV2,
+) -> Result<bool, BusinessDatabaseError> {
+    let server_revision =
+        i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?;
     let generation = i64::try_from(mutation.entity_generation)
         .map_err(|_| BusinessDatabaseError::InvalidInput)?;
     // A delete's echo describes the tombstone of its own generation, which the ordinary
@@ -6294,6 +6340,7 @@ fn apply_sync_mutation_projection(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
     mutation: &SyncMutationV2,
+    own_echo: bool,
 ) -> Result<bool, BusinessDatabaseError> {
     validate_domain_asset_id(&mutation.entity_id)
         .map_err(|_| BusinessDatabaseError::InvalidInput)?;
@@ -6574,6 +6621,17 @@ fn apply_sync_mutation_projection(
                 |row| row.get(0),
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        // On the echo of this device's own accepted write, a field that a later local write of this
+        // device is still delivering holds that later write, which supersedes the echo as it does
+        // on Cloud (`isOwnEarlierWrite`): the local value and its pending version stay, with no
+        // conflict. A field left pending by a write Cloud refused keeps the conflict below, since
+        // Cloud holds the echoed value and the replica does not.
+        if field_pending != 0
+            && own_echo
+            && own_later_write_in_flight(transaction, workspace_id, mutation, &field.field_path)?
+        {
+            continue;
+        }
         if field_pending != 0 {
             conflict = true;
             let local_value = read_local_conflict_value(
@@ -15210,6 +15268,98 @@ mod tests {
             .is_err()
         );
         assert_eq!(echo_state(&database), before);
+    }
+
+    fn own_edit(database: &mut TestDatabase, mutation_id: &str, note: &str) {
+        let version = own_asset_version(database);
+        database
+            .edit_domain_asset(
+                mutation_id,
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:04:00Z",
+                &re_add_write(note),
+                true,
+            )
+            .unwrap();
+    }
+
+    /// (open conflict rows, conflicted Inbox rows, pending field versions, local note)
+    fn own_edit_echo_state(database: &TestDatabase) -> (i64, i64, i64, Option<String>) {
+        let counts: (i64, i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT (SELECT count(*) FROM sync_conflicts),
+                        (SELECT count(*) FROM sync_inbox WHERE state='conflicted'),
+                        (SELECT count(*) FROM domain_asset_field_versions
+                         WHERE sync_state='pending')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        let note = database
+            .read_domain_detail("remote.test")
+            .unwrap()
+            .asset
+            .note;
+        (counts.0, counts.1, counts.2, note)
+    }
+
+    #[test]
+    fn own_echo_of_an_earlier_edit_yields_to_the_later_edit_still_in_flight() {
+        let mut database = database();
+        own_create(&mut database);
+        let create = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &create, "confirm-1").unwrap();
+        own_edit(&mut database, "edit-a", "a");
+        let earlier = acknowledge_claimed(&mut database, 2);
+        own_edit(&mut database, "edit-b", "b");
+        pull_echoes(&mut database, 1, &earlier, "confirm-2").unwrap();
+        // The later edit keeps its value and stays owed; no conflict against this device's own write.
+        assert_eq!(
+            own_edit_echo_state(&database),
+            (0, 0, 4, Some("b".to_owned()))
+        );
+        let later = acknowledge_claimed(&mut database, 3);
+        pull_echoes(&mut database, 2, &later, "confirm-3").unwrap();
+        assert_eq!(
+            own_edit_echo_state(&database),
+            (0, 0, 0, Some("b".to_owned()))
+        );
+    }
+
+    #[test]
+    fn own_echo_still_conflicts_with_a_local_value_cloud_refused() {
+        let mut database = database();
+        own_create(&mut database);
+        let create = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &create, "confirm-1").unwrap();
+        own_edit(&mut database, "edit-a", "a");
+        let earlier = acknowledge_claimed(&mut database, 2);
+        own_edit(&mut database, "edit-b", "b");
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-reject",
+                "2026-08-28T01:00:00Z",
+                "2026-08-28T01:01:00Z",
+                256,
+            )
+            .unwrap();
+        database
+            .reject_sync_batch_v2_guarded(
+                "owner-reject",
+                &claimed,
+                SyncRejectionKind::MutationConflict,
+                |_| Ok(()),
+            )
+            .unwrap();
+        // Cloud holds "a"; the refused "b" is still surfaced against it.
+        pull_echoes(&mut database, 1, &earlier, "confirm-2").unwrap();
+        let (conflicts, conflicted_inbox, _, note) = own_edit_echo_state(&database);
+        assert!(conflicts > 0);
+        assert_eq!((conflicted_inbox, note), (1, Some("b".to_owned())));
     }
 
     #[test]
