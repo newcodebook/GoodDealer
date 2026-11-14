@@ -13,7 +13,10 @@ use crate::active_workspace::business::{BusinessDatabase, BusinessDatabaseError}
 use crate::portfolio_projection::{DomainAssetProjectionRow, Money, validate_projection};
 
 const PROJECTION_MAGIC: &[u8; 8] = b"GDBP\0V1\0";
-const PROJECTION_VERSION: u8 = 1;
+/// Version 2 adds `assetGenerations` (ADR-0029 C3a2). Version 1 bodies, written before it, carry
+/// no generation and remain readable; decision 5 treats each of their assets as generation 1.
+const PROJECTION_VERSION: u8 = 2;
+const LEGACY_PROJECTION_VERSION: u8 = 1;
 pub(super) const ALLOWLIST_VERSION: u16 = 1;
 const DATA_FRAME_LIMIT: usize = 1024 * 1024;
 const MAX_PROJECTION_BYTES: usize = 64 * 1024 * 1024;
@@ -47,6 +50,20 @@ pub(super) struct ProjectionBody {
     pub(super) allowlist_version: u16,
     pub(super) complete_domain_asset_set: bool,
     pub(super) assets: Vec<SensitiveAsset>,
+    /// Each asset's entity generation, in `assets` order. Present exactly in version 2; a
+    /// generation is an ordinary counter, not business plaintext, so it needs no zeroizing owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) asset_generations: Option<Vec<u64>>,
+}
+
+impl ProjectionBody {
+    /// The generation of the asset at `index`: recorded in version 2, and 1 for a version 1 body.
+    pub(super) fn asset_generation(&self, index: usize) -> u64 {
+        self.asset_generations
+            .as_ref()
+            .and_then(|generations| generations.get(index).copied())
+            .unwrap_or(1)
+    }
 }
 
 #[derive(Serialize, PartialEq, Eq)]
@@ -592,6 +609,7 @@ fn project_snapshot(
             allowlist_version: ALLOWLIST_VERSION,
             complete_domain_asset_set: true,
             assets: Vec::new(),
+            asset_generations: Some(Vec::new()),
         };
         read_assets(connection, workspace_id, &mut body)?;
         validate_sensitive_projection(&body.assets)?;
@@ -649,7 +667,8 @@ fn read_assets(
 ) -> Result<(), BusinessDatabaseError> {
     let mut statement = connection
         .prepare(
-            "SELECT a.entity_id,d.note,d.portfolio_id,d.target_price_currency,d.target_price_amount
+            "SELECT a.entity_id,d.note,d.portfolio_id,d.target_price_currency,d.target_price_amount,
+                    a.entity_generation
                FROM domain_assets a JOIN domain_asset_desired_state d
                  ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
               WHERE a.workspace_id=?1 AND a.deleted_at IS NULL
@@ -657,15 +676,24 @@ fn read_assets(
         )
         .map_err(|_| BusinessDatabaseError::SchemaRejected)?;
     let rows = statement
-        .query_map([workspace_id], SensitiveDatabaseRow::read)
+        .query_map([workspace_id], |row| {
+            Ok((SensitiveDatabaseRow::read(row)?, row.get::<_, i64>(5)?))
+        })
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     for row in rows {
         if body.assets.len() == MAX_ASSETS {
             return Err(BusinessDatabaseError::ProjectionRejected);
         }
-        let mut asset = row
-            .map_err(|_| BusinessDatabaseError::ProjectionRejected)?
-            .into_sensitive_asset()?;
+        let (row, generation) = row.map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
+        let generation = u64::try_from(generation)
+            .ok()
+            .filter(|generation| (1..=MAX_SAFE_INTEGER).contains(generation))
+            .ok_or(BusinessDatabaseError::ProjectionRejected)?;
+        body.asset_generations
+            .as_mut()
+            .ok_or(BusinessDatabaseError::ProjectionRejected)?
+            .push(generation);
+        let mut asset = row.into_sensitive_asset()?;
         let SensitiveAsset(inner) = &mut asset;
         read_tags_into(
             connection,
@@ -832,7 +860,17 @@ fn parse_canonical_projection(bytes: &[u8]) -> Result<ProjectionBody, BusinessDa
     // failed sequence parse; the authenticated input itself remains in `SensitiveBytes`.
     let body: ProjectionBody = serde_json::from_slice(body_bytes)
         .map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
-    if body.schema_version != PROJECTION_VERSION
+    let generations_well_formed = match (body.schema_version, &body.asset_generations) {
+        (PROJECTION_VERSION, Some(generations)) => {
+            generations.len() == body.assets.len()
+                && generations
+                    .iter()
+                    .all(|generation| (1..=MAX_SAFE_INTEGER).contains(generation))
+        }
+        (LEGACY_PROJECTION_VERSION, None) => true,
+        _ => false,
+    };
+    if !generations_well_formed
         || body.allowlist_version != ALLOWLIST_VERSION
         || !body.complete_domain_asset_set
         || body.assets.len() > MAX_ASSETS

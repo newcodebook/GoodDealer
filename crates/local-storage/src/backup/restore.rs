@@ -425,14 +425,14 @@ fn receipt_from_history(payload: &RestoreHistoryPayload, disposition: &str) -> R
     }
 }
 
-/// The generation every candidate asset carries. The backup projection format records no
-/// generation, so ADR-0029 decision 5 treats each of its assets as generation 1.
-const CANDIDATE_ASSET_GENERATION: i64 = 1;
-
-/// ADR-0029 decision 5 for backup restore: a candidate asset is refused when the replica's
-/// confirmed state for that entity is a later generation, or a tombstone (which the candidate's
-/// live asset can never be). Restoring it would bring a predecessor generation's fields back over
-/// the entity this workspace deleted or re-added. A provisional local re-add freezes its entity
+/// ADR-0029 decision 5 for backup restore. Each candidate asset carries its generation (1 for a
+/// version 1 projection, which recorded none). It restores only onto the same generation: the
+/// replica's live row of that generation, or an entity the replica never held when the candidate
+/// is generation 1, the generation a restore creates. A tombstone or soft-deleted row (which a
+/// live candidate asset can never be), or a live row of any other generation, refuses it:
+/// restoring would bring a predecessor generation's fields back over the entity this workspace
+/// deleted or re-added, or write a successor's fields into an older one. A provisional local
+/// re-add freezes its entity
 /// (decision 4), and a complete-set restore writes every entity it does not carry as a delete, so
 /// any provisional re-add refuses the whole restore before anything is written.
 fn reject_candidate_generation_conflicts(
@@ -451,7 +451,9 @@ fn reject_candidate_generation_conflicts(
     if provisional {
         return Err(BusinessDatabaseError::AssetReAddPending);
     }
-    for asset in &candidate.body.assets {
+    for (index, asset) in candidate.body.assets.iter().enumerate() {
+        let candidate_generation = i64::try_from(candidate.body.asset_generation(index))
+            .map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
         let conflict: bool = transaction
             .query_row(
                 "SELECT EXISTS(
@@ -461,8 +463,9 @@ fn reject_candidate_generation_conflicts(
                    SELECT 1 FROM domain_assets
                     WHERE workspace_id=?1 AND entity_id=?2
                       AND (deleted_at IS NOT NULL OR entity_generation != ?3)
-                 )",
-                params![workspace_id, asset.entity_id, CANDIDATE_ASSET_GENERATION],
+                 ) OR (?3 != 1 AND NOT EXISTS(
+                   SELECT 1 FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2))",
+                params![workspace_id, asset.entity_id, candidate_generation],
                 |row| row.get(0),
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -900,6 +903,7 @@ mod tests {
     use super::*;
     use crate::active_workspace::business::DomainAssetReplicaMutation;
     use crate::{BusinessDatabase, DomainAssetWrite, LocalDatabaseKey, Money};
+    use sha2::Digest as _;
 
     const TIME: &str = "2026-09-15T09:00:00Z";
 
@@ -1613,11 +1617,120 @@ mod tests {
         let detail = database.read_domain_detail("one.example").unwrap();
         assert_eq!(detail.asset.note.as_deref(), Some("second life"));
 
-        // The projection carries no generation, so a backup of generation 2 is refused as well
-        // rather than guessed at (ADR-0029 C3a2 adds the generation to the format).
-        let current = candidate(&mut database, "artifact-second-life", 6);
+        // The same backup in the version 1 format, which records no generation, reads as
+        // generation 1 and is refused the same way.
+        let legacy = reframed(&mut database, "artifact-legacy", 6, as_legacy_body);
         assert_eq!(
-            attempt_restore(&mut database, &current, 6),
+            attempt_restore(&mut database, &legacy, 6),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(write_footprint(&mut database), before);
+
+        // A backup of generation 2 restores onto generation 2 (ADR-0029 C3a2).
+        let current = candidate(&mut database, "artifact-second-life", 7);
+        assert_eq!(current.body.asset_generation(0), 2);
+        database
+            .upsert_domain_asset("edit-after-backup", TIME, &asset("one.example", "later"))
+            .unwrap();
+        attempt_restore(&mut database, &current, 7).unwrap();
+        let detail = database.read_domain_detail("one.example").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("second life"));
+    }
+
+    /// Rewrites the JSON body of `database`'s current projection with `rewrite`, keeping its
+    /// framing canonical, and returns the candidate built from it.
+    fn reframed(
+        database: &mut BusinessDatabase,
+        artifact_id: &str,
+        version: u64,
+        rewrite: fn(&str) -> String,
+    ) -> IsolatedBackupCandidate {
+        let bytes = rewritten_projection(database, rewrite);
+        let digest: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+        IsolatedBackupCandidate::from_authenticated_frames(
+            artifact_id,
+            version,
+            &digest,
+            &[bytes.as_slice()],
+        )
+        .unwrap()
+    }
+
+    fn rewritten_projection(
+        database: &mut BusinessDatabase,
+        rewrite: fn(&str) -> String,
+    ) -> Vec<u8> {
+        let projection = database.backup_source().snapshot().unwrap();
+        let bytes = projection.data_frames().concat();
+        let body = std::str::from_utf8(&bytes[12..]).unwrap();
+        let body = rewrite(body);
+        let mut out = bytes[..8].to_vec();
+        out.extend_from_slice(&u32::try_from(body.len()).unwrap().to_be_bytes());
+        out.extend_from_slice(body.as_bytes());
+        out
+    }
+
+    /// The version 1 encoding of a body: no `assetGenerations`.
+    fn as_legacy_body(body: &str) -> String {
+        let start = body.find(",\"assetGenerations\":").unwrap();
+        format!("{}}}", &body[..start]).replace("\"schemaVersion\":2", "\"schemaVersion\":1")
+    }
+
+    #[test]
+    fn projection_generations_are_strictly_versioned() {
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        database
+            .upsert_domain_asset("seed", TIME, &asset("one.example", "one"))
+            .unwrap();
+        // A version 1 body without generations is still accepted, as generation 1.
+        let legacy = reframed(&mut database, "artifact-legacy", 3, as_legacy_body);
+        assert_eq!(legacy.body.asset_generation(0), 1);
+        let malformed: [fn(&str) -> String; 5] = [
+            |body| body.replace(",\"assetGenerations\":[1]", ""),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[]"),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[0]"),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[1,1]"),
+            |body| body.replace("\"schemaVersion\":2", "\"schemaVersion\":1"),
+        ];
+        for rewrite in malformed {
+            let bytes = rewritten_projection(&mut database, rewrite);
+            let digest: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+            assert_eq!(
+                IsolatedBackupCandidate::from_authenticated_frames(
+                    "artifact-malformed",
+                    3,
+                    &digest,
+                    &[bytes.as_slice()],
+                )
+                .unwrap_err(),
+                BusinessDatabaseError::ProjectionRejected
+            );
+        }
+    }
+
+    #[test]
+    fn candidate_generation_must_match_the_replicas_entity() {
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        database
+            .upsert_domain_asset("seed", TIME, &asset("one.example", "one"))
+            .unwrap();
+        let before = write_footprint(&mut database);
+        // A generation 2 asset the replica holds as generation 1, or does not hold at all.
+        let newer = reframed(&mut database, "artifact-newer", 3, |body| {
+            body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[2]")
+        });
+        assert_eq!(
+            attempt_restore(&mut database, &newer, 3),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        let unheld = reframed(&mut database, "artifact-unheld", 4, |body| {
+            body.replace("one.example", "two.example")
+                .replace("\"assetGenerations\":[1]", "\"assetGenerations\":[2]")
+        });
+        assert_eq!(
+            attempt_restore(&mut database, &unheld, 4),
             Err(BusinessDatabaseError::MutationConflict)
         );
         assert_eq!(write_footprint(&mut database), before);
