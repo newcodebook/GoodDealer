@@ -76,7 +76,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）
+- [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）（暂停：依赖阶段 5的平台角色模型；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] 连接标签长度限制在写入与各读取之间对齐：统一为 1–120 个 UTF-16 单元、拒绝 Cc/Cf 字符，写入与设置、DNS 健康、人工任务读取共用同一规则（此前写入 512 字节、设置读取 120 字节；开发库中超出新规则的已存标签会使这些读取失败关闭） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取补 65 条上限、未知 Provider 与已删除连接排除的 Rust 负向测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取（Rust 与 Zod）接受 ADR-0027 的 8 个平台，须在首个非 Cloudflare 连接写入之前完成（当前非 Cloudflare 连接会使整个设置读取失败关闭）（8 个平台均列出、每个角色仍不可用；清单外平台使读取失败关闭；非 Cloudflare 的接入方式为未知，不臆测） https://github.com/newcodebook/GoodDealer/pull/53
@@ -131,27 +131,27 @@ dead-letter outbox 和 Session 撤销；
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）（UI 已完成：搜索生效时到期指标的说明行显示“全工作区”，与去续费入口按 kit 的“ · ”连接，并写入按钮的无障碍名称；en-US/zh-CN 文案与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）
+- [ ] 批量计划生成、计划详情读取与逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）（暂停：依赖阶段 5的能力 manifest 与首个批量能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）（`useLocalHistoryDay` 持有本地日并在其结束时按时钟重新计算；本地日作为读取的重启键，因此同一次读取的各窗口不会跨两天，翻日或窗口在新的一天回到前台时重新读取，并保留上次结果直到新结果到达；DOM 测试用假时钟跨过午夜） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）（新迁移 `outbox_integrity.sql` 的插入与更新触发器只接受 `YYYY-MM-DDTHH:MM:SSZ` 且小时不超过 23，与 Host `validate_timestamp` 一致；历史读取在同一次聚合中发现任何迁移前的非规范时间即整体拒绝，而不是按错误的日期计数） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `local-storage` 业务测试数据库随测试结束删除（原 `tempdir().keep()` 每次运行在临时目录残留上万个目录，耗尽配额；改为 `TestDatabase` 持有目录） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）
-- [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）
+- [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）（暂停：依赖阶段 5的首个可撤销能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）（暂停：依赖阶段 5的对账任务模型与能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] 人工任务等待时间改用 `manual_action_required` 结果的观察时间，而非尝试开始时间（每项取最新尝试最早的 `manual_action_required` 结果观察时间，结果尚未记录时退回尝试开始时间；任务按其中最早者排序） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）（Host 只发送收件箱显示的前 3 个域名（字节序），`domainCount` 仍精确；读取与视图合同共用 `manualTaskDomainSampleLimit` 并拒绝其他样本大小，Desktop 测试固定它与 Host 的 `DOMAIN_LIMIT` 相等；等待起点不早于尝试开始） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照，并记录各 WebView 的 NumberFormat v3 探测结果与超大金额的显示（当前只有源码与打包依赖图层面的证据）（暂停：待决事项——工作区页面只有在真实账号经浏览器 PKCE 登录、取得商业授权与 Active Lease 后才可达，登录须由用户本人输入凭据；三种 WebView 分别只在 macOS（WKWebView）、Windows（WebView2）与 Linux（WebKitGTK）上存在，当前执行环境只有 Linux 且不能操作原生窗口。影响：阶段 2 验收“每个设计页面在真实构件中可达”与阶段 4 的真实构件证据都依赖此项。可选方案：①用户在三种系统的打包构件上登录，按页面清单逐屏截图并运行内置 NumberFormat 探测，由执行方对照 kit 记录偏差并修复；②在 Linux 上经用户批准安装 `tauri-driver` 与 WebKitWebDriver 做 WebKitGTK 的自动逐屏对照（登录仍由用户完成），macOS 与 Windows 仍按①；③先只取 Linux 证据，macOS/Windows 推迟到阶段 11 的最终候选。推荐②+①：Linux 部分可重复，其余两种系统一次人工对照）
 - [x] 历史与人工任务等显示文本的长度口径在 Rust 与 Zod 之间对齐（核实：Zod 4 的 `max` 按码点计数，与 Rust 字符数一致，无需改动；需要 UTF-16 上限的 Zod 校验须显式比较 `length`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役（已对齐：`providerKind` 改用唯一的 `launchPlatformKindSchema`，移除 `registrar_dns`/`custom`；注册商自带 DNS 即该注册商平台；补每个首发平台接受与旧值拒绝测试） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）
+- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）（暂停：依赖阶段 5的平台角色模型（Host 尚无按平台的角色报告）；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）（已完成：存储完整性迁移在写入时拒绝平台不一致的绑定，并禁止已绑定连接改变平台；业务写入路径本就只接受 Cloudflare 连接） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）（改为说明 Standby 不做修改，且 DNS 修复与所有权重新验证尚未在任何设备上取得资格；en-US/zh-CN 与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 修复或所有权重新验证在 Cloudflare 阶段取得资格时，同步改写 DNS `readOnlyNotice`（届时说明这些操作只在 Active 设备上执行；Active 上 `canEdit: false` 时也显示只读说明，与续费按 `!canEdit` 判断一致）
+- [ ] DNS 修复或所有权重新验证在 Cloudflare 阶段取得资格时，同步改写 DNS `readOnlyNotice`（届时说明这些操作只在 Active 设备上执行；Active 上 `canEdit: false` 时也显示只读说明，与续费按 `!canEdit` 判断一致）（暂停：依赖阶段 5的 Cloudflare DNS 写入资格；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] Host 路由读取的重试接线测试：重试按钮已测试会调用 `retry`；`useHostRouteRead` 由 `attempt` 驱动重新读取仍缺 hook 级测试（需要渲染环境）（同一测试：首读失败后点击“重新读取”，从同一页起点重新读取） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）（四种状态 en-US 与 zh-CN 均有渲染测试；已观察的 Zone 读取契约必带状态，未观察的行不显示 DNSSEC 标签并有测试） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `read_cloudflare_connection` 返回的连接标签改用统一标签规则（当前 Host 不校验，适配器允许 256 个单元且只拒绝 C0/DEL；随 `features/connections` 进入生产导航）（Host 读取对标签应用与其他读取相同的 `valid_connection_label`，不经创建路径写入的违规标签让读取失败关闭；适配器的状态、创建回执与创建输入都改用 client-core 的 `connectionLabelSchema`（至多 120 个 UTF-16 单元，拒绝控制与格式字符），违规输入在 IPC 之前拒绝；Host 与适配器测试覆盖零宽字符、控制字符与超长标签） — https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）
+- [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）（暂停：依赖阶段 5的 Cloudflare Registrar 能力；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
 - [x] 设置“关于”报告让其他读取失败关闭或变慢的存储坏行计数：非法到期日期（资产库与续费）、非法注册商名称的可用观察（续费变慢，显示时失败）、DNS 绑定或观察无效的资产、无效挂牌观察（销售）、时间非规范的 Outbox 行（历史）；每项计数复用对应读取的校验谓词，设置读取本身不因坏行失败；修复尚不可用并如实说明 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取每次全量运行完整性计数（含销售挂牌合并查询，10 万资产约 0.5–2 s）：改为复用销售按数据代缓存或仅在打开“关于”时计数，并纳入 10 万基准计时（同一数据代已有合并成功的销售台面时不再扫描挂牌，提交落在读取期间则不用缓存重读；10 万基准：2 市场冷读 0.72 s、缓存后 0.22 s，8 市场冷读 2.1 s、缓存后 0.23 s；8 市场写入后首次读取与销售首次合并同属下一项的预算问题） https://github.com/newcodebook/GoodDealer/pull/53
 
@@ -187,7 +187,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 本地新增的域名同步到 Cloud：Cloud ingest 对副本中不存在的实体返回 `MUTATION_ENTITY_UNKNOWN`（`apps/cloud/src/modules/workspace/mutations/index.ts` 与 `postgres-ingest-service.ts`），副本行只来自 seed 或快照物化，所以经 `local_domain_asset_create` 新增的域名的首个 upsert 会被 Cloud 拒绝。需要 ingest 对副本中既无活跃行也无墓碑的实体接受首个 upsert 并创建活跃行（未提供字段取默认值），客户端处理该拒绝码的现状一并核对；PostgreSQL 资格证据覆盖新路径。ADR-0029 已接受；generation 实现后首次添加的实体 generation 为 1。审查 ADR-0029 时发现（Cloud ingest——PostgreSQL 与内存实现——在 tenant 事务与工作区 revision 锁内读取墓碑，只拒绝当前为墓碑的资产，其余未知资产由首个 upsert 以默认字段与 revision 0 创建副本行后应用字段，字段过期判定对新建资产从 0 起算；app role 只用已授予的列级 INSERT，`ON CONFLICT DO NOTHING` 不覆盖既有行。Cloud 与 client-core 的 checkpoint 重建对同一情形创建默认行，client-core 遇 delete 改为失败关闭。Desktop Inbox 本就为新实体建默认行，不需改动。测试：PostgreSQL 新增、同批次新增后编辑、重复提交为精确重复、本设备其后的编辑被接受（其他 epoch 或更旧 base 的写入过期由同字段规则的测试覆盖）、另一租户不可见；墓碑资产作为毒项整批拒绝；内存 ingest、端口、两处重建各有正向与负向用例；两个并发的首个 upsert 只创建一次。PostgreSQL 18.6 资格运行 https://github.com/newcodebook/GoodDealer/actions/runs/43435475601 在 abd7a30 上通过，报告 `qualified: true`、按名单逐项执行新测试） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 同一字段连续未确认的编辑永久卡住同步：本地编辑以提交时的 `applied_through_server_revision` 作为 `baseServerRevision`，Outbox 的 wire 在提交时冻结；同一字段的第二次编辑若在第一次 ACK 前提交，其 base 小于第一次被分配的 revision，Cloud 按字段 revision 判为 `MUTATION_FIELD_STALE`，Desktop 把映射后的 `SYNC_STORAGE_REJECTED` 视为可重试，于是该项与其后的整条 Outbox 永久重试（已复现：PostgreSQL 测试中同一设备 base 均为 0 的两次编辑，第二次被判过期；Rust 测试证明 ACK 前的两次编辑带同一 base、设备序号递增。修复：Cloud 的过期判定——PostgreSQL 与内存实现共用 `stale-field-rule.ts`——把同一设备、同一 Lease epoch、更小设备序号且 base 不大于本次的已接受写入视为本设备的先前编辑而不是冲突；写入者从 `workspace_mutations` 读取，replay 已压缩时失败关闭为过期。负向测试：以更旧 base 提交的后续写入、另一 Lease epoch 的写入仍判过期；并发同字段测试改为两次互不知情的写入。`ACCOUNT_AND_SYNC` 写明该规则。CI `wp2-workspace-sync-persistence` 运行 43437306915 在 eb25634 上通过，报告 `qualified: true`，PostgreSQL 18.6） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 确定性的推送拒绝不应无限重试：`sync/http-service.ts` 的 `mapPushCode` 把 `MUTATION_FIELD_STALE`、`MUTATION_BASE_REVISION_AHEAD` 与 `MUTATION_ENTITY_UNKNOWN` 都映射为 `SYNC_STORAGE_REJECTED`，Desktop 把它视为可重试，所以真正的冲突让 Outbox 头永久重试、阻塞其后全部同步（`mapPushCode` 改为对 ingest 拒绝码的穷举映射；新增推送拒绝码 `SYNC_MUTATION_CONFLICT`，覆盖字段过期与墓碑实体，协议 schema、wire 语料（生成）与 Rust 严格校验同时更新；Desktop 对多项批次先隔离，单项把 Outbox 行终止为 `conflicted`、`last_error_code='sync_mutation_conflict'`，保留行与字段，其后 Outbox 继续发送；字段 `sync_state` 不变，拉取到对方写入时进入冲突中心而不覆盖本地值。`MUTATION_BASE_REVISION_AHEAD` 只在 Cloud 状态回退时出现，与 `MUTATION_DRAIN_SEALED`、`MUTATION_WORKSPACE_MISMATCH` 一同保持可重试以保住本地编辑。Cloud 应用层逐码测试、Rust 业务层与推送处置测试。被拒绝序号在 drain 中的缺口拆为下一项） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 被确定性拒绝的 mutation 序号在设备切换 drain 中留下缺口：Cloud ingest 接受序号缺口，但 drain 验证（`devices/drain-verification.ts`）要求 `mutation` 流连续接收水位等于最后分配序号、无缺失区间且 rolling digest 一致，否则 `DRAIN_STREAM_GAP`；本地 `sync_outbox_fields_v2_immutable_delete` 禁止删除已认领行，不能靠丢弃 Outbox 行解决；Desktop 目前尚不生成 drain proof，所以在设备切换交付前须解决。ADR-0029 的经同步重新添加以本项为前置（决策已接受：产品负责人于 2026-11-13 接受原子拒绝回执、全局设备序号身份及独立有版本的 drain 结果摘要，待实现与资格验证。见 [ADR-0030](../adr/0030-closing-deterministically-rejected-mutation-sequences.md)（Accepted，2026-11-13；实现中：B1 的结果 envelope、drain proof v2 与 PostgreSQL v2 seal 重建，B2 的结果联合 ledger 与单项业务拒绝同事务记账，以及 B3 的客户端 v2 结果链合同与跨 Lease epoch 的全局 v2 seal 已交付；设备切换端到端串通见下一项））
+- [x] 被确定性拒绝的 mutation 序号在设备切换 drain 中留下缺口：Cloud ingest 接受序号缺口，但 drain 验证（`devices/drain-verification.ts`）要求 `mutation` 流连续接收水位等于最后分配序号、无缺失区间且 rolling digest 一致，否则 `DRAIN_STREAM_GAP`；本地 `sync_outbox_fields_v2_immutable_delete` 禁止删除已认领行，不能靠丢弃 Outbox 行解决；Desktop 目前尚不生成 drain proof，所以在设备切换交付前须解决。ADR-0029 的经同步重新添加以本项为前置（决策已接受：产品负责人于 2026-11-13 接受原子拒绝回执、全局设备序号身份及独立有版本的 drain 结果摘要，待实现与资格验证。见 [ADR-0030](../adr/0030-closing-deterministically-rejected-mutation-sequences.md)（Accepted，2026-11-13；实现中：B1 的结果 envelope、drain proof v2 与 PostgreSQL v2 seal 重建，B2 的结果联合 ledger 与单项业务拒绝同事务记账，以及 B3 的客户端 v2 结果链合同与跨 Lease epoch 的全局 v2 seal 已交付；设备切换端到端串通见下一项））（已交付 Cloud 原子拒绝回执、v2 结果链与 seal 及客户端合同；设备切换端到端串通在第 191 行，暂停中） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设备切换端到端串通 ADR-0030 v2 drain：Host 按序读取 Outbox 的持久 Cloud 结果（`acknowledged` 与 `conflicted`/`sync_mutation_conflict`），用 client-core `foldPersistedMutationResults` 与 `buildDrainProofClaims`（v2）生成声明并签名，Cloud 接收 proof 写入 `device_drain_proofs` 时保存 `proof.schemaVersion`；端到端覆盖拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功；跨 ADR-0029 C1a 升级的行须能确定 Cloud 记录的是 v2 还是 v3 提交 envelope（本地目前只记 v2 编码摘要，升级前认领、升级后 ACK 的行两者皆有可能），由 C1c 或本项记录 Cloud 接受的 wire 版本（暂停：仓库没有 Desktop 设备切换流程与 Cloud proof 接收路径，ADR-0027 的 v1 范围未列入设备切换，是否纳入 v1 由用户决定）
 
 ### 4. 当前范围全系统 V1 汇合验收
@@ -196,6 +196,8 @@ dead-letter outbox 和 Session 撤销；
 - [ ] 独立复审 PASS（暂停：随上一项）
 
 ### 5. 多平台共用框架与 Cloudflare 全能力
+
+暂停：本阶段以阶段 4 V1 汇合验收为进入条件（ROADMAP「当前执行顺序」），阶段 4 暂停于打包构件逐屏对照（需用户本人登录）与 ADR-0029 C1b 的决定；阶段 6–11 依次随之等待。若允许框架源码在阶段 4 之前先行，须由用户修订进入条件。
 
 - [ ] 平台连接与角色模型（registrar、dns、marketplace、acquisition）
 - [ ] binding 增加 `listing` 资源类型
