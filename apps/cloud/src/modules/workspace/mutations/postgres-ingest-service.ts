@@ -26,7 +26,6 @@ import {
   type RecordedMutationRejectionCode,
 } from "./postgres-repository";
 import { judgeEntityRule } from "./entity-state-rule";
-import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
@@ -64,11 +63,6 @@ export class PostgresWorkspaceMutationIngest {
       index === 0 || request.mutations[index - 1]!.deviceMutationSequence < mutation.deviceMutationSequence
         ? [] : [failure(index, mutation)]);
     if (orderFailures.length > 0) return reject("MUTATION_BATCH_UNORDERED", orderFailures);
-    // ADR-0029 C1a: generations are refused before the tenant transaction, so the refusal takes
-    // no lock and can leave no receipt or sequence behind.
-    const generationFailures = request.mutations.flatMap((mutation, index) =>
-      isFirstGenerationMutation(mutation) ? [] : [failure(index, mutation)]);
-    if (generationFailures.length > 0) return reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", generationFailures);
 
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
@@ -141,7 +135,9 @@ export class PostgresWorkspaceMutationIngest {
       }
     }
 
-    // Locked assets are live rows only; a soft-deleted row is known through its tombstone.
+    // Locked assets are live rows only; a soft-deleted row is known through its tombstone. Both are
+    // read under the workspace revision lock, so a concurrent ingest cannot re-add or delete them
+    // between this judgement and materialization: one tombstone admits exactly one re-add.
     const entityRule = judgeEntityRule(
       request.mutations,
       (index) => duplicateRevisionByIndex.has(index),
@@ -149,8 +145,9 @@ export class PostgresWorkspaceMutationIngest {
         const asset = assetsById.get(entityId);
         if (asset !== undefined) return { state: "active", generation: asset.entityGeneration };
         const tombstone = tombstoned.get(entityId);
-        return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone };
+        return tombstone === undefined ? { state: "absent" } : { state: "deleted", ...tombstone };
       },
+      revision.serverRevision,
     );
     if (entityRule.unknown.length > 0) {
       return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN",

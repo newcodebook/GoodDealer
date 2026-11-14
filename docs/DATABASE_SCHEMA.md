@@ -125,11 +125,11 @@ changed fields。Cloud ingest 接受活跃资产的 delete，并在同一事务�
 `workspace_replica_tombstones`；资产行保留，因为不可变的 Cloudflare DNS 观察回执以 `ON DELETE RESTRICT`
 外键引用它（[ADR-0029](adr/0029-domain-tombstone-purge-and-re-adding.md) 决策 2）。数据库触发器保证软删除
 行在提交时有墓碑、墓碑指向软删除行、已删除行不可再修改；投影读取、快照与 checkpoint、恢复候选和观察
-准入都排除已删除行。迁移 `202611140001` 同时为此前已接受、却留成活跃行的 delete 补做软删除与墓碑。副本资产行与墓碑各带 `entity_generation`（迁移 `202611140002`，现有为 1，application role 不可写，墓碑与软删除行同代）；到达活跃行的 mutation 必须与其 generation 相等、新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝并记回执。Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内
+准入都排除已删除行。迁移 `202611140001` 同时为此前已接受、却留成活跃行的 delete 补做软删除与墓碑。副本资产行与墓碑各带 `entity_generation`（迁移 `202611140002`，现有为 1，墓碑与软删除行同代）；到达活跃行的 mutation 必须与其 generation 相等、新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝并记回执。重新添加（ADR-0029 决策 3）是指名墓碑删除 revision R 与 generation g + 1 的 upsert，`R <= base <= head`，否则同样以 `MUTATION_GENERATION_MISMATCH` 拒绝；接受时在 ingest 事务内删除墓碑，把软删除行重置为 g + 1 的默认活跃行（所有字段 revision 为本次 revision）再应用字段。迁移 `202611140006` 使这成为已删除行唯一允许的变化：活跃行 generation 不可变，墓碑只在提交时其资产行 generation 已超过它（或随工作区级联删除）时才可删除；application role 只获得这些写入所需的列与墓碑删除权限。变更流水 `workspace_mutations` 记录 `entity_generation` 与 `re_adds_deleted_revision`（迁移 `202611140005`，既有行为 1 且无重新添加）。Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内
 以默认字段与 revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产的 upsert 或 delete、以及副本
-从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断；重新添加见
-ADR-0029。Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；重建把 delete 物化为同代墓碑，
-范围内对已删除资产的任何后续条目视为链损坏。
+从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断（重新添加除外，见上）。
+Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；重建把 delete 物化为同代墓碑，把指名该
+墓碑的重新添加物化为下一代活跃行，范围内对已删除资产的其他条目视为链损坏。Desktop 尚不能发出或应用重新添加。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 
@@ -183,7 +183,7 @@ Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资�
 
 集中 schema 已覆盖未来实体、约束、索引、同步状态和恢复元数据，但 schema coverage 不等于旅程已
 上线。当前 DomainAsset 本地写入和窄副本读取已存在；以下仍是 runtime 实现任务：新实体
-首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、墓碑清除与重新添加、
+首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、墓碑清除与 Desktop 端重新添加、
 Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 checkpoint，以及 10 万/100 万
 资产 keyset/page composition。在这些验收完成前，不得把对应旅程描述为可用。
 

@@ -306,28 +306,114 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(getterCalls).toBe(0);
   });
 
-  it("ADR-0029 C1a refuses a later generation or a re-add before any receipt or revision", async () => {
-    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
-      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
-    }));
+  it("ADR-0029 accepts a re-add of the tombstone it names as the next generation, exactly once", async () => {
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
-    await expect(service.ingest(scopeA, pushRequest(submitted("generation-1", 1, 0))))
-      .resolves.toMatchObject({ accepted: true, headRevision: 1 });
-    const later = submittedSyncMutationSchema.parse({ ...submitted("generation-2", 2, 1), entityGeneration: 2 });
-    const reAdd = submittedSyncMutationSchema.parse({ ...later, reAddsDeletedRevision: 1 });
-    const before = await readGlobalHead(scopeA);
-    for (const refused of [later, reAdd]) {
-      await expect(service.ingest(scopeA, pushRequest(refused))).resolves.toEqual({
-        accepted: false,
-        code: "MUTATION_SCHEMA_VERSION_UNSUPPORTED",
-        failures: [{ index: 0, mutationId: "generation-2" }],
+    const created = submittedSyncMutationSchema.parse({
+      ...submitted("again-create", 1, 0),
+      changedFields: [{ fieldPath: "note", value: "first life" }, { fieldPath: "tags", value: ["old"] },
+        { fieldPath: "targetPrice", value: { currency: "USD", amount: "10" } }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(created))).resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest({ ...submitted("live-create", 2, 1), entityId: "live.test" })))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(deletion("again-delete", 3, 2))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    const reAdd = (mutationId: string, sequence: number, base: number, overrides: Record<string, unknown> = {}) =>
+      submittedSyncMutationSchema.parse({
+        ...submitted(mutationId, sequence, base),
+        entityGeneration: 2,
+        reAddsDeletedRevision: 3,
+        changedFields: [{ fieldPath: "tags", value: ["second"] }],
+        ...overrides,
+      });
+
+    // Each refusal records only its sequence-ledger receipt (ADR-0030) and changes no replica row.
+    const before = await replicaCounts(scopeA);
+    const refusals = [
+      [reAdd("wrong-revision", 4, 3, { reAddsDeletedRevision: 2 }), "MUTATION_GENERATION_MISMATCH"],
+      [reAdd("wrong-generation", 5, 3, { entityGeneration: 3 }), "MUTATION_GENERATION_MISMATCH"],
+      [reAdd("base-ahead", 6, 9), "MUTATION_GENERATION_MISMATCH"],
+      [reAdd("never-held", 7, 3, { entityId: "never.test" }), "MUTATION_GENERATION_MISMATCH"],
+      [reAdd("re-add-live", 8, 3, { entityId: "live.test" }), "MUTATION_GENERATION_MISMATCH"],
+      [submittedSyncMutationSchema.parse({ ...submitted("plain-later", 9, 3), entityGeneration: 2 }), "MUTATION_ENTITY_UNKNOWN"],
+    ] as const;
+    for (const [index, [mutation, code]] of refusals.entries()) {
+      await expect(service.ingest(scopeA, pushRequest(mutation))).resolves.toEqual({
+        accepted: false, code, failures: [{ index: 0, mutationId: mutation.mutationId }],
+      });
+      await expect(replicaCounts(scopeA)).resolves.toEqual({ ...before, ledger: String(Number(before.ledger) + index + 1) });
+    }
+
+    const accepted = reAdd("again-re-add", 10, 3);
+    await expect(service.ingest(scopeA, pushRequest(accepted))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 4, duplicate: false }], headRevision: 4,
+    });
+    await expect(service.ingest(scopeA, pushRequest(accepted))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 4, duplicate: true }], headRevision: 4,
+    });
+    const row = await transactions.withTenant(scopeA, (transaction) => transaction.query(`
+      SELECT entity_generation::int AS generation, deleted_at, lifecycle_status, note, portfolio_id, tags,
+             target_price_currency, target_price_amount,
+             lifecycle_status_server_revision::int AS lifecycle_revision, note_server_revision::int AS note_revision,
+             portfolio_id_server_revision::int AS portfolio_revision, tags_server_revision::int AS tags_revision,
+             target_price_server_revision::int AS price_revision,
+             (SELECT count(*)::int FROM workspace_replica_tombstones) AS tombstones
+      FROM workspace_replica_domain_assets WHERE entity_id = 'asset-1.test'`));
+    // Nothing of the first generation survives, and every field belongs to the re-add's revision.
+    expect(row.rows).toEqual([{
+      generation: 2, deleted_at: null, lifecycle_status: "active", note: null, portfolio_id: null, tags: ["second"],
+      target_price_currency: null, target_price_amount: null, lifecycle_revision: 4, note_revision: 4,
+      portfolio_revision: 4, tags_revision: 4, price_revision: 4, tombstones: 0,
+    }]);
+    // The log keeps what was accepted; readers get the generation and the superseded deletion back.
+    await transactions.withTenant(scopeA, async (transaction) => {
+      const stored = await transaction.query(`SELECT entity_generation::int AS generation,
+          re_adds_deleted_revision::int AS re_adds FROM workspace_mutations ORDER BY server_revision`);
+      expect(stored.rows).toEqual([
+        { generation: 1, re_adds: null }, { generation: 1, re_adds: null }, { generation: 1, re_adds: null },
+        { generation: 2, re_adds: 3 },
+      ]);
+      const [read] = await mutations.readRange(transaction, 3, 4);
+      expect(read).toMatchObject({ mutationId: "again-re-add", entityGeneration: 2, reAddsDeletedRevision: 3, serverRevision: 4 });
+      await expect(portfolio.lockDomainAssets(transaction, ["asset-1.test"]))
+        .resolves.toMatchObject([{ entityGeneration: 2, tags: ["second"] }]);
+    });
+
+    // The tombstone is gone: another re-add of it, and anything from generation 1, is a conflict.
+    for (const mutation of [reAdd("again-re-add-twice", 11, 4), submitted("first-life-edit", 12, 4)]) {
+      await expect(service.ingest(scopeA, pushRequest(mutation))).resolves.toEqual({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: mutation.mutationId }],
       });
     }
-    // Refused before the tenant transaction: the device head, its row version, and the ledger are untouched.
-    await expect(readGlobalHead(scopeA)).resolves.toEqual(before);
-    expect(before).toMatchObject({ contiguous: "1", highest: "1", ledger: "1" });
-    await expect(service.ingest(scopeA, pushRequest(submitted("generation-2", 2, 1))))
+    await expect(service.ingest(scopeA, pushRequest(
+      submittedSyncMutationSchema.parse({ ...submitted("second-life-edit", 13, 4), entityGeneration: 2 }),
+    ))).resolves.toMatchObject({ accepted: true, headRevision: 5 });
+    // Deleting the second generation writes a second-generation tombstone, which a later re-add names.
+    await expect(service.ingest(scopeA, pushRequest(
+      submittedSyncMutationSchema.parse({ ...deletion("second-life-delete", 14, 5), entityGeneration: 2 }),
+    ))).resolves.toMatchObject({ accepted: true, headRevision: 6 });
+    await transactions.withTenant(scopeA, async (transaction) => {
+      await expect(portfolio.readDomainAssetTombstones(transaction, ["asset-1.test"]))
+        .resolves.toEqual(new Map([["asset-1.test", { generation: 2, deletedServerRevision: 6 }]]));
+    });
+    await expect(service.ingest(scopeA, pushRequest(reAdd("third-life", 15, 6, { entityGeneration: 3, reAddsDeletedRevision: 6 }))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 7 });
+    await expect(replicaCounts(scopeB)).resolves.toMatchObject({ revision: "0", assets: "0", tombstones: "0", replay: "0" });
+  });
+
+  it("ADR-0029 assigns one generation when the same re-add arrives twice at once", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("race-create", 1, 0), deletion("race-delete", 2, 0))))
       .resolves.toMatchObject({ accepted: true, headRevision: 2 });
+    const reAdd = submittedSyncMutationSchema.parse({
+      ...submitted("race-re-add", 3, 2), entityGeneration: 2, reAddsDeletedRevision: 2,
+    });
+    const results = await Promise.all([service.ingest(scopeA, pushRequest(reAdd)), service.ingest(scopeA, pushRequest(reAdd))]);
+    expect(results.map((result) => result.accepted && result.assignments[0]?.duplicate).sort()).toEqual([false, true]);
+    expect(results.every((result) => result.accepted && result.assignments[0]?.serverRevision === 3)).toBe(true);
+    await expect(replicaCounts(scopeA)).resolves.toEqual({
+      revision: "3", assets: "1", tombstones: "0", replay: "3", receipts: "3", ledger: "3",
+    });
   });
 
   it("ADR-0029 C1a replays and reads a mutation Cloud accepted under wire v2", async () => {
@@ -1519,7 +1605,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       await expect(portfolio.captureSnapshot(transaction)).resolves.toEqual([]);
       await expect(portfolio.lockDomainAssets(transaction, ["asset-1.test"])).resolves.toEqual([]);
       await expect(portfolio.readDomainAssetTombstones(transaction, ["asset-1.test"]))
-        .resolves.toEqual(new Map([["asset-1.test", 1]]));
+        .resolves.toEqual(new Map([["asset-1.test", { generation: 1, deletedServerRevision: 2 }]]));
     });
     // The other tenant shares the workspace id and holds no tombstone.
     await expect(replicaCounts(scopeB)).resolves.toMatchObject({ assets: "0", tombstones: "0" });
@@ -1627,12 +1713,13 @@ describe("PostgreSQL workspace Mutation persistence", () => {
 
   it("refuses a write naming another generation than the replica row's and records the conflict", async () => {
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
-    await expect(service.ingest(scopeA, pushRequest(submitted("gen-create", 1, 0)))).resolves.toMatchObject({ accepted: true });
-    // A later-generation row stands in for a re-add (ADR-0029 C2), which only the owner can write today.
-    await ownerPool.query(`UPDATE workspace_replica_domain_assets SET entity_generation = 2
-      WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'`, [scopeA.accountId, scopeA.workspaceId]);
+    await expect(service.ingest(scopeA, pushRequest(submitted("gen-create", 1, 0), deletion("gen-delete-first", 2, 0))))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(submittedSyncMutationSchema.parse({
+      ...submitted("gen-re-add", 3, 2), entityGeneration: 2, reAddsDeletedRevision: 2,
+    })))).resolves.toMatchObject({ accepted: true, headRevision: 3 });
     const before = await replicaCounts(scopeA);
-    for (const [index, item] of [submitted("gen-edit", 2, 1), deletion("gen-delete", 3, 1)].entries()) {
+    for (const [index, item] of [submitted("gen-edit", 4, 3), deletion("gen-delete", 5, 3)].entries()) {
       await expect(service.ingest(scopeA, pushRequest(item))).resolves.toEqual({
         accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: item.mutationId }],
       });
@@ -1641,14 +1728,16 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       });
       await expect(replicaCounts(scopeA)).resolves.toEqual({ ...before, ledger: String(Number(before.ledger) + index + 1) });
     }
-    // The application role cannot choose a generation; inserts and tombstones take generation 1.
+    // A live row keeps its generation even though the application role may now write the column.
     await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(
       `UPDATE workspace_replica_domain_assets SET entity_generation = 3
        WHERE account_id = $1 AND workspace_id = $2`, [scopeA.accountId, scopeA.workspaceId])))
-      .rejects.toThrow(/permission denied/u);
-    await expect(service.ingest(scopeA, pushRequest({ ...submitted("gen-other", 4, 1), entityId: "other.test" })))
+      .rejects.toThrow(/keeps its generation/u);
+    await expect(service.ingest(scopeA, pushRequest({ ...submitted("gen-other", 6, 3), entityId: "other.test" })))
       .resolves.toMatchObject({ accepted: true });
-    await expect(service.ingest(scopeA, pushRequest(deletion("gen-other-delete", 5, 1, "other.test"))))
+    await expect(service.ingest(scopeA, pushRequest(deletion("gen-other-delete", 7, 3, "other.test"))))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest({ ...submitted("gen-third", 8, 3), entityId: "third.test" })))
       .resolves.toMatchObject({ accepted: true });
     const generations = await ownerPool.query(`SELECT asset.entity_id, asset.entity_generation::int AS asset_generation,
         tombstone.entity_generation::int AS tombstone_generation
@@ -1658,17 +1747,18 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     expect(generations.rows).toEqual([
       { entity_id: "asset-1.test", asset_generation: 2, tombstone_generation: null },
       { entity_id: "other.test", asset_generation: 1, tombstone_generation: 1 },
+      { entity_id: "third.test", asset_generation: 1, tombstone_generation: null },
     ]);
     // A tombstone must carry its deleted row's generation, for every role.
     const owner = await ownerPool.connect();
     try {
       await owner.query("BEGIN");
-      await owner.query(`UPDATE workspace_replica_domain_assets SET entity_generation = 1, deleted_at = now(),
-          lifecycle_status = 'archived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'`,
+      await owner.query(`UPDATE workspace_replica_domain_assets SET deleted_at = now(),
+          lifecycle_status = 'archived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'third.test'`,
         [scopeA.accountId, scopeA.workspaceId]);
       await expect(owner.query(`INSERT INTO workspace_replica_tombstones
           (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at, entity_generation)
-          VALUES ($1, $2, 'domain_asset', 'asset-1.test', 6, now(), 2)`, [scopeA.accountId, scopeA.workspaceId]))
+          VALUES ($1, $2, 'domain_asset', 'third.test', 9, now(), 2)`, [scopeA.accountId, scopeA.workspaceId]))
         .rejects.toThrow(/same generation/u);
     } finally {
       await owner.query("ROLLBACK");
@@ -1682,13 +1772,22 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     await expect(service.ingest(scopeA, pushRequest(deletion("pair-delete", 2, 1)))).resolves.toMatchObject({ accepted: true });
     await expect(service.ingest(scopeA, pushRequest({ ...submitted("other-live", 3, 2), entityId: "live.test" })))
       .resolves.toMatchObject({ accepted: true });
-    const before = await replicaCounts(scopeA);
     const tenant = [scopeA.accountId, scopeA.workspaceId] as const;
+    // A tombstone of another family, which no re-add ever supersedes.
+    await ownerPool.query(`INSERT INTO workspace_replica_tombstones
+      (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at)
+      VALUES ($1, $2, 'portfolio', 'portfolio-1', 1, now())`, [...tenant]);
+    const before = await replicaCounts(scopeA);
 
     const refusals: readonly [string, string][] = [
-      // A deleted row is final: neither undeleted nor edited.
-      ["UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "is final"],
-      ["UPDATE workspace_replica_domain_assets SET note = 'revived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "is final"],
+      // A deleted row changes only by its re-add: neither undeleted in place nor edited.
+      ["UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "changes only by its re-add"],
+      ["UPDATE workspace_replica_domain_assets SET note = 'revived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "changes only by its re-add"],
+      // A live row keeps its generation.
+      ["UPDATE workspace_replica_domain_assets SET entity_generation = 2 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'live.test'", "keeps its generation"],
+      // A tombstone is removed only by the re-add that supersedes it, checked at commit.
+      ["DELETE FROM workspace_replica_tombstones WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'domain_asset'", "removed only by the re-add"],
+      ["DELETE FROM workspace_replica_tombstones WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'portfolio'", "removed only by the re-add"],
       // A soft delete without its tombstone fails at commit.
       ["UPDATE workspace_replica_domain_assets SET deleted_at = now(), lifecycle_status = 'archived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'live.test'", "requires its tombstone"],
       // A tombstone must name a soft-deleted row of its tenant.
@@ -1707,9 +1806,30 @@ describe("PostgreSQL workspace Mutation persistence", () => {
         owner.release();
       }
     }
-    // The application role cannot remove a tombstone or a row, nor rewrite a tombstone.
+    // Even with the tombstone gone, a deleted row may only become the next generation's default row.
+    const reAddShapes: readonly string[] = [
+      // Skips a generation.
+      "UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active', entity_generation = 3, lifecycle_status_server_revision = 9, note_server_revision = 9, portfolio_id_server_revision = 9, tags_server_revision = 9, target_price_server_revision = 9 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+      // Keeps the deleted generation.
+      "UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active', lifecycle_status_server_revision = 9, note_server_revision = 9, portfolio_id_server_revision = 9, tags_server_revision = 9, target_price_server_revision = 9 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+      // Leaves a field revision behind the re-add's.
+      "UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active', entity_generation = 2, lifecycle_status_server_revision = 9, note_server_revision = 9, portfolio_id_server_revision = 9, tags_server_revision = 9 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+      // Carries a business field into the new generation.
+      "UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active', entity_generation = 2, note = 'old', lifecycle_status_server_revision = 9, note_server_revision = 9, portfolio_id_server_revision = 9, tags_server_revision = 9, target_price_server_revision = 9 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+    ];
+    for (const sql of reAddShapes) {
+      await expect(transactions.withTenant(scopeA, async (transaction) => {
+        await transaction.query(`DELETE FROM workspace_replica_tombstones
+          WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'`, [...tenant]);
+        await transaction.query(sql, [...tenant]);
+      })).rejects.toThrow("changes only by its re-add");
+    }
+    // The tombstone stays while the row still exists: the re-add's two statements are ordered.
+    await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(
+      "UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active', entity_generation = 2, lifecycle_status_server_revision = 9, note_server_revision = 9, portfolio_id_server_revision = 9, tags_server_revision = 9, target_price_server_revision = 9 WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+      [...tenant]))).rejects.toThrow("changes only by its re-add");
+    // The application role cannot remove a row, nor rewrite a tombstone.
     for (const sql of [
-      "DELETE FROM workspace_replica_tombstones WHERE account_id = $1 AND workspace_id = $2",
       "UPDATE workspace_replica_tombstones SET deleted_server_revision = 3 WHERE account_id = $1 AND workspace_id = $2",
       "DELETE FROM workspace_replica_domain_assets WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
     ]) {

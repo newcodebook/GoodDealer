@@ -311,12 +311,13 @@ export class PostgresCheckpointService {
 
 /**
  * Replays a dense mutation range onto a checkpoint state (ADR-0029 decisions 1-3). A delete turns
- * the live row into a tombstone of the same generation at the delete's revision and time; an
- * upsert of a tombstoned id is a corrupt chain, not a creation. A creating upsert must be
- * generation 1 and every other item must name the live row's generation, exactly as ingest admits.
- *
- * Until the mutation log stores generations (ADR-0029 C2 prerequisite), stored mutations read back
- * as generation 1, so these generation checks only become discriminating once that column exists.
+ * the live row into a tombstone of the same generation at the delete's revision and time. A re-add
+ * replaces the tombstone it names (generation g, deletion revision R, built on R and before its own
+ * revision) with a live row of generation g + 1 holding only the re-add's fields. Any other item on
+ * a tombstone, and a re-add of anything but that tombstone, is a corrupt chain. A creating upsert
+ * must be generation 1 and every other item must name the live row's generation, exactly as ingest
+ * admits. The mutation log stores each accepted generation (migration 202611140005), so these
+ * checks compare what ingest accepted.
  */
 export function replayCheckpointState(
   snapshotValue: unknown,
@@ -342,7 +343,20 @@ export function replayCheckpointState(
   for (const mutation of mutations) {
     if (mutation.serverRevision !== expectedRevision) throw new TypeError("rebuild revisions are missing or reordered");
     if (mutation.workspaceId !== workspaceId) throw new TypeError("rebuild mutation crosses workspace scope");
-    if (tombstones.has(mutation.entityId)) throw new TypeError("rebuild mutation revives a deleted entity");
+    const tombstone = tombstones.get(mutation.entityId);
+    if (mutation.reAddsDeletedRevision !== undefined) {
+      if (tombstone === undefined || tombstone.deletedServerRevision !== mutation.reAddsDeletedRevision ||
+          mutation.entityGeneration !== tombstone.entityGeneration + 1 ||
+          mutation.baseServerRevision < tombstone.deletedServerRevision ||
+          mutation.baseServerRevision >= mutation.serverRevision) {
+        throw new TypeError("rebuild re-add names no matching tombstone");
+      }
+      tombstones.delete(mutation.entityId);
+      applyMutation(createDefaultRow(rows, mutation.entityId, mutation.entityGeneration), mutation);
+      expectedRevision += 1;
+      continue;
+    }
+    if (tombstone !== undefined) throw new TypeError("rebuild mutation revives a deleted entity");
     const row = rows.get(mutation.entityId);
     if (mutation.entityGeneration !== (row?.entityGeneration ?? 1)) {
       throw new TypeError("rebuild mutation names another entity generation");
@@ -358,7 +372,7 @@ export function replayCheckpointState(
       });
     } else {
       // The first upsert of an asset the snapshot does not hold creates it, as ingest did.
-      applyMutation(row ?? createDefaultRow(rows, mutation.entityId), mutation);
+      applyMutation(row ?? createDefaultRow(rows, mutation.entityId, 1), mutation);
     }
     expectedRevision += 1;
   }
@@ -372,8 +386,12 @@ async function checkpointStateDigest(state: unknown): Promise<string> {
   return digestBytes(encodeCheckpointEntityDigestsInput(await computeWorkspaceCheckpointEntityDigests(state, sha256)));
 }
 
-function createDefaultRow(rows: Map<string, MutableDomainAsset>, entityId: string): MutableDomainAsset {
-  const row: MutableDomainAsset = { entityId, entityGeneration: 1, note: null, portfolioId: null, tags: [], targetPrice: null };
+function createDefaultRow(
+  rows: Map<string, MutableDomainAsset>,
+  entityId: string,
+  entityGeneration: number,
+): MutableDomainAsset {
+  const row: MutableDomainAsset = { entityId, entityGeneration, note: null, portfolioId: null, tags: [], targetPrice: null };
   rows.set(entityId, row);
   return row;
 }

@@ -85,21 +85,27 @@ describe("workspace sync transaction-aware owner ports", () => {
   });
 
   it("reads tombstoned domain assets in the transaction's tenant and validates stored ids", async () => {
-    const query = vi.fn().mockResolvedValueOnce({ rows: [{ entity_id: "b.test", entity_generation: "2" }], rowCount: 1 });
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ entity_id: "b.test", entity_generation: "2", deleted_server_revision: "7" }], rowCount: 1,
+    });
     const repository = new PostgresPortfolioRepository();
     const transaction = { scope, query } as unknown as TenantTransaction;
     await expect(repository.readDomainAssetTombstones(transaction, ["b.test", "a.test", "b.test"]))
-      .resolves.toEqual(new Map([["b.test", 2]]));
+      .resolves.toEqual(new Map([["b.test", { generation: 2, deletedServerRevision: 7 }]]));
     expect(query.mock.calls[0]?.[1]).toEqual([scope.accountId, scope.workspaceId, ["b.test", "a.test"]]);
     expect(query.mock.calls[0]?.[0]).toContain("entity_type = 'domain_asset'");
     await expect(repository.readDomainAssetTombstones(transaction, [])).resolves.toEqual(new Map());
     expect(query).toHaveBeenCalledTimes(1);
     for (const row of [
-      { entity_id: "NOT A DOMAIN", entity_generation: "1" },
-      { entity_id: "a.test", entity_generation: "0" },
-      { entity_id: "a.test", entity_generation: 1 },
-      { entity_id: "a.test" },
-      { entity_id: "a.test", entity_generation: "1", extra: true },
+      { entity_id: "NOT A DOMAIN", entity_generation: "1", deleted_server_revision: "1" },
+      { entity_id: "a.test", entity_generation: "0", deleted_server_revision: "1" },
+      { entity_id: "a.test", entity_generation: 1, deleted_server_revision: "1" },
+      { entity_id: "a.test", deleted_server_revision: "1" },
+      { entity_id: "a.test", entity_generation: "1" },
+      { entity_id: "a.test", entity_generation: "1", deleted_server_revision: "0" },
+      { entity_id: "a.test", entity_generation: "1", deleted_server_revision: "01" },
+      { entity_id: "a.test", entity_generation: "1", deleted_server_revision: 1 },
+      { entity_id: "a.test", entity_generation: "1", deleted_server_revision: "1", extra: true },
     ]) {
       query.mockResolvedValueOnce({ rows: [row], rowCount: 1 });
       await expect(repository.readDomainAssetTombstones(transaction, ["a.test"])).rejects.toThrow();

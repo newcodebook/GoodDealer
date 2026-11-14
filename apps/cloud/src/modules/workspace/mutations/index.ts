@@ -37,7 +37,6 @@ import type { WorkspaceTenantScope } from "../tenant-scope";
 import { workspaceTenantKey } from "../tenant-scope";
 import type { PortfolioMutationPort } from "../state/portfolio/index";
 import { judgeEntityRule } from "./entity-state-rule";
-import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
@@ -388,10 +387,6 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
 
     if (request.workspaceId !== scope.workspaceId) return reject("MUTATION_WORKSPACE_MISMATCH");
 
-    // ADR-0029 C1a: generations first, as the PostgreSQL service does before its transaction.
-    const generationFailures = request.mutations.flatMap((mutation, index) =>
-      isFirstGenerationMutation(mutation) ? [] : [failure(index, mutation)]);
-    if (generationFailures.length > 0) return reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", generationFailures);
     const schemaFailures = request.mutations.flatMap((mutation, index) =>
       mutation.workspaceSchemaVersion === binding.workspaceSchemaVersion ? [] : [failure(index, mutation)],
     );
@@ -471,10 +466,12 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     }
     if (sequenceFailures.length > 0) return reject("MUTATION_SEQUENCE_CONFLICT", sequenceFailures);
 
+    const observedHead = this.#revisions.readHead(scope).serverRevision;
     const entityRule = judgeEntityRule(
       request.mutations,
       (index) => duplicateRevisions.has(index),
       (entityId) => this.#portfolio.readDomainAssetEntry(scope, entityId),
+      observedHead,
     );
     if (entityRule.unknown.length > 0) {
       return this.#rejectBusiness(scope, request, "MUTATION_ENTITY_UNKNOWN",
@@ -485,7 +482,6 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
         entityRule.generationMismatch.map((index) => failure(index, request.mutations[index]!)));
     }
 
-    const observedHead = this.#revisions.readHead(scope).serverRevision;
     const baseFailures = request.mutations.flatMap((mutation, index) =>
       duplicateRevisions.has(index) || mutation.baseServerRevision <= observedHead
         ? []

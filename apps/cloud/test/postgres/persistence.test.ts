@@ -318,7 +318,7 @@ describe("PostgreSQL tenant persistence", () => {
     })).rejects.toThrow();
   });
 
-  it("lets the application role write only the deletion columns of tombstones and replica assets", async () => {
+  it("lets the application role write only the deletion and re-add columns of tombstones and replica assets", async () => {
     const result = await appPool.query<{ table_name: string; column_name: string; can_insert: boolean; can_update: boolean }>(
       `SELECT c.table_name, c.column_name,
               has_column_privilege(current_user, c.table_name, c.column_name, 'INSERT') AS can_insert,
@@ -333,7 +333,8 @@ describe("PostgreSQL tenant persistence", () => {
     );
     expect(result.rows).toEqual([
       { table_name: "workspace_replica_domain_assets", column_name: "deleted_at", can_insert: false, can_update: true },
-      { table_name: "workspace_replica_domain_assets", column_name: "entity_generation", can_insert: false, can_update: false },
+      // A re-add moves a deleted row to the next generation; inserts still take generation 1.
+      { table_name: "workspace_replica_domain_assets", column_name: "entity_generation", can_insert: false, can_update: true },
       { table_name: "workspace_replica_domain_assets", column_name: "expires_on", can_insert: false, can_update: false },
       { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status", can_insert: false, can_update: true },
       { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status_server_revision", can_insert: false, can_update: true },
@@ -342,14 +343,16 @@ describe("PostgreSQL tenant persistence", () => {
         .map((column_name) => ({
           table_name: "workspace_replica_tombstones",
           column_name,
-          // Generation takes its default until re-add (ADR-0029 C2) needs to write a later one.
-          can_insert: column_name !== "purge_after" && column_name !== "entity_generation",
+          // A delete copies its row's generation, which a re-add can raise above 1.
+          can_insert: column_name !== "purge_after",
           can_update: false,
         })),
     ]);
   });
 
-  // Tombstones gained column-level INSERT for deletion (above); no table-wide write exists.
+  // Tombstones gained column-level INSERT for deletion (above) and DELETE for re-add, which a
+  // commit-time trigger limits to the DomainAsset tombstone a re-add supersedes; no other
+  // table-wide write exists.
   it("keeps unimplemented replica families read-only for the application role", async () => {
     const privileges = await appPool.query<{ table_name: string; can_select: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }>(
       `SELECT table_name,
@@ -369,7 +372,7 @@ describe("PostgreSQL tenant persistence", () => {
       can_select: true,
       can_insert: false,
       can_update: false,
-      can_delete: false,
+      can_delete: table_name === "workspace_replica_tombstones",
     })));
   });
 

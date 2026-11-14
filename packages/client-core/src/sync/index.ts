@@ -690,15 +690,38 @@ function canonicalProjection(input: Map<string, MutableDomainAsset>): DomainAsse
 
 /**
  * Mirrors the Cloud rebuild (ADR-0029 decisions 1-3): a delete turns the live row into a tombstone
- * of its generation; any later item for a tombstoned id is a revival the chain cannot contain; a
- * creating upsert is generation 1 and every other item names the live row's generation.
+ * of its generation; a re-add replaces the tombstone it names (generation g, deletion revision R,
+ * built on R and before its own revision) with a live row of generation g + 1 holding only its
+ * fields; any other item for a tombstoned id is a revival the chain cannot contain; a creating
+ * upsert is generation 1 and every other item names the live row's generation.
  */
 function applyDomainAssetMutation(
   projection: Map<string, MutableDomainAsset>,
   tombstones: Map<string, CheckpointDomainAssetTombstone>,
   mutation: SyncMutation,
 ): void {
-  if (tombstones.has(mutation.entityId)) throw new TypeError("rebuild mutation revives a deleted entity");
+  const tombstone = tombstones.get(mutation.entityId);
+  if (mutation.reAddsDeletedRevision !== undefined) {
+    if (tombstone === undefined || tombstone.deletedServerRevision !== mutation.reAddsDeletedRevision ||
+        mutation.entityGeneration !== tombstone.entityGeneration + 1 ||
+        mutation.baseServerRevision < tombstone.deletedServerRevision ||
+        mutation.baseServerRevision >= mutation.serverRevision) {
+      throw new TypeError("rebuild re-add names no matching tombstone");
+    }
+    tombstones.delete(mutation.entityId);
+    const readded: MutableDomainAsset = {
+      entityId: mutation.entityId,
+      entityGeneration: mutation.entityGeneration,
+      note: null,
+      portfolioId: null,
+      tags: [],
+      targetPrice: null,
+    };
+    projection.set(mutation.entityId, readded);
+    applyDomainAssetFields(readded, mutation);
+    return;
+  }
+  if (tombstone !== undefined) throw new TypeError("rebuild mutation revives a deleted entity");
   let row = projection.get(mutation.entityId);
   if (mutation.entityGeneration !== (row?.entityGeneration ?? 1)) {
     throw new TypeError("rebuild mutation names another entity generation");
@@ -720,6 +743,10 @@ function applyDomainAssetMutation(
     row = { entityId: mutation.entityId, entityGeneration: 1, note: null, portfolioId: null, tags: [], targetPrice: null };
     projection.set(mutation.entityId, row);
   }
+  applyDomainAssetFields(row, mutation);
+}
+
+function applyDomainAssetFields(row: MutableDomainAsset, mutation: SyncMutation): void {
   for (const field of mutation.changedFields) {
     switch (field.fieldPath) {
       case "note": row.note = field.value; break;

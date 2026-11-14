@@ -101,6 +101,8 @@ interface MutationHeaderRow {
   operation_kind: string;
   deleted_at: string | null;
   base_server_revision: string;
+  entity_generation: string;
+  re_adds_deleted_revision: string | null;
   source_device_id: string;
   active_lease_epoch: string;
   device_mutation_sequence: string;
@@ -316,12 +318,13 @@ export class PostgresWorkspaceMutationRepository {
         `INSERT INTO workspace_mutations (
            account_id, workspace_id, server_revision, mutation_id, workspace_schema_version,
            entity_type, entity_id, operation_kind, deleted_at, base_server_revision,
-           source_device_id, active_lease_epoch,
+           entity_generation, re_adds_deleted_revision, source_device_id, active_lease_epoch,
            device_mutation_sequence, canonical_submitted_envelope, submitted_envelope_digest
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [transaction.scope.accountId, transaction.scope.workspaceId, serverRevision, mutation.mutationId,
           mutation.workspaceSchemaVersion, mutation.entityType, mutation.entityId,
           mutation.operationKind ?? "upsert", mutation.deletedAt ?? null, mutation.baseServerRevision,
+          mutation.entityGeneration, mutation.reAddsDeletedRevision ?? null,
           mutation.sourceDeviceId, mutation.activeLeaseEpoch, mutation.deviceMutationSequence, envelope, digest],
       );
       for (const [ordinal, field] of mutation.changedFields.entries()) {
@@ -353,7 +356,8 @@ export class PostgresWorkspaceMutationRepository {
               operation_kind,
               CASE WHEN deleted_at IS NULL THEN NULL
                    ELSE to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') END AS deleted_at,
-              base_server_revision, source_device_id, active_lease_epoch, device_mutation_sequence,
+              base_server_revision, entity_generation, re_adds_deleted_revision,
+              source_device_id, active_lease_epoch, device_mutation_sequence,
               canonical_submitted_envelope, submitted_envelope_digest
        FROM workspace_mutations
        WHERE account_id = $1 AND workspace_id = $2
@@ -535,7 +539,8 @@ function parseStoredMutation(
     if (row.ordinal !== ordinal) throw new TypeError("stored mutation field ordinals are not contiguous");
     return parseStoredField(row);
   });
-  // Until C1b stores generations, every accepted mutation is generation 1: ingest refuses others.
+  // Rows accepted before migration 202611140005 read back as generation 1 without a re-add, which
+  // is all the ingest accepted then; the canonical envelope check below would catch any other.
   const mutation = syncMutationSchema.parse({
     schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
     mutationId: header.mutation_id,
@@ -543,7 +548,10 @@ function parseStoredMutation(
     workspaceSchemaVersion: parseUnsignedInteger(header.workspace_schema_version, "stored workspace schema version"),
     entityType: header.entity_type,
     entityId: header.entity_id,
-    entityGeneration: 1,
+    entityGeneration: parseUnsignedInteger(header.entity_generation, "stored entity generation"),
+    ...(header.re_adds_deleted_revision === null ? {} : {
+      reAddsDeletedRevision: parseUnsignedInteger(header.re_adds_deleted_revision, "stored re-added revision"),
+    }),
     operationKind: header.operation_kind,
     ...(header.operation_kind === "delete" ? { deletedAt: required(header.deleted_at) } : {}),
     baseServerRevision: parseUnsignedInteger(header.base_server_revision, "stored base revision"),

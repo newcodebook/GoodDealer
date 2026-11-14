@@ -200,6 +200,16 @@ const expectedCatalog = [
     owner: "workspace/checkpoints",
     checksum: "e17416ad0a59000e57f092947acba9484949743b49ee2bf9a4df8bf3388f8119",
   },
+  {
+    id: "202611140005-mutation-log-generation",
+    owner: "workspace/mutations",
+    checksum: "3745d9f2df15082d1262e5f37aacd8ab7de8eaaf09681ec275725b24ba3fbabe",
+  },
+  {
+    id: "202611140006-replica-domain-asset-re-add",
+    owner: "workspace/state/portfolio",
+    checksum: "9a8e64d1d411afabb5f97c64a95aa5af569a533017a8102d170bf14d4d6f1be4",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -228,7 +238,8 @@ describe("Cloud migration catalog", () => {
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
-      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n];",
+      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n"
+      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -241,7 +252,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(36);
+    expect(checkedCloudMigrationCatalog).toHaveLength(38);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

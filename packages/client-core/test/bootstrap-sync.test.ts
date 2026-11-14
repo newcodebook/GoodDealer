@@ -291,6 +291,19 @@ describe("BootstrapRebuildAccumulator", () => {
         mutations[0]!["entityGeneration"] = 2;
       }, pattern: /generation/i, refreshDigest: true },
       { mutate: (value) => {
+        // A re-add must name the tombstone's next generation.
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityId"] = "c.test";
+        mutations[0]!["entityGeneration"] = 3;
+        mutations[0]!["reAddsDeletedRevision"] = 1;
+      }, pattern: /re-add/i, refreshDigest: true },
+      { mutate: (value) => {
+        // A re-add of a live asset names no tombstone.
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityGeneration"] = 2;
+        mutations[0]!["reAddsDeletedRevision"] = 1;
+      }, pattern: /re-add/i, refreshDigest: true },
+      { mutate: (value) => {
         const mutations = value.page["mutations"] as Record<string, unknown>[];
         mutations[0]!["entityId"] = "never-held.test";
         mutations[0]!["operationKind"] = "delete";
@@ -310,6 +323,23 @@ describe("BootstrapRebuildAccumulator", () => {
       expect(accumulator.snapshot().projection).toEqual(checkpointProjection());
       expect(accumulator.snapshot().tombstones).toEqual(checkpointTombstones());
     }
+  });
+
+  it("replays a re-add of a checkpoint tombstone into a live asset holding only the re-add's fields", async () => {
+    const accumulator = await start();
+    const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+    const mutations = changed.page["mutations"] as Record<string, unknown>[];
+    mutations[0]!["entityId"] = "c.test";
+    mutations[0]!["entityGeneration"] = 2;
+    mutations[0]!["reAddsDeletedRevision"] = 1;
+    mutations[0]!["changedFields"] = [{ fieldPath: "note", value: "second life" }];
+    changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+    await accumulator.appendPage(changed);
+    const projection = accumulator.snapshot().projection as readonly { entityId: string }[];
+    expect(projection.find(({ entityId }) => entityId === "c.test")).toEqual({
+      entityId: "c.test", note: "second life", portfolioId: null, tags: [], targetPrice: null,
+    });
+    expect(accumulator.snapshot().tombstones).toEqual([]);
   });
 
   it("creates an asset the checkpoint does not hold from its first upsert, with default fields", async () => {

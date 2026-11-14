@@ -738,6 +738,31 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     expect(after.descriptor.checkpointDigest).toBe(rebuilt.value.stateDigest);
   });
 
+  it("rebuilds a persisted re-add into the live generation the replica holds", async () => {
+    const persistedMutations = new PostgresWorkspaceMutationRepository();
+    const rebuilding = checkpointService(recovery, persistedMutations);
+    await seedWorkspace(tenantA, initialRows, 0);
+    await makeAvailable("before-re-add");
+    await advanceWorkspaceWithPersistedDelete(tenantA, persistedMutations, "a.test", "2026-11-14T02:03:04Z");
+    await advanceWorkspaceWithPersistedReAdd(tenantA, persistedMutations, "a.test");
+    const rebuilt = await rebuilding.rebuild(tenantA, "before-re-add", 2);
+    expect(rebuilt).toMatchObject({
+      accepted: true,
+      value: {
+        throughServerRevision: 2,
+        state: {
+          assets: [{ entityId: "a.test", entityGeneration: 2, note: "second life", portfolioId: null, tags: [], targetPrice: null }],
+          tombstones: [],
+        },
+      },
+    });
+    // The log stores the re-add's generation, so the rebuild reaches the state a checkpoint records.
+    await makeAvailable("after-re-add");
+    const after = await transactions.withTenant(tenantA, (transaction) => checkpoints.read(transaction, "after-re-add"));
+    if (!rebuilt.accepted || after === null) throw new Error("re-add rebuild fixture failed");
+    expect(after.descriptor.checkpointDigest).toBe(rebuilt.value.stateDigest);
+  });
+
   it("rejects a corrupt persisted checkpoint snapshot during service rebuild", async () => {
     const persistedMutations = new PostgresWorkspaceMutationRepository();
     const rebuilding = checkpointService(recovery, persistedMutations);
@@ -867,6 +892,36 @@ describe("deterministic checkpoint rebuild", () => {
     expect(() => replayCheckpointState(deletedState, [mutation(2, "revived")], 1, 2, tenantA.workspaceId))
       .toThrow(/revives a deleted entity/);
     expect(() => replayCheckpointState(deletedState, [], 0, 0, tenantA.workspaceId)).toThrow(/deletion after its revision/);
+  });
+
+  it("replays a re-add of the tombstone it names into the next generation and nothing else", () => {
+    const reAdd = (revision: number, overrides: Partial<SyncMutation> = {}): SyncMutation => ({
+      ...mutation(revision, "again"), entityGeneration: 2, reAddsDeletedRevision: 1, ...overrides,
+    } as SyncMutation);
+    // The checkpoint's own fields of generation 1 do not survive the re-add.
+    const withFields = { ...initialState, assets: [{ ...initialState.assets[0]!, tags: ["old"] }] };
+    expect(replayCheckpointState(withFields, [deletion(1), reAdd(2)], 0, 2, tenantA.workspaceId)).toEqual({
+      assets: [{ entityId: "a.test", entityGeneration: 2, note: "again", portfolioId: null, tags: [], targetPrice: null }],
+      tombstones: [],
+    });
+    const deletedState = { assets: [], tombstones: [{ entityId: "a.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-11-14T01:02:03Z" }] };
+    expect(replayCheckpointState(deletedState, [reAdd(2), { ...deletion(3), entityGeneration: 2 }], 1, 3, tenantA.workspaceId))
+      .toMatchObject({ assets: [], tombstones: [{ entityGeneration: 2, deletedServerRevision: 3 }] });
+    for (const corrupt of [reAdd(2, { entityGeneration: 3 }), reAdd(2, { entityId: "never.test" })]) {
+      expect(() => replayCheckpointState(deletedState, [corrupt], 1, 2, tenantA.workspaceId)).toThrow(/re-add/);
+    }
+    // A re-add naming another deletion, or not built on its own, is not even a valid wire item.
+    for (const malformed of [
+      reAdd(2, { reAddsDeletedRevision: 2 } as Partial<SyncMutation>),
+      reAdd(2, { baseServerRevision: 0 }),
+    ]) {
+      expect(() => replayCheckpointState(deletedState, [malformed], 1, 2, tenantA.workspaceId)).toThrow();
+    }
+    // A re-add of a live asset, and a second re-add of a superseded tombstone, are corrupt too.
+    expect(() => replayCheckpointState(initialState, [mutation(1, "live"), reAdd(2)], 0, 2, tenantA.workspaceId))
+      .toThrow(/re-add/);
+    expect(() => replayCheckpointState(deletedState, [reAdd(2), reAdd(3, { baseServerRevision: 2 })], 1, 3, tenantA.workspaceId))
+      .toThrow(/re-add/);
   });
 
   it("requires every replayed item to name the generation it reaches", () => {
@@ -1161,6 +1216,44 @@ async function advanceWorkspaceWithPersistedDelete(
       [scope.accountId, scope.workspaceId],
     );
     if (revision.rowCount !== 1) throw new Error("persistent delete fixture failed to advance workspace");
+  });
+}
+
+/** Re-adds `entityId` at revision 2 over the revision-1 delete the fixture above wrote. */
+async function advanceWorkspaceWithPersistedReAdd(
+  scope: typeof tenantA | typeof tenantB,
+  persistedMutations: PostgresWorkspaceMutationRepository,
+  entityId: string,
+): Promise<void> {
+  const mutation = submittedSyncMutationSchema.parse({
+    schemaVersion: 3,
+    mutationId: `${scope.accountId}-re-add`,
+    workspaceId: scope.workspaceId,
+    workspaceSchemaVersion: 1,
+    entityType: "domain_asset",
+    entityId,
+    entityGeneration: 2,
+    reAddsDeletedRevision: 1,
+    operationKind: "upsert",
+    baseServerRevision: 1,
+    changedFields: [{ fieldPath: "note", value: "second life" }],
+    sourceDeviceId: `${scope.accountId}-device`,
+    activeLeaseEpoch: 1,
+    deviceMutationSequence: 2,
+  });
+  await transactions.withTenant(scope, async (transaction) => {
+    const lock = await persistedMutations.lockDrainDomain(transaction, {
+      sourceDeviceId: mutation.sourceDeviceId,
+      activeLeaseEpoch: mutation.activeLeaseEpoch,
+    });
+    await persistedMutations.appendAccepted(transaction, lock, [{ mutation, serverRevision: 2 }]);
+    await portfolio.applyAcceptedMutations(transaction, [{ mutation, serverRevision: 2 }]);
+    const revision = await transaction.query(
+      `UPDATE workspace_revisions SET server_revision = 2
+       WHERE account_id = $1 AND workspace_id = $2 AND server_revision = 1`,
+      [scope.accountId, scope.workspaceId],
+    );
+    if (revision.rowCount !== 1) throw new Error("persistent re-add fixture failed to advance workspace");
   });
 }
 

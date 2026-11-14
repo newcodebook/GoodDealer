@@ -36,8 +36,9 @@ observation writes belong to other modules.
 - MUST: Keep recovery read-only, host-independent, and outside Desktop's normal Query path.
 - MUST: Never accept Provider account identity, labels, credential bindings, or secrets.
 - MUST: Use `workspace_replica_*` final table names so database semantics cannot imply Desktop Repository ownership.
-- MUST: Deny application-role hard deletes, and keep future replica families read-only until strict wire schemas, materializers, tombstone semantics, and recovery tests exist.
-- MUST: Materialize an accepted DomainAsset delete as a soft-deleted row plus its tombstone in the ingest transaction, and exclude deleted rows from every read; the row stays because immutable DNS observation receipts reference it (ADR-0029 decision 2). The database refuses an unpaired or edited deleted row.
+- MUST: Deny application-role hard deletes except the DomainAsset tombstone a re-add supersedes, and keep future replica families read-only until strict wire schemas, materializers, tombstone semantics, and recovery tests exist.
+- MUST: Materialize an accepted DomainAsset delete as a soft-deleted row plus its tombstone of the row's generation in the ingest transaction, and exclude deleted rows from every read; the row stays because immutable DNS observation receipts reference it (ADR-0029 decision 2). The database refuses an unpaired or edited deleted row.
+- MUST: Materialize an accepted re-add by removing the tombstone it names and resetting the soft-deleted row to a default live row of the next generation before applying its fields (ADR-0029 decision 3). The database admits no other change to a deleted row, keeps a live row's generation fixed, and refuses removing a tombstone whose row has not moved past it.
 - MUST: Grant application writes by column; current fields and server revisions cannot authorize future lifecycle or materialization columns.
 
 ## Boundaries

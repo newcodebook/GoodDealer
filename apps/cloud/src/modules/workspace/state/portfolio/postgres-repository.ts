@@ -42,6 +42,11 @@ export interface LockedDomainAsset extends DomainAssetProjectionRow {
   readonly lastModifiedRevision: Readonly<Record<DomainAssetFieldPath, number>>;
 }
 
+export interface DomainAssetTombstoneEntry {
+  readonly generation: number;
+  readonly deletedServerRevision: number;
+}
+
 /** Transaction-aware state boundary used by sync/checkpoint owners; it never allocates revisions. */
 export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPort {
   /** Live rows among `entityIds`; a soft-deleted row is reported by `readDomainAssetTombstones`. */
@@ -49,11 +54,11 @@ export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPo
     transaction: TenantTransaction,
     entityIds: readonly string[],
   ): Promise<readonly LockedDomainAsset[]>;
-  /** Tombstoned domain assets among `entityIds`, each with the generation it deleted. */
+  /** Tombstoned domain assets among `entityIds`, each with the generation and revision that deleted it. */
   readDomainAssetTombstones(
     transaction: TenantTransaction,
     entityIds: readonly string[],
-  ): Promise<ReadonlyMap<string, number>>;
+  ): Promise<ReadonlyMap<string, DomainAssetTombstoneEntry>>;
   applyAcceptedMutations(
     transaction: TenantTransaction,
     assignments: readonly { readonly mutation: SubmittedSyncMutation; readonly serverRevision: number }[],
@@ -160,21 +165,27 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
   async readDomainAssetTombstones(
     transaction: TenantTransaction,
     values: readonly string[],
-  ): Promise<ReadonlyMap<string, number>> {
+  ): Promise<ReadonlyMap<string, DomainAssetTombstoneEntry>> {
     const entityIds = [...new Set(values.map((value) => domainAssetProjectionRowSchema.shape.entityId.parse(value)))];
     if (entityIds.length === 0) return new Map();
     // Tombstones are written only by an ingest or materialization that holds the workspace revision
     // lock, which every caller already holds, so this read cannot race a concurrent delete.
-    const result = await transaction.query<{ entity_id: unknown; entity_generation: unknown }>(
-      `SELECT entity_id, entity_generation::text AS entity_generation FROM workspace_replica_tombstones
+    const result = await transaction.query<{
+      entity_id: unknown; entity_generation: unknown; deleted_server_revision: unknown;
+    }>(
+      `SELECT entity_id, entity_generation::text AS entity_generation,
+              deleted_server_revision::text AS deleted_server_revision
+       FROM workspace_replica_tombstones
        WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'domain_asset' AND entity_id = ANY($3::text[])`,
       [transaction.scope.accountId, transaction.scope.workspaceId, entityIds],
     );
     return new Map(result.rows.map((row) => {
-      const tombstone = strictRow(row, ["entity_id", "entity_generation"] as const);
+      const tombstone = strictRow(row, ["entity_id", "entity_generation", "deleted_server_revision"] as const);
+      const deletedServerRevision = parseStoredRevision(tombstone.deleted_server_revision);
+      if (deletedServerRevision < 1) throw new TypeError("stored tombstone revision must be positive");
       return [
         domainAssetProjectionRowSchema.shape.entityId.parse(tombstone.entity_id),
-        parseStoredGeneration(tombstone.entity_generation),
+        { generation: parseStoredGeneration(tombstone.entity_generation), deletedServerRevision },
       ] as const;
     }));
   }
@@ -193,8 +204,11 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
         await softDeleteDomainAsset(transaction, mutation, revision);
         continue;
       }
+      if (mutation.reAddsDeletedRevision !== undefined) {
+        await reAddDomainAsset(transaction, mutation, mutation.reAddsDeletedRevision, revision);
+      }
       // The first upsert of an asset the replica does not hold creates it with every field at its
-      // default and revision 0; the ingest has already refused assets that are tombstoned.
+      // default and revision 0; the ingest has already refused other upserts of tombstoned assets.
       await transaction.query(
         `INSERT INTO workspace_replica_domain_assets (account_id, workspace_id, entity_id)
          VALUES ($1, $2, $3) ON CONFLICT (account_id, workspace_id, entity_id) DO NOTHING`,
@@ -361,12 +375,54 @@ async function softDeleteDomainAsset(
     [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, mutation.deletedAt, revision],
   );
   if (deleted.rowCount !== 1) throw new TypeError("accepted delete names no live domain asset");
+  // The tombstone records the generation it deleted, which is the row's (the ingest admitted the
+  // delete only when the mutation named it); the pairing trigger refuses any other.
   await transaction.query(
     `INSERT INTO workspace_replica_tombstones (
-       account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at
-     ) VALUES ($1, $2, 'domain_asset', $3, $4, $5::timestamptz)`,
-    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, revision, mutation.deletedAt],
+       account_id, workspace_id, entity_type, entity_id, entity_generation, deleted_server_revision, deleted_at
+     ) VALUES ($1, $2, 'domain_asset', $3, $4, $5, $6::timestamptz)`,
+    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, mutation.entityGeneration,
+      revision, mutation.deletedAt],
   );
+}
+
+/**
+ * ADR-0029 decision 3. Removes the tombstone the re-add names and turns its soft-deleted row into
+ * a live row of the next generation with every business field at its default and this revision;
+ * the caller then applies the re-add's fields. Nothing of the deleted generation survives. The
+ * statements match on generation and deletion revision, so a tombstone that is not the one the
+ * ingest judged fails the transaction instead of being re-added; migration 202611140006 makes the
+ * same transition the only one the database accepts for a deleted row or a tombstone.
+ */
+async function reAddDomainAsset(
+  transaction: TenantTransaction,
+  mutation: SubmittedSyncMutation,
+  reAddsDeletedRevision: number,
+  revision: number,
+): Promise<void> {
+  const deletedGeneration = mutation.entityGeneration - 1;
+  const removed = await transaction.query(
+    `DELETE FROM workspace_replica_tombstones
+     WHERE account_id = $1 AND workspace_id = $2 AND entity_type = 'domain_asset' AND entity_id = $3
+       AND entity_generation = $4 AND deleted_server_revision = $5`,
+    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, deletedGeneration,
+      reAddsDeletedRevision],
+  );
+  if (removed.rowCount !== 1) throw new TypeError("accepted re-add names no matching tombstone");
+  const reset = await transaction.query(
+    `UPDATE workspace_replica_domain_assets SET
+       deleted_at = NULL, lifecycle_status = 'active', lifecycle_status_server_revision = $5,
+       entity_generation = $6,
+       note = NULL, note_server_revision = $5,
+       portfolio_id = NULL, portfolio_id_server_revision = $5,
+       tags = '{}', tags_server_revision = $5,
+       target_price_currency = NULL, target_price_amount = NULL, target_price_server_revision = $5
+     WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3
+       AND deleted_at IS NOT NULL AND entity_generation = $4`,
+    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, deletedGeneration,
+      revision, mutation.entityGeneration],
+  );
+  if (reset.rowCount !== 1) throw new TypeError("accepted re-add names no deleted domain asset");
 }
 
 interface StoredDomainAssetRow {

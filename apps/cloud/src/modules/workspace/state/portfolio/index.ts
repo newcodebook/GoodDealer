@@ -22,7 +22,7 @@ export interface DomainAssetSeed {
   readonly portfolioId?: string | null;
   readonly tags?: readonly string[];
   readonly targetPrice?: { readonly currency: string; readonly amount: string } | null;
-  /** Test double only: a later generation, as a re-add (ADR-0029 C2) would leave the row. */
+  /** Test double only: a later generation, as an accepted re-add leaves the row. */
   readonly entityGeneration?: number;
 }
 
@@ -58,9 +58,13 @@ export interface DomainAssetProjection extends DomainAssetProjectionRow {
 /** The replica state of a DomainAsset: a live row, a tombstone, or never held. */
 export type DomainAssetReplicaState = "active" | "deleted" | "absent";
 
-/** A live row or tombstone with the generation it holds, or an asset the replica never held. */
+/**
+ * A live row with its generation, a tombstone with the generation it deleted and the revision that
+ * deleted it (which a re-add must name), or an asset the replica never held.
+ */
 export type DomainAssetReplicaEntry =
-  | { readonly state: "active" | "deleted"; readonly generation: number }
+  | { readonly state: "active"; readonly generation: number }
+  | { readonly state: "deleted"; readonly generation: number; readonly deletedServerRevision: number }
   | { readonly state: "absent" };
 
 export interface PortfolioMutationPort {
@@ -112,7 +116,13 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     const row = this.#rows.get(key)?.get(entityId);
     if (row !== undefined) return { state: "active", generation: row.entityGeneration };
     const tombstone = this.#tombstones.get(key)?.get(entityId);
-    return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone.entityGeneration };
+    return tombstone === undefined
+      ? { state: "absent" }
+      : {
+        state: "deleted",
+        generation: tombstone.entityGeneration,
+        deletedServerRevision: tombstone.deletedServerRevision,
+      };
   }
 
   readDomainAssetState(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaState {
@@ -147,10 +157,22 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
           deletedServerRevision: serverRevision,
           deletedAt: mutation.deletedAt,
         });
+      } else if (mutation.reAddsDeletedRevision !== undefined) {
+        // ADR-0029 decision 3: the ingest admitted this re-add only for the tombstone it names. The
+        // new generation keeps none of the deleted row's fields and every field is this revision's.
+        const tombstone = tombstones.get(mutation.entityId);
+        if (tombstone === undefined || rows.has(mutation.entityId) ||
+            tombstone.deletedServerRevision !== mutation.reAddsDeletedRevision ||
+            tombstone.entityGeneration + 1 !== mutation.entityGeneration) {
+          throw new TypeError("accepted re-add names no matching tombstone");
+        }
+        tombstones.delete(mutation.entityId);
+        const row = createDefaultRow(rows, mutation.entityId, mutation.entityGeneration, serverRevision);
+        for (const field of mutation.changedFields) applyField(row, field, serverRevision);
       } else {
         if (tombstones.has(mutation.entityId)) throw new TypeError("accepted upsert names a deleted domain asset");
         // The first upsert of an asset creates it with every field at its default and revision 0.
-        const row = rows.get(mutation.entityId) ?? createDefaultRow(rows, mutation.entityId);
+        const row = rows.get(mutation.entityId) ?? createDefaultRow(rows, mutation.entityId, 1, 0);
         for (const field of mutation.changedFields) applyField(row, field, serverRevision);
       }
       this.#recordSnapshot(scope, serverRevision);
@@ -260,14 +282,19 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   }
 }
 
-function createDefaultRow(rows: Map<string, StoredDomainAsset>, entityId: string): StoredDomainAsset {
+function createDefaultRow(
+  rows: Map<string, StoredDomainAsset>,
+  entityId: string,
+  entityGeneration: number,
+  lastModifiedRevision: number,
+): StoredDomainAsset {
   const row: StoredDomainAsset = {
     entityId,
-    entityGeneration: 1,
-    note: { value: null, lastModifiedRevision: 0 },
-    portfolioId: { value: null, lastModifiedRevision: 0 },
-    tags: { value: [], lastModifiedRevision: 0 },
-    targetPrice: { value: null, lastModifiedRevision: 0 },
+    entityGeneration,
+    note: { value: null, lastModifiedRevision },
+    portfolioId: { value: null, lastModifiedRevision },
+    tags: { value: [], lastModifiedRevision },
+    targetPrice: { value: null, lastModifiedRevision },
   };
   rows.set(entityId, row);
   return row;

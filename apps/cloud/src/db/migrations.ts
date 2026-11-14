@@ -34,6 +34,8 @@ import { replicaDomainAssetDeletionMigration } from "../modules/workspace/state/
 import { replicaEntityGenerationMigration } from "../modules/workspace/state/portfolio/migrations/202611140002-replica-entity-generation";
 import { mutationGenerationMismatchReceiptMigration } from "../modules/workspace/mutations/migrations/202611140003-mutation-generation-mismatch-receipt";
 import { workspaceCheckpointStateV3Migration } from "../modules/workspace/checkpoints/migrations/202611140004-workspace-checkpoint-state-v3";
+import { mutationLogGenerationMigration } from "../modules/workspace/mutations/migrations/202611140005-mutation-log-generation";
+import { replicaDomainAssetReAddMigration } from "../modules/workspace/state/portfolio/migrations/202611140006-replica-domain-asset-re-add";
 import { buildMigrationCatalog, type CloudMigration } from "./index";
 
 /** Explicit imports make cross-module ordering reviewable without moving table ownership into db. */
@@ -74,6 +76,8 @@ export const cloudMigrations: readonly CloudMigration[] = [
   replicaEntityGenerationMigration,
   mutationGenerationMismatchReceiptMigration,
   workspaceCheckpointStateV3Migration,
+  mutationLogGenerationMigration,
+  replicaDomainAssetReAddMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.
