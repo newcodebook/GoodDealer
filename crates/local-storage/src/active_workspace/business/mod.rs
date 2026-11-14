@@ -6252,11 +6252,15 @@ fn is_own_acknowledged_echo(
     Ok(canonical_mutation_digest(mutation, wire_version)? == recorded_digest)
 }
 
-/// Whether a write this device committed after the echoed `mutation`, still `pending` or
-/// `sending`, carries `field_path` of the same entity. The Outbox payload is keyed by field path;
-/// local edits, creates and keep-local resolutions all write the full projection (a null field is
-/// present as JSON `null`), so in practice any later in-flight upsert covers every field.
-fn own_later_write_in_flight(
+/// Whether a write this device committed after the echoed `mutation` carries `field_path` of the
+/// same entity and has not been overtaken by it: still being delivered (`pending`/`sending`), or
+/// accepted by Cloud at a later revision whose own echo the Inbox has not reached yet. Either way
+/// the local field already holds that later write. This relies on Cloud accepting or refusing a
+/// mutation as a whole: an acknowledged later write stored every field it carries. A write Cloud refused is terminal in another
+/// state and does not count. The Outbox payload is keyed by field path; local edits, creates and
+/// keep-local resolutions all write the full projection (a null field is present as JSON `null`),
+/// so in practice any such later upsert covers every field.
+fn own_later_write_supersedes(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
     mutation: &SyncMutationV2,
@@ -6266,7 +6270,9 @@ fn own_later_write_in_flight(
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sync_outbox AS later
                  WHERE later.workspace_id=?1 AND later.entity_kind='domain_asset'
-                   AND later.entity_id=?2 AND later.state IN ('pending','sending')
+                   AND later.entity_id=?2
+                   AND (later.state IN ('pending','sending')
+                        OR (later.state='acknowledged' AND later.server_revision > ?5))
                    AND later.operation_kind='upsert'
                    AND json_type(later.mutation_payload_json, '$.' || ?4) IS NOT NULL
                    AND later.local_commit_sequence > (
@@ -6276,7 +6282,9 @@ fn own_later_write_in_flight(
                 workspace_id,
                 mutation.entity_id,
                 mutation.mutation_id,
-                field_path
+                field_path,
+                i64::try_from(mutation.server_revision)
+                    .map_err(|_| BusinessDatabaseError::InvalidInput)?
             ],
             |row| row.get(0),
         )
@@ -6621,14 +6629,14 @@ fn apply_sync_mutation_projection(
                 |row| row.get(0),
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        // On the echo of this device's own accepted write, a field that a later local write of this
-        // device is still delivering holds that later write, which supersedes the echo as it does
-        // on Cloud (`isOwnEarlierWrite`): the local value and its pending version stay, with no
-        // conflict. A field left pending by a write Cloud refused keeps the conflict below, since
+        // On the echo of this device's own accepted write, a field a later write of this device
+        // still holds (in flight, or accepted after this echo and not yet echoed) supersedes the
+        // echo as it does on Cloud (`isOwnEarlierWrite`): the local value and its version stay,
+        // with no conflict, so a paginated pull never rolls the projection back to the earlier
+        // value. A field left pending by a write Cloud refused keeps the conflict below, since
         // Cloud holds the echoed value and the replica does not.
-        if field_pending != 0
-            && own_echo
-            && own_later_write_in_flight(transaction, workspace_id, mutation, &field.field_path)?
+        if own_echo
+            && own_later_write_supersedes(transaction, workspace_id, mutation, &field.field_path)?
         {
             continue;
         }
@@ -15323,6 +15331,30 @@ mod tests {
             (0, 0, 4, Some("b".to_owned()))
         );
         let later = acknowledge_claimed(&mut database, 3);
+        pull_echoes(&mut database, 2, &later, "confirm-3").unwrap();
+        assert_eq!(
+            own_edit_echo_state(&database),
+            (0, 0, 0, Some("b".to_owned()))
+        );
+    }
+
+    #[test]
+    fn own_echo_of_an_earlier_edit_does_not_roll_back_a_later_acknowledged_edit() {
+        // Both edits are acknowledged before the pull reaches either echo; a paginated pull then
+        // applies the earlier echo on its own page before the later one.
+        let mut database = database();
+        own_create(&mut database);
+        let create = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &create, "confirm-1").unwrap();
+        own_edit(&mut database, "edit-a", "a");
+        let earlier = acknowledge_claimed(&mut database, 2);
+        own_edit(&mut database, "edit-b", "b");
+        let later = acknowledge_claimed(&mut database, 3);
+        pull_echoes(&mut database, 1, &earlier, "confirm-2").unwrap();
+        assert_eq!(
+            own_edit_echo_state(&database),
+            (0, 0, 0, Some("b".to_owned()))
+        );
         pull_echoes(&mut database, 2, &later, "confirm-3").unwrap();
         assert_eq!(
             own_edit_echo_state(&database),
