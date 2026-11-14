@@ -8125,6 +8125,89 @@ mod tests {
         database
     }
 
+    /// The `confirmed` flag the sales merge filters on follows its run and target, and no write can
+    /// set it to anything else, so dropping the per-row joins cannot change what the desk shows.
+    #[test]
+    fn listing_confirmation_follows_its_run_and_target_and_refuses_direct_writes() {
+        let mut database = sales_database(&[]);
+        let connection = database.store.fixture_connection();
+        // Every row's flag equals the run-and-target predicate the sales merge used to join on.
+        let drift = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT count(*) FROM marketplace_listing_observations m
+                     WHERE m.confirmed IS NOT (
+                       EXISTS (SELECT 1 FROM provider_observation_targets t
+                         WHERE t.workspace_id = m.workspace_id
+                           AND t.observation_run_id = m.observation_run_id
+                           AND t.entity_id = m.entity_id AND t.status = 'succeeded')
+                       AND EXISTS (SELECT 1 FROM provider_observation_runs r
+                         WHERE r.workspace_id = m.workspace_id
+                           AND r.observation_run_id = m.observation_run_id
+                           AND r.status IN ('succeeded', 'partial')))",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let generation = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT generation FROM sales_listing_generation",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let confirmed = |connection: &rusqlite::Connection, run: &str| -> i64 {
+            connection
+                .query_row(
+                    "SELECT confirmed FROM marketplace_listing_observations
+                     WHERE workspace_id = 'workspace-local' AND observation_run_id = ?1",
+                    [run],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        for (run, outcome) in [("run-done", "succeeded"), ("run-partial", "partial")] {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            // A partial run also has a target that came back missing.
+            let targets: &[(i64, &str)] = if outcome == "partial" {
+                &[(0, "alpha.test"), (1, "bravo.test")]
+            } else {
+                &[(0, "alpha.test")]
+            };
+            for (ordinal, entity) in targets {
+                connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,?3,'requested',?4)", rusqlite::params![run, entity, ordinal, TIMESTAMP]).unwrap();
+            }
+            // A listing written inside a running run cannot claim confirmation.
+            assert!(connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status,confirmed) VALUES ('workspace-local',?1,?2,'alpha.test','atom','active',?3,'version','available','confirmed',1)", rusqlite::params![format!("forged-{run}"), run, TIMESTAMP]).is_err());
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,'alpha.test','atom','active',?3,'version','available','confirmed')", rusqlite::params![format!("listing-{run}"), run, TIMESTAMP]).unwrap();
+            assert_eq!(confirmed(connection, run), 0);
+            connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id='alpha.test'", rusqlite::params![TIMESTAMP, run]).unwrap();
+            // The target succeeded but its run has not completed.
+            assert_eq!(confirmed(connection, run), 0);
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET confirmed = 1 WHERE observation_run_id = ?1", [run]).is_err());
+            if outcome == "partial" {
+                connection.execute("UPDATE provider_observation_targets SET status='missing', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id='bravo.test'", rusqlite::params![TIMESTAMP, run]).unwrap();
+            }
+            assert_eq!(drift(connection), 0);
+            let before = generation(connection);
+            connection.execute("UPDATE provider_observation_runs SET status=?1, completed_at=?2 WHERE workspace_id='workspace-local' AND observation_run_id=?3", rusqlite::params![outcome, TIMESTAMP, run]).unwrap();
+            assert_eq!(confirmed(connection, run), 1, "{outcome}");
+            assert_eq!(drift(connection), 0);
+            // The completion advances the desk once, not once per recomputed listing.
+            assert_eq!(generation(connection), before + 1);
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET confirmed = 0 WHERE observation_run_id = ?1", [run]).is_err());
+            // The flag is the only column the triggers may rewrite; the evidence stays append-only.
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET listing_status = 'sold' WHERE observation_run_id = ?1", [run]).is_err());
+        }
+        let _ = connection;
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, "alpha.test");
+    }
+
     #[test]
     fn sales_never_lets_an_unfinished_run_hide_a_confirmed_listing() {
         let mut database = sales_database(&[(
@@ -8737,7 +8820,7 @@ mod tests {
     #[ignore = "100k-asset benchmark; run alone on an idle machine with --test-threads=1"]
     fn scale_reads_at_100k_assets() {
         // The `DATABASE_SCHEMA.md` per-read budget at 100k assets.
-        let worst = slowest(&scale_reads(100_000, 2), &[]);
+        let worst = slowest(&scale_reads(100_000, 2));
         assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
     }
 
@@ -8745,7 +8828,7 @@ mod tests {
     #[ignore = "10k-asset benchmark; run alone on an idle machine with --test-threads=1"]
     fn scale_reads_at_10k_assets() {
         // The `DATABASE_SCHEMA.md` per-read budget at 10k assets.
-        let worst = slowest(&scale_reads(10_000, 2), &[]);
+        let worst = slowest(&scale_reads(10_000, 2));
         assert!(worst <= std::time::Duration::from_millis(150), "{worst:?}");
     }
 
@@ -8757,14 +8840,12 @@ mod tests {
     }
 
     /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
-    /// after a write to the merge's inputs merges every listing (about 1.1 s), and a settings read
-    /// before it scans the same listings for its integrity count; whether those two count toward
-    /// the budget awaits the person's decision, so they are recorded, not asserted. Every other read, sales and settings after an
-    /// unrelated write included, is held to the budget.
+    /// after a write to the merge's inputs merges every confirmed listing and a settings read before
+    /// it scans the same listings; both are held to the budget like every other read.
     #[test]
     #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
     fn scale_reads_at_100k_assets_on_8_markets() {
-        let worst = slowest(&scale_reads(100_000, 8), &[SALES_MERGE, SETTINGS_SCAN]);
+        let worst = slowest(&scale_reads(100_000, 8));
         assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
     }
 
@@ -8773,14 +8854,10 @@ mod tests {
     /// A settings read before any sales read of the generation, which scans every listing.
     const SETTINGS_SCAN: &str = "settings (listing scan)";
 
-    /// The slowest timing outside `except`.
-    fn slowest(
-        timings: &[(&'static str, std::time::Duration)],
-        except: &[&str],
-    ) -> std::time::Duration {
+    /// The slowest timing.
+    fn slowest(timings: &[(&'static str, std::time::Duration)]) -> std::time::Duration {
         timings
             .iter()
-            .filter(|(label, _)| !except.contains(label))
             .map(|(_, elapsed)| *elapsed)
             .max()
             .unwrap_or_default()

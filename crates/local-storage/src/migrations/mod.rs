@@ -12,13 +12,14 @@ use crate::active_workspace::schema::{
     DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, OUTBOX_INTEGRITY_MIGRATION_ID,
     OUTBOX_INTEGRITY_MIGRATION_OWNER, OUTBOX_INTEGRITY_MIGRATION_SQL,
     OUTBOX_LOCAL_CREATIONS_MIGRATION_ID, OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
-    OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL, SALES_LISTING_GENERATION_MIGRATION_ID,
-    SALES_LISTING_GENERATION_MIGRATION_OWNER, SALES_LISTING_GENERATION_MIGRATION_SQL,
-    STORAGE_INTEGRITY_MIGRATION_ID, STORAGE_INTEGRITY_MIGRATION_OWNER,
-    STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
-    SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
-    SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
-    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL, SALES_LISTING_CONFIRMATION_MIGRATION_ID,
+    SALES_LISTING_CONFIRMATION_MIGRATION_OWNER, SALES_LISTING_CONFIRMATION_MIGRATION_SQL,
+    SALES_LISTING_GENERATION_MIGRATION_ID, SALES_LISTING_GENERATION_MIGRATION_OWNER,
+    SALES_LISTING_GENERATION_MIGRATION_SQL, STORAGE_INTEGRITY_MIGRATION_ID,
+    STORAGE_INTEGRITY_MIGRATION_OWNER, STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID,
+    SYNC_V2_MIGRATION_OWNER, SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER,
+    SYNC_V3_MIGRATION_SQL, SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL,
+    SYNC_V5_MIGRATION_ID, SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +105,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: CLOUDFLARE_RETIREMENT_MIGRATION_ID,
         owner: CLOUDFLARE_RETIREMENT_MIGRATION_OWNER,
         sql: CLOUDFLARE_RETIREMENT_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: SALES_LISTING_CONFIRMATION_MIGRATION_ID,
+        owner: SALES_LISTING_CONFIRMATION_MIGRATION_OWNER,
+        sql: SALES_LISTING_CONFIRMATION_MIGRATION_SQL,
     },
 ];
 
@@ -388,7 +394,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 14);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 15);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -623,7 +629,10 @@ mod tests {
                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;",
                 )
                 .unwrap();
-            let target = super::ACTIVE_MIGRATIONS.len() - 1;
+            let target = super::ACTIVE_MIGRATIONS
+                .iter()
+                .position(|migration| migration.id == super::CLOUDFLARE_RETIREMENT_MIGRATION_ID)
+                .unwrap();
             for migration in &super::ACTIVE_MIGRATIONS[..target] {
                 apply_migration(&mut connection, migration).unwrap();
             }
@@ -769,6 +778,63 @@ mod tests {
             .unwrap();
         assert_eq!(reopened_prefix_checksum, prefix_checksum);
         run_active_migrations(&mut connection).unwrap();
+    }
+
+    /// Existing listings get the confirmation their run and target already imply.
+    #[test]
+    fn sales_listing_confirmation_migration_backfills_from_runs_and_targets() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gooddealer_active_migrations (
+               id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+               applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             ) STRICT;",
+            )
+            .unwrap();
+        let target = super::ACTIVE_MIGRATIONS
+            .iter()
+            .position(|migration| migration.id == super::SALES_LISTING_CONFIRMATION_MIGRATION_ID)
+            .unwrap();
+        for migration in &super::ACTIVE_MIGRATIONS[..target] {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        let at = "2026-11-13T00:00:00Z";
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at) VALUES (1,'active_workspace','workspace-local',1,0,1,2,?1,?1)",
+                [at],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','alpha.test','active',?1,?1,1)", [at]).unwrap();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','cloudflare','Market',?1,'[\"marketplace\"]')", [at]).unwrap();
+        for (run, complete) in [("run-done", true), ("run-open", false)] {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, at]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, at]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom','active',?2,'version','available','confirmed')", rusqlite::params![run, at]).unwrap();
+            connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE observation_run_id=?2", rusqlite::params![at, run]).unwrap();
+            if complete {
+                connection.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE observation_run_id=?2", rusqlite::params![at, run]).unwrap();
+            }
+        }
+        run_active_migrations(&mut connection).unwrap();
+        let flags: Vec<(String, i64)> = connection
+            .prepare("SELECT observation_run_id, confirmed FROM marketplace_listing_observations ORDER BY 1")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            flags,
+            [("run-done".to_owned(), 1), ("run-open".to_owned(), 0)]
+        );
     }
 
     #[test]

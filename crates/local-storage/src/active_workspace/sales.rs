@@ -12,7 +12,7 @@
 //! read at and later pages, and reads after writes that touch no listing, are sliced from it.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 use rusqlite::{Connection, params};
@@ -23,28 +23,27 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// Every confirmed listing observation of a live asset: the run completed and this asset's target in
-/// it succeeded. Rows come newest first within each (asset, marketplace) group, in the order of the
-/// `marketplace_listing_observations_latest` index, so the walk in `for_each_latest` keeps the
-/// first row of a group without a sort. A newer observation from a run that is still running or
-/// failed never hides an older confirmed listing, because it is not a row here at all.
+/// Every confirmed listing observation: the run completed and this asset's target in it succeeded,
+/// which the trigger-maintained `confirmed` column records on the row itself (see
+/// `sales_listing_confirmation.sql`). Rows come newest first within each (asset, marketplace)
+/// group, in the order of the `marketplace_listing_observations_latest` index, so the walk in
+/// `for_each_latest` keeps the first row of a group without a sort. A newer observation from a run
+/// that is still running or failed never hides an older confirmed listing, because it is not a row
+/// here at all.
 ///
-/// Plain joins rather than a window function: at 100k assets on 8 markets the window and its two
-/// sorts cost about twice the scan.
+/// No joins: at 100k assets on 8 markets a per-row lookup of the run and target cost most of the
+/// merge. Deleted assets are dropped by `for_each_latest` from a set read once, not joined per row.
 const CONFIRMED_LISTINGS: &str = "SELECT m.entity_id, m.marketplace_kind, m.listing_status,
         m.asking_price_currency, m.asking_price_amount, m.observation_availability,
         m.evidence_status
      FROM marketplace_listing_observations m
-     JOIN domain_assets a
-       ON a.workspace_id = m.workspace_id AND a.entity_id = m.entity_id AND a.deleted_at IS NULL
-     JOIN provider_observation_targets target
-       ON target.workspace_id = m.workspace_id AND target.observation_run_id = m.observation_run_id
-      AND target.entity_id = m.entity_id AND target.status = 'succeeded'
-     JOIN provider_observation_runs run
-       ON run.workspace_id = m.workspace_id AND run.observation_run_id = m.observation_run_id
-      AND run.status IN ('succeeded', 'partial')
-     WHERE m.workspace_id = ?1
+     WHERE m.workspace_id = ?1 AND m.confirmed = 1
      ORDER BY m.entity_id, m.marketplace_kind, m.observed_at DESC, m.listing_observation_id DESC";
+
+/// Deleted assets keep their observations until purged; only an archived asset can be deleted, so
+/// the lifecycle index finds them without a table scan.
+const DELETED_ASSETS: &str = "SELECT entity_id FROM domain_assets
+     WHERE workspace_id = ?1 AND lifecycle_status = 'archived' AND deleted_at IS NOT NULL";
 
 /// Calls `visit` with the latest confirmed listing of every (asset, marketplace) whose state is not
 /// `unlisted`, in domain then marketplace order. Older rows of a group are skipped unread, as the
@@ -54,6 +53,13 @@ fn for_each_latest(
     workspace_id: &str,
     mut visit: impl FnMut(rusqlite::Result<RawListing>) -> Result<(), PortfolioReadError>,
 ) -> Result<(), PortfolioReadError> {
+    let deleted = connection
+        .prepare(DELETED_ASSETS)
+        .map_err(|_| PortfolioReadError::SchemaRejected)?
+        .query_map(params![workspace_id], |row| row.get::<_, String>(0))
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+        .collect::<rusqlite::Result<HashSet<String>>>()
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
     let mut statement = connection
         .prepare(CONFIRMED_LISTINGS)
         .map_err(|_| PortfolioReadError::SchemaRejected)?;
@@ -83,6 +89,9 @@ fn for_each_latest(
             continue;
         }
         group = Some((entity_id.clone(), kind.clone()));
+        if deleted.contains(&entity_id) {
+            continue;
+        }
         let listing = (|| {
             Ok((
                 entity_id,

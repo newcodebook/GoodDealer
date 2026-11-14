@@ -435,6 +435,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "provider_version_token",
             "observation_availability",
             "evidence_status",
+            "confirmed",
         ],
     ),
     (
@@ -793,3 +794,9 @@ pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_OWNER: &str =
     "active-workspace/cloudflare-retirement";
 pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_SQL: &str =
     include_str!("cloudflare_retirement.sql");
+
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_ID: i64 = 202_611_130_003;
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-confirmation";
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_confirmation.sql");
