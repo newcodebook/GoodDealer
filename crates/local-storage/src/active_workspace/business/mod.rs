@@ -3860,11 +3860,11 @@ impl BusinessDatabase {
         for mutation in &page.mutations {
             let mutation_json = serde_json::to_string(mutation)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let wire_digest = canonical_mutation_digest(mutation)?;
+            let wire_digest = canonical_mutation_digest(mutation, LOCAL_WIRE_SCHEMA_VERSION)?;
             let payload_digest = hex_digest(mutation_json.as_bytes());
-            let existing: Option<(String, Option<String>, String)> = transaction
+            let existing: Option<(String, Option<String>, Option<i64>)> = transaction
                 .query_row(
-                    "SELECT mutation_id, wire_mutation_digest, state FROM sync_inbox
+                    "SELECT mutation_id, wire_mutation_digest, wire_schema_version FROM sync_inbox
                      WHERE workspace_id=?1 AND server_revision=?2",
                     params![
                         self.workspace_id,
@@ -3875,9 +3875,14 @@ impl BusinessDatabase {
                 )
                 .optional()
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if let Some((existing_id, existing_digest, _)) = existing {
+            if let Some((existing_id, existing_digest, existing_version)) = existing {
+                // A replay matches the digest under the version the row was recorded with.
+                let replay_digest = existing_version
+                    .map(|version| canonical_mutation_digest(mutation, version))
+                    .transpose()?;
                 if existing_id != mutation.mutation_id
-                    || existing_digest.as_deref() != Some(&wire_digest)
+                    || existing_digest.is_none()
+                    || existing_digest != replay_digest
                 {
                     return Err(BusinessDatabaseError::MutationConflict);
                 }
@@ -3896,7 +3901,7 @@ impl BusinessDatabase {
                      VALUES (?1,?2,?3,?4,'domain_asset',?5,?6,?7,?8,?9,?10,
                              ?11,strftime('%Y-%m-%dT%H:%M:%SZ','now'),
                              CASE WHEN ?11='applied' THEN strftime('%Y-%m-%dT%H:%M:%SZ','now') END,
-                             2,?12)",
+                             3,?12)",
                     params![
                         self.workspace_id,
                         i64::try_from(mutation.server_revision)
@@ -4809,7 +4814,21 @@ impl BusinessDatabase {
             )?;
             let wire_json =
                 serde_json::to_string(&wire).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let wire_digest = local_wire_digest(&wire)?;
+            // A row claimed before the local wire moved to version 3 keeps its recorded version:
+            // its wire identity is immutable, and for generation 1 both encodings are equivalent.
+            let wire_version = if stored_wire_digest.is_some() {
+                transaction
+                    .query_row(
+                        "SELECT wire_schema_version FROM sync_outbox
+                         WHERE workspace_id=?1 AND mutation_id=?2",
+                        params![self.workspace_id, mutation_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            } else {
+                LOCAL_WIRE_SCHEMA_VERSION
+            };
+            let wire_digest = local_wire_digest(&wire, wire_version)?;
             if local_json_digest.as_deref() == Some(&wire_digest)
                 || stored_wire_digest
                     .as_ref()
@@ -4853,7 +4872,7 @@ impl BusinessDatabase {
                     "UPDATE sync_outbox
                      SET state = 'sending', attempt_count = ?1, delivery_owner = ?2,
                          delivery_lease_expires_at = ?3, delivery_attempt_fence = ?1,
-                         wire_schema_version = 2, wire_mutation_digest = ?4,
+                         wire_schema_version = ?8, wire_mutation_digest = ?4,
                          next_attempt_at = NULL, last_error_code = NULL
                      WHERE workspace_id = ?5 AND mutation_id = ?6
                        AND (state = 'pending'
@@ -4866,6 +4885,7 @@ impl BusinessDatabase {
                         self.workspace_id,
                         mutation_id,
                         now,
+                        wire_version,
                     ],
                 )
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -4975,7 +4995,7 @@ impl BusinessDatabase {
                  WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                    AND delivery_owner=?5 AND delivery_attempt_fence=?6
                    AND source_device_id=?7 AND active_lease_epoch=?8
-                   AND device_mutation_sequence=?9 AND wire_schema_version=2
+                   AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                    AND wire_mutation_digest=?10",
                     params![
                         acknowledged_at,
@@ -5154,7 +5174,7 @@ impl BusinessDatabase {
                      WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                        AND delivery_owner=?5 AND delivery_attempt_fence=?6
                        AND source_device_id=?7 AND active_lease_epoch=?8
-                       AND device_mutation_sequence=?9 AND wire_schema_version=2
+                       AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                        AND wire_mutation_digest=?10",
                     params![
                         now,
@@ -5257,7 +5277,7 @@ impl BusinessDatabase {
                      WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                        AND delivery_owner=?5 AND delivery_attempt_fence=?6
                        AND source_device_id=?7 AND active_lease_epoch=?8
-                       AND device_mutation_sequence=?9 AND wire_schema_version=2
+                       AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                        AND wire_mutation_digest=?10",
                     params![
                         terminal_state,
@@ -5855,36 +5875,51 @@ pub fn verify_rebootstrap_page_digest(
     Ok(())
 }
 
-fn canonical_mutation_digest(mutation: &SyncMutationV2) -> Result<String, BusinessDatabaseError> {
+fn canonical_mutation_digest(
+    mutation: &SyncMutationV2,
+    wire_version: i64,
+) -> Result<String, BusinessDatabaseError> {
     let mut value =
         serde_json::to_value(mutation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
     if let Some(object) = value.as_object_mut() {
         object.remove("workspaceId");
         object.remove("serverRevision");
     }
-    local_wire_digest(&value)
+    local_wire_digest(&value, wire_version)
 }
 
-/// The digest recorded in the local `wire_mutation_digest` columns, which SQLite still pins to
-/// `wire_schema_version = 2`: the v2 encoding of a first-generation mutation, re-derived from its
-/// v3 form by dropping `entityGeneration`. For generation 1 the two encodings carry the same
-/// content, so the column keeps identifying exactly one mutation, and rows claimed before the
-/// upgrade keep matching. Temporary: ADR-0029 C1c2 rebuilds these tables to record version 3
-/// digests (C1c1 already added the generation columns); anything other than generation 1 is
-/// refused until then.
-fn local_wire_digest(value: &serde_json::Value) -> Result<String, BusinessDatabaseError> {
-    let mut legacy = value
+/// The wire version new local claims and received mutations are digested under (ADR-0029 C1c2b).
+const LOCAL_WIRE_SCHEMA_VERSION: i64 = 3;
+
+/// The digest recorded in the local `wire_mutation_digest` columns under the row's
+/// `wire_schema_version`. Version 3 digests the mutation as sent. Version 2 remains only for rows
+/// recorded before ADR-0029 C1c2b: the v2 encoding of a first-generation mutation, re-derived from
+/// its v3 form by dropping `entityGeneration`. For generation 1 both encodings carry the same
+/// content, so those rows keep matching; any other generation has no v2 encoding and is refused.
+fn local_wire_digest(
+    value: &serde_json::Value,
+    wire_version: i64,
+) -> Result<String, BusinessDatabaseError> {
+    let mut object = value
         .as_object()
         .cloned()
         .ok_or(BusinessDatabaseError::StorageRejected)?;
-    if legacy.get("schemaVersion") != Some(&serde_json::json!(SYNC_MUTATION_WIRE_SCHEMA_VERSION))
-        || legacy.remove("entityGeneration") != Some(serde_json::json!(1))
-        || legacy.contains_key("reAddsDeletedRevision")
-    {
+    if object.get("schemaVersion") != Some(&serde_json::json!(SYNC_MUTATION_WIRE_SCHEMA_VERSION)) {
         return Err(BusinessDatabaseError::StorageRejected);
     }
-    legacy.insert("schemaVersion".to_owned(), serde_json::json!(2));
-    canonical_sync_digest(&serde_json::Value::Object(legacy))
+    match wire_version {
+        3 => canonical_sync_digest(&serde_json::Value::Object(object)),
+        2 => {
+            if object.remove("entityGeneration") != Some(serde_json::json!(1))
+                || object.contains_key("reAddsDeletedRevision")
+            {
+                return Err(BusinessDatabaseError::StorageRejected);
+            }
+            object.insert("schemaVersion".to_owned(), serde_json::json!(2));
+            canonical_sync_digest(&serde_json::Value::Object(object))
+        }
+        _ => Err(BusinessDatabaseError::StorageRejected),
+    }
 }
 
 fn validate_sync_mutation_fields(mutation: &SyncMutationV2) -> Result<(), BusinessDatabaseError> {
@@ -6423,7 +6458,7 @@ fn persist_conflict_candidate(
     let remote_json =
         serde_json::to_string(&remote_value).map_err(|_| BusinessDatabaseError::InvalidInput)?;
     let conflict_id = format!("conflict-{}-{}", mutation.mutation_id, field_path);
-    let remote_digest = canonical_mutation_digest(mutation)?;
+    let remote_digest = canonical_mutation_digest(mutation, LOCAL_WIRE_SCHEMA_VERSION)?;
     let local_hash = hex_digest(local_json.as_bytes());
     let remote_hash = hex_digest(remote_json.as_bytes());
     let local_commit_sequence: i64 = transaction
@@ -11943,11 +11978,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first.len(), 1);
-        // ADR-0029 C1a: the bytes sent are wire v3, while the recorded digest is still the v2
-        // encoding of the same first-generation mutation, unchanged from before the upgrade.
+        // ADR-0029 C1c2b: a new claim records the v3 digest of the bytes it sends, no longer the
+        // v2 encoding (`Aqu72459…`) recorded before the local tables were rebuilt.
         assert_eq!(
             first[0].wire_mutation_digest,
-            "Aqu72459aAXWoEPGtAF3HWrcSqs4-Oz7byBPuq-C2qo"
+            canonical_sync_digest(&serde_json::from_str(&first[0].wire_mutation_json).unwrap())
+                .unwrap()
+        );
+        assert_eq!(
+            first[0].wire_mutation_digest,
+            "X7Z9n10QiKyCcoj-5Y9FH9ftWmUntlIEpVRQfq7EWKs"
         );
         assert!(first[0].wire_mutation_json.contains("\"schemaVersion\":3"));
         assert!(
@@ -12906,10 +12946,122 @@ mod tests {
         legacy.remove("workspaceId");
         legacy.remove("serverRevision");
         legacy.insert("schemaVersion".to_owned(), serde_json::json!(2));
-        assert_eq!(version, 2);
-        assert_eq!(
+        // ADR-0029 C1c2b: a newly received mutation records its v3 digest.
+        assert_eq!(version, 3);
+        assert_ne!(
             digest,
             canonical_sync_digest(&serde_json::Value::Object(legacy.clone())).unwrap()
+        );
+        let mut current: serde_json::Value =
+            serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+        let current = current["mutations"][0].as_object_mut().unwrap();
+        current.remove("workspaceId");
+        current.remove("serverRevision");
+        assert_eq!(
+            digest,
+            canonical_sync_digest(&serde_json::Value::Object(current.clone())).unwrap()
+        );
+    }
+
+    #[test]
+    fn rows_recorded_under_wire_version_2_keep_their_version_and_digest() {
+        // ADR-0029 C1c2b: rows claimed or received before the local tables were rebuilt keep the
+        // v2 digest they were recorded with; their wire identity is immutable.
+        let mut database = database();
+        let initial = DomainAssetWrite {
+            entity_id: "legacy.test".to_owned(),
+            note: None,
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        database
+            .upsert_domain_asset("seed-legacy", TIMESTAMP, &initial)
+            .unwrap();
+        database
+            .acknowledge_sync_mutation("seed-legacy", 1, "2026-08-28T00:00:01Z")
+            .unwrap();
+        let version = database
+            .read_domain_detail("legacy.test")
+            .unwrap()
+            .asset
+            .asset_version;
+        database
+            .edit_domain_asset(
+                "legacy-claim",
+                version,
+                "device-local",
+                7,
+                "2026-08-28T00:01:00Z",
+                &DomainAssetWrite {
+                    note: Some("legacy".to_owned()),
+                    ..initial
+                },
+                true,
+            )
+            .unwrap();
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-1",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                256,
+            )
+            .unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&claimed[0].wire_mutation_json).unwrap();
+        let legacy_digest = local_wire_digest(&wire, 2).unwrap();
+        assert_ne!(legacy_digest, claimed[0].wire_mutation_digest);
+        // Reproduce a row claimed before the rebuild: only a test can rewrite a claimed identity.
+        let connection = database.store.raw_connection();
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_v2_wire_identity_immutable")
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE sync_outbox SET wire_schema_version=2, wire_mutation_digest=?1
+                 WHERE mutation_id='legacy-claim'",
+                [&legacy_digest],
+            )
+            .unwrap();
+        let mut legacy_claim = claimed[0].clone();
+        legacy_claim.wire_mutation_digest = legacy_digest.clone();
+        database
+            .defer_retryable_sync_batch_v2("owner-1", &[legacy_claim], "2026-08-28T00:02:00Z")
+            .unwrap();
+        let reclaimed = database
+            .claim_sync_mutations_v2(
+                "owner-2",
+                "2026-08-28T00:10:00Z",
+                "2026-08-28T00:11:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(reclaimed[0].wire_mutation_digest, legacy_digest);
+        assert_eq!(
+            reclaimed[0].wire_mutation_json,
+            claimed[0].wire_mutation_json
+        );
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT wire_schema_version FROM sync_outbox WHERE mutation_id='legacy-claim'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, 2);
+        // Version 2 exists only for generation 1.
+        let mut later = wire.clone();
+        later["entityGeneration"] = serde_json::json!(2);
+        assert_eq!(
+            local_wire_digest(&later, 2),
+            Err(BusinessDatabaseError::StorageRejected)
+        );
+        assert!(local_wire_digest(&later, 3).is_ok());
+        assert_eq!(
+            local_wire_digest(&wire, 4),
+            Err(BusinessDatabaseError::StorageRejected)
         );
     }
 

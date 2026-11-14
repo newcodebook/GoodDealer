@@ -113,7 +113,8 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 `domain_assets`、`sync_tombstones` 与 `sync_outbox` 的 `entity_generation`（迁移 `202611140001`，现有行为 1）写入后不变，
 墓碑与 Outbox mutation 必须与所指资产行同代，Inbox 拒绝与本地行不同代的 mutation；重新添加（ADR-0029 C2）前
 只有 generation 1。墓碑的 `order_provenance`（迁移 `202611140002`）区分复制 mutation 写入的墓碑（revision、来源设备与
-mutation id 作排序证据）与 rebootstrap 从 checkpoint 安装的墓碑（只有删除 revision，必须为 `replicated`，不得补上 id）。本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
+mutation id 作排序证据）与 rebootstrap 从 checkpoint 安装的墓碑（只有删除 revision，必须为 `replicated`，不得补上 id）。Outbox 与 Inbox 的 `wire_schema_version` 记录摘要所用的 wire 版本（迁移 `202611140003` 重建两表）：新行为 3，
+重建前的行保留 2，且版本 2 只允许 generation 1。本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
 应用不得生成回声 Outbox。墓碑在所有保留设备和恢复窗口安全越过删除 revision 前不得清理。
 同步记录使用 `mutation_payload_json + mutation_payload_sha256`，字段行使用
 `field_value_json + field_value_sha256`；本地历史使用 `event_payload_json + event_payload_sha256`，

@@ -23,7 +23,8 @@ use crate::active_workspace::schema::{
     STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
     SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
     SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
-    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL, SYNC_WIRE_V3_MIGRATION_ID,
+    SYNC_WIRE_V3_MIGRATION_OWNER, SYNC_WIRE_V3_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +126,19 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER,
         sql: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL,
     },
+    ActiveMigration {
+        id: SYNC_WIRE_V3_MIGRATION_ID,
+        owner: SYNC_WIRE_V3_MIGRATION_OWNER,
+        sql: SYNC_WIRE_V3_MIGRATION_SQL,
+    },
 ];
+
+/// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
+/// dropping a referenced table with foreign keys enabled runs an implicit `DELETE` whose `CASCADE`
+/// actions would remove the children. These run with foreign keys disabled for their transaction
+/// only, as SQLite's documented table-rebuild procedure requires, and must leave
+/// `foreign_key_check` empty before they commit.
+const TABLE_REBUILD_MIGRATIONS: &[i64] = &[SYNC_WIRE_V3_MIGRATION_ID];
 
 pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), MigrationError> {
     validate_catalog(ACTIVE_MIGRATIONS)?;
@@ -233,12 +246,56 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &ActiveMigration,
 ) -> Result<(), MigrationError> {
+    if !TABLE_REBUILD_MIGRATIONS.contains(&migration.id) {
+        return apply_migration_transaction(connection, migration, false);
+    }
+    let foreign_keys: bool = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .map_err(|_| MigrationError::Rejected)?;
+    connection
+        .pragma_update(None, "foreign_keys", false)
+        .map_err(|_| MigrationError::Rejected)?;
+    // SQLite ignores this pragma inside an open transaction. A rebuild that ran with foreign keys
+    // still on would cascade-delete the children of the dropped table without leaving any
+    // violation for `foreign_key_check` to find, so it is refused before anything is written.
+    let disabled = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+        .map_err(|_| MigrationError::Rejected)?;
+    let result = if disabled {
+        Err(MigrationError::Rejected)
+    } else {
+        apply_migration_transaction(connection, migration, true)
+    };
+    // Restored whether or not the rebuild committed. A failed restore is reported as a rejected
+    // migration even after a committed rebuild, so the caller never continues on a connection
+    // without foreign keys; the next open sees the migration recorded and does not re-run it.
+    connection
+        .pragma_update(None, "foreign_keys", foreign_keys)
+        .map_err(|_| MigrationError::Rejected)?;
+    result
+}
+
+fn apply_migration_transaction(
+    connection: &mut Connection,
+    migration: &ActiveMigration,
+    check_foreign_keys: bool,
+) -> Result<(), MigrationError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| MigrationError::Rejected)?;
     transaction
         .execute_batch(migration.sql)
         .map_err(|_| MigrationError::Rejected)?;
+    if check_foreign_keys {
+        let violations: i64 = transaction
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| MigrationError::Rejected)?;
+        if violations != 0 {
+            return Err(MigrationError::Rejected);
+        }
+    }
     transaction
         .execute(
             "INSERT INTO gooddealer_active_migrations(id, owner, checksum) VALUES (?1, ?2, ?3)",
@@ -408,7 +465,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 17);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 18);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -1415,5 +1472,169 @@ mod tests {
             ))
             .contains("tombstone order provenance is immutable")
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the rebuild is proven against one database seeded before it runs"
+    )]
+    fn sync_wire_v3_rebuild_keeps_rows_children_and_foreign_keys() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        let target = super::ACTIVE_MIGRATIONS
+            .iter()
+            .position(|migration| migration.id == super::SYNC_WIRE_V3_MIGRATION_ID)
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gooddealer_active_migrations (
+                   id INTEGER PRIMARY KEY,
+                   owner TEXT NOT NULL,
+                   checksum TEXT NOT NULL,
+                   applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 ) STRICT;",
+            )
+            .unwrap();
+        for migration in &super::ACTIVE_MIGRATIONS[..target] {
+            super::apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,1,1,1,
+                         '2026-11-14T00:00:00Z','2026-11-14T00:00:00Z');
+                 INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  wire_schema_version,wire_mutation_digest)
+                 VALUES ('workspace-local','claimed-v2','domain_asset','kept.test','{}',
+                         '2026-11-14T00:00:00Z',2,'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+                 INSERT INTO sync_outbox_fields
+                 (workspace_id,mutation_id,ordinal,field_path,field_value_json,field_value_sha256)
+                 VALUES ('workspace-local','claimed-v2',0,'note','\"kept\"',
+                         '0000000000000000000000000000000000000000000000000000000000000000');
+                 INSERT INTO sync_inbox
+                 (workspace_id,server_revision,mutation_id,workspace_schema_version,entity_kind,
+                  entity_id,operation_kind,source_device_id,base_server_revision,
+                  mutation_payload_json,mutation_payload_sha256,state,received_at,applied_at,
+                  wire_schema_version,wire_mutation_digest)
+                 VALUES ('workspace-local',1,'received-v2',1,'domain_asset','kept.test','upsert',
+                         'device',0,'{}',
+                         '0000000000000000000000000000000000000000000000000000000000000000',
+                         'applied','2026-11-14T00:00:00Z','2026-11-14T00:00:00Z',2,
+                         'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB');",
+            )
+            .unwrap();
+        let rows = |connection: &Connection| -> (i64, i64, i64, i64, i64) {
+            connection
+                .query_row(
+                    "SELECT (SELECT count(*) FROM sync_outbox WHERE wire_schema_version=2),
+                            (SELECT count(*) FROM sync_outbox_fields),
+                            (SELECT count(*) FROM sync_inbox WHERE wire_schema_version=2),
+                            (SELECT count(*) FROM sqlite_schema WHERE type='trigger'),
+                            (SELECT count(*) FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL)",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .unwrap()
+        };
+        let schema = |connection: &Connection| -> Vec<(String, String)> {
+            let mut statement = connection
+                .prepare(
+                    "SELECT name, sql FROM sqlite_schema
+                     WHERE type IN ('trigger','index') AND sql IS NOT NULL ORDER BY name",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        let before = rows(&connection);
+        let schema_before = schema(&connection);
+        run_active_migrations(&mut connection).unwrap();
+        // Rows and their cascade children survive; the same triggers and indexes exist again.
+        assert_eq!(rows(&connection), before);
+        // Every recreated trigger and index is byte-identical except the intended changes: the
+        // delivery triggers accept version 3, and the inbox digest index covers every version.
+        let changed = [
+            "sync_outbox_v2_delivery_insert",
+            "sync_outbox_v2_delivery_update",
+        ];
+        let unchanged = |entries: Vec<(String, String)>| {
+            entries
+                .into_iter()
+                .filter(|(name, _)| {
+                    !changed.contains(&name.as_str())
+                        && name != "sync_inbox_v2_digest"
+                        && name != "sync_inbox_wire_digest"
+                })
+                .collect::<Vec<_>>()
+        };
+        let schema_after = schema(&connection);
+        assert_eq!(unchanged(schema_after.clone()), unchanged(schema_before));
+        for name in changed {
+            let sql = &schema_after
+                .iter()
+                .find(|(entry, _)| entry == name)
+                .unwrap()
+                .1;
+            assert!(sql.contains("NEW.wire_schema_version IN (2, 3)"), "{name}");
+            assert!(!sql.contains("NEW.wire_schema_version = 2"), "{name}");
+        }
+        assert!(
+            schema_after
+                .iter()
+                .any(|(name, sql)| name == "sync_inbox_wire_digest"
+                    && sql.contains("WHERE wire_schema_version IS NOT NULL"))
+        );
+        assert_eq!(before.0, 1);
+        assert_eq!(before.1, 1);
+        let foreign_keys: bool = connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        assert!(foreign_keys);
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+        verify_active_manifest(&connection).unwrap();
+        // Claimed fields stay immutable, and the parent still cascades to them only on purpose.
+        assert!(
+            connection
+                .execute("DELETE FROM sync_outbox_fields", [])
+                .unwrap_err()
+                .to_string()
+                .contains("claimed sync outbox fields are immutable")
+        );
+        let insert = |mutation_id: &str, version: i64, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  wire_schema_version,wire_mutation_digest,entity_generation)
+                 VALUES ('workspace-local',?1,'domain_asset','new.test','{}',
+                         '2026-11-14T00:00:00Z',?2,'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',?3)",
+                rusqlite::params![mutation_id, version, generation],
+            )
+        };
+        insert("version-3", 3, 2).unwrap();
+        assert!(
+            insert("version-2-later-generation", 2, 2)
+                .unwrap_err()
+                .to_string()
+                .contains("CHECK constraint failed")
+        );
+        // An unknown version is refused (by the delivery trigger or the column CHECK).
+        assert!(insert("version-4", 4, 1).is_err());
     }
 }

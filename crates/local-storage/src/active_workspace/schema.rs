@@ -814,3 +814,7 @@ pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER: &str =
     "active-workspace/checkpoint-tombstone-provenance";
 pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL: &str =
     include_str!("checkpoint_tombstone_provenance.sql");
+
+pub(crate) const SYNC_WIRE_V3_MIGRATION_ID: i64 = 202_611_140_003;
+pub(crate) const SYNC_WIRE_V3_MIGRATION_OWNER: &str = "active-workspace/sync-wire-v3";
+pub(crate) const SYNC_WIRE_V3_MIGRATION_SQL: &str = include_str!("sync_wire_v3.sql");
