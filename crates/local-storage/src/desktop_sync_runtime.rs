@@ -483,9 +483,11 @@ impl DesktopSyncRuntime {
             // Every other input of this create is Host generated (a fresh mutation id, the
             // admission's device, a trusted timestamp, the runtime's own read generation), so an
             // invalid input can only be the Zone name itself.
-            Err(BusinessDatabaseError::InvalidInput | BusinessDatabaseError::AssetDeleted) => {
-                Err(DesktopSyncError::ZoneUnimportable)
-            }
+            Err(
+                BusinessDatabaseError::InvalidInput
+                | BusinessDatabaseError::AssetDeleted
+                | BusinessDatabaseError::AssetReAddPending,
+            ) => Err(DesktopSyncError::ZoneUnimportable),
             Err(error) => Err(map_database_error(error)),
         }
     }
@@ -1306,6 +1308,8 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
         | BusinessDatabaseError::AssetNotFound
         | BusinessDatabaseError::AssetDeleted
         | BusinessDatabaseError::AssetExists
+        | BusinessDatabaseError::AssetReAddPending
+        | BusinessDatabaseError::AssetReAddBlocked
         | BusinessDatabaseError::SecretInSyncPayload
         | BusinessDatabaseError::SequenceExhausted
         | BusinessDatabaseError::ProviderBindingUnavailable => DesktopSyncError::InvalidInput,

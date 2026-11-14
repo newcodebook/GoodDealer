@@ -680,6 +680,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "wire_schema_version",
             "wire_mutation_digest",
             "entity_generation",
+            "re_adds_deleted_revision",
         ],
     ),
     ("sales_listing_generation", &["singleton", "generation"]),
@@ -731,6 +732,16 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "anti_rollback_server_revision_floor",
             "anti_rollback_schema_version_floor",
             "row_version",
+        ],
+    ),
+    (
+        "sync_domain_asset_provisional_re_adds",
+        &[
+            "workspace_id",
+            "entity_id",
+            "deleted_generation",
+            "deleted_server_revision",
+            "mutation_id",
         ],
     ),
     (
@@ -835,3 +846,7 @@ pub(crate) const SYNC_WIRE_V3_MIGRATION_SQL: &str = include_str!("sync_wire_v3.s
 pub(crate) const INBOX_RE_ADD_MIGRATION_ID: i64 = 202_611_140_004;
 pub(crate) const INBOX_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/inbox-re-add";
 pub(crate) const INBOX_RE_ADD_MIGRATION_SQL: &str = include_str!("inbox_re_add.sql");
+
+pub(crate) const LOCAL_RE_ADD_MIGRATION_ID: i64 = 202_611_140_005;
+pub(crate) const LOCAL_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/local-re-add";
+pub(crate) const LOCAL_RE_ADD_MIGRATION_SQL: &str = include_str!("local_re_add.sql");

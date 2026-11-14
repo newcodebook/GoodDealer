@@ -637,6 +637,12 @@ pub enum BusinessDatabaseError {
     MutationStale,
     AssetDeleted,
     AssetExists,
+    /// The asset's re-add is provisional (ADR-0029 decision 4): it is frozen until Cloud
+    /// acknowledges or rejects the re-add.
+    AssetReAddPending,
+    /// A re-add's local preconditions are unmet: the deletion is unconfirmed or contested, or the
+    /// entity still has queued mutations or open conflicts to settle first.
+    AssetReAddBlocked,
     SequenceExhausted,
     ProviderBindingUnavailable,
 }
@@ -659,6 +665,8 @@ impl Display for BusinessDatabaseError {
             Self::MutationStale => "LOCAL_MUTATION_STALE_AUTHORITY",
             Self::AssetDeleted => "LOCAL_ASSET_DELETED",
             Self::AssetExists => "LOCAL_ASSET_EXISTS",
+            Self::AssetReAddPending => "LOCAL_ASSET_RE_ADD_PENDING",
+            Self::AssetReAddBlocked => "LOCAL_ASSET_RE_ADD_BLOCKED",
             Self::SequenceExhausted => "LOCAL_MUTATION_SEQUENCE_EXHAUSTED",
             Self::ProviderBindingUnavailable => "LOCAL_PROVIDER_BINDING_UNAVAILABLE",
         })
@@ -1864,6 +1872,39 @@ impl BusinessDatabase {
         )
     }
 
+    /// Re-adds a deleted asset as provisional generation g + 1 (ADR-0029 C2c1).
+    ///
+    /// Test-only until the Host creation path lands (C2c2): ADR-0029 forbids an executable
+    /// production re-add path before then.
+    #[cfg(test)]
+    pub(crate) fn re_add_domain_asset(
+        &mut self,
+        mutation_id: &str,
+        device_id: &str,
+        active_lease_epoch: u64,
+        committed_at: &str,
+        asset: &DomainAssetWrite,
+    ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError> {
+        validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_identifier(device_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_timestamp(Some(committed_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_domain_asset(asset)?;
+        self.mutate_domain_asset(
+            "re_add",
+            mutation_id,
+            &asset.entity_id,
+            0,
+            device_id,
+            active_lease_epoch,
+            committed_at,
+            Some(asset),
+            true,
+            |_| Ok(()),
+            |(), _| Ok(()),
+        )
+    }
+
     /// # Errors
     ///
     /// Returns a closed validation, authorization, CAS, transaction, or sequence error.
@@ -2151,7 +2192,35 @@ impl BusinessDatabase {
             return Err(BusinessDatabaseError::MutationStale);
         }
         let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if operation == "create" {
+        // ADR-0029 decision 4: a provisional re-add freezes its entity until Cloud answers, so a
+        // rejection has only that one Outbox row to undo. The schema refuses the write as well.
+        let frozen: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+                 WHERE workspace_id=?1 AND entity_id=?2)",
+                params![self.workspace_id, entity_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if frozen {
+            return Err(BusinessDatabaseError::AssetReAddPending);
+        }
+        let mut re_adds: Option<(i64, i64)> = None;
+        if operation == "re_add" {
+            if expected_asset_version != 0 {
+                return Err(BusinessDatabaseError::InvalidInput);
+            }
+            match stored {
+                None => return Err(BusinessDatabaseError::AssetNotFound),
+                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+                Some((_, Some(_))) => {}
+            }
+            re_adds = Some(check_local_re_add(
+                &transaction,
+                &self.workspace_id,
+                entity_id,
+            )?);
+        } else if operation == "create" {
             // The entity ID is the canonical domain, so the domain is the deduplication key: adding
             // a domain the workspace already holds, from an import or by hand, is refused rather
             // than merged. A deleted domain keeps its tombstone until the delete has synced and
@@ -2210,6 +2279,17 @@ impl BusinessDatabase {
             for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
                 transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             }
+        } else if let Some((deleted_generation, deleted_revision)) = re_adds {
+            let asset = edit.expect("re-add operation carries asset");
+            write_local_re_add(
+                &transaction,
+                &self.workspace_id,
+                mutation_id,
+                asset,
+                (deleted_generation, deleted_revision),
+                (local_seq, base_rev),
+                committed_at,
+            )?;
         } else {
             transaction.execute("UPDATE domain_assets SET lifecycle_status='archived',deleted_at=?3,updated_at=?3,local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,'lifecycleStatus',?3,?4,'pending',?5) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![self.workspace_id, entity_id, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -2222,9 +2302,10 @@ impl BusinessDatabase {
         } else {
             "upsert"
         };
-        transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state,entity_generation) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?3),1))", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if operation == "create" {
-            // The wire keeps creation an upsert; the Host-only marker lets history name it.
+        transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state,entity_generation,re_adds_deleted_revision) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?3),1),?13)", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest, re_adds.map(|(_, revision)| revision)]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" || operation == "re_add" {
+            // The wire keeps creation an upsert; the Host-only marker lets history name it. A
+            // re-add starts a new generation, so each attempt is marked as an add of its own.
             transaction
                 .execute(
                     "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
@@ -4879,6 +4960,9 @@ impl BusinessDatabase {
                     if terminalized != 1 {
                         return Err(BusinessDatabaseError::MutationConflict);
                     }
+                    // A terminal re-add is withdrawn like any rejected one, or its entity would
+                    // stay frozen behind a pointer nothing can end.
+                    withdraw_local_re_add(&transaction, &self.workspace_id, &mutation_id)?;
                     continue;
                 }
                 break;
@@ -5083,6 +5167,14 @@ impl BusinessDatabase {
                         params![i64::try_from(acknowledgement.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?, self.workspace_id, entity_id, local_commit_sequence],
                     ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
                 }
+                confirm_local_re_add(
+                    &transaction,
+                    &self.workspace_id,
+                    &acknowledgement.mutation_id,
+                    i64::try_from(acknowledgement.server_revision)
+                        .map_err(|_| BusinessDatabaseError::InvalidInput)?,
+                    local_commit_sequence,
+                )?;
             }
         }
         let effect = if changed {
@@ -5315,6 +5407,7 @@ impl BusinessDatabase {
             if updated != 1 {
                 return Err(BusinessDatabaseError::MutationConflict);
             }
+            withdraw_local_re_add(&transaction, &self.workspace_id, &mutation.mutation_id)?;
         }
         let effect = SyncProjectionEffect::VisibleStateChanged;
         pre_commit_guard(effect)?;
@@ -5613,11 +5706,12 @@ fn reconstruct_sync_mutation_v2(
     }
     // ADR-0029 C1c1: the generation is frozen on the outbox row when the mutation is enqueued,
     // so a retry re-derives the same envelope even after the asset moves to a later generation.
-    let entity_generation: i64 = transaction
+    let (entity_generation, re_adds_deleted_revision): (i64, Option<i64>) = transaction
         .query_row(
-            "SELECT entity_generation FROM sync_outbox WHERE workspace_id=?1 AND mutation_id=?2",
+            "SELECT entity_generation, re_adds_deleted_revision FROM sync_outbox
+             WHERE workspace_id=?1 AND mutation_id=?2",
             params![workspace_id, mutation_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     let fields = {
@@ -5678,6 +5772,16 @@ fn reconstruct_sync_mutation_v2(
         "activeLeaseEpoch": active_lease_epoch,
         "deviceMutationSequence": device_mutation_sequence,
     });
+    // A re-add carries the deletion revision it supersedes; any other mutation omits the field.
+    if let Some(revision) = re_adds_deleted_revision {
+        mutation
+            .as_object_mut()
+            .ok_or(BusinessDatabaseError::StorageRejected)?
+            .insert(
+                "reAddsDeletedRevision".to_owned(),
+                serde_json::json!(revision),
+            );
+    }
     if operation_kind == "delete" {
         mutation
             .as_object_mut()
@@ -6132,7 +6236,34 @@ fn apply_sync_mutation_projection(
     // other generation is a different entity, so the page is refused rather than merged into it.
     let generation = i64::try_from(mutation.entity_generation)
         .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-    let re_add_pending_fields = if mutation.re_adds_deleted_revision.is_some() {
+    // This device's own re-add, already confirmed by its acknowledgement, comes back as an
+    // ordinary upsert of the generation it created (ADR-0029 C2c1).
+    let own_confirmed_re_add: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_re_adds
+             WHERE workspace_id=?1 AND entity_id=?2 AND re_add_mutation_id=?3 AND origin='local'
+               AND deleted_generation + 1 = ?4 AND re_add_server_revision=?5
+               AND deleted_server_revision IS ?6)",
+            params![
+                workspace_id,
+                mutation.entity_id,
+                mutation.mutation_id,
+                generation,
+                i64::try_from(mutation.server_revision)
+                    .map_err(|_| BusinessDatabaseError::InvalidInput)?,
+                mutation
+                    .re_adds_deleted_revision
+                    .map(i64::try_from)
+                    .transpose()
+                    .map_err(|_| BusinessDatabaseError::InvalidInput)?
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let re_adds = mutation
+        .re_adds_deleted_revision
+        .filter(|_| !own_confirmed_re_add);
+    let re_add_pending_fields = if re_adds.is_some() {
         check_replicated_re_add(transaction, workspace_id, mutation)?
     } else {
         // A replicated tombstone can exist before any asset row, so both record the local
@@ -6176,7 +6307,7 @@ fn apply_sync_mutation_projection(
             |row| row.get(0),
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    if let Some(deleted_revision) = mutation.re_adds_deleted_revision {
+    if let Some(deleted_revision) = re_adds {
         supersede_replicated_tombstone(
             transaction,
             workspace_id,
@@ -6450,6 +6581,10 @@ fn apply_sync_mutation_projection(
 /// still owed on the entity, would be silently discarded by the reset, so the page is refused as a
 /// conflict instead and retried on a later cycle, once the Outbox has drained and the conflict has
 /// been resolved.
+#[expect(
+    clippy::too_many_lines,
+    reason = "every precondition is read in the one page transaction, in the order the ADR lists them"
+)]
 fn check_replicated_re_add(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
@@ -6458,6 +6593,19 @@ fn check_replicated_re_add(
     let deleted_revision = mutation
         .re_adds_deleted_revision
         .ok_or(BusinessDatabaseError::InvalidInput)?;
+    // While this device's own re-add is provisional, its echo (or anything else re-adding the
+    // entity) waits for that re-add's acknowledgement or rejection, which settles the tombstone.
+    let provisional: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+             WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, mutation.entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if provisional {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
     let deleted_generation = mutation
         .entity_generation
         .checked_sub(1)
@@ -6625,6 +6773,294 @@ fn restore_re_add_local_field(
            updated_at=excluded.updated_at",
         params![workspace_id, entity_id, field_path, local_commit_sequence],
     ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(())
+}
+
+/// Decision 4's preconditions for this device's own re-add, read in the write transaction: the
+/// deletion is confirmed at revision R (acknowledged here or replicated), its barrier is settled,
+/// and the entity has no queued mutation or open conflict. Returns the tombstone's generation and
+/// R. The provisional pointer's insert trigger checks the same conditions again.
+fn check_local_re_add(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<(i64, i64), BusinessDatabaseError> {
+    let tombstone: Option<(i64, Option<i64>, String, Option<String>)> = transaction
+        .query_row(
+            "SELECT entity_generation, deleted_server_revision, state, barrier_state
+             FROM sync_tombstones
+             WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2",
+            params![workspace_id, entity_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((generation, Some(deleted_revision), state, barrier_state)) = tombstone else {
+        return Err(BusinessDatabaseError::AssetReAddBlocked);
+    };
+    let owed: i64 = transaction
+        .query_row(
+            "SELECT (SELECT count(*) FROM sync_outbox
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                       AND state IN ('pending','sending'))
+                  + (SELECT count(*) FROM sync_conflicts
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                       AND status='open')",
+            params![workspace_id, entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if !matches!(state.as_str(), "acknowledged" | "replicated")
+        || barrier_state.as_deref() == Some("contested")
+        || owed != 0
+    {
+        return Err(BusinessDatabaseError::AssetReAddBlocked);
+    }
+    Ok((generation, deleted_revision))
+}
+
+/// Writes this device's re-add as provisional generation g + 1 (decision 4): the pointer first,
+/// because the schema admits the generation change and the Outbox re-add only beside it, then the
+/// row as a new entity holding only the re-add's fields. The tombstone stays until Cloud answers.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the provisional write is one ordered sequence the schema checks step by step"
+)]
+fn write_local_re_add(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation_id: &str,
+    asset: &DomainAssetWrite,
+    (deleted_generation, deleted_revision): (i64, i64),
+    (local_seq, base_rev): (i64, i64),
+    committed_at: &str,
+) -> Result<(), BusinessDatabaseError> {
+    let entity_id = asset.entity_id.as_str();
+    let currency = asset.target_price.as_ref().map(|money| &money.currency);
+    let amount = asset.target_price.as_ref().map(|money| &money.amount);
+    let tags_json =
+        serde_json::to_string(&asset.tags).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    transaction
+        .execute(
+            "INSERT INTO sync_domain_asset_provisional_re_adds
+             (workspace_id,entity_id,deleted_generation,deleted_server_revision,mutation_id)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![
+                workspace_id,
+                entity_id,
+                deleted_generation,
+                deleted_revision,
+                mutation_id
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::AssetReAddBlocked)?;
+    transaction
+        .execute(
+            "UPDATE domain_assets SET entity_generation=?3, lifecycle_status='active',
+               deleted_at=NULL, acquired_on=NULL, expires_on=NULL,
+               acquisition_cost_currency=NULL, acquisition_cost_amount=NULL, auto_renew=NULL,
+               registrar_lock=NULL, created_at=?4, updated_at=?4, local_commit_sequence=?5
+             WHERE workspace_id=?1 AND entity_id=?2",
+            params![
+                workspace_id,
+                entity_id,
+                deleted_generation + 1,
+                committed_at,
+                local_seq
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "INSERT INTO domain_asset_desired_state
+             (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,
+              desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)
+             ON CONFLICT(workspace_id,entity_id) DO UPDATE SET portfolio_id=excluded.portfolio_id,
+               note=excluded.note, target_price_currency=excluded.target_price_currency,
+               target_price_amount=excluded.target_price_amount, desired_sale_status='hold',
+               desired_nameservers_json='[]', local_commit_sequence=excluded.local_commit_sequence,
+               updated_at=excluded.updated_at",
+            params![
+                workspace_id,
+                entity_id,
+                asset.portfolio_id,
+                asset.note,
+                currency,
+                amount,
+                local_seq,
+                committed_at
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "INSERT INTO portfolio_domain_assets
+             (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,
+              target_price_amount,note_server_revision,portfolio_id_server_revision,
+              tags_server_revision,target_price_server_revision)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)
+             ON CONFLICT(workspace_id,entity_id) DO UPDATE SET note=excluded.note,
+               portfolio_id=excluded.portfolio_id, tags_json=excluded.tags_json,
+               target_price_currency=excluded.target_price_currency,
+               target_price_amount=excluded.target_price_amount, note_server_revision=0,
+               portfolio_id_server_revision=0, tags_server_revision=0,
+               target_price_server_revision=0",
+            params![
+                workspace_id,
+                entity_id,
+                asset.note,
+                asset.portfolio_id,
+                tags_json,
+                currency,
+                amount
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    for statement in [
+        "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
+        "DELETE FROM domain_asset_field_versions WHERE workspace_id=?1 AND entity_id=?2",
+    ] {
+        transaction
+            .execute(statement, params![workspace_id, entity_id])
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    for tag in &asset.tags {
+        transaction
+            .execute(
+                "INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence)
+                 VALUES (?1,?2,?3,?4)",
+                params![workspace_id, entity_id, tag, local_seq],
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+        transaction
+            .execute(
+                "INSERT INTO domain_asset_field_versions
+                 (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,
+                  sync_state,updated_at)
+                 VALUES (?1,?2,?3,?4,?5,'pending',?6)",
+                params![
+                    workspace_id,
+                    entity_id,
+                    field_path,
+                    base_rev,
+                    local_seq,
+                    committed_at
+                ],
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    Ok(())
+}
+
+/// Confirms a provisional re-add Cloud acknowledged at `server_revision`: the `local` record, then
+/// the tombstone it supersedes, then the pointer, so generation g + 1 becomes the confirmed one.
+fn confirm_local_re_add(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation_id: &str,
+    server_revision: i64,
+    local_commit_sequence: i64,
+) -> Result<(), BusinessDatabaseError> {
+    let provisional: Option<(String, i64, i64)> = transaction
+        .query_row(
+            "SELECT entity_id, deleted_generation, deleted_server_revision
+             FROM sync_domain_asset_provisional_re_adds WHERE workspace_id=?1 AND mutation_id=?2",
+            params![workspace_id, mutation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((entity_id, deleted_generation, deleted_revision)) = provisional else {
+        return Ok(());
+    };
+    transaction
+        .execute(
+            "INSERT INTO sync_domain_asset_re_adds
+             (workspace_id,entity_id,deleted_generation,deleted_server_revision,re_add_mutation_id,
+              re_add_server_revision,origin,local_commit_sequence)
+             VALUES (?1,?2,?3,?4,?5,?6,'local',?7)",
+            params![
+                workspace_id,
+                entity_id,
+                deleted_generation,
+                deleted_revision,
+                mutation_id,
+                server_revision,
+                local_commit_sequence
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "DELETE FROM sync_tombstones
+             WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2",
+            params![workspace_id, entity_id],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "DELETE FROM sync_domain_asset_provisional_re_adds
+             WHERE workspace_id=?1 AND mutation_id=?2",
+            params![workspace_id, mutation_id],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(())
+}
+
+/// Withdraws a provisional re-add Cloud rejected (decision 4, business withdrawal): the row returns
+/// to the soft-deleted generation g its tombstone records, with the attempt's fields and field
+/// versions cleared, and the pointer goes, which unfreezes the entity. The terminal Outbox row, its
+/// fields and its creation marker stay as the attempt's evidence; a corrected attempt names g + 1
+/// again. The portfolio revisions stay at the 0 the provisional write gave them: a deleted row's
+/// field revisions are never read, and the next re-add sets them again.
+fn withdraw_local_re_add(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    mutation_id: &str,
+) -> Result<(), BusinessDatabaseError> {
+    let provisional: Option<(String, i64, String)> = transaction
+        .query_row(
+            "SELECT provisional.entity_id, provisional.deleted_generation, tombstone.deleted_at
+             FROM sync_domain_asset_provisional_re_adds AS provisional
+             JOIN sync_tombstones AS tombstone
+               ON tombstone.workspace_id=provisional.workspace_id
+              AND tombstone.entity_kind='domain_asset'
+              AND tombstone.entity_id=provisional.entity_id
+             WHERE provisional.workspace_id=?1 AND provisional.mutation_id=?2",
+            params![workspace_id, mutation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((entity_id, deleted_generation, deleted_at)) = provisional else {
+        return Ok(());
+    };
+    transaction
+        .execute(
+            "UPDATE domain_assets SET entity_generation=?3, lifecycle_status='archived',
+               deleted_at=?4, updated_at=?4
+             WHERE workspace_id=?1 AND entity_id=?2",
+            params![workspace_id, entity_id, deleted_generation, deleted_at],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    for statement in [
+        "UPDATE portfolio_domain_assets SET note=NULL, portfolio_id=NULL, tags_json='[]',
+           target_price_currency=NULL, target_price_amount=NULL
+         WHERE workspace_id=?1 AND entity_id=?2",
+        "UPDATE domain_asset_desired_state SET portfolio_id=NULL, note=NULL,
+           target_price_currency=NULL, target_price_amount=NULL
+         WHERE workspace_id=?1 AND entity_id=?2",
+        "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
+        "DELETE FROM domain_asset_field_versions WHERE workspace_id=?1 AND entity_id=?2",
+        "DELETE FROM sync_domain_asset_provisional_re_adds WHERE workspace_id=?1 AND entity_id=?2",
+    ] {
+        transaction
+            .execute(statement, params![workspace_id, entity_id])
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
     Ok(())
 }
 
@@ -14135,6 +14571,504 @@ mod tests {
         }
     }
 
+    fn re_add_write(note: &str) -> DomainAssetWrite {
+        DomainAssetWrite {
+            entity_id: "remote.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: vec!["fresh".to_owned()],
+            target_price: None,
+        }
+    }
+
+    /// Claims every deliverable Outbox row and acknowledges them at consecutive revisions.
+    fn acknowledge_claimed(database: &mut TestDatabase, first_revision: u64) -> Vec<String> {
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-ack",
+                "2026-08-28T01:00:00Z",
+                "2026-08-28T01:01:00Z",
+                256,
+            )
+            .unwrap();
+        let acknowledgements = claimed
+            .iter()
+            .zip(first_revision..)
+            .map(|(claim, server_revision)| SyncMutationAcknowledgement {
+                mutation_id: claim.mutation_id.clone(),
+                source_device_id: claim.source_device_id.clone(),
+                active_lease_epoch: claim.active_lease_epoch,
+                device_mutation_sequence: claim.device_mutation_sequence,
+                delivery_attempt_fence: claim.delivery_attempt_fence,
+                wire_mutation_digest: claim.wire_mutation_digest.clone(),
+                server_revision,
+            })
+            .collect::<Vec<_>>();
+        database
+            .acknowledge_sync_batch_v2_guarded(
+                "owner-ack",
+                &acknowledgements,
+                "2026-08-28T01:00:30Z",
+                |_| Ok(()),
+            )
+            .unwrap();
+        claimed
+            .into_iter()
+            .map(|claim| claim.wire_mutation_json)
+            .collect()
+    }
+
+    fn local_re_add_state(database: &TestDatabase) -> (i64, Option<String>, i64, i64, i64) {
+        database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT (SELECT entity_generation FROM domain_assets WHERE entity_id='remote.test'),
+                        (SELECT deleted_at FROM domain_assets WHERE entity_id='remote.test'),
+                        (SELECT count(*) FROM sync_tombstones),
+                        (SELECT count(*) FROM sync_domain_asset_provisional_re_adds),
+                        (SELECT count(*) FROM sync_domain_asset_re_adds WHERE origin='local')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one local re-add is followed from its write through the freeze, ACK and echo"
+    )]
+    fn local_re_add_is_provisional_frozen_and_confirmed_by_its_acknowledgement() {
+        // ADR-0029 C2c1: another device deleted the asset; this device only received the
+        // tombstone through the Inbox, then re-adds it.
+        let mut database = database_with_replicated_tombstone();
+        let receipt = database
+            .re_add_domain_asset(
+                "re-add-1",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("again"),
+            )
+            .unwrap();
+        assert_eq!(receipt.operation, "re_add");
+        // Provisional: generation 2 is live, the generation-1 tombstone stays, a pointer names it.
+        let deleted_at: Option<String> = None;
+        assert_eq!(local_re_add_state(&database), (2, deleted_at, 1, 1, 0));
+        let detail = database.read_domain_detail("remote.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("again"));
+        assert_eq!(detail.asset.tags, vec!["fresh"]);
+        let marked: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT count(*) FROM sync_outbox_local_creations WHERE mutation_id='re-add-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(marked, 1);
+        // Frozen: every other local write to the entity is refused with its own code.
+        let version = detail.asset.asset_version;
+        assert_eq!(
+            database.edit_domain_asset(
+                "edit-frozen",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:11:00Z",
+                &re_add_write("edited"),
+                true
+            ),
+            Err(BusinessDatabaseError::AssetReAddPending)
+        );
+        assert_eq!(
+            database.delete_domain_asset(
+                "delete-frozen",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:11:00Z",
+                "remote.test",
+                true
+            ),
+            Err(BusinessDatabaseError::AssetReAddPending)
+        );
+        assert_eq!(
+            database.re_add_domain_asset(
+                "re-add-twice",
+                "device-local",
+                1,
+                "2026-08-28T00:11:00Z",
+                &re_add_write("twice")
+            ),
+            Err(BusinessDatabaseError::AssetReAddPending)
+        );
+        // The same mutation replays exactly.
+        assert_eq!(
+            database
+                .re_add_domain_asset(
+                    "re-add-1",
+                    "device-local",
+                    1,
+                    "2026-08-28T00:10:00Z",
+                    &re_add_write("again")
+                )
+                .unwrap()
+                .disposition,
+            "replayed"
+        );
+        // The wire names generation 2 and the deletion it supersedes.
+        let wires = acknowledge_claimed(&mut database, 3);
+        assert_eq!(wires.len(), 1);
+        let wire: serde_json::Value = serde_json::from_str(&wires[0]).unwrap();
+        assert_eq!(wire["entityGeneration"], serde_json::json!(2));
+        assert_eq!(wire["reAddsDeletedRevision"], serde_json::json!(2));
+        assert_eq!(wire["operationKind"], serde_json::json!("upsert"));
+        // Acknowledged: the tombstone goes, a local record confirms generation 2, the freeze ends.
+        assert_eq!(local_re_add_state(&database), (2, None, 0, 0, 1));
+        let record: (i64, i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT deleted_generation, deleted_server_revision, re_add_server_revision
+                 FROM sync_domain_asset_re_adds WHERE re_add_mutation_id='re-add-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(record, (1, 2, 3));
+        // Cloud's echo of this re-add applies as an ordinary upsert of generation 2.
+        let mut echo = wire.clone();
+        echo["workspaceId"] = serde_json::json!("workspace-local");
+        echo["serverRevision"] = serde_json::json!(3);
+        database
+            .apply_sync_page_v2(
+                "reader-local",
+                &generation_page(2, vec![echo]),
+                "confirm-echo",
+            )
+            .unwrap();
+        assert_eq!(local_re_add_state(&database), (2, None, 0, 0, 1));
+        let version = database
+            .read_domain_detail("remote.test")
+            .unwrap()
+            .asset
+            .asset_version;
+        database
+            .edit_domain_asset(
+                "edit-after",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:20:00Z",
+                &re_add_write("after"),
+                true,
+            )
+            .unwrap();
+        let generation: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT entity_generation FROM sync_outbox WHERE mutation_id='edit-after'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(generation, 2);
+    }
+
+    #[test]
+    fn a_rejected_local_re_add_is_withdrawn_and_may_be_attempted_again() {
+        let mut database = database_with_replicated_tombstone();
+        database
+            .re_add_domain_asset(
+                "re-add-1",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("first try"),
+            )
+            .unwrap();
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-1",
+                "2026-08-28T00:11:00Z",
+                "2026-08-28T00:12:00Z",
+                256,
+            )
+            .unwrap();
+        database
+            .reject_sync_batch_v2("owner-1", &claimed, SyncRejectionKind::MutationConflict)
+            .unwrap();
+        // Withdrawn to the generation-1 tombstone; the attempt's Outbox row, fields and marker stay.
+        let state = local_re_add_state(&database);
+        assert_eq!(
+            (state.0, state.1.is_some(), state.2, state.3, state.4),
+            (1, true, 1, 0, 0)
+        );
+        let evidence: (String, String, i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state, last_error_code,
+                        (SELECT count(*) FROM sync_outbox_fields WHERE mutation_id='re-add-1'),
+                        (SELECT count(*) FROM sync_outbox_local_creations WHERE mutation_id='re-add-1')
+                 FROM sync_outbox WHERE mutation_id='re-add-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            evidence,
+            (
+                "conflicted".to_owned(),
+                "sync_mutation_conflict".to_owned(),
+                4,
+                1
+            )
+        );
+        // The attempt's fields are gone with it.
+        let withdrawn: (Option<String>, String, i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT note, tags_json,
+                        (SELECT count(*) FROM domain_asset_tags WHERE entity_id='remote.test'),
+                        (SELECT count(*) FROM domain_asset_field_versions
+                         WHERE entity_id='remote.test')
+                 FROM portfolio_domain_assets WHERE entity_id='remote.test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(withdrawn, (None, "[]".to_owned(), 0, 0));
+        // A corrected attempt names generation 2 again and is confirmed.
+        database
+            .re_add_domain_asset(
+                "re-add-2",
+                "device-local",
+                1,
+                "2026-08-28T00:13:00Z",
+                &re_add_write("second try"),
+            )
+            .unwrap();
+        let wires = acknowledge_claimed(&mut database, 3);
+        let wire: serde_json::Value = serde_json::from_str(&wires[0]).unwrap();
+        assert_eq!(wire["entityGeneration"], serde_json::json!(2));
+        assert_eq!(local_re_add_state(&database), (2, None, 0, 0, 1));
+        assert_eq!(
+            database
+                .read_domain_detail("remote.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("second try")
+        );
+    }
+
+    #[test]
+    fn local_re_add_follows_an_acknowledged_local_delete() {
+        let mut database = database();
+        database
+            .create_domain_asset_guarded(
+                "create-local",
+                "device-local",
+                1,
+                TIMESTAMP,
+                &re_add_write("first"),
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        let version = database
+            .read_domain_detail("remote.test")
+            .unwrap()
+            .asset
+            .asset_version;
+        database
+            .delete_domain_asset(
+                "delete-local",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:01:00Z",
+                "remote.test",
+                true,
+            )
+            .unwrap();
+        // Unacknowledged, the deletion has no revision to build on.
+        assert_eq!(
+            database.re_add_domain_asset(
+                "re-add-early",
+                "device-local",
+                1,
+                "2026-08-28T00:02:00Z",
+                &re_add_write("early")
+            ),
+            Err(BusinessDatabaseError::AssetReAddBlocked)
+        );
+        acknowledge_claimed(&mut database, 1);
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "UPDATE active_workspace_metadata SET applied_through_server_revision=2",
+                [],
+            )
+            .unwrap();
+        database
+            .re_add_domain_asset(
+                "re-add-1",
+                "device-local",
+                1,
+                "2026-08-28T00:03:00Z",
+                &re_add_write("again"),
+            )
+            .unwrap();
+        let wires = acknowledge_claimed(&mut database, 3);
+        let wire: serde_json::Value = serde_json::from_str(&wires[0]).unwrap();
+        assert_eq!(wire["reAddsDeletedRevision"], serde_json::json!(2));
+        assert_eq!(local_re_add_state(&database), (2, None, 0, 0, 1));
+    }
+
+    #[test]
+    fn local_re_add_is_refused_without_writing_until_its_preconditions_hold() {
+        let outbox_count = |database: &TestDatabase| -> i64 {
+            database
+                .store
+                .raw_connection()
+                .query_row("SELECT count(*) FROM sync_outbox", [], |row| row.get(0))
+                .unwrap()
+        };
+        let attempt = |database: &mut TestDatabase| {
+            database.re_add_domain_asset(
+                "re-add",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("again"),
+            )
+        };
+        let contested = database_with_replicated_tombstone();
+        contested
+            .store
+            .raw_connection()
+            .execute("UPDATE sync_tombstones SET barrier_state='contested'", [])
+            .unwrap();
+        let open_conflict = database_with_replicated_tombstone();
+        open_conflict
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO sync_conflicts
+                 (workspace_id,conflict_id,entity_kind,entity_id,field_path,local_value_json,
+                  remote_value_json,local_commit_sequence,remote_server_revision,status,created_at,
+                  candidate_version,remote_source_device_id,remote_mutation_digest,
+                  remote_order_server_revision,remote_order_source_device_id,
+                  remote_order_mutation_id,local_value_hash,remote_value_hash)
+                 VALUES ('workspace-local','open-conflict','domain_asset','remote.test','note',
+                         '\"mine\"','\"theirs\"',1,1,'open',?1,1,'other-device',
+                         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',1,'other-device',
+                         'other-create',?2,?3)",
+                params![TIMESTAMP, "a".repeat(64), "b".repeat(64)],
+            )
+            .unwrap();
+        for mut database in [contested, open_conflict] {
+            let before = outbox_count(&database);
+            assert_eq!(
+                attempt(&mut database),
+                Err(BusinessDatabaseError::AssetReAddBlocked)
+            );
+            assert_eq!(outbox_count(&database), before);
+            assert_eq!(local_re_add_state(&database).3, 0);
+        }
+        // A live asset is not deleted, and an asset never held cannot be re-added.
+        let mut live = database();
+        live.apply_sync_page_v2("reader-local", &test_sync_page(1, "live"), "confirm-1")
+            .unwrap();
+        assert_eq!(attempt(&mut live), Err(BusinessDatabaseError::AssetExists));
+        let mut never = database();
+        assert_eq!(
+            attempt(&mut never),
+            Err(BusinessDatabaseError::AssetNotFound)
+        );
+    }
+
+    #[test]
+    fn schema_admits_a_provisional_re_add_only_beside_its_pointer_and_outcome() {
+        let mut database = database_with_replicated_tombstone();
+        let connection = database.store.raw_connection();
+        let refused = |statement: &str, message: &str| {
+            let error = connection.execute_batch(statement).unwrap_err().to_string();
+            assert!(error.contains(message), "{statement}: {error}");
+        };
+        // A pointer needs a settled tombstone of its generation and revision.
+        refused(
+            "INSERT INTO sync_domain_asset_provisional_re_adds VALUES
+               ('workspace-local','remote.test',1,1,'wrong-revision')",
+            "a local re-add needs a confirmed, settled tombstone and no owed work",
+        );
+        // Without a pointer, the row cannot revive and no Outbox re-add can be written.
+        refused(
+            "UPDATE domain_assets SET entity_generation=2, deleted_at=NULL,
+               lifecycle_status='active'",
+            "re-adding",
+        );
+        refused(
+            "INSERT INTO sync_outbox
+             (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+              base_server_revision,entity_generation,re_adds_deleted_revision)
+             VALUES ('workspace-local','stray','domain_asset','remote.test','{}',
+                     '2026-08-28T00:00:00Z',2,1,2)",
+            "an outbox re-add must name its provisional pointer",
+        );
+        database
+            .re_add_domain_asset(
+                "re-add-1",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("again"),
+            )
+            .unwrap();
+        let connection = database.store.raw_connection();
+        let refused = |statement: &str, message: &str| {
+            let error = connection.execute_batch(statement).unwrap_err().to_string();
+            assert!(error.contains(message), "{statement}: {error}");
+        };
+        // While provisional: no other Outbox row, no withdrawal before an outcome, no early end.
+        refused(
+            "INSERT INTO sync_outbox
+             (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+              entity_generation)
+             VALUES ('workspace-local','sneaky','domain_asset','remote.test','{}',
+                     '2026-08-28T00:00:00Z',2)",
+            "a domain asset is frozen while its re-add is provisional",
+        );
+        refused(
+            "UPDATE domain_assets SET entity_generation=1, deleted_at='2026-08-28T00:00:00Z',
+               lifecycle_status='archived'",
+            "entity generation changes only through re-adding",
+        );
+        refused(
+            "DELETE FROM sync_domain_asset_provisional_re_adds",
+            "a provisional re-add ends only when acknowledged or withdrawn",
+        );
+        refused(
+            "INSERT INTO sync_domain_asset_re_adds VALUES
+               ('workspace-local','remote.test',1,2,'re-add-1',3,'local',9)",
+            "a local re-add record confirms an acknowledged provisional re-add",
+        );
+        refused(
+            "UPDATE sync_outbox SET re_adds_deleted_revision=1 WHERE mutation_id='re-add-1'",
+            "an outbox re-add revision is immutable",
+        );
+    }
+
     #[test]
     fn schema_changes_a_generation_or_removes_a_tombstone_only_through_a_re_add_record() {
         let database = database_with_replicated_tombstone();
@@ -14165,7 +15099,7 @@ mod tests {
         refused(
             "INSERT INTO sync_domain_asset_re_adds VALUES
                ('workspace-local','remote.test',1,2,'local-origin',3,'local',9)",
-            "CHECK constraint failed",
+            "a local re-add record confirms an acknowledged provisional re-add",
         );
         // With the record, the tombstone may go, but the row may move only one generation on.
         connection
