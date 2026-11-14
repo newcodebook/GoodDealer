@@ -13,7 +13,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::{
     DatabaseRecoveryProof, DomainAssetProjectionRow, DomainAssetWrite, Money,
-    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId,
+    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
     SYNC_MUTATION_WIRE_SCHEMA_VERSION,
     desktop_custody::{
         CandidateReservedEvidence, DesktopCustodyError, DesktopJournalStore, PreparedEvidence,
@@ -136,25 +136,9 @@ struct CheckpointAssetWire {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckpointTombstoneWire {
-    #[expect(
-        dead_code,
-        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
-    )]
     entity_id: String,
-    #[expect(
-        dead_code,
-        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
-    )]
     entity_generation: u64,
-    #[expect(
-        dead_code,
-        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
-    )]
     deleted_server_revision: u64,
-    #[expect(
-        dead_code,
-        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
-    )]
     deleted_at: String,
 }
 
@@ -213,6 +197,7 @@ pub(crate) struct RebootstrapPlan {
     checkpoint_revision: u64,
     pinned_head_revision: u64,
     snapshot: Vec<DomainAssetWrite>,
+    tombstones: Vec<RebootstrapTombstone>,
     replay_pages: Vec<RebootstrapReplayPage>,
 }
 
@@ -245,20 +230,32 @@ impl RebootstrapPlan {
             .get("snapshot")
             .cloned()
             .ok_or(RebootstrapError::InvalidPlan)?;
-        let plan: PlanWire =
+        let mut plan: PlanWire =
             serde_json::from_value(value).map_err(|_| RebootstrapError::InvalidPlan)?;
-        // ADR-0029 C1c adds local generation columns and tombstone storage. Until then a checkpoint
-        // that records any deletion or any later generation cannot be installed faithfully, so
-        // the plan is refused rather than installed without its tombstones.
-        if !plan.snapshot.tombstones.is_empty()
+        // ADR-0029: deletions install as checkpoint tombstones (C1c2a). Only generation 1 exists
+        // until re-adding lands (C2), so a later generation is refused rather than installed.
+        if plan
+            .snapshot
+            .assets
+            .iter()
+            .any(|asset| asset.entity_generation != 1)
             || plan
                 .snapshot
-                .assets
+                .tombstones
                 .iter()
-                .any(|asset| asset.entity_generation != 1)
+                .any(|tombstone| tombstone.entity_generation != 1)
         {
             return Err(RebootstrapError::InvalidPlan);
         }
+        let tombstones = std::mem::take(&mut plan.snapshot.tombstones)
+            .into_iter()
+            .map(|tombstone| RebootstrapTombstone {
+                entity_id: tombstone.entity_id,
+                entity_generation: tombstone.entity_generation,
+                deleted_server_revision: tombstone.deleted_server_revision,
+                deleted_at: tombstone.deleted_at,
+            })
+            .collect::<Vec<_>>();
         let rows = plan
             .snapshot
             .assets
@@ -325,11 +322,21 @@ impl RebootstrapPlan {
         for asset in &snapshot {
             validate_rebootstrap_asset(asset).map_err(|_| RebootstrapError::InvalidPlan)?;
         }
+        for tombstone in &tombstones {
+            validate_rebootstrap_timestamp(&tombstone.deleted_at)
+                .map_err(|_| RebootstrapError::InvalidPlan)?;
+            if tombstone.deleted_server_revision == 0
+                || tombstone.deleted_server_revision > plan.checkpoint.through_server_revision
+            {
+                return Err(RebootstrapError::InvalidPlan);
+            }
+        }
         Ok(Self {
             workspace_id: plan.checkpoint.workspace_id,
             checkpoint_revision: plan.checkpoint.through_server_revision,
             pinned_head_revision: plan.pinned_head_revision,
             snapshot,
+            tombstones,
             replay_pages,
         })
     }
@@ -368,9 +375,15 @@ impl RebootstrapPlan {
 
     pub(crate) fn installation_input(
         &self,
-    ) -> (Vec<DomainAssetWrite>, u64, Vec<RebootstrapReplayPage>) {
+    ) -> (
+        Vec<DomainAssetWrite>,
+        Vec<RebootstrapTombstone>,
+        u64,
+        Vec<RebootstrapReplayPage>,
+    ) {
         (
             self.snapshot.clone(),
+            self.tombstones.clone(),
             self.checkpoint_revision,
             self.replay_pages.clone(),
         )
@@ -2986,12 +2999,18 @@ fn rebootstrap_fixture_with_state(
         b"GOODDEALER-WORKSPACE-CHECKPOINT-ENTITY-DIGESTS-V3",
         &serde_json::Value::Array(entity_digests),
     );
+    // A checkpoint is taken at or after every deletion it records.
+    let through = tombstones
+        .iter()
+        .filter_map(|tombstone| tombstone["deletedServerRevision"].as_u64())
+        .max()
+        .unwrap_or(0);
     let checkpoint = serde_json::json!({
         "schemaVersion": 3,
         "checkpointId": "checkpoint-fixture",
         "workspaceId": workspace_id,
         "workspaceSchemaVersion": 1,
-        "throughServerRevision": 0,
+        "throughServerRevision": through,
         "checkpointDigest": checkpoint_digest,
     });
     let mut plan = serde_json::json!({
@@ -2999,7 +3018,7 @@ fn rebootstrap_fixture_with_state(
         "checkpoint": checkpoint,
         "snapshot": { "assets": assets, "tombstones": tombstones },
         "requiredMutationRange": {
-            "fromServerRevisionExclusive": 0,
+            "fromServerRevisionExclusive": through,
             "throughServerRevisionInclusive": pinned_head,
         },
         "mutations": pages,
@@ -3099,6 +3118,7 @@ mod tests {
             checkpoint_revision: 0,
             pinned_head_revision: 0,
             snapshot: Vec::new(),
+            tombstones: Vec::new(),
             replay_pages: Vec::new(),
         }
     }
@@ -4085,7 +4105,7 @@ mod tests {
     }
 
     #[test]
-    fn version_3_checkpoint_state_is_verified_and_refused_until_local_tombstones_exist() {
+    fn version_3_checkpoint_state_is_verified_and_carries_its_tombstones() {
         let asset = |generation: u64| {
             serde_json::json!({
                 "entityId": "remote.example",
@@ -4097,28 +4117,50 @@ mod tests {
             })
         };
         let parse = |assets: &[serde_json::Value], tombstones: &[serde_json::Value]| {
-            let (checkpoint_wire, plan_wire) =
-                rebootstrap_fixture_with_state("workspace", 0, Vec::new(), assets, tombstones);
+            let pinned_head = tombstones
+                .iter()
+                .filter_map(|tombstone| tombstone["deletedServerRevision"].as_u64())
+                .max()
+                .unwrap_or(0);
+            let (checkpoint_wire, plan_wire) = rebootstrap_fixture_with_state(
+                "workspace",
+                pinned_head,
+                Vec::new(),
+                assets,
+                tombstones,
+            );
             let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
             RebootstrapPlan::parse(&checkpoint, &plan_wire)
         };
         // A first-generation live asset installs; its digest covers the generation.
         let parsed = parse(&[asset(1)], &[]).unwrap();
         assert_eq!(parsed.snapshot.len(), 1);
-        // Correctly signed, but C1c has not yet given the local store generations or tombstones,
-        // so installing either would silently lose it.
+        // Correctly signed, but only generation 1 exists until re-adding lands (ADR-0029 C2).
         assert_eq!(
             parse(&[asset(2)], &[]).unwrap_err(),
             RebootstrapError::InvalidPlan
         );
-        let tombstone = serde_json::json!({
-            "entityId": "deleted.example",
-            "entityGeneration": 1,
-            "deletedServerRevision": 1,
-            "deletedAt": "2026-11-14T00:00:00Z",
-        });
+        let tombstone = |generation: u64| {
+            serde_json::json!({
+                "entityId": "deleted.example",
+                "entityGeneration": generation,
+                "deletedServerRevision": 1,
+                "deletedAt": "2026-11-14T00:00:00Z",
+            })
+        };
+        // A first-generation tombstone is carried to installation (ADR-0029 C1c2a).
+        let parsed = parse(&[asset(1)], &[tombstone(1)]).unwrap();
         assert_eq!(
-            parse(&[], &[tombstone]).unwrap_err(),
+            parsed.installation_input().1,
+            [RebootstrapTombstone {
+                entity_id: "deleted.example".to_owned(),
+                entity_generation: 1,
+                deleted_server_revision: 1,
+                deleted_at: "2026-11-14T00:00:00Z".to_owned(),
+            }]
+        );
+        assert_eq!(
+            parse(&[], &[tombstone(2)]).unwrap_err(),
             RebootstrapError::InvalidPlan
         );
 

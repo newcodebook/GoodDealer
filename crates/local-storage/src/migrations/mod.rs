@@ -3,11 +3,13 @@ use sha2::{Digest, Sha256};
 
 use crate::active_workspace::schema::{
     ACTIVE_SCHEMA_MIGRATION_ID, ACTIVE_SCHEMA_MIGRATION_OWNER, ACTIVE_SCHEMA_MIGRATION_SQL,
-    CLOUDFLARE_RETIREMENT_MIGRATION_ID, CLOUDFLARE_RETIREMENT_MIGRATION_OWNER,
-    CLOUDFLARE_RETIREMENT_MIGRATION_SQL, CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID,
-    CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER, CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL,
-    CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
-    CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
+    CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID, CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER,
+    CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL, CLOUDFLARE_RETIREMENT_MIGRATION_ID,
+    CLOUDFLARE_RETIREMENT_MIGRATION_OWNER, CLOUDFLARE_RETIREMENT_MIGRATION_SQL,
+    CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID, CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER,
+    CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL, CLOUDFLARE_V1_MIGRATION_ID,
+    CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL, CLOUDFLARE_V2_MIGRATION_ID,
+    CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
     DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, ENTITY_GENERATION_MIGRATION_ID,
     ENTITY_GENERATION_MIGRATION_OWNER, ENTITY_GENERATION_MIGRATION_SQL,
@@ -117,6 +119,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: ENTITY_GENERATION_MIGRATION_ID,
         owner: ENTITY_GENERATION_MIGRATION_OWNER,
         sql: ENTITY_GENERATION_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID,
+        owner: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER,
+        sql: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL,
     },
 ];
 
@@ -401,7 +408,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 16);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 17);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -1265,5 +1272,148 @@ mod tests {
                 .contains("asset generation differs from its tombstone")
         );
         insert_asset("remote-only.test", 4).unwrap();
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the trigger rules are enumerated against one migrated database"
+    )]
+    fn checkpoint_tombstones_carry_only_their_deletion_revision() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,1,1,?1,?1)",
+                ["2026-11-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert = |entity_id: &str,
+                      state: &str,
+                      barrier: &str,
+                      deleted: Option<i64>,
+                      order: Option<i64>,
+                      device: Option<&str>,
+                      provenance: &str| {
+            connection.execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
+                  deleted_server_revision,deleted_at,state,barrier_state,order_server_revision,
+                  order_source_device_id,order_mutation_id,order_provenance)
+                 VALUES ('workspace-local','domain_asset',?1,1,?2,'2026-11-14T00:00:00Z',?3,?4,?5,
+                         ?6,?6,?7)",
+                rusqlite::params![
+                    entity_id, deleted, state, barrier, order, device, provenance
+                ],
+            )
+        };
+        let message = |result: rusqlite::Result<usize>| result.unwrap_err().to_string();
+        let checkpoint_rule = "checkpoint tombstone carries only its deletion revision";
+        insert(
+            "ok.test",
+            "replicated",
+            "replicated",
+            Some(3),
+            Some(3),
+            None,
+            "checkpoint",
+        )
+        .unwrap();
+        for (entity_id, state, barrier, deleted, order, device) in [
+            (
+                "ids.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                Some("device"),
+            ),
+            ("pending.test", "pending", "pending", Some(3), Some(3), None),
+            (
+                "contested.test",
+                "replicated",
+                "contested",
+                Some(3),
+                Some(3),
+                None,
+            ),
+            (
+                "order.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(2),
+                None,
+            ),
+            (
+                "unordered.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                None,
+                None,
+            ),
+            (
+                "undeleted.test",
+                "replicated",
+                "replicated",
+                None,
+                Some(3),
+                None,
+            ),
+        ] {
+            assert!(
+                message(insert(
+                    entity_id,
+                    state,
+                    barrier,
+                    deleted,
+                    order,
+                    device,
+                    "checkpoint"
+                ))
+                .contains(checkpoint_rule),
+                "{entity_id}"
+            );
+        }
+        // Mutation-sourced tombstones still need their full order evidence.
+        assert!(
+            message(insert(
+                "mutation.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                None,
+                "mutation"
+            ))
+            .contains("missing tombstone order evidence")
+        );
+        assert!(
+            message(insert(
+                "other.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                None,
+                "cloud"
+            ))
+            .contains("CHECK constraint failed")
+        );
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_tombstones SET order_provenance='mutation' WHERE entity_id='ok.test'",
+                [],
+            ))
+            .contains("tombstone order provenance is immutable")
+        );
     }
 }

@@ -518,6 +518,17 @@ pub struct RebootstrapReplayPage {
     pub confirmation_token: String,
 }
 
+/// One tombstone a version-3 checkpoint carries (ADR-0029): the generation it deleted and the
+/// revision that deleted it.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebootstrapTombstone {
+    pub entity_id: String,
+    pub entity_generation: u64,
+    pub deleted_server_revision: u64,
+    pub deleted_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPullRequestV2 {
@@ -3260,6 +3271,7 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let result = self.install_rebootstrap_checkpoint_savepoint(
             snapshot,
+            &[],
             checkpoint_revision,
             device_id,
             Some(make_journal),
@@ -3297,6 +3309,7 @@ impl BusinessDatabase {
     pub fn install_rebootstrap_plan_guarded(
         &mut self,
         snapshot: &[DomainAssetWrite],
+        tombstones: &[RebootstrapTombstone],
         checkpoint_revision: u64,
         device_id: &str,
         replay_pages: &[RebootstrapReplayPage],
@@ -3327,6 +3340,7 @@ impl BusinessDatabase {
         let result = (|| {
             let _ = self.install_rebootstrap_checkpoint_savepoint(
                 snapshot,
+                tombstones,
                 checkpoint_revision,
                 device_id,
                 None::<
@@ -3390,6 +3404,7 @@ impl BusinessDatabase {
     fn install_rebootstrap_checkpoint_savepoint<F, G>(
         &mut self,
         snapshot: &[DomainAssetWrite],
+        tombstones: &[RebootstrapTombstone],
         checkpoint_revision: u64,
         device_id: &str,
         make_journal: Option<F>,
@@ -3409,6 +3424,7 @@ impl BusinessDatabase {
                 return Err(BusinessDatabaseError::InvalidInput);
             }
         }
+        validate_checkpoint_tombstones(snapshot, tombstones, checkpoint_revision)?;
         let revision =
             i64::try_from(checkpoint_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let transaction = self
@@ -3543,6 +3559,20 @@ impl BusinessDatabase {
                  ON CONFLICT(workspace_id,entity_id) DO UPDATE SET root_provenance='replicated',replicated_server_revision=excluded.replicated_server_revision,freshness='confirmed',updated_at=excluded.updated_at",
                 params![self.workspace_id, asset.entity_id, revision],
             ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+        for tombstone in tombstones {
+            transaction
+                .execute(
+                    "INSERT INTO temp_checkpoint_entities(entity_id) VALUES (?1)",
+                    [&tombstone.entity_id],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            install_checkpoint_tombstone(
+                &transaction,
+                &self.workspace_id,
+                tombstone,
+                local_commit_sequence,
+            )?;
         }
         transaction.execute(
             "UPDATE sync_asset_provenance SET freshness='stale', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
@@ -5895,6 +5925,131 @@ fn validate_sync_mutation_fields(mutation: &SyncMutationV2) -> Result<(), Busine
             _ => return Err(BusinessDatabaseError::InvalidInput),
         }
     }
+    Ok(())
+}
+
+/// Checkpoint tombstones are strictly ordered by UTF-8 id, disjoint from the live assets, deleted at
+/// or before the checkpoint revision, and first-generation until re-adding lands (ADR-0029 C2).
+#[cfg(test)]
+fn validate_checkpoint_tombstones(
+    snapshot: &[DomainAssetWrite],
+    tombstones: &[RebootstrapTombstone],
+    checkpoint_revision: u64,
+) -> Result<(), BusinessDatabaseError> {
+    if tombstones.len() > 10_000 {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    for (index, tombstone) in tombstones.iter().enumerate() {
+        validate_domain_asset_id(&tombstone.entity_id)
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_rebootstrap_timestamp(&tombstone.deleted_at)?;
+        if tombstone.entity_generation != 1
+            || tombstone.deleted_server_revision == 0
+            || tombstone.deleted_server_revision > checkpoint_revision
+            || (index > 0
+                && tombstones[index - 1].entity_id.as_bytes() >= tombstone.entity_id.as_bytes())
+            || snapshot
+                .binary_search_by(|asset| {
+                    asset
+                        .entity_id
+                        .as_bytes()
+                        .cmp(tombstone.entity_id.as_bytes())
+                })
+                .is_ok()
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+    }
+    Ok(())
+}
+
+/// Installs one checkpoint tombstone exactly as a replicated delete of a clean entity would, with
+/// the checkpoint's deletion revision as its only order evidence. A local tombstone for the same
+/// generation already records this deletion and is kept as is: until re-adding, a generation is
+/// deleted at most once. Unsynced local edits to a deleted entity refuse the whole installation:
+/// a rebootstrap does not yet surface them as conflicts, and they must not be silently dropped.
+#[cfg(test)]
+fn install_checkpoint_tombstone(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    tombstone: &RebootstrapTombstone,
+    local_commit_sequence: i64,
+) -> Result<(), BusinessDatabaseError> {
+    let generation = i64::try_from(tombstone.entity_generation)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let revision = i64::try_from(tombstone.deleted_server_revision)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let local_generations = transaction
+        .query_row(
+            "SELECT (SELECT entity_generation FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2),
+                    (SELECT entity_generation FROM domain_assets
+                     WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, tombstone.entity_id],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    match local_generations {
+        (Some(local), _) => {
+            return if local == generation {
+                Ok(())
+            } else {
+                Err(BusinessDatabaseError::InvalidInput)
+            };
+        }
+        (None, Some(local)) if local != generation => {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        _ => {}
+    }
+    let unsynced: i64 = transaction
+        .query_row(
+            "SELECT count(*) FROM domain_asset_field_versions
+             WHERE workspace_id=?1 AND entity_id=?2 AND sync_state IN ('pending','conflicted')",
+            params![workspace_id, tombstone.entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if unsynced != 0 {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    transaction
+        .execute(
+            "INSERT INTO sync_tombstones
+             (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
+              deleted_server_revision,deleted_at,purge_after,state,barrier_state,
+              order_server_revision,order_source_device_id,order_mutation_id,entity_generation,
+              order_provenance)
+             VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,NULL,NULL,?6,
+                     'checkpoint')",
+            params![
+                workspace_id,
+                tombstone.entity_id,
+                local_commit_sequence,
+                revision,
+                tombstone.deleted_at,
+                generation
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "INSERT INTO domain_assets
+             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,
+              local_commit_sequence,entity_generation)
+             VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4,?5)
+             ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
+               lifecycle_status='archived',updated_at=excluded.updated_at,
+               deleted_at=excluded.deleted_at,local_commit_sequence=excluded.local_commit_sequence",
+            params![
+                workspace_id,
+                tombstone.entity_id,
+                tombstone.deleted_at,
+                local_commit_sequence,
+                generation
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     Ok(())
 }
 
@@ -13296,6 +13451,7 @@ mod tests {
 
         let rejected = database.install_rebootstrap_plan_guarded(
             &[],
+            &[],
             6,
             "reader-local",
             &[replay],
@@ -13909,6 +14065,7 @@ mod tests {
                     tags: vec![],
                     target_price: None,
                 }],
+                &[],
                 1,
                 "reader-local",
                 &[replay],
@@ -13935,6 +14092,7 @@ mod tests {
                 tags: vec![],
                 target_price: None,
             }],
+            &[],
             3,
             "reader-local",
             &[],
@@ -13943,6 +14101,181 @@ mod tests {
         );
         assert_eq!(rejected, Err(BusinessDatabaseError::MutationStale));
         assert_eq!(database.recovery_proof().unwrap(), before);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one database walks every checkpoint tombstone install case in order"
+    )]
+    fn rebootstrap_installs_checkpoint_tombstones_and_refuses_unsynced_deleted_edits() {
+        // ADR-0029 C1c2a: a checkpoint's tombstones install as replicated deletions carrying only
+        // their deletion revision; nothing about a deleted entity is lost or revived.
+        let mut database = database();
+        let asset = |entity_id: &str| DomainAssetWrite {
+            entity_id: entity_id.to_owned(),
+            note: Some("checkpoint".to_owned()),
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        let tombstone = |entity_id: &str, revision: u64| RebootstrapTombstone {
+            entity_id: entity_id.to_owned(),
+            entity_generation: 1,
+            deleted_server_revision: revision,
+            deleted_at: "2026-11-14T00:00:00Z".to_owned(),
+        };
+        let install = |database: &mut BusinessDatabase,
+                       snapshot: &[DomainAssetWrite],
+                       tombstones: &[RebootstrapTombstone],
+                       revision: u64,
+                       journal: u64| {
+            database.install_rebootstrap_plan_guarded(
+                snapshot,
+                tombstones,
+                revision,
+                "reader-local",
+                &[],
+                |proof| Ok(journal_link(proof, journal)),
+                || Ok(()),
+            )
+        };
+        install(
+            &mut database,
+            &[asset("clean.test"), asset("pending.test")],
+            &[],
+            1,
+            1,
+        )
+        .unwrap();
+        database
+            .upsert_domain_asset("local-edit", TIMESTAMP, &asset("pending.test"))
+            .unwrap();
+
+        // Malformed tombstone sets are refused before any write.
+        let before = database.recovery_proof().unwrap();
+        for (snapshot, tombstones) in [
+            (vec![asset("clean.test")], vec![tombstone("clean.test", 2)]),
+            (vec![], vec![tombstone("gone.test", 4)]),
+            (vec![], vec![tombstone("gone.test", 0)]),
+            (vec![], vec![tombstone("b.test", 2), tombstone("a.test", 2)]),
+            (
+                vec![],
+                vec![RebootstrapTombstone {
+                    entity_generation: 2,
+                    ..tombstone("gone.test", 2)
+                }],
+            ),
+            (
+                vec![],
+                vec![RebootstrapTombstone {
+                    deleted_at: "2026-11-14".to_owned(),
+                    ..tombstone("gone.test", 2)
+                }],
+            ),
+        ] {
+            assert_eq!(
+                install(&mut database, &snapshot, &tombstones, 3, 2),
+                Err(BusinessDatabaseError::InvalidInput)
+            );
+        }
+        assert_eq!(database.recovery_proof().unwrap(), before);
+
+        // A clean replicated asset is soft-deleted and an unseen one is recorded as deleted.
+        install(
+            &mut database,
+            &[],
+            &[tombstone("clean.test", 2), tombstone("gone.test", 3)],
+            3,
+            2,
+        )
+        .unwrap();
+        // The library reads only live assets.
+        assert_eq!(
+            database.read_asset_library(0, 10, "").unwrap().total_rows,
+            1
+        );
+        let tombstones = |database: &BusinessDatabase| {
+            let connection = database.store.raw_connection();
+            let mut statement = connection
+                .prepare(
+                    "SELECT t.entity_id, t.entity_generation, t.deleted_server_revision,
+                            t.order_server_revision, t.order_provenance, t.state, t.barrier_state,
+                            a.deleted_at IS NOT NULL, a.entity_generation
+                     FROM sync_tombstones t JOIN domain_assets a USING (workspace_id, entity_id)
+                     ORDER BY t.entity_id",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, bool>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        let installed = tombstones(&database);
+        let expected = |entity_id: &str, revision: i64| {
+            (
+                entity_id.to_owned(),
+                1,
+                revision,
+                revision,
+                "checkpoint".to_owned(),
+                "replicated".to_owned(),
+                "replicated".to_owned(),
+                true,
+                1,
+            )
+        };
+        assert_eq!(
+            installed,
+            [expected("clean.test", 2), expected("gone.test", 3)]
+        );
+
+        // A checkpoint tombstone never gains mutation ids it was not given.
+        assert!(
+            database
+                .store
+                .raw_connection()
+                .execute(
+                    "UPDATE sync_tombstones SET order_source_device_id='device',
+                     order_mutation_id='mutation' WHERE entity_id='gone.test'",
+                    [],
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("tombstone order provenance is immutable")
+        );
+
+        // An unsynced local edit to a deleted entity refuses the whole installation.
+        let before = database.recovery_proof().unwrap();
+        assert_eq!(
+            install(&mut database, &[], &[tombstone("pending.test", 4)], 4, 3),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(database.recovery_proof().unwrap(), before);
+
+        // Re-installing a checkpoint that names tombstones already held keeps them unchanged.
+        install(
+            &mut database,
+            &[],
+            &[tombstone("clean.test", 2), tombstone("gone.test", 3)],
+            4,
+            3,
+        )
+        .unwrap();
+        assert_eq!(tombstones(&database), installed);
     }
 
     #[test]

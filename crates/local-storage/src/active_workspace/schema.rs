@@ -749,6 +749,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "order_source_device_id",
             "order_mutation_id",
             "entity_generation",
+            "order_provenance",
         ],
     ),
     (
@@ -807,3 +808,9 @@ pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_SQL: &str =
 pub(crate) const ENTITY_GENERATION_MIGRATION_ID: i64 = 202_611_140_001;
 pub(crate) const ENTITY_GENERATION_MIGRATION_OWNER: &str = "active-workspace/entity-generation";
 pub(crate) const ENTITY_GENERATION_MIGRATION_SQL: &str = include_str!("entity_generation.sql");
+
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID: i64 = 202_611_140_002;
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER: &str =
+    "active-workspace/checkpoint-tombstone-provenance";
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL: &str =
+    include_str!("checkpoint_tombstone_provenance.sql");

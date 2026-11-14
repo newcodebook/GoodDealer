@@ -153,9 +153,10 @@ pub(crate) use active_workspace::business::{
 };
 #[cfg(test)]
 pub(crate) use active_workspace::business::{
-    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, validate_rebootstrap_asset,
-    validate_rebootstrap_timestamp, verify_rebootstrap_checkpoint_digest,
-    verify_rebootstrap_page_digest, verify_rebootstrap_plan_digest,
+    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
+    validate_rebootstrap_asset, validate_rebootstrap_timestamp,
+    verify_rebootstrap_checkpoint_digest, verify_rebootstrap_page_digest,
+    verify_rebootstrap_plan_digest,
 };
 pub use active_workspace::dns_health::{
     DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,

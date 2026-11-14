@@ -3528,7 +3528,7 @@ impl DesktopLocalHost {
             if stop_after == RebootstrapCrashBoundary::Prepared {
                 return Ok(());
             }
-            let (snapshot, checkpoint_revision, replay_pages) =
+            let (snapshot, tombstones, checkpoint_revision, replay_pages) =
                 prepared.plan().installation_input();
             let (candidate, candidate_reserved_evidence) = custody
                 .materialize_candidate(
@@ -3558,6 +3558,7 @@ impl DesktopLocalHost {
                     database
                         .install_rebootstrap_plan_guarded(
                             &snapshot,
+                            &tombstones,
                             checkpoint_revision,
                             &device_id,
                             &replay_pages,
