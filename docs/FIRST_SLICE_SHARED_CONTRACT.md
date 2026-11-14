@@ -31,6 +31,14 @@ Cloud replica、MutationPage 和 Checkpoint 只提供同步或恢复输入。
 带 `workspaceId` 的工作区内部/下行记录；Cloud adapter 必须用可信服务器范围补入并核对该字段，
 Desktop 不能把本地记录原样作为上行 payload。
 
+Mutation 的 Push/Pull 请求、响应、MutationPage 与每条 Mutation 使用
+`WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION`（3，ADR-0029）：每条 DomainAsset Mutation 必带
+`entityGeneration`，重新添加另带 `reAddsDeletedRevision`（仅 upsert、generation ≥ 2、不大于
+`baseServerRevision`）。Checkpoint 与 rebootstrap 计划信封仍为 `WORKSPACE_SYNC_SCHEMA_VERSION`（2），计划内的 replay 页是版本 3 MutationPage。版本 2 的
+Mutation 请求按版本不匹配拒绝；Cloud 在版本 2 下已记录的回执与提交 envelope 保持原字节，同一内容的
+generation 1 版本 3 重放按其记录版本比较。generation 列落地前，Cloud 对 generation ≠ 1 或带
+`reAddsDeletedRevision` 的 Mutation 返回 schema 不支持且不记录结果，Desktop 只生成并接受 generation 1。
+
 ## Cloud 消费点
 
 Cloud API 实现只从以上 public exports 导入 schema 和 operation id，并在进入领域服务前从
@@ -68,7 +76,8 @@ outcome-unknown、retry-wait、manual-resolution 和最终 `refunded` 状态都�
 
 Desktop Host 通过 `AccountActivationClient`、`DesktopAuthorizationClient`、`WorkspaceSyncClient`
 和 `DomainAssetReplicaRecoveryClient` 消费合同。Renderer 不接收 grant、Lease、Mutation、Checkpoint
-或恢复 DTO，也不直接持有 `CloudTransport`。
+或恢复 DTO，也不直接持有 `CloudTransport`。唯一例外是只读的脱敏投影 `local_device_lease_read`：仅在
+当前 Active 授权下返回已验证授权中绑定的 `deviceId` 与 `leaseEpoch` 供展示，不含签名信封、密钥或能力。
 
 `DesktopAuthorizationClient.issue()` 只验证 wire 形状。Host 在消费 Grant v3 前必须先验证覆盖
 Workspace、scope、窗口和完整嵌套 Lease 的外层目的限定签名，再独立验证 ActiveDeviceLease 的

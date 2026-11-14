@@ -1,9 +1,9 @@
 import {
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
-  encodeWorkspaceEntityDigestsInput,
+  computeWorkspaceCheckpointDigest,
   type CheckpointDescriptor,
-  type WorkspaceEntityDigest,
+  type WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 
 export { PostgresBootstrapCheckpointPort } from "./bootstrap-port";
@@ -27,11 +27,8 @@ interface CheckpointRevisionPort {
 }
 
 interface CheckpointSnapshotPort {
-  readEntityDigestsAt(
-    scope: WorkspaceTenantScope,
-    throughServerRevision: number,
-    digest: (bytes: Uint8Array) => Promise<Uint8Array>,
-  ): Promise<readonly WorkspaceEntityDigest[]>;
+  /** The replicated state (live assets and tombstones, with generations) at one revision. */
+  readCheckpointStateAt(scope: WorkspaceTenantScope, throughServerRevision: number): WorkspaceCheckpointState;
 }
 
 interface CheckpointMutationLogPort {
@@ -162,10 +159,10 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
     }
     const checkpoints = this.#workspaceCheckpoints(scope);
     if (checkpoints.has(checkpointId)) throw new TypeError("checkpoint id is immutable");
-    const entityDigests = await this.#state.readEntityDigestsAt(scope, throughServerRevision, (bytes) => this.#sha256.digest(bytes));
-    const checkpointDigest = Buffer.from(
-      await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
-    ).toString("base64url");
+    const checkpointDigest = await computeWorkspaceCheckpointDigest(
+      this.#state.readCheckpointStateAt(scope, throughServerRevision),
+      (bytes) => this.#sha256.digest(bytes),
+    );
     const descriptor = checkpointDescriptorSchema.parse({
       schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
       checkpointId,
@@ -183,14 +180,10 @@ export class InMemoryCheckpointCatalog implements CheckpointCatalogPort {
     if (!this.#bindings.resolveWorkspace(scope).bound) return reject("WORKSPACE_TENANT_UNRESOLVED");
     const checkpoint = this.#checkpoints.get(workspaceTenantKey(scope))?.get(checkpointId);
     if (checkpoint === undefined || checkpoint.status !== "building") return reject("CHECKPOINT_NOT_AVAILABLE");
-    const entityDigests = await this.#state.readEntityDigestsAt(
-      scope,
-      checkpoint.descriptor.throughServerRevision,
+    const recomputed = await computeWorkspaceCheckpointDigest(
+      this.#state.readCheckpointStateAt(scope, checkpoint.descriptor.throughServerRevision),
       (bytes) => this.#sha256.digest(bytes),
     );
-    const recomputed = Buffer.from(
-      await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
-    ).toString("base64url");
     if (recomputed !== checkpoint.descriptor.checkpointDigest) {
       const key = workspaceTenantKey(scope);
       const diagnostics = this.#diagnostics.get(key) ?? [];

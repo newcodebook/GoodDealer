@@ -10,6 +10,9 @@
 .dns-strong { color: var(--text-1); }
 .dns-muted { color: var(--text-2); }
 .dns-danger { color: var(--gd-danger); }
+.dns-ns { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dns-zone-facts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); color: var(--text-3); font-size: var(--text-2xs); }
+.dns-zone-facts .dns-mono { font-size: var(--text-2xs); }
 .dns-verifying { display: inline-flex; align-items: center; gap: 6px; color: var(--gd-blue); font-size: var(--text-xs); }
 @keyframes dns-spin { to { transform: rotate(360deg); } }
 .dns-spin { animation: dns-spin 1s linear infinite; }

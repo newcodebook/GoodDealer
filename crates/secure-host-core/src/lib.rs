@@ -28,9 +28,11 @@ mod secret_service_custody;
 pub use cloudflare_capture::{CloudflareCandidate, CloudflareCapture, CloudflareCaptureError};
 pub use cloudflare_keychain::{
     CloudflareCredentialProvisionPlan, CloudflareCredentialPublicKind,
-    CloudflareCredentialRecoveryPlan, CloudflareCustodyComparison, CloudflareKeychainError,
-    CloudflareKeychainGuard, CloudflarePrewriteFailure, CloudflarePrewriteInspection,
+    CloudflareCredentialRecoveryPlan, CloudflareCredentialRetirementPlan,
+    CloudflareCustodyComparison, CloudflareKeychainError, CloudflareKeychainGuard,
+    CloudflarePrewriteFailure, CloudflarePrewriteInspection, CloudflarePurgeOutcome,
     inspect_cloudflare_recovery_guarded, publish_cloudflare_candidate_guarded,
+    publish_cloudflare_tombstone_guarded, purge_retired_cloudflare_slot,
 };
 pub use cloudflare_provider::{
     CloudflareCredentialObservationPlan, CloudflareProviderClient, CloudflareProviderError,

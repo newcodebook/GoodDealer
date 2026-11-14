@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { canonicalDomainNameSchema } from "./domain-name";
-const portfolioFreshnessSchema = z
+export const portfolioFreshnessSchema = z
   .object({
     source: z.enum(["active_local", "standby_cloud"]),
     readOnlyReason: z.enum(["commercial", "standby"]).nullable(),
@@ -29,6 +29,14 @@ const safeTextSchema = (maximum: number) => z.string().max(maximum).refine(
   "text contains forbidden controls",
 );
 
+/**
+ * One registrar name rule for every read, matching the Host's `valid_registrar_name`. Registrar names
+ * and asset text use this safe-text set (code points; script format characters such as U+0600 are
+ * allowed), while connection labels (`connectionLabelSchema`) refuse every control and format
+ * character and count UTF-16 units. The Host documents why the two differ.
+ */
+export const registrarNameSchema = safeTextSchema(128).min(1);
+
 export const lifecycleStatusSchema = z.enum(["active", "expired", "sold", "dropped", "archived"]);
 export const syncStatusSchema = z.enum(["clean", "pending", "conflicted", "local_only"]);
 
@@ -37,17 +45,22 @@ export const assetLibraryRowSchema = z
     id: z.string().min(1).max(128),
     domain: canonicalDomainNameSchema,
     tags: z.array(safeTextSchema(64).min(1).refine((value) => value.trim() === value)).max(128).readonly(),
-    registrar: safeTextSchema(128).min(1).nullable(),
+    registrar: registrarNameSchema.nullable(),
     lifecycleStatus: lifecycleStatusSchema,
     syncStatus: syncStatusSchema,
     targetPrice: canonicalMoneyViewSchema.nullable(),
     expiresOn: z.iso.date().nullable(),
+    // The Host's renewals predicate on its own date, so the highlight matches the desk it leads to.
+    expiring: z.boolean(),
     assetVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   })
   .strict()
   .superRefine((row, context) => {
     if (row.id !== row.domain) {
       context.addIssue({ code: "custom", path: ["id"], message: "asset id must equal its canonical domain" });
+    }
+    if (row.expiring && (row.expiresOn === null || (row.lifecycleStatus !== "active" && row.lifecycleStatus !== "expired"))) {
+      context.addIssue({ code: "custom", path: ["expiring"], message: "only a kept asset with a recorded expiry can be expiring" });
     }
     if (new Set(row.tags).size !== row.tags.length) {
       context.addIssue({ code: "custom", path: ["tags"], message: "asset tags must be unique" });
@@ -66,6 +79,7 @@ export const assetLibraryViewModelSchema = z
     freshness: portfolioFreshnessSchema,
     totalRows: z.number().int().nonnegative().max(1_000_000),
     totalValue: canonicalMoneyViewSchema.nullable(),
+    // Workspace-wide even under a search: it is the number of rows the renewals desk lists.
     expiringWithin60Days: z.number().int().nonnegative(),
     conflictCount: z.number().int().nonnegative(),
     listingCount: z.number().int().nonnegative(),

@@ -31,6 +31,7 @@ const pushRejectionCodes = [
   "SYNC_AUTHORIZATION_REJECTED",
   "SYNC_TENANT_UNRESOLVED",
   "SYNC_IDEMPOTENCY_CONFLICT",
+  "SYNC_MUTATION_CONFLICT",
   "SYNC_STORAGE_REJECTED",
 ] as const;
 const pullRejectionCodes = [
@@ -62,7 +63,7 @@ function schemaFor(kind: Kind) {
 }
 
 const pushAccepted = workspaceMutationPushResponseSchema.parse({
-  schemaVersion: 2,
+  schemaVersion: 3,
   accepted: true,
   acknowledgements: [
     { mutationId: "mutation-5", deviceMutationSequence: 9, serverRevision: 5, duplicate: false },
@@ -70,7 +71,7 @@ const pushAccepted = workspaceMutationPushResponseSchema.parse({
   headServerRevision: 5,
 });
 const pullAccepted = workspaceMutationPullResponseSchema.parse({
-  schemaVersion: 2,
+  schemaVersion: 3,
   accepted: true,
   page: fixturePage,
   confirmedThrough: 4,
@@ -143,7 +144,7 @@ const valid: GeneratedCase[] = [
     name: `push-rejected-${code.toLowerCase().replaceAll("_", "-")}`,
     kind: "push-response" as const,
     value: workspaceMutationPushResponseSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: false,
       code,
       correlationId: `correlation-push-${code.toLowerCase()}`,
@@ -156,7 +157,7 @@ const valid: GeneratedCase[] = [
     name: `pull-rejected-${code.toLowerCase().replaceAll("_", "-")}-checkpoint-null`,
     kind: "pull-response" as const,
     value: workspaceMutationPullResponseSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: false,
       code,
       checkpoint: null,
@@ -167,7 +168,7 @@ const valid: GeneratedCase[] = [
     name: "pull-rebootstrap-required-checkpoint-present",
     kind: "pull-response",
     value: workspaceMutationPullResponseSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: false,
       code: "SYNC_REBOOTSTRAP_REQUIRED",
       checkpoint: fixtureCheckpoint,
@@ -177,12 +178,12 @@ const valid: GeneratedCase[] = [
   {
     name: "checkpoint-present",
     kind: "checkpoint-response",
-    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 2, checkpoint: fixtureCheckpoint }),
+    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 3, checkpoint: fixtureCheckpoint }),
   },
   {
     name: "checkpoint-null",
     kind: "checkpoint-response",
-    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 2, checkpoint: null }),
+    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 3, checkpoint: null }),
   },
   { name: "projection-current", kind: "projection-response", value: projectionAccepted },
   {
@@ -223,8 +224,8 @@ const invalid: GeneratedCase[] = [
   { name: "push-ack-wrong-sequence", kind: "push-response", value: { ...clone(pushAccepted), acknowledgements: [{ mutationId: "mutation-5", deviceMutationSequence: 10, serverRevision: 5, duplicate: false }] } },
   { name: "push-ack-zero-server-revision", kind: "push-response", value: { ...clone(pushAccepted), acknowledgements: [{ ...pushAccepted.acknowledgements[0], serverRevision: 0 }] } },
   { name: "push-ack-more-than-head", kind: "push-response", value: { ...clone(pushAccepted), acknowledgements: [{ ...pushAccepted.acknowledgements[0], serverRevision: 6 }] } },
-  { name: "push-rejected-unknown-code", kind: "push-response", value: { schemaVersion: 2, accepted: false, code: "SYNC_UNAVAILABLE", correlationId: "correlation-invalid" } },
-  { name: "push-rejected-invalid-correlation", kind: "push-response", value: { schemaVersion: 2, accepted: false, code: "SYNC_INPUT_REJECTED", correlationId: "bad correlation" } },
+  { name: "push-rejected-unknown-code", kind: "push-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_UNAVAILABLE", correlationId: "correlation-invalid" } },
+  { name: "push-rejected-invalid-correlation", kind: "push-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_INPUT_REJECTED", correlationId: "bad correlation" } },
   { name: "pull-confirmed-through-ahead", kind: "pull-response", value: { ...clone(pullAccepted), confirmedThrough: 5 } },
   { name: "pull-page-workspace-substitution", kind: "pull-response", value: { ...clone(pullAccepted), page: { ...clone(fixturePage), workspaceId: "workspace-other" } } },
   { name: "pull-page-from-revision-substitution", kind: "pull-response", value: { ...clone(pullAccepted), page: { ...clone(fixturePage), fromServerRevisionExclusive: 3 } } },
@@ -236,25 +237,38 @@ const invalid: GeneratedCase[] = [
   { name: "pull-noncanonical-timestamp-millis", kind: "pull-response", value: { ...clone(pullAccepted), pendingDelivery: { ...clone(pullAccepted.pendingDelivery), expiresAt: "2026-09-16T00:01:00.000Z" } } },
   { name: "pull-page-digest-too-short", kind: "pull-response", value: { ...clone(pullAccepted), page: { ...clone(fixturePage), pageDigest: "A".repeat(42) } } },
   { name: "pull-page-digest-padding", kind: "pull-response", value: { ...clone(pullAccepted), page: { ...clone(fixturePage), pageDigest: `${"A".repeat(42)}=` } } },
-  { name: "pull-rejected-unknown-code", kind: "pull-response", value: { schemaVersion: 2, accepted: false, code: "SYNC_UNAVAILABLE", checkpoint: null, correlationId: "correlation-invalid" } },
-  { name: "pull-rejected-missing-checkpoint", kind: "pull-response", value: { schemaVersion: 2, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", correlationId: "correlation-invalid" } },
-  { name: "pull-rejected-cross-workspace-checkpoint", kind: "pull-response", value: { schemaVersion: 2, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" }, correlationId: "correlation-invalid" } },
+  { name: "pull-rejected-unknown-code", kind: "pull-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_UNAVAILABLE", checkpoint: null, correlationId: "correlation-invalid" } },
+  { name: "pull-rejected-missing-checkpoint", kind: "pull-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", correlationId: "correlation-invalid" } },
+  { name: "pull-rejected-cross-workspace-checkpoint", kind: "pull-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" }, correlationId: "correlation-invalid" } },
   mutationCase("pull-mutation-unknown-field", (mutation) => { mutation.extra = true; }),
   mutationCase("pull-mutation-secret-field", (mutation) => { mutation.accessToken = "secret"; }),
   mutationCase("pull-mutation-unsafe-integer", (mutation) => { mutation.activeLeaseEpoch = Number.MAX_SAFE_INTEGER + 1; }),
   mutationCase("pull-mutation-cross-workspace", (mutation) => { mutation.workspaceId = "workspace-other"; }),
   mutationCase("pull-mutation-noncanonical-domain", (mutation) => { mutation.entityId = "Example.COM"; }),
+  mutationCase("pull-mutation-generation-missing", (mutation) => { delete mutation.entityGeneration; }),
+  mutationCase("pull-mutation-generation-zero", (mutation) => { mutation.entityGeneration = 0; }),
+  mutationCase("pull-mutation-wire-version-2", (mutation) => { mutation.schemaVersion = 2; }),
+  mutationCase("pull-mutation-re-add-first-generation", (mutation) => { mutation.reAddsDeletedRevision = 1; }),
+  mutationCase("pull-mutation-re-add-after-base", (mutation) => {
+    mutation.entityGeneration = 2;
+    mutation.reAddsDeletedRevision = 5;
+  }),
   mutationCase("pull-mutation-changed-fields-unsorted", (mutation) => { mutation.changedFields = [{ fieldPath: "tags", value: [] }, { fieldPath: "note", value: null }]; }),
   mutationCase("pull-mutation-changed-field-unknown", (mutation) => { mutation.changedFields = [{ fieldPath: "tags", value: [], token: "secret" }]; }),
   changedFieldCase("pull-mutation-note-forbidden-control", "note", "bad\u0000note"),
   changedFieldCase("pull-mutation-portfolio-invalid-identifier", "portfolioId", "bad portfolio"),
   changedFieldCase("pull-mutation-tags-not-canonical", "tags", ["premium", "brandable"]),
   changedFieldCase("pull-mutation-target-price-not-canonical", "targetPrice", { currency: "USD", amount: "01" }),
-  { name: "checkpoint-unknown-field", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), extra: true } } },
-  { name: "checkpoint-missing", kind: "checkpoint-response", value: { schemaVersion: 2 } },
-  { name: "checkpoint-cross-workspace", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" } } },
-  { name: "checkpoint-digest-too-long", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), checkpointDigest: "A".repeat(44) } } },
-  { name: "checkpoint-unsafe-revision", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), throughServerRevision: Number.MAX_SAFE_INTEGER + 1 } } },
+  { name: "checkpoint-unknown-field", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), extra: true } } },
+  // ADR-0029: version 1 and 2 checkpoints omit deletions, so a version 2 descriptor is refused
+  // both in the checkpoint read and inside a rebootstrap-required pull rejection.
+  { name: "checkpoint-response-version-2", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: null } },
+  { name: "checkpoint-descriptor-version-2", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), schemaVersion: 2 } } },
+  { name: "pull-rejected-checkpoint-version-2", kind: "pull-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", checkpoint: { ...clone(fixtureCheckpoint), schemaVersion: 2 }, correlationId: "correlation-invalid" } },
+  { name: "checkpoint-missing", kind: "checkpoint-response", value: { schemaVersion: 3 } },
+  { name: "checkpoint-cross-workspace", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" } } },
+  { name: "checkpoint-digest-too-long", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), checkpointDigest: "A".repeat(44) } } },
+  { name: "checkpoint-unsafe-revision", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), throughServerRevision: Number.MAX_SAFE_INTEGER + 1 } } },
   { name: "projection-bad-digest-uppercase", kind: "projection-response", value: { ...clone(projectionAccepted), canonicalRequestDigest: "A".repeat(64) } },
   { name: "projection-bad-digest-length", kind: "projection-response", value: { ...clone(projectionAccepted), canonicalRequestDigest: "a".repeat(63) } },
   { name: "projection-extra-field", kind: "projection-response", value: { ...clone(projectionAccepted), provider: "cloudflare" } },
@@ -273,12 +287,18 @@ const generatedInvalid = invalid.map(({ name, kind, value }) => ({
 }));
 
 const rawInvalid: RawCase[] = [
-  { name: "duplicate-top-level-key", kind: "push-response", wire: "{\"schemaVersion\":2,\"schemaVersion\":2,\"accepted\":true,\"acknowledgements\":[],\"headServerRevision\":0}", schemaAccepted: true },
-  { name: "duplicate-nested-mutation-key", kind: "pull-response", wire: JSON.stringify(pullAccepted).replace("\"schemaVersion\":2,\"mutationId\"", "\"schemaVersion\":2,\"schemaVersion\":2,\"mutationId\""), schemaAccepted: true },
-  { name: "malformed-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":2,\"checkpoint\":" },
-  { name: "trailing-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":2,\"checkpoint\":null}{}" },
+  { name: "duplicate-top-level-key", kind: "push-response", wire: "{\"schemaVersion\":3,\"schemaVersion\":3,\"accepted\":true,\"acknowledgements\":[],\"headServerRevision\":0}", schemaAccepted: true },
+  { name: "duplicate-nested-mutation-key", kind: "pull-response", wire: JSON.stringify(pullAccepted).replace("\"schemaVersion\":3,\"mutationId\"", "\"schemaVersion\":3,\"schemaVersion\":3,\"mutationId\""), schemaAccepted: true },
+  { name: "malformed-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":3,\"checkpoint\":" },
+  { name: "trailing-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":3,\"checkpoint\":null}{}" },
   { name: "exponent-number", kind: "projection-response", wire: `{"schemaVersion":1,"accepted":true,"observationId":"${observationId}","leaseEpoch":7e0,"sourceSequence":1,"canonicalRequestDigest":"${projectionDigest}","observationSequence":1,"disposition":"current"}`, schemaAccepted: true },
 ];
+
+for (const testCase of rawInvalid) {
+  if (testCase.name.startsWith("duplicate-") && !/"schemaVersion":\d+,"schemaVersion"/.test(testCase.wire)) {
+    throw new Error(`raw duplicate-key case lost its duplicate: ${testCase.name}`);
+  }
+}
 
 for (const testCase of valid) {
   if (!schemaFor(testCase.kind).safeParse(testCase.value).success) {

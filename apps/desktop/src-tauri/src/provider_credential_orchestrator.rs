@@ -6,33 +6,45 @@ use std::sync::{Arc, Mutex, OnceLock};
 use gooddealer_local_storage::{
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
     DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
-    DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution, DesktopLocalHost,
-    DesktopLocalHostError, InspectingCloudflareProvision,
+    DesktopCloudflarePurgeOutcome, DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution,
+    DesktopCloudflareRetirement, DesktopCloudflareRetirementPlan, DesktopLocalHost,
+    DesktopLocalHostError, InspectingCloudflareProvision, InspectingCloudflareRevocation,
 };
 use gooddealer_secure_host_core::{
     CloudflareCapture, CloudflareCaptureError, CloudflareCredentialObservationPlan,
     CloudflareCredentialProvisionPlan, CloudflareCredentialPublicKind,
-    CloudflareCredentialRecoveryPlan, CloudflareCustodyComparison, CloudflareKeychainError,
-    CloudflarePrewriteFailure, CloudflarePrewriteInspection, CloudflareProviderClient,
-    CloudflareProviderError, CloudflareProviderObservation, CloudflareProviderZoneStatus,
+    CloudflareCredentialRecoveryPlan, CloudflareCredentialRetirementPlan,
+    CloudflareCustodyComparison, CloudflareKeychainError, CloudflarePrewriteFailure,
+    CloudflarePrewriteInspection, CloudflareProviderClient, CloudflareProviderError,
+    CloudflareProviderObservation, CloudflareProviderZoneStatus, CloudflarePurgeOutcome,
     CloudflareRecordType, inspect_cloudflare_recovery_guarded,
-    publish_cloudflare_candidate_guarded,
+    publish_cloudflare_candidate_guarded, publish_cloudflare_tombstone_guarded,
+    purge_retired_cloudflare_slot,
 };
 
-pub(crate) async fn recover(host: Arc<DesktopLocalHost>) -> Result<(), ProviderCredentialError> {
+pub(crate) async fn recover(
+    host: Arc<DesktopLocalHost>,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<(), ProviderCredentialError> {
     tauri::async_runtime::spawn_blocking(move || {
-        let admission = host
-            .begin_native_cloud_run()
-            .map_err(|_| ProviderCredentialError::Host)?;
+        let admission = host.begin_native_cloud_run().map_err(host_error)?;
         host.recover_cloudflare_credential_orphans(&admission)
-            .map_err(|_| ProviderCredentialError::Host)?;
+            .map_err(host_error)?;
+        while let Some(handle) = host
+            .claim_cloudflare_retirement_retry()
+            .map_err(host_error)?
+        {
+            // A failed purge stays durable, but must not prevent other slots or recovery from
+            // being inspected. Claims are consumed once for this writable runtime.
+            let _ = purge_retirement_handle(&host, &cancel_fence, handle);
+        }
         let mut scan = host
             .begin_cloudflare_recovery_scan(admission)
-            .map_err(|_| ProviderCredentialError::Host)?;
+            .map_err(host_error)?;
         loop {
             let Some(handle) = host
                 .next_cloudflare_recovery(&mut scan)
-                .map_err(|_| ProviderCredentialError::Host)?
+                .map_err(host_error)?
             else {
                 return Ok(());
             };
@@ -60,12 +72,10 @@ pub(crate) async fn activate(
         return Err(ProviderCredentialError::Host);
     }
     let quarantine_connection = connection_hint.clone();
-    let admission = host
-        .begin_native_cloud_run()
-        .map_err(|_| ProviderCredentialError::Host)?;
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
     let activation = host
         .begin_cloudflare_activation(admission, &connection_hint)
-        .map_err(|_| ProviderCredentialError::Host)?;
+        .map_err(host_error)?;
     let capture_host = Arc::clone(&host);
     let capture_cancel_fence = Arc::clone(&cancel_fence);
     let candidate = tauri::async_runtime::spawn_blocking(move || {
@@ -98,7 +108,7 @@ pub(crate) async fn activate(
                 .map_err(|_| CloudflareProviderError::AuthorityStale)
         })
         .await
-        .map_err(|_| ProviderCredentialError::Provider)?;
+        .map_err(provider_error)?;
     let checked = checked_observation(&candidate.zone_binding_digest(), observation);
 
     let prepared_host = Arc::clone(&host);
@@ -107,13 +117,13 @@ pub(crate) async fn activate(
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Host)?;
+    .map_err(host_error)?;
 
     let prewrite_host = Arc::clone(&host);
     let inspecting = cancel_fence
         .commit(|| prewrite_host.begin_cloudflare_provision_prewrite_inspection(prepared))
         .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
-        .map_err(|_| ProviderCredentialError::Host)?;
+        .map_err(host_error)?;
 
     let publish_host = Arc::clone(&host);
     tauri::async_runtime::spawn_blocking(move || {
@@ -177,16 +187,14 @@ pub(crate) async fn observe(
     if provider_custody_quarantined(&connection_hint) {
         return Err(ProviderCredentialError::Host);
     }
-    let admission = host
-        .begin_native_cloud_run()
-        .map_err(|_| ProviderCredentialError::Host)?;
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
     let prepare_host = Arc::clone(&host);
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         prepare_host.prepare_cloudflare_observation(admission, &connection_hint, &entity_hint)
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Host)?;
+    .map_err(host_error)?;
 
     let mut provider = CloudflareProviderClient::production();
     let plan = ForwardedObservationPlan(&prepared);
@@ -202,7 +210,7 @@ pub(crate) async fn observe(
                 .map_err(|_| CloudflareProviderError::AuthorityStale)
         })
         .await
-        .map_err(|_| ProviderCredentialError::Provider)?;
+        .map_err(provider_error)?;
     let checked = checked_observation(prepared.zone_digest(), observation);
     tauri::async_runtime::spawn_blocking(move || {
         host.commit_checked_cloudflare_observation(prepared, &checked)
@@ -210,7 +218,171 @@ pub(crate) async fn observe(
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map(|_| true)
-    .map_err(|_| ProviderCredentialError::Host)
+    .map_err(host_error)
+}
+
+/// What one revocation did. Every outcome but `NothingToRevoke` left credential use denied in
+/// the Host; only `Revoked` also confirmed the token left custody. The others name why custody
+/// was not confirmed, so a caller never reads them as one indistinct `false`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RevocationOutcome {
+    /// The connection held no credential; nothing was prepared or written.
+    NothingToRevoke,
+    /// The tombstone was confirmed and the token left custody.
+    Revoked,
+    /// Custody contradicted the Host's record before the write, so it was remediated instead.
+    PrewriteRemediated,
+    /// The write may have happened but the read-back did not show the tombstone.
+    NotObservedBurned,
+    /// The tombstone was read back but authority changed during the write.
+    AuthorityStaleBurned,
+    /// The read-back could not decide custody; startup recovery must resolve it.
+    RecoveryRequired,
+}
+
+impl RevocationOutcome {
+    const fn from_resolution(resolution: DesktopCloudflareResolution) -> Self {
+        match resolution {
+            DesktopCloudflareResolution::Confirmed => Self::Revoked,
+            DesktopCloudflareResolution::PrewriteRemediated => Self::PrewriteRemediated,
+            DesktopCloudflareResolution::TargetNotObservedBurned => Self::NotObservedBurned,
+            DesktopCloudflareResolution::TargetPresentAuthorityStaleBurned => {
+                Self::AuthorityStaleBurned
+            }
+            DesktopCloudflareResolution::RecoveryRequired => Self::RecoveryRequired,
+        }
+    }
+}
+
+/// Revokes a connection's credential. Preparation denies credential use in the Host in the same
+/// commit, so the revocation takes effect before custody is touched; the tombstone publication
+/// then removes the token from custody under the same fences as provision.
+///
+/// A quarantined connection is not refused here: revoking only withdraws access, and the
+/// prewrite inspection still remediates any custody that contradicts the Host's record.
+pub(crate) async fn revoke(
+    host: Arc<DesktopLocalHost>,
+    connection_hint: String,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<RevocationOutcome, ProviderCredentialError> {
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
+    let prepare_host = Arc::clone(&host);
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        prepare_host.prepare_cloudflare_revocation(admission, &connection_hint)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map_err(host_error)?;
+    let Some(prepared) = prepared else {
+        return Ok(RevocationOutcome::NothingToRevoke);
+    };
+
+    let prewrite_host = Arc::clone(&host);
+    let inspecting = cancel_fence
+        .commit(|| prewrite_host.begin_cloudflare_revocation_prewrite_inspection(prepared))
+        .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+        .map_err(host_error)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        inspecting.with_keychain_plan(|plan, inspecting| {
+            let forwarded = ForwardedProvisionPlan(plan);
+            publish_cloudflare_tombstone_guarded(
+                &forwarded,
+                ForwardedRevocationInspection(inspecting),
+                |ForwardedRevocationInspection(inspecting)| {
+                    host.mark_cloudflare_revocation_write_started(inspecting)
+                        .map_err(map_host_to_keychain)
+                },
+                |ForwardedRevocationInspection(inspecting), reason| {
+                    host.remediate_cloudflare_revocation_prewrite(
+                        inspecting,
+                        map_prewrite_failure(reason),
+                    )
+                    .map_err(map_host_to_keychain)
+                },
+                |marked, comparison| {
+                    host.resolve_cloudflare_revocation(marked, map_comparison(comparison))
+                        .map_err(map_host_to_keychain)
+                },
+            )
+        })
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map(RevocationOutcome::from_resolution)
+    .map_err(|_| ProviderCredentialError::Keychain)
+}
+
+/// The first action requires explicit UI confirmation; retries only resume a durable request.
+/// Cancellation after the request commit leaves that request intact for a later retry.
+pub(crate) async fn purge(
+    host: Arc<DesktopLocalHost>,
+    connection_hint: String,
+    action: crate::provider_lane::RetirementAction,
+    cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+) -> Result<bool, ProviderCredentialError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let admission = host.begin_native_cloud_run().map_err(host_error)?;
+        let retirement = cancel_fence
+            .commit(|| match action {
+                crate::provider_lane::RetirementAction::ConfirmRetirement => {
+                    host.request_cloudflare_retirement(admission, &connection_hint)
+                }
+                crate::provider_lane::RetirementAction::RetryPending => {
+                    host.resume_cloudflare_retirement(admission, &connection_hint)
+                }
+            })
+            .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+            .map_err(host_error)?;
+        purge_retirement_handle(&host, &cancel_fence, retirement)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+}
+
+fn purge_retirement_handle(
+    host: &DesktopLocalHost,
+    cancel_fence: &crate::native_cloud_runtime::NativeCloudCancelFence,
+    retirement: DesktopCloudflareRetirement,
+) -> Result<bool, ProviderCredentialError> {
+    retirement.with_keychain_plan(|plan, handle| {
+        purge_retired_cloudflare_slot(
+            &ForwardedRetirementPlan(plan),
+            handle,
+            |handle| {
+                if cancel_fence.is_cancelled() {
+                    return Err(CloudflareKeychainError::AuthorityStale);
+                }
+                host.check_cloudflare_retirement(handle)
+                    .map_err(map_host_to_keychain)
+            },
+            |handle, outcome| {
+                let outcome = match outcome {
+                    CloudflarePurgeOutcome::Purged => DesktopCloudflarePurgeOutcome::Purged,
+                    CloudflarePurgeOutcome::AlreadyAbsent => {
+                        DesktopCloudflarePurgeOutcome::AlreadyAbsent
+                    }
+                    CloudflarePurgeOutcome::Unknown => DesktopCloudflarePurgeOutcome::Unknown,
+                };
+                cancel_fence
+                    .commit(|| host.resolve_cloudflare_retirement(handle, outcome))
+                    .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
+                    .map_err(map_host_to_keychain)
+            },
+        )
+        .map_err(|_| ProviderCredentialError::Keychain)
+    })
+}
+
+struct ForwardedRetirementPlan<'a>(DesktopCloudflareRetirementPlan<'a>);
+
+impl CloudflareCredentialRetirementPlan for ForwardedRetirementPlan<'_> {
+    fn connection_incarnation(&self) -> &str {
+        self.0.connection_incarnation_id()
+    }
+    fn connection_digest(&self) -> &str {
+        self.0.connection_digest()
+    }
 }
 
 fn provider_custody_quarantine() -> &'static Mutex<HashSet<String>> {
@@ -237,6 +409,10 @@ struct ForwardedRecoveryPlan<'a>(DesktopCloudflareRecoveryPlan<'a>);
 struct ForwardedPrewriteInspection(InspectingCloudflareProvision);
 
 impl CloudflarePrewriteInspection for ForwardedPrewriteInspection {}
+
+struct ForwardedRevocationInspection(InspectingCloudflareRevocation);
+
+impl CloudflarePrewriteInspection for ForwardedRevocationInspection {}
 
 struct ForwardedObservationPlan<'a>(&'a gooddealer_local_storage::PreparedCloudflareObservation);
 
@@ -436,20 +612,63 @@ const fn map_comparison(
     }
 }
 
+/// Keeps the Provider failures a person can act on apart: a transport failure, a retryable
+/// refusal (rate limit or server error), and a refusal of the credential (401 or 403). Every
+/// other failure (any other non-retryable status, malformed input or response, a response over
+/// its limit, stale authority) stays one closed outcome.
+const fn provider_error(error: CloudflareProviderError) -> ProviderCredentialError {
+    match error {
+        CloudflareProviderError::Transport => ProviderCredentialError::ProviderUnreachable,
+        CloudflareProviderError::Retryable => ProviderCredentialError::ProviderRetryLater,
+        CloudflareProviderError::CredentialRefused => ProviderCredentialError::CredentialRejected,
+        CloudflareProviderError::AuthorityStale
+        | CloudflareProviderError::Deterministic
+        | CloudflareProviderError::InvalidInput
+        | CloudflareProviderError::InvalidResponse
+        | CloudflareProviderError::ResponseLimit => ProviderCredentialError::Provider,
+    }
+}
+
+/// Keeps the Host refusals a person can act on, an unqualified capability and a Zone name that
+/// cannot be imported, apart from every other Host failure.
+const fn host_error(error: DesktopLocalHostError) -> ProviderCredentialError {
+    match error {
+        DesktopLocalHostError::CapabilityUnqualified => ProviderCredentialError::Unqualified,
+        DesktopLocalHostError::ZoneUnimportable => ProviderCredentialError::ZoneUnimportable,
+        _ => ProviderCredentialError::Host,
+    }
+}
+
 const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychainError {
     match error {
         DesktopLocalHostError::AuthorityRejected => CloudflareKeychainError::AuthorityStale,
         DesktopLocalHostError::Unavailable => CloudflareKeychainError::Unavailable,
         DesktopLocalHostError::ApplicationRootRejected
         | DesktopLocalHostError::StorageRejected
-        | DesktopLocalHostError::CloudProtocolRejected => CloudflareKeychainError::StateUnknown,
+        | DesktopLocalHostError::CloudProtocolRejected
+        | DesktopLocalHostError::AssetExists
+        | DesktopLocalHostError::AssetDeleted
+        | DesktopLocalHostError::CapabilityUnqualified
+        | DesktopLocalHostError::ZoneUnimportable => CloudflareKeychainError::StateUnknown,
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ProviderCredentialError {
     Host,
+    /// The capability has not passed ADR-0024 qualification; the Host attempted nothing.
+    Unqualified,
+    /// The observed Zone's name cannot become a domain asset; nothing was imported or prepared.
+    ZoneUnimportable,
     Capture,
+    /// Cloudflare could not be reached; nothing was written.
+    ProviderUnreachable,
+    /// Cloudflare rate limited the request or failed on its side; nothing was written.
+    ProviderRetryLater,
+    /// Cloudflare refused the credential (401 or 403). Its documentation does not say which of
+    /// the two an invalid token and which a missing permission produces, so both stay one
+    /// outcome; nothing was written.
+    CredentialRejected,
     Provider,
     Keychain,
     Unavailable,
@@ -457,6 +676,35 @@ pub(crate) enum ProviderCredentialError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_failures_a_person_can_act_on_stay_apart() {
+        use super::{ProviderCredentialError, provider_error};
+        use gooddealer_secure_host_core::CloudflareProviderError;
+        assert_eq!(
+            provider_error(CloudflareProviderError::Transport),
+            ProviderCredentialError::ProviderUnreachable
+        );
+        assert_eq!(
+            provider_error(CloudflareProviderError::Retryable),
+            ProviderCredentialError::ProviderRetryLater
+        );
+        assert_eq!(
+            provider_error(CloudflareProviderError::CredentialRefused),
+            ProviderCredentialError::CredentialRejected
+        );
+        // Any other non-retryable refusal (a redirect, a missing zone, a malformed 200) says
+        // nothing about the credential, so it stays generic.
+        for error in [
+            CloudflareProviderError::Deterministic,
+            CloudflareProviderError::AuthorityStale,
+            CloudflareProviderError::InvalidInput,
+            CloudflareProviderError::InvalidResponse,
+            CloudflareProviderError::ResponseLimit,
+        ] {
+            assert_eq!(provider_error(error), ProviderCredentialError::Provider);
+        }
+    }
+
     #[test]
     fn credential_orchestrator_is_the_only_native_forwarding_callsite() {
         let orchestrator = include_str!("provider_credential_orchestrator.rs");
@@ -493,6 +741,33 @@ mod tests {
         let post_prewrite_activation = &production[prewrite..observation];
         assert!(!post_prewrite_activation.contains("is_cancelled()"));
         assert!(!post_prewrite_activation.contains(".commit("));
+        for call in [
+            "publish_cloudflare_tombstone_guarded(",
+            ".begin_cloudflare_revocation_prewrite_inspection(",
+            ".mark_cloudflare_revocation_write_started(",
+            ".remediate_cloudflare_revocation_prewrite(",
+            ".resolve_cloudflare_revocation(",
+        ] {
+            assert_eq!(production.matches(call).count(), 1, "{call}");
+            assert!(!command_handlers.contains(call), "{call}");
+            assert!(!runtime.contains(call), "{call}");
+            assert!(!main.contains(call), "{call}");
+        }
+        // Revocation: once custody inspection has durably begun, nothing may abandon the
+        // tombstone publication midway, exactly as for provision.
+        let revocation_prewrite = production
+            .find(".begin_cloudflare_revocation_prewrite_inspection(")
+            .expect("durable revocation prewrite transition");
+        let tombstone = production
+            .find("publish_cloudflare_tombstone_guarded(")
+            .expect("Secure Host tombstone publication");
+        let revocation_end = production
+            .find("pub(crate) async fn purge(")
+            .expect("end of the revocation boundary");
+        assert!(revocation_prewrite < tombstone && tombstone < revocation_end);
+        let post_prewrite_revocation = &production[revocation_prewrite..revocation_end];
+        assert!(!post_prewrite_revocation.contains("is_cancelled()"));
+        assert!(!post_prewrite_revocation.contains(".commit("));
         let host_types =
             include_str!("../../../../crates/local-storage/src/desktop_native_cloud.rs");
         let prepared = host_types
@@ -507,6 +782,66 @@ mod tests {
         assert!(prepared < inspecting && inspecting < marked);
         assert!(!host_types[prepared..inspecting].contains("with_keychain_plan"));
         assert!(host_types[inspecting..marked].contains("with_keychain_plan"));
+        let prepared = host_types
+            .find("pub struct PreparedCloudflareRevocation")
+            .unwrap();
+        let inspecting = host_types
+            .find("pub struct InspectingCloudflareRevocation")
+            .unwrap();
+        let marked = host_types
+            .find("pub struct MarkedCloudflareRevocation")
+            .unwrap();
+        assert!(prepared < inspecting && inspecting < marked);
+        assert!(!host_types[prepared..inspecting].contains("with_keychain_plan"));
+        assert!(host_types[inspecting..marked].contains("with_keychain_plan"));
+    }
+
+    #[test]
+    fn revocation_outcome_keeps_every_resolution_distinct() {
+        use super::RevocationOutcome;
+        use gooddealer_local_storage::DesktopCloudflareResolution as Resolution;
+        let outcomes = [
+            Resolution::Confirmed,
+            Resolution::PrewriteRemediated,
+            Resolution::TargetNotObservedBurned,
+            Resolution::TargetPresentAuthorityStaleBurned,
+            Resolution::RecoveryRequired,
+        ]
+        .map(RevocationOutcome::from_resolution);
+        assert_eq!(
+            outcomes,
+            [
+                RevocationOutcome::Revoked,
+                RevocationOutcome::PrewriteRemediated,
+                RevocationOutcome::NotObservedBurned,
+                RevocationOutcome::AuthorityStaleBurned,
+                RevocationOutcome::RecoveryRequired,
+            ]
+        );
+        assert!(!outcomes.contains(&RevocationOutcome::NothingToRevoke));
+    }
+
+    #[test]
+    fn every_provider_operation_ends_by_re_reading_projections() {
+        // An operation can commit Host state before it fails or returns an unconfirmed result,
+        // so the wake must not depend on the outcome.
+        let runtime = include_str!("native_cloud_runtime.rs");
+        let start = runtime
+            .find("async fn run_provider_operation(")
+            .expect("provider operation runner");
+        let end = start + runtime[start..].find("\n}\n").expect("end of the runner");
+        let runner = &runtime[start..end];
+        // Exactly one wake, as the runner's last statement at function-body depth, so no branch
+        // or early return can skip it.
+        assert!(
+            runner
+                .trim_end_matches('\n')
+                .ends_with("\n    projection.wake();")
+        );
+        assert_eq!(runner.matches("projection.wake()").count(), 1);
+        assert!(
+            !runner.contains("return ") && !runner.contains("return;") && !runner.contains(")?")
+        );
     }
 
     #[test]

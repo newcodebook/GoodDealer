@@ -79,6 +79,13 @@ impl CloudflareCandidate {
 pub struct CloudflareCapture;
 
 impl CloudflareCapture {
+    /// Whether this build can capture a token at all. Capture runs only through the fixed macOS
+    /// system script; every other platform fails closed, so a Host on one never offers connecting.
+    #[must_use]
+    pub const fn supported() -> bool {
+        cfg!(target_os = "macos")
+    }
+
     /// Captures a candidate using the fixed system script on macOS; all other platforms fail closed.
     ///
     /// # Errors

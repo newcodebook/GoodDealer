@@ -2,7 +2,7 @@ import { defaultLocale, getPresentationCopy } from "@gooddealer/i18n";
 import { useEffect, useMemo, useState } from "react";
 
 import { BatchDetail, BatchList, type BatchPhase } from "../../src/features/operations/batch-operations";
-import { mockBatchDetail, mockBatchJobs, mockBatchProgress } from "../mock/batch-fixtures";
+import { mockBatchDetail, mockBatchJobs, mockToday, mockBatchProgress } from "../mock/batch-fixtures";
 import { MockShell, mockShellStatus } from "../mock/mock-shell";
 import type { DesignWindowPlatform } from "../screen-registry";
 
@@ -57,7 +57,7 @@ export function BatchScreen({ variant, platform, onNavigateScreen }: {
       onNavigateScreen={onNavigateScreen}
     >
       {job === null || detail === null ? (
-        <BatchList locale={locale} jobs={mockBatchJobs} onOpen={setOpenId} onCreateFromLibrary={() => onNavigateScreen("asset-library")} />
+        <BatchList locale={locale} jobs={mockBatchJobs} today={mockToday} onOpen={setOpenId} onCreateFromLibrary={() => onNavigateScreen("asset-library")} />
       ) : (
         <BatchDetail
           locale={locale}

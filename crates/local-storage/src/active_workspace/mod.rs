@@ -1,3 +1,22 @@
+pub(crate) mod batch_operations;
+
+pub(crate) mod capability_qualification;
+
+pub(crate) mod dns_health;
+
+pub(crate) mod history;
+
+mod launch_platforms;
+pub(crate) mod manual_tasks;
+
+pub(crate) mod observation_runs;
+
+pub(crate) mod renewals;
+
+pub(crate) mod sales;
+
+pub(crate) mod settings;
+
 pub(crate) mod portfolio;
 
 pub(crate) mod schema;
@@ -26,6 +45,8 @@ mod portfolio_connection {
 
     pub(crate) struct ActiveWorkspaceConnection {
         connection: Connection,
+        /// The merged sales desk of the last data generation read; see `sales::SalesCache`.
+        sales_cache: super::sales::SalesCache,
     }
 
     impl ActiveWorkspaceConnection {
@@ -44,7 +65,10 @@ mod portfolio_connection {
                 crate::migrations::MigrationError::Rejected => PortfolioReadError::SchemaRejected,
             })?;
             require_cloudflare_credential_schema(&connection)?;
-            Ok(Self { connection })
+            Ok(Self {
+                connection,
+                sales_cache: super::sales::SalesCache::default(),
+            })
         }
 
         #[cfg(test)]
@@ -63,6 +87,102 @@ mod portfolio_connection {
             query: &str,
         ) -> Result<AssetLibraryReadSnapshot, PortfolioReadError> {
             portfolio::ActivePortfolioReader::new(&self.connection).read_asset_library(
+                workspace_id,
+                start_index,
+                size,
+                query,
+            )
+        }
+
+        pub(crate) fn read_manual_tasks(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::ManualTasksReadSnapshot, PortfolioReadError> {
+            super::manual_tasks::ActiveManualTasksReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
+            )
+        }
+
+        pub(crate) fn read_history(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+            today: (&str, &str),
+        ) -> Result<crate::HistoryReadSnapshot, PortfolioReadError> {
+            super::history::ActiveHistoryReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
+                today,
+            )
+        }
+
+        pub(crate) fn read_batch_operations(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::BatchOperationsReadSnapshot, PortfolioReadError> {
+            super::batch_operations::ActiveBatchOperationsReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
+            )
+        }
+
+        pub(crate) fn read_renewals(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::RenewalsReadSnapshot, PortfolioReadError> {
+            super::renewals::ActiveRenewalsReader::new(&self.connection).read(
+                workspace_id,
+                start_index,
+                size,
+            )
+        }
+
+        pub(crate) fn read_sales(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+        ) -> Result<crate::SalesReadSnapshot, PortfolioReadError> {
+            super::sales::ActiveSalesReader::new(&self.connection, &self.sales_cache).read(
+                workspace_id,
+                start_index,
+                size,
+            )
+        }
+
+        /// The heap the cached sales desk holds; `None` when nothing is cached.
+        #[cfg(test)]
+        pub(crate) fn sales_desk_bytes(&self) -> Option<usize> {
+            self.sales_cache.desk_bytes()
+        }
+
+        pub(crate) fn read_settings(
+            &self,
+            workspace_id: &str,
+        ) -> Result<crate::SettingsReadSnapshot, PortfolioReadError> {
+            super::settings::ActiveSettingsReader::new(&self.connection, &self.sales_cache)
+                .read(workspace_id)
+        }
+
+        pub(crate) fn read_dns_health(
+            &self,
+            workspace_id: &str,
+            start_index: u32,
+            size: u16,
+            query: &str,
+        ) -> Result<crate::DnsHealthReadSnapshot, PortfolioReadError> {
+            super::dns_health::ActiveDnsHealthReader::new(&self.connection).read(
                 workspace_id,
                 start_index,
                 size,
@@ -232,3 +352,52 @@ mod portfolio_connection {
 }
 
 pub(crate) use portfolio_connection::*;
+
+/// Whether a scanned row is one a read rejects: a stored value of the wrong type, or one that
+/// `validate` refuses. Any other error is the storage failing, not a bad row, so it fails the scan
+/// instead of being counted.
+fn unreadable_row<T, U>(
+    row: rusqlite::Result<T>,
+    validate: impl FnOnce(T) -> Result<U, crate::portfolio_projection::PortfolioReadError>,
+) -> Result<bool, crate::portfolio_projection::PortfolioReadError> {
+    match row {
+        Ok(row) => Ok(validate(row).is_err()),
+        Err(
+            rusqlite::Error::FromSqlConversionFailure(..)
+            | rusqlite::Error::InvalidColumnType(..)
+            | rusqlite::Error::IntegralValueOutOfRange(..),
+        ) => Ok(true),
+        Err(_) => Err(crate::portfolio_projection::PortfolioReadError::StorageRejected),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::portfolio_projection::PortfolioReadError;
+
+    use super::unreadable_row;
+
+    #[test]
+    fn a_bad_row_is_counted_but_a_storage_failure_fails_the_scan() {
+        let valid = |value: i64| {
+            if value > 0 {
+                Ok(())
+            } else {
+                Err(PortfolioReadError::ProjectionRejected)
+            }
+        };
+        assert!(!unreadable_row(Ok(1), valid).unwrap());
+        assert!(unreadable_row(Ok(0), valid).unwrap());
+        let wrong_type =
+            rusqlite::Error::InvalidColumnType(0, "value".to_owned(), rusqlite::types::Type::Blob);
+        assert!(unreadable_row(Err(wrong_type), valid).unwrap());
+        let corrupt = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+            None,
+        );
+        assert!(matches!(
+            unreadable_row(Err(corrupt), valid),
+            Err(PortfolioReadError::StorageRejected)
+        ));
+    }
+}

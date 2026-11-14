@@ -25,6 +25,17 @@ import { accountRecoveryMigration } from "../modules/identity/migrations/2026092
 import { syncV2LedgerMigration } from "../modules/workspace/mutations/migrations/202609140001-sync-v2-ledger";
 import { desktopLoginLoopbackRedirectMigration } from "../modules/devices/migrations/202611020001-desktop-login-loopback-redirect";
 import { desktopCodeLoopbackRedirectMigration } from "../modules/identity/migrations/202611020002-desktop-code-loopback-redirect";
+import { drainProofSchemaVersionMigration } from "../modules/devices/migrations/202611130001-drain-proof-schema-version";
+import { mutationDrainResultChainMigration } from "../modules/workspace/mutations/migrations/202611130002-mutation-drain-result-chain";
+import { mutationResultLedgerMigration } from "../modules/workspace/mutations/migrations/202611130003-mutation-result-ledger";
+import { mutationDrainDeviceChainMigration } from "../modules/workspace/mutations/migrations/202611130004-mutation-drain-device-chain";
+import { mutationWireV3Migration } from "../modules/workspace/mutations/migrations/202611130005-mutation-wire-v3";
+import { replicaDomainAssetDeletionMigration } from "../modules/workspace/state/portfolio/migrations/202611140001-replica-domain-asset-deletion";
+import { replicaEntityGenerationMigration } from "../modules/workspace/state/portfolio/migrations/202611140002-replica-entity-generation";
+import { mutationGenerationMismatchReceiptMigration } from "../modules/workspace/mutations/migrations/202611140003-mutation-generation-mismatch-receipt";
+import { workspaceCheckpointStateV3Migration } from "../modules/workspace/checkpoints/migrations/202611140004-workspace-checkpoint-state-v3";
+import { mutationLogGenerationMigration } from "../modules/workspace/mutations/migrations/202611140005-mutation-log-generation";
+import { replicaDomainAssetReAddMigration } from "../modules/workspace/state/portfolio/migrations/202611140006-replica-domain-asset-re-add";
 import { buildMigrationCatalog, type CloudMigration } from "./index";
 
 /** Explicit imports make cross-module ordering reviewable without moving table ownership into db. */
@@ -56,6 +67,17 @@ export const cloudMigrations: readonly CloudMigration[] = [
   accountDefaultWorkspaceCapabilityPolicyMigration,
   desktopLoginLoopbackRedirectMigration,
   desktopCodeLoopbackRedirectMigration,
+  drainProofSchemaVersionMigration,
+  mutationDrainResultChainMigration,
+  mutationResultLedgerMigration,
+  mutationDrainDeviceChainMigration,
+  mutationWireV3Migration,
+  replicaDomainAssetDeletionMigration,
+  replicaEntityGenerationMigration,
+  mutationGenerationMismatchReceiptMigration,
+  workspaceCheckpointStateV3Migration,
+  mutationLogGenerationMigration,
+  replicaDomainAssetReAddMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

@@ -26,6 +26,12 @@ describe("Batch edit rules", () => {
     expect(applyPriceRule(priced, { mode: "percent", direction: "increase", percent: 12.5 })).toBe("1125");
     expect(applyPriceRule(unpriced, { mode: "percent", direction: "decrease", percent: 8 })).toBeNull();
     expect(applyPriceRule(priced, { mode: "each", amounts: {} })).toBe("1000");
+    // Exact decimal arithmetic: a half cent rounds up, and amounts past a double's precision survive.
+    // 33.30 + 5 % is exactly 34.965; a double computes 34.9649999… and rounds down to 34.96.
+    const cents = { id: "c.com", domain: "c.com", targetPrice: { currency: "USD", amount: "33.3" } };
+    expect(applyPriceRule(cents, { mode: "percent", direction: "increase", percent: 5 })).toBe("34.97");
+    const huge = { id: "d.com", domain: "d.com", targetPrice: { currency: "USD", amount: "9007199254740993" } };
+    expect(applyPriceRule(huge, { mode: "percent", direction: "increase", percent: 10 })).toBe("9907919180215092.3");
   });
 
   it("accepts only bounded percentages", () => {
@@ -66,5 +72,12 @@ describe("Batch edit dialogs", () => {
 
     expect(html).toContain("生成批量计划 · 2 项");
     expect(closed).toBe("");
+  });
+
+  it("totals near-maximum prices past 16 whole digits without failing", () => {
+    // Each price is the largest a contract allows; their total has 17 whole digits.
+    const near = (domain: string) => ({ id: domain, domain, targetPrice: { currency: "USD", amount: "9999999999999999.99" } });
+    const html = renderToStaticMarkup(<BatchPriceDialog locale="zh-CN" open targets={[near("a.com"), near("b.com")]} onClose={() => undefined} onSubmit={() => undefined} />);
+    expect(html).toContain("19,999,999,999,999,999.98");
   });
 });

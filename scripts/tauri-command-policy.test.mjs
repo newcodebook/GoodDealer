@@ -16,8 +16,12 @@ function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "gooddealer-tauri-command-"));
   const commands = [
     "cloudflare_connection_activate",
+    "cloudflare_connection_create",
+    "cloudflare_connection_purge",
+    "cloudflare_connection_revoke",
     "cloudflare_connection_status",
     "cloudflare_observation_read",
+    "cloudflare_retirement_candidates",
     "cloudflare_zone_observe",
     "desktop_authentication_begin",
     "desktop_authentication_refresh",
@@ -29,12 +33,21 @@ function createFixture() {
     "local_backup_restore_status",
     "local_conflict_center_read",
     "local_conflict_resolve",
+    "local_device_lease_read",
     "local_sync_status",
     "local_domain_asset_edit",
+    "local_domain_asset_create",
     "local_domain_asset_delete",
     "local_domain_asset_provider_bind",
     "local_asset_library_read",
+    "local_batch_operations_read",
+    "local_dns_health_read",
     "local_domain_detail_read",
+    "local_history_read",
+    "local_manual_tasks_read",
+    "local_renewals_read",
+    "local_sales_read",
+    "local_settings_read",
   ];
   writeFile(root, "apps/desktop/src-tauri/build.rs", `AppManifest::new().commands(&[${commands.map((command) => `"${command}"`).join(",")}])\n`);
   writeFile(root, "apps/desktop/src-tauri/src/main.rs", `
@@ -126,6 +139,17 @@ function useFixture(t) {
 
 test("the repository Desktop bridge exposes exactly the reviewed business and authentication commands", () => {
   assert.deepEqual(tauriCommandPolicyErrors(), []);
+});
+
+test("the tracked macOS capability schema matches the generated desktop schema", () => {
+  // Only a macOS build regenerates macOS-schema.json; it is byte-identical to the desktop schema
+  // there, so drift here would surface late as a dirty worktree in the macOS native job.
+  const schemas = new URL("../apps/desktop/src-tauri/gen/schemas/", import.meta.url);
+  assert.equal(
+    readFileSync(new URL("macOS-schema.json", schemas), "utf8"),
+    readFileSync(new URL("desktop-schema.json", schemas), "utf8"),
+    "regenerate macOS-schema.json from desktop-schema.json after changing Desktop commands",
+  );
 });
 
 test("rejects an unreviewed command or a missing reviewed command in each Desktop surface", (t) => {

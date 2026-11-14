@@ -13,11 +13,32 @@ export {
 export type { DomainAssetProjectionRow } from "./domain-asset-projection";
 
 export {
+  checkpointDomainAssetSchema,
+  checkpointDomainAssetTombstoneSchema,
+  checkpointEntityDigestSchema,
+  checkpointEntityDigestsSchema,
+  computeWorkspaceCheckpointDigest,
+  computeWorkspaceCheckpointEntityDigests,
+  encodeCheckpointEntityDigestsInput,
+  partitionWorkspaceCheckpointState,
+  workspaceCheckpointStateSchema,
+} from "./checkpoint-state";
+export type {
+  CheckpointDomainAsset,
+  CheckpointDomainAssetTombstone,
+  CheckpointEntityDigest,
+  WorkspaceCheckpointState,
+} from "./checkpoint-state";
+
+export {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   encodeMutationPageDigestInput,
+  encodeLegacyV2SubmittedSyncMutationDigestInput,
   encodeSubmittedSyncMutationDigestInput,
+  toLegacyV2SubmittedSyncMutation,
   encodeWorkspaceEntityDigestsInput,
   mutationCursorSchema,
   mutationPageSchema,

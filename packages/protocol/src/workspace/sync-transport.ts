@@ -3,6 +3,7 @@ import { z } from "zod";
 import { canonicalUtcTimestamp, encodeDomainSeparatedWireValue, identifier, safePositiveInteger } from "../wire/index";
 import {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   mutationCursorSchema,
@@ -11,7 +12,7 @@ import {
   serverRevisionSchema,
   tenantNeutralSubmittedSyncMutationSchema,
 } from "./sync-mutation";
-import { domainAssetProjectionSchema } from "./domain-asset-projection";
+import { workspaceCheckpointStateSchema } from "./checkpoint-state";
 
 export const WORKSPACE_SYNC_PUSH_OPERATION_ID = "workspace.sync.mutations.push" as const;
 export const WORKSPACE_SYNC_PULL_OPERATION_ID = "workspace.sync.mutations.pull" as const;
@@ -28,7 +29,7 @@ export const workspaceSyncOperationSchema = z.enum([
 
 export const workspaceMutationPushRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     mutations: z
       .array(tenantNeutralSubmittedSyncMutationSchema)
       .min(1)
@@ -77,13 +78,17 @@ export const workspaceMutationPushRejectionCodeSchema = z.enum([
   "SYNC_AUTHORIZATION_REJECTED",
   "SYNC_TENANT_UNRESOLVED",
   "SYNC_IDEMPOTENCY_CONFLICT",
+  // A deterministic conflict with Cloud state (a field written by another writer after the
+  // mutation's base, or an entity Cloud holds as a tombstone). Retrying cannot succeed, so the
+  // client ends that one mutation and resolves the field through the next Pull.
+  "SYNC_MUTATION_CONFLICT",
   "SYNC_STORAGE_REJECTED",
 ]);
 
 export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       acknowledgements: z.array(workspaceMutationAcknowledgementSchema).max(MAX_MUTATIONS_PER_PAGE),
       headServerRevision: serverRevisionSchema,
@@ -115,7 +120,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
     }),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPushRejectionCodeSchema,
       correlationId: identifier,
@@ -125,7 +130,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
 
 export const workspaceMutationPullRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     afterServerRevision: serverRevisionSchema,
     cursor: mutationCursorSchema.nullable(),
     confirm: mutationCursorSchema.nullable(),
@@ -176,7 +181,7 @@ export const pendingDeliverySchema = z
 export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       page: mutationPageSchema,
       confirmedThrough: serverRevisionSchema,
@@ -186,7 +191,7 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
     .strict(),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPullRejectionCodeSchema,
       checkpoint: checkpointDescriptorSchema.nullable(),
@@ -214,7 +219,7 @@ export const rebootstrapPlanSchema = z
   .object({
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     checkpoint: checkpointDescriptorSchema,
-    snapshot: domainAssetProjectionSchema,
+    snapshot: workspaceCheckpointStateSchema,
     requiredMutationRange: z.object({
       fromServerRevisionExclusive: serverRevisionSchema,
       throughServerRevisionInclusive: serverRevisionSchema,
@@ -231,6 +236,13 @@ export const rebootstrapPlanSchema = z
     }
     if (plan.checkpoint.throughServerRevision !== range.fromServerRevisionExclusive) {
       context.addIssue({ code: "custom", path: ["checkpoint", "throughServerRevision"], message: "checkpoint does not anchor the required range" });
+    }
+    // A checkpoint cannot record a deletion it has not reached.
+    const late = plan.snapshot.tombstones.findIndex(
+      (tombstone) => tombstone.deletedServerRevision > plan.checkpoint.throughServerRevision,
+    );
+    if (late !== -1) {
+      context.addIssue({ code: "custom", path: ["snapshot", "tombstones", late, "deletedServerRevision"], message: "tombstone postdates its checkpoint" });
     }
     if (plan.pinnedHeadRevision < range.throughServerRevisionInclusive) {
       context.addIssue({ code: "custom", path: ["pinnedHeadRevision"], message: "pinned head precedes required range" });
@@ -251,7 +263,7 @@ export const rebootstrapPlanSchema = z
 export function encodeRebootstrapPlanDigestInput(value: unknown): Uint8Array {
   const parsed = rebootstrapPlanSchema.parse(value);
   const { pinnedHeadDigest: _digest, ...input } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", input);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", input);
 }
 
 export type WorkspaceSyncOperation = z.infer<typeof workspaceSyncOperationSchema>;

@@ -1,5 +1,5 @@
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   mutationPageSchema,
   workspacePortfolioReadRequestSchema,
@@ -127,7 +127,7 @@ export class InMemoryWorkspaceMutationReader {
       ? null
       : encodeCursor(scope, request.throughServerRevisionInclusive, returnedThroughServerRevision);
     const draft = {
-      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+      schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
       workspaceId: scope.workspaceId,
       fromServerRevisionExclusive: request.fromServerRevisionExclusive,
       throughServerRevisionInclusive: request.throughServerRevisionInclusive,

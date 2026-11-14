@@ -1013,7 +1013,11 @@ impl NativeCloudSession {
             Err(
                 DesktopLocalHostError::ApplicationRootRejected
                 | DesktopLocalHostError::StorageRejected
-                | DesktopLocalHostError::Unavailable,
+                | DesktopLocalHostError::Unavailable
+                | DesktopLocalHostError::AssetExists
+                | DesktopLocalHostError::AssetDeleted
+                | DesktopLocalHostError::CapabilityUnqualified
+                | DesktopLocalHostError::ZoneUnimportable,
             ) => Err(NativeCloudRequestError::Unavailable),
         }
     }
@@ -1978,7 +1982,7 @@ mod tests {
 
         assert!(matches!(
             session.prepare_data_plane_request(
-                br#"{"schemaVersion":2}"#,
+                br#"{"schemaVersion":3}"#,
                 DataPlaneRoute::SyncPush,
                 Some(refreshed),
             ),

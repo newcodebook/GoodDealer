@@ -77,6 +77,35 @@ Cloud pull --> strict validation --> conflict decision --> local transaction -->
 同步是本地业务数据库的异步复制机制，不是业务调用链。Cloud transport 失败时，本地事务仍成功，
 并保持待同步状态。Cloud 空结果不是删除指令；删除必须是具名、经过验证并可冲突处理的 Mutation。
 
+Cloud 按字段判定过期：字段最后一次被写入的 revision 大于 Mutation 的 `baseServerRevision` 即为
+`MUTATION_FIELD_STALE`，只有一种例外——那次写入来自同一设备、同一 Lease epoch、更小的设备序号，且其
+base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已应用 head 为 base，所以同一字段在 ACK 前的
+连续编辑都带同一个 base；这些是本设备自己的先后编辑，不是冲突。其他设备、其他 epoch、以更旧 base 提交的
+写入，以及 replay 行已被压缩而无法确认写入者的情况，仍判为过期。
+
+推送拒绝码逐个映射，Desktop 只重试 `SYNC_STORAGE_REJECTED`。字段过期与目标实体在 Cloud 为墓碑以
+`SYNC_MUTATION_CONFLICT` 返回：多项批次先拆分隔离，单项的 Outbox 行终止为 `conflicted`
+（`last_error_code='sync_mutation_conflict'`），行、冻结的 wire 与字段保留，其后的 Outbox 继续发送。
+字段自身的 `sync_state` 不变，所以拉取到对方写入时按字段规则进入冲突中心，而不是覆盖本地值。
+在拉取之前，客户快照不单独计数 `conflicted` 行（`rejectedMutationCount` 只计 `rejected`），冲突在下一次拉取打开
+候选后才计入 `openConflictCount`。
+`MUTATION_DRAIN_SEALED`、`MUTATION_BASE_REVISION_AHEAD`（只在 Cloud 状态回退时出现）与
+`MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。单项推送的字段过期或墓碑实体由 Cloud 在同一事务内
+写入拒绝回执并结束该设备序号（不分配 server revision），回执提交后才返回 `SYNC_MUTATION_CONFLICT`；同一冻结
+请求的重放得到同一拒绝，多项批次不写回执。其余拒绝（输入、schema、权限、ID/序号冲突）不占用序号，缺口仍使
+设备切换的 drain 验证失败关闭。见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
+（Accepted，实现中：结果回执与 drain proof v2 已交付；client-core 只从持久化的 ACK 与单项业务拒绝折叠 v2
+结果链并生成 v2 声明，Desktop 设备切换流程尚未交付，所以生产中还没有 proof 签名与上传）。
+
+### Cloudflare 本机凭据清理
+
+已拒绝使用的 Cloudflare 凭据可通过设置页的维护目标进入本机清理：首次操作要求显式确认，之后只重试
+不可撤回的持久请求。Native 与恢复/凭据操作共用串行 ProviderLane；删除前重新检查当前可写工作区，
+在既有槽位锁内删除并验证不存在，确认后原子完成退役并隐藏连接。Unknown 保持请求，不宣称完成。
+每次可写打开只自动尝试已有请求一次；后续唤醒不循环重试。备份恢复仅合并业务白名单，不回退这些控制状态。
+清理不撤销 Cloudflare 上的 Token，仍须到 Cloudflare 删除或轮换。实现与剩余资格见
+[ADR-0028](adr/0028-refused-cloudflare-custody-purge.md)；macOS 实机 custody 验证尚未取得。
+
 ### 客户同步快照与冲突路由
 
 客户只消费 Native 读取的持久化 `SyncSnapshot`，不消费内部复制 drain 进度。快照包含

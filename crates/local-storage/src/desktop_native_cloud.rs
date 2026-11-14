@@ -14,12 +14,91 @@ use crate::{
     CloudflareCredentialPreparation, CloudflareCredentialWitness,
     CloudflareDnsProjectionAcknowledgement, CloudflareDnsRecordWrite, DesktopLocalHost,
     DesktopLocalHostError, DesktopNativeCloudAdmission, NativeCheckpointDescriptor,
-    SyncMutationAcknowledgement, serialize_sync_push_request,
+    SYNC_MUTATION_WIRE_SCHEMA_VERSION, SyncMutationAcknowledgement, serialize_sync_push_request,
 };
 
 const MAX_SYNC_PULL_REQUEST_BYTES: usize = 2 * 1024;
 const MAX_PROJECTION_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// Native-only result of deleting and checking a retired Cloudflare custody slot under its lock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesktopCloudflarePurgeOutcome {
+    Purged,
+    AlreadyAbsent,
+    Unknown,
+}
+
+/// Bounded, non-secret settings action target. Slot identity remains native-only.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopCloudflareRetirementCandidate {
+    pub connection_ref: String,
+    pub display_label: String,
+    pub action: DesktopCloudflareMaintenanceAction,
+}
+
+/// The only maintenance the Host will admit for a refused credential (ADR-0028). Cases 1 and 2
+/// still hold an exact baseline and are revoked again; cases 3 and 4 can only be retired.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopCloudflareMaintenanceAction {
+    /// Case 3/4 without a request yet: the first retirement needs explicit user confirmation.
+    Retire,
+    /// A durable, irreversible retirement request whose slot deletion is not yet confirmed.
+    RetryRetirement,
+    /// Case 1/2: a revocation that can be prepared again against the recorded exact baseline.
+    RetryRevoke,
+}
+
+/// One-shot Host handle issued only after the irreversible retirement request commits.
+pub struct DesktopCloudflareRetirement {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) seed: crate::active_workspace::business::CloudflareRetirementSeed,
+    pub(crate) connection_digest: String,
+}
+
+/// Borrowed non-secret slot identity; callers cannot construct or serialize this plan.
+pub struct DesktopCloudflareRetirementPlan<'a> {
+    seed: &'a crate::active_workspace::business::CloudflareRetirementSeed,
+    connection_digest: &'a str,
+}
+
+impl DesktopCloudflareRetirementPlan<'_> {
+    #[must_use]
+    pub fn connection_incarnation_id(&self) -> &str {
+        &self.seed.connection_incarnation_id
+    }
+
+    #[must_use]
+    pub fn connection_digest(&self) -> &str {
+        self.connection_digest
+    }
+}
+
+impl DesktopCloudflareRetirement {
+    pub fn with_keychain_plan<T>(
+        self,
+        use_plan: impl FnOnce(DesktopCloudflareRetirementPlan<'_>, Self) -> T,
+    ) -> T {
+        // The borrowed plan and consumed handle describe the same committed request.
+        let seed = self.seed.clone();
+        let connection_digest = self.connection_digest.clone();
+        use_plan(
+            DesktopCloudflareRetirementPlan {
+                seed: &seed,
+                connection_digest: &connection_digest,
+            },
+            self,
+        )
+    }
+}
+
+impl fmt::Debug for DesktopCloudflareRetirement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DesktopCloudflareRetirement([REDACTED])")
+    }
+}
 
 #[derive(Debug)]
 pub struct DesktopCloudflareCheckedObservation {
@@ -267,6 +346,50 @@ impl InspectingCloudflareProvision {
 }
 
 pub struct MarkedCloudflareProvision {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+/// Opaque Host-owned revocation, durably prepared with credential use already denied. Distinct
+/// from the provision handles so a revocation can only be published as a tombstone.
+pub struct PreparedCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for PreparedCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PreparedCloudflareRevocation([REDACTED])")
+    }
+}
+
+/// Opaque proof that Host durably entered prewrite inspection for a revocation.
+pub struct InspectingCloudflareRevocation {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) preparation: CloudflareCredentialPreparation,
+    pub(crate) plan: DesktopCloudflareKeychainPlanData,
+}
+
+impl fmt::Debug for InspectingCloudflareRevocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("InspectingCloudflareRevocation([REDACTED])")
+    }
+}
+
+impl InspectingCloudflareRevocation {
+    pub fn with_keychain_plan<T>(
+        self,
+        use_plan: impl FnOnce(DesktopCloudflareKeychainPlan<'_>, Self) -> T,
+    ) -> T {
+        let data = self.plan.clone();
+        let plan = DesktopCloudflareKeychainPlan { data: &data };
+        use_plan(plan, self)
+    }
+}
+
+pub struct MarkedCloudflareRevocation {
     pub(crate) admission: DesktopNativeCloudAdmission,
     pub(crate) preparation: CloudflareCredentialPreparation,
     pub(crate) plan: DesktopCloudflareKeychainPlanData,
@@ -676,6 +799,22 @@ impl DesktopLocalHost {
                         )?;
                         Ok(DesktopSyncPushDisposition::DeterministicRejected)
                     }
+                    // Cloud state already holds a newer write to a field or a tombstone for the
+                    // entity, so no retry can succeed. Only the identified mutation ends; the
+                    // field's own sync state stays pending, so the next Pull of the other write
+                    // still opens a Conflict Center candidate instead of overwriting the edit.
+                    "SYNC_MUTATION_CONFLICT" => {
+                        if claim.claimed.len() > 1 {
+                            return Ok(DesktopSyncPushDisposition::IsolationRequired);
+                        }
+                        self.sync_reject(
+                            &admission.inner,
+                            &claim.delivery_owner,
+                            &claim.claimed,
+                            DesktopSyncRejectDisposition::MutationConflicted,
+                        )?;
+                        Ok(DesktopSyncPushDisposition::DeterministicRejected)
+                    }
                     "SYNC_AUTHORIZATION_REJECTED" | "SYNC_TENANT_UNRESOLVED" => {
                         Ok(DesktopSyncPushDisposition::AuthorizationBlocked)
                     }
@@ -770,7 +909,7 @@ impl DesktopLocalHost {
     #[must_use]
     pub fn prepare_native_checkpoint() -> DesktopCheckpointExchange {
         DesktopCheckpointExchange {
-            request_body: br#"{"schemaVersion":2}"#.to_vec(),
+            request_body: br#"{"schemaVersion":3}"#.to_vec(),
         }
     }
 
@@ -786,7 +925,7 @@ impl DesktopLocalHost {
         response_wire: &[u8],
     ) -> Result<DesktopSyncCheckpointDisposition, DesktopLocalHostError> {
         let response: CheckpointResponseWire = strict_json(response_wire)?;
-        if response.schema_version != 2 {
+        if u64::from(response.schema_version) != CHECKPOINT_WIRE_SCHEMA_VERSION {
             return Err(DesktopLocalHostError::CloudProtocolRejected);
         }
         let descriptor = response
@@ -966,6 +1105,9 @@ struct SyncMutationWire {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
+    /// ADR-0029 C1a: only generation 1 is accepted until local generation columns land (C1c);
+    /// `reAddsDeletedRevision` is not declared, so `deny_unknown_fields` refuses any re-add.
+    entity_generation: u64,
     operation_kind: String,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1034,6 +1176,11 @@ struct CheckpointResponseWire {
     checkpoint: Option<CheckpointWire>,
 }
 
+/// Checkpoint descriptor wire version (ADR-0029). Version 3 checkpoints cover tombstones and entity
+/// generations; a version 2 descriptor omits deletions, so it is refused in the checkpoint read and
+/// inside a rebootstrap-required pull rejection alike.
+const CHECKPOINT_WIRE_SCHEMA_VERSION: u64 = 3;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckpointWire {
@@ -1050,7 +1197,7 @@ impl CheckpointWire {
         validate_identifier(&self.checkpoint_id, 160)?;
         validate_identifier(&self.workspace_id, 160)?;
         validate_digest43(&self.checkpoint_digest)?;
-        if self.schema_version != 2
+        if self.schema_version != CHECKPOINT_WIRE_SCHEMA_VERSION
             || self.workspace_schema_version == 0
             || self.workspace_schema_version > MAX_SAFE_INTEGER
             || self.through_server_revision > MAX_SAFE_INTEGER
@@ -1090,7 +1237,7 @@ fn validate_push_response(
     response: &SyncPushAcceptedWire,
     claimed: &[ClaimedSyncMutation],
 ) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || !response.accepted
         || response.acknowledgements.len() != claimed.len()
         || response.acknowledgements.len() > 256
@@ -1115,7 +1262,7 @@ fn validate_push_response(
 }
 
 fn validate_push_rejection(response: &SyncRejectedWire) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || response.accepted
         || !matches!(
             response.code.as_str(),
@@ -1124,6 +1271,7 @@ fn validate_push_rejection(response: &SyncRejectedWire) -> Result<(), DesktopLoc
                 | "SYNC_AUTHORIZATION_REJECTED"
                 | "SYNC_TENANT_UNRESOLVED"
                 | "SYNC_IDEMPOTENCY_CONFLICT"
+                | "SYNC_MUTATION_CONFLICT"
                 | "SYNC_STORAGE_REJECTED"
         )
     {
@@ -1136,7 +1284,7 @@ fn validate_pull_rejection(
     response: &SyncPullRejectedWire,
     expected_workspace_id: &str,
 ) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || response.accepted
         || !matches!(
             response.code.as_str(),
@@ -1167,11 +1315,11 @@ fn validate_pull_response(
 ) -> Result<(), DesktopLocalHostError> {
     let page = &response.page;
     let delivery = &response.pending_delivery;
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || !response.accepted
         || response.confirmed_through != exchange.expected_after_revision
         || response.confirmed_through > MAX_SAFE_INTEGER
-        || page.schema_version != 2
+        || page.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || page.workspace_id != exchange.expected_workspace_id
         || page.from_server_revision_exclusive != exchange.expected_after_revision
         || page.from_server_revision_exclusive > MAX_SAFE_INTEGER
@@ -1241,7 +1389,8 @@ fn validate_sync_mutation(
     workspace_id: &str,
     expected_revision: u64,
 ) -> Result<(), DesktopLocalHostError> {
-    if mutation.schema_version != 2
+    if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
+        || mutation.entity_generation != 1
         || mutation.workspace_id != workspace_id
         || mutation.workspace_schema_version == 0
         || mutation.workspace_schema_version > MAX_SAFE_INTEGER
@@ -1551,7 +1700,7 @@ mod tests {
     }
 
     fn empty_host() -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6a; 32]),
@@ -1574,7 +1723,7 @@ mod tests {
     }
 
     fn push_host_with_mutations(count: u8) -> (tempfile::TempDir, DesktopLocalHost) {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6b; 32]),
@@ -1623,7 +1772,7 @@ mod tests {
         let request: Value = serde_json::from_slice(claim.request_body()).expect("push request");
         let mutation = &request["mutations"][0];
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "acknowledgements": [{
                 "mutationId": mutation["mutationId"],
@@ -1655,7 +1804,7 @@ mod tests {
                 .claim_native_sync_push(&admission)
                 .expect("claim mutation"),
         );
-        let malformed = br#"{"schemaVersion":2,"accepted":true,"acknowledgements":[{"mutationId":"substituted","deviceMutationSequence":2,"serverRevision":2,"duplicate":false}],"headServerRevision":2}"#;
+        let malformed = br#"{"schemaVersion":3,"accepted":true,"acknowledgements":[{"mutationId":"substituted","deviceMutationSequence":2,"serverRevision":2,"duplicate":false}],"headServerRevision":2}"#;
         assert_eq!(
             local_host.complete_native_sync_push(&admission, &claim, malformed),
             Err(DesktopLocalHostError::CloudProtocolRejected)
@@ -1692,7 +1841,7 @@ mod tests {
             local_host.complete_native_sync_push(
                 &admission,
                 &claim,
-                br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"correlation-1"}"#,
+                br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"correlation-1"}"#,
             ),
             Ok(DesktopSyncPushDisposition::Retryable)
         );
@@ -1721,13 +1870,43 @@ mod tests {
                 .claim_native_sync_push(&admission)
                 .expect("claim mutation"),
         );
-        let response = br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_INPUT_REJECTED","correlationId":"deterministic-1"}"#;
+        let response = br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_INPUT_REJECTED","correlationId":"deterministic-1"}"#;
 
         assert_eq!(
             local_host.complete_native_sync_push(&admission, &claim, response),
             Ok(DesktopSyncPushDisposition::DeterministicRejected)
         );
         assert_eq!(business_generation(&local_host), 1);
+    }
+
+    #[test]
+    fn mutation_conflict_isolates_a_batch_and_ends_only_the_conflicting_mutation() {
+        let (_directory, local_host) = push_host_with_mutations(2);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let response = br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_MUTATION_CONFLICT","correlationId":"conflict-1"}"#;
+        let batch = ready_push(
+            local_host
+                .claim_native_sync_push(&admission)
+                .expect("claim batch"),
+        );
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &batch, response),
+            Ok(DesktopSyncPushDisposition::IsolationRequired)
+        );
+        assert_eq!(business_generation(&local_host), 0);
+        let (left, right) = local_host
+            .split_native_sync_push(batch)
+            .expect("split conflicting batch");
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &left, response),
+            Ok(DesktopSyncPushDisposition::DeterministicRejected)
+        );
+        assert_eq!(business_generation(&local_host), 1);
+        // The sibling was never judged by this rejection and still completes normally.
+        assert_eq!(
+            local_host.complete_native_sync_push(&admission, &right, &accepted_push_wire(&right)),
+            Ok(DesktopSyncPushDisposition::Completed)
+        );
     }
 
     #[test]
@@ -1746,7 +1925,7 @@ mod tests {
             local_host.complete_native_sync_push(
                 &admission,
                 &left,
-                br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"child-retry"}"#,
+                br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"child-retry"}"#,
             ),
             Ok(DesktopSyncPushDisposition::Retryable)
         );
@@ -1789,7 +1968,7 @@ mod tests {
     fn pull_response(page: &Value) -> Vec<u8> {
         let page_digest = page["pageDigest"].clone();
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "page": page,
             "confirmedThrough": 0,
@@ -1817,17 +1996,18 @@ mod tests {
             .prepare_native_sync_pull(&admission)
             .expect("prepare pull");
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": WORKSPACE_ID,
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 1,
             "mutations": [{
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": "remote-1",
                 "workspaceId": WORKSPACE_ID,
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": "remote.test",
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": 0,
                 "changedFields": [{"fieldPath": "note", "value": "remote"}],
@@ -1873,7 +2053,7 @@ mod tests {
             .prepare_native_sync_pull(&admission)
             .expect("prepare pull");
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": WORKSPACE_ID,
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 0,
@@ -1886,7 +2066,7 @@ mod tests {
             Value::String(canonical_page_digest(&page).expect("empty page digest"));
         let page_digest = page["pageDigest"].clone();
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "page": page,
             "confirmedThrough": 0,
@@ -1924,7 +2104,7 @@ mod tests {
         assert_eq!(local_host.native_checkpoint_due(&admission), Ok(true));
         let exchange = DesktopLocalHost::prepare_native_checkpoint();
         let checkpoint = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpointId": "checkpoint-1",
             "workspaceId": WORKSPACE_ID,
             "workspaceSchemaVersion": 1,
@@ -1932,10 +2112,27 @@ mod tests {
             "checkpointDigest": "A".repeat(43)
         });
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpoint": checkpoint
         }))
         .expect("checkpoint response");
+        // ADR-0029: version 2 checkpoints omit deletions; neither envelope nor descriptor is stored.
+        let mut legacy_descriptor = checkpoint.clone();
+        legacy_descriptor["schemaVersion"] = serde_json::json!(2);
+        for legacy in [
+            serde_json::json!({ "schemaVersion": 2, "checkpoint": null }),
+            serde_json::json!({ "schemaVersion": 3, "checkpoint": legacy_descriptor }),
+        ] {
+            assert_eq!(
+                local_host.complete_native_checkpoint(
+                    &admission,
+                    &exchange,
+                    &serde_json::to_vec(&legacy).expect("legacy response"),
+                ),
+                Err(DesktopLocalHostError::CloudProtocolRejected)
+            );
+            assert_eq!(local_host.native_checkpoint_due(&admission), Ok(true));
+        }
         assert_eq!(
             local_host.complete_native_checkpoint(&admission, &exchange, &response),
             Ok(DesktopSyncCheckpointDisposition::Completed)
@@ -1951,7 +2148,7 @@ mod tests {
             .prepare_native_sync_pull(&other_admission)
             .expect("prepare pull");
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": false,
             "code": "SYNC_REBOOTSTRAP_REQUIRED",
             "checkpoint": checkpoint,
@@ -1971,9 +2168,683 @@ mod tests {
         assert_eq!(other_host.native_checkpoint_due(&other_admission), Ok(true));
     }
 
+    use crate::active_workspace::capability_qualification::{
+        CLOUDFLARE_DNS_OBSERVE, test_qualification::qualify,
+    };
+
+    fn credential_host() -> (tempfile::TempDir, DesktopLocalHost) {
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
+        let mut database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6d; 32]),
+            WORKSPACE_ID,
+        )
+        .expect("open test database");
+        database
+            .upsert_domain_asset(
+                "revoke-asset",
+                "2026-09-15T00:00:00Z",
+                &DomainAssetWrite {
+                    entity_id: "revoke.test".to_owned(),
+                    note: None,
+                    portfolio_id: None,
+                    tags: Vec::new(),
+                    target_price: None,
+                },
+            )
+            .expect("seed asset");
+        database.seed_verified_cloudflare_binding_for_test("revoke.test");
+        let local_host = host(database, &directory);
+        (directory, local_host)
+    }
+
+    fn create_request(label: &str) -> crate::DesktopCloudflareConnectionCreateRequest {
+        crate::DesktopCloudflareConnectionCreateRequest {
+            schema_version: 1,
+            display_label: label.to_owned(),
+        }
+    }
+
+    fn cloudflare_retirement_host() -> (tempfile::TempDir, DesktopLocalHost, String) {
+        let (directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let revoke = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .unwrap()
+            .unwrap();
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(revoke)
+            .unwrap();
+        local_host
+            .remediate_cloudflare_revocation_prewrite(
+                inspecting,
+                DesktopCloudflarePrewriteFailure::Malformed,
+            )
+            .unwrap();
+        (directory, local_host, connection)
+    }
+
+    #[test]
+    fn cloudflare_retirement_host_plan_is_opaque_and_unknown_can_resume_to_completion() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let (_other_directory, other_host) = empty_host();
+        let wrong_admission = other_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(wrong_admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .resume_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        assert_eq!(
+            format!("{retirement:?}"),
+            "DesktopCloudflareRetirement([REDACTED])"
+        );
+        assert!(other_host.check_cloudflare_retirement(&retirement).is_err());
+        local_host.check_cloudflare_retirement(&retirement).unwrap();
+        let (incarnation, digest) = retirement.with_keychain_plan(|plan, handle| {
+            let identity = (
+                plan.connection_incarnation_id().to_owned(),
+                plan.connection_digest().to_owned(),
+            );
+            assert_eq!(identity.1.len(), 64);
+            assert!(
+                !local_host
+                    .resolve_cloudflare_retirement(handle, DesktopCloudflarePurgeOutcome::Unknown)
+                    .unwrap()
+            );
+            identity
+        });
+        // Even when the opening's recovery scan has not run, first confirmation freezes its
+        // prior request set before adding this one; a later wake cannot re-delete this slot.
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        let settings = serde_json::to_value(local_host.read_settings().unwrap()).unwrap();
+        assert_eq!(
+            settings["connections"][0]["credentialUseState"],
+            "remediation_required"
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .request_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retry = local_host
+            .resume_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        retry.with_keychain_plan(|plan, handle| {
+            assert_eq!(plan.connection_incarnation_id(), incarnation);
+            assert_eq!(plan.connection_digest(), digest);
+            assert!(
+                local_host
+                    .resolve_cloudflare_retirement(
+                        handle,
+                        DesktopCloudflarePurgeOutcome::AlreadyAbsent
+                    )
+                    .unwrap()
+            );
+        });
+        let settings = serde_json::to_value(local_host.read_settings().unwrap()).unwrap();
+        assert!(settings["connections"].as_array().unwrap().is_empty());
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        assert!(
+            local_host
+                .resume_cloudflare_retirement(admission, &connection)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn retirement_candidates_and_open_retry_snapshot_follow_durable_requests() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let candidates = local_host.read_cloudflare_retirement_candidates().unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].connection_ref, connection);
+        assert_eq!(
+            candidates[0].action,
+            crate::DesktopCloudflareMaintenanceAction::Retire
+        );
+        // The first writable-open scan freezes an empty set of pending requests.
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        assert_eq!(
+            local_host.read_cloudflare_retirement_candidates().unwrap()[0].action,
+            crate::DesktopCloudflareMaintenanceAction::RetryRetirement
+        );
+        local_host
+            .resolve_cloudflare_retirement(retirement, DesktopCloudflarePurgeOutcome::Unknown)
+            .unwrap();
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        // A new writable runtime receives one attempt; failure does not allow another wake to
+        // retry, but a later opening or explicit manual resume still can.
+        local_host.renew_business_authority_for_test(2).unwrap();
+        let retry = local_host
+            .claim_cloudflare_retirement_retry()
+            .unwrap()
+            .unwrap();
+        local_host
+            .resolve_cloudflare_retirement(retry, DesktopCloudflarePurgeOutcome::Unknown)
+            .unwrap();
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        local_host.renew_business_authority_for_test(3).unwrap();
+        let retry = local_host
+            .claim_cloudflare_retirement_retry()
+            .unwrap()
+            .unwrap();
+        local_host
+            .resolve_cloudflare_retirement(retry, DesktopCloudflarePurgeOutcome::AlreadyAbsent)
+            .unwrap();
+        assert!(
+            local_host
+                .read_cloudflare_retirement_candidates()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            local_host
+                .claim_cloudflare_retirement_retry()
+                .unwrap()
+                .is_none()
+        );
+        local_host.enter_commercial_read_only().unwrap();
+        assert!(local_host.read_cloudflare_retirement_candidates().is_err());
+        assert!(local_host.claim_cloudflare_retirement_retry().is_err());
+    }
+
+    #[test]
+    fn cloudflare_retirement_host_rechecks_authority_before_delete_and_before_commit() {
+        let (_directory, local_host, connection) = cloudflare_retirement_host();
+        let admission = local_host.begin_native_cloud_run().unwrap();
+        let retirement = local_host
+            .request_cloudflare_retirement(admission, &connection)
+            .unwrap();
+        local_host.check_cloudflare_retirement(&retirement).unwrap();
+        local_host.enter_commercial_read_only().unwrap();
+        assert!(local_host.check_cloudflare_retirement(&retirement).is_err());
+        assert!(
+            local_host
+                .resolve_cloudflare_retirement(retirement, DesktopCloudflarePurgeOutcome::Purged)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cloudflare_connection_is_created_once_only_for_a_qualified_capability() {
+        let (_directory, local_host) = empty_host();
+        let before = business_generation(&local_host);
+        assert_eq!(
+            local_host.create_cloudflare_connection(&create_request("Cloudflare DNS")),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        let qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        for (label, schema_version) in [("", 1), ("bad\u{7}label", 1), ("Cloudflare DNS", 2)] {
+            let request = crate::DesktopCloudflareConnectionCreateRequest {
+                schema_version,
+                display_label: label.to_owned(),
+            };
+            assert!(local_host.create_cloudflare_connection(&request).is_err());
+        }
+        assert_eq!(business_generation(&local_host), before);
+
+        let created = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection");
+        assert!(created.created);
+        assert_eq!(created.display_label, "Cloudflare DNS");
+        assert_eq!(created.read_generation, before + 1);
+        assert_eq!(business_generation(&local_host), before + 1);
+        // Repeating returns the never-activated connection instead of adding another.
+        let repeated = local_host
+            .create_cloudflare_connection(&create_request("Another label"))
+            .expect("repeat create");
+        assert!(!repeated.created);
+        assert_eq!(repeated.connection_ref, created.connection_ref);
+        assert_eq!(repeated.display_label, "Cloudflare DNS");
+        assert_eq!(business_generation(&local_host), before + 1);
+        // It holds no credential, so it is not published as a usable connection, but activation
+        // now has a row to provision into.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .begin_cloudflare_activation(activation, &created.connection_ref)
+                .is_ok()
+        );
+        // Settings lists the new connection as inactive with its role unavailable. The settings
+        // contract has no executable state yet, so it is read with the capability unqualified.
+        drop(qualified);
+        let settings = serde_json::to_value(local_host.read_settings().expect("read settings"))
+            .expect("serialize settings");
+        let connections = settings["connections"].as_array().expect("connections");
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0]["credentialUseState"], "inactive");
+        assert_eq!(connections[0]["lifecycleStatus"], "invalid");
+        assert_eq!(connections[0]["roles"][0]["availability"], "unavailable");
+        assert!(!settings.to_string().contains(&created.connection_ref));
+    }
+
+    fn zone_observation(zone: &str) -> crate::DesktopCloudflareCheckedObservation {
+        crate::DesktopCloudflareCheckedObservation {
+            entity_id: zone.to_owned(),
+            zone_binding_digest: "c".repeat(64),
+            zone_name_ascii: zone.to_owned(),
+            authoritative_nameservers: vec!["ns1.example.test".to_owned()],
+            dnssec_status: "unknown".to_owned(),
+            availability: "available".to_owned(),
+            zone_status: "active".to_owned(),
+            records: vec![crate::CloudflareDnsRecordWrite {
+                record_key: "a-root".to_owned(),
+                record_type: "A".to_owned(),
+                owner_name_ascii: zone.to_owned(),
+                ttl_seconds: Some(300),
+                priority: None,
+                canonical_value: "192.0.2.1".to_owned(),
+                proxied: Some(true),
+            }],
+            provider_version_token: "provider-version-1".to_owned(),
+        }
+    }
+
+    fn detail_exists(local_host: &DesktopLocalHost, zone: &str) -> bool {
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": zone }))
+                .expect("detail request");
+        local_host.read_domain_detail(request).is_ok()
+    }
+
+    #[test]
+    fn activation_imports_the_zone_through_the_create_path_once() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        assert!(!detail_exists(&local_host, "imported.test"));
+        let before = business_generation(&local_host);
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("imported.test"))
+            .expect("prepare provision with the imported Zone");
+        // The Zone became an ordinary asset through the same create path: one committed add.
+        assert!(detail_exists(&local_host, "imported.test"));
+        assert_eq!(business_generation(&local_host), before + 1);
+    }
+
+    #[test]
+    fn zone_import_writes_nothing_when_authority_changes_during_activation() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": business_generation(&local_host),
+            "asset": { "entityId": "held.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        // The authority is renewed to a new lease epoch while the Provider call is in flight. The
+        // workspace stays readable and writable, but this activation's admission is now stale, so
+        // the import must write nothing.
+        let lease = serde_json::to_value(local_host.device_lease().expect("read lease"))
+            .expect("serialize lease");
+        let epoch = lease["leaseEpoch"].as_u64().expect("lease epoch");
+        local_host
+            .renew_business_authority_for_test(epoch + 1)
+            .expect("renew authority");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("stale.test"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::AuthorityRejected)
+        );
+        assert_eq!(business_generation(&local_host), before);
+        // Reads still work under the renewed authority, so the missing Zone is a real absence.
+        assert!(detail_exists(&local_host, "held.test"));
+        assert!(!detail_exists(&local_host, "stale.test"));
+    }
+
+    #[test]
+    fn activation_keeps_an_existing_asset_and_refuses_a_non_canonical_or_deleted_zone() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = empty_host();
+        let connection = local_host
+            .create_cloudflare_connection(&create_request("Cloudflare DNS"))
+            .expect("create connection")
+            .connection_ref;
+
+        // A Zone name the create path rejects is never imported, and nothing is prepared.
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        let before = business_generation(&local_host);
+        // The refusal is its own closed reason, so the person learns the Zone name is the problem.
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("Not Canonical"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::ZoneUnimportable)
+        );
+        assert_eq!(business_generation(&local_host), before);
+
+        // A deleted domain keeps its tombstone, so its Zone is refused with the same reason and
+        // nothing is written or prepared.
+        let gone: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "gone-mutation",
+            "expectedReadGeneration": before,
+            "asset": { "entityId": "gone.test", "note": null, "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(gone)
+            .expect("add gone domain");
+        let delete: crate::DesktopDomainAssetDeleteRequest =
+            serde_json::from_value(serde_json::json!({
+                "mutationId": "delete-gone",
+                "expectedReadGeneration": business_generation(&local_host),
+                "expectedAssetVersion": 1,
+                "entityId": "gone.test"
+            }))
+            .expect("delete request");
+        local_host
+            .delete_domain_asset(delete)
+            .expect("delete gone domain");
+        let deleted_generation = business_generation(&local_host);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_provision(activation, &zone_observation("gone.test"))
+                .map(|_| ()),
+            Err(DesktopLocalHostError::ZoneUnimportable)
+        );
+        assert_eq!(business_generation(&local_host), deleted_generation);
+
+        // A domain the person already added is kept as it is; the import adds nothing.
+        let held: crate::DesktopDomainAssetCreateRequest = serde_json::from_value(serde_json::json!({
+            "mutationId": "held-mutation",
+            "expectedReadGeneration": deleted_generation,
+            "asset": { "entityId": "held.test", "note": "mine", "portfolioId": null, "tags": [], "targetPrice": null }
+        }))
+        .expect("create request");
+        local_host
+            .create_domain_asset(held)
+            .expect("add held domain");
+        let held_generation = business_generation(&local_host);
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let activation = local_host
+            .begin_cloudflare_activation(admission, &connection)
+            .expect("admit activation");
+        local_host
+            .prepare_cloudflare_provision(activation, &zone_observation("held.test"))
+            .expect("prepare provision over the held domain");
+        assert_eq!(business_generation(&local_host), held_generation);
+        let request: DesktopDomainDetailReadRequest =
+            serde_json::from_value(serde_json::json!({ "entityId": "held.test" }))
+                .expect("detail request");
+        let detail =
+            serde_json::to_value(local_host.read_domain_detail(request).expect("read held"))
+                .expect("serialize detail");
+        assert_eq!(detail["asset"]["note"], "mine");
+    }
+
+    #[test]
+    fn unqualified_capability_is_refused_at_every_provider_admission_but_revocation_is_not() {
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        // Even with a valid Active credential in place, no unqualified capability may run.
+        let activation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .begin_cloudflare_activation(activation, &connection)
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let observation = local_host.begin_native_cloud_run().expect("admit run");
+        assert_eq!(
+            local_host
+                .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                .map(|_| ()),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        // Once qualified, the same admissions run for the same credential.
+        {
+            let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+            let activation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .begin_cloudflare_activation(activation, &connection)
+                    .is_ok()
+            );
+            let observation = local_host.begin_native_cloud_run().expect("admit run");
+            assert!(
+                local_host
+                    .prepare_cloudflare_observation(observation, &connection, "revoke.test")
+                    .is_ok()
+            );
+        }
+        // Withdrawing access never waits for qualification.
+        let revocation = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(revocation, &connection)
+                .expect("prepare revocation")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
+        // Qualified for this test, so a refused observation proves revocation, not the gate.
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let before = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_observation(before, &connection, "revoke.test")
+                .is_ok(),
+            "a qualified Active credential is observable before revocation"
+        );
+
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        // Revocation takes effect in the Host at preparation: the credential is no longer
+        // published, and no Provider observation can be admitted with it.
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
+        assert_eq!(
+            prepared.plan.target.kind,
+            crate::CloudflareCredentialEnvelopeKind::Tombstone
+        );
+        assert_eq!(
+            prepared.plan.expected_base.kind,
+            crate::CloudflareCredentialEnvelopeKind::Active
+        );
+        assert_eq!(
+            prepared.plan.target.scope_digest,
+            prepared.plan.expected_base.scope_digest
+        );
+        assert_eq!(
+            prepared.plan.target.zone_digest,
+            prepared.plan.expected_base.zone_digest
+        );
+        assert!(prepared.plan.target.generation > prepared.plan.expected_base.generation);
+
+        // A second revocation while this one is unresolved is refused, not queued.
+        let concurrent = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(concurrent, &connection)
+                .is_err()
+        );
+
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        let marked = local_host
+            .mark_cloudflare_revocation_write_started(inspecting)
+            .expect("mark Keychain write");
+        assert_eq!(
+            local_host.resolve_cloudflare_revocation(
+                marked,
+                crate::DesktopCloudflareCustodyComparison::ExactTarget
+            ),
+            Ok(crate::DesktopCloudflareResolution::Confirmed)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let replay = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(replay, &connection)
+                .is_err()
+        );
+        let unknown = local_host.begin_native_cloud_run().expect("admit run");
+        assert!(
+            local_host
+                .prepare_cloudflare_revocation(unknown, "cloudflare-unknown")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn revocation_prewrite_contradiction_remediates_and_keeps_the_credential_denied() {
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (_directory, local_host) = credential_host();
+        let connection = local_host
+            .read_cloudflare_connection()
+            .expect("read connection")
+            .connection_ref
+            .expect("an Active credential is published");
+        let admission = local_host.begin_native_cloud_run().expect("admit run");
+        let prepared = local_host
+            .prepare_cloudflare_revocation(admission, &connection)
+            .expect("prepare revocation")
+            .expect("an Active credential is revoked");
+        let inspecting = local_host
+            .begin_cloudflare_revocation_prewrite_inspection(prepared)
+            .expect("enter prewrite inspection");
+        assert_eq!(
+            local_host.remediate_cloudflare_revocation_prewrite(
+                inspecting,
+                crate::DesktopCloudflarePrewriteFailure::BaseMismatch
+            ),
+            Ok(crate::DesktopCloudflareResolution::PrewriteRemediated)
+        );
+        assert_eq!(
+            local_host
+                .read_cloudflare_connection()
+                .expect("read connection")
+                .connection_ref,
+            None
+        );
+        let observe = local_host.begin_native_cloud_run().expect("admit run");
+        let refused = local_host
+            .prepare_cloudflare_observation(observe, &connection, "revoke.test")
+            .map(|_| ());
+        assert!(refused.is_err());
+        assert_ne!(refused, Err(DesktopLocalHostError::CapabilityUnqualified));
+    }
+
     #[test]
     fn projection_acknowledgement_is_exactly_correlated() {
-        let directory = tempfile::tempdir().expect("temporary Host directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
             &LocalDatabaseKey::from_bytes([0x6c; 32]),
@@ -2134,7 +3005,7 @@ mod tests {
                 test_case.wire.as_bytes(),
             )
             .is_ok_and(|response| {
-                response.schema_version == 2
+                u64::from(response.schema_version) == CHECKPOINT_WIRE_SCHEMA_VERSION
                     && response.checkpoint.as_ref().is_none_or(|checkpoint| {
                         checkpoint.validate().is_ok()
                             && checkpoint.workspace_id == correlation.workspace_id

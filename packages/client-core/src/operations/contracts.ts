@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-import {
-  browserAutomationGrantSchema,
-  browserExecutionTaskSchema,
-} from "../browser-automation/index";
-
 export const operationIdentifierSchema = z
   .string()
   .min(1)
@@ -171,12 +166,17 @@ export const riskAcceptancePolicySchema = z.enum(["forbidden", "allowed", "fresh
 
 export const manualTaskActionSchema = z.enum([
   "open_platform",
-  "request_automation_grant",
   "mark_user_operation_done",
   "request_recheck",
   "cancel",
   "accept_residual_risk",
 ]);
+
+/**
+ * Affected domains a manual task names; the inbox counts the rest. The Host sends exactly this
+ * sample (the first domains in byte order), so a task never carries its whole domain list.
+ */
+export const manualTaskDomainSampleLimit = 3;
 
 export const manualTaskViewSchema = z
   .object({
@@ -189,7 +189,9 @@ export const manualTaskViewSchema = z
     platform: displayTextSchema,
     account: displayTextSchema,
     reason: displayTextSchema,
-    affectedDomains: z.array(domainSchema).min(1).max(10_000),
+    /** The first affected domains, at most the sample limit; an account-level step affects none. */
+    affectedDomains: z.array(domainSchema).max(manualTaskDomainSampleLimit),
+    affectedDomainCount: z.number().int().nonnegative().max(1_000_000),
     preparedArtifactLabel: z.string().max(500).nullable(),
     completionCondition: displayTextSchema,
     lastCheckedAt: z.iso.datetime().nullable(),
@@ -203,12 +205,9 @@ export const manualTaskViewSchema = z
           })
           .strict(),
       )
-      .min(1)
       .max(100),
     riskAcceptancePolicy: riskAcceptancePolicySchema,
     unresolvedImpactDigest: operationDigestSchema.nullable(),
-    browserGrant: browserAutomationGrantSchema.nullable(),
-    browserTask: browserExecutionTaskSchema.nullable(),
     availableActions: z.array(manualTaskActionSchema).max(6),
   })
   .strict();
@@ -232,8 +231,8 @@ export const manualTaskInboxViewModelSchema = z
       context.addIssue({ code: "custom", path: ["tasks"], message: "tasks and selection must be unique and consistent" });
     }
     for (const [index, task] of view.tasks.entries()) {
-      if (task.browserGrant !== null && task.browserGrant.operationPlanId !== task.operationPlanId) {
-        context.addIssue({ code: "custom", path: ["tasks", index, "browserGrant"], message: "grant must bind this task plan" });
+      if (task.affectedDomains.length !== Math.min(task.affectedDomainCount, manualTaskDomainSampleLimit)) {
+        context.addIssue({ code: "custom", path: ["tasks", index, "affectedDomains"], message: "the domain sample must be complete up to its limit" });
       }
       if (task.riskAcceptancePolicy === "forbidden" && task.unresolvedImpactDigest !== null) {
         context.addIssue({ code: "custom", path: ["tasks", index, "unresolvedImpactDigest"], message: "forbidden policy cannot expose risk acceptance data" });
@@ -246,7 +245,6 @@ export const manualTaskInboxViewModelSchema = z
       if (nonTerminal && canIssueCommands(view.source, view.commandAdmission)) {
         expected.push("open_platform", "request_recheck", "cancel");
         if (task.status !== "verification_pending") expected.push("mark_user_operation_done");
-        if (task.browserGrant !== null) expected.push("request_automation_grant");
         if (task.riskAcceptancePolicy !== "forbidden") expected.push("accept_residual_risk");
       }
       if (!sameMembers(task.availableActions, expected) || new Set(task.availableActions).size !== task.availableActions.length) {
@@ -262,6 +260,8 @@ export const operationHistoryEntryStateSchema = z.enum([
   "cloud_pull",
   "device_event",
   "late_execution",
+  "conflicted",
+  "rejected",
 ]);
 
 export const operationHistoryDiffSchema = z
@@ -330,7 +330,7 @@ export const operationHistoryViewModelSchema = z
       if (isLate !== (entry.lateExecution !== null) || (isLate && entry.reversible)) {
         context.addIssue({ code: "custom", path: ["entries", index, "lateExecution"], message: "late execution facts are read-only and require provenance" });
       }
-      if (["rolled_back", "cloud_pull", "device_event", "late_execution"].includes(entry.state) && entry.reversible) {
+      if (["rolled_back", "cloud_pull", "device_event", "late_execution", "conflicted", "rejected"].includes(entry.state) && entry.reversible) {
         context.addIssue({ code: "custom", path: ["entries", index, "reversible"], message: "entry state cannot be reversed" });
       }
     }

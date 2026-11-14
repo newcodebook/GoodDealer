@@ -39,12 +39,13 @@ const sha256 = { digest: async (bytes: Uint8Array) => createHash("sha256").updat
 
 function mutation(sequence: number): SubmittedSyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${sequence}`,
     workspaceId: scope.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "asset-1.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: sequence - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${sequence}`] }],
@@ -56,7 +57,7 @@ function mutation(sequence: number): SubmittedSyncMutation {
 
 function request(sequence: number) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     workspaceId: scope.workspaceId,
     sourceDeviceId: "device-a",
     activeLeaseEpoch: 7,
@@ -89,15 +90,17 @@ function createHarness() {
     config: { schemaVersion: 1, leaseTtlSeconds: 60 },
   });
   const checkpointState = {
-    readEntityDigestsAt: async (
-      checkpointScope: typeof scope,
-      throughServerRevision: number,
-      digest: (bytes: Uint8Array) => Promise<Uint8Array>,
-    ) => {
-      const entityDigests = await portfolio.readEntityDigestsAt(checkpointScope, throughServerRevision, digest);
+    readCheckpointStateAt: (checkpointScope: typeof scope, throughServerRevision: number) => {
+      const state = portfolio.readCheckpointStateAt(checkpointScope, throughServerRevision);
+      // A stored state that gained a tombstone it never had must fail verification.
       return corruptCheckpointRead
-        ? entityDigests.map((entry) => ({ ...entry, digest: zeroDigest }))
-        : entityDigests;
+        ? {
+          ...state,
+          tombstones: [...state.tombstones, {
+            entityId: "zz-corrupt.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-01-01T00:00:00Z",
+          }],
+        }
+        : state;
     },
   };
   const checkpoints = new InMemoryCheckpointCatalog({
@@ -223,6 +226,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       sourceDeviceId: "device-a",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toMatchObject({ contiguousReceivedThrough: 3, highestReceivedSequence: 3 });
   });
 
@@ -253,6 +257,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
         sourceDeviceId: "device-b",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
       deviceCursors: subject.deviceCursors.snapshot(scope),
     };
@@ -317,6 +322,7 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       sourceDeviceId: "device-b",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(before.watermark);
     expect(subject.deviceCursors.snapshot(scope)).toEqual(before.deviceCursors);
     const source = readFileSync(new URL("../src/modules/workspace/cursors/index.ts", import.meta.url), "utf8");

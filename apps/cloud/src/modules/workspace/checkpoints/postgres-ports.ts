@@ -1,6 +1,6 @@
 import type {
-  DomainAssetProjectionRow,
   SyncMutation,
+  WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 
 import type { TenantTransaction } from "../../../db/index";
@@ -9,7 +9,7 @@ import type { WorkspaceRevisionSnapshot } from "../revisions/index";
 
 /** Portfolio-owned, transaction-aware snapshot boundary. */
 export interface CheckpointPortfolioSnapshotPort {
-  captureSnapshot(transaction: TenantTransaction): Promise<readonly DomainAssetProjectionRow[]>;
+  captureCheckpointState(transaction: TenantTransaction): Promise<WorkspaceCheckpointState>;
 }
 
 /** Mutation-owned replay and prefix deletion boundary. */

@@ -1,3 +1,5 @@
+import { submittedSyncMutationSchema } from "@gooddealer/protocol/workspace";
+
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -242,6 +244,36 @@ describe("consolidated portfolio replica M002 and PostgreSQL query", () => {
     });
   });
 
+  it("leaves a deleted asset out of the portfolio read and refuses a snapshot that would revive it", async () => {
+    const scope = { accountId: "account-deleted", workspaceId: "workspace-deleted" } as const;
+    const change = (entityId: string, serverRevision: number, deletedAt?: string) => ({
+      serverRevision,
+      mutation: submittedSyncMutationSchema.parse({
+        schemaVersion: 3, mutationId: `${entityId}-${serverRevision}`, workspaceId: scope.workspaceId,
+        workspaceSchemaVersion: 1, entityType: "domain_asset", entityId, entityGeneration: 1,
+        baseServerRevision: 0, sourceDeviceId: "device-1", activeLeaseEpoch: 1, deviceMutationSequence: serverRevision,
+        ...(deletedAt === undefined
+          ? { operationKind: "upsert", changedFields: [{ fieldPath: "note", value: `kept-${entityId}` }] }
+          : { operationKind: "delete", deletedAt, changedFields: [] }),
+      }),
+    });
+    await transactions.withTenant(scope, async (transaction) => {
+      await revisions.bind(transaction, 1);
+      await portfolio.applyAcceptedMutations(transaction, [
+        change("a.test", 1), change("b.test", 2), change("b.test", 3, "2026-11-14T01:02:03Z"),
+      ]);
+    });
+    const read = await query.readPortfolio(scope) as { assets: readonly { asset: { entityId: string } }[] };
+    expect(read.assets.map(({ asset }) => asset.entityId)).toEqual(["a.test"]);
+
+    const row = (entityId: string) => ({ entityId, note: null, portfolioId: null, tags: [], targetPrice: null });
+    await expect(transactions.withTenant(scope, (transaction) => portfolio.materialize(transaction, 4, [row("b.test")])))
+      .rejects.toThrow(/deleted domain asset/u);
+    await transactions.withTenant(scope, (transaction) => portfolio.materialize(transaction, 4, [row("a.test")]));
+    const after = await query.readPortfolio(scope) as { assets: readonly { asset: { entityId: string; note: string | null } }[] };
+    expect(after.assets.map(({ asset }) => asset)).toMatchObject([{ entityId: "a.test", note: null }]);
+  });
+
   it("denies both coordinate substitutions for reads and writes while preserving a same-tenant control", async () => {
     const allowed = { accountId: "account-a", workspaceId: "workspace-shared" } as const;
     const crossAccount = { accountId: "account-b", workspaceId: allowed.workspaceId } as const;
@@ -372,7 +404,7 @@ function interceptClient(client: PoolClient, afterQuery: (sql: string) => Promis
 }
 
 function assertConsolidatedCatalog(): void {
-  expect(cloudMigrations).toHaveLength(27);
+  expect(cloudMigrations).toHaveLength(38);
   expect([cloudMigrations[0], cloudMigrations[1], cloudMigrations[13], cloudMigrations[14]].map(
     (migration) => migration === undefined ? undefined : { id: migration.id, owner: migration.owner },
   )).toEqual([

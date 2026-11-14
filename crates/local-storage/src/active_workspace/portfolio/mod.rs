@@ -139,6 +139,8 @@ impl<'a> ActivePortfolioReader<'a> {
             return Err(PortfolioReadError::WindowRejected);
         }
         let query = canonical_query(query)?;
+        // One day for the count and every row's flag, so they cannot disagree across midnight.
+        let today = super::renewals::HostDay::read(&transaction)?;
         let upper = format!("{query}{{");
         let filter = "workspace_id = ?1 AND deleted_at IS NULL AND (?2 = '' OR (entity_id >= ?2 AND entity_id < ?3))";
         let aliased_filter = "a.workspace_id = ?1 AND a.deleted_at IS NULL AND (?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
@@ -149,24 +151,38 @@ impl<'a> ActivePortfolioReader<'a> {
                 |row| row.get(0),
             )
             .map_err(|_| PortfolioReadError::StorageRejected)?;
-        let aggregates: (i64, i64, i64) = transaction.query_row(
+        let aggregates: (i64, i64, i64, i64) = transaction.query_row(
+            // The expiring count opens the renewals desk, which lists the whole workspace, so it
+            // ignores the search filter: the number shown is the number of rows that desk lists.
+            // The storage-integrity triggers reject a malformed `expires_on` only on new writes. Any
+            // page could show an older one and that count compares it as text, so one anywhere in
+            // the workspace fails the read rather than hiding on a page nobody reads; `date()`
+            // returns a value unchanged only for a valid `YYYY-MM-DD` date.
             &format!("SELECT
-                sum(CASE WHEN lifecycle_status <> 'archived' AND expires_on >= date('now') AND expires_on < date('now', '+61 days') THEN 1 ELSE 0 END),
+                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
+                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {malformed_expiry}),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
                   SELECT 1 FROM marketplace_listing_observations m
                   WHERE m.workspace_id = domain_assets.workspace_id AND m.entity_id = domain_assets.entity_id
                     AND m.observation_availability = 'available'
-                    AND m.listing_status IN ('active', 'reserved')
+                    AND m.listing_status IN ('active', 'reserved') AND {confirmed_listing}
                     AND NOT EXISTS (SELECT 1 FROM marketplace_listing_observations newer
                       WHERE newer.workspace_id = m.workspace_id AND newer.entity_id = m.entity_id
-                        AND newer.marketplace_kind = m.marketplace_kind
+                        AND newer.marketplace_kind = m.marketplace_kind AND {confirmed_newer}
                         AND (newer.observed_at > m.observed_at OR (newer.observed_at = m.observed_at AND newer.listing_observation_id > m.listing_observation_id)))
                 ) THEN 1 ELSE 0 END)
-              FROM domain_assets WHERE {filter}"),
+              FROM domain_assets WHERE {filter}",
+                expiring = super::renewals::expiring_asset("e", &today),
+                malformed_expiry = super::renewals::malformed_expiry("e"),
+                confirmed_listing = super::observation_runs::confirmed("m"),
+                confirmed_newer = super::observation_runs::confirmed("newer")),
             params![requested_workspace_id, query, upper],
-            |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0))),
+            |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0), row.get::<_, Option<i64>>(3)?.unwrap_or(0))),
         ).map_err(|_| PortfolioReadError::StorageRejected)?;
+        if aggregates.1 != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         let mut value_statement = transaction.prepare(&format!(
             "SELECT d.target_price_currency, d.target_price_amount FROM domain_asset_desired_state d
              JOIN domain_assets a ON a.workspace_id = d.workspace_id AND a.entity_id = d.entity_id
@@ -186,16 +202,18 @@ impl<'a> ActivePortfolioReader<'a> {
         let mut statement = transaction.prepare(&format!(
             "SELECT a.entity_id,
                (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id = a.workspace_id AND t.entity_id = a.entity_id ORDER BY tag COLLATE BINARY)),
-               (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id = a.workspace_id AND r.entity_id = a.entity_id AND r.observation_availability = 'available' ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
+               (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id = a.workspace_id AND r.entity_id = a.entity_id AND r.observation_availability = 'available' AND {confirmed_registrar} ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
                a.lifecycle_status,
                CASE
                  WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only'
                  ELSE 'clean' END,
-               d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence
+               d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring}
              FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
-             WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5"
+             WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
+            confirmed_registrar = super::observation_runs::confirmed("r"),
+            expiring = expiring_column(&today),
         )).map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
             .query_map(
@@ -217,9 +235,9 @@ impl<'a> ActivePortfolioReader<'a> {
             total_value,
             expiring_within60_days: u32::try_from(aggregates.0)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
-            conflict_count: u32::try_from(aggregates.1)
+            conflict_count: u32::try_from(aggregates.2)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
-            listing_count: u32::try_from(aggregates.2)
+            listing_count: u32::try_from(aggregates.3)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?,
             window: AssetLibraryWindow {
                 start_index,
@@ -246,21 +264,23 @@ impl<'a> ActivePortfolioReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         validate_workspace(&transaction, requested_workspace_id)?;
         crate::portfolio_projection::validate_domain_asset_id(entity_id)?;
-        let sql = "SELECT a.entity_id,
+        let sql = format!("SELECT a.entity_id,
           (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id=a.workspace_id AND t.entity_id=a.entity_id ORDER BY tag COLLATE BINARY)),
-          (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id=a.workspace_id AND r.entity_id=a.entity_id AND r.observation_availability='available' ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
+          (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id=a.workspace_id AND r.entity_id=a.entity_id AND r.observation_availability='available' AND {confirmed_registrar} ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
           a.lifecycle_status,
           CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only' ELSE 'clean' END,
-          d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence,
+          d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring},
           a.acquired_on, a.acquisition_cost_currency, a.acquisition_cost_amount, a.auto_renew, a.registrar_lock, d.note, d.portfolio_id
           FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
-          WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL";
+          WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL",
+          confirmed_registrar = super::observation_runs::confirmed("r"),
+          expiring = expiring_column(&super::renewals::HostDay::read(&transaction)?));
         let detail = transaction
-            .query_row(sql, params![requested_workspace_id, entity_id], |row| {
+            .query_row(&sql, params![requested_workspace_id, entity_id], |row| {
                 let base = map_asset_row(row)?;
-                let acquisition_cost = optional_money(row.get(10)?, row.get(11)?)?;
+                let acquisition_cost = optional_money(row.get(11)?, row.get(12)?)?;
                 Ok(DomainDetailAsset {
                     id: base.id,
                     domain: base.domain,
@@ -270,13 +290,14 @@ impl<'a> ActivePortfolioReader<'a> {
                     sync_status: base.sync_status,
                     target_price: base.target_price,
                     expires_on: base.expires_on,
-                    acquired_on: row.get(9)?,
+                    expiring: base.expiring,
+                    acquired_on: row.get(10)?,
                     acquisition_cost,
-                    auto_renew: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
-                    registrar_lock: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
-                    note: row.get(14)?,
+                    auto_renew: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+                    registrar_lock: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
+                    note: row.get(15)?,
                     asset_version: base.asset_version,
-                    portfolio_id: row.get(15)?,
+                    portfolio_id: row.get(16)?,
                 })
             })
             .optional()
@@ -314,7 +335,7 @@ impl<'a> ActivePortfolioReader<'a> {
     }
 }
 
-fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
+pub(super) fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
     if value.len() > 64 || !value.is_ascii() {
         return Err(PortfolioReadError::QueryRejected);
     }
@@ -327,7 +348,7 @@ fn canonical_query(value: &str) -> Result<String, PortfolioReadError> {
     Ok(value)
 }
 
-fn validate_workspace(
+pub(crate) fn validate_workspace(
     connection: &Connection,
     workspace_id: &str,
 ) -> Result<(), PortfolioReadError> {
@@ -339,7 +360,9 @@ fn validate_workspace(
     Ok(())
 }
 
-fn read_freshness(connection: &Connection) -> Result<PortfolioReadFreshness, PortfolioReadError> {
+pub(crate) fn read_freshness(
+    connection: &Connection,
+) -> Result<PortfolioReadFreshness, PortfolioReadError> {
     connection.query_row("SELECT applied_through_server_revision, last_replication_activity_at, last_successful_provider_observation_at FROM active_workspace_metadata WHERE singleton=1", [], |row| {
         Ok(PortfolioReadFreshness { source: "active_local".to_owned(), read_only_reason: None,
             server_revision: validate_revision(row.get(0)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
@@ -371,7 +394,20 @@ fn map_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetLibraryRow> {
         expires_on: row.get(7)?,
         asset_version: u64::try_from(row.get::<_, i64>(8)?)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        expiring: match row.get::<_, i64>(9)? {
+            0 => false,
+            1 => true,
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
     })
+}
+
+/// The `expiring` column both asset queries select at index 9, from the renewals predicate.
+fn expiring_column(today: &super::renewals::HostDay) -> String {
+    format!(
+        "CASE WHEN {} THEN 1 ELSE 0 END",
+        super::renewals::expiring_asset("a", today)
+    )
 }
 
 fn validate_asset_rows(rows: &[AssetLibraryRow]) -> Result<(), PortfolioReadError> {
@@ -392,6 +428,17 @@ fn validate_asset_rows(rows: &[AssetLibraryRow]) -> Result<(), PortfolioReadErro
             return Err(PortfolioReadError::ProjectionRejected);
         }
         validate_texts(&row.tags, row.registrar.as_deref())?;
+        if row
+            .expires_on
+            .as_deref()
+            .is_some_and(|date| !crate::portfolio_projection::valid_date(date))
+            // The predicate holds only for a kept asset with a recorded expiry.
+            || (row.expiring
+                && (row.expires_on.is_none()
+                    || !matches!(row.lifecycle_status.as_str(), "active" | "expired")))
+        {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
         if let Some(money) = &row.target_price
             && (!crate::portfolio_projection::valid_currency(&money.currency)
                 || !crate::portfolio_projection::valid_amount(&money.amount))
@@ -412,6 +459,7 @@ fn validate_detail(detail: &DomainDetailAsset) -> Result<(), PortfolioReadError>
         sync_status: detail.sync_status.clone(),
         target_price: detail.target_price.clone(),
         expires_on: detail.expires_on.clone(),
+        expiring: detail.expiring,
         asset_version: detail.asset_version,
     }])?;
     if detail.note.as_ref().is_some_and(|v| {
@@ -442,12 +490,7 @@ fn validate_texts(tags: &[String], registrar: Option<&str>) -> Result<(), Portfo
         }
         previous = Some(tag);
     }
-    if registrar.is_some_and(|v| {
-        v.is_empty()
-            || v.chars().count() > 128
-            || v.chars()
-                .any(crate::portfolio_projection::is_forbidden_text_character)
-    }) {
+    if registrar.is_some_and(|v| !crate::portfolio_projection::valid_registrar_name(v)) {
         return Err(PortfolioReadError::ProjectionRejected);
     }
     Ok(())

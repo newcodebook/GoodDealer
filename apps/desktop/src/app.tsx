@@ -1,15 +1,25 @@
 import { defaultLocale, type Locale } from "@gooddealer/i18n";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  createCloudflarePort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
+  createLocalBatchOperationsPort,
   createLocalBusinessPort,
   createLocalConflictPort,
+  createLocalDeviceLeasePort,
+  createLocalDnsHealthPort,
+  createLocalHistoryPort,
+  createLocalManualTasksPort,
+  createLocalRenewalsPort,
+  createLocalSalesPort,
+  createLocalSettingsPort,
   createLocalPortfolioPresentationPort,
   createLocalSyncStatusPort,
   detectDesktopWindowPlatform,
   type DesktopAuthenticationStatus,
+  type LocalDeviceLease,
 } from "./adapters/tauri";
 import type { ShellWindowFrame } from "./app-shell";
 import {
@@ -18,6 +28,7 @@ import {
   synchronizeAfterAuthentication,
 } from "./app/authentication-coordinator";
 import { adjudicateDesktopPresentation } from "./app/desktop-presentation";
+import { Onboarding, onboardingOffer, onboardingWritable } from "./app/onboarding";
 import {
   readAuthoritativeWorkspacePublication,
   type AuthoritativeWorkspacePorts,
@@ -30,11 +41,30 @@ import "./app.css";
 const workspacePorts: AuthoritativeWorkspacePorts = {
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
+  dns: createLocalDnsHealthPort(),
+  settings: createLocalSettingsPort(),
+  sales: createLocalSalesPort(),
+  renewals: createLocalRenewalsPort(),
+  batches: createLocalBatchOperationsPort(),
+  history: createLocalHistoryPort(),
+  manualTasks: createLocalManualTasksPort(),
+  cloudflare: createCloudflarePort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };
+const deviceLease = createLocalDeviceLeasePort();
 const desktopAuthentication = createDesktopAuthenticationPort();
 const windowControls = createDesktopWindowControlsPort();
+
+/**
+ * Whether this session shows first-run onboarding. It is decided once, from the first workspace
+ * publication, and never offered again in the session after it is skipped or finished.
+ */
+type OnboardingDecision =
+  | { readonly state: "undecided" }
+  | { readonly state: "checking" }
+  | { readonly state: "offered"; readonly lease: LocalDeviceLease }
+  | { readonly state: "declined" };
 
 export type DesktopStartupState =
   | "opening"
@@ -68,6 +98,7 @@ export function App() {
   const [failure, setFailure] = useState(false);
   const [authentication, setAuthentication] = useState<DesktopAuthenticationStatus | null>(null);
   const [locale, setLocale] = useState<Locale>(defaultLocale);
+  const [onboarding, setOnboarding] = useState<OnboardingDecision>({ state: "undecided" });
   const synchronizeRef = useRef<() => void>(() => undefined);
 
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
@@ -137,6 +168,43 @@ export function App() {
   const retryHost = () => { setFailure(false); synchronizeRef.current(); };
 
   const presentation = adjudicateDesktopPresentation(failure, workspace, authentication);
+  const workspaceReady = presentation.view === "workspace" && workspace !== null;
+  useEffect(() => {
+    if (!workspaceReady || workspace === null) {
+      // A lock or Host loss ends onboarding; a later return decides nothing from the old lease.
+      if (onboarding.state === "offered" || onboarding.state === "checking") setOnboarding({ state: "declined" });
+      return;
+    }
+    // Onboarding writes need Active authority; once it is lost the session leaves onboarding, and
+    // the lease it read is not reused.
+    if ((onboarding.state === "offered" || onboarding.state === "checking") && !onboardingWritable(workspace)) {
+      setOnboarding({ state: "declined" });
+      return;
+    }
+    if (onboarding.state !== "undecided") return;
+    const offer = onboardingOffer(workspace);
+    if (offer === "wait") return;
+    if (offer === "decline") {
+      setOnboarding({ state: "declined" });
+      return;
+    }
+    setOnboarding({ state: "checking" });
+    // The device step shows only the lease the Host verified; without one there is no onboarding.
+    void deviceLease.read().then(
+      (lease) => setOnboarding({ state: "offered", lease }),
+      () => setOnboarding({ state: "declined" }),
+    );
+  }, [workspaceReady, workspace, onboarding.state]);
+  const finishOnboarding = useCallback(() => setOnboarding({ state: "declined" }), []);
+  // Settings re-enters onboarding on request, under the same writability rule as the first offer.
+  const runOnboarding = useCallback(() => {
+    if (workspace === null || !onboardingWritable(workspace)) return;
+    setOnboarding({ state: "checking" });
+    void deviceLease.read().then(
+      (lease) => setOnboarding({ state: "offered", lease }),
+      () => setOnboarding({ state: "declined" }),
+    );
+  }, [workspace]);
   const page = (() => {
     switch (presentation.view) {
       case "opening":
@@ -165,6 +233,22 @@ export function App() {
           />
         );
       case "workspace":
+        if (onboarding.state === "offered" && workspace !== null) {
+          return (
+            <Onboarding
+              locale={locale}
+              windowFrame={windowFrame}
+              lease={onboarding.lease}
+              publication={workspace}
+              ports={workspacePorts}
+              onPublication={setWorkspace}
+              onFinish={finishOnboarding}
+            />
+          );
+        }
+        if (onboarding.state === "checking") {
+          return <RuntimeStatusPage locale={locale} kind="opening" windowFrame={windowFrame} />;
+        }
         return (
           <WorkspaceView
             locale={locale}
@@ -173,6 +257,8 @@ export function App() {
             windowFrame={windowFrame}
             onPublication={setWorkspace}
             onRefresh={() => synchronizeRef.current()}
+            onLocaleChange={setLocale}
+            onRunOnboarding={runOnboarding}
           />
         );
     }

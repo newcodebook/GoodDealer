@@ -1,13 +1,15 @@
 use gooddealer_local_storage::{
     AssetLibraryReadSnapshot, AssetLibraryRow, AssetLibraryWindow, DesktopApplicationRoot,
     DesktopApplicationRootError, DesktopAssetLibraryReadRequest, DesktopBackupError,
-    DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopConflict,
+    DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated, DesktopConflict,
     DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolveRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest, DesktopDomainAssetWrite,
-    DesktopDomainDetailReadRequest, DesktopHostAuthorizationStatus, DesktopLocalBusinessState,
-    DesktopLocalBusinessStatus, DesktopLocalHost, DesktopLocalHostError,
-    DesktopVerifiedBackupArtifact, DomainAssetMutationReceipt, DomainDetailAsset,
-    DomainDetailReadSnapshot, Money, PortfolioReadFreshness,
+    DesktopDeviceLease, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetWrite, DesktopDomainDetailReadRequest,
+    DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
+    DesktopLocalHost, DesktopLocalHostError, DesktopVerifiedBackupArtifact,
+    DomainAssetMutationReceipt, DomainDetailAsset, DomainDetailReadSnapshot, Money,
+    PortfolioReadFreshness,
 };
 
 fn name<T>() {}
@@ -28,6 +30,10 @@ fn dependent_crate_can_name_only_the_reviewed_local_host_contract() {
     name::<DesktopAssetLibraryReadRequest>();
     name::<DesktopDomainDetailReadRequest>();
     name::<DesktopDomainAssetEditRequest>();
+    name::<DesktopDomainAssetCreateRequest>();
+    name::<DesktopCloudflareConnectionCreateRequest>();
+    name::<DesktopCloudflareConnectionCreated>();
+    name::<DesktopDeviceLease>();
     name::<DesktopDomainAssetDeleteRequest>();
     name::<DesktopDomainAssetWrite>();
     name::<DesktopConflictResolveRequest>();

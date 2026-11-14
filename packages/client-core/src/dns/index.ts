@@ -2,6 +2,8 @@ import { serverRevisionSchema } from "@gooddealer/protocol/workspace";
 import { canonicalUtcTimestamp, displayLabel, identifier, safeUnsignedInteger } from "@gooddealer/protocol/wire";
 import { z } from "zod";
 
+import { launchPlatformKindSchema } from "../connections/launch-platforms";
+
 const domainNameSchema = z
   .string()
   .min(1)
@@ -30,11 +32,13 @@ export const dnsDelegationStatusSchema = z.enum(["healthy", "mismatch", "unresol
 export const dnsRecordHealthSchema = z.enum(["healthy", "warning", "missing"]);
 export const dnsPropagationStatusSchema = z.enum(["current", "propagating", "warning"]);
 
+/** A Zone's DNS host is a connection on one of the ADR-0027 launch platforms; a registrar's own DNS
+ * is that registrar's platform, and any other host is unresolved rather than a free-form kind. */
 export const dnsProviderSummarySchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("connected"),
-      providerKind: z.enum(["cloudflare", "spaceship", "registrar_dns", "custom"]),
+      providerKind: launchPlatformKindSchema,
       connectionId: identifier,
       displayName: displayLabel,
     })
@@ -146,6 +150,8 @@ export const dnsExecutionActionSchema = z.enum([
   "reverify_ownership",
   "plan_txt_append",
   "plan_nameserver_change",
+  // Local association with Host-verified Zone evidence; no Provider write.
+  "bind_zone",
 ]);
 
 const admittedDnsActionSchema = z.object({ domainAssetId: identifier, action: dnsExecutionActionSchema }).strict();
@@ -302,3 +308,5 @@ export class ValidatingDnsTxtAppendPlanClient implements DnsTxtAppendPlanPort {
     return structuredClone(preview);
   }
 }
+
+export * from "./dns-health";

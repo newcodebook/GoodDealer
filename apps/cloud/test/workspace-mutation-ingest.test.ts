@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { DRAIN_STREAM_GENESIS_DIGEST, encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
+import {
+  DRAIN_STREAM_GENESIS_DIGEST,
+  encodeDrainChainStepInput,
+  encodeDrainStreamEnvelope,
+  encodeMutationDrainResultEnvelope,
+} from "@gooddealer/protocol/execution-events";
 import {
   computeDomainAssetEntityDigests,
   type SubmittedSyncMutation,
@@ -41,12 +46,13 @@ function mutation(input: {
         ? [{ fieldPath, value: `portfolio-${input.sequence}` }]
         : [{ fieldPath, value: { currency: "USD", amount: String(input.sequence) } }];
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: input.mutationId ?? `mutation-${input.sequence}`,
     workspaceId: "shared-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "shared.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: input.baseServerRevision ?? input.sequence - 1,
     changedFields: value,
@@ -58,10 +64,10 @@ function mutation(input: {
 
 function request(submitted: readonly SubmittedSyncMutation[]) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     workspaceId: "shared-workspace",
     sourceDeviceId: submitted[0]?.sourceDeviceId ?? "shared-device",
-    activeLeaseEpoch: 7,
+    activeLeaseEpoch: submitted[0]?.activeLeaseEpoch ?? 7,
     mutations: submitted,
   };
 }
@@ -149,6 +155,362 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     expect(landed).toEqual(encodeDrainStreamEnvelope("mutation", stored!));
   });
 
+  it("creates an asset the replica does not hold from its first upsert, in this tenant only", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    subject.bind(scopeB);
+    const created = { ...mutation({ sequence: 1, baseServerRevision: 0, fieldPath: "note" }), entityId: "added.test" };
+    await expect(subject.ingest.ingest(scopeA, request([created]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: false }], headRevision: 1,
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "added.test")).toEqual({
+      entityId: "added.test", note: "note-1", portfolioId: null, tags: [], targetPrice: null,
+      lastModifiedRevision: { note: 1, portfolioId: 0, tags: 0, targetPrice: 0 },
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeB, "added.test")).toBeNull();
+    // The checkpoint at the creating revision holds the created asset.
+    expect(subject.portfolio.snapshotAtRevision(scopeA, 1).map(({ entityId }) => entityId))
+      .toEqual(["added.test", "shared.test"]);
+    // A tombstoned asset stays unknown and poisons its batch without advancing the head.
+    subject.portfolio.seedDomainAssetTombstone(scopeA, "deleted.test");
+    const good = mutation({ sequence: 2, baseServerRevision: 1 });
+    const poison = { ...mutation({ sequence: 3, baseServerRevision: 1, fieldPath: "note" }), entityId: "deleted.test" };
+    await expect(subject.ingest.ingest(scopeA, request([good, poison]))).resolves.toMatchObject({
+      accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1 }],
+    });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(1);
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "deleted.test")).toBeNull();
+    // The tombstone is this tenant's alone: the other tenant creates the same name.
+    const otherCreate = { ...mutation({ sequence: 1, baseServerRevision: 0, fieldPath: "note" }), entityId: "deleted.test" };
+    await expect(subject.ingest.ingest(scopeB, request([otherCreate]))).resolves.toMatchObject({ accepted: true });
+  });
+
+  it("tombstones an accepted delete, keeps it out of snapshots, and judges a batch in order", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    subject.bind(scopeB);
+    const deletion = (sequence: number, baseServerRevision: number, entityId = "shared.test"): SubmittedSyncMutation => ({
+      ...mutation({ sequence, baseServerRevision }), entityId, operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    });
+    await expect(subject.ingest.ingest(scopeA, request([deletion(1, 0)]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: false }], headRevision: 1,
+    });
+    // The exact replay is a duplicate, not a second delete of an unknown asset.
+    await expect(subject.ingest.ingest(scopeA, request([deletion(1, 0)]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: true }],
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "shared.test")).toBeNull();
+    expect(subject.portfolio.readDomainAssetState(scopeA, "shared.test")).toBe("deleted");
+    expect(subject.portfolio.snapshotAtRevision(scopeA, 1)).toEqual([]);
+    expect(subject.portfolio.readDomainAssetState(scopeB, "shared.test")).toBe("active");
+
+    for (const [sequence, unknown] of [
+      [2, { ...mutation({ sequence: 2, baseServerRevision: 1 }) }],
+      [3, deletion(3, 1)],
+      [4, deletion(4, 1, "never.test")],
+    ] as const) {
+      await expect(subject.ingest.ingest(scopeA, request([unknown]))).resolves.toEqual({
+        accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+    }
+    expect(subject.portfolio.readDomainAssetState(scopeA, "never.test")).toBe("absent");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(1);
+
+    // Create then delete in one push is accepted; delete then upsert writes nothing.
+    const created = { ...mutation({ sequence: 5, baseServerRevision: 1, fieldPath: "note" }), entityId: "brief.test" };
+    await expect(subject.ingest.ingest(scopeA, request([created, deletion(6, 1, "brief.test")])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    expect(subject.portfolio.readDomainAssetState(scopeA, "brief.test")).toBe("deleted");
+    const live = { ...mutation({ sequence: 7, baseServerRevision: 3, fieldPath: "note" }), entityId: "live.test" };
+    await expect(subject.ingest.ingest(scopeA, request([live]))).resolves.toMatchObject({ accepted: true, headRevision: 4 });
+    const revive = { ...mutation({ sequence: 9, baseServerRevision: 4 }), entityId: "live.test" };
+    await expect(subject.ingest.ingest(scopeA, request([deletion(8, 4, "live.test"), revive]))).resolves.toEqual({
+      accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1, mutationId: "mutation-9" }],
+    });
+    expect(subject.portfolio.readDomainAssetState(scopeA, "live.test")).toBe("active");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(4);
+  });
+
+  it("refuses a write naming another generation than the live asset's and records the conflict", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    // A later-generation row stands in for an accepted re-add.
+    subject.portfolio.seedDomainAsset(scopeA, { entityId: "readded.test", entityGeneration: 2 });
+    const items: readonly (readonly [number, SubmittedSyncMutation])[] = [
+      [1, { ...mutation({ sequence: 1, baseServerRevision: 0 }), entityId: "readded.test" }],
+      [2, { ...mutation({ sequence: 2, baseServerRevision: 0 }), entityId: "readded.test", operationKind: "delete",
+        deletedAt: "2026-11-14T01:02:03Z", changedFields: [] }],
+    ];
+    for (const [sequence, item] of items) {
+      await expect(subject.ingest.ingest(scopeA, request([item]))).resolves.toEqual({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+      // The stored rejection is replayed, not re-judged.
+      await expect(subject.ingest.ingest(scopeA, request([item]))).resolves.toMatchObject({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH",
+      });
+    }
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "readded.test")).toEqual({ state: "active", generation: 2 });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(0);
+    // An unknown entity is reported before a generation conflict in the same batch.
+    const removedUnknown: SubmittedSyncMutation = { ...mutation({ sequence: 4, baseServerRevision: 0 }),
+      entityId: "never.test", operationKind: "delete", deletedAt: "2026-11-14T01:02:03Z", changedFields: [] };
+    await expect(subject.ingest.ingest(scopeA, request([
+      { ...mutation({ sequence: 3, baseServerRevision: 0 }), entityId: "readded.test" }, removedUnknown,
+    ]))).resolves.toMatchObject({ accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1 }] });
+    // The generation-1 asset beside it is unaffected, and its delete leaves a generation-1 tombstone.
+    const removed: SubmittedSyncMutation = { ...mutation({ sequence: 5, baseServerRevision: 0 }), operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [] };
+    await expect(subject.ingest.ingest(scopeA, request([removed]))).resolves.toMatchObject({ accepted: true });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "shared.test"))
+      .toEqual({ state: "deleted", generation: 1, deletedServerRevision: 1 });
+  });
+
+  it("rolls a staged delete back with its tombstone when the commit fails", async () => {
+    const subject = harness((point) => { if (point === "after_log_insert") throw new Error("injected"); });
+    subject.bind(scopeA);
+    const removed: SubmittedSyncMutation = {
+      ...mutation({ sequence: 1, baseServerRevision: 0 }), operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    };
+    await expect(subject.ingest.ingest(scopeA, request([removed]))).rejects.toThrow("injected");
+    expect(subject.portfolio.readDomainAssetState(scopeA, "shared.test")).toBe("active");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(0);
+  });
+
+  it("accepts a device's own consecutive unacknowledged edits of a field but not one from an older base", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    // Both edits were committed locally before the first was acknowledged, so both name base 0.
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })])))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(subject.ingest.ingest(scopeA, request([
+      mutation({ sequence: 2, baseServerRevision: 0 }), mutation({ sequence: 3, baseServerRevision: 0 }),
+    ]))).resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "shared.test")?.tags).toEqual(["tag-0003"]);
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 3 })])))
+      .resolves.toMatchObject({ accepted: true });
+    // A later sequence naming an older base than the device's own last write did not build on it.
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2 })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ lastModifiedRevision: 4 }] });
+  });
+
+  it("ADR-0029 re-adds a tombstone exactly once, as the next generation built on its deletion", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    subject.bind(scopeB);
+    const at = (sequence: number, baseServerRevision: number, fieldPath: "note" | "tags" = "note") =>
+      ({ ...mutation({ sequence, baseServerRevision, fieldPath }), entityId: "again.test" }) as SubmittedSyncMutation;
+    const reAdd = (sequence: number, baseServerRevision: number, overrides: Partial<SubmittedSyncMutation> = {}) =>
+      ({ ...at(sequence, baseServerRevision, "tags"), entityGeneration: 2, reAddsDeletedRevision: 2, ...overrides }) as
+        SubmittedSyncMutation;
+    await subject.ingest.ingest(scopeA, request([at(1, 0)]));
+    await expect(subject.ingest.ingest(scopeA, request([{
+      ...at(2, 1), operationKind: "delete", deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    } as SubmittedSyncMutation]))).resolves.toMatchObject({ accepted: true, headRevision: 2 });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test"))
+      .toEqual({ state: "deleted", generation: 1, deletedServerRevision: 2 });
+
+    // Each refusal is a recorded business conflict that writes no revision.
+    for (const [sequence, refused, code] of [
+      [3, reAdd(3, 2, { reAddsDeletedRevision: 1 }), "MUTATION_GENERATION_MISMATCH"],
+      [4, reAdd(4, 2, { entityGeneration: 3 }), "MUTATION_GENERATION_MISMATCH"],
+      [5, reAdd(5, 9), "MUTATION_GENERATION_MISMATCH"],
+      [6, reAdd(6, 2, { entityId: "never.test" }), "MUTATION_GENERATION_MISMATCH"],
+      [7, reAdd(7, 2, { entityId: "shared.test" }), "MUTATION_GENERATION_MISMATCH"],
+      [8, { ...at(8, 2), entityGeneration: 2 } as SubmittedSyncMutation, "MUTATION_ENTITY_UNKNOWN"],
+    ] as const) {
+      await expect(subject.ingest.ingest(scopeA, request([refused]))).resolves.toEqual({
+        accepted: false, code, failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+    }
+    // A re-add that does not build on the deletion is not even a well-formed mutation.
+    await expect(subject.ingest.ingest(scopeA, request([reAdd(9, 1)])))
+      .resolves.toEqual({ accepted: false, code: "MUTATION_MALFORMED" });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(2);
+
+    const accepted = reAdd(10, 2);
+    await expect(subject.ingest.ingest(scopeA, request([accepted]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 3, duplicate: false }], headRevision: 3,
+    });
+    await expect(subject.ingest.ingest(scopeA, request([accepted]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 3, duplicate: true }], headRevision: 3,
+    });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test")).toEqual({ state: "active", generation: 2 });
+    // Nothing of generation 1 survives (its note was set at revision 1), and every field is revision 3.
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "again.test")).toEqual({
+      entityId: "again.test", note: null, portfolioId: null, tags: ["tag-0010"], targetPrice: null,
+      lastModifiedRevision: { note: 3, portfolioId: 3, tags: 3, targetPrice: 3 },
+    });
+    expect(subject.portfolio.readCheckpointStateAt(scopeA, 3).tombstones).toEqual([]);
+    expect(subject.portfolio.readCheckpointStateAt(scopeA, 2).tombstones).toHaveLength(1);
+    expect(subject.portfolio.readDomainAssetState(scopeB, "again.test")).toBe("absent");
+
+    // The tombstone is gone, so a second re-add of it and any generation-1 write are conflicts.
+    for (const [sequence, refused] of [
+      [11, reAdd(11, 3)],
+      [12, at(12, 3)],
+    ] as const) {
+      await expect(subject.ingest.ingest(scopeA, request([refused]))).resolves.toEqual({
+        accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+    }
+    await expect(subject.ingest.ingest(scopeA, request([{ ...at(13, 3), entityGeneration: 2 } as SubmittedSyncMutation])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 4 });
+  });
+
+  it("ADR-0029 judges a re-add in batch order", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    const at = (sequence: number, baseServerRevision: number) =>
+      ({ ...mutation({ sequence, baseServerRevision, fieldPath: "note" }), entityId: "again.test" }) as SubmittedSyncMutation;
+    const removed = (sequence: number, baseServerRevision: number, entityGeneration = 1) => ({
+      ...at(sequence, baseServerRevision), entityGeneration, operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    }) as SubmittedSyncMutation;
+    const reAdd = (sequence: number, baseServerRevision: number, reAddsDeletedRevision: number, entityGeneration = 2) =>
+      ({ ...at(sequence, baseServerRevision), entityGeneration, reAddsDeletedRevision }) as SubmittedSyncMutation;
+    await expect(subject.ingest.ingest(scopeA, request([at(1, 0), removed(2, 0)]))).resolves.toMatchObject({ accepted: true });
+    // A delete in the same batch has no revision yet, so nothing in the batch can re-add it.
+    await expect(subject.ingest.ingest(scopeA, request([reAdd(3, 2, 2), removed(4, 2, 2), reAdd(5, 2, 2, 3)])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 2 }] });
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(2);
+    // A re-add followed by an edit and a delete of the new generation is accepted in one push.
+    await expect(subject.ingest.ingest(scopeA, request([
+      reAdd(6, 2, 2), { ...at(7, 2), entityGeneration: 2 } as SubmittedSyncMutation, removed(8, 2, 2),
+    ]))).resolves.toMatchObject({ accepted: true, headRevision: 5 });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test"))
+      .toEqual({ state: "deleted", generation: 2, deletedServerRevision: 5 });
+    await expect(subject.ingest.ingest(scopeA, request([reAdd(9, 5, 5, 3)])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 6 });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test")).toEqual({ state: "active", generation: 3 });
+  });
+
+  it("ADR-0030 ends a single-item business rejection's sequence and replays it exactly", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation" } as const;
+    const read = (proofSchemaVersion: 1 | 2) => subject.ledger.readWatermark(scopeA, { ...domain, proofSchemaVersion });
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([
+      mutation({ sequence: 2, baseServerRevision: 0 }), mutation({ sequence: 3, baseServerRevision: 0 }),
+    ]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 3 })]));
+    const stale = mutation({ sequence: 5, baseServerRevision: 2 });
+
+    // A multi-item batch rolls back and records nothing; batch isolation retries the item alone.
+    await expect(subject.ingest.ingest(scopeA, request([stale, mutation({ sequence: 6, baseServerRevision: 4, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(read(2)).resolves.toMatchObject({ contiguousReceivedThrough: 4, highestReceivedSequence: 4 });
+
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "mutation-5" }] });
+    const headAfterRejection = subject.revisions.readHead(scopeA).serverRevision;
+    // The rejection allocated no server revision, and the stored result answers every replay.
+    expect(headAfterRejection).toBe(4);
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toEqual({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "mutation-5" }] });
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, mutationId: "other-5", baseServerRevision: 4, fieldPath: "note" })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_SEQUENCE_CONFLICT" });
+
+    // v2 counts the rejection toward the contiguous watermark; v1 cannot express it and stops.
+    await expect(read(2)).resolves.toMatchObject({ contiguousReceivedThrough: 5, highestReceivedSequence: 5, missingRanges: [] });
+    await expect(read(1)).resolves.toMatchObject({ contiguousReceivedThrough: 4, highestReceivedSequence: 5 });
+
+    const next = mutation({ sequence: 6, baseServerRevision: 4, fieldPath: "note" });
+    await expect(subject.ingest.ingest(scopeA, request([next]))).resolves.toMatchObject({ accepted: true, headRevision: 5 });
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    let expected: Uint8Array = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const sequence of [1, 2, 3, 4, 5, 6]) {
+      const envelope = sequence === 5
+        ? encodeDrainStreamEnvelope("mutation", stale)
+        : subject.ledger.readEnvelope(scopeA, domain, sequence);
+      if (envelope === null) throw new TypeError(`accepted envelope ${sequence} is missing`);
+      const step = encodeMutationDrainResultEnvelope({
+        outcome: sequence === 5 ? "rejected" : "accepted",
+        submittedEnvelopeDigest: sha(envelope),
+      });
+      expected = sha(encodeDrainChainStepInput(expected, step));
+    }
+    await expect(read(2)).resolves.toEqual({
+      contiguousReceivedThrough: 6,
+      highestReceivedSequence: 6,
+      missingRanges: [],
+      rollingDigest: Buffer.from(expected).toString("base64url"),
+    });
+  });
+
+  it("ADR-0030 folds a v2 chain over the device's global sequence across Lease epochs", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })]));
+    // The Lease rotates; the device's sequences continue from 3 under epoch 8.
+    subject.leases.bindDevice(scopeA, "shared-device", "active", 8);
+    const atEpoch8 = (input: Parameters<typeof mutation>[0]) => ({ ...mutation(input), activeLeaseEpoch: 8 });
+    const stale = atEpoch8({ sequence: 3, baseServerRevision: 1 });
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    const next = atEpoch8({ sequence: 4, baseServerRevision: 2, fieldPath: "note" });
+    await expect(subject.ingest.ingest(scopeA, request([next]))).resolves.toMatchObject({ accepted: true });
+
+    const domain8 = { sourceDeviceId: "shared-device", activeLeaseEpoch: 8, stream: "mutation" } as const;
+    const sha = (value: Uint8Array) => createHash("sha256").update(value).digest();
+    let expected: Uint8Array = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const [sequence, epoch] of [[1, 7], [2, 7], [3, 8], [4, 8]] as const) {
+      const envelope = sequence === 3
+        ? encodeDrainStreamEnvelope("mutation", stale)
+        : subject.ledger.readEnvelope(scopeA, { sourceDeviceId: "shared-device", activeLeaseEpoch: epoch }, sequence);
+      if (envelope === null) throw new TypeError(`accepted envelope ${sequence} is missing`);
+      expected = sha(encodeDrainChainStepInput(expected, encodeMutationDrainResultEnvelope({
+        outcome: sequence === 3 ? "rejected" : "accepted",
+        submittedEnvelopeDigest: sha(envelope),
+      })));
+    }
+    await expect(subject.ledger.readWatermark(scopeA, { ...domain8, proofSchemaVersion: 2 })).resolves.toEqual({
+      contiguousReceivedThrough: 4,
+      highestReceivedSequence: 4,
+      missingRanges: [],
+      rollingDigest: Buffer.from(expected).toString("base64url"),
+    });
+    // v1 keeps its historical per-epoch scope, which cannot start at sequence 3.
+    await expect(subject.ledger.readWatermark(scopeA, { ...domain8, proofSchemaVersion: 1 }))
+      .resolves.toMatchObject({ contiguousReceivedThrough: 0 });
+  });
+
+  it("ADR-0030 leaves no rejection evidence on a storage fault and refuses to extend a sealed domain", async () => {
+    let failing = true;
+    const subject = harness((point) => { if (failing && point === "after_rejection_record") throw new Error("rejection-fault"); });
+    subject.bind(scopeA);
+    const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation", proofSchemaVersion: 2 } as const;
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })]));
+    const stale = mutation({ sequence: 3, baseServerRevision: 0 });
+    const before = await subject.ledger.readWatermark(scopeA, domain);
+
+    // The fault surfaces as a retryable error and nothing of the rejection survives it.
+    await expect(subject.ingest.ingest(scopeA, request([stale]))).rejects.toThrow("rejection-fault");
+    await expect(subject.ledger.readWatermark(scopeA, domain)).resolves.toEqual(before);
+    failing = false;
+    await expect(subject.ingest.ingest(scopeA, request([stale])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+    await expect(subject.ledger.readWatermark(scopeA, domain))
+      .resolves.toMatchObject({ contiguousReceivedThrough: 3, highestReceivedSequence: 3 });
+
+    // Once the domain is sealed, a later rejection cannot extend its evidence: the seal refuses
+    // before any business re-evaluation, and the ledger itself refuses a direct append.
+    subject.ledger.installAcceptedDrainSeal(scopeA, { ...domain, lastAssignedSequence: 3 });
+    const sealed = await subject.ledger.readWatermark(scopeA, domain);
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 4, baseServerRevision: 0 })])))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_DRAIN_SEALED" });
+    expect(() => subject.ledger.appendRejected(scopeA, domain, 4, new Uint8Array(32))).toThrow("immutable drain seal");
+    await expect(subject.ledger.readWatermark(scopeA, domain)).resolves.toEqual(sealed);
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(2);
+  });
+
   it("P20-INV-17/18/19 property: arbitrary acceptance, rejection, and replay never burns a revision", async () => {
     const subject = harness();
     subject.bind(scopeA);
@@ -160,6 +522,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       });
       let result;
       if (step % 5 === 0 && accepted.length > 0) {
@@ -194,6 +557,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
           sourceDeviceId: "shared-device",
           activeLeaseEpoch: 7,
           stream: "mutation",
+          proofSchemaVersion: 1,
         })).toEqual(watermarkBefore);
       }
     }
@@ -221,6 +585,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       })).toMatchObject({ contiguousReceivedThrough: 0, highestReceivedSequence: 0 });
     });
   }
@@ -272,6 +637,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "shared-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual({
       contiguousReceivedThrough: 0,
       highestReceivedSequence: 0,
@@ -287,6 +653,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "shared-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
     };
 
@@ -323,6 +690,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "shared-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(aBefore.watermark);
   });
 
@@ -341,6 +709,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
         sourceDeviceId: "standby-device",
         activeLeaseEpoch: 7,
         stream: "mutation",
+        proofSchemaVersion: 1,
       }),
     };
     expect(await subject.ingest.ingest(scopeA, request([standbyMutation]))).toMatchObject({
@@ -358,6 +727,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       sourceDeviceId: "standby-device",
       activeLeaseEpoch: 7,
       stream: "mutation",
+      proofSchemaVersion: 1,
     })).toEqual(before.watermark);
     const cursorSource = readFileSync(new URL("../src/modules/workspace/cursors/index.ts", import.meta.url), "utf8");
     expect(cursorSource).not.toMatch(/from ["']\.\.\/(mutations|revisions)/);

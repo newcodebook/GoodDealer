@@ -4,6 +4,7 @@ import {
   type ActivationWizardViewModel,
 } from "@gooddealer/client-core";
 import { defaultLocale, type Locale } from "@gooddealer/i18n";
+import { Button } from "@gooddealer/ui";
 import { useEffect, useState } from "react";
 
 import { ActivationWizard, RuntimeStatusPage, SignIn, type BrowserSignInState, type RuntimeStatusKind } from "../../src/features/runtime-mode";
@@ -82,6 +83,8 @@ export const activationVariants = [
   { id: "connections", label: "连接账户" },
   { id: "initial_import", label: "首次导入" },
   { id: "complete", label: "完成" },
+  // Production before qualification: Cloudflare and observation import show as unavailable.
+  { id: "unqualified", label: "资格前" },
 ] as const;
 
 type Step = ActivationWizardViewModel["step"];
@@ -89,6 +92,7 @@ const order: readonly Step[] = ["welcome", "device", "connections", "initial_imp
 
 interface WizardState {
   readonly step: Step;
+  readonly unqualified: boolean;
   readonly device: "ready" | "activating" | "awaiting_cloud" | "active";
   readonly deviceName: string;
   readonly providers: Readonly<Record<string, "disconnected" | "connecting" | "connected">>;
@@ -102,8 +106,16 @@ const providerCatalog = [
   { providerId: "dynadot", displayName: "Dynadot", metadata: "API Key", category: "registrar" },
   { providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns" },
   { providerId: "atom", displayName: "Atom", metadata: "OAuth · API", category: "marketplace" },
-  { providerId: "afternic", displayName: "Afternic", metadata: "CSV · 人工", category: "marketplace" },
+  { providerId: "afternic", displayName: "Afternic", metadata: "Portfolio API", category: "marketplace" },
 ] as const;
+
+/** Each fixture platform admits what its own state allows, as the Host would report it. */
+function fixtureProviders(states: Readonly<Record<string, string>>) {
+  return providerCatalog.map((provider) => {
+    const connectionState = states[provider.providerId] ?? "disconnected";
+    return { ...provider, connectionState, admittedActions: connectionState === "connected" ? ["disconnect"] : connectionState === "connecting" ? [] : ["connect"] };
+  });
+}
 
 function wizardView(state: WizardState): ActivationWizardViewModel {
   const connected = Object.values(state.providers).filter((value) => value === "connected").length;
@@ -114,17 +126,32 @@ function wizardView(state: WizardState): ActivationWizardViewModel {
       activeLease: state.device === "active" ? { status: "issued", issuer: "gooddealer_cloud", deviceId: "dev-macbook", leaseEpoch: 1 } : state.device === "awaiting_cloud" ? { status: "awaiting_cloud" } : { status: "not_requested" },
       availableActions: state.device === "ready" ? ["back", "submit_device"] : state.device === "active" ? ["back", "continue"] : ["back"],
     }
+      : state.step === "connections" && state.unqualified ? {
+        step: "connections", connectedCount: 0,
+        providers: [{ providerId: "cloudflare", displayName: "Cloudflare", metadata: "API Token", category: "dns", connectionState: "unavailable", admittedActions: [] }],
+        availableActions: ["back", "continue"],
+      }
       : state.step === "connections" ? {
         step: "connections", connectedCount: connected,
-        providers: providerCatalog.map((provider) => ({ ...provider, connectionState: state.providers[provider.providerId] ?? "disconnected" })),
-        availableActions: ["back", "connect_provider", "disconnect_provider", ...(connected > 0 ? ["continue"] : [])],
+        providers: fixtureProviders(state.providers),
+        availableActions: [
+          "back",
+          ...(fixtureProviders(state.providers).some(({ admittedActions }) => admittedActions.includes("connect")) ? ["connect_provider"] : []),
+          ...(connected > 0 ? ["disconnect_provider", "continue"] : []),
+        ],
       }
+        : state.step === "initial_import" && state.unqualified ? {
+          step: "initial_import", connectedCount: 0, importState: "unavailable", progress: 0,
+          importedDomains: null, importedListings: null, conflicts: null, baselineServerRevision: null,
+          availableActions: ["back", "continue"],
+        }
         : state.step === "initial_import" ? {
           step: "initial_import", connectedCount: connected, importState: state.importState, progress: state.progress,
           importedDomains: state.importState === "completed" ? 823 : null, importedListings: state.importState === "completed" ? 692 : null,
           conflicts: state.importState === "completed" ? 6 : null, baselineServerRevision: state.importState === "completed" ? 1 : null,
           availableActions: state.importState === "ready" ? ["back", "start_import"] : state.importState === "completed" ? ["back", "continue"] : ["back"],
         }
+          : state.unqualified ? { step: "complete", deviceName: null, importedDomains: 1, baselineServerRevision: 8, syncReady: true, availableActions: ["enter_workspace"] }
           : { step: "complete", deviceName: state.deviceName, importedDomains: 823, baselineServerRevision: 1, syncReady: true, availableActions: ["enter_workspace"] };
   const result = projectActivationWizardViewModel(input);
   if (!result.ok) throw new Error(`mock activation state is invalid: ${state.step}`);
@@ -134,8 +161,10 @@ function wizardView(state: WizardState): ActivationWizardViewModel {
 /** First-run activation walked through every step with simulated Host and Cloud progress. */
 export function ActivationScreen({ variant, onNavigateScreen }: { readonly variant: string; readonly onNavigateScreen: (id: string) => void }) {
   const locale = defaultLocale;
+  const unqualified = variant === "unqualified";
   const [state, setState] = useState<WizardState>({
-    step: variant as Step,
+    step: unqualified ? "connections" : variant as Step,
+    unqualified,
     device: variant === "device" ? "ready" : "active",
     deviceName: "MacBook Pro",
     providers: variant === "initial_import" || variant === "complete" ? { spaceship: "connected", cloudflare: "connected" } : {},
@@ -168,6 +197,7 @@ export function ActivationScreen({ variant, onNavigateScreen }: { readonly varia
           else if (action === "skip" || action === "enter_workspace") onNavigateScreen("asset-library");
           else if (action === "start_import") setState((current) => ({ ...current, importState: "in_progress", progress: 0 }));
         }}
+        {...(state.unqualified ? { importActions: <Button size="sm">添加域名</Button> } : {})}
         onSubmitDevice={(deviceName) => setState((current) => ({ ...current, deviceName, device: "activating" }))}
         onToggleProvider={(providerId, connect) => {
           setState((current) => ({ ...current, providers: { ...current.providers, [providerId]: connect ? "connecting" : "disconnected" } }));

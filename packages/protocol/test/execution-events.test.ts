@@ -5,9 +5,12 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  encodeLegacyV2MutationDrainEnvelope,
   DRAIN_CHAIN_GENESIS_INPUT,
   DRAIN_PROOF_DIGEST_DOMAIN,
+  DRAIN_PROOF_DIGEST_DOMAIN_V2,
   DRAIN_PROOF_SIGNATURE_DOMAIN,
+  DRAIN_PROOF_SIGNATURE_DOMAIN_V2,
   DRAIN_STREAMS,
   DRAIN_STREAM_GENESIS_DIGEST,
   REDACTED_WIRE_VALUE_MAXIMUM_ARRAY_LENGTH,
@@ -24,6 +27,7 @@ import {
   encodeDrainSequenceDomain,
   encodeDrainStreamEnvelope,
   encodeExecutionFactSignatureTranscript,
+  encodeMutationDrainResultEnvelope,
   encodeWorkspaceDeviceAuditChainDomain,
   executionFactSchema,
   redactedWireValueSchema,
@@ -96,6 +100,8 @@ const validDrainVectors = [
   "proof-handoff-all-empty.json",
   "proof-handoff-mixed-empty.json",
   "proof-synchronized-backup.json",
+  "proof-handoff-v2-three-streams.json",
+  "proof-synchronized-backup-v2.json",
 ] as const;
 
 const invalidDrainVectors = [
@@ -117,6 +123,10 @@ const invalidDrainVectors = [
   "proof-expires-before-issued.json",
   "proof-unknown-field.json",
   "proof-snake-case-wire.json",
+  "proof-v2-with-v1-typ.json",
+  "proof-v2-with-codec-one.json",
+  "proof-v1-with-v2-typ.json",
+  "proof-schema-version-three.json",
 ] as const;
 
 describe("P17 execution-event golden corpus", () => {
@@ -385,7 +395,7 @@ describe("P17 canonical byte layouts", () => {
       proofTranscript: digest(encodeDrainProofSignatureTranscript(proof)),
       proofDigestInput: digest(encodeDrainProofDigestInput(proof)),
     }).toEqual({
-      mutationEnvelope: "bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac",
+      mutationEnvelope: "GraedUUM-E1daDqh76REQ2g2SV6ZMKYaehT5T2yfQ2w",
       executionFactTranscript: "3pNPc2ckw_aEBcDuCi4SLjSNCyU5iq8T6E3yuuWOQ9A",
       executionFactEnvelope: "ZJVnUm-9bcVTZLXRcDGd2LjUq2CU4Z131DeiZzysqNI",
       accountAuditTranscript: "AO_KE_einS6zs8tNRUU5aaT-Pomp4wOnK4YmbsFJYUI",
@@ -413,6 +423,15 @@ describe("P17 canonical byte layouts", () => {
     expect(decoder.decode(account)).toContain("account");
   });
 
+  it("ADR-0029 re-derives the retained wire v2 envelope of a generation-1 mutation byte for byte", () => {
+    const submitted = submittedSyncMutationSchema.parse(vector("execution-events/valid/mutation-submitted.json"));
+    // The pinned digest of this vector's envelope before wire v3; retained records keep it.
+    expect(digest(encodeLegacyV2MutationDrainEnvelope(submitted))).toBe("bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac");
+    expect(() => encodeLegacyV2MutationDrainEnvelope({ ...submitted, entityGeneration: 2 })).toThrow(/first-generation/);
+    expect(() => encodeLegacyV2MutationDrainEnvelope({ ...submitted, entityGeneration: 2, reAddsDeletedRevision: 1 }))
+      .toThrow(/first-generation/);
+  });
+
   it("P17-INV-5/7/8 keeps mutation submission additive and digest-invariant", () => {
     const submitted = vector("execution-events/valid/mutation-submitted.json");
     const enriched = vector("execution-events/valid/mutation-server-enriched.json");
@@ -425,6 +444,7 @@ describe("P17 canonical byte layouts", () => {
       "workspaceSchemaVersion",
       "entityType",
       "entityId",
+      "entityGeneration",
       "operationKind",
       "baseServerRevision",
       "changedFields",
@@ -504,6 +524,76 @@ describe("P17 canonical byte layouts", () => {
       .map((path) => readFileSync(resolve(directory, path), "utf8"))
       .join("\n");
     expect(source).not.toMatch(/node:crypto|globalThis\.crypto|createHash|subtle\.|\.sign\s*\(|\.verify\s*\(/);
+  });
+});
+
+describe("ADR-0030 versioned mutation drain results", () => {
+  it("moves schema, typ, codec, and both proof domains together and never mixes versions", () => {
+    const v1 = drainProofSchema.parse(vector("drain/valid/proof-handoff-three-streams.json"));
+    const v2 = drainProofSchema.parse(vector("drain/valid/proof-handoff-v2-three-streams.json"));
+    expect([v1.schemaVersion, v1.typ, v1.canonicalCodecVersion]).toEqual([1, "gd.drain-proof.v1", 1]);
+    expect([v2.schemaVersion, v2.typ, v2.canonicalCodecVersion]).toEqual([2, "gd.drain-proof.v2", 2]);
+    expect(decoder.decode(encodeDrainProofSignatureTranscript(v2))).toContain(DRAIN_PROOF_SIGNATURE_DOMAIN_V2);
+    expect(decoder.decode(encodeDrainProofSignatureTranscript(v2))).not.toContain(`${DRAIN_PROOF_SIGNATURE_DOMAIN}"`);
+    expect(decoder.decode(encodeDrainProofDigestInput(v2)).startsWith(DRAIN_PROOF_DIGEST_DOMAIN_V2)).toBe(true);
+    // The same claims under the other version can never produce the same signed bytes.
+    const relabelled = { ...v1, proofId: v2.proofId };
+    expect(encodeDrainProofSignatureTranscript(relabelled)).not.toEqual(encodeDrainProofSignatureTranscript(v2));
+    expect(encodeDrainProofDigestInput(relabelled)).not.toEqual(encodeDrainProofDigestInput(v2));
+  });
+
+  it("keeps v1 proof bytes frozen", () => {
+    const proof = drainProofSchema.parse(vector("drain/valid/proof-handoff-three-streams.json"));
+    expect(digest(encodeDrainProofSignatureTranscript(proof))).toBe("qiD196D0e2kn_0eKxd7UiFQoa68laqzx8cKUQIzDX_8");
+    expect(digest(encodeDrainProofDigestInput(proof))).toBe("NsJxtr1QEVKfM_-1xKXqCVi9e5zeva_Z18UxqRglrPs");
+  });
+
+  it("reproduces the independently computed result-envelope chain", () => {
+    const input = vector("drain/chain/mutation-result-v2.json") as {
+      steps: readonly {
+        outcome: "accepted" | "rejected";
+        submittedEnvelopeBase64url: string;
+        submittedEnvelopeDigest: string;
+        previousDigest: string;
+        resultEnvelopeBase64url: string;
+        expectedDigest: string;
+      }[];
+      expectedDigest: string;
+    };
+    let actual = DRAIN_STREAM_GENESIS_DIGEST as string;
+    for (const step of input.steps) {
+      expect(digest(decodeBase64Url(step.submittedEnvelopeBase64url))).toBe(step.submittedEnvelopeDigest);
+      const envelope = encodeMutationDrainResultEnvelope({
+        outcome: step.outcome,
+        submittedEnvelopeDigest: decodeBase64Url(step.submittedEnvelopeDigest),
+      });
+      expect(envelope).toEqual(decodeBase64Url(step.resultEnvelopeBase64url));
+      expect(step.previousDigest).toBe(actual);
+      actual = digest(encodeDrainChainStepInput(decodeBase64Url(actual), envelope));
+      expect(actual).toBe(step.expectedDigest);
+    }
+    expect(actual).toBe(input.expectedDigest);
+  });
+
+  it("binds the outcome and leaves the frozen submitted envelope untouched", () => {
+    const mutation = submittedSyncMutationSchema.parse(vector("execution-events/valid/mutation-submitted.json"));
+    const submitted = encodeDrainStreamEnvelope("mutation", mutation);
+    expect(digest(submitted)).toBe("GraedUUM-E1daDqh76REQ2g2SV6ZMKYaehT5T2yfQ2w");
+    const submittedDigest = createHash("sha256").update(submitted).digest();
+    const accepted = encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: submittedDigest });
+    const rejected = encodeMutationDrainResultEnvelope({ outcome: "rejected", submittedEnvelopeDigest: submittedDigest });
+    expect(accepted).not.toEqual(rejected);
+    expect(accepted).not.toEqual(submitted);
+    expect(decoder.decode(rejected)).not.toMatch(/MUTATION_|SYNC_/);
+  });
+
+  it("rejects an unknown outcome or a digest that is not exactly 32 bytes", () => {
+    const valid = new Uint8Array(32);
+    expect(() => encodeMutationDrainResultEnvelope({ outcome: "skipped" as "accepted", submittedEnvelopeDigest: valid })).toThrow(TypeError);
+    for (const length of [0, 31, 33]) {
+      expect(() => encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: new Uint8Array(length) })).toThrow(TypeError);
+    }
+    expect(() => encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: [...valid] as unknown as Uint8Array })).toThrow(TypeError);
   });
 });
 
@@ -643,12 +733,13 @@ describe("P17-INV-8 pre-existing workspace corpus remains unchanged", () => {
 
   it("represents deletion explicitly and rejects ambiguous upsert/delete payloads", () => {
     const base = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "mutation-delete",
       workspaceId: "workspace-delete",
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "deleted.test",
+      entityGeneration: 1,
       baseServerRevision: 4,
       sourceDeviceId: "device-delete",
       activeLeaseEpoch: 1,

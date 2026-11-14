@@ -155,6 +155,61 @@ const expectedCatalog = [
     owner: "identity",
     checksum: "1f6a78085fd7080c78c7af7bf9da8f1c87cea17027fd62f0eef65b4932de1947",
   },
+  {
+    id: "202611130001-drain-proof-schema-version",
+    owner: "devices",
+    checksum: "e39b9763a756164c352834540f0c3a7ca9ab535dc23a22eef6a4c6d96737be97",
+  },
+  {
+    id: "202611130002-mutation-drain-result-chain",
+    owner: "workspace/mutations",
+    checksum: "933171c32adbf804bd7421c7e03d3ebfeb7e633d26d532fd15eac91afed82e2b",
+  },
+  {
+    id: "202611130003-mutation-result-ledger",
+    owner: "workspace/mutations",
+    checksum: "b3f4e735e417403215e7d4df663b35820e866756ebe5e61646c29125bcf18842",
+  },
+  {
+    id: "202611130004-mutation-drain-device-chain",
+    owner: "workspace/mutations",
+    checksum: "4ebf138104e67ce42e19c69b3c2ddf1fa3717eb2b066d3247d44f7ef13e8578a",
+  },
+  {
+    id: "202611130005-mutation-wire-v3",
+    owner: "workspace/mutations",
+    checksum: "86dfdb076c3c3656d747eb3c1e56bb2a0bbfd3301885fd9c3fe6472c27ca1aaa",
+  },
+  {
+    id: "202611140001-replica-domain-asset-deletion",
+    owner: "workspace/state/portfolio",
+    checksum: "827b577aebecdcc322f7d2525b57f42edff08f8b7ac73cd0aeb66625c4a068ca",
+  },
+  {
+    id: "202611140002-replica-entity-generation",
+    owner: "workspace/state/portfolio",
+    checksum: "0b752f12dd8321d3ab680cfb59b05017977d1295ba0044adf06aabf896b3ee3b",
+  },
+  {
+    id: "202611140003-mutation-generation-mismatch-receipt",
+    owner: "workspace/mutations",
+    checksum: "5e606fb7595c0f83cdf5c31261ef461446dc39fef80bc898a51f94a24a874bd5",
+  },
+  {
+    id: "202611140004-workspace-checkpoint-state-v3",
+    owner: "workspace/checkpoints",
+    checksum: "e17416ad0a59000e57f092947acba9484949743b49ee2bf9a4df8bf3388f8119",
+  },
+  {
+    id: "202611140005-mutation-log-generation",
+    owner: "workspace/mutations",
+    checksum: "3745d9f2df15082d1262e5f37aacd8ab7de8eaaf09681ec275725b24ba3fbabe",
+  },
+  {
+    id: "202611140006-replica-domain-asset-re-add",
+    owner: "workspace/state/portfolio",
+    checksum: "9a8e64d1d411afabb5f97c64a95aa5af569a533017a8102d170bf14d4d6f1be4",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -181,7 +236,10 @@ describe("Cloud migration catalog", () => {
       + "  syncV2LedgerMigration,\n  workspaceCheckpointV2Migration,\n  cloudflareDnsObservationMigration,\n"
       + "  accountRecoveryMigration,\n  commercialEntitlementSnapshotMigration,\n"
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
-      + "  desktopCodeLoopbackRedirectMigration,\n];",
+      + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
+      + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
+      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n"
+      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -194,7 +252,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(27);
+    expect(checkedCloudMigrationCatalog).toHaveLength(38);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

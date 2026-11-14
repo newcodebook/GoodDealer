@@ -307,7 +307,7 @@ export class BootstrapWorkflow {
       snapshot.toDeviceId,
       snapshot.targetServerRevision,
     );
-    throw new TypeError("lease issuance success is disabled in P0-16");
+    throw new TypeError("lease issuance success is disabled in the in-memory bootstrap workflow");
   }
 
   async cancel(): Promise<void> {

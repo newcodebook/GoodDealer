@@ -17,6 +17,10 @@ export interface ActivationWizardProps {
   readonly onAction: (action: Exclude<ActivationAction, "submit_device" | "connect_provider" | "disconnect_provider">) => void;
   readonly onSubmitDevice?: (deviceName: string) => void;
   readonly onToggleProvider?: (providerId: string, connect: boolean) => void;
+  /** Controls the composition places beside an unavailable import, such as adding a domain by hand. */
+  readonly importActions?: ReactNode;
+  /** The Host-reported reason the composition shows under the providers, such as a capability not yet qualified. */
+  readonly connectionsNotice?: ReactNode;
 }
 
 const steps = ["welcome", "device", "connections", "initial_import", "complete"] as const;
@@ -26,7 +30,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 }
 
 /** First-run activation: welcome, device gate, connections, initial import, and completion. */
-export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onToggleProvider }: ActivationWizardProps) {
+export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onToggleProvider, importActions, connectionsNotice }: ActivationWizardProps) {
   const copy = getPresentationCopy(locale, "activation");
   const index = steps.indexOf(view.step);
   const can = (action: ActivationAction) => view.availableActions.includes(action);
@@ -82,7 +86,11 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
           <>
             <header className="activation-head">
               <h2>{copy.connectAccount}</h2>
-              <p className="gd-t-body-2">{copy.connectSubtitle}</p>
+              <p className="gd-t-body-2">
+                {view.providers.length > 0 && view.providers.every((provider) => provider.connectionState === "unavailable")
+                  ? copy.connectOptionalSubtitle
+                  : copy.connectSubtitle}
+              </p>
             </header>
             {([["registrar", copy.registrar], ["dns", copy.dnsProvider], ["marketplace", copy.salesPlatform]] as const).map(([category, label]) => {
               const providers = view.providers.filter((provider) => provider.category === category);
@@ -90,11 +98,12 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
                 <div key={category} className="activation-group">
                   <span className="gd-t-label">{label}</span>
                   <div className="activation-providers">
-                    {providers.map((provider) => <ProviderCard key={provider.providerId} locale={locale} provider={provider} {...(onToggleProvider === undefined ? {} : { onToggle: onToggleProvider })} canConnect={can("connect_provider")} canDisconnect={can("disconnect_provider")} />)}
+                    {providers.map((provider) => <ProviderCard key={provider.providerId} locale={locale} provider={provider} {...(onToggleProvider === undefined ? {} : { onToggle: onToggleProvider })} canConnect={provider.admittedActions.includes("connect")} canDisconnect={provider.admittedActions.includes("disconnect")} />)}
                   </div>
                 </div>
               );
             })}
+            {connectionsNotice === undefined ? null : <p className="gd-t-meta">{connectionsNotice}</p>}
             {footer({ label: view.connectedCount > 0 ? fill(copy.continueConnected, { count: formatNumber(locale, view.connectedCount) }) : copy.continue, action: "continue" })}
           </>
         ) : null}
@@ -102,9 +111,21 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
           <>
             <header className="activation-head">
               <h2>{copy.firstImportTitle}</h2>
-              <p className="gd-t-body-2">{copy.importSubtitlePrefix}</p>
+              <p className="gd-t-body-2">
+                {view.importState !== "unavailable" ? copy.importSubtitlePrefix
+                  : view.connectedCount > 0 ? copy.importConnectedSubtitle : copy.importUnavailableSubtitle}
+              </p>
             </header>
-            {view.importState === "completed" ? (
+            {view.importState === "unavailable" ? (
+              <div className="activation-card">
+                <div className="activation-row">
+                  <RefreshCwIcon size={16} className="activation-muted" />
+                  <span className="gd-t-body-2">{view.connectedCount > 0 ? copy.zoneImportedOnConnect : copy.observationImportUnavailable}</span>
+                  <span className="activation-spacer" />
+                  {importActions}
+                </div>
+              </div>
+            ) : view.importState === "completed" ? (
               <>
                 <div className="activation-summary">
                   <div><span className="gd-t-label">{copy.domain}</span><span className="gd-t-metric-sm">{formatNumber(locale, view.importedDomains ?? 0)}</span></div>
@@ -142,7 +163,7 @@ export function ActivationWizard({ locale, view, onAction, onSubmitDevice, onTog
                 <h2>{view.syncReady ? copy.completionTitle : copy.cloudValidationPendingTitle}</h2>
                 <p className="gd-t-body-2">
                   {view.syncReady
-                    ? fill(copy.completionDetail, { device: view.deviceName, count: formatNumber(locale, view.importedDomains), revision: formatNumber(locale, view.baselineServerRevision) })
+                    ? fill(view.deviceName === null ? copy.completionDetailNoDevice : copy.completionDetail, { device: view.deviceName ?? "", count: formatNumber(locale, view.importedDomains), revision: formatNumber(locale, view.baselineServerRevision) })
                     : copy.cloudValidationPendingDescription}
                 </p>
               </div>
@@ -165,7 +186,7 @@ function DeviceStep({ locale, view, onSubmitDevice, footer }: {
   readonly footer: ReactNode;
 }) {
   const copy = getPresentationCopy(locale, "activation");
-  const [name, setName] = useState(view.deviceName);
+  const [name, setName] = useState(view.deviceName ?? "");
   const canSubmit = view.availableActions.includes("submit_device") && onSubmitDevice !== undefined;
   const busy = view.activationState === "activating" || view.activationState === "awaiting_cloud";
   return (
@@ -177,7 +198,9 @@ function DeviceStep({ locale, view, onSubmitDevice, footer }: {
       <div className="activation-card activation-device">
         <img src={keyholeUrl} width="40" height="40" alt="" className={view.activationState === "active" ? undefined : "activation-dim"} />
         <div className="activation-device-body">
-          <Input label={copy.deviceName} value={name} disabled={!canSubmit} onChange={(event) => setName(event.currentTarget.value)} />
+          {view.deviceName === null && !canSubmit ? null : (
+            <Input label={copy.deviceName} value={name} disabled={!canSubmit} onChange={(event) => setName(event.currentTarget.value)} />
+          )}
           {view.activationState === "active" && view.activeLease.status === "issued" ? (
             <div className="activation-row">
               <StatusDot kind="active" />
@@ -212,7 +235,8 @@ function ProviderCard({ locale, provider, onToggle, canConnect, canDisconnect }:
 }) {
   const copy = getPresentationCopy(locale, "activation");
   const connected = provider.connectionState === "connected";
-  const enabled = onToggle !== undefined && provider.connectionState !== "connecting" && (connected ? canDisconnect : canConnect);
+  const unavailable = provider.connectionState === "unavailable";
+  const enabled = onToggle !== undefined && !unavailable && provider.connectionState !== "connecting" && (connected ? canDisconnect : canConnect);
   return (
     <button type="button" className={`activation-provider activation-provider--${provider.connectionState}`} disabled={!enabled} onClick={() => onToggle?.(provider.providerId, !connected)}>
       <StatusDot kind={connected ? "success" : provider.connectionState === "failed" ? "danger" : provider.connectionState === "connecting" ? "sync" : "neutral"} pulse={provider.connectionState === "connecting"} />
@@ -220,7 +244,8 @@ function ProviderCard({ locale, provider, onToggle, canConnect, canDisconnect }:
       {connected ? <Badge tone="success" mono={false}>{copy.connected}</Badge>
         : provider.connectionState === "connecting" ? <span className="activation-link">{copy.connecting}</span>
           : provider.connectionState === "failed" ? <span className="activation-danger">{copy.connectionFailed}</span>
-            : <span className="activation-link">{copy.connect}</span>}
+            : unavailable ? <span className="activation-faint">{copy.providerUnavailable}</span>
+              : <span className="activation-link">{copy.connect}</span>}
     </button>
   );
 }

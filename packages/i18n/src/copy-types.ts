@@ -24,7 +24,6 @@ export const capabilityNamespaces = [
   "runtimeMode",
   "recovery",
   "browserAutomation",
-  "portfolio",
   "operations",
 ] as const;
 

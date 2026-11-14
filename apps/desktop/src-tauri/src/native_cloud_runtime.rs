@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use gooddealer_local_storage::{
-    DesktopCloudflareProjectionWork, DesktopLocalHost, DesktopSyncCheckpointDisposition,
-    DesktopSyncPullDisposition, DesktopSyncPushClaim, DesktopSyncPushDisposition,
-    DesktopSyncPushWork, DesktopSyncTransportState,
+    DesktopAuthorityIdentity, DesktopCloudflareProjectionWork, DesktopLocalHost,
+    DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition, DesktopSyncPushClaim,
+    DesktopSyncPushDisposition, DesktopSyncPushWork, DesktopSyncTransportState,
 };
 use tauri::async_runtime::JoinHandle;
 
@@ -53,7 +53,73 @@ pub(crate) struct NativeCloudCoordinator {
     session: Arc<NativeCloudSession>,
     tasks: Mutex<Option<[JoinHandle<()>; 3]>>,
     transport: Arc<Mutex<TransportObservation>>,
+    provider_operations: Arc<ProviderOperationLog>,
 }
+
+/// The kind and closed outcome of the latest Provider operation, for the connection status. It
+/// carries no identifier, token, digest or error text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderOperationRecord {
+    pub(crate) kind: &'static str,
+    pub(crate) outcome: &'static str,
+}
+
+impl ProviderOperationRecord {
+    fn of(
+        kind: &'static str,
+        result: Result<
+            &'static str,
+            &crate::provider_credential_orchestrator::ProviderCredentialError,
+        >,
+    ) -> Self {
+        use crate::provider_credential_orchestrator::ProviderCredentialError;
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            // The refusals a person can act on stay apart; every other failure is one closed
+            // outcome. None of them carries Provider or Host text.
+            Err(ProviderCredentialError::Unqualified) => "unqualified",
+            Err(ProviderCredentialError::ZoneUnimportable) => "zone_unimportable",
+            Err(ProviderCredentialError::ProviderUnreachable) => "unreachable",
+            Err(ProviderCredentialError::ProviderRetryLater) => "retry_later",
+            Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
+            Err(_) => "failed",
+        };
+        Self { kind, outcome }
+    }
+}
+
+/// A recorded outcome with the authority and connection generation it was produced under. It is
+/// reported only while both still match:
+/// - the authority identity (account, workspace, device, lease epoch, security epoch) is not the
+///   applied authority epoch, which also advances on every access-token refresh; a refresh or a
+///   read-only round trip under the same identity keeps the outcome, any other authority hides it;
+/// - the Host's connection generation advances on both sides of every connection create and
+///   backup restore, so an outcome about a replaced connection is never shown beside the new one,
+///   while a revoke or a failed activation that moved its own connection out of the active state
+///   stays visible.
+///
+/// Both are captured before the operation starts, so a change during it also hides the outcome,
+/// and an unknown authority never matches: it fails closed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StampedProviderOperation<A> {
+    record: ProviderOperationRecord,
+    authority: Option<A>,
+    connection_generation: u64,
+}
+
+impl<A: PartialEq> StampedProviderOperation<A> {
+    fn current_for(
+        &self,
+        authority: Option<&A>,
+        connection_generation: u64,
+    ) -> Option<ProviderOperationRecord> {
+        let same_authority = matches!((self.authority.as_ref(), authority), (Some(stamped), Some(current)) if stamped == current);
+        (same_authority && self.connection_generation == connection_generation)
+            .then_some(self.record)
+    }
+}
+
+type ProviderOperationLog = Mutex<Option<StampedProviderOperation<DesktopAuthorityIdentity>>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TransportObservation {
@@ -142,13 +208,17 @@ impl NativeCloudCoordinator {
         let provider_host = Arc::clone(host);
         let provider_recovery_host = Arc::clone(host);
         let provider_cancel_fence = Arc::clone(&cancel_fence);
+        let provider_recovery_cancel_fence = Arc::clone(&cancel_fence);
+        let provider_operations: Arc<ProviderOperationLog> = Arc::new(Mutex::new(None));
+        let provider_record = Arc::clone(&provider_operations);
         let provider_task = tauri::async_runtime::spawn(async move {
             provider_lane
                 .run(
                     move || {
                         let host = Arc::clone(&provider_recovery_host);
+                        let cancel_fence = Arc::clone(&provider_recovery_cancel_fence);
                         async move {
-                            crate::provider_credential_orchestrator::recover(host)
+                            crate::provider_credential_orchestrator::recover(host, cancel_fence)
                                 .await
                                 .is_ok()
                         }
@@ -158,6 +228,7 @@ impl NativeCloudCoordinator {
                             Arc::clone(&provider_host),
                             Arc::clone(&provider_cancel_fence),
                             provider_projection.clone(),
+                            Arc::clone(&provider_record),
                             operation,
                         )
                     },
@@ -172,6 +243,7 @@ impl NativeCloudCoordinator {
             session: Arc::clone(session),
             tasks: Mutex::new(Some([sync_task, projection_task, provider_task])),
             transport,
+            provider_operations,
         });
         coordinator.wake();
         coordinator
@@ -204,6 +276,26 @@ impl NativeCloudCoordinator {
 
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
+    }
+
+    /// The latest Provider operation's closed outcome; none after the session is cancelled.
+    ///
+    /// It is read apart from `provider_status`, so while an operation runs it still names the
+    /// previous one: a `busy` status takes precedence over it, and readers must not present it
+    /// as the in-flight operation's result.
+    pub(crate) fn last_provider_operation(
+        &self,
+        authority: Option<&DesktopAuthorityIdentity>,
+        connection_generation: u64,
+    ) -> Option<ProviderOperationRecord> {
+        if self.cancel_fence.is_cancelled() {
+            return None;
+        }
+        self.provider_operations.lock().ok().and_then(|stamped| {
+            stamped
+                .as_ref()
+                .and_then(|stamped| stamped.current_for(authority, connection_generation))
+        })
     }
 
     pub(crate) fn transport_observation(&self) -> Option<TransportObservation> {
@@ -272,29 +364,85 @@ async fn run_provider_operation(
     host: Arc<DesktopLocalHost>,
     cancel_fence: Arc<NativeCloudCancelFence>,
     projection: ProjectionLaneHandle,
+    record: Arc<ProviderOperationLog>,
     operation: ProviderOperation,
 ) {
-    let result = match operation {
+    use crate::provider_credential_orchestrator::RevocationOutcome;
+    // The outcome is recorded for the connection status as a closed value only. Every operation
+    // may have committed before it ended, whatever it returned: activation imports the Zone and
+    // records its prewrite state, revocation commits the denial when it is prepared, and a
+    // non-confirmed resolution still changes the connection. So projections are always re-read;
+    // a re-read is idempotent and cheap next to a rate-limited Provider call.
+    let confirmed = |confirmed: bool| {
+        if confirmed {
+            "confirmed"
+        } else {
+            "unconfirmed"
+        }
+    };
+    let authority = host.authority_identity();
+    let connection_generation = host.provider_connection_generation();
+    let outcome = match operation {
         ProviderOperation::Activate { connection_id } => {
-            crate::provider_credential_orchestrator::activate(host, connection_id, cancel_fence)
-                .await
+            let result = crate::provider_credential_orchestrator::activate(
+                host,
+                connection_id,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("activate", result.as_ref().map(|done| confirmed(*done)))
+        }
+        ProviderOperation::Revoke { connection_id } => {
+            let result =
+                crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
+                    .await;
+            ProviderOperationRecord::of(
+                "revoke",
+                result.as_ref().map(|outcome| match outcome {
+                    RevocationOutcome::Revoked => "confirmed",
+                    RevocationOutcome::NothingToRevoke => "nothing_to_revoke",
+                    RevocationOutcome::PrewriteRemediated
+                    | RevocationOutcome::NotObservedBurned
+                    | RevocationOutcome::AuthorityStaleBurned
+                    | RevocationOutcome::RecoveryRequired => "unconfirmed",
+                }),
+            )
+        }
+        ProviderOperation::Purge {
+            connection_id,
+            action,
+        } => {
+            let result = crate::provider_credential_orchestrator::purge(
+                host,
+                connection_id,
+                action,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("purge", result.as_ref().map(|done| confirmed(*done)))
         }
         ProviderOperation::Observe {
             connection_id,
             entity_id,
         } => {
-            crate::provider_credential_orchestrator::observe(
+            let result = crate::provider_credential_orchestrator::observe(
                 host,
                 connection_id,
                 entity_id,
                 cancel_fence,
             )
-            .await
+            .await;
+            ProviderOperationRecord::of("observe", result.as_ref().map(|done| confirmed(*done)))
         }
     };
-    if matches!(result, Ok(true)) {
-        projection.wake();
+    if let Ok(mut current) = record.lock() {
+        *current = Some(StampedProviderOperation {
+            record: outcome,
+            authority,
+            connection_generation,
+        });
     }
+    projection.wake();
 }
 
 async fn run_sync_cycle(
@@ -812,12 +960,18 @@ const fn stage_from_host_error(
         gooddealer_local_storage::DesktopLocalHostError::AuthorityRejected => {
             SyncStageOutcome::NotAttempted
         }
+        // Sync never consults the qualification register, so an unqualified refusal here is a
+        // contract breach and blocks like a protocol violation.
         gooddealer_local_storage::DesktopLocalHostError::CloudProtocolRejected
-        | gooddealer_local_storage::DesktopLocalHostError::ApplicationRootRejected => {
+        | gooddealer_local_storage::DesktopLocalHostError::ApplicationRootRejected
+        | gooddealer_local_storage::DesktopLocalHostError::CapabilityUnqualified
+        | gooddealer_local_storage::DesktopLocalHostError::ZoneUnimportable => {
             SyncStageOutcome::SecurityBlocked
         }
         gooddealer_local_storage::DesktopLocalHostError::StorageRejected
-        | gooddealer_local_storage::DesktopLocalHostError::Unavailable => {
+        | gooddealer_local_storage::DesktopLocalHostError::Unavailable
+        | gooddealer_local_storage::DesktopLocalHostError::AssetExists
+        | gooddealer_local_storage::DesktopLocalHostError::AssetDeleted => {
             SyncStageOutcome::Retryable
         }
     }
@@ -825,6 +979,77 @@ const fn stage_from_host_error(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_operation_record_is_reported_only_under_its_authority_and_connection() {
+        use super::{ProviderOperationRecord, StampedProviderOperation};
+        let stamped = StampedProviderOperation {
+            record: ProviderOperationRecord::of("revoke", Ok("confirmed")),
+            authority: Some("device-a/lease-7"),
+            connection_generation: 2,
+        };
+        assert_eq!(
+            stamped.current_for(Some(&"device-a/lease-7"), 2),
+            Some(stamped.record)
+        );
+        // Another authority, a later connection generation, or an unknown authority hides it.
+        assert_eq!(stamped.current_for(Some(&"device-a/lease-8"), 2), None);
+        assert_eq!(stamped.current_for(Some(&"device-a/lease-7"), 3), None);
+        assert_eq!(stamped.current_for(None, 2), None);
+        let unstamped = StampedProviderOperation {
+            authority: None,
+            ..stamped
+        };
+        assert_eq!(unstamped.current_for(None, 2), None);
+    }
+
+    #[test]
+    fn provider_operation_record_keeps_only_closed_outcomes() {
+        use super::ProviderOperationRecord;
+        use crate::provider_credential_orchestrator::ProviderCredentialError;
+        assert_eq!(
+            ProviderOperationRecord::of("activate", Ok("confirmed")),
+            ProviderOperationRecord {
+                kind: "activate",
+                outcome: "confirmed"
+            }
+        );
+        // The unqualified refusal stays distinct; every other failure is one closed outcome.
+        assert_eq!(
+            ProviderOperationRecord::of("observe", Err(&ProviderCredentialError::Unqualified))
+                .outcome,
+            "unqualified"
+        );
+        for (error, outcome) in [
+            (ProviderCredentialError::ProviderUnreachable, "unreachable"),
+            (ProviderCredentialError::ProviderRetryLater, "retry_later"),
+            (
+                ProviderCredentialError::CredentialRejected,
+                "credential_rejected",
+            ),
+            (
+                ProviderCredentialError::ZoneUnimportable,
+                "zone_unimportable",
+            ),
+        ] {
+            assert_eq!(
+                ProviderOperationRecord::of("observe", Err(&error)).outcome,
+                outcome
+            );
+        }
+        for error in [
+            ProviderCredentialError::Host,
+            ProviderCredentialError::Capture,
+            ProviderCredentialError::Provider,
+            ProviderCredentialError::Keychain,
+            ProviderCredentialError::Unavailable,
+        ] {
+            assert_eq!(
+                ProviderOperationRecord::of("revoke", Err(&error)).outcome,
+                "failed"
+            );
+        }
+    }
+
     use std::{
         sync::{
             Arc, Mutex,

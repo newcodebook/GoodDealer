@@ -14,6 +14,7 @@ import {
   type DnsTxtAppendPlanPreview,
   type DnsTxtAppendPlanRequest,
 } from "../src/dns/index";
+import { launchPlatformKindSchema } from "../src/connections/launch-platforms";
 import {
   ValidatingVerificationPlanClient,
   ValidatingVerificationQueryClient,
@@ -130,13 +131,24 @@ describe("DNS query boundary", () => {
   it("fails closed for unknown provider, status, record type, and extra fields", async () => {
     const base = dnsResult("active_local") as any;
     const corruptions = [
-      { ...base, domains: [{ ...base.domains[0], provider: { kind: "connected", providerKind: "mystery", connectionId: "x", displayName: "Mystery" } }] },
+      // Only the ADR-0027 launch platforms host a Zone; retired free-form kinds fail closed.
+      ...["mystery", "registrar_dns", "custom"].map((providerKind) =>
+        ({ ...base, domains: [{ ...base.domains[0], provider: { kind: "connected", providerKind, connectionId: "x", displayName: "Mystery" } }] })),
       { ...base, domains: [{ ...base.domains[0], propagationStatus: "unknown" }] },
       { ...base, domains: [{ ...base.domains[0], records: [{ ...base.domains[0].records[0], type: "CAA" }] }] },
       { ...base, connectorSecret: "must-not-pass" },
     ];
     for (const corruption of corruptions) {
       await expect(new ValidatingDnsQueryClient(dnsBoundary(corruption), "active_local").getDnsHealth()).rejects.toThrow();
+    }
+  });
+
+  it("accepts a Zone connected on every launch platform", () => {
+    const base = dnsResult("active_local");
+    for (const providerKind of launchPlatformKindSchema.options) {
+      const provider = { kind: "connected", providerKind, connectionId: "x", displayName: "Zone host" } as const;
+      expect(dnsQueryResultSchema.parse({ ...base, domains: [{ ...base.domains[0]!, provider }] }).domains[0]!.provider)
+        .toEqual(provider);
     }
   });
 

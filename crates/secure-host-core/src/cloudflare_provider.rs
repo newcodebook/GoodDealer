@@ -404,6 +404,12 @@ impl CloudflareProviderClient {
                 Ok(response.body)
             }
             Ok(StatusCode::OK) => Err(CloudflareProviderError::Deterministic),
+            // RFC 9110 defines these two as authentication and authorization refusals. Cloudflare's
+            // documentation does not say which one an invalid token and which a missing
+            // permission produces (ADR-0027 fact snapshot), so they stay one credential refusal.
+            Ok(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+                Err(CloudflareProviderError::CredentialRefused)
+            }
             Ok(
                 StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY | StatusCode::TOO_MANY_REQUESTS,
             ) => Err(CloudflareProviderError::Retryable),
@@ -498,6 +504,8 @@ pub enum CloudflareProviderError {
     InvalidResponse,
     ResponseLimit,
     Retryable,
+    /// 401 or 403: the credential was refused.
+    CredentialRefused,
     Deterministic,
     Transport,
 }
@@ -510,6 +518,7 @@ impl fmt::Debug for CloudflareProviderError {
             Self::InvalidResponse => "InvalidResponse",
             Self::ResponseLimit => "ResponseLimit",
             Self::Retryable => "Retryable",
+            Self::CredentialRefused => "CredentialRefused",
             Self::Deterministic => "Deterministic",
             Self::Transport => "Transport",
         })
@@ -1120,6 +1129,31 @@ mod tests {
                 .block_on(client.observe("0123456789abcdef0123456789abcdef", "token", &mut guard))
                 .expect_err("status should fail");
             assert_eq!(error, CloudflareProviderError::Retryable);
+        }
+        // Only 401 and 403 are credential refusals; every other non-retryable status, including
+        // a redirect or a missing zone, stays a generic deterministic failure.
+        for (status, expected) in [
+            (401, CloudflareProviderError::CredentialRefused),
+            (403, CloudflareProviderError::CredentialRefused),
+            (301, CloudflareProviderError::Deterministic),
+            (400, CloudflareProviderError::Deterministic),
+            (404, CloudflareProviderError::Deterministic),
+            (409, CloudflareProviderError::Deterministic),
+        ] {
+            let transport = ScriptTransport {
+                responses: vec![CloudflareProviderResponse {
+                    status,
+                    content_type: Some("application/json".to_owned()),
+                    body: Vec::new(),
+                }],
+                requests: Arc::new(Mutex::new(Vec::new())),
+            };
+            let mut client = CloudflareProviderClient::with_transport(transport);
+            let mut guard = || Ok(());
+            let error = runtime()
+                .block_on(client.observe("0123456789abcdef0123456789abcdef", "token", &mut guard))
+                .expect_err("status should fail");
+            assert_eq!(error, expected);
         }
         let transport = ScriptTransport {
             responses: vec![CloudflareProviderResponse {

@@ -10,8 +10,54 @@ Customer Desktop application that composes the Renderer and native Host around t
   renders every Desktop screen from typed mock data, including capabilities without a Host port. It
   is a separate Vite root outside the production graph and grants no authority.
 - Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
-  layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
-  startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
+  layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
+  sign-in, and locked pages; first-run onboarding (`src/app/onboarding.tsx`, the kit wizard), shown
+  once per session to an Active workspace with no domain, where the device step shows only the lease
+  `local_device_lease_read` verified (device id and epoch, no envelope or key; the Host has no device
+  name), the Cloudflare card admits connecting (`cloudflare_connection_create`, then
+  `cloudflare_connection_activate`, where the Host opens the native token capture and imports the
+  zone's domain) or disconnecting (`cloudflare_connection_revoke`) only while the workspace is
+  writable, the Host reports the capability qualified, and its build can capture a token
+  (`capturable`, macOS only; elsewhere the card says why it is unavailable), and nothing while an operation runs (so it
+  is unavailable until qualified); the import step says a connected zone was imported when it
+  connected, and domains are added by hand through `local_domain_asset_create`. Settings offers
+  "Run setup again" only while writable, which is how connecting and revoking are reached there; plus a workspace with the asset library (manual add through
+  `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
+  domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
+  cannot duplicate an asset, and a deleted one, which keeps its tombstone, with
+  `DESKTOP_LOCAL_ASSET_DELETED`, shown as "deleted and cannot be added again yet"; no path purges a
+  tombstone yet), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
+  history, and settings. Manual tasks reads `local_manual_tasks_read` (plan items waiting on the
+  person in a platform's own console, grouped per operation, platform connection and capability);
+  opening the platform, marking done, re-checking and accepting risk are unavailable until their
+  capabilities are qualified, and there is no browser session or authorized-execution control. Operation history reads the newest 500 local revisions from `local_history_read`,
+  with today's changes counted by the Host over the whole ledger within the person's local day
+  (one day for every window of a read, read again when that day ends or the window returns on a new day)
+  (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
+  revision when no remote change or conflict can lie in between; otherwise previous values show as
+  unknown); every Revision is read-only, with no
+  rollback or export until a reversal capability is qualified. Batch
+  operations lists Host operation plans from `local_batch_operations_read` (title, phase, targets,
+  platforms, planned counts and latest attempt outcomes, never plan or operation identifiers); rows
+  do not open, and creating, approving or running a batch is unavailable until an operation
+  capability is qualified. Renewals opens from the asset
+  library's expiring-within-60-days metric and lists those assets from `local_renewals_read` with
+  recorded expiry, auto-renew and the last observed registrar; renewal prices, budgets and plans have
+  no qualified registrar capability and render as unavailable, with no selection, term or renew
+  action. Sales shows one Host page of listed
+  domains from `local_sales_read`, each merging its markets' latest confirmed listings on the Host,
+  with workspace-wide active count and listed value; offers, deals, view counts and listing dates
+  have no qualified capability and render as unavailable, with no listing or offer action. DNS health shows only Host-observed Zone facts
+  from `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render
+  as not connected or not observed. Settings reads redacted Provider connections and their declared
+  roles from `local_settings_read`; every role stays unavailable until its capabilities are
+  qualified, and no connect/reauthorize/manage action is offered. Its About section reports the same
+  read's counts of stored rows the other reads reject (rows written before the integrity triggers)
+  and which read each one makes unavailable; repair is not offered yet. Devices, license, pull cadence and
+  build facts have no Host source yet and render as unavailable. The other designed screens
+  (onboarding and the batch diff preview) exist only in `visual-fixtures/` until their Host
+  projections land; `src/app/production-build-graph.test.ts` builds the production entry in memory
+  and proves every composed page ships while no fixture or brand-kit module does.
 - Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
 
 ## Touchpoints
@@ -67,17 +113,45 @@ Secure Host envelope under exact-base Keychain CAS, and commits observations loc
 projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
 observation enqueue, and committed local observation reads; it is not composed into the production
 root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
-composition is not a customer-availability claim. Revoke/deactivate remains intentionally unavailable until
-a Host-owned atomic custody and fencing capability is delivered.
+composition is not a customer-availability claim. `cloudflare_connection_revoke` queues a Host-owned
+revocation on the same serial lane, never rate limited: the commit that prepares it also denies credential
+use, so the connection is deactivated before custody changes; Secure Host then replaces the exact Active
+envelope with a tokenless tombstone at the next generation under the same prewrite, marker and read-back
+fences as activation, and contradicting custody remediates while the credential stays denied. Use is
+denied at once; the token leaves custody only once the tombstone is confirmed. Revocation withdraws
+GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. Onboarding's
+Cloudflare card offers revocation only once the capability is qualified (ADR-0024), and the
+status then keeps asking the person to delete or roll the token at Cloudflare.
+The Host's qualification register (`crates/local-storage/src/active_workspace/capability_qualification.rs`)
+is empty, so activation, credential preparation and observation are refused in the Host with
+`DESKTOP_CAPABILITY_UNQUALIFIED` even when a valid credential exists; revocation and recovery are not gated.
+`cloudflare_connection_create` creates the credential-less connection activation provisions into (a fresh
+install has none). It takes only a display label, is refused the same way while unqualified, returns a
+never-activated connection instead of adding another, and answers with only the opaque `connectionRef`.
+Activation imports the observed Zone as a domain asset when the workspace does not hold it yet, under the
+activation's own admission and through the same Host create path as `local_domain_asset_create`
+(`DesktopBusinessRuntime::create_domain_asset_guarded`); an authority change during the Provider call
+writes nothing, and a domain already held is left as it is.
 
 - `cloudflare_connection_activate`
+- `cloudflare_connection_create`
+- `cloudflare_connection_revoke`
 - `cloudflare_connection_status`
 - `cloudflare_observation_read`
 - `cloudflare_zone_observe`
 - `local_business_status`
+- `local_device_lease_read`
 - `local_asset_library_read`
 - `local_domain_detail_read`
+- `local_dns_health_read`
+- `local_settings_read`
+- `local_sales_read`
+- `local_renewals_read`
+- `local_batch_operations_read`
+- `local_history_read`
+- `local_manual_tasks_read`
 - `local_domain_asset_edit`
+- `local_domain_asset_create`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`
 - `local_sync_status`
@@ -160,8 +234,17 @@ The traffic-light position and undecorated resizing still need checking on each 
 committed Host-verified Cloudflare Zone evidence. It performs no Provider API write and exposes no
 credential or resource selector. The concrete adapter implements the required narrow
 `PortfolioProviderBindingPort` through its validating wrapper. The broad injected
-`LocalBusinessPort` retains an optional binding method until the asset-detail UI exposes a bind
-action; read-only adapters need not supply write capabilities. No bind action is currently exposed.
+`LocalBusinessPort` keeps the binding method optional, so read-only adapters need not supply write
+capabilities. The DNS page offers "Bind Zone" on a row only when the Host's DNS health read reports
+the row `bindable`, and only on a writable surface. The Host computes it with the bind's own
+evidence query (`latest_bindable_zone`: a live asset, a committed available Zone of its own name,
+seen through the connection's current active credential for that Zone) and the bind's identity rule
+for an existing binding (none, or a detached one of the same connection, Zone and name), so a
+revoked or invalid credential, a changed credential generation, a paused Zone or an archived asset
+is never offered; the Renderer rejects a row that claims bindability over a live binding or without
+its own Zone observed; a committed bind republishes the workspace at the receipt generation. A Zone is
+observed only through a qualified Cloudflare connection, and connecting is unavailable until
+qualification, so the action does not appear yet.
 First commit advances Host generation once; replay may return the current generation after
 intervening commits.
 

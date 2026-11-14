@@ -18,18 +18,40 @@ pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER: &str =
     "active-workspace/domain-provider-binding";
 pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_SQL: &str =
     include_str!("domain_provider_binding.sql");
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_ID: i64 = 202_611_050_001;
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/storage-integrity";
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_SQL: &str = include_str!("storage_integrity.sql");
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_ID: i64 = 202_611_060_001;
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/outbox-integrity";
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_SQL: &str = include_str!("outbox_integrity.sql");
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_ID: i64 = 202_611_060_002;
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-local-creations";
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL: &str =
+    include_str!("outbox_local_creations.sql");
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_ID: i64 = 202_611_080_001;
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-generation";
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_generation.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
-pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V2";
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V4";
 pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_FINGERPRINT: &str =
-    "0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec";
+    "933492cff345e017590e8f52fd421ecf27048fcf51561db65a061469ed0829ed";
 #[cfg(test)]
 pub(crate) const CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST: &[&str] = &[
     "cloudflare_credential_intent_immutable",
     "cloudflare_credential_intent_phase_edges",
     "cloudflare_credential_ledger_no_delete",
     "cloudflare_credential_ledger_no_update",
+    "cloudflare_credential_retirement_blocks_intent_insert",
+    "cloudflare_credential_retirement_blocks_intent_update",
+    "cloudflare_credential_retirement_insert_shape",
+    "cloudflare_credential_retirement_monotonic",
+    "cloudflare_credential_retirement_no_delete",
+    "cloudflare_credential_retirement_no_live_intent",
 ];
 pub(crate) const CLOUDFLARE_V2_MIGRATION_ID: i64 = 202_609_150_005;
 pub(crate) const CLOUDFLARE_V2_MIGRATION_OWNER: &str = "active-workspace/cloudflare-observation";
@@ -164,6 +186,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
             "deleted_at",
             "local_commit_sequence",
+            "entity_generation",
         ],
     ),
     (
@@ -226,11 +249,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "revoked_at",
             "deleted_at",
             "connection_incarnation_id",
-            "credential_use_state",
             "active_credential_generation",
             "active_credential_scope_digest",
             "active_credential_zone_digest",
             "active_credential_public_proof",
+            "credential_use_state",
         ],
     ),
     (
@@ -252,6 +275,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "known_public_proof",
             "retired_at",
             "updated_at",
+            "retirement_requested_at",
         ],
     ),
     (
@@ -412,6 +436,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "provider_version_token",
             "observation_availability",
             "evidence_status",
+            "confirmed",
         ],
     ),
     (
@@ -654,7 +679,13 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "delivery_attempt_fence",
             "wire_schema_version",
             "wire_mutation_digest",
+            "entity_generation",
         ],
+    ),
+    ("sales_listing_generation", &["singleton", "generation"]),
+    (
+        "sync_outbox_local_creations",
+        &["workspace_id", "mutation_id"],
     ),
     (
         "sync_outbox_fields",
@@ -717,6 +748,8 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "order_server_revision",
             "order_source_device_id",
             "order_mutation_id",
+            "entity_generation",
+            "order_provenance",
         ],
     ),
     (
@@ -753,3 +786,35 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
 ];
+
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID: i64 = 202_611_130_001;
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-revoke-retry";
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL: &str =
+    include_str!("cloudflare_revoke_retry.sql");
+
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_ID: i64 = 202_611_130_002;
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-retirement";
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_SQL: &str =
+    include_str!("cloudflare_retirement.sql");
+
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_ID: i64 = 202_611_130_003;
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-confirmation";
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_confirmation.sql");
+
+pub(crate) const ENTITY_GENERATION_MIGRATION_ID: i64 = 202_611_140_001;
+pub(crate) const ENTITY_GENERATION_MIGRATION_OWNER: &str = "active-workspace/entity-generation";
+pub(crate) const ENTITY_GENERATION_MIGRATION_SQL: &str = include_str!("entity_generation.sql");
+
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID: i64 = 202_611_140_002;
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER: &str =
+    "active-workspace/checkpoint-tombstone-provenance";
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL: &str =
+    include_str!("checkpoint_tombstone_provenance.sql");
+
+pub(crate) const SYNC_WIRE_V3_MIGRATION_ID: i64 = 202_611_140_003;
+pub(crate) const SYNC_WIRE_V3_MIGRATION_OWNER: &str = "active-workspace/sync-wire-v3";
+pub(crate) const SYNC_WIRE_V3_MIGRATION_SQL: &str = include_str!("sync_wire_v3.sql");

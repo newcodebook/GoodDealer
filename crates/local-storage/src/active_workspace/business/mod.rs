@@ -15,6 +15,7 @@ use crate::portfolio_projection::{
 };
 
 mod cloudflare_credential;
+mod cloudflare_retirement;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
     CloudflareCredentialPreparation, CloudflareCredentialPreparationDisposition,
@@ -22,6 +23,7 @@ pub(crate) use cloudflare_credential::{
     CloudflareCredentialStagedObservation, CloudflareCredentialWitness,
     CloudflarePrewriteFailureReason, staged_observation_digest,
 };
+pub(crate) use cloudflare_retirement::CloudflareRetirementSeed;
 
 const FORBIDDEN_SYNC_KEYS: &[&str] = &[
     "accountId",
@@ -232,6 +234,18 @@ pub struct CloudflareDnsProjectionAcknowledgement {
     pub disposition: String,
 }
 
+/// How a claimed batch ends when Cloud rejects it deterministically. Each kind keeps the row,
+/// its frozen wire, and its fields as evidence; it differs only in the terminal state and code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncRejectionKind {
+    /// Cloud cannot interpret the mutation (input or schema).
+    Deterministic,
+    /// The mutation id or device sequence was already used with different content.
+    IdempotencyConflict,
+    /// Cloud state holds a newer write to a field or a tombstone for the entity.
+    MutationConflict,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaimedSyncMutation {
     pub mutation_id: String,
@@ -266,11 +280,21 @@ impl BusinessDatabase {
     pub(crate) fn read_cloudflare_connection(
         &self,
     ) -> Result<(Option<String>, Option<String>), BusinessDatabaseError> {
-        self.store.raw_connection().query_row(
+        let row: Option<(String, String)> = self.store.raw_connection().query_row(
             "SELECT connection_id, display_label FROM local_provider_connections WHERE workspace_id=?1 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' ORDER BY connection_id LIMIT 1",
             [&self.workspace_id],
-            |row| Ok((Some(row.get(0)?), Some(row.get(1)?))),
-        ).optional().map(|value| value.unwrap_or((None, None))).map_err(|_| BusinessDatabaseError::StorageRejected)
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        // Every other Host read applies the one connection-label rule; a row written outside the
+        // create path (a migration or a restore) that breaks it fails this read closed rather
+        // than reaching the Renderer.
+        match row {
+            None => Ok((None, None)),
+            Some((_, label)) if !crate::portfolio_projection::valid_connection_label(&label) => {
+                Err(BusinessDatabaseError::StorageRejected)
+            }
+            Some((connection_id, label)) => Ok((Some(connection_id), Some(label))),
+        }
     }
 
     pub(crate) fn read_cloudflare_observation(
@@ -371,6 +395,10 @@ impl BusinessDatabase {
 
 pub(crate) const MAX_SYNC_PUSH_REQUEST_BYTES: usize = 1024 * 1024;
 
+/// The mutation push/pull wire version (ADR-0029 C1a): each mutation carries `entityGeneration`.
+/// Checkpoint and rebootstrap messages stay on version 2.
+pub(crate) const SYNC_MUTATION_WIRE_SCHEMA_VERSION: u8 = 3;
+
 pub(crate) fn serialize_sync_push_request(
     wire_mutations: &[String],
 ) -> Result<Vec<u8>, BusinessDatabaseError> {
@@ -380,7 +408,7 @@ pub(crate) fn serialize_sync_push_request(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     let request = serde_json::to_vec(&serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": SYNC_MUTATION_WIRE_SCHEMA_VERSION,
         "mutations": mutations,
     }))
     .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -490,6 +518,17 @@ pub struct RebootstrapReplayPage {
     pub confirmation_token: String,
 }
 
+/// One tombstone a version-3 checkpoint carries (ADR-0029): the generation it deleted and the
+/// revision that deleted it.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebootstrapTombstone {
+    pub entity_id: String,
+    pub entity_generation: u64,
+    pub deleted_server_revision: u64,
+    pub deleted_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPullRequestV2 {
@@ -524,6 +563,10 @@ struct SyncMutationV2 {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
+    /// Always 1 until re-adding lands (ADR-0029 C2); a later generation or a
+    /// `reAddsDeletedRevision` (an unknown field here) is refused before materialization, and a
+    /// mutation whose generation differs from the local row is refused at materialization.
+    entity_generation: u64,
     operation_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     deleted_at: Option<String>,
@@ -590,6 +633,7 @@ pub enum BusinessDatabaseError {
     MutationConflict,
     MutationStale,
     AssetDeleted,
+    AssetExists,
     SequenceExhausted,
     ProviderBindingUnavailable,
 }
@@ -611,6 +655,7 @@ impl Display for BusinessDatabaseError {
             Self::MutationConflict => "LOCAL_MUTATION_IDEMPOTENCY_CONFLICT",
             Self::MutationStale => "LOCAL_MUTATION_STALE_AUTHORITY",
             Self::AssetDeleted => "LOCAL_ASSET_DELETED",
+            Self::AssetExists => "LOCAL_ASSET_EXISTS",
             Self::SequenceExhausted => "LOCAL_MUTATION_SEQUENCE_EXHAUSTED",
             Self::ProviderBindingUnavailable => "LOCAL_PROVIDER_BINDING_UNAVAILABLE",
         })
@@ -1060,6 +1105,132 @@ pub(crate) fn verify_rebootstrap_recovery_read_only(
     )
 }
 
+/// The latest committed Cloudflare Zone observation an asset may be bound from: a live asset, a
+/// confirmed-available Zone with the asset's own name, observed through the connection's current
+/// active credential for that Zone. The bind and the DNS health read both ask this one question, so
+/// the read never offers a bind the Host would refuse for its evidence.
+#[derive(Clone)]
+pub(crate) struct BindableZone {
+    pub(crate) connection_id: String,
+    pub(crate) resource_binding_digest: String,
+    pub(crate) observation_digest: String,
+    pub(crate) resource_label: String,
+    pub(crate) generation: u64,
+    pub(crate) observed_at: String,
+}
+
+impl BindableZone {
+    /// The bind's identity rule for an existing binding of this asset's Zone: the same connection,
+    /// platform, Zone and name, at a credential generation no newer than this evidence. A binding
+    /// identity is immutable, so anything else is a conflict, never a replacement.
+    pub(crate) fn admits_existing(
+        &self,
+        connection_id: &str,
+        provider_kind: &str,
+        resource_binding_digest: &str,
+        resource_label: &str,
+        binding_generation: u64,
+    ) -> bool {
+        connection_id == self.connection_id
+            && provider_kind == "cloudflare"
+            && resource_binding_digest == self.resource_binding_digest
+            && resource_label == self.resource_label
+            && binding_generation <= self.generation
+    }
+}
+
+/// # Errors
+///
+/// Returns `StorageRejected` when the query fails or a selected field is not in its stored form,
+/// so a malformed row is never offered or bound.
+pub(crate) fn latest_bindable_zone(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<Option<BindableZone>, BusinessDatabaseError> {
+    let selected: Option<(String, String, String, String, i64, String)> = connection
+        .prepare(
+            "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
+                        c.active_credential_generation,b.observed_at
+                   FROM cloudflare_dns_staged_batches b
+                   JOIN domain_assets a
+                     ON a.workspace_id=b.workspace_id
+                    AND a.entity_id=b.entity_id
+                   JOIN cloudflare_credential_roots r
+                     ON r.workspace_id=b.workspace_id
+                    AND r.connection_incarnation_id=b.connection_incarnation_id
+                   JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id
+                    AND c.connection_id=r.logical_connection_id
+                  WHERE b.workspace_id=?1
+                    AND b.entity_id=?2
+                    AND b.entity_id=b.zone_name_ascii
+                    AND a.deleted_at IS NULL
+                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
+                    AND b.visibility='committed'
+                    AND b.observation_availability='available'
+                    AND b.cloudflare_zone_status IN ('active','pending')
+                    AND r.retirement_requested_at IS NULL AND r.retired_at IS NULL
+                    AND r.known_envelope_kind='active'
+                    AND r.known_envelope_generation=c.active_credential_generation
+                    AND r.known_zone_digest=b.zone_digest
+                    AND c.provider_kind='cloudflare'
+                    AND c.lifecycle_status='active'
+                    AND c.validation_status='valid'
+                    AND c.credential_use_state='active'
+                    AND c.active_credential_generation IS NOT NULL
+                    AND c.active_credential_zone_digest=b.zone_digest
+                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
+                   LIMIT 1",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_row(params![workspace_id, entity_id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })
+                .optional()
+        })
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let Some((
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation,
+        observed_at,
+    )) = selected
+    else {
+        return Ok(None);
+    };
+    let stored = |valid: bool| {
+        if valid {
+            Ok(())
+        } else {
+            Err(BusinessDatabaseError::StorageRejected)
+        }
+    };
+    stored(validate_sha256_hex(&resource_binding_digest).is_ok())?;
+    stored(validate_sha256_hex(&observation_digest).is_ok())?;
+    stored(validate_local_text(&connection_id).is_ok())?;
+    stored(validate_domain_asset_id(&resource_label).is_ok())?;
+    Ok(Some(BindableZone {
+        connection_id,
+        resource_binding_digest,
+        observation_digest,
+        resource_label,
+        generation: u64::try_from(generation)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        observed_at,
+    }))
+}
+
 impl BusinessDatabase {
     #[cfg(test)]
     pub(crate) fn provider_binding_snapshot_for_test(&self) -> Vec<Vec<Vec<String>>> {
@@ -1120,72 +1291,17 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let latest: Option<(String, String, String, String, i64, String)> = transaction
-            .query_row(
-                "SELECT c.connection_id,b.zone_digest,b.observation_digest,b.zone_name_ascii,
-                        c.active_credential_generation,b.observed_at
-                   FROM cloudflare_dns_staged_batches b
-                   JOIN domain_assets a
-                     ON a.workspace_id=b.workspace_id
-                    AND a.entity_id=b.entity_id
-                   JOIN cloudflare_credential_roots r
-                     ON r.workspace_id=b.workspace_id
-                    AND r.connection_incarnation_id=b.connection_incarnation_id
-                   JOIN local_provider_connections c
-                     ON c.workspace_id=r.workspace_id
-                    AND c.connection_id=r.logical_connection_id
-                  WHERE b.workspace_id=?1
-                    AND b.entity_id=?2
-                    AND b.entity_id=b.zone_name_ascii
-                    AND a.deleted_at IS NULL
-                    AND a.lifecycle_status IN ('active','expired','sold','dropped')
-                    AND b.visibility='committed'
-                    AND b.observation_availability='available'
-                    AND b.cloudflare_zone_status IN ('active','pending')
-                    AND r.retired_at IS NULL
-                    AND r.known_envelope_kind='active'
-                    AND r.known_envelope_generation=c.active_credential_generation
-                    AND r.known_zone_digest=b.zone_digest
-                    AND c.provider_kind='cloudflare'
-                    AND c.lifecycle_status='active'
-                    AND c.validation_status='valid'
-                    AND c.credential_use_state='active'
-                    AND c.active_credential_generation IS NOT NULL
-                    AND c.active_credential_zone_digest=b.zone_digest
-                   ORDER BY b.observed_at DESC,b.updated_at DESC,b.staged_batch_id DESC
-                   LIMIT 1",
-                params![self.workspace_id, entity_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let Some((
+        let Some(zone) = latest_bindable_zone(&transaction, &self.workspace_id, entity_id)? else {
+            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
+        };
+        let BindableZone {
             connection_id,
             resource_binding_digest,
             observation_digest,
             resource_label,
-            generation,
+            generation: binding_generation,
             observed_at,
-        )) = latest
-        else {
-            return Err(BusinessDatabaseError::ProviderBindingUnavailable);
-        };
-        let binding_generation =
-            u64::try_from(generation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        validate_sha256_hex(&resource_binding_digest)?;
-        validate_sha256_hex(&observation_digest)?;
-        validate_local_text(&connection_id)?;
-        validate_domain_asset_id(&resource_label)
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        } = zone.clone();
         if resource_label != entity_id {
             return Err(BusinessDatabaseError::MutationConflict);
         }
@@ -1234,16 +1350,15 @@ impl BusinessDatabase {
             old_last_observed_at,
         )) = existing
         {
-            if old_connection != connection_id
-                || old_provider != "cloudflare"
-                || old_digest != resource_binding_digest
-                || old_label != resource_label
-            {
-                return Err(BusinessDatabaseError::MutationConflict);
-            }
             let old_generation = u64::try_from(old_generation)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if binding_generation < old_generation {
+            if !zone.admits_existing(
+                &old_connection,
+                &old_provider,
+                &old_digest,
+                &old_label,
+                old_generation,
+            ) {
                 return Err(BusinessDatabaseError::MutationConflict);
             }
             if old_observation == observation_digest
@@ -1323,7 +1438,8 @@ impl BusinessDatabase {
                     resource_binding_digest,
                     observation_digest,
                     resource_label,
-                    generation,
+                    i64::try_from(binding_generation)
+                        .map_err(|_| BusinessDatabaseError::StorageRejected)?,
                     local_commit_sequence,
                     committed_at,
                     observed_at,
@@ -1582,6 +1698,111 @@ impl BusinessDatabase {
             .map_err(map_portfolio_read_error)
     }
 
+    /// Reads one bounded window of manual tasks, oldest waiting first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_manual_tasks(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::ManualTasksReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_manual_tasks(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of the local revision ledger, newest first, with field-level diffs,
+    /// and counts the revisions committed within `today` (the Renderer's local day as canonical
+    /// UTC instants, start inclusive and end exclusive).
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_history(
+        &self,
+        start_index: u32,
+        size: u16,
+        today: (&str, &str),
+    ) -> Result<crate::HistoryReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_history(&self.workspace_id, start_index, size, today)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of operation plans, newest first, with planned and attempted counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_batch_operations(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::BatchOperationsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_batch_operations(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of assets expiring within the next 60 days, soonest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_renewals(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::RenewalsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_renewals(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded window of the latest marketplace listing observations.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_sales(
+        &self,
+        start_index: u32,
+        size: u16,
+    ) -> Result<crate::SalesReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_sales(&self.workspace_id, start_index, size)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads this database's Provider connections and role availability for settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, or projection error.
+    pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_settings(&self.workspace_id)
+            .map_err(map_portfolio_read_error)
+    }
+
+    /// Reads one bounded DNS health window from this database's workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed storage, workspace, projection, or window error.
+    pub fn read_dns_health(
+        &self,
+        start_index: u32,
+        size: u16,
+        query: &str,
+    ) -> Result<crate::DnsHealthReadSnapshot, BusinessDatabaseError> {
+        self.store
+            .read_dns_health(&self.workspace_id, start_index, size, query)
+            .map_err(map_portfolio_read_error)
+    }
+
     /// Reads one canonical domain detail from this database's workspace.
     ///
     /// # Errors
@@ -1728,6 +1949,62 @@ impl BusinessDatabase {
         )
     }
 
+    /// Adds a domain the workspace does not hold yet, as one synced upsert mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AssetExists` when the workspace already holds the domain and `AssetDeleted` while a
+    /// deleted one keeps its tombstone; otherwise a closed validation, authorization, transaction, or
+    /// pre-COMMIT guard error.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the guarded port carries explicit authority and critical-section callbacks"
+    )]
+    pub fn create_domain_asset_guarded<G, F, A>(
+        &mut self,
+        mutation_id: &str,
+        device_id: &str,
+        active_lease_epoch: u64,
+        committed_at: &str,
+        asset: &DomainAssetWrite,
+        allow_new: bool,
+        guard: F,
+        after_commit: A,
+    ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError>
+    where
+        F: FnOnce(bool) -> Result<G, BusinessDatabaseError>,
+        A: FnOnce(&mut G, bool) -> Result<(), BusinessDatabaseError>,
+    {
+        validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_identifier(device_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_timestamp(Some(committed_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_domain_asset(asset)?;
+        // A new identity is also held to the Renderer's canonical form: an all-numeric last label
+        // would be an IP literal, not a registrable domain.
+        if !asset
+            .entity_id
+            .rsplit('.')
+            .next()
+            .is_some_and(|label| label.bytes().any(|byte| byte.is_ascii_lowercase()))
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        self.mutate_domain_asset(
+            "create",
+            mutation_id,
+            &asset.entity_id,
+            0,
+            device_id,
+            active_lease_epoch,
+            committed_at,
+            Some(asset),
+            allow_new,
+            guard,
+            after_commit,
+        )
+    }
+
     /// # Errors
     ///
     /// Returns a closed validation, authorization, CAS, transaction, or pre-COMMIT guard error.
@@ -1825,10 +2102,10 @@ impl BusinessDatabase {
             payload_schema,
         )) = existing
         {
-            let expected_op = if operation == "edit" {
-                "upsert"
-            } else {
+            let expected_op = if operation == "delete" {
                 "delete"
+            } else {
+                "upsert"
             };
             if stored_entity != entity_id
                 || kind != "domain_asset"
@@ -1870,15 +2147,50 @@ impl BusinessDatabase {
         if !allow_new {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let (current_version, deleted): (i64, Option<String>) = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?.ok_or(BusinessDatabaseError::AssetNotFound)?;
-        if deleted.is_some() {
-            return Err(BusinessDatabaseError::AssetDeleted);
-        }
-        if u64::try_from(current_version).ok() != Some(expected_asset_version) {
-            return Err(BusinessDatabaseError::MutationStale);
+        let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The entity ID is the canonical domain, so the domain is the deduplication key: adding
+            // a domain the workspace already holds, from an import or by hand, is refused rather
+            // than merged. A deleted domain keeps its tombstone until the delete has synced and
+            // been purged, so it cannot be recreated under the same identity before then.
+            if expected_asset_version != 0 {
+                return Err(BusinessDatabaseError::InvalidInput);
+            }
+            let tombstoned: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)", params![self.workspace_id, entity_id], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            match stored {
+                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+                Some((_, Some(_))) => return Err(BusinessDatabaseError::AssetDeleted),
+                None if tombstoned => return Err(BusinessDatabaseError::AssetDeleted),
+                None => {}
+            }
+        } else {
+            let (current_version, deleted) = stored.ok_or(BusinessDatabaseError::AssetNotFound)?;
+            if deleted.is_some() {
+                return Err(BusinessDatabaseError::AssetDeleted);
+            }
+            if u64::try_from(current_version).ok() != Some(expected_asset_version) {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
         }
         let (local_seq, base_rev, device_seq): (i64, i64, i64) = transaction.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1, next_device_mutation_sequence=next_device_mutation_sequence+1, updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence, applied_through_server_revision, next_device_mutation_sequence-1", [committed_at], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
-        if operation == "edit" {
+        if operation == "create" {
+            let asset = edit.expect("create operation carries asset");
+            let tags_json = serde_json::to_string(&asset.tags)
+                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+            let (currency, amount) = (
+                asset.target_price.as_ref().map(|money| &money.currency),
+                asset.target_price.as_ref().map(|money| &money.amount),
+            );
+            transaction.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES (?1,?2,'active',?3,?3,?4)", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            transaction.execute("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at) VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, currency, amount, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for tag in &asset.tags {
+                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![self.workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+            transaction.execute("INSERT INTO portfolio_domain_assets (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,target_price_amount,note_server_revision,portfolio_id_server_revision,tags_server_revision,target_price_server_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)", params![self.workspace_id, entity_id, asset.note, asset.portfolio_id, tags_json, currency, amount]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+                transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6)", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            }
+        } else if operation == "edit" {
             let asset = edit.expect("edit operation carries asset");
             transaction.execute("UPDATE domain_assets SET updated_at=?3, local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?3,note=?4,target_price_currency=?5,target_price_amount=?6,local_commit_sequence=?7,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount), local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -1902,12 +2214,21 @@ impl BusinessDatabase {
         }
         let lease_epoch =
             i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let operation_kind = if operation == "edit" {
-            "upsert"
-        } else {
+        let operation_kind = if operation == "delete" {
             "delete"
+        } else {
+            "upsert"
         };
         transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending')", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if operation == "create" {
+            // The wire keeps creation an upsert; the Host-only marker lets history name it.
+            transaction
+                .execute(
+                    "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
+                    params![self.workspace_id, mutation_id],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
         if let Some(asset) = edit {
             let values = [
                 ("note", serde_json::to_string(&asset.note)),
@@ -2203,6 +2524,11 @@ impl BusinessDatabase {
                    FROM local_provider_connections
                   WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare'
                     AND lifecycle_status='active' AND validation_status='valid'
+                    AND credential_use_state='active'
+                    AND NOT EXISTS (SELECT 1 FROM cloudflare_credential_roots r
+                      WHERE r.workspace_id=local_provider_connections.workspace_id
+                        AND r.logical_connection_id=local_provider_connections.connection_id
+                        AND (r.retirement_requested_at IS NOT NULL OR r.retired_at IS NOT NULL))
                     AND json_array_length(capabilities_json)=1
                     AND json_extract(capabilities_json,'$[0]')='dns'",
                 params![self.workspace_id, connection_id],
@@ -2339,7 +2665,7 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let connection_ready: i64 = transaction.query_row("SELECT count(*) FROM local_provider_connections WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' AND credential_use_state='active' AND active_credential_generation=?3 AND active_credential_scope_digest=?4 AND active_credential_zone_digest=?5 AND active_credential_public_proof=?6 AND json_array_length(capabilities_json)=1 AND json_extract(capabilities_json,'$[0]')='dns'", params![self.workspace_id,input.connection_id,i64::try_from(input.credential_generation).map_err(|_| BusinessDatabaseError::InvalidInput)?,input.credential_scope_digest,input.credential_zone_digest,input.credential_public_proof], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let connection_ready: i64 = transaction.query_row("SELECT count(*) FROM local_provider_connections WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' AND credential_use_state='active' AND NOT EXISTS (SELECT 1 FROM cloudflare_credential_roots r WHERE r.workspace_id=local_provider_connections.workspace_id AND r.logical_connection_id=local_provider_connections.connection_id AND (r.retirement_requested_at IS NOT NULL OR r.retired_at IS NOT NULL)) AND active_credential_generation=?3 AND active_credential_scope_digest=?4 AND active_credential_zone_digest=?5 AND active_credential_public_proof=?6 AND json_array_length(capabilities_json)=1 AND json_extract(capabilities_json,'$[0]')='dns'", params![self.workspace_id,input.connection_id,i64::try_from(input.credential_generation).map_err(|_| BusinessDatabaseError::InvalidInput)?,input.credential_scope_digest,input.credential_zone_digest,input.credential_public_proof], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         if connection_ready != 1 {
             return Err(BusinessDatabaseError::InvalidInput);
         }
@@ -2945,6 +3271,7 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let result = self.install_rebootstrap_checkpoint_savepoint(
             snapshot,
+            &[],
             checkpoint_revision,
             device_id,
             Some(make_journal),
@@ -2982,6 +3309,7 @@ impl BusinessDatabase {
     pub fn install_rebootstrap_plan_guarded(
         &mut self,
         snapshot: &[DomainAssetWrite],
+        tombstones: &[RebootstrapTombstone],
         checkpoint_revision: u64,
         device_id: &str,
         replay_pages: &[RebootstrapReplayPage],
@@ -3012,6 +3340,7 @@ impl BusinessDatabase {
         let result = (|| {
             let _ = self.install_rebootstrap_checkpoint_savepoint(
                 snapshot,
+                tombstones,
                 checkpoint_revision,
                 device_id,
                 None::<
@@ -3075,6 +3404,7 @@ impl BusinessDatabase {
     fn install_rebootstrap_checkpoint_savepoint<F, G>(
         &mut self,
         snapshot: &[DomainAssetWrite],
+        tombstones: &[RebootstrapTombstone],
         checkpoint_revision: u64,
         device_id: &str,
         make_journal: Option<F>,
@@ -3094,6 +3424,7 @@ impl BusinessDatabase {
                 return Err(BusinessDatabaseError::InvalidInput);
             }
         }
+        validate_checkpoint_tombstones(snapshot, tombstones, checkpoint_revision)?;
         let revision =
             i64::try_from(checkpoint_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let transaction = self
@@ -3228,6 +3559,20 @@ impl BusinessDatabase {
                  ON CONFLICT(workspace_id,entity_id) DO UPDATE SET root_provenance='replicated',replicated_server_revision=excluded.replicated_server_revision,freshness='confirmed',updated_at=excluded.updated_at",
                 params![self.workspace_id, asset.entity_id, revision],
             ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+        for tombstone in tombstones {
+            transaction
+                .execute(
+                    "INSERT INTO temp_checkpoint_entities(entity_id) VALUES (?1)",
+                    [&tombstone.entity_id],
+                )
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            install_checkpoint_tombstone(
+                &transaction,
+                &self.workspace_id,
+                tombstone,
+                local_commit_sequence,
+            )?;
         }
         transaction.execute(
             "UPDATE sync_asset_provenance SET freshness='stale', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
@@ -3394,7 +3739,7 @@ impl BusinessDatabase {
         }
         let page: SyncPageV2 =
             serde_json::from_str(page_json).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        if page.schema_version != 2
+        if page.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
             || page.workspace_id != self.workspace_id
             || page.mutations.len() > 256
             || page.from_server_revision_exclusive > page.through_server_revision_inclusive
@@ -3422,7 +3767,8 @@ impl BusinessDatabase {
         }
         let mut expected_revision = page.from_server_revision_exclusive.saturating_add(1);
         for mutation in &page.mutations {
-            if mutation.schema_version != 2
+            if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
+                || mutation.entity_generation != 1
                 || mutation.server_revision != expected_revision
                 || mutation.entity_type != "domain_asset"
                 || mutation.workspace_id != page.workspace_id
@@ -3514,11 +3860,11 @@ impl BusinessDatabase {
         for mutation in &page.mutations {
             let mutation_json = serde_json::to_string(mutation)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let wire_digest = canonical_mutation_digest(mutation)?;
+            let wire_digest = canonical_mutation_digest(mutation, LOCAL_WIRE_SCHEMA_VERSION)?;
             let payload_digest = hex_digest(mutation_json.as_bytes());
-            let existing: Option<(String, Option<String>, String)> = transaction
+            let existing: Option<(String, Option<String>, Option<i64>)> = transaction
                 .query_row(
-                    "SELECT mutation_id, wire_mutation_digest, state FROM sync_inbox
+                    "SELECT mutation_id, wire_mutation_digest, wire_schema_version FROM sync_inbox
                      WHERE workspace_id=?1 AND server_revision=?2",
                     params![
                         self.workspace_id,
@@ -3529,9 +3875,14 @@ impl BusinessDatabase {
                 )
                 .optional()
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if let Some((existing_id, existing_digest, _)) = existing {
+            if let Some((existing_id, existing_digest, existing_version)) = existing {
+                // A replay matches the digest under the version the row was recorded with.
+                let replay_digest = existing_version
+                    .map(|version| canonical_mutation_digest(mutation, version))
+                    .transpose()?;
                 if existing_id != mutation.mutation_id
-                    || existing_digest.as_deref() != Some(&wire_digest)
+                    || existing_digest.is_none()
+                    || existing_digest != replay_digest
                 {
                     return Err(BusinessDatabaseError::MutationConflict);
                 }
@@ -3550,7 +3901,7 @@ impl BusinessDatabase {
                      VALUES (?1,?2,?3,?4,'domain_asset',?5,?6,?7,?8,?9,?10,
                              ?11,strftime('%Y-%m-%dT%H:%M:%SZ','now'),
                              CASE WHEN ?11='applied' THEN strftime('%Y-%m-%dT%H:%M:%SZ','now') END,
-                             2,?12)",
+                             3,?12)",
                     params![
                         self.workspace_id,
                         i64::try_from(mutation.server_revision)
@@ -3678,7 +4029,7 @@ impl BusinessDatabase {
             )
         };
         Ok(SyncPullRequestV2 {
-            schema_version: 2,
+            schema_version: SYNC_MUTATION_WIRE_SCHEMA_VERSION,
             after_server_revision: u64::try_from(revision)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?,
             cursor,
@@ -3688,7 +4039,7 @@ impl BusinessDatabase {
     }
 
     /// Stops pull materialization after Cloud reports that this reader is behind compaction.
-    /// Existing local business data and pending outbox rows are retained for P0-04 recovery.
+    /// Existing local business data and pending outbox rows are retained for local recovery.
     ///
     /// # Errors
     ///
@@ -3792,7 +4143,8 @@ impl BusinessDatabase {
         validate_timestamp(Some(checked_at.to_owned()))
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         if let Some(descriptor) = descriptor {
-            if descriptor.schema_version != 2
+            // ADR-0029: only version 3 descriptors (checkpoints that carry tombstones) are stored.
+            if descriptor.schema_version != 3
                 || descriptor.workspace_id != self.workspace_id
                 || descriptor.workspace_schema_version == 0
                 || descriptor.workspace_schema_version > 9_007_199_254_740_991
@@ -4462,7 +4814,21 @@ impl BusinessDatabase {
             )?;
             let wire_json =
                 serde_json::to_string(&wire).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let wire_digest = canonical_sync_digest(&wire)?;
+            // A row claimed before the local wire moved to version 3 keeps its recorded version:
+            // its wire identity is immutable, and for generation 1 both encodings are equivalent.
+            let wire_version = if stored_wire_digest.is_some() {
+                transaction
+                    .query_row(
+                        "SELECT wire_schema_version FROM sync_outbox
+                         WHERE workspace_id=?1 AND mutation_id=?2",
+                        params![self.workspace_id, mutation_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            } else {
+                LOCAL_WIRE_SCHEMA_VERSION
+            };
+            let wire_digest = local_wire_digest(&wire, wire_version)?;
             if local_json_digest.as_deref() == Some(&wire_digest)
                 || stored_wire_digest
                     .as_ref()
@@ -4506,7 +4872,7 @@ impl BusinessDatabase {
                     "UPDATE sync_outbox
                      SET state = 'sending', attempt_count = ?1, delivery_owner = ?2,
                          delivery_lease_expires_at = ?3, delivery_attempt_fence = ?1,
-                         wire_schema_version = 2, wire_mutation_digest = ?4,
+                         wire_schema_version = ?8, wire_mutation_digest = ?4,
                          next_attempt_at = NULL, last_error_code = NULL
                      WHERE workspace_id = ?5 AND mutation_id = ?6
                        AND (state = 'pending'
@@ -4519,6 +4885,7 @@ impl BusinessDatabase {
                         self.workspace_id,
                         mutation_id,
                         now,
+                        wire_version,
                     ],
                 )
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -4628,7 +4995,7 @@ impl BusinessDatabase {
                  WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                    AND delivery_owner=?5 AND delivery_attempt_fence=?6
                    AND source_device_id=?7 AND active_lease_epoch=?8
-                   AND device_mutation_sequence=?9 AND wire_schema_version=2
+                   AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                    AND wire_mutation_digest=?10",
                     params![
                         acknowledged_at,
@@ -4807,7 +5174,7 @@ impl BusinessDatabase {
                      WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                        AND delivery_owner=?5 AND delivery_attempt_fence=?6
                        AND source_device_id=?7 AND active_lease_epoch=?8
-                       AND device_mutation_sequence=?9 AND wire_schema_version=2
+                       AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                        AND wire_mutation_digest=?10",
                     params![
                         now,
@@ -4867,9 +5234,9 @@ impl BusinessDatabase {
         &mut self,
         delivery_owner: &str,
         mutations: &[ClaimedSyncMutation],
-        conflicted: bool,
+        kind: SyncRejectionKind,
     ) -> Result<(), BusinessDatabaseError> {
-        self.reject_sync_batch_v2_guarded(delivery_owner, mutations, conflicted, |_| Ok(()))
+        self.reject_sync_batch_v2_guarded(delivery_owner, mutations, kind, |_| Ok(()))
             .map(|_| ())
     }
 
@@ -4882,7 +5249,7 @@ impl BusinessDatabase {
         &mut self,
         delivery_owner: &str,
         mutations: &[ClaimedSyncMutation],
-        conflicted: bool,
+        kind: SyncRejectionKind,
         pre_commit_guard: impl FnOnce(SyncProjectionEffect) -> Result<(), BusinessDatabaseError>,
     ) -> Result<SyncProjectionEffect, BusinessDatabaseError> {
         validate_identifier(delivery_owner).map_err(|_| BusinessDatabaseError::InvalidInput)?;
@@ -4894,11 +5261,10 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let terminal_state = if conflicted { "conflicted" } else { "rejected" };
-        let error_code = if conflicted {
-            "sync_idempotency_conflict"
-        } else {
-            "sync_deterministic_rejection"
+        let (terminal_state, error_code) = match kind {
+            SyncRejectionKind::Deterministic => ("rejected", "sync_deterministic_rejection"),
+            SyncRejectionKind::IdempotencyConflict => ("conflicted", "sync_idempotency_conflict"),
+            SyncRejectionKind::MutationConflict => ("conflicted", "sync_mutation_conflict"),
         };
         for mutation in mutations {
             validate_identifier(&mutation.mutation_id)
@@ -4911,7 +5277,7 @@ impl BusinessDatabase {
                      WHERE workspace_id=?3 AND mutation_id=?4 AND state='sending'
                        AND delivery_owner=?5 AND delivery_attempt_fence=?6
                        AND source_device_id=?7 AND active_lease_epoch=?8
-                       AND device_mutation_sequence=?9 AND wire_schema_version=2
+                       AND device_mutation_sequence=?9 AND wire_schema_version IN (2,3)
                        AND wire_mutation_digest=?10",
                     params![
                         terminal_state,
@@ -5229,6 +5595,15 @@ fn reconstruct_sync_mutation_v2(
     if operation_kind != "upsert" && operation_kind != "delete" {
         return Err(BusinessDatabaseError::StorageRejected);
     }
+    // ADR-0029 C1c1: the generation is frozen on the outbox row when the mutation is enqueued,
+    // so a retry re-derives the same envelope even after the asset moves to a later generation.
+    let entity_generation: i64 = transaction
+        .query_row(
+            "SELECT entity_generation FROM sync_outbox WHERE workspace_id=?1 AND mutation_id=?2",
+            params![workspace_id, mutation_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     let fields = {
         let mut statement = transaction
             .prepare(
@@ -5274,11 +5649,12 @@ fn reconstruct_sync_mutation_v2(
         changed_fields.push(serde_json::json!({ "fieldPath": field_path, "value": value }));
     }
     let mut mutation = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": SYNC_MUTATION_WIRE_SCHEMA_VERSION,
         "mutationId": mutation_id,
         "workspaceSchemaVersion": workspace_schema_version,
         "entityType": "domain_asset",
         "entityId": entity_id,
+        "entityGeneration": entity_generation,
         "operationKind": operation_kind,
         "baseServerRevision": base_server_revision,
         "changedFields": changed_fields,
@@ -5362,7 +5738,7 @@ pub fn verify_rebootstrap_plan_digest(
     append_frame(
         &mut encoded,
         b'd',
-        b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2",
+        b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3",
     );
     append_frame(
         &mut encoded,
@@ -5375,11 +5751,15 @@ pub fn verify_rebootstrap_plan_digest(
     Ok(())
 }
 
-/// Verifies that a complete checkpoint snapshot matches its advertised aggregate digest.
+/// Verifies that a complete version 3 checkpoint state matches its advertised aggregate digest.
 ///
-/// The computation mirrors the protocol's bounded 512-row domain-asset partitions and its
-/// domain-separated aggregate of entity digests. Callers must perform this check before creating
-/// a candidate key or touching staged storage.
+/// The computation mirrors the protocol (ADR-0029): live assets, each carrying its entity
+/// generation, in bounded 512-row partitions `p0000…` (or the single `empty` partition), then
+/// tombstones in partitions `t0000…`, each under its own domain, aggregated under the checkpoint
+/// entity-digest domain. `state` is the strictly deserialized wire object, so its canonical
+/// encoding is exactly what the Cloud digested; `rows` are its live assets, validated here with the
+/// local business rules. Callers must perform this check before creating a candidate key or
+/// touching staged storage.
 ///
 /// # Errors
 ///
@@ -5387,27 +5767,51 @@ pub fn verify_rebootstrap_plan_digest(
 #[cfg(test)]
 pub fn verify_rebootstrap_checkpoint_digest(
     rows: &[DomainAssetProjectionRow],
+    state: &serde_json::Value,
     advertised: &str,
 ) -> Result<(), BusinessDatabaseError> {
     validate_projection(rows).map_err(|_| BusinessDatabaseError::InvalidInput)?;
     validate_digest(advertised)?;
-    let partitions: Vec<(String, &[DomainAssetProjectionRow])> = if rows.is_empty() {
-        vec![("empty".to_owned(), rows)]
-    } else {
-        rows.chunks(512)
-            .enumerate()
-            .map(|(index, partition)| (format!("p{index:04}"), partition))
-            .collect()
+    let section = |key: &str| {
+        state
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .ok_or(BusinessDatabaseError::InvalidInput)
     };
+    let assets = section("assets")?;
+    let tombstones = section("tombstones")?;
+    if assets.len() != rows.len() {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    let mut partitions: Vec<(&str, String, &[serde_json::Value])> = Vec::new();
+    if assets.is_empty() {
+        partitions.push(("domain_asset", "empty".to_owned(), assets));
+    }
+    for (index, partition) in assets.chunks(512).enumerate() {
+        partitions.push(("domain_asset", format!("p{index:04}"), partition));
+    }
+    for (index, partition) in tombstones.chunks(512).enumerate() {
+        partitions.push(("domain_asset_tombstone", format!("t{index:04}"), partition));
+    }
+    if partitions.len() > 4_096 {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
     let mut entity_digests = Vec::with_capacity(partitions.len());
-    for (partition_id, partition) in partitions {
+    for (entity_type, partition_id, partition) in partitions {
+        let domain: &[u8] = if entity_type == "domain_asset" {
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-V3"
+        } else {
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-TOMBSTONE-V3"
+        };
         let mut encoded = Vec::new();
-        append_frame(&mut encoded, b'd', b"GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1");
-        let value =
-            serde_json::to_value(partition).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        append_frame(&mut encoded, b'v', &canonical_wire_value(&value)?);
+        append_frame(&mut encoded, b'd', domain);
+        append_frame(
+            &mut encoded,
+            b'v',
+            &canonical_wire_value(&serde_json::Value::Array(partition.to_vec()))?,
+        );
         entity_digests.push(serde_json::json!({
-            "entityType": "domain_asset",
+            "entityType": entity_type,
             "partitionId": partition_id,
             "digest": base64url(&Sha256::digest(encoded)),
         }));
@@ -5416,7 +5820,7 @@ pub fn verify_rebootstrap_checkpoint_digest(
     append_frame(
         &mut aggregate,
         b'd',
-        b"GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V2",
+        b"GOODDEALER-WORKSPACE-CHECKPOINT-ENTITY-DIGESTS-V3",
     );
     append_frame(
         &mut aggregate,
@@ -5471,14 +5875,51 @@ pub fn verify_rebootstrap_page_digest(
     Ok(())
 }
 
-fn canonical_mutation_digest(mutation: &SyncMutationV2) -> Result<String, BusinessDatabaseError> {
+fn canonical_mutation_digest(
+    mutation: &SyncMutationV2,
+    wire_version: i64,
+) -> Result<String, BusinessDatabaseError> {
     let mut value =
         serde_json::to_value(mutation).map_err(|_| BusinessDatabaseError::StorageRejected)?;
     if let Some(object) = value.as_object_mut() {
         object.remove("workspaceId");
         object.remove("serverRevision");
     }
-    canonical_sync_digest(&value)
+    local_wire_digest(&value, wire_version)
+}
+
+/// The wire version new local claims and received mutations are digested under (ADR-0029 C1c2b).
+const LOCAL_WIRE_SCHEMA_VERSION: i64 = 3;
+
+/// The digest recorded in the local `wire_mutation_digest` columns under the row's
+/// `wire_schema_version`. Version 3 digests the mutation as sent. Version 2 remains only for rows
+/// recorded before ADR-0029 C1c2b: the v2 encoding of a first-generation mutation, re-derived from
+/// its v3 form by dropping `entityGeneration`. For generation 1 both encodings carry the same
+/// content, so those rows keep matching; any other generation has no v2 encoding and is refused.
+fn local_wire_digest(
+    value: &serde_json::Value,
+    wire_version: i64,
+) -> Result<String, BusinessDatabaseError> {
+    let mut object = value
+        .as_object()
+        .cloned()
+        .ok_or(BusinessDatabaseError::StorageRejected)?;
+    if object.get("schemaVersion") != Some(&serde_json::json!(SYNC_MUTATION_WIRE_SCHEMA_VERSION)) {
+        return Err(BusinessDatabaseError::StorageRejected);
+    }
+    match wire_version {
+        3 => canonical_sync_digest(&serde_json::Value::Object(object)),
+        2 => {
+            if object.remove("entityGeneration") != Some(serde_json::json!(1))
+                || object.contains_key("reAddsDeletedRevision")
+            {
+                return Err(BusinessDatabaseError::StorageRejected);
+            }
+            object.insert("schemaVersion".to_owned(), serde_json::json!(2));
+            canonical_sync_digest(&serde_json::Value::Object(object))
+        }
+        _ => Err(BusinessDatabaseError::StorageRejected),
+    }
 }
 
 fn validate_sync_mutation_fields(mutation: &SyncMutationV2) -> Result<(), BusinessDatabaseError> {
@@ -5522,6 +5963,131 @@ fn validate_sync_mutation_fields(mutation: &SyncMutationV2) -> Result<(), Busine
     Ok(())
 }
 
+/// Checkpoint tombstones are strictly ordered by UTF-8 id, disjoint from the live assets, deleted at
+/// or before the checkpoint revision, and first-generation until re-adding lands (ADR-0029 C2).
+#[cfg(test)]
+fn validate_checkpoint_tombstones(
+    snapshot: &[DomainAssetWrite],
+    tombstones: &[RebootstrapTombstone],
+    checkpoint_revision: u64,
+) -> Result<(), BusinessDatabaseError> {
+    if tombstones.len() > 10_000 {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    for (index, tombstone) in tombstones.iter().enumerate() {
+        validate_domain_asset_id(&tombstone.entity_id)
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        validate_rebootstrap_timestamp(&tombstone.deleted_at)?;
+        if tombstone.entity_generation != 1
+            || tombstone.deleted_server_revision == 0
+            || tombstone.deleted_server_revision > checkpoint_revision
+            || (index > 0
+                && tombstones[index - 1].entity_id.as_bytes() >= tombstone.entity_id.as_bytes())
+            || snapshot
+                .binary_search_by(|asset| {
+                    asset
+                        .entity_id
+                        .as_bytes()
+                        .cmp(tombstone.entity_id.as_bytes())
+                })
+                .is_ok()
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+    }
+    Ok(())
+}
+
+/// Installs one checkpoint tombstone exactly as a replicated delete of a clean entity would, with
+/// the checkpoint's deletion revision as its only order evidence. A local tombstone for the same
+/// generation already records this deletion and is kept as is: until re-adding, a generation is
+/// deleted at most once. Unsynced local edits to a deleted entity refuse the whole installation:
+/// a rebootstrap does not yet surface them as conflicts, and they must not be silently dropped.
+#[cfg(test)]
+fn install_checkpoint_tombstone(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    tombstone: &RebootstrapTombstone,
+    local_commit_sequence: i64,
+) -> Result<(), BusinessDatabaseError> {
+    let generation = i64::try_from(tombstone.entity_generation)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let revision = i64::try_from(tombstone.deleted_server_revision)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let local_generations = transaction
+        .query_row(
+            "SELECT (SELECT entity_generation FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2),
+                    (SELECT entity_generation FROM domain_assets
+                     WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, tombstone.entity_id],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    match local_generations {
+        (Some(local), _) => {
+            return if local == generation {
+                Ok(())
+            } else {
+                Err(BusinessDatabaseError::InvalidInput)
+            };
+        }
+        (None, Some(local)) if local != generation => {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        _ => {}
+    }
+    let unsynced: i64 = transaction
+        .query_row(
+            "SELECT count(*) FROM domain_asset_field_versions
+             WHERE workspace_id=?1 AND entity_id=?2 AND sync_state IN ('pending','conflicted')",
+            params![workspace_id, tombstone.entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if unsynced != 0 {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    transaction
+        .execute(
+            "INSERT INTO sync_tombstones
+             (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
+              deleted_server_revision,deleted_at,purge_after,state,barrier_state,
+              order_server_revision,order_source_device_id,order_mutation_id,entity_generation,
+              order_provenance)
+             VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,NULL,NULL,?6,
+                     'checkpoint')",
+            params![
+                workspace_id,
+                tombstone.entity_id,
+                local_commit_sequence,
+                revision,
+                tombstone.deleted_at,
+                generation
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "INSERT INTO domain_assets
+             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,
+              local_commit_sequence,entity_generation)
+             VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4,?5)
+             ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
+               lifecycle_status='archived',updated_at=excluded.updated_at,
+               deleted_at=excluded.deleted_at,local_commit_sequence=excluded.local_commit_sequence",
+            params![
+                workspace_id,
+                tombstone.entity_id,
+                tombstone.deleted_at,
+                local_commit_sequence,
+                generation
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(())
+}
+
 /// Applies only the allowlisted domain-asset fields. A pending local field is retained and
 /// surfaced as an inbox conflict instead of being overwritten by a Cloud replica value.
 #[expect(
@@ -5544,6 +6110,25 @@ fn apply_sync_mutation_projection(
         || mutation.device_mutation_sequence == 0
         || mutation.base_server_revision >= mutation.server_revision
     {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    // ADR-0029 C1c1: a replicated mutation names the generation it applies to; a local row on any
+    // other generation is a different entity, so the page is refused rather than merged into it.
+    let generation = i64::try_from(mutation.entity_generation)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    // A replicated tombstone can exist before any asset row, so both record the local generation.
+    let other_generations: i64 = transaction
+        .query_row(
+            "SELECT (SELECT count(*) FROM domain_assets
+                     WHERE workspace_id=?1 AND entity_id=?2 AND entity_generation!=?3)
+                  + (SELECT count(*) FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                       AND entity_generation!=?3)",
+            params![workspace_id, mutation.entity_id, generation],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if other_generations != 0 {
         return Err(BusinessDatabaseError::InvalidInput);
     }
     let local_commit_sequence: i64 = transaction
@@ -5587,8 +6172,8 @@ fn apply_sync_mutation_projection(
                 "INSERT INTO sync_tombstones
                  (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
                   deleted_server_revision,deleted_at,purge_after,state,barrier_state,
-                  order_server_revision,order_source_device_id,order_mutation_id)
-                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','contested',?4,?6,?7)
+                  order_server_revision,order_source_device_id,order_mutation_id,entity_generation)
+                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','contested',?4,?6,?7,?8)
                  ON CONFLICT(workspace_id,entity_kind,entity_id) DO UPDATE SET
                    deleted_server_revision=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.deleted_server_revision ELSE sync_tombstones.deleted_server_revision END,
                    deleted_at=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.deleted_at ELSE sync_tombstones.deleted_at END,
@@ -5596,7 +6181,7 @@ fn apply_sync_mutation_projection(
                    order_server_revision=MAX(COALESCE(sync_tombstones.order_server_revision,0),excluded.order_server_revision),
                    order_source_device_id=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.order_source_device_id ELSE sync_tombstones.order_source_device_id END,
                    order_mutation_id=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.order_mutation_id ELSE sync_tombstones.order_mutation_id END",
-                params![workspace_id,mutation.entity_id,local_commit_sequence,i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?,mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"),mutation.source_device_id,mutation.mutation_id]
+                params![workspace_id,mutation.entity_id,local_commit_sequence,i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?,mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"),mutation.source_device_id,mutation.mutation_id,generation]
             ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             return Ok(true);
         }
@@ -5605,8 +6190,8 @@ fn apply_sync_mutation_projection(
                 "INSERT INTO sync_tombstones
                  (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
                   deleted_server_revision,deleted_at,purge_after,state,barrier_state,
-                  order_server_revision,order_source_device_id,order_mutation_id)
-                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,?6,?7)
+                  order_server_revision,order_source_device_id,order_mutation_id,entity_generation)
+                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,?6,?7,?8)
                  ON CONFLICT(workspace_id,entity_kind,entity_id) DO UPDATE SET
                    deleted_server_revision=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision, 0) THEN excluded.deleted_server_revision ELSE sync_tombstones.deleted_server_revision END,
                    deleted_at=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision, 0) THEN excluded.deleted_at ELSE sync_tombstones.deleted_at END,
@@ -5627,18 +6212,19 @@ fn apply_sync_mutation_projection(
                         .unwrap_or("1970-01-01T00:00:00Z"),
                     mutation.source_device_id,
                     mutation.mutation_id,
+                    generation,
                 ],
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         transaction
             .execute(
                 "INSERT INTO domain_assets
-                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,local_commit_sequence)
-                 VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4)
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,local_commit_sequence,entity_generation)
+                 VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4,?5)
                  ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
                    lifecycle_status='archived',updated_at=excluded.updated_at,
                    deleted_at=excluded.deleted_at,local_commit_sequence=excluded.local_commit_sequence",
-                params![workspace_id, mutation.entity_id, mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"), local_commit_sequence],
+                params![workspace_id, mutation.entity_id, mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"), local_commit_sequence, generation],
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         return Ok(pending != 0);
@@ -5659,12 +6245,12 @@ fn apply_sync_mutation_projection(
     transaction
         .execute(
             "INSERT INTO domain_assets
-             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
-             VALUES (?1,?2,'active',strftime('%Y-%m-%dT%H:%M:%SZ','now'),strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3)
+             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,entity_generation)
+             VALUES (?1,?2,'active',strftime('%Y-%m-%dT%H:%M:%SZ','now'),strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?4)
              ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
                lifecycle_status='active',deleted_at=NULL,updated_at=excluded.updated_at,
                local_commit_sequence=excluded.local_commit_sequence",
-            params![workspace_id, mutation.entity_id, local_commit_sequence],
+            params![workspace_id, mutation.entity_id, local_commit_sequence, generation],
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     transaction
@@ -5872,7 +6458,7 @@ fn persist_conflict_candidate(
     let remote_json =
         serde_json::to_string(&remote_value).map_err(|_| BusinessDatabaseError::InvalidInput)?;
     let conflict_id = format!("conflict-{}-{}", mutation.mutation_id, field_path);
-    let remote_digest = canonical_mutation_digest(mutation)?;
+    let remote_digest = canonical_mutation_digest(mutation, LOCAL_WIRE_SCHEMA_VERSION)?;
     let local_hash = hex_digest(local_json.as_bytes());
     let remote_hash = hex_digest(remote_json.as_bytes());
     let local_commit_sequence: i64 = transaction
@@ -6337,11 +6923,13 @@ use rusqlite::OptionalExtension;
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 
     const TIMESTAMP: &str = "2026-08-28T00:00:00Z";
+    /// The local day that `TIMESTAMP` falls in, for history reads.
+    const HISTORY_DAY: (&str, &str) = ("2026-08-28T00:00:00Z", "2026-08-29T00:00:00Z");
 
     #[test]
     fn cloudflare_projection_digest_matches_protocol_golden() {
@@ -6364,14 +6952,83 @@ mod tests {
         );
     }
 
-    fn database() -> BusinessDatabase {
-        let directory = tempdir().unwrap().keep();
-        BusinessDatabase::open(
-            &directory.join("workspace.db"),
-            &LocalDatabaseKey::from_bytes([0x31; 32]),
-            "workspace-local",
-        )
-        .unwrap()
+    /// A test database that removes its directory when dropped, after the database closes (fields
+    /// drop in order), so test runs do not leave encrypted databases behind.
+    pub(super) struct TestDatabase {
+        database: BusinessDatabase,
+        _directory: tempfile::TempDir,
+    }
+
+    impl TestDatabase {
+        pub(super) fn open(key: [u8; 32]) -> Self {
+            let directory = tempdir().unwrap();
+            let database = BusinessDatabase::open(
+                &directory.path().join("workspace.db"),
+                &LocalDatabaseKey::from_bytes(key),
+                "workspace-local",
+            )
+            .unwrap();
+            Self {
+                database,
+                _directory: directory,
+            }
+        }
+    }
+
+    impl std::ops::Deref for TestDatabase {
+        type Target = BusinessDatabase;
+        fn deref(&self) -> &BusinessDatabase {
+            &self.database
+        }
+    }
+
+    impl std::ops::DerefMut for TestDatabase {
+        fn deref_mut(&mut self) -> &mut BusinessDatabase {
+            &mut self.database
+        }
+    }
+
+    fn database() -> TestDatabase {
+        TestDatabase::open([0x31; 32])
+    }
+
+    #[test]
+    fn cloudflare_connection_read_applies_the_connection_label_rule() {
+        let mut database = database();
+        assert_eq!(database.read_cloudflare_connection().unwrap(), (None, None));
+        let insert = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,validation_status) VALUES ('workspace-local','connection-1','cloudflare',?1,?2,'valid')";
+        database
+            .store
+            .fixture_connection()
+            .execute(insert, rusqlite::params!["Cloudflare DNS", TIMESTAMP])
+            .unwrap();
+        assert_eq!(
+            database.read_cloudflare_connection().unwrap(),
+            (
+                Some("connection-1".to_owned()),
+                Some("Cloudflare DNS".to_owned())
+            )
+        );
+        // A label written outside the create path that breaks the shared rule (a format
+        // character, a control character, or more than 120 UTF-16 units) fails the read closed.
+        for label in [
+            "Cloud\u{200B}flare".to_owned(),
+            "Cloud\u{7}flare".to_owned(),
+            "a".repeat(121),
+        ] {
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE local_provider_connections SET display_label=?1 WHERE connection_id='connection-1'",
+                    [&label],
+                )
+                .unwrap();
+            assert!(matches!(
+                database.read_cloudflare_connection(),
+                Err(BusinessDatabaseError::StorageRejected)
+            ));
+        }
     }
 
     #[test]
@@ -6488,7 +7145,7 @@ mod tests {
         let mut database = database();
         assert_eq!(database.native_checkpoint_due(), Ok(true));
         let invalid = NativeCheckpointDescriptor {
-            schema_version: 2,
+            schema_version: 3,
             checkpoint_id: "checkpoint-1".to_owned(),
             workspace_id: "other-workspace".to_owned(),
             workspace_schema_version: 1,
@@ -6513,6 +7170,61 @@ mod tests {
             .mark_sync_rebootstrap_required_v2("device-local")
             .unwrap();
         assert_eq!(database.native_checkpoint_due(), Ok(true));
+    }
+
+    /// A descriptor stored before the version 3 upgrade is inert: nothing reads its fields back, the
+    /// due bit alone schedules the next fetch, and that fetch replaces it. A version 2 response is
+    /// refused rather than stored again.
+    #[test]
+    fn native_checkpoint_state_from_a_version_2_descriptor_upgrades_on_the_next_fetch() {
+        let mut database = database();
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "INSERT INTO native_cloud_checkpoint_state
+                    (workspace_id,checkpoint_due,checkpoint_id,checkpoint_schema_version,
+                     through_server_revision,workspace_schema_version,checkpoint_digest,checked_at)
+                 VALUES ('workspace-local',0,'legacy',2,0,1,?1,?2)",
+                rusqlite::params!["B".repeat(43), TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(database.native_checkpoint_due(), Ok(false));
+        database
+            .mark_sync_rebootstrap_required_v2("device-local")
+            .unwrap();
+        assert_eq!(database.native_checkpoint_due(), Ok(true));
+        let legacy = NativeCheckpointDescriptor {
+            schema_version: 2,
+            checkpoint_id: "checkpoint-2".to_owned(),
+            workspace_id: "workspace-local".to_owned(),
+            workspace_schema_version: 1,
+            through_server_revision: 0,
+            checkpoint_digest: "A".repeat(43),
+        };
+        assert_eq!(
+            database.complete_native_checkpoint_guarded(Some(&legacy), TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let current = NativeCheckpointDescriptor {
+            schema_version: 3,
+            ..legacy
+        };
+        database
+            .complete_native_checkpoint_guarded(Some(&current), TIMESTAMP, || Ok(()))
+            .unwrap();
+        let stored: (String, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT checkpoint_id,checkpoint_schema_version FROM native_cloud_checkpoint_state
+                 WHERE workspace_id='workspace-local'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored, ("checkpoint-2".to_owned(), 3));
+        assert_eq!(database.native_checkpoint_due(), Ok(false));
     }
 
     #[test]
@@ -6875,6 +7587,77 @@ mod tests {
     }
 
     #[test]
+    fn consecutive_unacknowledged_edits_share_the_applied_base_and_rise_in_device_sequence() {
+        // Cloud's stale-field rule exempts a device's own earlier write only because the Host
+        // freezes each edit against the head it has applied: two edits before any ACK both name
+        // that head, and their device sequences rise. This pins the Host half of that contract.
+        let mut database = database();
+        database
+            .upsert_domain_asset(
+                "seed",
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "twice.test".to_owned(),
+                    note: Some("old".to_owned()),
+                    portfolio_id: None,
+                    tags: vec![],
+                    target_price: None,
+                },
+            )
+            .unwrap();
+        let current_version = |database: &BusinessDatabase| -> u64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets
+                     WHERE workspace_id='workspace-local' AND entity_id='twice.test'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        for (mutation_id, note) in [("edit-a", "first"), ("edit-b", "second")] {
+            let version = current_version(&database);
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    version,
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &DomainAssetWrite {
+                        entity_id: "twice.test".to_owned(),
+                        note: Some(note.to_owned()),
+                        portfolio_id: None,
+                        tags: vec![],
+                        target_price: None,
+                    },
+                    true,
+                )
+                .unwrap();
+        }
+        let rows: Vec<(i64, i64)> = database
+            .store
+            .raw_connection()
+            .prepare(
+                "SELECT base_server_revision, device_mutation_sequence FROM sync_outbox
+                 WHERE workspace_id='workspace-local' AND mutation_id IN ('edit-a','edit-b')
+                 ORDER BY device_mutation_sequence",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, rows[1].0);
+        assert!(rows[0].1 < rows[1].1);
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "end-to-end edit/delete atomicity assertions stay together"
@@ -7041,6 +7824,135 @@ mod tests {
             ),
             Err(BusinessDatabaseError::AssetDeleted)
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one create story: commit, replay, duplicate, stale, tombstone and invalid input share state"
+    )]
+    fn creating_a_domain_commits_one_synced_upsert_and_refuses_duplicates() {
+        let mut database = database();
+        let write = |note: &str| DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: vec!["new".to_owned()],
+            target_price: Some(Money {
+                currency: "USD".to_owned(),
+                amount: "2500".to_owned(),
+            }),
+        };
+        let create = |database: &mut BusinessDatabase, mutation: &str, asset: &DomainAssetWrite| {
+            database.create_domain_asset_guarded(
+                mutation,
+                "device-1",
+                7,
+                TIMESTAMP,
+                asset,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+        };
+        let receipt = create(&mut database, "create-1", &write("first")).unwrap();
+        assert_eq!(
+            (receipt.disposition.as_str(), receipt.operation.as_str()),
+            ("committed", "create")
+        );
+        let detail = database.read_domain_detail("added.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("first"));
+        assert_eq!(detail.asset.tags, ["new"]);
+        let (kind, state, fields): (String, String, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT operation_kind, state, (SELECT count(*) FROM sync_outbox_fields f WHERE f.mutation_id = o.mutation_id)
+                 FROM sync_outbox o WHERE mutation_id = 'create-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (kind.as_str(), state.as_str(), fields),
+            ("upsert", "pending", 4)
+        );
+
+        // The same request replays; a different one for the same domain is a duplicate, whether it
+        // comes from an import or by hand, and changes nothing.
+        assert_eq!(
+            create(&mut database, "create-1", &write("first"))
+                .unwrap()
+                .disposition,
+            "replayed"
+        );
+        assert_eq!(
+            create(&mut database, "create-2", &write("second")),
+            Err(BusinessDatabaseError::AssetExists)
+        );
+        assert_eq!(
+            database
+                .read_domain_detail("added.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("first")
+        );
+        // A stale read generation is refused before anything is written.
+        assert_eq!(
+            database.create_domain_asset_guarded(
+                "create-3",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "other.test".to_owned(),
+                    ..write("x")
+                },
+                false,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            ),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        // A deleted domain keeps its tombstone, so it cannot come back under the same identity yet.
+        database
+            .delete_domain_asset("delete-1", 1, "device-1", 7, TIMESTAMP, "added.test", true)
+            .unwrap();
+        assert_eq!(
+            create(&mut database, "create-4", &write("again")),
+            Err(BusinessDatabaseError::AssetDeleted)
+        );
+        // An invalid domain, or an IP literal, never reaches storage.
+        assert_eq!(
+            create(
+                &mut database,
+                "create-6",
+                &DomainAssetWrite {
+                    entity_id: "10.0.0.1".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(
+            create(
+                &mut database,
+                "create-5",
+                &DomainAssetWrite {
+                    entity_id: "Not A Domain".to_owned(),
+                    ..write("x")
+                }
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let outbox: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_outbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outbox, 2);
     }
 
     #[test]
@@ -7478,6 +8390,2836 @@ mod tests {
         );
     }
 
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    type ListingSeed<'a> = (
+        &'a str,
+        &'a str,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        &'a str,
+    );
+
+    /// Completes a fixture run whose only target is `entity`, with that target succeeded.
+    fn complete_observation_run(connection: &rusqlite::Connection, run: &str, entity: &str) {
+        connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id=?3", rusqlite::params![TIMESTAMP, run, entity]).unwrap();
+        connection.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+    }
+
+    /// Seeds assets, one marketplace connection and run, and the given listing observations
+    /// `(entity, marketplace, status, currency, amount, observed_at)`.
+    fn sales_database(listings: &[ListingSeed<'_>]) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test", "charlie.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','cloudflare','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        // The schema admits one observation per (run, asset), each from a running marketplace run
+        // with a requested target, so every listing gets its own run.
+        for (index, (entity, kind, status, currency, amount, observed_at)) in
+            listings.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,?5,?6,?7,?8,'version-secret','available','confirmed')", rusqlite::params![format!("listing-secret-{index}"), run, entity, kind, status, currency, amount, observed_at]).unwrap();
+            complete_observation_run(connection, &run, entity);
+        }
+        let _ = connection;
+        database
+    }
+
+    /// The `confirmed` flag the sales merge filters on follows its run and target, and no write can
+    /// set it to anything else, so dropping the per-row joins cannot change what the desk shows.
+    #[test]
+    fn listing_confirmation_follows_its_run_and_target_and_refuses_direct_writes() {
+        let mut database = sales_database(&[]);
+        let connection = database.store.fixture_connection();
+        // Every row's flag equals the run-and-target predicate the sales merge used to join on.
+        let drift = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT count(*) FROM marketplace_listing_observations m
+                     WHERE m.confirmed IS NOT (
+                       EXISTS (SELECT 1 FROM provider_observation_targets t
+                         WHERE t.workspace_id = m.workspace_id
+                           AND t.observation_run_id = m.observation_run_id
+                           AND t.entity_id = m.entity_id AND t.status = 'succeeded')
+                       AND EXISTS (SELECT 1 FROM provider_observation_runs r
+                         WHERE r.workspace_id = m.workspace_id
+                           AND r.observation_run_id = m.observation_run_id
+                           AND r.status IN ('succeeded', 'partial')))",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let generation = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT generation FROM sales_listing_generation",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let confirmed = |connection: &rusqlite::Connection, run: &str| -> i64 {
+            connection
+                .query_row(
+                    "SELECT confirmed FROM marketplace_listing_observations
+                     WHERE workspace_id = 'workspace-local' AND observation_run_id = ?1",
+                    [run],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        for (run, outcome) in [("run-done", "succeeded"), ("run-partial", "partial")] {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            // A partial run also has a target that came back missing.
+            let targets: &[(i64, &str)] = if outcome == "partial" {
+                &[(0, "alpha.test"), (1, "bravo.test")]
+            } else {
+                &[(0, "alpha.test")]
+            };
+            for (ordinal, entity) in targets {
+                connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,?3,'requested',?4)", rusqlite::params![run, entity, ordinal, TIMESTAMP]).unwrap();
+            }
+            // A listing written inside a running run cannot claim confirmation.
+            assert!(connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status,confirmed) VALUES ('workspace-local',?1,?2,'alpha.test','atom','active',?3,'version','available','confirmed',1)", rusqlite::params![format!("forged-{run}"), run, TIMESTAMP]).is_err());
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,'alpha.test','atom','active',?3,'version','available','confirmed')", rusqlite::params![format!("listing-{run}"), run, TIMESTAMP]).unwrap();
+            assert_eq!(confirmed(connection, run), 0);
+            connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id='alpha.test'", rusqlite::params![TIMESTAMP, run]).unwrap();
+            // The target succeeded but its run has not completed.
+            assert_eq!(confirmed(connection, run), 0);
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET confirmed = 1 WHERE observation_run_id = ?1", [run]).is_err());
+            if outcome == "partial" {
+                connection.execute("UPDATE provider_observation_targets SET status='missing', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND entity_id='bravo.test'", rusqlite::params![TIMESTAMP, run]).unwrap();
+            }
+            assert_eq!(drift(connection), 0);
+            let before = generation(connection);
+            connection.execute("UPDATE provider_observation_runs SET status=?1, completed_at=?2 WHERE workspace_id='workspace-local' AND observation_run_id=?3", rusqlite::params![outcome, TIMESTAMP, run]).unwrap();
+            assert_eq!(confirmed(connection, run), 1, "{outcome}");
+            assert_eq!(drift(connection), 0);
+            // The completion advances the desk once, not once per recomputed listing.
+            assert_eq!(generation(connection), before + 1);
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET confirmed = 0 WHERE observation_run_id = ?1", [run]).is_err());
+            // The flag is the only column the triggers may rewrite; the evidence stays append-only.
+            assert!(connection.execute("UPDATE marketplace_listing_observations SET listing_status = 'sold' WHERE observation_run_id = ?1", [run]).is_err());
+        }
+        let _ = connection;
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, "alpha.test");
+    }
+
+    #[test]
+    fn sales_never_lets_an_unfinished_run_hide_a_confirmed_listing() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("1000"),
+            "2026-08-01T00:00:00Z",
+        )]);
+        // Newer observations of the same listing from runs that have not completed: one still
+        // requesting its target, one whose target succeeded inside a run that is still running.
+        // (A failed target cannot carry evidence; the schema rejects that outcome.)
+        for (run, target_succeeded) in [("run-pending", false), ("run-open", true)] {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,'alpha.test','atom','sold','2026-09-01T00:00:00Z','version','available','confirmed')", rusqlite::params![format!("listing-{run}"), run]).unwrap();
+            if target_succeeded {
+                connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+            }
+        }
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        let [listing] = rows.as_slice() else {
+            panic!("expected one listing");
+        };
+        assert_eq!(listing.listing_status, "active");
+        assert_eq!(
+            listing
+                .asking_price
+                .as_ref()
+                .map(|price| price.amount.as_str()),
+            Some("1000")
+        );
+        // The asset library's listing count follows the same rule: the unconfirmed sale does not
+        // end the confirmed listing.
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            1
+        );
+
+        // Once a run completes with this asset's target succeeded, its newer observation wins.
+        complete_observation_run(
+            database.store.fixture_connection(),
+            "run-pending",
+            "alpha.test",
+        );
+        let rows = database.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(rows[0].listing_status, "sold");
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 1);
+        assert_eq!(
+            database.read_asset_library(0, 1, "").unwrap().listing_count,
+            0
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn sales_reports_latest_listing_observations_without_identifiers() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "atom",
+                "sold",
+                Some("USD"),
+                Some("950.50"),
+                "2026-08-02T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "draft",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "unlisted",
+                None,
+                None,
+                "2026-08-01T00:00:00Z",
+            ),
+        ]);
+        let snapshot = database.read_sales(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "sales");
+        // The newest observation per (asset, marketplace) wins, unlisted assets are omitted, and a
+        // domain's markets merge into one row: a draft on one market and a sale on another are a
+        // conflict, and a price only one market reports is not the domain's price.
+        assert_eq!(snapshot.total_rows, 1);
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain");
+        };
+        assert_eq!(
+            (
+                row.entity_id.as_str(),
+                row.marketplaces.as_slice(),
+                row.listing_status.as_str(),
+                row.asking_price.as_ref()
+            ),
+            (
+                "alpha.test",
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                "conflict",
+                None
+            )
+        );
+        assert_eq!(
+            (
+                snapshot.active_listing_count,
+                snapshot.listed_value.as_ref()
+            ),
+            (0, None)
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["listing-secret", "run-secret", "version-secret", "market-1"] {
+            assert!(!wire.contains(secret), "{secret} leaked into sales");
+        }
+        assert!(database.read_sales(1, 10).unwrap().window.rows.is_empty());
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_sales(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        // Equal observation times fall back to the observation id, so the result is deterministic.
+        let mut tied = sales_database(&[
+            ("charlie.test", "atom", "draft", None, None, TIMESTAMP),
+            ("charlie.test", "atom", "active", None, None, TIMESTAMP),
+        ]);
+        let rows = tied.read_sales(0, 10).unwrap().window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.listing_status.as_str())
+                .collect::<Vec<_>>(),
+            ["active"]
+        );
+        // Listings of a deleted asset never reach the projection.
+        tied.store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET lifecycle_status = 'archived', deleted_at = ?1 WHERE entity_id = 'charlie.test'",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(tied.read_sales(0, 10).unwrap().total_rows, 0);
+
+        // Marketplaces outside ADR-0027 and malformed prices fail the whole read.
+        for listing in [
+            (
+                "charlie.test",
+                "sedo",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("010"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1e3"),
+                TIMESTAMP,
+            ),
+        ] {
+            assert!(
+                matches!(
+                    sales_database(&[listing]).read_sales(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{listing:?} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn sales_rereads_after_a_listing_write_on_this_or_another_connection() {
+        // Observations are append-only, so each change is a newer confirmed observation.
+        fn observe(connection: &rusqlite::Connection, run: &str, status: &str, observed_at: &str) {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom',?2,'USD','10',?3,'v','available','confirmed')", rusqlite::params![run, status, observed_at]).unwrap();
+            complete_observation_run(connection, run, "alpha.test");
+        }
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("workspace.db");
+        let mut database = BusinessDatabase::open(
+            &path,
+            &LocalDatabaseKey::from_bytes([0x31; 32]),
+            "workspace-local",
+        )
+        .unwrap();
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','alpha.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','atom','Market',?1,'[\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        observe(connection, "run-1", "draft", "2026-01-01T00:00:00Z");
+        let status = |database: &BusinessDatabase| {
+            let snapshot = database.read_sales(0, 10).unwrap();
+            (
+                snapshot.window.rows[0].listing_status.clone(),
+                snapshot.active_listing_count,
+            )
+        };
+        // A repeated read of unchanged data is served from the merged desk and is identical.
+        assert_eq!(
+            database.read_sales(0, 10).unwrap(),
+            database.read_sales(0, 10).unwrap()
+        );
+        assert_eq!(status(&database), ("draft".to_owned(), 0));
+
+        // A write through the Host's own connection is read on the next read.
+        observe(
+            database.store.fixture_connection(),
+            "run-2",
+            "active",
+            "2026-02-01T00:00:00Z",
+        );
+        assert_eq!(status(&database), ("active".to_owned(), 1));
+
+        // So is a commit from another connection to the same database.
+        let other = crate::active_workspace::open_keyed(&path, &[0x31; 32]).unwrap();
+        observe(&other, "run-3", "reserved", "2026-03-01T00:00:00Z");
+        drop(other);
+        assert_eq!(status(&database), ("reserved".to_owned(), 0));
+    }
+
+    /// The sales desk is kept for as long as `sales_listing_generation` stands still, so every row
+    /// the merge reads must move it and nothing else should.
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture walks every merge input and non-input in write order"
+    )]
+    fn sales_listing_generation_moves_with_every_merge_input_and_nothing_else() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("10"),
+            TIMESTAMP,
+        )]);
+        let connection = database.store.fixture_connection();
+        let generation = |connection: &rusqlite::Connection| -> i64 {
+            connection
+                .query_row(
+                    "SELECT generation FROM sales_listing_generation WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let moves = |connection: &rusqlite::Connection, sql: &str| {
+            let before = generation(connection);
+            connection
+                .execute(&sql.replace("{T}", TIMESTAMP), [])
+                .unwrap();
+            generation(connection) > before
+        };
+        for (sql, expected) in [
+            // Writes the merge does not read.
+            (
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z' WHERE entity_id = 'bravo.test'",
+                false,
+            ),
+            (
+                "UPDATE domain_assets SET lifecycle_status = 'archived' WHERE entity_id = 'bravo.test'",
+                false,
+            ),
+            (
+                "UPDATE local_provider_connections SET display_label = 'Renamed', capabilities_json = '[\"marketplace\",\"registrar\"]'",
+                false,
+            ),
+            // A registrar run and its targets can never confirm a listing.
+            (
+                "INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-registrar','market-1','registrar','{T}','running')",
+                false,
+            ),
+            (
+                "INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-registrar','alpha.test',0,'requested','{T}')",
+                false,
+            ),
+            (
+                "UPDATE provider_observation_targets SET status = 'missing', completed_at = '{T}' WHERE observation_run_id = 'run-registrar'",
+                false,
+            ),
+            // A new asset cannot have a listing yet.
+            (
+                "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','delta.test','active','{T}','{T}',1)",
+                false,
+            ),
+            // Every input of the merge.
+            (
+                "INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-new','market-1','marketplace','{T}','running')",
+                true,
+            ),
+            (
+                "INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-new','bravo.test',0,'requested','{T}')",
+                true,
+            ),
+            (
+                "INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local','listing-new','run-new','bravo.test','atom','sold','{T}','v','available','confirmed')",
+                true,
+            ),
+            (
+                "UPDATE provider_observation_targets SET status = 'succeeded', completed_at = '{T}' WHERE observation_run_id = 'run-new'",
+                true,
+            ),
+            (
+                "UPDATE provider_observation_runs SET status = 'succeeded', completed_at = '{T}' WHERE observation_run_id = 'run-new'",
+                true,
+            ),
+            (
+                "UPDATE domain_assets SET deleted_at = '{T}' WHERE entity_id = 'bravo.test'",
+                true,
+            ),
+            (
+                "INSERT INTO sync_tombstones (workspace_id, entity_kind, entity_id, deleted_local_commit_sequence, deleted_server_revision, deleted_at, purge_after, state, barrier_state, order_server_revision, order_source_device_id, order_mutation_id) VALUES ('workspace-local', 'domain_asset', 'delta.test', 1, 1, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 'purge_eligible', 'purge_eligible', 1, 'test-source', 'test-delete')",
+                false,
+            ),
+            (
+                "DELETE FROM domain_assets WHERE entity_id = 'delta.test'",
+                true,
+            ),
+        ] {
+            assert_eq!(moves(connection, sql), expected, "{sql}");
+        }
+        // The counter only ever advances by the triggers' single step and is never removed.
+        assert!(
+            connection
+                .execute("UPDATE sales_listing_generation SET generation = 0", [])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM sales_listing_generation", [])
+                .is_err()
+        );
+        // A write that rolls back takes its step back with it.
+        let before = generation(connection);
+        let transaction = connection.unchecked_transaction().unwrap();
+        transaction
+            .execute(
+                "UPDATE domain_assets SET lifecycle_status = 'archived', deleted_at = ?1
+                 WHERE entity_id = 'charlie.test'",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert!(generation(&transaction) > before);
+        drop(transaction);
+        assert_eq!(generation(connection), before);
+        // Deleting a listed asset cascades to its listings and moves the counter.
+        connection.execute("INSERT INTO sync_tombstones (workspace_id, entity_kind, entity_id, deleted_local_commit_sequence, deleted_server_revision, deleted_at, purge_after, state, barrier_state, order_server_revision, order_source_device_id, order_mutation_id) VALUES ('workspace-local', 'domain_asset', 'alpha.test', 1, 1, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z', 'purge_eligible', 'purge_eligible', 1, 'test-source', 'test-delete-alpha')", []).unwrap();
+        assert!(moves(
+            connection,
+            "DELETE FROM domain_assets WHERE entity_id = 'alpha.test'"
+        ));
+        let _ = connection;
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 0);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture walks paging, metrics and every no-total case"
+    )]
+    fn sales_pages_domains_and_reports_workspace_wide_metrics() {
+        let database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("1000"),
+                TIMESTAMP,
+            ),
+            (
+                "alpha.test",
+                "afternic",
+                "active",
+                Some("USD"),
+                Some("1000.00"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("250.5"),
+                TIMESTAMP,
+            ),
+            (
+                "charlie.test",
+                "atom",
+                "draft",
+                Some("USD"),
+                Some("99"),
+                TIMESTAMP,
+            ),
+        ]);
+        // One page holds one domain; the totals still describe every listed domain, and prices
+        // that differ only in trailing zeros agree.
+        let snapshot = database.read_sales(1, 1).unwrap();
+        assert_eq!(snapshot.total_rows, 3);
+        assert_eq!(snapshot.active_listing_count, 2);
+        assert_eq!(
+            snapshot.listed_value,
+            Some(crate::SalesMoney {
+                currency: "USD".into(),
+                amount: "1250.5".into()
+            })
+        );
+        let [row] = snapshot.window.rows.as_slice() else {
+            panic!("expected one domain on the page");
+        };
+        assert_eq!(row.entity_id, "bravo.test");
+        // The agreed price is reported as the first market (in code-point order) wrote it.
+        let first = database.read_sales(0, 1).unwrap().window.rows;
+        assert_eq!(
+            (
+                first[0].marketplaces.as_slice(),
+                first[0]
+                    .asking_price
+                    .as_ref()
+                    .map(|price| price.amount.as_str())
+            ),
+            (
+                ["afternic".to_owned(), "atom".to_owned()].as_slice(),
+                Some("1000.00")
+            )
+        );
+        assert!(database.read_sales(3, 1).unwrap().window.rows.is_empty());
+
+        // No total is reported rather than one that silently leaves a listing out: prices in two
+        // currencies, an active domain whose markets disagree on price, or one without a price.
+        for listings in [
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "bravo.test",
+                    "atom",
+                    "active",
+                    Some("EUR"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                (
+                    "alpha.test",
+                    "afternic",
+                    "active",
+                    Some("USD"),
+                    Some("11"),
+                    TIMESTAMP,
+                ),
+            ],
+            [
+                (
+                    "alpha.test",
+                    "atom",
+                    "active",
+                    Some("USD"),
+                    Some("10"),
+                    TIMESTAMP,
+                ),
+                ("bravo.test", "atom", "active", None, None, TIMESTAMP),
+            ],
+        ] {
+            let snapshot = sales_database(&listings).read_sales(0, 10).unwrap();
+            assert!(snapshot.active_listing_count > 0);
+            assert_eq!(snapshot.listed_value, None, "{listings:?}");
+        }
+    }
+
+    /// Seeds `assets` active assets the way a large workspace looks: every asset has a target price
+    /// and a confirmed registrar observation, every other one expires within 60 days, every third is
+    /// listed on the first `markets` launch platforms, and one in a hundred has a pending field.
+    fn scale_database(assets: u32, markets: usize) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let transaction = connection.transaction().unwrap();
+        transaction.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','scale-1','cloudflare','Scale',?1,'[\"registrar\",\"marketplace\"]')", [TIMESTAMP]).unwrap();
+        let markets: Vec<(String, &str)> = super::super::launch_platforms::LAUNCH_PLATFORMS
+            [..markets]
+            .iter()
+            .map(|kind| (format!("scale-{kind}"), *kind))
+            .collect();
+        for (run, capability) in std::iter::once(("scale-registrar", "registrar"))
+            .chain(markets.iter().map(|(run, _)| (run.as_str(), "marketplace")))
+        {
+            transaction.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'scale-1',?2,?3,'running')", rusqlite::params![run, capability, TIMESTAMP]).unwrap();
+        }
+        {
+            let mut asset = transaction.prepare("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',date('now',?2),?3,?4,?4,1)").unwrap();
+            let mut desired = transaction.prepare("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,target_price_currency,target_price_amount,desired_sale_status,local_commit_sequence,updated_at) VALUES ('workspace-local',?1,'USD',?2,'hold',1,?3)").unwrap();
+            let mut target = transaction.prepare("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,?3,'requested',?4)").unwrap();
+            let mut registrar = transaction.prepare("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,'scale-registrar',?2,'Porkbun','available','confirmed',?3,'v')").unwrap();
+            let mut listing = transaction.prepare("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?2,?3,?4,'active','USD','1000',?5,'v','available','confirmed')").unwrap();
+            let mut pending = transaction.prepare("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES ('workspace-local',?1,'note',0,1,'pending',?2)").unwrap();
+            for index in 0..assets {
+                let entity = format!("d{index:07}.test");
+                let expires = if index % 2 == 0 {
+                    "+30 days"
+                } else {
+                    "+400 days"
+                };
+                asset
+                    .execute(rusqlite::params![
+                        entity,
+                        expires,
+                        i64::from(index % 3 == 0),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                desired
+                    .execute(rusqlite::params![
+                        entity,
+                        format!("{}", 100 + index % 900),
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                target
+                    .execute(rusqlite::params![
+                        "scale-registrar",
+                        entity,
+                        index,
+                        TIMESTAMP
+                    ])
+                    .unwrap();
+                registrar
+                    .execute(rusqlite::params![format!("r{index}"), entity, TIMESTAMP])
+                    .unwrap();
+                if index % 3 == 0 {
+                    for (run, kind) in &markets {
+                        target
+                            .execute(rusqlite::params![run, entity, index, TIMESTAMP])
+                            .unwrap();
+                        listing
+                            .execute(rusqlite::params![
+                                format!("{kind}-{index}"),
+                                run,
+                                entity,
+                                kind,
+                                TIMESTAMP
+                            ])
+                            .unwrap();
+                    }
+                }
+                if index % 100 == 0 {
+                    pending
+                        .execute(rusqlite::params![entity, TIMESTAMP])
+                        .unwrap();
+                }
+            }
+        }
+        transaction.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local'", [TIMESTAMP]).unwrap();
+        transaction.commit().unwrap();
+        database
+    }
+
+    /// The `DATABASE_SCHEMA.md` 100k-asset benchmark for every paged Host read. Ignored by default
+    /// because seeding takes a while; run with
+    /// `cargo test -p gooddealer-local-storage --lib -- --ignored scale_reads --nocapture`.
+    #[test]
+    #[ignore = "100k-asset benchmark; run alone on an idle machine with --test-threads=1"]
+    fn scale_reads_at_100k_assets() {
+        // The `DATABASE_SCHEMA.md` per-read budget at 100k assets.
+        let worst = slowest(&scale_reads(100_000, 2));
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "10k-asset benchmark; run alone on an idle machine with --test-threads=1"]
+    fn scale_reads_at_10k_assets() {
+        // The `DATABASE_SCHEMA.md` per-read budget at 10k assets.
+        let worst = slowest(&scale_reads(10_000, 2));
+        assert!(worst <= std::time::Duration::from_millis(150), "{worst:?}");
+    }
+
+    #[test]
+    #[ignore = "1M-asset benchmark; seeding takes minutes, run explicitly"]
+    /// Records timings only: whole-workspace counts grow linearly, so 1M assets is not yet budgeted.
+    fn scale_reads_at_1m_assets() {
+        scale_reads(1_000_000, 2);
+    }
+
+    /// The sales worst case: every listed domain on all 8 launch platforms. The first sales read
+    /// after a write to the merge's inputs merges every confirmed listing and a settings read before
+    /// it scans the same listings; both are held to the budget like every other read.
+    #[test]
+    #[ignore = "100k-asset, 8-market benchmark; run explicitly"]
+    fn scale_reads_at_100k_assets_on_8_markets() {
+        let worst = slowest(&scale_reads(100_000, 8));
+        assert!(worst <= std::time::Duration::from_secs(1), "{worst:?}");
+    }
+
+    /// The first sales read of a listing generation, which merges every listing.
+    const SALES_MERGE: &str = "sales page 1 (merge)";
+    /// A settings read before any sales read of the generation, which scans every listing.
+    const SETTINGS_SCAN: &str = "settings (listing scan)";
+
+    /// The slowest timing.
+    fn slowest(timings: &[(&'static str, std::time::Duration)]) -> std::time::Duration {
+        timings
+            .iter()
+            .map(|(_, elapsed)| *elapsed)
+            .max()
+            .unwrap_or_default()
+    }
+
+    /// Statements recorded by `trace_read_statements`; `trace_v2` takes a plain function pointer.
+    static TRACED_STATEMENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`trace_v2` takes a `fn(TraceEvent)` callback"
+    )]
+    fn trace_read_statements(event: rusqlite::trace::TraceEvent<'_>) {
+        if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
+            TRACED_STATEMENTS.lock().unwrap().push(sql.to_owned());
+        }
+    }
+
+    /// Pins the query plans of every paged Host read: no statement may scan a base table, with or
+    /// without an index. Whole-workspace counts still visit every workspace row, but through an index
+    /// seek on the workspace; this test catches a predicate or join that silently falls back to a
+    /// scan.
+    #[test]
+    #[ignore = "plans need a seeded workspace; run with the scale benchmarks"]
+    fn paged_reads_never_scan_a_base_table() {
+        let database = scale_database(10_000, 8);
+        let connection = database.store.raw_connection();
+        connection.execute_batch("ANALYZE").unwrap();
+        TRACED_STATEMENTS.lock().unwrap().clear();
+        connection.trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(trace_read_statements),
+        );
+        database.read_asset_library(5_000, 50, "").unwrap();
+        database.read_asset_library(0, 50, "d00012").unwrap();
+        database.read_domain_detail("d0005000.test").unwrap();
+        database.read_renewals(2_000, 50).unwrap();
+        database.read_dns_health(5_000, 50, "d0001").unwrap();
+        database.read_sales(1_000, 50).unwrap();
+        connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+        let tables: std::collections::BTreeSet<String> = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let statements: std::collections::BTreeSet<String> = TRACED_STATEMENTS
+            .lock()
+            .unwrap()
+            .drain(..)
+            .filter(|sql| {
+                let head = sql.trim_start().to_ascii_uppercase();
+                head.starts_with("SELECT") || head.starts_with("WITH")
+            })
+            .collect();
+        assert!(statements.len() > 10, "{statements:?}");
+        let mut scans = Vec::new();
+        for sql in &statements {
+            let mut plan = connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap();
+            let nulls = vec![rusqlite::types::Null; plan.parameter_count()];
+            for detail in plan
+                .query_map(rusqlite::params_from_iter(nulls), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+            {
+                let scanned = detail
+                    .strip_prefix("SCAN ")
+                    .map(|rest| rest.split_whitespace().next().unwrap_or(""));
+                // A covering-index scan still visits every row, so any base-table scan counts.
+                if scanned.is_some_and(|table| tables.contains(table)) {
+                    scans.push(format!("{detail}\n  in {sql}"));
+                }
+            }
+        }
+        assert!(scans.is_empty(), "{}", scans.join("\n"));
+    }
+
+    /// Times every paged Host read over `scale_database(assets, markets)`.
+    fn scale_reads(assets: u32, markets: usize) -> Vec<(&'static str, std::time::Duration)> {
+        let mut database = scale_database(assets, markets);
+        let expiring = assets.div_ceil(2);
+        let listed = assets.div_ceil(3);
+        let mut timings = Vec::new();
+        let mut time = |label: &'static str, read: &mut dyn FnMut()| {
+            let started = std::time::Instant::now();
+            read();
+            let elapsed = started.elapsed();
+            println!("{label}: {elapsed:?}");
+            timings.push((label, elapsed));
+        };
+        time("asset library page 1", &mut || {
+            let snapshot = database.read_asset_library(0, 50, "").unwrap();
+            assert_eq!(snapshot.total_rows, assets);
+            assert_eq!(snapshot.expiring_within60_days, expiring);
+            assert_eq!(snapshot.listing_count, listed);
+        });
+        time("asset library last page", &mut || {
+            database.read_asset_library(assets - 50, 50, "").unwrap();
+        });
+        time("asset library search", &mut || {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 50, "d00012")
+                    .unwrap()
+                    .total_rows,
+                100
+            );
+        });
+        time("domain detail", &mut || {
+            database
+                .read_domain_detail(&format!("d{:07}.test", assets / 2))
+                .unwrap();
+        });
+        time("renewals page 1", &mut || {
+            assert_eq!(database.read_renewals(0, 50).unwrap().total_rows, expiring);
+        });
+        time("renewals last page", &mut || {
+            database.read_renewals(expiring - 50, 50).unwrap();
+        });
+        time("dns health page 1", &mut || {
+            assert_eq!(
+                database.read_dns_health(0, 50, "").unwrap().asset_count,
+                assets
+            );
+        });
+        time(SETTINGS_SCAN, &mut || {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            assert_eq!(integrity.rejected_listings, 0);
+        });
+        time(SALES_MERGE, &mut || {
+            let snapshot = database.read_sales(0, 50).unwrap();
+            assert_eq!(snapshot.total_rows, listed);
+            assert_eq!(snapshot.window.rows[0].marketplaces.len(), markets);
+        });
+        // The heap the cached desk requests from the allocator: a lower bound that leaves out
+        // allocator overhead and the merge's transient peak. A resident-set delta reads zero here
+        // because the merge reuses heap the seeding freed.
+        println!(
+            "sales desk held: {} KiB",
+            database.store.sales_desk_bytes().unwrap() / 1024
+        );
+        time("sales last page (same data)", &mut || {
+            database.read_sales(listed - 50, 50).unwrap();
+        });
+        time("settings (sales desk merged)", &mut || {
+            database.read_settings().unwrap();
+        });
+        // A write the merge does not read keeps the desk, so neither read merges or scans again.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z'
+                 WHERE workspace_id = 'workspace-local' AND entity_id = 'd0000001.test'",
+                [],
+            )
+            .unwrap();
+        time("settings after an unrelated write", &mut || {
+            database.read_settings().unwrap();
+        });
+        time("sales page 1 after an unrelated write", &mut || {
+            assert_eq!(database.read_sales(0, 50).unwrap().total_rows, listed);
+        });
+        timings
+    }
+
+    /// Seeds one connection, two assets, an older approved plan with an operation and attempts,
+    /// and a newer unapproved plan titled `newer_title`.
+    #[allow(clippy::too_many_lines)]
+    fn batch_database(newer_title: &str) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "bravo.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-secret','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        let plan = "INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,?3,?4,'planned',?5,?6,?7,1)";
+        let item = "INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local',?1,?2,?3,?4,'connection-secret','dns_write','{}',?5,?6,?7)";
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-a",
+                    "dns_change",
+                    "0".repeat(64),
+                    "Nameserver change",
+                    "high",
+                    3,
+                    "2026-01-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        for (ordinal, (entity, risk, mode, inclusion)) in [
+            ("alpha.test", "high", "automatic", "included"),
+            ("bravo.test", "standard", "manual", "included"),
+            ("bravo.test", "standard", "automatic", "excluded"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            connection
+                .execute(
+                    item,
+                    rusqlite::params![
+                        "plan-secret-a",
+                        format!("item-secret-{ordinal}"),
+                        i64::try_from(ordinal).unwrap(),
+                        entity,
+                        risk,
+                        mode,
+                        inclusion
+                    ],
+                )
+                .unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-secret-a'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-secret','plan-secret-a','key-secret','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        let attempt = "INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at,completed_at,provider_request_id) VALUES ('workspace-local','operation-secret','plan-secret-a',?1,?2,?3,?4,?5,?6,'provider-request-secret')";
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    1,
+                    "failed_retryable",
+                    "1".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        // A retry needs the prior attempt's recorded retryable result.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-0',1,1,'failed_retryable','{}',?1)", [TIMESTAMP]).unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-0",
+                    2,
+                    "succeeded",
+                    "2".repeat(64),
+                    TIMESTAMP,
+                    Some(TIMESTAMP)
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                attempt,
+                rusqlite::params![
+                    "item-secret-1",
+                    1,
+                    "manual_action_required",
+                    "3".repeat(64),
+                    TIMESTAMP,
+                    None::<&str>
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                plan,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "price_change",
+                    "4".repeat(64),
+                    newer_title,
+                    "standard",
+                    1,
+                    "2026-02-01T00:00:00Z"
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                item,
+                rusqlite::params![
+                    "plan-secret-b",
+                    "item-secret-b",
+                    0,
+                    "alpha.test",
+                    "standard",
+                    "unsupported",
+                    "conflict"
+                ],
+            )
+            .unwrap();
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    fn manual_tasks_group_waiting_items_without_identifiers() {
+        let empty = database();
+        assert_eq!(empty.read_manual_tasks(0, 10).unwrap().total_rows, 0);
+        let database = batch_database("Price change");
+        let snapshot = database.read_manual_tasks(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "manual_tasks");
+        assert_eq!(snapshot.total_rows, 1);
+        // Only the item whose latest attempt waits on the person forms a task.
+        assert_eq!(
+            snapshot.window.rows,
+            [crate::ManualTaskRow {
+                title: "Nameserver change".to_owned(),
+                operation_kind: "dns_change".to_owned(),
+                capability: "dns_write".to_owned(),
+                provider_kind: Some("cloudflare".to_owned()),
+                connection_label: Some("DNS".to_owned()),
+                high_risk: false,
+                item_count: 1,
+                waiting_since: TIMESTAMP.to_owned(),
+                last_observed_at: None,
+                domain_count: 1,
+                domains: vec!["bravo.test".to_owned()],
+            }]
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "connection-secret",
+            "provider-request-secret",
+            "key-secret",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into manual tasks");
+        }
+        assert!(
+            database
+                .read_manual_tasks(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .is_empty()
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_manual_tasks(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        let mut grouped = batch_database("Price change");
+        let connection = grouped.store.fixture_connection();
+        connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,'manual_action_required',?1,'2026-08-28T01:00:00Z')", ["5".repeat(64)]).unwrap();
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-2',1,1,'manual_action_required','{}','2026-08-28T02:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1, "one platform step stays one task");
+        assert_eq!(
+            (
+                rows[0].item_count,
+                rows[0].domain_count,
+                rows[0].last_observed_at.as_deref()
+            ),
+            (2, 1, Some("2026-08-28T02:00:00Z"))
+        );
+        // Without a recorded result an item waits from its start; once observed, from that.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+        grouped.store.fixture_connection().execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-secret','plan-secret-a','item-secret-1',1,1,'manual_action_required','{}','2026-08-28T03:00:00Z')", []).unwrap();
+        let rows = grouped.read_manual_tasks(0, 10).unwrap().window.rows;
+        // Both items are now observed: the task waits from the earlier observation (02:00), not
+        // from either attempt's start (00:00 and 01:00).
+        assert_eq!(rows[0].waiting_since, "2026-08-28T02:00:00Z");
+        let mut foreign = batch_database("Price change");
+        foreign
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET provider_kind = 'sedo'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            foreign.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let mut control = batch_database("Price change");
+        control
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Bad\nlabel'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            control.read_manual_tasks(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn manual_tasks_carry_only_the_inbox_domain_sample_with_an_exact_count() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        let entities = ["e.test", "c.test", "a.test", "d.test", "b.test"];
+        for entity in entities {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','connection-1','cloudflare','DNS',?1)", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operation_plans (workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,local_commit_sequence) VALUES ('workspace-local','plan-1','dns_change',?1,'Nameserver change','planned','standard',5,?2,1)", rusqlite::params!["0".repeat(64), TIMESTAMP]).unwrap();
+        for (ordinal, entity) in entities.into_iter().enumerate() {
+            connection.execute("INSERT INTO operation_plan_items (workspace_id,plan_id,item_id,ordinal,entity_id,connection_id,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES ('workspace-local','plan-1',?1,?2,?3,'connection-1','dns_write','{}','standard','manual','included')", rusqlite::params![format!("item-{ordinal}"), i64::try_from(ordinal).unwrap(), entity]).unwrap();
+        }
+        connection.execute("UPDATE operation_plans SET phase = 'approved', approved_at = ?1 WHERE plan_id = 'plan-1'", [TIMESTAMP]).unwrap();
+        connection.execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,started_at,local_commit_sequence) VALUES ('workspace-local','operation-1','plan-1','key-1','running',?1,?1,1)", [TIMESTAMP]).unwrap();
+        for ordinal in 0..5 {
+            connection.execute("INSERT INTO operation_attempts (workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest,started_at) VALUES ('workspace-local','operation-1','plan-1',?1,1,'manual_action_required',?2,?3)", rusqlite::params![format!("item-{ordinal}"), ordinal.to_string().repeat(64), TIMESTAMP]).unwrap();
+        }
+        // A platform clock behind the device's: the result predates its attempt's start.
+        connection.execute("INSERT INTO operation_results (workspace_id,operation_id,plan_id,item_id,attempt_number,result_version,outcome,result_json,observed_at) VALUES ('workspace-local','operation-1','plan-1','item-0',1,1,'manual_action_required','{}','2026-08-27T00:00:00Z')", []).unwrap();
+        let rows = database.read_manual_tasks(0, 10).unwrap().window.rows;
+        assert_eq!(rows.len(), 1);
+        // The first three domains in byte order, with every affected domain still counted.
+        assert_eq!(rows[0].domains, ["a.test", "b.test", "c.test"]);
+        assert_eq!((rows[0].item_count, rows[0].domain_count), (5, 5));
+        // No wait begins before its attempt started.
+        assert_eq!(rows[0].waiting_since, TIMESTAMP);
+    }
+
+    #[test]
+    fn batch_operations_list_plans_newest_first_with_counts_and_no_identifiers() {
+        let mut empty = database();
+        assert_eq!(empty.read_batch_operations(0, 10).unwrap().total_rows, 0);
+        let _ = empty.store.fixture_connection();
+
+        let database = batch_database("Price change");
+        let snapshot = database.read_batch_operations(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "batch_operations");
+        assert_eq!(snapshot.total_rows, 2);
+        let [newer, older] = snapshot.window.rows.as_slice() else {
+            panic!("expected two plans");
+        };
+        assert_eq!(
+            (
+                newer.title.as_str(),
+                newer.plan_phase.as_str(),
+                newer.operation_phase.as_deref()
+            ),
+            ("Price change", "planned", None)
+        );
+        assert_eq!(newer.planned.conflict, 1);
+        assert!(newer.results.is_none());
+        assert_eq!(
+            (
+                older.operation_kind.as_str(),
+                older.plan_phase.as_str(),
+                older.operation_phase.as_deref()
+            ),
+            ("dns_change", "approved", Some("running"))
+        );
+        assert_eq!(older.provider_kinds, ["cloudflare"]);
+        assert_eq!((older.item_count, older.target_count), (3, 2));
+        assert_eq!(older.completed_at, None);
+        assert_eq!(
+            (
+                older.planned.automatic,
+                older.planned.manual,
+                older.planned.excluded,
+                older.planned.high_risk
+            ),
+            (1, 1, 1, 1)
+        );
+        let results = older.results.as_ref().unwrap();
+        assert_eq!(
+            (
+                results.succeeded,
+                results.failed_retryable,
+                results.manual_action_required
+            ),
+            (1, 0, 1)
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "plan-secret",
+            "item-secret",
+            "operation-secret",
+            "key-secret",
+            "connection-secret",
+            "provider-request-secret",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into batch operations"
+            );
+        }
+        assert_eq!(
+            database
+                .read_batch_operations(1, 10)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_batch_operations(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        assert!(matches!(
+            batch_database("Bad\ntitle").read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let mut doubled = batch_database("Price change");
+        doubled.store.fixture_connection().execute("INSERT INTO operations (workspace_id,operation_id,plan_id,idempotency_key,phase,requested_at,local_commit_sequence) VALUES ('workspace-local','operation-second','plan-secret-a','key-second','queued',?1,1)", [TIMESTAMP]).unwrap();
+        assert!(matches!(
+            doubled.read_batch_operations(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    /// Seeds assets `(entity, lifecycle, expiry offset in days, auto_renew)` relative to SQLite's
+    /// `date('now')`, and registrar observations `(entity, registrar, availability, observed_at)`.
+    /// Drops the storage-integrity triggers, so a test can stand in for rows written before that
+    /// migration and prove the reads still fail closed on them.
+    fn allow_legacy_rows(connection: &rusqlite::Connection) {
+        connection
+            .execute_batch(
+                "DROP TRIGGER domain_asset_provider_bindings_platform_matches_connection;
+                 DROP TRIGGER local_provider_connections_bound_platform_immutable;
+                 DROP TRIGGER domain_assets_expires_on_insert_is_date;
+                 DROP TRIGGER domain_assets_expires_on_update_is_date;",
+            )
+            .unwrap();
+    }
+
+    fn renewals_database(
+        assets: &[(&str, &str, Option<i64>, Option<i64>)],
+        observations: &[(&str, &str, &str, &str, &str)],
+    ) -> TestDatabase {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for (entity, lifecycle, offset, auto_renew) in assets {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,auto_renew,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,?2,CASE WHEN ?3 IS NULL THEN NULL ELSE date('now', ?3 || ' days') END,?4,?5,?5,1)", rusqlite::params![entity, lifecycle, offset.map(|days| format!("{days:+}")), auto_renew, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','cloudflare','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        // Each observation's run ends as `outcome`: "succeeded" or "partial" confirm it, while
+        // "running" leaves the run in flight with its target only requested.
+        for (index, (entity, registrar, availability, observed_at, outcome)) in
+            observations.iter().enumerate()
+        {
+            let run = format!("run-secret-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version-secret')", rusqlite::params![format!("registrar-secret-{index}"), run, entity, registrar, availability, observed_at]).unwrap();
+            match *outcome {
+                "succeeded" => complete_observation_run(connection, &run, entity),
+                "partial" => {
+                    // A partial run needs a second target the Provider did not report.
+                    connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'undated.test',1,'requested',?2)", rusqlite::params![run, TIMESTAMP]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='missing', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=1", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2 AND ordinal=0", rusqlite::params![TIMESTAMP, run]).unwrap();
+                    connection.execute("UPDATE provider_observation_runs SET status='partial', completed_at=?1 WHERE workspace_id='workspace-local' AND observation_run_id=?2", rusqlite::params![TIMESTAMP, run]).unwrap();
+                }
+                "running" => {}
+                other => panic!("unknown run outcome {other}"),
+            }
+        }
+        let _ = connection;
+        database
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture covers the window, the library count and the registrar name matrix"
+    )]
+    fn renewals_list_the_sixty_day_window_soonest_first_without_identifiers() {
+        let database = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), Some(1)),
+                ("also-soon.test", "expired", Some(5), Some(0)),
+                ("edge.test", "active", Some(60), None),
+                ("beyond.test", "active", Some(61), Some(1)),
+                ("lapsed.test", "active", Some(-1), Some(1)),
+                ("today.test", "active", Some(0), None),
+                ("sold.test", "sold", Some(0), Some(1)),
+                ("dropped.test", "dropped", Some(2), Some(0)),
+                ("archived.test", "archived", Some(3), Some(1)),
+                ("undated.test", "active", None, Some(1)),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Old Registrar",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "soon.test",
+                    "Spaceship",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                    "partial",
+                ),
+                (
+                    "soon.test",
+                    "Hidden",
+                    "unavailable",
+                    "2026-03-01T00:00:00Z",
+                    "succeeded",
+                ),
+                // A newer observation from a run still in flight never hides the confirmed one.
+                (
+                    "soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
+                (
+                    "also-soon.test",
+                    "Unconfirmed",
+                    "available",
+                    "2026-04-01T00:00:00Z",
+                    "running",
+                ),
+            ],
+        );
+        let snapshot = database.read_renewals(0, 10).unwrap();
+        assert_eq!(snapshot.kind, "renewals");
+        let today: String = database
+            .store
+            .raw_connection()
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(snapshot.as_of_date, today);
+        assert_eq!(snapshot.total_rows, 4);
+        assert_eq!(
+            (
+                snapshot.auto_renew_enabled_count,
+                snapshot.auto_renew_disabled_count
+            ),
+            (1, 1)
+        );
+        // The counts cover every expiring asset, not just the requested page.
+        let page = database.read_renewals(3, 1).unwrap();
+        assert_eq!(page.window.rows.len(), 1);
+        assert_eq!(
+            (
+                page.total_rows,
+                page.auto_renew_enabled_count,
+                page.auto_renew_disabled_count
+            ),
+            (4, 1, 1)
+        );
+        // The asset library promises exactly the assets the renewals desk lists: sold, dropped and
+        // archived assets are no longer the workspace's to renew, and a search that matches only
+        // some of them does not change the count the desk will list.
+        for query in ["", "soon", "nothing-matches"] {
+            assert_eq!(
+                database
+                    .read_asset_library(0, 1, query)
+                    .unwrap()
+                    .expiring_within60_days,
+                snapshot.total_rows,
+                "{query:?}"
+            );
+        }
+        assert_eq!(
+            database
+                .read_asset_library(0, 1, "soon")
+                .unwrap()
+                .total_rows,
+            1
+        );
+        let rows: Vec<_> = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.entity_id.as_str(),
+                    row.auto_renew,
+                    row.registrar_name.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("today.test", None, None),
+                ("also-soon.test", Some(false), None),
+                ("soon.test", Some(true), Some("Spaceship")),
+                ("edge.test", None, None),
+            ]
+        );
+        // Each library row and its detail flag exactly the assets the desk lists, by the same
+        // predicate: sold, dropped, archived, lapsed, undated and too-distant assets stay unflagged.
+        let library = database.read_asset_library(0, 20, "").unwrap();
+        let mut flagged: Vec<_> = library
+            .window
+            .rows
+            .iter()
+            .filter(|row| row.expiring)
+            .map(|row| row.domain.as_str())
+            .collect();
+        flagged.sort_unstable();
+        let mut listed: Vec<_> = rows.iter().map(|row| row.0).collect();
+        listed.sort_unstable();
+        assert_eq!(flagged, listed);
+        // The count and the flags come from the same read and the same day.
+        assert_eq!(
+            usize::try_from(library.expiring_within60_days).unwrap(),
+            flagged.len()
+        );
+        for row in &library.window.rows {
+            assert_eq!(
+                database
+                    .read_domain_detail(&row.domain)
+                    .unwrap()
+                    .asset
+                    .expiring,
+                row.expiring,
+                "{}",
+                row.domain
+            );
+        }
+        // The asset library and domain detail report the same confirmed registrar.
+        let registrar = |entity: &str| {
+            library
+                .window
+                .rows
+                .iter()
+                .find(|row| row.domain == entity)
+                .and_then(|row| row.registrar.clone())
+        };
+        assert_eq!(registrar("soon.test").as_deref(), Some("Spaceship"));
+        assert_eq!(registrar("also-soon.test"), None);
+        assert_eq!(
+            database
+                .read_domain_detail("soon.test")
+                .unwrap()
+                .asset
+                .registrar
+                .as_deref(),
+            Some("Spaceship")
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "run-secret",
+            "registrar-secret",
+            "version-secret",
+            "registrar-1",
+        ] {
+            assert!(!wire.contains(secret), "{secret} leaked into renewals");
+        }
+        assert_eq!(database.read_renewals(3, 10).unwrap().window.rows.len(), 1);
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_renewals(start, size),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        // The same matrix as the Renderer's `registrarNameSchema` test: 128 characters, counted as
+        // code points, fit; control, bidirectional and invisible formatting characters do not.
+        let longest = "\u{1d538}".repeat(128);
+        let accepted = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[("soon.test", &longest, "available", TIMESTAMP, "succeeded")],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            accepted.window.rows[0].registrar_name.as_deref(),
+            Some(longest.as_str())
+        );
+        // A format character outside the safe-text set is accepted here, unlike in connection
+        // labels, as in the Renderer's matrix.
+        let arabic_sign = renewals_database(
+            &[("soon.test", "active", Some(5), None)],
+            &[(
+                "soon.test",
+                "Arabic\u{600}Sign",
+                "available",
+                TIMESTAMP,
+                "succeeded",
+            )],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            arabic_sign.window.rows[0].registrar_name.as_deref(),
+            Some("Arabic\u{600}Sign")
+        );
+        for name in [
+            "Bad\nRegistrar",
+            &"x".repeat(129),
+            "",
+            "Zero\u{200b}Width",
+            "Bidi\u{202e}Name",
+            "Soft\u{ad}Hyphen",
+            "\u{feff}Bom",
+        ] {
+            assert!(
+                matches!(
+                    renewals_database(
+                        &[("soon.test", "active", Some(5), None)],
+                        &[("soon.test", name, "available", TIMESTAMP, "succeeded")],
+                    )
+                    .read_renewals(0, 10),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{name:?} must fail closed"
+            );
+        }
+        // A bad name on a page the desk does not read still fails the read: the desk's counts
+        // include that asset.
+        let off_page = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("later.test", "active", Some(10), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+                (
+                    "later.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        );
+        assert!(matches!(
+            off_page.read_renewals(0, 1),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        // A bad name the desk never shows, on an asset outside the window or behind a newer
+        // confirmed name, does not fail it.
+        let unseen = renewals_database(
+            &[
+                ("soon.test", "active", Some(5), None),
+                ("beyond.test", "active", Some(61), None),
+            ],
+            &[
+                (
+                    "soon.test",
+                    "Bad\nOld",
+                    "available",
+                    "2026-01-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "soon.test",
+                    "Registrar",
+                    "available",
+                    "2026-02-01T00:00:00Z",
+                    "succeeded",
+                ),
+                (
+                    "beyond.test",
+                    "Bad\nRegistrar",
+                    "available",
+                    TIMESTAMP,
+                    "succeeded",
+                ),
+            ],
+        )
+        .read_renewals(0, 10)
+        .unwrap();
+        assert_eq!(
+            unseen.window.rows[0].registrar_name.as_deref(),
+            Some("Registrar")
+        );
+        // A malformed expiry that sorts into the window as text fails every page, not only its own.
+        for suffix in ["x", "T00:00:00Z"] {
+            let mut malformed = renewals_database(
+                &[
+                    ("soon.test", "active", Some(5), None),
+                    ("later.test", "active", Some(10), None),
+                ],
+                &[],
+            );
+            let connection = malformed.store.fixture_connection();
+            allow_legacy_rows(connection);
+            connection
+                .execute(
+                    "UPDATE domain_assets SET expires_on = expires_on || ?1 WHERE entity_id = 'later.test'",
+                    [suffix],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    malformed.read_renewals(0, 1),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn history_fails_closed_on_a_legacy_outbox_time_anywhere_in_the_ledger() {
+        let database = database();
+        let connection = database.store.raw_connection();
+        let insert = |mutation_id: &str, created_at: &str| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at)
+                 VALUES ('workspace-local',?1,'domain_asset','ledger.test','{}',?2)",
+                [mutation_id, created_at],
+            )
+        };
+        // New writes cannot store a non-canonical time at all.
+        assert!(insert("new-offset", "2026-08-28T08:00:00+08:00").is_err());
+        insert("canonical", "2026-08-28T12:00:00Z").unwrap();
+        assert_eq!(
+            database
+                .read_history(0, 1, HISTORY_DAY)
+                .unwrap()
+                .changes_today,
+            1
+        );
+        // A row written before the trigger existed is still refused by the read, even when it is
+        // not on the requested page, rather than being counted against the wrong day.
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        for legacy in ["2026-08-28 12:00:00", "2026-08-28T24:00:00Z"] {
+            insert("legacy", legacy).unwrap();
+            assert!(
+                matches!(
+                    database.read_history(0, 1, HISTORY_DAY),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{legacy:?}"
+            );
+            connection
+                .execute("DELETE FROM sync_outbox WHERE mutation_id = 'legacy'", [])
+                .unwrap();
+        }
+        assert!(database.read_history(0, 1, HISTORY_DAY).is_ok());
+    }
+
+    fn history_write(note: &str, tags: &[&str]) -> DomainAssetWrite {
+        DomainAssetWrite {
+            entity_id: "ledger.test".to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: tags.iter().map(|&tag| tag.to_owned()).collect(),
+            target_price: None,
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the ledger's ordering, diff and window assertions stay together"
+    )]
+    fn history_lists_local_revisions_newest_first_with_diffs_and_no_identifiers() {
+        let mut database = database();
+        assert_eq!(
+            database
+                .read_history(0, 10, HISTORY_DAY)
+                .unwrap()
+                .total_rows,
+            0
+        );
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let version = |database: &BusinessDatabase| -> u64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        let committed = [
+            ("mutation-secret-1", history_write("first", &[])),
+            ("mutation-secret-2", history_write("second", &["sale"])),
+        ];
+        for (mutation_id, write) in &committed {
+            let expected = version(&database);
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected,
+                    "device-secret",
+                    7,
+                    TIMESTAMP,
+                    write,
+                    true,
+                )
+                .unwrap();
+        }
+        let expected = version(&database);
+        database
+            .delete_domain_asset(
+                "mutation-secret-3",
+                expected,
+                "device-secret",
+                7,
+                TIMESTAMP,
+                "ledger.test",
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        assert_eq!(snapshot.kind, "history");
+        assert_eq!((snapshot.total_rows, snapshot.pending_rows), (4, 4));
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.operation.as_str(), row.state.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("delete", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending"),
+                ("edit", "pending")
+            ]
+        );
+        assert!(rows[0].local_revision > rows[1].local_revision);
+        assert!(rows[0].changes.is_empty());
+        // The second edit reports only what moved since the first, with both sides.
+        assert_eq!(
+            rows[1].changes,
+            [
+                crate::HistoryFieldChange {
+                    field_path: "note".to_owned(),
+                    value: serde_json::json!("second"),
+                    previous_value: Some(serde_json::json!("first")),
+                },
+                crate::HistoryFieldChange {
+                    field_path: "tags".to_owned(),
+                    value: serde_json::json!(["sale"]),
+                    previous_value: Some(serde_json::json!([])),
+                },
+            ]
+        );
+        assert_eq!(
+            rows[2].changes,
+            [crate::HistoryFieldChange {
+                field_path: "note".to_owned(),
+                value: serde_json::json!("first"),
+                previous_value: Some(serde_json::json!("seed")),
+            }]
+        );
+        // The first local revision has no recorded predecessor, so nothing claims an old value.
+        assert_eq!(rows[3].changes.len(), 4);
+        assert!(
+            rows[3]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(wire.matches("previousValue").count(), 3);
+        for secret in ["mutation-secret", "device-secret", "mutationId", "deviceId"] {
+            assert!(!wire.contains(secret), "{secret} leaked into history");
+        }
+        assert_eq!(
+            database
+                .read_history(3, 10, HISTORY_DAY)
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 10)] {
+            assert!(matches!(
+                database.read_history(start, size, HISTORY_DAY),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+        // Today's changes count the whole ledger, not the window: one row read, four counted.
+        let today = |day| database.read_history(0, 1, day).unwrap().changes_today;
+        assert_eq!(today(HISTORY_DAY), 4);
+        // The day ends before its end instant, so a day ending at the commits counts none.
+        assert_eq!(today(("2026-08-27T00:00:00Z", "2026-08-28T00:00:00Z")), 0);
+        // A daylight saving day is 23 or 25 hours.
+        assert_eq!(today(("2026-08-27T23:00:00Z", "2026-08-29T00:00:00Z")), 4);
+        // Day lengths hold across month, year and leap-day boundaries.
+        for day in [
+            ("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-01T00:00:00Z"),
+            ("2028-02-29T00:00:00Z", "2028-03-01T00:00:00Z"),
+        ] {
+            assert_eq!(today(day), 0, "{day:?} is one day");
+        }
+        for day in [
+            ("2026-08-28T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-29T00:00:00Z", "2026-08-28T00:00:00Z"),
+            ("2026-08-27T22:59:59Z", "2026-08-29T00:00:00Z"),
+            ("2028-02-28T00:00:00Z", "2028-03-01T00:00:00Z"),
+            ("2026-12-31T00:00:00Z", "2027-01-02T00:00:00Z"),
+            ("2026-08-28T00:00:00.000Z", "2026-08-29T00:00:00Z"),
+            ("2026-08-28T00:00:00+08:00", "2026-08-29T00:00:00Z"),
+            ("2026-08-28", "2026-08-29T00:00:00Z"),
+        ] {
+            assert!(
+                matches!(
+                    database.read_history(0, 10, day),
+                    Err(BusinessDatabaseError::WindowRejected)
+                ),
+                "{day:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn history_names_a_creation_only_when_the_create_path_marked_it() {
+        let mut database = database();
+        // An asset written without the create path (as a pull or the legacy seed writes it) has
+        // a first local upsert too; that one must stay an edit.
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let created = DomainAssetWrite {
+            entity_id: "added.test".to_owned(),
+            ..history_write("added", &["new"])
+        };
+        database
+            .create_domain_asset_guarded(
+                "create-1",
+                "device-1",
+                7,
+                TIMESTAMP,
+                &created,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'added.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        database
+            .edit_domain_asset(
+                "edit-1",
+                u64::try_from(version).unwrap(),
+                "device-1",
+                7,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "added.test".to_owned(),
+                    ..history_write("edited", &["new"])
+                },
+                true,
+            )
+            .unwrap();
+        let snapshot = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        let rows = snapshot
+            .window
+            .rows
+            .iter()
+            .map(|row| (row.entity_id.as_str(), row.operation.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            [
+                ("added.test", "edit"),
+                ("added.test", "create"),
+                ("ledger.test", "edit")
+            ]
+        );
+        // A creation has nothing before it, so none of its fields claims a previous value.
+        let creation = &snapshot.window.rows[1];
+        assert!(!creation.changes.is_empty());
+        assert!(
+            creation
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+
+        // The marker can name only an asset's first upsert and never changes.
+        let connection = database.store.raw_connection();
+        for refused in ["edit-1", "seed-missing"] {
+            assert!(
+                connection
+                    .execute(
+                        "INSERT INTO sync_outbox_local_creations (workspace_id, mutation_id) VALUES ('workspace-local', ?1)",
+                        [refused],
+                    )
+                    .is_err(),
+                "{refused}"
+            );
+        }
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox_local_creations SET mutation_id = 'edit-1'",
+                    [],
+                )
+                .is_err()
+        );
+        let markers: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sync_outbox_local_creations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(markers, 1);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "provenance and fail-closed value assertions stay together"
+    )]
+    fn history_never_guesses_a_previous_value_across_a_pull_or_a_conflict() {
+        let mut database = database();
+        database
+            .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        let edit = |database: &mut BusinessDatabase, mutation_id: &str, note: &str| {
+            let expected: i64 = database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT local_commit_sequence FROM domain_assets WHERE entity_id = 'ledger.test'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    expected.try_into().unwrap(),
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &history_write(note, &[]),
+                    true,
+                )
+                .unwrap();
+        };
+        edit(&mut database, "edit-1", "first");
+        // A remote revision applied between two local commits may have changed the asset.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE active_workspace_metadata SET applied_through_server_revision = applied_through_server_revision + 5",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-2", "first");
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
+        assert_eq!(
+            rows[0].changes.len(),
+            4,
+            "unknown previous values keep every field"
+        );
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // A conflicted local value never became the asset's state, so it is not a previous value.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox SET state = 'conflicted' WHERE mutation_id = 'edit-2'",
+                [],
+            )
+            .unwrap();
+        edit(&mut database, "edit-3", "third");
+        let rows = database
+            .read_history(0, 10, HISTORY_DAY)
+            .unwrap()
+            .window
+            .rows;
+        assert!(
+            rows[0]
+                .changes
+                .iter()
+                .all(|change| change.previous_value.is_none())
+        );
+        // Recorded values are held to asset-write rules; anything else fails the read closed.
+        for (path, json) in [
+            ("targetPrice", "{\"amount\":1}"),
+            ("note", "\"\\u0007\""),
+            ("tags", "[\"b\",\"a\"]"),
+        ] {
+            let mut corrupt = self::database();
+            corrupt
+                .upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+                .unwrap();
+            corrupt
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = ?2",
+                    rusqlite::params![json, path],
+                )
+                .unwrap();
+            assert!(
+                matches!(
+                    corrupt.read_history(0, 10, HISTORY_DAY),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{path} {json} must fail closed"
+            );
+        }
+        let mut long = self::database();
+        long.upsert_domain_asset("seed", TIMESTAMP, &history_write("seed", &[]))
+            .unwrap();
+        long.store
+            .fixture_connection()
+            .execute(
+                "UPDATE sync_outbox_fields SET field_value_json = ?1 WHERE field_path = 'note'",
+                [serde_json::to_string(&"x".repeat(10_001)).unwrap()],
+            )
+            .unwrap();
+        assert!(matches!(
+            long.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn settings_counts_stored_rows_the_other_reads_reject_without_failing() {
+        let mut database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+            (
+                "bravo.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                TIMESTAMP,
+            ),
+        ]);
+        let integrity = |database: &BusinessDatabase| {
+            let integrity = database.read_settings().unwrap().storage_integrity;
+            [
+                integrity.malformed_expiries,
+                integrity.invalid_registrar_observations,
+                integrity.rejected_dns_rows,
+                integrity.rejected_listings,
+                integrity.malformed_outbox_rows,
+            ]
+        };
+        // The one listing sales rejects is counted, and the settings read itself still succeeds.
+        assert_eq!(integrity(&database), [0, 0, 0, 1, 0]);
+        assert!(matches!(
+            database.read_sales(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        let connection = database.store.fixture_connection();
+        allow_legacy_rows(connection);
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_created_at_insert_is_canonical;")
+            .unwrap();
+        // An impossible calendar date, and a deleted asset's, which no read shows.
+        connection.execute("UPDATE domain_assets SET expires_on = '2026-02-30' WHERE entity_id = 'charlie.test'", []).unwrap();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,deleted_at,local_commit_sequence) VALUES ('workspace-local','gone.test','archived','soon',?1,?1,?1,1)", [TIMESTAMP]).unwrap();
+        // Two available observations share an invalid name; an unavailable one is never shown.
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','registrar-1','porkbun','Registrar',?1,'[\"registrar\"]')", [TIMESTAMP]).unwrap();
+        for (index, (entity, name, availability)) in [
+            ("alpha.test", "Bad\u{7}Name", "available"),
+            ("bravo.test", "Bad\u{7}Name", "available"),
+            ("charlie.test", "Bad\u{7}Name", "unavailable"),
+            ("charlie.test", "Porkbun", "available"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let run = format!("registrar-run-{index}");
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'registrar-1','registrar',?2,'running')", rusqlite::params![run, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,?2,0,'requested',?3)", rusqlite::params![run, entity, TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,registrar_name,observation_availability,evidence_status,observed_at,provider_version_token) VALUES ('workspace-local',?1,?2,?3,?4,?5,'confirmed',?6,'version')", rusqlite::params![format!("registrar-{index}"), run, entity, name, availability, TIMESTAMP]).unwrap();
+        }
+        // A Zone binding naming a platform other than its connection's.
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','alpha.test','registrar-1','spaceship','zone',?1,?2,'alpha.test',1,2,'unverified',?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        for (mutation, created_at) in [
+            ("legacy-1", "2026-08-28 12:00:00"),
+            ("legacy-2", "2026-08-28T24:00:00Z"),
+            ("canonical", "2026-08-28T12:00:00Z"),
+        ] {
+            connection.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at) VALUES ('workspace-local',?1,'domain_asset','alpha.test','{}',?2)", [mutation, created_at]).unwrap();
+        }
+        let _ = connection;
+
+        assert_eq!(integrity(&database), [1, 2, 1, 1, 2]);
+        // Each count names a read that fails closed on those rows.
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        assert!(matches!(
+            database.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn settings_skips_the_listing_scan_only_while_a_sales_desk_vouches_for_this_generation() {
+        let mut database = sales_database(&[(
+            "alpha.test",
+            "atom",
+            "active",
+            Some("USD"),
+            Some("10"),
+            TIMESTAMP,
+        )]);
+        let listing_scans = |database: &BusinessDatabase| {
+            let connection = database.store.raw_connection();
+            TRACED_STATEMENTS.lock().unwrap().clear();
+            connection.trace_v2(
+                rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+                Some(trace_read_statements),
+            );
+            let rejected = database
+                .read_settings()
+                .unwrap()
+                .storage_integrity
+                .rejected_listings;
+            connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+            let scans = TRACED_STATEMENTS
+                .lock()
+                .unwrap()
+                .drain(..)
+                .filter(|sql| sql.contains("marketplace_listing_observations"))
+                .count();
+            (rejected, scans)
+        };
+        // Without a merged desk the listings are scanned.
+        assert_eq!(listing_scans(&database), (0, 1));
+        // A desk merged at this generation vouches for them.
+        database.read_sales(0, 10).unwrap();
+        assert_eq!(listing_scans(&database), (0, 0));
+        // A write the merge does not read keeps the desk and what it vouches for.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE domain_assets SET updated_at = '2026-10-01T00:00:00Z'
+                 WHERE workspace_id = 'workspace-local' AND entity_id = 'charlie.test'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(listing_scans(&database), (0, 0));
+        // A listing write moves the generation, so a listing written since is counted, not
+        // vouched for.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local','run-late','market-1','marketplace',?1,'running')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local','run-late','bravo.test',0,'requested',?1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local','listing-late','run-late','bravo.test','atom','active','usd','10',?1,'version','available','confirmed')", [TIMESTAMP]).unwrap();
+            complete_observation_run(connection, "run-late", "bravo.test");
+        }
+        assert_eq!(listing_scans(&database), (1, 1));
+    }
+
+    #[test]
+    fn settings_reports_connection_roles_as_unqualified_without_identifiers() {
+        let mut database = database();
+        assert!(database.read_settings().unwrap().connections.is_empty());
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status,last_validated_at) VALUES ('workspace-local','cf-settings','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid',?1)", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+
+        let snapshot = database.read_settings().unwrap();
+        assert_eq!(snapshot.kind, "settings");
+        let [cloudflare] = snapshot.connections.as_slice() else {
+            panic!("expected one connection");
+        };
+        assert_eq!(
+            (
+                cloudflare.provider_kind.as_str(),
+                cloudflare.connection_label.as_str(),
+                cloudflare.validation_status.as_str(),
+                cloudflare.credential_use_state.as_str(),
+            ),
+            ("cloudflare", "Cloudflare", "valid", "active")
+        );
+        // A valid credential does not make a capability executable before qualification.
+        let [dns] = cloudflare.roles.as_slice() else {
+            panic!("expected one role");
+        };
+        assert_eq!(
+            (
+                dns.role.as_str(),
+                dns.availability.as_str(),
+                dns.unavailable_reason.as_str()
+            ),
+            ("dns", "unavailable", "qualification_pending")
+        );
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in ["cf-settings", &"a".repeat(64), &"b".repeat(64)] {
+            assert!(!wire.contains(secret), "{secret} leaked into settings");
+        }
+
+        // Unknown roles, duplicate roles and control characters fail the whole read.
+        for (column, value) in [
+            ("capabilities_json", "'[\"payments\"]'"),
+            ("capabilities_json", "'[\"dns\",\"dns\"]'"),
+            ("display_label", "'Cloud'||char(7)||'flare'"),
+        ] {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    &format!("UPDATE local_provider_connections SET {column}={value}"),
+                    [],
+                )
+                .unwrap();
+            let _ = connection;
+            assert!(
+                matches!(
+                    database.read_settings(),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{column}={value} must fail closed"
+            );
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE local_provider_connections SET capabilities_json='[\"dns\"]', display_label='Cloudflare'",
+                    [],
+                )
+                .unwrap();
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 1);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture exercises exclusion, the row bound and Provider kinds in sequence"
+    )]
+    fn settings_excludes_deleted_connections_and_fails_closed_on_overflow_or_unknown_providers() {
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,lifecycle_status,deleted_at) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]',?5,?6)";
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "live",
+                        "cloudflare",
+                        "Live",
+                        TIMESTAMP,
+                        "active",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            // Deleted connections never reach the Renderer, by lifecycle or by tombstone.
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "gone",
+                        "cloudflare",
+                        "Gone",
+                        TIMESTAMP,
+                        "deleted",
+                        None::<String>
+                    ],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![
+                        "tombstone",
+                        "cloudflare",
+                        "Tombstone",
+                        TIMESTAMP,
+                        "revoked",
+                        Some(TIMESTAMP)
+                    ],
+                )
+                .unwrap();
+        }
+        let labels = database
+            .read_settings()
+            .unwrap()
+            .connections
+            .into_iter()
+            .map(|connection| connection.connection_label)
+            .collect::<Vec<_>>();
+        assert_eq!(labels, ["Live"]);
+
+        // 64 connections are the read's bound; the 65th fails the read instead of being truncated.
+        {
+            let connection = database.store.fixture_connection();
+            for index in 1..64 {
+                connection
+                    .execute(
+                        CONNECTION,
+                        rusqlite::params![
+                            format!("bulk-{index:02}"),
+                            "cloudflare",
+                            format!("Bulk {index:02}"),
+                            TIMESTAMP,
+                            "active",
+                            None::<String>
+                        ],
+                    )
+                    .unwrap();
+            }
+        }
+        assert_eq!(database.read_settings().unwrap().connections.len(), 64);
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "bulk-64",
+                    "cloudflare",
+                    "Bulk 64",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+
+        // Every ADR-0027 platform is listed, each role still unavailable; a kind outside ADR-0027
+        // fails the read instead of being hidden.
+        let mut listed = self::database();
+        for kind in [
+            "afternic",
+            "atom",
+            "cloudflare",
+            "dynadot",
+            "godaddy",
+            "namecheap",
+            "porkbun",
+            "spaceship",
+        ] {
+            listed
+                .store
+                .fixture_connection()
+                .execute(
+                    CONNECTION,
+                    rusqlite::params![kind, kind, kind, TIMESTAMP, "active", None::<String>],
+                )
+                .unwrap();
+        }
+        let kinds = listed.read_settings().unwrap().connections;
+        assert_eq!(kinds.len(), 8);
+        assert!(kinds.iter().all(|connection| {
+            connection.roles.iter().all(|role| {
+                role.availability == "unavailable"
+                    && role.unavailable_reason == "qualification_pending"
+            })
+        }));
+        listed
+            .store
+            .fixture_connection()
+            .execute(
+                CONNECTION,
+                rusqlite::params![
+                    "other",
+                    "example",
+                    "Other",
+                    TIMESTAMP,
+                    "active",
+                    None::<String>
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            listed.read_settings(),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn dns_health_reports_observed_zone_facts_without_health_verdicts() {
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["observed.test", "plain.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status) VALUES ('workspace-local','cf-observe','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid')", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+        database
+            .commit_cloudflare_dns_observation(&CloudflareDnsObservationWrite {
+                observation_id: "00000000-0000-4000-8000-000000000001".into(),
+                observation_run_id: "00000000-0000-4000-8000-000000000002".into(),
+                entity_id: "observed.test".into(),
+                connection_id: "cf-observe".into(),
+                lease_epoch: 3,
+                observed_at: TIMESTAMP.into(),
+                zone_name_ascii: "observed.test".into(),
+                authoritative_nameservers: vec!["ada.ns.cloudflare.com".into()],
+                dnssec_status: "unknown".into(),
+                availability: "available".into(),
+                zone_status: "active".into(),
+                records: vec![
+                    CloudflareDnsRecordWrite {
+                        record_key: "r1".into(),
+                        record_type: "A".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: None,
+                        priority: None,
+                        canonical_value: "192.0.2.1".into(),
+                        proxied: Some(true),
+                    },
+                    CloudflareDnsRecordWrite {
+                        record_key: "r2".into(),
+                        record_type: "TXT".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: Some(300),
+                        priority: None,
+                        canonical_value: "v=spf1 -all".into(),
+                        proxied: None,
+                    },
+                ],
+                provider_version_token: "v1".into(),
+                credential_generation: 1,
+                credential_scope_digest: "a".repeat(64),
+                credential_zone_digest: "c".repeat(64),
+                credential_public_proof: "b".repeat(64),
+            })
+            .unwrap();
+
+        let snapshot = database.read_dns_health(0, 10, "").unwrap();
+        assert_eq!(snapshot.kind, "dns_health");
+        assert_eq!(snapshot.total_rows, 2);
+        let current = snapshot.window.rows[0]
+            .observation
+            .as_ref()
+            .is_some_and(|zone| {
+                zone.availability == "available"
+                    && zone.evidence_status == "confirmed"
+                    && zone.zone_status == "active"
+            });
+        assert_eq!(
+            (
+                snapshot.asset_count,
+                snapshot.observed_count,
+                snapshot.warning_count
+            ),
+            (2, 1, u32::from(!current))
+        );
+        // The search narrows the rows to a domain prefix; the counts still cover every asset.
+        let searched = database.read_dns_health(0, 10, "obs").unwrap();
+        assert_eq!(
+            (
+                searched.total_rows,
+                searched.asset_count,
+                searched.observed_count
+            ),
+            (1, 2, 1)
+        );
+        assert_eq!(searched.window.rows[0].entity_id, "observed.test");
+        assert_eq!(
+            database.read_dns_health(0, 10, "zzz").unwrap().total_rows,
+            0
+        );
+        // Like the asset library, the prefix is case-folded and anything else non-canonical fails.
+        assert_eq!(
+            database.read_dns_health(0, 10, "Obs").unwrap().total_rows,
+            1
+        );
+        for hostile in ["ob s", "\u{e9}", "obs%", &"a".repeat(65)] {
+            assert!(
+                database.read_dns_health(0, 10, hostile).is_err(),
+                "{hostile:?} must be rejected"
+            );
+        }
+        let rows = &snapshot.window.rows;
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            ["observed.test", "plain.test"]
+        );
+        let observation = rows[0].observation.as_ref().unwrap();
+        assert_eq!(observation.zone_label, "observed.test");
+        assert_eq!(
+            observation.authoritative_nameservers,
+            ["ada.ns.cloudflare.com"]
+        );
+        assert_eq!(
+            (observation.record_counts.a, observation.record_counts.txt),
+            (1, 1)
+        );
+        assert!(rows[1].observation.is_none() && rows[1].zone_binding.is_none());
+        // Record values and Provider identifiers never reach this projection.
+        let wire = serde_json::to_string(&snapshot).unwrap();
+        for secret in [
+            "192.0.2.1",
+            "v=spf1",
+            "cf-observe",
+            "00000000-0000-4000-8000-000000000001",
+        ] {
+            assert!(
+                !wire.contains(secret),
+                "{secret} leaked into the DNS health projection"
+            );
+        }
+
+        assert_eq!(
+            database
+                .read_dns_health(1, 10, "")
+                .unwrap()
+                .window
+                .rows
+                .len(),
+            1
+        );
+        for (start, size) in [(0, 0), (0, 201), (1_000_001, 1)] {
+            assert!(matches!(
+                database.read_dns_health(start, size, ""),
+                Err(BusinessDatabaseError::WindowRejected)
+            ));
+        }
+
+        let connection = database.store.fixture_connection();
+        connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,verified_at,last_observed_at,created_at,updated_at) VALUES ('workspace-local','observed.test','cf-observe','cloudflare','zone',?1,?2,'observed.test',1,2,'verified',?3,?3,?3,?3)", rusqlite::params!["d".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+        let _ = connection;
+        let binding = database.read_dns_health(0, 1, "").unwrap().window.rows[0]
+            .zone_binding
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (
+                binding.connection_label.as_str(),
+                binding.validation_status.as_str()
+            ),
+            ("Cloudflare", "verified")
+        );
+        // An asset bound on another platform but carrying a Cloudflare observation: the observation
+        // says nothing about the bound Zone, so it is neither reported for the row nor counted.
+        {
+            let connection = database.store.fixture_connection();
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','rebound.test','active',?1,?1,1)", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','spaceship-1','spaceship','Spaceship',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local','rebound.test','spaceship-1','spaceship','zone',?1,?2,'rebound.test',1,2,'unverified',?3,?3)", rusqlite::params!["f".repeat(64), "e".repeat(64), TIMESTAMP]).unwrap();
+            connection.execute("INSERT INTO cloudflare_dns_projection_heads (workspace_id,entity_id,lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at) SELECT workspace_id,'rebound.test',lease_epoch,source_sequence,observation_id,observed_at,projection_digest,updated_at FROM cloudflare_dns_projection_heads WHERE entity_id='observed.test'", []).unwrap();
+        }
+        let rebound = database.read_dns_health(0, 10, "").unwrap();
+        let row = &rebound.window.rows[2];
+        assert_eq!(row.entity_id, "rebound.test");
+        assert!(row.observation.is_none());
+        assert_eq!((rebound.asset_count, rebound.observed_count), (3, 1));
+        // A label that would smuggle control characters into the Renderer fails the whole read.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET display_label='Cloud'||char(7)||'flare'",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn dns_health_reports_zone_bindings_on_any_launch_platform_and_rejects_others() {
+        const ASSET: &str = "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)";
+        const CONNECTION: &str = "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local',?1,?2,?3,?4,'[\"dns\"]')";
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,?2,?3,'zone',?4,?5,?1,1,2,'unverified',?6,?6)";
+        let bind =
+            |database: &mut BusinessDatabase, entity: &str, connection_id: &str, kind: &str| {
+                database
+                    .store
+                    .fixture_connection()
+                    .execute(
+                        BINDING,
+                        rusqlite::params![
+                            entity,
+                            connection_id,
+                            kind,
+                            "d".repeat(64),
+                            "e".repeat(64),
+                            TIMESTAMP
+                        ],
+                    )
+                    .unwrap();
+            };
+        let mut database = database();
+        {
+            let connection = database.store.fixture_connection();
+            for entity in ["alpha.test", "beta.test"] {
+                connection
+                    .execute(ASSET, rusqlite::params![entity, TIMESTAMP])
+                    .unwrap();
+            }
+            for (id, kind, label) in [
+                ("spaceship-1", "spaceship", "Spaceship"),
+                ("porkbun-1", "porkbun", "Porkbun"),
+            ] {
+                connection
+                    .execute(CONNECTION, rusqlite::params![id, kind, label, TIMESTAMP])
+                    .unwrap();
+            }
+        }
+        bind(&mut database, "alpha.test", "spaceship-1", "spaceship");
+        let rows = database.read_dns_health(0, 10, "").unwrap().window.rows;
+        let binding = rows[0].zone_binding.as_ref().unwrap();
+        assert_eq!(
+            (
+                binding.provider_kind.as_str(),
+                binding.connection_label.as_str()
+            ),
+            ("spaceship", "Spaceship")
+        );
+        // A non-Cloudflare Zone has no composed observation, so none is reported for it.
+        assert!(rows[0].observation.is_none());
+
+        // A binding that names a platform other than its connection's fails the whole read, also
+        // from a page or a search that does not include it: the counts would still include it.
+        allow_legacy_rows(database.store.fixture_connection());
+        bind(&mut database, "beta.test", "porkbun-1", "spaceship");
+        for (start, size, query) in [(0, 10, ""), (0, 1, ""), (0, 10, "alpha")] {
+            assert!(
+                matches!(
+                    database.read_dns_health(start, size, query),
+                    Err(BusinessDatabaseError::ProjectionRejected)
+                ),
+                "{start} {size} {query:?}"
+            );
+        }
+
+        // A platform outside ADR-0027 never reaches the Renderer.
+        let mut database = self::database();
+        {
+            let connection = database.store.fixture_connection();
+            connection
+                .execute(ASSET, rusqlite::params!["alpha.test", TIMESTAMP])
+                .unwrap();
+            connection
+                .execute(
+                    CONNECTION,
+                    rusqlite::params!["other-1", "example", "Example", TIMESTAMP],
+                )
+                .unwrap();
+        }
+        bind(&mut database, "alpha.test", "other-1", "example");
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+    }
+
+    #[test]
+    fn storage_rejects_mismatched_bindings_and_malformed_expiry_dates() {
+        const BINDING: &str = "INSERT INTO domain_asset_provider_bindings (workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,created_at,updated_at) VALUES ('workspace-local',?1,'porkbun-1',?2,'zone',?3,?3,?1,1,2,'unverified',?4,?4)";
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["alpha.test", "beta.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','porkbun-1','porkbun','Porkbun',?1,'[\"dns\"]')", [TIMESTAMP]).unwrap();
+        let bind = |entity: &str, kind: &str| {
+            connection.execute(
+                BINDING,
+                rusqlite::params![entity, kind, "d".repeat(64), TIMESTAMP],
+            )
+        };
+        // A binding must name its connection's platform.
+        assert!(bind("alpha.test", "spaceship").is_err());
+        bind("alpha.test", "porkbun").unwrap();
+        // Once bound, the connection's platform cannot change underneath the binding.
+        assert!(
+            connection
+                .execute(
+                    "UPDATE local_provider_connections SET provider_kind = 'spaceship'",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "UPDATE local_provider_connections SET display_label = 'Renamed'",
+                [],
+            )
+            .unwrap();
+
+        // A recorded expiry is a real calendar date or nothing, on insert and on update.
+        for (index, (expires_on, valid)) in [
+            (Some("2028-02-29"), true),
+            (None, true),
+            (Some("2026-02-30"), false),
+            (Some("2026-1-10"), false),
+            (Some("2026-11-10T00:00:00Z"), false),
+            (Some(""), false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                connection
+                    .execute(
+                        "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                        [expires_on],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+            assert_eq!(
+                connection
+                    .execute(
+                        "INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,expires_on,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?3,'active',?1,?2,?2,1)",
+                        rusqlite::params![expires_on, TIMESTAMP, format!("gamma-{index}.test")],
+                    )
+                    .is_ok(),
+                valid,
+                "{expires_on:?}"
+            );
+        }
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn cloudflare_dns_observation_atomically_writes_local_evidence_and_count_projection() {
@@ -7594,7 +11336,7 @@ mod tests {
         assert_eq!(new_entity.source_sequence, 1);
     }
 
-    fn binding_database() -> BusinessDatabase {
+    fn binding_database() -> TestDatabase {
         let mut database = database();
         database
             .upsert_domain_asset(
@@ -7611,6 +11353,72 @@ mod tests {
             .unwrap();
         database.seed_verified_cloudflare_binding_for_test("example.com");
         database
+    }
+
+    #[test]
+    fn dns_health_offers_a_bind_exactly_when_the_bind_would_be_admitted() {
+        let bindable = |database: &TestDatabase| {
+            database.read_dns_health(0, 10, "").unwrap().window.rows[0].bindable
+        };
+        // Every evidence refusal the bind makes: revoked or invalid credentials, a changed
+        // credential generation or Zone, an archived asset, unavailable or uncommitted evidence.
+        let refusals = [
+            "UPDATE cloudflare_dns_staged_batches SET observation_availability='unavailable'",
+            "UPDATE cloudflare_dns_staged_batches SET visibility='staged'",
+            "UPDATE domain_assets SET lifecycle_status='archived' WHERE entity_id='example.com'",
+            "UPDATE local_provider_connections SET lifecycle_status='invalid'",
+            "UPDATE local_provider_connections SET credential_use_state='revocation_pending'",
+            "UPDATE local_provider_connections SET credential_use_state='remediation_required'",
+            "UPDATE local_provider_connections SET active_credential_zone_digest='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+            "UPDATE cloudflare_credential_roots SET known_envelope_generation=2,highest_resolved_generation=2,head_ledger_generation=2",
+        ];
+        for mutation in refusals {
+            let mut database = binding_database();
+            assert!(bindable(&database), "fixture is bindable before {mutation}");
+            database
+                .store
+                .fixture_connection()
+                .execute_batch(&format!(
+                    "PRAGMA foreign_keys=OFF; DROP TRIGGER cloudflare_dns_staged_batch_immutable; {mutation}"
+                ))
+                .unwrap();
+            assert!(!bindable(&database), "{mutation}");
+            assert_eq!(
+                database
+                    .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+                Err(BusinessDatabaseError::ProviderBindingUnavailable),
+                "{mutation}"
+            );
+        }
+
+        // Once bound, the live binding is not offered again; detached with the same identity it is,
+        // and detached under another Zone it is not, because the bind would refuse the change.
+        let mut database = binding_database();
+        database
+            .bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(()))
+            .unwrap();
+        assert!(!bindable(&database));
+        let connection = database.store.fixture_connection();
+        connection
+            .execute_batch(
+                "UPDATE domain_asset_provider_bindings SET validation_status='detached', verified_at=NULL",
+            )
+            .unwrap();
+        assert!(bindable(&database));
+        database
+            .store
+            .fixture_connection()
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 DROP TRIGGER domain_asset_provider_bindings_identity_immutable;
+                 UPDATE domain_asset_provider_bindings SET resource_binding_digest='dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'",
+            )
+            .unwrap();
+        assert!(!bindable(&database));
+        assert_eq!(
+            database.bind_latest_cloudflare_zone("example.com", true, true, TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
     }
 
     #[test]
@@ -8053,6 +11861,36 @@ mod tests {
             database.read_asset_library(0, 1, "bad\u{202e}"),
             Err(BusinessDatabaseError::QueryRejected)
         );
+        // A recorded expiry that is not a real calendar date fails the asset library from any page
+        // or search, since the expiring count would include it, and fails that asset's detail.
+        allow_legacy_rows(database.store.fixture_connection());
+        for (expires_on, valid) in [
+            ("2028-02-29", true),
+            ("2026-02-30", false),
+            ("2027-02-29", false),
+            ("2026-1-10", false),
+            ("2026-11-10x", false),
+            ("2026-11-10T00:00:00Z", false),
+        ] {
+            database
+                .store
+                .fixture_connection()
+                .execute(
+                    "UPDATE domain_assets SET expires_on = ?1 WHERE entity_id = 'beta.test'",
+                    [expires_on],
+                )
+                .unwrap();
+            assert_eq!(
+                database.read_asset_library(0, 1, "alpha").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+            assert_eq!(
+                database.read_domain_detail("beta.test").is_ok(),
+                valid,
+                "{expires_on}"
+            );
+        }
     }
 
     #[test]
@@ -8140,11 +11978,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first.len(), 1);
+        // ADR-0029 C1c2b: a new claim records the v3 digest of the bytes it sends, no longer the
+        // v2 encoding (`Aqu72459…`) recorded before the local tables were rebuilt.
         assert_eq!(
             first[0].wire_mutation_digest,
-            "Aqu72459aAXWoEPGtAF3HWrcSqs4-Oz7byBPuq-C2qo"
+            canonical_sync_digest(&serde_json::from_str(&first[0].wire_mutation_json).unwrap())
+                .unwrap()
         );
-        assert!(first[0].wire_mutation_json.contains("\"schemaVersion\":2"));
+        assert_eq!(
+            first[0].wire_mutation_digest,
+            "X7Z9n10QiKyCcoj-5Y9FH9ftWmUntlIEpVRQfq7EWKs"
+        );
+        assert!(first[0].wire_mutation_json.contains("\"schemaVersion\":3"));
+        assert!(
+            first[0]
+                .wire_mutation_json
+                .contains("\"entityGeneration\":1")
+        );
         assert!(
             first[0]
                 .wire_mutation_json
@@ -8230,7 +12080,11 @@ mod tests {
         assert!(second[0].delivery_attempt_fence > first[0].delivery_attempt_fence);
 
         database
-            .reject_sync_batch_v2("owner-generation-2", &second, true)
+            .reject_sync_batch_v2(
+                "owner-generation-2",
+                &second,
+                SyncRejectionKind::IdempotencyConflict,
+            )
             .unwrap();
         let terminal: (String, String, Option<String>) = database
             .store
@@ -8332,7 +12186,7 @@ mod tests {
             )
         );
         database
-            .reject_sync_batch_v2("bounded-owner-1", &first, false)
+            .reject_sync_batch_v2("bounded-owner-1", &first, SyncRejectionKind::Deterministic)
             .unwrap();
 
         let second = database
@@ -8446,9 +12300,12 @@ mod tests {
             Err(BusinessDatabaseError::MutationStale)
         );
         assert_eq!(
-            database.reject_sync_batch_v2_guarded("guard-owner", &claimed, false, |_| Err(
-                BusinessDatabaseError::MutationStale
-            ),),
+            database.reject_sync_batch_v2_guarded(
+                "guard-owner",
+                &claimed,
+                SyncRejectionKind::Deterministic,
+                |_| Err(BusinessDatabaseError::MutationStale),
+            ),
             Err(BusinessDatabaseError::MutationStale)
         );
         assert_eq!(
@@ -8494,17 +12351,18 @@ mod tests {
 
     fn test_sync_page(revision: u64, note: &str) -> String {
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": "workspace-local",
             "fromServerRevisionExclusive": revision - 1,
             "throughServerRevisionInclusive": revision,
             "mutations": [{
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": format!("remote-{revision}"),
                 "workspaceId": "workspace-local",
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": "remote.test",
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": revision - 1,
                 "changedFields": [{"fieldPath": "note", "value": note}],
@@ -8537,10 +12395,10 @@ mod tests {
             )
             .unwrap();
         let mut page = serde_json::json!({
-            "schemaVersion":2,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
-            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":2,
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,
             "mutationId":"remote-delete-floor-guard","workspaceId":"workspace-local",
-            "workspaceSchemaVersion":1,"entityType":"domain_asset","entityId":"remote.test",
+            "workspaceSchemaVersion":1,"entityType":"domain_asset","entityId":"remote.test","entityGeneration":1,
             "operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
             "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device",
             "activeLeaseEpoch":1,"deviceMutationSequence":1,"serverRevision":1}],
@@ -8770,6 +12628,137 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one scenario follows a conflicting row from rejection through the next Pull"
+    )]
+    fn mutation_conflict_ends_one_mutation_and_the_next_pull_still_opens_a_conflict() {
+        let mut database = database();
+        let seed = |entity_id: &str| DomainAssetWrite {
+            entity_id: entity_id.to_owned(),
+            note: None,
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        for (revision, mutation_id, entity_id) in [
+            (1, "seed-remote", "remote.test"),
+            (2, "seed-other", "other.test"),
+        ] {
+            database
+                .upsert_domain_asset(mutation_id, TIMESTAMP, &seed(entity_id))
+                .unwrap();
+            database
+                .acknowledge_sync_mutation(mutation_id, revision, "2026-08-28T00:00:01Z")
+                .unwrap();
+        }
+        for (mutation_id, entity_id, note) in [
+            ("conflicting-edit", "remote.test", "local"),
+            ("later-edit", "other.test", "later"),
+        ] {
+            let version = database
+                .read_domain_detail(entity_id)
+                .unwrap()
+                .asset
+                .asset_version;
+            database
+                .edit_domain_asset(
+                    mutation_id,
+                    version,
+                    "device-local",
+                    1,
+                    TIMESTAMP,
+                    &DomainAssetWrite {
+                        note: Some(note.to_owned()),
+                        ..seed(entity_id)
+                    },
+                    true,
+                )
+                .unwrap();
+        }
+        let head = database
+            .claim_sync_mutations_v2(
+                "conflict-owner-1",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                1,
+            )
+            .unwrap();
+        assert_eq!(head.len(), 1);
+        assert_eq!(head[0].mutation_id, "conflicting-edit");
+        database
+            .reject_sync_batch_v2(
+                "conflict-owner-1",
+                &head,
+                SyncRejectionKind::MutationConflict,
+            )
+            .unwrap();
+
+        // The row and its frozen wire remain as evidence; only its delivery ends.
+        let (state, code): (String, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state,last_error_code FROM sync_outbox WHERE mutation_id='conflicting-edit'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (state.as_str(), code.as_str()),
+            ("conflicted", "sync_mutation_conflict")
+        );
+        let field_state: String = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT sync_state FROM domain_asset_field_versions
+                 WHERE entity_id='remote.test' AND field_path='note'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(field_state, "pending");
+
+        // The rejected row no longer holds the Outbox head.
+        let next = database
+            .claim_sync_mutations_v2(
+                "conflict-owner-2",
+                "2026-08-28T00:04:00Z",
+                "2026-08-28T00:05:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(next[0].mutation_id, "later-edit");
+        assert_eq!(
+            next[0].device_mutation_sequence,
+            head[0].device_mutation_sequence + 1
+        );
+
+        // The other writer's value arrives by Pull and becomes a candidate, not an overwrite.
+        let revision = database.current_server_revision().unwrap() + 1;
+        database
+            .apply_sync_page_v2(
+                "reader-local",
+                &test_sync_page(revision, "remote"),
+                "confirm",
+            )
+            .unwrap();
+        let candidates = database.read_sync_conflicts(10).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].field_path, "note");
+        assert_eq!(
+            database
+                .read_domain_detail("remote.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("local")
+        );
+    }
+
+    #[test]
     fn sync_v3_remote_delete_conflict_is_contested_and_keep_local_is_rejected() {
         let mut database = database();
         database
@@ -8786,10 +12775,10 @@ mod tests {
             )
             .unwrap();
         let mut page = serde_json::json!({
-            "schemaVersion":2,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
-            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":2,"mutationId":"remote-delete",
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,"mutationId":"remote-delete",
             "workspaceId":"workspace-local","workspaceSchemaVersion":1,"entityType":"domain_asset",
-            "entityId":"remote.test","operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
+            "entityId":"remote.test","entityGeneration":1,"operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
             "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device","activeLeaseEpoch":1,
             "deviceMutationSequence":1,"serverRevision":1}],"returnedThroughServerRevision":1,"nextCursor":null,
             "pageDigest":"A".repeat(43)
@@ -8900,6 +12889,263 @@ mod tests {
     }
 
     #[test]
+    fn sync_page_refuses_a_later_generation_a_re_add_or_another_wire_version() {
+        // ADR-0029 C1a: until re-adding lands (C2), only a first-generation v3 mutation may
+        // materialize; every other shape is refused with nothing written.
+        let mut database = database();
+        let variants: [fn(&mut serde_json::Value); 5] = [
+            |page| page["mutations"][0]["entityGeneration"] = serde_json::json!(2),
+            |page| {
+                page["mutations"][0]["entityGeneration"] = serde_json::json!(2);
+                page["mutations"][0]["reAddsDeletedRevision"] = serde_json::json!(0);
+            },
+            |page| {
+                page["mutations"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("entityGeneration");
+            },
+            |page| page["mutations"][0]["schemaVersion"] = serde_json::json!(2),
+            |page| page["schemaVersion"] = serde_json::json!(2),
+        ];
+        for variant in variants {
+            let mut page: serde_json::Value =
+                serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+            variant(&mut page);
+            page["pageDigest"] = serde_json::Value::String(canonical_page_digest(&page).unwrap());
+            assert_eq!(
+                database.apply_sync_page_v2("reader-local", &page.to_string(), "confirm-1"),
+                Err(BusinessDatabaseError::InvalidInput)
+            );
+        }
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+        assert!(database.read_portfolio().unwrap().domains.is_empty());
+        let inbox_count: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_inbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(inbox_count, 0);
+        // The same page in its first-generation v3 form applies and records the legacy digest.
+        database
+            .apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1")
+            .unwrap();
+        let (version, digest): (i64, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT wire_schema_version, wire_mutation_digest FROM sync_inbox",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+        let legacy = legacy["mutations"][0].as_object_mut().unwrap();
+        legacy.remove("entityGeneration");
+        legacy.remove("workspaceId");
+        legacy.remove("serverRevision");
+        legacy.insert("schemaVersion".to_owned(), serde_json::json!(2));
+        // ADR-0029 C1c2b: a newly received mutation records its v3 digest.
+        assert_eq!(version, 3);
+        assert_ne!(
+            digest,
+            canonical_sync_digest(&serde_json::Value::Object(legacy.clone())).unwrap()
+        );
+        let mut current: serde_json::Value =
+            serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+        let current = current["mutations"][0].as_object_mut().unwrap();
+        current.remove("workspaceId");
+        current.remove("serverRevision");
+        assert_eq!(
+            digest,
+            canonical_sync_digest(&serde_json::Value::Object(current.clone())).unwrap()
+        );
+    }
+
+    #[test]
+    fn rows_recorded_under_wire_version_2_keep_their_version_and_digest() {
+        // ADR-0029 C1c2b: rows claimed or received before the local tables were rebuilt keep the
+        // v2 digest they were recorded with; their wire identity is immutable.
+        let mut database = database();
+        let initial = DomainAssetWrite {
+            entity_id: "legacy.test".to_owned(),
+            note: None,
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        database
+            .upsert_domain_asset("seed-legacy", TIMESTAMP, &initial)
+            .unwrap();
+        database
+            .acknowledge_sync_mutation("seed-legacy", 1, "2026-08-28T00:00:01Z")
+            .unwrap();
+        let version = database
+            .read_domain_detail("legacy.test")
+            .unwrap()
+            .asset
+            .asset_version;
+        database
+            .edit_domain_asset(
+                "legacy-claim",
+                version,
+                "device-local",
+                7,
+                "2026-08-28T00:01:00Z",
+                &DomainAssetWrite {
+                    note: Some("legacy".to_owned()),
+                    ..initial
+                },
+                true,
+            )
+            .unwrap();
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-1",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                256,
+            )
+            .unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&claimed[0].wire_mutation_json).unwrap();
+        let legacy_digest = local_wire_digest(&wire, 2).unwrap();
+        assert_ne!(legacy_digest, claimed[0].wire_mutation_digest);
+        // Reproduce a row claimed before the rebuild: only a test can rewrite a claimed identity.
+        let connection = database.store.raw_connection();
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_v2_wire_identity_immutable")
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE sync_outbox SET wire_schema_version=2, wire_mutation_digest=?1
+                 WHERE mutation_id='legacy-claim'",
+                [&legacy_digest],
+            )
+            .unwrap();
+        let mut legacy_claim = claimed[0].clone();
+        legacy_claim.wire_mutation_digest = legacy_digest.clone();
+        database
+            .defer_retryable_sync_batch_v2("owner-1", &[legacy_claim], "2026-08-28T00:02:00Z")
+            .unwrap();
+        let reclaimed = database
+            .claim_sync_mutations_v2(
+                "owner-2",
+                "2026-08-28T00:10:00Z",
+                "2026-08-28T00:11:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(reclaimed[0].wire_mutation_digest, legacy_digest);
+        assert_eq!(
+            reclaimed[0].wire_mutation_json,
+            claimed[0].wire_mutation_json
+        );
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT wire_schema_version FROM sync_outbox WHERE mutation_id='legacy-claim'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, 2);
+        // Version 2 exists only for generation 1.
+        let mut later = wire.clone();
+        later["entityGeneration"] = serde_json::json!(2);
+        assert_eq!(
+            local_wire_digest(&later, 2),
+            Err(BusinessDatabaseError::StorageRejected)
+        );
+        assert!(local_wire_digest(&later, 3).is_ok());
+        assert_eq!(
+            local_wire_digest(&wire, 4),
+            Err(BusinessDatabaseError::StorageRejected)
+        );
+    }
+
+    #[test]
+    fn sync_page_refuses_a_mutation_for_another_generation_of_the_local_row() {
+        // ADR-0029 C1c1: a local row on another generation is a different entity, so a pulled
+        // mutation for it is refused with nothing written instead of merged into it.
+        let mut database = database();
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,
+                  entity_generation)
+                 VALUES ('workspace-local','remote.test','active',?1,?1,1,2)",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(
+            database.apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1"),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+        let inbox_count: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_inbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(inbox_count, 0);
+    }
+
+    #[test]
+    fn sync_page_refuses_a_mutation_for_another_generation_of_a_local_tombstone() {
+        let mut database = database();
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_at,state,
+                  barrier_state,entity_generation)
+                 VALUES ('workspace-local','domain_asset','remote.test',1,?1,'pending','pending',2)",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(
+            database.apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1"),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+    }
+
+    #[test]
+    fn sync_page_delete_records_the_generation_it_deleted() {
+        let mut database = database();
+        let mut page = serde_json::json!({
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,"mutationId":"remote-delete",
+            "workspaceId":"workspace-local","workspaceSchemaVersion":1,"entityType":"domain_asset",
+            "entityId":"remote.test","entityGeneration":1,"operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
+            "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device","activeLeaseEpoch":1,
+            "deviceMutationSequence":1,"serverRevision":1}],"returnedThroughServerRevision":1,"nextCursor":null,
+            "pageDigest":"A".repeat(43)
+        });
+        page["pageDigest"] = serde_json::Value::String(canonical_page_digest(&page).unwrap());
+        database
+            .apply_sync_page_v2("reader-local", &page.to_string(), "confirm")
+            .unwrap();
+        let generations: (i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT t.entity_generation, a.entity_generation
+                 FROM sync_tombstones t JOIN domain_assets a USING (workspace_id, entity_id)
+                 WHERE t.entity_id='remote.test' AND a.deleted_at IS NOT NULL",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(generations, (1, 1));
+    }
+
+    #[test]
     fn sync_v2_page_apply_rejects_gaps_without_partial_inbox_or_projection() {
         let mut database = database();
         let gap = test_sync_page(2, "gap");
@@ -8921,12 +13167,13 @@ mod tests {
     fn sync_v2_poisoned_page_rolls_back_earlier_mutation_and_reader_proof() {
         let mutation = |revision: u64, note: &str| {
             serde_json::json!({
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": "duplicate-in-page",
                 "workspaceId": "workspace-local",
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": format!("remote-{revision}.test"),
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": revision - 1,
                 "changedFields": [{"fieldPath": "note", "value": note}],
@@ -8937,7 +13184,7 @@ mod tests {
             })
         };
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": "workspace-local",
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 2,
@@ -9355,6 +13602,7 @@ mod tests {
         };
 
         let rejected = database.install_rebootstrap_plan_guarded(
+            &[],
             &[],
             6,
             "reader-local",
@@ -9969,6 +14217,7 @@ mod tests {
                     tags: vec![],
                     target_price: None,
                 }],
+                &[],
                 1,
                 "reader-local",
                 &[replay],
@@ -9995,6 +14244,7 @@ mod tests {
                 tags: vec![],
                 target_price: None,
             }],
+            &[],
             3,
             "reader-local",
             &[],
@@ -10003,6 +14253,181 @@ mod tests {
         );
         assert_eq!(rejected, Err(BusinessDatabaseError::MutationStale));
         assert_eq!(database.recovery_proof().unwrap(), before);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one database walks every checkpoint tombstone install case in order"
+    )]
+    fn rebootstrap_installs_checkpoint_tombstones_and_refuses_unsynced_deleted_edits() {
+        // ADR-0029 C1c2a: a checkpoint's tombstones install as replicated deletions carrying only
+        // their deletion revision; nothing about a deleted entity is lost or revived.
+        let mut database = database();
+        let asset = |entity_id: &str| DomainAssetWrite {
+            entity_id: entity_id.to_owned(),
+            note: Some("checkpoint".to_owned()),
+            portfolio_id: None,
+            tags: vec![],
+            target_price: None,
+        };
+        let tombstone = |entity_id: &str, revision: u64| RebootstrapTombstone {
+            entity_id: entity_id.to_owned(),
+            entity_generation: 1,
+            deleted_server_revision: revision,
+            deleted_at: "2026-11-14T00:00:00Z".to_owned(),
+        };
+        let install = |database: &mut BusinessDatabase,
+                       snapshot: &[DomainAssetWrite],
+                       tombstones: &[RebootstrapTombstone],
+                       revision: u64,
+                       journal: u64| {
+            database.install_rebootstrap_plan_guarded(
+                snapshot,
+                tombstones,
+                revision,
+                "reader-local",
+                &[],
+                |proof| Ok(journal_link(proof, journal)),
+                || Ok(()),
+            )
+        };
+        install(
+            &mut database,
+            &[asset("clean.test"), asset("pending.test")],
+            &[],
+            1,
+            1,
+        )
+        .unwrap();
+        database
+            .upsert_domain_asset("local-edit", TIMESTAMP, &asset("pending.test"))
+            .unwrap();
+
+        // Malformed tombstone sets are refused before any write.
+        let before = database.recovery_proof().unwrap();
+        for (snapshot, tombstones) in [
+            (vec![asset("clean.test")], vec![tombstone("clean.test", 2)]),
+            (vec![], vec![tombstone("gone.test", 4)]),
+            (vec![], vec![tombstone("gone.test", 0)]),
+            (vec![], vec![tombstone("b.test", 2), tombstone("a.test", 2)]),
+            (
+                vec![],
+                vec![RebootstrapTombstone {
+                    entity_generation: 2,
+                    ..tombstone("gone.test", 2)
+                }],
+            ),
+            (
+                vec![],
+                vec![RebootstrapTombstone {
+                    deleted_at: "2026-11-14".to_owned(),
+                    ..tombstone("gone.test", 2)
+                }],
+            ),
+        ] {
+            assert_eq!(
+                install(&mut database, &snapshot, &tombstones, 3, 2),
+                Err(BusinessDatabaseError::InvalidInput)
+            );
+        }
+        assert_eq!(database.recovery_proof().unwrap(), before);
+
+        // A clean replicated asset is soft-deleted and an unseen one is recorded as deleted.
+        install(
+            &mut database,
+            &[],
+            &[tombstone("clean.test", 2), tombstone("gone.test", 3)],
+            3,
+            2,
+        )
+        .unwrap();
+        // The library reads only live assets.
+        assert_eq!(
+            database.read_asset_library(0, 10, "").unwrap().total_rows,
+            1
+        );
+        let tombstones = |database: &BusinessDatabase| {
+            let connection = database.store.raw_connection();
+            let mut statement = connection
+                .prepare(
+                    "SELECT t.entity_id, t.entity_generation, t.deleted_server_revision,
+                            t.order_server_revision, t.order_provenance, t.state, t.barrier_state,
+                            a.deleted_at IS NOT NULL, a.entity_generation
+                     FROM sync_tombstones t JOIN domain_assets a USING (workspace_id, entity_id)
+                     ORDER BY t.entity_id",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, bool>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        let installed = tombstones(&database);
+        let expected = |entity_id: &str, revision: i64| {
+            (
+                entity_id.to_owned(),
+                1,
+                revision,
+                revision,
+                "checkpoint".to_owned(),
+                "replicated".to_owned(),
+                "replicated".to_owned(),
+                true,
+                1,
+            )
+        };
+        assert_eq!(
+            installed,
+            [expected("clean.test", 2), expected("gone.test", 3)]
+        );
+
+        // A checkpoint tombstone never gains mutation ids it was not given.
+        assert!(
+            database
+                .store
+                .raw_connection()
+                .execute(
+                    "UPDATE sync_tombstones SET order_source_device_id='device',
+                     order_mutation_id='mutation' WHERE entity_id='gone.test'",
+                    [],
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("tombstone order provenance is immutable")
+        );
+
+        // An unsynced local edit to a deleted entity refuses the whole installation.
+        let before = database.recovery_proof().unwrap();
+        assert_eq!(
+            install(&mut database, &[], &[tombstone("pending.test", 4)], 4, 3),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(database.recovery_proof().unwrap(), before);
+
+        // Re-installing a checkpoint that names tombstones already held keeps them unchanged.
+        install(
+            &mut database,
+            &[],
+            &[tombstone("clean.test", 2), tombstone("gone.test", 3)],
+            4,
+            3,
+        )
+        .unwrap();
+        assert_eq!(tombstones(&database), installed);
     }
 
     #[test]

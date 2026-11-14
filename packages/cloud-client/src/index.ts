@@ -42,6 +42,7 @@ import {
   DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID,
   WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID,
   WORKSPACE_SYNC_PULL_OPERATION_ID,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_PUSH_OPERATION_ID,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   workspaceCheckpointReadRequestSchema,
@@ -227,7 +228,7 @@ export class WorkspaceSyncClient {
 
   public async push(mutations: unknown): Promise<WorkspaceMutationPushResponse> {
     const request = workspaceMutationPushRequestSchema.parse({
-      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+      schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
       mutations,
     });
     const response = workspaceMutationPushResponseSchema.parse(

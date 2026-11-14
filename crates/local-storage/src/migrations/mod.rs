@@ -3,13 +3,28 @@ use sha2::{Digest, Sha256};
 
 use crate::active_workspace::schema::{
     ACTIVE_SCHEMA_MIGRATION_ID, ACTIVE_SCHEMA_MIGRATION_OWNER, ACTIVE_SCHEMA_MIGRATION_SQL,
-    CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
-    CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
+    CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID, CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER,
+    CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL, CLOUDFLARE_RETIREMENT_MIGRATION_ID,
+    CLOUDFLARE_RETIREMENT_MIGRATION_OWNER, CLOUDFLARE_RETIREMENT_MIGRATION_SQL,
+    CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID, CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER,
+    CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL, CLOUDFLARE_V1_MIGRATION_ID,
+    CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL, CLOUDFLARE_V2_MIGRATION_ID,
+    CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
-    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
+    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, ENTITY_GENERATION_MIGRATION_ID,
+    ENTITY_GENERATION_MIGRATION_OWNER, ENTITY_GENERATION_MIGRATION_SQL,
+    OUTBOX_INTEGRITY_MIGRATION_ID, OUTBOX_INTEGRITY_MIGRATION_OWNER,
+    OUTBOX_INTEGRITY_MIGRATION_SQL, OUTBOX_LOCAL_CREATIONS_MIGRATION_ID,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER, OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL,
+    SALES_LISTING_CONFIRMATION_MIGRATION_ID, SALES_LISTING_CONFIRMATION_MIGRATION_OWNER,
+    SALES_LISTING_CONFIRMATION_MIGRATION_SQL, SALES_LISTING_GENERATION_MIGRATION_ID,
+    SALES_LISTING_GENERATION_MIGRATION_OWNER, SALES_LISTING_GENERATION_MIGRATION_SQL,
+    STORAGE_INTEGRITY_MIGRATION_ID, STORAGE_INTEGRITY_MIGRATION_OWNER,
+    STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
     SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
     SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
-    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL, SYNC_WIRE_V3_MIGRATION_ID,
+    SYNC_WIRE_V3_MIGRATION_OWNER, SYNC_WIRE_V3_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +81,64 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
         sql: DOMAIN_PROVIDER_BINDING_MIGRATION_SQL,
     },
+    ActiveMigration {
+        id: STORAGE_INTEGRITY_MIGRATION_ID,
+        owner: STORAGE_INTEGRITY_MIGRATION_OWNER,
+        sql: STORAGE_INTEGRITY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_INTEGRITY_MIGRATION_ID,
+        owner: OUTBOX_INTEGRITY_MIGRATION_OWNER,
+        sql: OUTBOX_INTEGRITY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_LOCAL_CREATIONS_MIGRATION_ID,
+        owner: OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
+        sql: OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: SALES_LISTING_GENERATION_MIGRATION_ID,
+        owner: SALES_LISTING_GENERATION_MIGRATION_OWNER,
+        sql: SALES_LISTING_GENERATION_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID,
+        owner: CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER,
+        sql: CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CLOUDFLARE_RETIREMENT_MIGRATION_ID,
+        owner: CLOUDFLARE_RETIREMENT_MIGRATION_OWNER,
+        sql: CLOUDFLARE_RETIREMENT_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: SALES_LISTING_CONFIRMATION_MIGRATION_ID,
+        owner: SALES_LISTING_CONFIRMATION_MIGRATION_OWNER,
+        sql: SALES_LISTING_CONFIRMATION_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: ENTITY_GENERATION_MIGRATION_ID,
+        owner: ENTITY_GENERATION_MIGRATION_OWNER,
+        sql: ENTITY_GENERATION_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID,
+        owner: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER,
+        sql: CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: SYNC_WIRE_V3_MIGRATION_ID,
+        owner: SYNC_WIRE_V3_MIGRATION_OWNER,
+        sql: SYNC_WIRE_V3_MIGRATION_SQL,
+    },
 ];
+
+/// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
+/// dropping a referenced table with foreign keys enabled runs an implicit `DELETE` whose `CASCADE`
+/// actions would remove the children. These run with foreign keys disabled for their transaction
+/// only, as SQLite's documented table-rebuild procedure requires, and must leave
+/// `foreign_key_check` empty before they commit.
+const TABLE_REBUILD_MIGRATIONS: &[i64] = &[SYNC_WIRE_V3_MIGRATION_ID];
 
 pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), MigrationError> {
     validate_catalog(ACTIVE_MIGRATIONS)?;
@@ -99,6 +171,33 @@ pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), M
             validate_sync_v3_legacy_rows(connection)?;
         } else if migration.id == SYNC_V4_MIGRATION_ID {
             validate_sync_v4_legacy_rows(connection)?;
+        } else if migration.id == CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID {
+            // A forward migration must not launder an unrecognized custody schema guard.
+            let valid = connection
+                .query_row(
+                    "SELECT schema_epoch='P0_07_CREDENTIAL_SCHEMA_V2' AND schema_fingerprint=
+                 '0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec'
+                 FROM cloudflare_credential_schema_guard WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if !valid {
+                return Err(MigrationError::RebuildRequiredP007CredentialSchema);
+            }
+        } else if migration.id == CLOUDFLARE_RETIREMENT_MIGRATION_ID {
+            let valid = connection
+                .query_row(
+                    "SELECT schema_epoch='P0_07_CREDENTIAL_SCHEMA_V3' AND schema_fingerprint=
+                 '3e267e4d530572b5cb4114d164068b1b619e1dec90752f5c52111bdbc2ac63b0'
+                 FROM cloudflare_credential_schema_guard WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if !valid {
+                return Err(MigrationError::RebuildRequiredP007CredentialSchema);
+            }
         }
         apply_migration(connection, migration)?;
     }
@@ -147,12 +246,56 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &ActiveMigration,
 ) -> Result<(), MigrationError> {
+    if !TABLE_REBUILD_MIGRATIONS.contains(&migration.id) {
+        return apply_migration_transaction(connection, migration, false);
+    }
+    let foreign_keys: bool = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .map_err(|_| MigrationError::Rejected)?;
+    connection
+        .pragma_update(None, "foreign_keys", false)
+        .map_err(|_| MigrationError::Rejected)?;
+    // SQLite ignores this pragma inside an open transaction. A rebuild that ran with foreign keys
+    // still on would cascade-delete the children of the dropped table without leaving any
+    // violation for `foreign_key_check` to find, so it is refused before anything is written.
+    let disabled = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+        .map_err(|_| MigrationError::Rejected)?;
+    let result = if disabled {
+        Err(MigrationError::Rejected)
+    } else {
+        apply_migration_transaction(connection, migration, true)
+    };
+    // Restored whether or not the rebuild committed. A failed restore is reported as a rejected
+    // migration even after a committed rebuild, so the caller never continues on a connection
+    // without foreign keys; the next open sees the migration recorded and does not re-run it.
+    connection
+        .pragma_update(None, "foreign_keys", foreign_keys)
+        .map_err(|_| MigrationError::Rejected)?;
+    result
+}
+
+fn apply_migration_transaction(
+    connection: &mut Connection,
+    migration: &ActiveMigration,
+    check_foreign_keys: bool,
+) -> Result<(), MigrationError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| MigrationError::Rejected)?;
     transaction
         .execute_batch(migration.sql)
         .map_err(|_| MigrationError::Rejected)?;
+    if check_foreign_keys {
+        let violations: i64 = transaction
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| MigrationError::Rejected)?;
+        if violations != 0 {
+            return Err(MigrationError::Rejected);
+        }
+    }
     transaction
         .execute(
             "INSERT INTO gooddealer_active_migrations(id, owner, checksum) VALUES (?1, ?2, ?3)",
@@ -322,7 +465,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 8);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 18);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -347,7 +490,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 44);
+        assert_eq!(table_count, 46);
         assert!(business_index_count >= 24);
 
         connection
@@ -432,6 +575,220 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the migration proof seeds, migrates and compares one exact pre-migration snapshot"
+    )]
+    fn credential_retry_migration_preserves_attempts_and_refuses_unknown_prior_guard() {
+        for corrupt_guard in [false, true] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", true)
+                .unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE gooddealer_active_migrations (
+                id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;",
+                )
+                .unwrap();
+            let target = super::ACTIVE_MIGRATIONS
+                .iter()
+                .position(|migration| migration.id == super::CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID)
+                .unwrap();
+            for migration in &super::ACTIVE_MIGRATIONS[..target] {
+                apply_migration(&mut connection, migration).unwrap();
+            }
+            connection.execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,0,0,1,
+                         '2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+                 INSERT INTO local_provider_connections
+                 (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,
+                  capabilities_json,connection_incarnation_id,credential_use_state)
+                 VALUES ('workspace-local','connection','cloudflare','Cloudflare','2026-11-13T00:00:00Z',
+                         '[\"dns\"]','incarnation','inactive');
+                 INSERT INTO cloudflare_credential_roots
+                 (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local','incarnation','connection','2026-11-13T00:00:00Z');
+                 INSERT INTO cloudflare_credential_intents
+                 (workspace_id,connection_incarnation_id,intent_id,operation_kind,
+                  expected_head_generation,target_generation,target_envelope_kind,
+                  scope_digest,zone_digest,target_public_proof,prepared_authority_snapshot_digest,
+                  phase,terminal_reason,created_at,updated_at)
+                 VALUES ('workspace-local','incarnation','cancelled-attempt','revoke',0,1,'tombstone',
+                         printf('%064d',1),printf('%064d',2),printf('%064d',3),printf('%064d',4),
+                         'cancelled','cancelled_before_inspection','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');"
+            ).unwrap();
+            let snapshot = |connection: &Connection| {
+                let mut statement = connection
+                    .prepare("SELECT * FROM cloudflare_credential_intents")
+                    .unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            let before = snapshot(&connection);
+            if corrupt_guard {
+                connection
+                    .execute("DELETE FROM cloudflare_credential_schema_guard", [])
+                    .unwrap();
+                assert_eq!(
+                    run_active_migrations(&mut connection),
+                    Err(super::MigrationError::RebuildRequiredP007CredentialSchema)
+                );
+            } else {
+                run_active_migrations(&mut connection).unwrap();
+                run_active_migrations(&mut connection).unwrap();
+                assert!(
+                    connection
+                        .execute(
+                            "UPDATE cloudflare_credential_intents SET intent_id='rewritten'",
+                            []
+                        )
+                        .is_err()
+                );
+                assert!(connection.execute(
+                    "UPDATE cloudflare_credential_intents SET phase='prepared',terminal_reason=NULL", []).is_err());
+                let violations: i64 = connection
+                    .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(violations, 0);
+            }
+            assert_eq!(snapshot(&connection), before);
+            let applied: i64 = connection
+                .query_row(
+                    "SELECT count(*) FROM gooddealer_active_migrations",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                usize::try_from(applied).unwrap(),
+                if corrupt_guard {
+                    target
+                } else {
+                    super::ACTIVE_MIGRATIONS.len()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn cloudflare_retirement_migration_preserves_v3_rows_and_rejects_an_unknown_guard() {
+        for corrupt_guard in [false, true] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", true)
+                .unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE gooddealer_active_migrations (
+                id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;",
+                )
+                .unwrap();
+            let target = super::ACTIVE_MIGRATIONS
+                .iter()
+                .position(|migration| migration.id == super::CLOUDFLARE_RETIREMENT_MIGRATION_ID)
+                .unwrap();
+            for migration in &super::ACTIVE_MIGRATIONS[..target] {
+                apply_migration(&mut connection, migration).unwrap();
+            }
+            connection.execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,0,0,1,
+                         '2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+                 INSERT INTO local_provider_connections
+                 (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,
+                  capabilities_json,connection_incarnation_id,credential_use_state)
+                 VALUES ('workspace-local','connection','cloudflare','Cloudflare','2026-11-13T00:00:00Z',
+                         '[\"dns\"]','incarnation','remediation_required');
+                 INSERT INTO cloudflare_credential_roots
+                 (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local','incarnation','connection','2026-11-13T00:00:00Z');
+                 INSERT INTO cloudflare_credential_intents
+                 (workspace_id,connection_incarnation_id,intent_id,operation_kind,
+                  expected_head_generation,target_generation,target_envelope_kind,
+                  scope_digest,zone_digest,target_public_proof,prepared_authority_snapshot_digest,
+                  phase,marker_base_recorded,marker_base_envelope_kind,created_at,updated_at)
+                 VALUES ('workspace-local','incarnation','unresolved','revoke',0,1,'tombstone',
+                         printf('%064d',1),printf('%064d',2),printf('%064d',3),printf('%064d',4),
+                         'recovery_required',1,'absent','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');"
+            ).unwrap();
+            let snapshot = |connection: &Connection| {
+                let mut statement = connection
+                    .prepare("SELECT * FROM cloudflare_credential_intents")
+                    .unwrap();
+                let columns = statement.column_count();
+                statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            let before = snapshot(&connection);
+            if corrupt_guard {
+                connection
+                    .execute("DELETE FROM cloudflare_credential_schema_guard", [])
+                    .unwrap();
+                assert_eq!(
+                    run_active_migrations(&mut connection),
+                    Err(super::MigrationError::RebuildRequiredP007CredentialSchema)
+                );
+                let columns:i64=connection.query_row("SELECT count(*) FROM pragma_table_info('cloudflare_credential_roots') WHERE name='retirement_requested_at'",[],|row|row.get(0)).unwrap();
+                assert_eq!(columns, 0);
+            } else {
+                run_active_migrations(&mut connection).unwrap();
+                run_active_migrations(&mut connection).unwrap();
+                let state: String = connection
+                    .query_row(
+                        "SELECT credential_use_state FROM local_provider_connections",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(state, "remediation_required");
+                // Rebuilt CHECKs require the marker and the exact retirement reason together.
+                assert!(connection.execute("UPDATE cloudflare_credential_intents SET phase='abandoned_for_retirement'",[]).is_err());
+                assert!(connection.execute("UPDATE cloudflare_credential_roots SET retirement_requested_at='2026-11-13T00:00:00Z'",[]).is_err());
+                assert_eq!(snapshot(&connection), before);
+                connection.execute("UPDATE cloudflare_credential_intents SET phase='abandoned_for_retirement',terminal_reason='retired'",[]).unwrap();
+                connection.execute("UPDATE cloudflare_credential_roots SET retirement_requested_at='2026-11-13T00:00:00Z'",[]).unwrap();
+                assert!(connection.execute("UPDATE cloudflare_credential_intents SET phase='consumed',terminal_reason=NULL",[]).is_err());
+                let violations: i64 = connection
+                    .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(violations, 0);
+            }
+            if corrupt_guard {
+                assert_eq!(snapshot(&connection), before);
+            }
+        }
+    }
+
+    #[test]
     fn sync_v2_append_migration_preserves_prefix_rows_and_checksum() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -492,6 +849,63 @@ mod tests {
             .unwrap();
         assert_eq!(reopened_prefix_checksum, prefix_checksum);
         run_active_migrations(&mut connection).unwrap();
+    }
+
+    /// Existing listings get the confirmation their run and target already imply.
+    #[test]
+    fn sales_listing_confirmation_migration_backfills_from_runs_and_targets() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gooddealer_active_migrations (
+               id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL,
+               applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             ) STRICT;",
+            )
+            .unwrap();
+        let target = super::ACTIVE_MIGRATIONS
+            .iter()
+            .position(|migration| migration.id == super::SALES_LISTING_CONFIRMATION_MIGRATION_ID)
+            .unwrap();
+        for migration in &super::ACTIVE_MIGRATIONS[..target] {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        let at = "2026-11-13T00:00:00Z";
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at) VALUES (1,'active_workspace','workspace-local',1,0,1,2,?1,?1)",
+                [at],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local','alpha.test','active',?1,?1,1)", [at]).unwrap();
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json) VALUES ('workspace-local','market-1','cloudflare','Market',?1,'[\"marketplace\"]')", [at]).unwrap();
+        for (run, complete) in [("run-done", true), ("run-open", false)] {
+            connection.execute("INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status) VALUES ('workspace-local',?1,'market-1','marketplace',?2,'running')", rusqlite::params![run, at]).unwrap();
+            connection.execute("INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES ('workspace-local',?1,'alpha.test',0,'requested',?2)", rusqlite::params![run, at]).unwrap();
+            connection.execute("INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,evidence_status) VALUES ('workspace-local',?1,?1,'alpha.test','atom','active',?2,'version','available','confirmed')", rusqlite::params![run, at]).unwrap();
+            connection.execute("UPDATE provider_observation_targets SET status='succeeded', completed_at=?1 WHERE observation_run_id=?2", rusqlite::params![at, run]).unwrap();
+            if complete {
+                connection.execute("UPDATE provider_observation_runs SET status='succeeded', completed_at=?1 WHERE observation_run_id=?2", rusqlite::params![at, run]).unwrap();
+            }
+        }
+        run_active_migrations(&mut connection).unwrap();
+        let flags: Vec<(String, i64)> = connection
+            .prepare("SELECT observation_run_id, confirmed FROM marketplace_listing_observations ORDER BY 1")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            flags,
+            [("run-done".to_owned(), 1), ("run-open".to_owned(), 0)]
+        );
     }
 
     #[test]
@@ -659,8 +1073,18 @@ mod tests {
             .unwrap();
         let snapshot = |connection: &Connection| {
             ["domain_assets", "active_workspace_metadata"].map(|table| {
+                // Later append-only migrations may add columns (ADR-0029 C1c1 adds
+                // `entity_generation`); the rows' existing values are what must survive.
+                let columns: String = connection
+                    .query_row(
+                        "SELECT group_concat(name, ',') FROM pragma_table_info(?1)
+                         WHERE name != 'entity_generation'",
+                        [table],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
                 let mut statement = connection
-                    .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                    .prepare(&format!("SELECT {columns} FROM {table} ORDER BY rowid"))
                     .unwrap();
                 let columns = statement.column_count();
                 statement
@@ -720,5 +1144,497 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .unwrap(), 1);
+    }
+
+    #[test]
+    fn outbox_created_at_must_be_a_canonical_utc_instant() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,0,1,?1,?1)",
+                ["2026-09-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert = |mutation_id: &str, created_at: &str| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at)
+                 VALUES ('workspace-local',?1,'domain_asset','canonical.test','{}',?2)",
+                [mutation_id, created_at],
+            )
+        };
+        // Each value gets the same verdict from the trigger and from `validate_timestamp`, the rule
+        // the Host's reads apply, so the two cannot drift apart unnoticed.
+        let read_rule = |value: &str| {
+            crate::portfolio_projection::validate_timestamp(Some(value.to_owned())).is_ok()
+        };
+        for (index, accepted) in ["2026-11-06T00:00:00Z", "2028-02-29T23:59:59Z"]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(read_rule(accepted), "{accepted:?}");
+            insert(&format!("accepted-{index}"), accepted).unwrap();
+        }
+        for (index, rejected) in [
+            "2026-11-06T00:00:00.000Z",
+            "2026-11-06T08:00:00+08:00",
+            "2026-11-06 00:00:00",
+            "2026-11-06T00:00:00",
+            "2026-11-06",
+            "2027-02-29T00:00:00Z",
+            "2026-11-06T24:00:00Z",
+            "2026-11-06T00:60:00Z",
+            "2026-11-06T00:00:60Z",
+            "2026-11-06t00:00:00z",
+            "2026-11-06T00:00Z",
+            "2026-11-06T00:00:00Z ",
+            "",
+            "not a time",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(!read_rule(rejected), "{rejected:?}");
+            assert!(
+                insert(&format!("rejected-{index}"), rejected).is_err(),
+                "{rejected:?} must be rejected"
+            );
+        }
+        // An update cannot slip a non-canonical value past the insert rule either.
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox SET created_at = '2026-11-06T00:00:00.5Z'
+                     WHERE mutation_id = 'accepted-0'",
+                    [],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn entity_generation_starts_at_one_and_pairs_assets_tombstones_and_outbox() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,1,1,?1,?1)",
+                ["2026-11-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert_asset = |entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,
+                  entity_generation)
+                 VALUES ('workspace-local',?1,'active','2026-11-14T00:00:00Z','2026-11-14T00:00:00Z',1,?2)",
+                rusqlite::params![entity_id, generation],
+            )
+        };
+        let insert_tombstone = |entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_at,state,
+                  barrier_state,entity_generation)
+                 VALUES ('workspace-local','domain_asset',?1,1,'2026-11-14T00:00:00Z','pending','pending',?2)",
+                rusqlite::params![entity_id, generation],
+            )
+        };
+        let insert_outbox = |mutation_id: &str, entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  entity_generation)
+                 VALUES ('workspace-local',?1,'domain_asset',?2,'{}','2026-11-14T00:00:00Z',?3)",
+                rusqlite::params![mutation_id, entity_id, generation],
+            )
+        };
+        let message = |result: rusqlite::Result<usize>| result.unwrap_err().to_string();
+
+        // Defaults: every row written without a generation is generation 1.
+        connection
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
+                 VALUES ('workspace-local','default.test','active','2026-11-14T00:00:00Z',
+                         '2026-11-14T00:00:00Z',1)",
+                [],
+            )
+            .unwrap();
+        let generation: i64 = connection
+            .query_row(
+                "SELECT entity_generation FROM domain_assets WHERE entity_id='default.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(generation, 1);
+        assert!(message(insert_asset("zero.test", 0)).contains("CHECK constraint failed"));
+
+        // A generation never changes until re-adding exists (ADR-0029 C2).
+        assert!(
+            message(connection.execute(
+                "UPDATE domain_assets SET entity_generation=2 WHERE entity_id='default.test'",
+                [],
+            ))
+            .contains("entity generation changes only through re-adding")
+        );
+
+        // Tombstones and outbox mutations carry the generation of the asset row they name.
+        insert_asset("paired.test", 2).unwrap();
+        assert!(
+            message(insert_tombstone("paired.test", 1))
+                .contains("tombstone generation differs from its asset")
+        );
+        assert!(
+            message(insert_outbox("mutation-mismatch", "paired.test", 1))
+                .contains("outbox mutation generation differs from its asset")
+        );
+        insert_outbox("mutation-paired", "paired.test", 2).unwrap();
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_outbox SET entity_generation=1 WHERE mutation_id='mutation-paired'",
+                [],
+            ))
+            .contains("outbox mutation generation is immutable")
+        );
+        insert_tombstone("paired.test", 2).unwrap();
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_tombstones SET entity_generation=3 WHERE entity_id='paired.test'",
+                [],
+            ))
+            .contains("entity generation changes only through re-adding")
+        );
+
+        // A replicated tombstone may arrive before its asset row; the row must then match it.
+        insert_tombstone("remote-only.test", 4).unwrap();
+        assert!(
+            message(insert_asset("remote-only.test", 1))
+                .contains("asset generation differs from its tombstone")
+        );
+        insert_asset("remote-only.test", 4).unwrap();
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the trigger rules are enumerated against one migrated database"
+    )]
+    fn checkpoint_tombstones_carry_only_their_deletion_revision() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,1,1,?1,?1)",
+                ["2026-11-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert = |entity_id: &str,
+                      state: &str,
+                      barrier: &str,
+                      deleted: Option<i64>,
+                      order: Option<i64>,
+                      device: Option<&str>,
+                      provenance: &str| {
+            connection.execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
+                  deleted_server_revision,deleted_at,state,barrier_state,order_server_revision,
+                  order_source_device_id,order_mutation_id,order_provenance)
+                 VALUES ('workspace-local','domain_asset',?1,1,?2,'2026-11-14T00:00:00Z',?3,?4,?5,
+                         ?6,?6,?7)",
+                rusqlite::params![
+                    entity_id, deleted, state, barrier, order, device, provenance
+                ],
+            )
+        };
+        let message = |result: rusqlite::Result<usize>| result.unwrap_err().to_string();
+        let checkpoint_rule = "checkpoint tombstone carries only its deletion revision";
+        insert(
+            "ok.test",
+            "replicated",
+            "replicated",
+            Some(3),
+            Some(3),
+            None,
+            "checkpoint",
+        )
+        .unwrap();
+        for (entity_id, state, barrier, deleted, order, device) in [
+            (
+                "ids.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                Some("device"),
+            ),
+            ("pending.test", "pending", "pending", Some(3), Some(3), None),
+            (
+                "contested.test",
+                "replicated",
+                "contested",
+                Some(3),
+                Some(3),
+                None,
+            ),
+            (
+                "order.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(2),
+                None,
+            ),
+            (
+                "unordered.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                None,
+                None,
+            ),
+            (
+                "undeleted.test",
+                "replicated",
+                "replicated",
+                None,
+                Some(3),
+                None,
+            ),
+        ] {
+            assert!(
+                message(insert(
+                    entity_id,
+                    state,
+                    barrier,
+                    deleted,
+                    order,
+                    device,
+                    "checkpoint"
+                ))
+                .contains(checkpoint_rule),
+                "{entity_id}"
+            );
+        }
+        // Mutation-sourced tombstones still need their full order evidence.
+        assert!(
+            message(insert(
+                "mutation.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                None,
+                "mutation"
+            ))
+            .contains("missing tombstone order evidence")
+        );
+        assert!(
+            message(insert(
+                "other.test",
+                "replicated",
+                "replicated",
+                Some(3),
+                Some(3),
+                None,
+                "cloud"
+            ))
+            .contains("CHECK constraint failed")
+        );
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_tombstones SET order_provenance='mutation' WHERE entity_id='ok.test'",
+                [],
+            ))
+            .contains("tombstone order provenance is immutable")
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the rebuild is proven against one database seeded before it runs"
+    )]
+    fn sync_wire_v3_rebuild_keeps_rows_children_and_foreign_keys() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        let target = super::ACTIVE_MIGRATIONS
+            .iter()
+            .position(|migration| migration.id == super::SYNC_WIRE_V3_MIGRATION_ID)
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gooddealer_active_migrations (
+                   id INTEGER PRIMARY KEY,
+                   owner TEXT NOT NULL,
+                   checksum TEXT NOT NULL,
+                   applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 ) STRICT;",
+            )
+            .unwrap();
+        for migration in &super::ACTIVE_MIGRATIONS[..target] {
+            super::apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO active_workspace_metadata
+                 (singleton,storage_domain,workspace_id,workspace_schema_version,
+                  applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+                  created_at,updated_at)
+                 VALUES (1,'active_workspace','workspace-local',1,1,1,1,
+                         '2026-11-14T00:00:00Z','2026-11-14T00:00:00Z');
+                 INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  wire_schema_version,wire_mutation_digest)
+                 VALUES ('workspace-local','claimed-v2','domain_asset','kept.test','{}',
+                         '2026-11-14T00:00:00Z',2,'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+                 INSERT INTO sync_outbox_fields
+                 (workspace_id,mutation_id,ordinal,field_path,field_value_json,field_value_sha256)
+                 VALUES ('workspace-local','claimed-v2',0,'note','\"kept\"',
+                         '0000000000000000000000000000000000000000000000000000000000000000');
+                 INSERT INTO sync_inbox
+                 (workspace_id,server_revision,mutation_id,workspace_schema_version,entity_kind,
+                  entity_id,operation_kind,source_device_id,base_server_revision,
+                  mutation_payload_json,mutation_payload_sha256,state,received_at,applied_at,
+                  wire_schema_version,wire_mutation_digest)
+                 VALUES ('workspace-local',1,'received-v2',1,'domain_asset','kept.test','upsert',
+                         'device',0,'{}',
+                         '0000000000000000000000000000000000000000000000000000000000000000',
+                         'applied','2026-11-14T00:00:00Z','2026-11-14T00:00:00Z',2,
+                         'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB');",
+            )
+            .unwrap();
+        let rows = |connection: &Connection| -> (i64, i64, i64, i64, i64) {
+            connection
+                .query_row(
+                    "SELECT (SELECT count(*) FROM sync_outbox WHERE wire_schema_version=2),
+                            (SELECT count(*) FROM sync_outbox_fields),
+                            (SELECT count(*) FROM sync_inbox WHERE wire_schema_version=2),
+                            (SELECT count(*) FROM sqlite_schema WHERE type='trigger'),
+                            (SELECT count(*) FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL)",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .unwrap()
+        };
+        let schema = |connection: &Connection| -> Vec<(String, String)> {
+            let mut statement = connection
+                .prepare(
+                    "SELECT name, sql FROM sqlite_schema
+                     WHERE type IN ('trigger','index') AND sql IS NOT NULL ORDER BY name",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        let before = rows(&connection);
+        let schema_before = schema(&connection);
+        run_active_migrations(&mut connection).unwrap();
+        // Rows and their cascade children survive; the same triggers and indexes exist again.
+        assert_eq!(rows(&connection), before);
+        // Every recreated trigger and index is byte-identical except the intended changes: the
+        // delivery triggers accept version 3, and the inbox digest index covers every version.
+        let changed = [
+            "sync_outbox_v2_delivery_insert",
+            "sync_outbox_v2_delivery_update",
+        ];
+        let unchanged = |entries: Vec<(String, String)>| {
+            entries
+                .into_iter()
+                .filter(|(name, _)| {
+                    !changed.contains(&name.as_str())
+                        && name != "sync_inbox_v2_digest"
+                        && name != "sync_inbox_wire_digest"
+                })
+                .collect::<Vec<_>>()
+        };
+        let schema_after = schema(&connection);
+        assert_eq!(unchanged(schema_after.clone()), unchanged(schema_before));
+        for name in changed {
+            let sql = &schema_after
+                .iter()
+                .find(|(entry, _)| entry == name)
+                .unwrap()
+                .1;
+            assert!(sql.contains("NEW.wire_schema_version IN (2, 3)"), "{name}");
+            assert!(!sql.contains("NEW.wire_schema_version = 2"), "{name}");
+        }
+        assert!(
+            schema_after
+                .iter()
+                .any(|(name, sql)| name == "sync_inbox_wire_digest"
+                    && sql.contains("WHERE wire_schema_version IS NOT NULL"))
+        );
+        assert_eq!(before.0, 1);
+        assert_eq!(before.1, 1);
+        let foreign_keys: bool = connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        assert!(foreign_keys);
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+        verify_active_manifest(&connection).unwrap();
+        // Claimed fields stay immutable, and the parent still cascades to them only on purpose.
+        assert!(
+            connection
+                .execute("DELETE FROM sync_outbox_fields", [])
+                .unwrap_err()
+                .to_string()
+                .contains("claimed sync outbox fields are immutable")
+        );
+        let insert = |mutation_id: &str, version: i64, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  wire_schema_version,wire_mutation_digest,entity_generation)
+                 VALUES ('workspace-local',?1,'domain_asset','new.test','{}',
+                         '2026-11-14T00:00:00Z',?2,'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',?3)",
+                rusqlite::params![mutation_id, version, generation],
+            )
+        };
+        insert("version-3", 3, 2).unwrap();
+        assert!(
+            insert("version-2-later-generation", 2, 2)
+                .unwrap_err()
+                .to_string()
+                .contains("CHECK constraint failed")
+        );
+        // An unknown version is refused (by the delivery trigger or the column CHECK).
+        assert!(insert("version-4", 4, 1).is_err());
     }
 }

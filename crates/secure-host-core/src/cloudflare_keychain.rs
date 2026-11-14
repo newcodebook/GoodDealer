@@ -29,6 +29,142 @@ pub enum CloudflareKeychainError {
 
 /// Host authority/deadline callback used to fence cross-process credential publication.
 pub type CloudflareKeychainGuard<'a> = dyn FnMut() -> Result<(), CloudflareKeychainError> + 'a;
+
+/// Read-only identity forwarded from a committed, irreversible Host retirement request.
+pub trait CloudflareCredentialRetirementPlan {
+    fn connection_incarnation(&self) -> &str;
+    fn connection_digest(&self) -> &str;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudflarePurgeOutcome {
+    Purged,
+    AlreadyAbsent,
+    Unknown,
+}
+
+/// Deletes only a permanently refused slot, without loading or decoding its secret value.
+/// Admission and completion callbacks run while the existing per-slot custody lock is held.
+///
+/// # Errors
+///
+/// Rejects malformed plans, unsupported platforms, unavailable locks, or stale Host admission.
+/// A deletion/readback failure resolves as Unknown so the durable request can be retried.
+pub fn purge_retired_cloudflare_slot<Plan, Handle, Resolved>(
+    plan: &Plan,
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    if !is_local_identifier(plan.connection_incarnation())
+        || !is_connection_digest(plan.connection_digest())
+    {
+        return Err(CloudflareKeychainError::Malformed);
+    }
+    purge_retired_cloudflare_slot_platform(plan, handle, admit_once, resolve_once)
+}
+
+#[cfg(target_os = "macos")]
+fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
+    plan: &Plan,
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    let _lock = KeychainLock::acquire(plan.connection_digest())?;
+    purge_admitted_retirement(
+        handle,
+        admit_once,
+        || match security_framework::passwords::delete_generic_password_options(keychain_options(
+            plan.connection_digest(),
+            false,
+        )) {
+            Ok(()) => Ok(true),
+            Err(error) if error.code() == -25300 => Ok(false),
+            Err(_) => Err(CloudflareKeychainError::Unavailable),
+        },
+        || retired_slot_exists(plan.connection_digest()),
+        resolve_once,
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
+    _plan: &Plan,
+    _handle: Handle,
+    _admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    _resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialRetirementPlan + ?Sized,
+{
+    Err(CloudflareKeychainError::Unavailable)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn purge_admitted_retirement<Handle, Resolved>(
+    handle: Handle,
+    admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
+    delete_once: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    exists_after: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Handle,
+        CloudflarePurgeOutcome,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError> {
+    admit_once(&handle)?;
+    resolve_once(handle, purge_and_verify_absence(delete_once, exists_after))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn purge_and_verify_absence(
+    delete_once: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+    exists_after: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
+) -> CloudflarePurgeOutcome {
+    let Ok(deleted) = delete_once() else {
+        return CloudflarePurgeOutcome::Unknown;
+    };
+    match exists_after() {
+        Ok(false) if deleted => CloudflarePurgeOutcome::Purged,
+        Ok(false) => CloudflarePurgeOutcome::AlreadyAbsent,
+        Ok(true) | Err(_) => CloudflarePurgeOutcome::Unknown,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn retired_slot_exists(connection_digest: &str) -> Result<bool, CloudflareKeychainError> {
+    use security_framework::item::{CloudSync, ItemClass, ItemSearchOptions};
+    let mut query = ItemSearchOptions::new();
+    // Attributes prove presence only. Unknown custody bytes must never enter an envelope parser.
+    query
+        .class(ItemClass::generic_password())
+        .service(SERVICE)
+        .account(connection_digest)
+        .cloud_sync(CloudSync::MatchSyncNo)
+        .ignore_legacy_keychains()
+        .load_attributes(true)
+        .limit(1);
+    match query.search() {
+        Ok(results) => Ok(!results.is_empty()),
+        Err(error) if error.code() == -25300 => Ok(false),
+        Err(_) => Err(CloudflareKeychainError::Unavailable),
+    }
+}
 impl fmt::Display for CloudflareKeychainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -482,6 +618,177 @@ where
     )
 }
 
+/// Publishes one Host-prepared revocation: the exact Active base is replaced by a tombstone at
+/// the next generation, so the token leaves custody and no older generation can be replayed.
+///
+/// The tombstone keeps the base's scope, Zone binding and Zone identifier; only its generation
+/// and public proof are new. The callback sequence and lock discipline are the same as for
+/// [`publish_cloudflare_candidate_guarded`]: a contradicting base remediates without writing,
+/// and after `mark_once` the write, strict read-back and `resolve_once` drain under one lock.
+///
+/// # Errors
+///
+/// Rejects a malformed plan, a plan whose base is not Active or whose target changes the
+/// scope or Zone, unavailable custody, or a failed Host marker/resolution callback.
+pub fn publish_cloudflare_tombstone_guarded<Plan, Inspecting, Marked, Resolved>(
+    plan: &Plan,
+    inspecting: Inspecting,
+    mark_once: impl FnOnce(Inspecting) -> Result<Marked, CloudflareKeychainError>,
+    remediate_once: impl FnOnce(
+        Inspecting,
+        CloudflarePrewriteFailure,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Marked,
+        CloudflareCustodyComparison,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialProvisionPlan + ?Sized,
+    Inspecting: CloudflarePrewriteInspection,
+{
+    validate_tombstone_plan(plan)?;
+    publish_tombstone_envelope_guarded(plan, inspecting, mark_once, remediate_once, resolve_once)
+}
+
+fn validate_tombstone_plan(
+    plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
+) -> Result<(), CloudflareKeychainError> {
+    validate_provision_plan(plan)?;
+    if plan.expected_base_kind() != CloudflareCredentialPublicKind::Active
+        || plan.expected_base_scope_digest() != Some(plan.target_scope_digest())
+        || plan.expected_base_zone_digest() != Some(plan.target_zone_digest())
+    {
+        return Err(CloudflareKeychainError::Malformed);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn publish_tombstone_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
+    plan: &Plan,
+    inspecting: Inspecting,
+    mark_once: impl FnOnce(Inspecting) -> Result<Marked, CloudflareKeychainError>,
+    remediate_once: impl FnOnce(
+        Inspecting,
+        CloudflarePrewriteFailure,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Marked,
+        CloudflareCustodyComparison,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialProvisionPlan + ?Sized,
+    Inspecting: CloudflarePrewriteInspection,
+{
+    let _lock = KeychainLock::acquire(plan.connection_digest())?;
+    let current = match load_unlocked(plan.connection_digest()) {
+        Ok(current) => current,
+        Err(CloudflareKeychainError::Malformed | CloudflareKeychainError::BindingMismatch) => {
+            return remediate_once(inspecting, CloudflarePrewriteFailure::Malformed);
+        }
+        Err(_) => return remediate_once(inspecting, CloudflarePrewriteFailure::Unreadable),
+    };
+    tombstone_after_base(
+        plan,
+        InspectedBase {
+            current: current.as_ref(),
+            handle: inspecting,
+        },
+        mark_once,
+        remediate_once,
+        |envelope| {
+            let bytes = envelope.encode()?;
+            Ok(
+                match security_framework::passwords::set_generic_password_options(
+                    &bytes,
+                    keychain_options(plan.connection_digest(), true),
+                ) {
+                    Ok(()) => classify_current_custody(
+                        plan,
+                        load_unlocked(plan.connection_digest()),
+                        envelope,
+                    ),
+                    Err(_) => CloudflareCustodyComparison::Unavailable,
+                },
+            )
+        },
+        resolve_once,
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn publish_tombstone_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
+    _plan: &Plan,
+    _inspecting: Inspecting,
+    _mark_once: impl FnOnce(Inspecting) -> Result<Marked, CloudflareKeychainError>,
+    _remediate_once: impl FnOnce(
+        Inspecting,
+        CloudflarePrewriteFailure,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+    _resolve_once: impl FnOnce(
+        Marked,
+        CloudflareCustodyComparison,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialProvisionPlan + ?Sized,
+    Inspecting: CloudflarePrewriteInspection,
+{
+    Err(CloudflareKeychainError::Unavailable)
+}
+
+/// Builds the tombstone only from an exact Active base, because the Zone identifier it keeps is
+/// read from that base; any other base remediates before anything is built or written.
+#[cfg(any(target_os = "macos", test))]
+fn tombstone_after_base<Plan, Inspecting, Marked, Resolved>(
+    plan: &Plan,
+    inspected: InspectedBase<'_, Inspecting>,
+    mark_once: impl FnOnce(Inspecting) -> Result<Marked, CloudflareKeychainError>,
+    remediate_once: impl FnOnce(
+        Inspecting,
+        CloudflarePrewriteFailure,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+    write_and_read_back: impl FnOnce(
+        &CloudflareCredentialEnvelope,
+    )
+        -> Result<CloudflareCustodyComparison, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Marked,
+        CloudflareCustodyComparison,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialProvisionPlan + ?Sized,
+{
+    let base = match inspected.current {
+        Some(base) if matches_expected_base(plan, Some(base)) => base,
+        current => {
+            return remediate_once(inspected.handle, base_mismatch_reason(plan, current));
+        }
+    };
+    let target = CloudflareCredentialEnvelope::tombstone(
+        plan.connection_incarnation(),
+        plan.connection_digest(),
+        plan.target_scope_digest(),
+        plan.target_zone_digest(),
+        plan.target_public_proof(),
+        base.zone_id(),
+        plan.target_generation(),
+    )?;
+    publish_after_base_as(
+        plan,
+        &target,
+        CloudflareCredentialState::Tombstone,
+        inspected,
+        mark_once,
+        remediate_once,
+        || write_and_read_back(&target),
+        resolve_once,
+    )
+}
+
 /// Strictly inspects one unresolved post-marker credential while retaining its Keychain lock
 /// through the Host resolution callback. This operation never writes or deletes Keychain data.
 ///
@@ -811,19 +1118,60 @@ fn publish_after_base<Plan, Inspecting, Marked, Resolved>(
 where
     Plan: CloudflareCredentialProvisionPlan + ?Sized,
 {
+    publish_after_base_as(
+        plan,
+        target,
+        CloudflareCredentialState::Active,
+        inspected,
+        mark_once,
+        remediate_once,
+        write_and_read_back,
+        resolve_once,
+    )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn base_mismatch_reason(
+    plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
+    current: Option<&CloudflareCredentialEnvelope>,
+) -> CloudflarePrewriteFailure {
+    if current.is_none() && plan.expected_base_kind() != CloudflareCredentialPublicKind::Absent {
+        CloudflarePrewriteFailure::MissingOther
+    } else {
+        CloudflarePrewriteFailure::BaseMismatch
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the four fenced callbacks are one publication sequence"
+)]
+fn publish_after_base_as<Plan, Inspecting, Marked, Resolved>(
+    plan: &Plan,
+    target: &CloudflareCredentialEnvelope,
+    target_state: CloudflareCredentialState,
+    inspected: InspectedBase<'_, Inspecting>,
+    mark_once: impl FnOnce(Inspecting) -> Result<Marked, CloudflareKeychainError>,
+    remediate_once: impl FnOnce(
+        Inspecting,
+        CloudflarePrewriteFailure,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+    write_and_read_back: impl FnOnce() -> Result<CloudflareCustodyComparison, CloudflareKeychainError>,
+    resolve_once: impl FnOnce(
+        Marked,
+        CloudflareCustodyComparison,
+    ) -> Result<Resolved, CloudflareKeychainError>,
+) -> Result<Resolved, CloudflareKeychainError>
+where
+    Plan: CloudflareCredentialProvisionPlan + ?Sized,
+{
     let InspectedBase {
         current,
         handle: inspecting,
     } = inspected;
     if !matches_expected_base(plan, current) {
-        let reason = if current.is_none()
-            && plan.expected_base_kind() != CloudflareCredentialPublicKind::Absent
-        {
-            CloudflarePrewriteFailure::MissingOther
-        } else {
-            CloudflarePrewriteFailure::BaseMismatch
-        };
-        return remediate_once(inspecting, reason);
+        return remediate_once(inspecting, base_mismatch_reason(plan, current));
     }
     if target.connection_incarnation() != plan.connection_incarnation()
         || target.connection_digest() != plan.connection_digest()
@@ -831,7 +1179,7 @@ where
         || target.scope_digest() != plan.target_scope_digest()
         || target.zone_digest() != plan.target_zone_digest()
         || target.public_proof() != plan.target_public_proof()
-        || target.state() != CloudflareCredentialState::Active
+        || target.state() != target_state
     {
         return Err(CloudflareKeychainError::Malformed);
     }
@@ -1239,6 +1587,134 @@ mod tests {
     const SCOPE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const PROOF: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
+    struct RetirementPlan<'a> {
+        incarnation: &'a str,
+        digest: &'a str,
+    }
+
+    impl CloudflareCredentialRetirementPlan for RetirementPlan<'_> {
+        fn connection_incarnation(&self) -> &str {
+            self.incarnation
+        }
+        fn connection_digest(&self) -> &str {
+            self.digest
+        }
+    }
+
+    #[test]
+    fn purge_requires_valid_plan_before_any_callback() {
+        let digest = "a".repeat(64);
+        for plan in [
+            RetirementPlan {
+                incarnation: "",
+                digest: &digest,
+            },
+            RetirementPlan {
+                incarnation: INCARNATION,
+                digest: "not-a-slot-digest",
+            },
+            RetirementPlan {
+                incarnation: INCARNATION,
+                digest: &"A".repeat(64),
+            },
+        ] {
+            let result: Result<(), _> = purge_retired_cloudflare_slot(
+                &plan,
+                (),
+                |()| panic!("invalid plan must not be admitted"),
+                |(), _| panic!("invalid plan must not resolve"),
+            );
+            assert_eq!(result, Err(CloudflareKeychainError::Malformed));
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn purge_is_unavailable_without_native_custody_and_does_not_complete_retirement() {
+        let digest = "a".repeat(64);
+        let plan = RetirementPlan {
+            incarnation: INCARNATION,
+            digest: &digest,
+        };
+        let result: Result<(), _> = purge_retired_cloudflare_slot(
+            &plan,
+            (),
+            |()| panic!("unsupported platform must not be admitted"),
+            |(), _| panic!("unsupported platform must not complete retirement"),
+        );
+        assert_eq!(result, Err(CloudflareKeychainError::Unavailable));
+    }
+
+    #[test]
+    fn purge_checks_admission_before_delete_and_keeps_unknown_retryable() {
+        let refused: Result<(), _> = purge_admitted_retirement(
+            (),
+            |()| Err(CloudflareKeychainError::AuthorityStale),
+            || panic!("stale authority must not delete"),
+            || panic!("stale authority must not query custody"),
+            |(), _| panic!("stale authority must not complete retirement"),
+        );
+        assert_eq!(refused, Err(CloudflareKeychainError::AuthorityStale));
+        for (deleted, exists, expected) in [
+            (Ok(true), Ok(false), CloudflarePurgeOutcome::Purged),
+            (Ok(false), Ok(false), CloudflarePurgeOutcome::AlreadyAbsent),
+            (Ok(true), Ok(true), CloudflarePurgeOutcome::Unknown),
+            (Ok(false), Ok(true), CloudflarePurgeOutcome::Unknown),
+            (
+                Ok(true),
+                Err(CloudflareKeychainError::Unavailable),
+                CloudflarePurgeOutcome::Unknown,
+            ),
+            (
+                Err(CloudflareKeychainError::Unavailable),
+                Ok(false),
+                CloudflarePurgeOutcome::Unknown,
+            ),
+        ] {
+            let order = std::cell::RefCell::new(Vec::new());
+            let result = purge_admitted_retirement(
+                "opaque-handle",
+                |handle| {
+                    assert_eq!(*handle, "opaque-handle");
+                    order.borrow_mut().push("admit");
+                    Ok(())
+                },
+                || {
+                    order.borrow_mut().push("delete");
+                    deleted
+                },
+                || {
+                    order.borrow_mut().push("read-presence");
+                    exists
+                },
+                |handle, outcome| {
+                    assert_eq!(handle, "opaque-handle");
+                    order.borrow_mut().push("resolve");
+                    Ok(outcome)
+                },
+            );
+            assert_eq!(result, Ok(expected));
+            assert_eq!(
+                order.into_inner(),
+                if deleted.is_ok() {
+                    vec!["admit", "delete", "read-presence", "resolve"]
+                } else {
+                    vec!["admit", "delete", "resolve"]
+                }
+            );
+        }
+        assert_eq!(
+            purge_admitted_retirement(
+                (),
+                |()| Ok(()),
+                || Ok(true),
+                || Ok(false),
+                |(), _| Err::<(), _>(CloudflareKeychainError::AuthorityStale)
+            ),
+            Err(CloudflareKeychainError::AuthorityStale)
+        );
+    }
+
     struct Plan {
         base_kind: CloudflareCredentialPublicKind,
         base_generation: Option<u64>,
@@ -1576,6 +2052,130 @@ mod tests {
             Err(CloudflareKeychainError::BindingMismatch)
         );
         assert_eq!(*mismatch_events.borrow(), ["remediate"]);
+    }
+
+    fn revoke_plan(zone: &str) -> Plan {
+        let zone_digest = cloudflare_zone_binding_digest(zone);
+        Plan {
+            base_kind: CloudflareCredentialPublicKind::Active,
+            base_generation: Some(2),
+            base_scope: Some(SCOPE.to_owned()),
+            base_zone: Some(zone_digest.clone()),
+            base_proof: Some(PROOF.to_owned()),
+            target_generation: 3,
+            target_zone: zone_digest,
+        }
+    }
+
+    #[test]
+    fn revocation_replaces_the_exact_active_base_with_a_tokenless_tombstone() {
+        use std::cell::RefCell;
+
+        let zone = "0123456789abcdef0123456789abcdef";
+        let plan = revoke_plan(zone);
+        let base = active(plan.connection_digest(), zone, 2);
+        let events = RefCell::new(Vec::new());
+        let written = RefCell::new(None);
+        let result = tombstone_after_base(
+            &plan,
+            InspectedBase {
+                current: Some(&base),
+                handle: "inspecting",
+            },
+            |handle| {
+                events.borrow_mut().push("marker");
+                Ok(handle)
+            },
+            |_, _| unreachable!("an exact Active base cannot remediate"),
+            |envelope| {
+                events.borrow_mut().push("write-read-back");
+                written.replace(Some(envelope.encode().unwrap()));
+                Ok(CloudflareCustodyComparison::ExactTarget)
+            },
+            |marked, comparison| {
+                events.borrow_mut().push("resolve");
+                Ok((marked, comparison))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            ("inspecting", CloudflareCustodyComparison::ExactTarget)
+        );
+        assert_eq!(*events.borrow(), ["marker", "write-read-back", "resolve"]);
+        let written = written.borrow();
+        let tombstone =
+            CloudflareCredentialEnvelope::decode(written.as_ref().unwrap().as_slice()).unwrap();
+        assert!(tombstone.state() == CloudflareCredentialState::Tombstone);
+        assert!(tombstone.token().is_none());
+        assert_eq!(tombstone.generation(), 3);
+        assert_eq!(tombstone.zone_id(), zone);
+        assert_eq!(tombstone.scope_digest(), SCOPE);
+    }
+
+    #[test]
+    fn revocation_of_a_non_exact_base_only_remediates() {
+        let zone = "0123456789abcdef0123456789abcdef";
+        let plan = revoke_plan(zone);
+        let mut drift = active(plan.connection_digest(), zone, 2);
+        drift.public_proof = "d".repeat(64);
+        let already_revoked = tombstone(plan.connection_digest(), zone, 2);
+        for (current, expected) in [
+            (Some(&drift), CloudflarePrewriteFailure::BaseMismatch),
+            (
+                Some(&already_revoked),
+                CloudflarePrewriteFailure::BaseMismatch,
+            ),
+            (None, CloudflarePrewriteFailure::MissingOther),
+        ] {
+            let reason = tombstone_after_base(
+                &plan,
+                InspectedBase {
+                    current,
+                    handle: (),
+                },
+                |()| panic!("a contradicted base must not mark"),
+                |(), reason| Ok(reason),
+                |_| panic!("a contradicted base must not write"),
+                |(), _| panic!("a contradicted base must not resolve"),
+            )
+            .unwrap();
+            assert_eq!(reason, expected);
+        }
+    }
+
+    #[test]
+    fn revocation_plan_must_keep_scope_and_zone_of_an_active_base() {
+        let zone = "0123456789abcdef0123456789abcdef";
+        assert!(validate_tombstone_plan(&revoke_plan(zone)).is_ok());
+        let mut absent = revoke_plan(zone);
+        absent.base_kind = CloudflareCredentialPublicKind::Absent;
+        absent.base_generation = None;
+        absent.base_scope = None;
+        absent.base_zone = None;
+        absent.base_proof = None;
+        assert_eq!(
+            validate_tombstone_plan(&absent),
+            Err(CloudflareKeychainError::Malformed)
+        );
+        let mut from_tombstone = revoke_plan(zone);
+        from_tombstone.base_kind = CloudflareCredentialPublicKind::Tombstone;
+        assert_eq!(
+            validate_tombstone_plan(&from_tombstone),
+            Err(CloudflareKeychainError::Malformed)
+        );
+        let mut moved_zone = revoke_plan(zone);
+        moved_zone.target_zone = cloudflare_zone_binding_digest("fedcba9876543210fedcba9876543210");
+        assert_eq!(
+            validate_tombstone_plan(&moved_zone),
+            Err(CloudflareKeychainError::Malformed)
+        );
+        let mut replay = revoke_plan(zone);
+        replay.target_generation = 2;
+        assert_eq!(
+            validate_tombstone_plan(&replay),
+            Err(CloudflareKeychainError::Malformed)
+        );
     }
 
     #[test]

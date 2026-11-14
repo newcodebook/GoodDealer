@@ -48,12 +48,15 @@ Cloud 当前使用 [`apps/cloud/src/entrypoints/development-server.ts`](../apps/
 API、Identity capability issuer、Provider ingress、Provider worker 五个相互隔离的 runtime pool。独立的
 [`development-migrate.ts`](../apps/cloud/src/entrypoints/development-migrate.ts) 由 oneshot 服务以
 `gooddealer-migrator` 身份和 Owner URL 应用迁移；Owner 凭据不进入常驻 Cloud 进程。仓库当前
-greenfield catalog 当前有 27 项：M001–M017、M019 后接 M020，再依次包含
+greenfield catalog 当前有 32 项：M001–M017、M019 后接 M020，再依次包含
 `202609140001-sync-v2-ledger`、`202609150001-workspace-checkpoint-v2` 和
 `202609150002-cloudflare-dns-observation`、`202609210001-account-recovery`、
 `202609220001-commercial-entitlement-snapshot` 和
 `202609220002-account-default-workspace-capability-policy`，最后是 ADR-0026 的
-`202611020001-desktop-login-loopback-redirect` 与 `202611020002-desktop-code-loopback-redirect`。M015 已是规范化商业 baseline，不存在 M018 compatibility
+`202611020001-desktop-login-loopback-redirect` 与 `202611020002-desktop-code-loopback-redirect`，最后是 ADR-0030
+B1 的 `202611130001-drain-proof-schema-version`、`202611130002-mutation-drain-result-chain`、B2 的
+`202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain` 与 ADR-0029 C1a 的
+`202611130005-mutation-wire-v3`。M015 已是规范化商业 baseline，不存在 M018 compatibility
 migration；M019 前必须由角色管理员运行受控 role provisioning，M020 增加 Account access challenge
 与加密邮件 outbox；后续 migration 分别增加密码恢复、challenge-bound outbox、Session 撤销、商业权威读取 façade
 和默认个人工作区 capability policy。当前 staging 数据库已通过正常 migrator 应用完整 catalog；不得通过修改 ledger
@@ -126,14 +129,15 @@ docker exec gooddealer-postgres-development \
   -c 'SELECT count(*) FROM gooddealer_cloud_migrations'
 ```
 
-当前共享 staging 数据库从空库应用证据覆盖完整 25 条 migration，并核验 Identity
+当前共享 staging 数据库的空库应用证据覆盖当时目录的 25 条 migration，并核验 Identity
 capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 SQL 的预期 checksum 是
 `dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e`，M019 的预期 checksum 是
 `5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9`，其 closed purpose allowlist 包含
-`refund_request`。当前源码 catalog 应有 27 个条目：M001–M017、M019、M020、上述三个同步/观察
+`refund_request`。当前源码 catalog 应有 32 个条目：M001–M017、M019、M020、上述三个同步/观察
 migration、`202609210001-account-recovery`、`202609220001-commercial-entitlement-snapshot` 和
 `202609220002-account-default-workspace-capability-policy`、`202611020001-desktop-login-loopback-redirect` 和
-`202611020002-desktop-code-loopback-redirect`。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
+`202611020002-desktop-code-loopback-redirect`，以及 ADR-0030 B1 的 `202611130001-drain-proof-schema-version` 和
+`202611130002-mutation-drain-result-chain`、B2 的 `202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain`、ADR-0029 C1a 的 `202611130005-mutation-wire-v3`；最后七项需要新的 staging 应用证据。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
 roles/memberships、同步 v2 ledger/checkpoint/Cloudflare observation schema 与五个 runtime 登录身份
 取得不含业务行和秘密的结构快照。
 

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AssetLibraryViewModel, ConflictCenterViewModel, SyncSnapshotViewModel } from "@gooddealer/client-core";
 
 import { adjudicateDesktopPresentation } from "./desktop-presentation";
-import type { AuthoritativeWorkspacePublication } from "./workspace-publication";
+import type { AuthoritativeWorkspacePublication, AuthoritativeWorkspacePorts } from "./workspace-publication";
+import { WorkspaceView } from "./workspace-view";
 
 type BusinessStatus = AuthoritativeWorkspacePublication["status"];
 
@@ -107,9 +109,47 @@ describe("desktop presentation adjudication", () => {
       const result = adjudicateDesktopPresentation(false, value, "authenticated");
       return result.view === "workspace" ? result.surface.availableRouteIds : [];
     };
-    // DNS health has no Host projection yet, so it is never composed.
-    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "sync.conflicts"]);
+    expect(routes(publication("active", ["local:read"]))).toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "sync.conflicts", "settings"]);
     expect(routes(publication("active", ["local:read"], { sync: { ...sync, recoveryRequired: true } })))
-      .toEqual(["portfolio.list", "portfolio.detail"]);
+      .toEqual(["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "settings"]);
+  });
+
+  it.each([
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("renders the write entry for %s %j only when Grant and Lease admit writes", (state, capabilities, writable) => {
+    const presentation = adjudicateDesktopPresentation(false, publication(state, [...capabilities]), "authenticated");
+    if (presentation.view !== "workspace") throw new Error("expected a workspace");
+    const html = renderToStaticMarkup(
+      <WorkspaceView
+        locale="en-US"
+        presentation={presentation}
+        ports={{} as AuthoritativeWorkspacePorts}
+        windowFrame={{ platform: "windows", framed: false }}
+        onPublication={vi.fn()}
+        onRefresh={vi.fn()}
+        onLocaleChange={vi.fn()}
+      />,
+    );
+    expect(html.includes(">Add domain<")).toBe(writable);
+  });
+
+  it("puts every composed route in the production workspace rail", () => {
+    const presentation = adjudicateDesktopPresentation(false, publication("active", ["local:read"]), "authenticated");
+    if (presentation.view !== "workspace") throw new Error("expected a workspace");
+    const html = renderToStaticMarkup(
+      <WorkspaceView
+        locale="en-US"
+        presentation={presentation}
+        ports={{} as AuthoritativeWorkspacePorts}
+        windowFrame={{ platform: "windows", framed: false }}
+        onPublication={vi.fn()}
+        onRefresh={vi.fn()}
+        onLocaleChange={vi.fn()}
+      />,
+    );
+    for (const label of ["Asset library", "Sales", "DNS &amp; verification", "Batch operations", "Conflict center", "Manual tasks", "Operation history", "Settings"]) expect(html).toContain(label);
   });
 });

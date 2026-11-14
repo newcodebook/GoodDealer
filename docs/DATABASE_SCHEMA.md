@@ -106,17 +106,30 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_outbox_fields` | 严格字段白名单、规范值和 digest。 |
 | `sync_inbox` | 按连续 `server_revision` 接收、验证和原子应用下行 Mutation。 |
 | `sync_conflicts` | 本地值、远端候选、两个版本和显式解决状态。 |
-| `sync_tombstones` | 显式删除、ACK、复制和延迟清理。 |
+| `sync_tombstones` | 显式删除、ACK、复制和延迟清理；`entity_generation` 与所指资产行同代（ADR-0029）。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
 | `local_backup_catalog` | 本地备份 manifest、覆盖 revision、crypto profile、验证状态、保留期和清理期限。 |
 
-本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
+`domain_assets`、`sync_tombstones` 与 `sync_outbox` 的 `entity_generation`（迁移 `202611140001`，现有行为 1）写入后不变，
+墓碑与 Outbox mutation 必须与所指资产行同代，Inbox 拒绝与本地行不同代的 mutation；重新添加（ADR-0029 C2）前
+只有 generation 1。墓碑的 `order_provenance`（迁移 `202611140002`）区分复制 mutation 写入的墓碑（revision、来源设备与
+mutation id 作排序证据）与 rebootstrap 从 checkpoint 安装的墓碑（只有删除 revision，必须为 `replicated`，不得补上 id）。Outbox 与 Inbox 的 `wire_schema_version` 记录摘要所用的 wire 版本（迁移 `202611140003` 重建两表）：新行为 3，
+重建前的行保留 2，且版本 2 只允许 generation 1。本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
 应用不得生成回声 Outbox。墓碑在所有保留设备和恢复窗口安全越过删除 revision 前不得清理。
 同步记录使用 `mutation_payload_json + mutation_payload_sha256`，字段行使用
 `field_value_json + field_value_sha256`；本地历史使用 `event_payload_json + event_payload_sha256`，
 不得用裸 `payload` 或把普通 SHA-256 冒充协议 digest。
 同步 wire 和 Cloud mutation log 已区分 upsert 与显式 delete；delete 必须带规范删除时间且不能伪造
-changed fields。端到端 tombstone materializer 上线前，Cloud ingest 对 delete 保持 fail-closed 拒绝。
+changed fields。Cloud ingest 接受活跃资产的 delete，并在同一事务内软删除副本行（`deleted_at` 取删除
+时间，`lifecycle_status='archived'`，业务字段清空，字段 revision 置为本次 revision）且写入
+`workspace_replica_tombstones`；资产行保留，因为不可变的 Cloudflare DNS 观察回执以 `ON DELETE RESTRICT`
+外键引用它（[ADR-0029](adr/0029-domain-tombstone-purge-and-re-adding.md) 决策 2）。数据库触发器保证软删除
+行在提交时有墓碑、墓碑指向软删除行、已删除行不可再修改；投影读取、快照与 checkpoint、恢复候选和观察
+准入都排除已删除行。迁移 `202611140001` 同时为此前已接受、却留成活跃行的 delete 补做软删除与墓碑。副本资产行与墓碑各带 `entity_generation`（迁移 `202611140002`，现有为 1，墓碑与软删除行同代）；到达活跃行的 mutation 必须与其 generation 相等、新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝并记回执。重新添加（ADR-0029 决策 3）是指名墓碑删除 revision R 与 generation g + 1 的 upsert，`R <= base <= head`，否则同样以 `MUTATION_GENERATION_MISMATCH` 拒绝；接受时在 ingest 事务内删除墓碑，把软删除行重置为 g + 1 的默认活跃行（所有字段 revision 为本次 revision）再应用字段。迁移 `202611140006` 使这成为已删除行唯一允许的变化：活跃行 generation 不可变，墓碑只在提交时其资产行 generation 已超过它（或随工作区级联删除）时才可删除；application role 只获得这些写入所需的列与墓碑删除权限。变更流水 `workspace_mutations` 记录 `entity_generation` 与 `re_adds_deleted_revision`（迁移 `202611140005`，既有行为 1 且无重新添加）。Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内
+以默认字段与 revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产的 upsert 或 delete、以及副本
+从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断（重新添加除外，见上）。
+Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；重建把 delete 物化为同代墓碑，把指名该
+墓碑的重新添加物化为下一代活跃行，范围内对已删除资产的其他条目视为链损坏。Desktop 尚不能发出或应用重新添加。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 
@@ -139,8 +152,10 @@ Cloud 的身份、会话、商业授权、设备、Lease/Epoch、Job 和服务�
 `observation_origin + observation_capability + provider_kind`，不保存具体本地连接身份。
 
 普通 Cloud application role 目前只对已实现的 DomainAsset/Portfolio State materializer 拥有列级
-`SELECT/INSERT/UPDATE`：仅当前四个同步字段、对应 server revision 和投影状态可写；生命周期、materialization
-等未来列不可写，也不拥有硬删除权限。其余未来副本族只有 `SELECT`。只有在严格 wire schema、
+`SELECT/INSERT/UPDATE`：仅当前四个同步字段、对应 server revision、投影状态，以及删除物化所写的
+`deleted_at`、`lifecycle_status` 与其 revision 可写；其余生命周期、materialization 等未来列不可写，也不
+拥有硬删除权限。`workspace_replica_tombstones` 只对删除物化写入的列有 `INSERT`（`purge_after` 不可写，无
+`UPDATE`/`DELETE`）。其余未来副本族只有 `SELECT`。只有在严格 wire schema、
 owner materializer、secret-canary、墓碑和恢复测试一起落地后，才允许扩大对应表的 DML。
 
 Cloud Mutation receipt/log/field、Cursor、Checkpoint 和 Restore Candidate 是复制协调权威。它们
@@ -156,9 +171,10 @@ constraint 会在事务提交时拒绝仍领先于 head 的 Mutation 和孤立 R
 `compacted_through_server_revision` 列更新或 Mutation `DELETE` 权限；只能调用受限 compaction 函数。该函数在
 数据库内重新验证完整 replay chain、available Checkpoint、Device/Reader Cursor、Checkpoint Pin 和
 未解决 Recovery comparison，先原子推进 watermark，随后才允许删除该 watermark 以内的 replay
-行；Receipt 和 Drain 证据永久保留。Checkpoint DomainAsset 以每 512 行一个稳定
-`pNNNN` range partition 保存，最多 4096 个 digest 分区，可表示超过 100 万资产；空快照使用独立
-`empty` digest。Recovery 预留带 page/range/count/encoded-bytes/digest 的 page 目录，当前旧式单次
+行；Receipt 和 Drain 证据永久保留。Checkpoint 只存版本 3（迁移 `202611140004`，存在版本 1/2 行时拒绝执行）：状态是活跃 DomainAsset（带
+`entity_generation`）与墓碑（`workspace_checkpoint_domain_asset_tombstones`，带 generation、删除 revision 与
+时间）。活跃资产以每 512 行一个稳定 `pNNNN` range partition 保存，没有活跃资产时使用独立 `empty`
+digest；墓碑以 `tNNNN` 分区保存；两类合计最多 4096 个 digest 分区，可表示超过 100 万资产。Recovery 预留带 page/range/count/encoded-bytes/digest 的 page 目录，当前旧式单次
 request 路径不因此获得批量运行资格。
 
 Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资格版本为 18.6。
@@ -167,7 +183,7 @@ Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资�
 
 集中 schema 已覆盖未来实体、约束、索引、同步状态和恢复元数据，但 schema coverage 不等于旅程已
 上线。当前 DomainAsset 本地写入和窄副本读取已存在；以下仍是 runtime 实现任务：新实体
-首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、delete ingest 与端到端墓碑、
+首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、墓碑清除与 Desktop 端重新添加、
 Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 checkpoint，以及 10 万/100 万
 资产 keyset/page composition。在这些验收完成前，不得把对应旅程描述为可用。
 
@@ -187,6 +203,18 @@ Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 
   1024 条、4 MiB 的 page envelope，Manifest 最多绑定 256 个有序 section。旧式单次数组仍只用于
   当前窄路径，规模化实现必须使用 page/cursor，不能提高单次内存上限代替分页。
 - 正式规模声明需要 1 万、10 万和 100 万资产基准，以及 Outbox 积压、冲突和恢复故障测试。
+- 分页 Host 读取（资产库、域名详情、续费、DNS 健康、销售）的延迟预算（用户已于 2026-11-06 确认 10 万资产每页 1 s，作为阶段 4 V1 验收条件；1 万资产 150 ms 为工程回归上限）：release 构建下，每次读取连同其全量计数，
+  1 万资产不超过 150 ms，10 万资产（每个挂牌域名 2 个市场）不超过 1 s。被忽略的基准 `scale_reads_at_10k_assets`
+  与 `scale_reads_at_100k_assets` 以此为上限断言（参考机 AMD Ryzen 5 3600，空闲机器上用 `--test-threads=1` 逐个运行；负载下超限不代表回归，也不得据此放宽上限）；`scale_reads_at_100k_assets_on_8_markets`
+  是每个挂牌域名 8 个市场的最坏情况：销售合并结果按挂牌 generation 缓存（`sales_listing_generation` 由触发器在挂牌观察、
+  确认它们的 marketplace 运行与目标状态、资产删除变化时推进，并与 `PRAGMA data_version` 组合），备注、目标价、DNS 以及注册商或 DNS
+  观察运行等其余写入不再触发重新合并，缓存后各页约 0.1 ms；只有改变挂牌输入的写入（marketplace 观察运行、资产删除）之后的首次销售读取
+  须重新合并（约 0.51 s），其前的首次设置读取扫描同一批挂牌（约 0.67 s）。合并只读挂牌观察表：每行的 `confirmed`
+  由迁移 `sales_listing_confirmation` 的触发器按其运行（`succeeded`/`partial`）与本资产目标（`succeeded`）派生并在状态变化时维护，
+  直接写入不一致的值会被拒绝；已删除资产经生命周期索引一次读出后在内存中排除。该基准对全部读取（含这两次首读）断言 1 s 上限；`scale_reads_at_1m_assets` 只记录耗时，100 万资产不设 V1 预算，其中缓存的销售合并结果向分配器请求约
+  21 MiB（下限，不含分配器开销与合并时的瞬时峰值；每行按平台位集与状态枚举存储，大小与挂牌市场数无关）。
+  这些是本机基准，不是正式规模声明。被忽略的 `paged_reads_never_scan_a_base_table` 固定这些读取的查询计划：
+  任何语句都不得扫描基表（含覆盖索引扫描），全量计数只经工作区索引查找。
 
 ## 演进规则
 

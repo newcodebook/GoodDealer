@@ -1,4 +1,4 @@
-import { connectionSettingsViewModelSchema, syncSettingsViewModelSchema } from "@gooddealer/client-core";
+import { connectionSettingsViewModelSchema, parseSettingsRead, projectConnectionSettings, syncSettingsViewModelSchema } from "@gooddealer/client-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -33,7 +33,7 @@ const devices: DeviceRuntimeView = {
   ],
   handoffTargetIds: ["mini"],
 };
-const about = { version: "0.9.0", dataDirectory: "~/GoodDealer", revisionBase: 8241 };
+const about = { version: "0.9.0", dataDirectory: "~/GoodDealer", revisionBase: 8241, storageIntegrity: null };
 const noop = () => undefined;
 
 describe("Settings panel", () => {
@@ -87,5 +87,106 @@ describe("Settings contract", () => {
   it("keeps Standby connection status unverified", () => {
     const [connection] = standbyConnections.groups[0]?.connections ?? [];
     expect(connection === undefined ? null : connectionStatus(connection)).toEqual({ tone: "neutral", copyKey: "configuredCandidate" });
+  });
+});
+
+describe("Settings from the Host projection", () => {
+  const connections = projectConnectionSettings(parseSettingsRead({
+    schemaVersion: 2, kind: "settings", readGeneration: 1, storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
+    freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+    connections: [{
+      providerKind: "cloudflare", connectionLabel: "Cloudflare 主账号", lifecycleStatus: "active", validationStatus: "valid",
+      credentialUseState: "active", lastValidatedAt: "2026-01-02T03:04:05Z",
+      roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+    }],
+  }), () => "能力资格认证前不可用，暂不能执行任何操作");
+  const render = (initialSection: "connections" | "devices" | "license" | "sync" | "about") => renderToStaticMarkup(
+    <SettingsPanel
+      locale="zh-CN"
+      initialSection={initialSection}
+      connections={connections}
+      devices={null}
+      license="unavailable"
+      sync={null}
+      about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }}
+    />,
+  );
+
+  it("shows connections with unqualified capabilities and no connection controls", () => {
+    const html = render("connections");
+    expect(html).toContain("Cloudflare 主账号");
+    expect(html).toContain("能力资格认证前不可用");
+    // The action slot stays empty: connect, reauthorize and manage need Host capabilities not composed yet.
+    expect(html).toContain('<span class="settings-conn-action"></span>');
+    for (const control of ["重新授权", "新增账户连接", "重新运行接入向导", "浏览器 Profile"]) expect(html).not.toContain(control);
+    // An old validation keeps its date instead of reading as a time today.
+    expect(html).toMatch(/01[/-]0[12]/u);
+  });
+
+  it("lists a non-Cloudflare connection under each role it declares, unavailable and without a guessed method", () => {
+    const multi = projectConnectionSettings(parseSettingsRead({
+      schemaVersion: 2, kind: "settings", readGeneration: 1, storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 7, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      connections: [
+        {
+          providerKind: "cloudflare", connectionLabel: "CF", lifecycleStatus: "active", validationStatus: "valid",
+          credentialUseState: "active", lastValidatedAt: null,
+          roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+        },
+        {
+          providerKind: "spaceship", connectionLabel: "SellerHub", lifecycleStatus: "active", validationStatus: "valid",
+          credentialUseState: "active", lastValidatedAt: null,
+          roles: [
+            { role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" },
+            { role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" },
+          ],
+        },
+      ],
+    }), () => "能力资格认证前不可用");
+    const groups = Object.fromEntries(multi.groups.map((group) => [group.category, group.connections.map((connection) => [connection.provider, connection.method])]));
+    // Spaceship's connection method is recorded in its own ADR-0027 phase, so none is shown yet.
+    expect(groups).toEqual({ registrar: [["Spaceship", null]], dns: [["Cloudflare", "api"]], marketplace: [["Spaceship", null]] });
+    for (const locale of ["zh-CN", "en-US"] as const) {
+      const html = renderToStaticMarkup(
+        <SettingsPanel locale={locale} initialSection="connections" connections={multi} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }} />,
+      );
+      expect(html.match(/>Spaceship</gu)).toHaveLength(2);
+      // Only Cloudflare's row carries a method tag; no row offers an action.
+      expect(html.match(/>API</gu)).toHaveLength(1);
+      expect(html).not.toContain(">OAuth<");
+      expect(html.match(/<span class="settings-conn-action"><\/span>/gu)).toHaveLength(3);
+    }
+  });
+
+  it("says each section without a Host source is unavailable instead of inventing values", () => {
+    expect(render("devices")).toContain("设备列表与执行权移交尚未接入 Host");
+    expect(render("devices")).not.toContain("移交执行权<");
+    expect(render("license")).toContain("许可状态尚未接入 Host");
+    const sync = render("sync");
+    expect(sync).toContain("总是人工裁决");
+    expect(sync).not.toContain("每 5 分钟");
+    const about = render("about");
+    expect(about).toContain("暂不可用");
+    expect(about).toContain(">7<");
+  });
+
+  it("reports stored rows other reads reject, says which read each affects, and that repair is unavailable", () => {
+    const panel = (storageIntegrity: Parameters<typeof SettingsPanel>[0]["about"]["storageIntegrity"], locale: "zh-CN" | "en-US" = "zh-CN") => renderToStaticMarkup(
+      <SettingsPanel locale={locale} initialSection="about" connections={connections} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: null, storageIntegrity }} />,
+    );
+    const clean = { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 };
+    expect(panel(clean)).toContain("没有被读取拒绝的数据");
+    expect(panel(clean)).not.toContain("修复入口");
+    expect(panel(null)).toMatch(/本地数据完整性<\/dt><dd class="gd-key-value--muted">暂不可用/u);
+
+    const html = panel({ ...clean, invalidRegistrarObservations: 1200, malformedOutboxRows: 1 });
+    expect(html).toContain("gd-key-value--danger");
+    expect(html).toContain("1,200 条注册商观察的名称无效：续费读取变慢");
+    expect(html).toContain("1 条变更记录的时间无效：历史无法读取");
+    // Only the classes with rows appear.
+    expect(html).not.toContain("到期日期无效");
+    expect(html).not.toContain("挂牌观察无效");
+    expect(html).toContain("修复入口尚不可用");
+    expect(panel({ ...clean, rejectedDnsRows: 2, rejectedListings: 3, malformedExpiries: 4 }, "en-US")).toMatch(/4 assets with an invalid expiry date: the asset library cannot be read, and renewals may not be.*2 assets with an invalid DNS binding.*3 invalid listing observations/su);
   });
 });

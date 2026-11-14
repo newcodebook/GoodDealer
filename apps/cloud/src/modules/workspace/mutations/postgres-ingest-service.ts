@@ -1,5 +1,5 @@
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   workspaceMutationPushRequestSchema,
   submittedSyncMutationSchema,
   type SubmittedSyncMutation,
@@ -23,7 +23,10 @@ import { parseWorkspaceTenantScope } from "../tenant-scope";
 import {
   PostgresWorkspaceMutationRepository,
   type MutationPersistenceFaultPoint,
+  type RecordedMutationRejectionCode,
 } from "./postgres-repository";
+import { judgeEntityRule } from "./entity-state-rule";
+import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
 const MAX_TRANSACTION_ATTEMPTS = 3;
@@ -97,7 +100,9 @@ export class PostgresWorkspaceMutationIngest {
     const revision = await this.dependencies.revisions.lock(transaction);
     if (revision === null) throw new IngestRejected(reject("WORKSPACE_TENANT_UNRESOLVED"));
     const schemaFailures = request.mutations.flatMap((mutation, index) =>
-      mutation.workspaceSchemaVersion === revision.workspaceSchemaVersion ? [] : [failure(index, mutation)]);
+      mutation.workspaceSchemaVersion === revision.workspaceSchemaVersion
+        ? []
+        : [failure(index, mutation)]);
     if (schemaFailures.length > 0) {
       throw new IngestRejected(reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", schemaFailures));
     }
@@ -107,6 +112,10 @@ export class PostgresWorkspaceMutationIngest {
       request.mutations.map(({ entityId }) => entityId),
     );
     const assetsById = new Map(assets.map((asset) => [asset.entityId, asset]));
+    const tombstoned = await this.dependencies.portfolio.readDomainAssetTombstones(
+      transaction,
+      request.mutations.map(({ entityId }) => entityId),
+    );
 
     const duplicateRevisionByIndex = new Map<number, number>();
     for (const [index, mutation] of request.mutations.entries()) {
@@ -114,6 +123,10 @@ export class PostgresWorkspaceMutationIngest {
       if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
       const resolution = await this.dependencies.mutations.resolveReceipt(transaction, drain, mutation);
       if (resolution.status === "exact") duplicateRevisionByIndex.set(index, resolution.receipt.serverRevision);
+      // An exact replay of a recorded rejection returns the original result without re-judging.
+      if (resolution.status === "rejected") {
+        throw new IngestRejected(reject(resolution.receipt.rejectionCode, [failure(index, mutation)]));
+      }
       if (resolution.status === "mutation_id_conflict") {
         throw new IngestRejected(reject("MUTATION_ID_CONFLICT", [failure(index, mutation)]));
       }
@@ -122,9 +135,28 @@ export class PostgresWorkspaceMutationIngest {
       }
     }
 
-    const entityFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisionByIndex.has(index) || assetsById.has(mutation.entityId) ? [] : [failure(index, mutation)]);
-    if (entityFailures.length > 0) throw new IngestRejected(reject("MUTATION_ENTITY_UNKNOWN", entityFailures));
+    // Locked assets are live rows only; a soft-deleted row is known through its tombstone. Both are
+    // read under the workspace revision lock, so a concurrent ingest cannot re-add or delete them
+    // between this judgement and materialization: one tombstone admits exactly one re-add.
+    const entityRule = judgeEntityRule(
+      request.mutations,
+      (index) => duplicateRevisionByIndex.has(index),
+      (entityId) => {
+        const asset = assetsById.get(entityId);
+        if (asset !== undefined) return { state: "active", generation: asset.entityGeneration };
+        const tombstone = tombstoned.get(entityId);
+        return tombstone === undefined ? { state: "absent" } : { state: "deleted", ...tombstone };
+      },
+      revision.serverRevision,
+    );
+    if (entityRule.unknown.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN",
+        entityRule.unknown.map((index) => failure(index, request.mutations[index]!)));
+    }
+    if (entityRule.generationMismatch.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_GENERATION_MISMATCH",
+        entityRule.generationMismatch.map((index) => failure(index, request.mutations[index]!)));
+    }
 
     const baseFailures = request.mutations.flatMap((mutation, index) =>
       duplicateRevisionByIndex.has(index) || mutation.baseServerRevision <= revision.serverRevision
@@ -141,14 +173,19 @@ export class PostgresWorkspaceMutationIngest {
       if (!Number.isSafeInteger(proposedHead)) throw new TypeError("workspace revision overflow");
       assignedRevisionByIndex.set(index, proposedHead);
     }
+    const writers = await this.dependencies.mutations.readWriters(transaction, assets.flatMap((asset) =>
+      Object.values(asset.lastModifiedRevision).filter((value) => value > 0)));
     const staleFailures = findStaleFields(
       request.mutations,
       duplicateRevisionByIndex,
       assignedRevisionByIndex,
       assetsById,
+      writers,
       revision.serverRevision,
     );
-    if (staleFailures.length > 0) throw new IngestRejected(reject("MUTATION_FIELD_STALE", staleFailures));
+    if (staleFailures.length > 0) {
+      return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_FIELD_STALE", staleFailures);
+    }
 
     const accepted = request.mutations.flatMap((mutation, index) => {
       const serverRevision = assignedRevisionByIndex.get(index);
@@ -182,6 +219,29 @@ export class PostgresWorkspaceMutationIngest {
       headRevision: proposedHead,
     };
   }
+
+  /**
+   * ADR-0030 decision 1. Only a single-item push records its business rejection: the receipt,
+   * the global sequence head and the decision commit in this tenant transaction, and the caller
+   * sees the terminal rejection only after that commit. A multi-item batch still rolls back with
+   * no receipt; the client's batch isolation retries the item alone. A storage failure propagates
+   * as a retryable error and leaves no rejection evidence. Replay returns the stored code; the
+   * field-level detail of the first response is not replayed.
+   */
+  async #rejectBusiness(
+    transaction: Parameters<Parameters<TenantTransactionRunner["withTenant"]>[1]>[0],
+    request: MutationIngestRequest,
+    drainByEpoch: ReadonlyMap<number, Awaited<ReturnType<PostgresWorkspaceMutationRepository["lockDrainDomain"]>>>,
+    code: RecordedMutationRejectionCode,
+    failures: readonly MutationIngestFailure[],
+  ): Promise<MutationIngestResult> {
+    const [mutation] = request.mutations;
+    if (request.mutations.length !== 1 || mutation === undefined) throw new IngestRejected(reject(code, failures));
+    const drain = drainByEpoch.get(mutation.activeLeaseEpoch);
+    if (drain === undefined) throw new TypeError("historical mutation provenance was not locked");
+    await this.dependencies.mutations.appendRejected(transaction, drain, mutation, code, this.dependencies.fault);
+    return reject(code, failures);
+  }
 }
 
 function parseRequest(value: unknown): MutationIngestRequest | null {
@@ -195,7 +255,7 @@ function parseRequest(value: unknown): MutationIngestRequest | null {
     workspaceId: "derived-after-tenant-parse",
   }));
   return {
-    schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+    schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
     workspaceId: "derived-after-tenant-parse",
     sourceDeviceId,
     activeLeaseEpoch: mutations[0]!.activeLeaseEpoch,
@@ -208,24 +268,30 @@ function findStaleFields(
   duplicates: ReadonlyMap<number, number>,
   assignments: ReadonlyMap<number, number>,
   assets: ReadonlyMap<string, LockedDomainAsset>,
+  writers: ReadonlyMap<number, MutationWriter>,
   headRevision: number,
 ): readonly MutationIngestFailure[] {
-  const simulated = new Map<string, number>();
+  const simulated = new Map<string, { readonly revision: number; readonly writer: MutationWriter }>();
   const failures: MutationIngestFailure[] = [];
   for (const [index, mutation] of mutations.entries()) {
     if (duplicates.has(index)) continue;
+    // A created asset starts with every field at revision 0, exactly as the replica row is inserted.
     const asset = assets.get(mutation.entityId);
-    if (asset === undefined) continue;
     for (const field of mutation.changedFields) {
       const key = `${mutation.entityId}\u0000${field.fieldPath}`;
-      const lastModifiedRevision = simulated.get(key) ?? asset.lastModifiedRevision[field.fieldPath];
-      if (lastModifiedRevision > mutation.baseServerRevision) {
-        failures.push({ ...failure(index, mutation), fieldPath: field.fieldPath, lastModifiedRevision, headRevision });
-      }
+      const batched = simulated.get(key);
+      const lastModifiedRevision = batched?.revision ?? asset?.lastModifiedRevision[field.fieldPath] ?? 0;
+      if (lastModifiedRevision <= mutation.baseServerRevision) continue;
+      const writer = batched?.writer ?? writers.get(lastModifiedRevision);
+      if (isOwnEarlierWrite(writer, mutation)) continue;
+      failures.push({ ...failure(index, mutation), fieldPath: field.fieldPath, lastModifiedRevision, headRevision });
     }
     const assigned = assignments.get(index);
     if (assigned === undefined) throw new TypeError("accepted mutation revision disappeared");
-    for (const field of mutation.changedFields) simulated.set(`${mutation.entityId}\u0000${field.fieldPath}`, assigned);
+    const writer = writerOf(mutation);
+    for (const field of mutation.changedFields) {
+      simulated.set(`${mutation.entityId}\u0000${field.fieldPath}`, { revision: assigned, writer });
+    }
   }
   return failures;
 }

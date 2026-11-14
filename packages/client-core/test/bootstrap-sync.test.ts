@@ -91,12 +91,13 @@ const submitInput = {
 
 function mutation(serverRevision: number, workspaceId = "workspace-1"): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: `asset-${serverRevision}.test`,
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "note", value: `revision ${serverRevision}` }],
@@ -115,7 +116,7 @@ function page(input: {
   nextCursor: string | null;
 }): MutationPage {
   const withoutDigest = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     workspaceId: input.workspaceId ?? "workspace-1",
     fromServerRevisionExclusive: input.fromServerRevisionExclusive,
     throughServerRevisionInclusive: input.throughServerRevisionInclusive,
@@ -187,6 +188,12 @@ describe("BootstrapRebuildAccumulator", () => {
   };
 
   const clone = <Value>(value: Value): Value => JSON.parse(JSON.stringify(value)) as Value;
+  const checkpointState = () => (corpus.checkpointSnapshot as {
+    state: { assets: Record<string, unknown>[]; tombstones: unknown[] };
+  }).state;
+  /** The checkpoint's live projection: its assets without replica generation bookkeeping. */
+  const checkpointProjection = () => checkpointState().assets.map(({ entityGeneration: _generation, ...row }) => row);
+  const checkpointTombstones = () => checkpointState().tombstones;
   const start = (overrides: Partial<{
     workspaceId: string;
     workspaceSchemaVersion: number;
@@ -218,12 +225,29 @@ describe("BootstrapRebuildAccumulator", () => {
   });
 
   it("rejects corrupted, secret-bearing, cross-workspace, and schema-drifted checkpoints", async () => {
-    const corrupted = clone(corpus.checkpointSnapshot) as { rows: { note: string | null }[] };
-    corrupted.rows[0]!.note = "tampered";
+    const corrupted = clone(corpus.checkpointSnapshot) as { state: { assets: { note: string | null }[] } };
+    corrupted.state.assets[0]!.note = "tampered";
     await expect(start({ checkpointSnapshot: corrupted })).rejects.toThrow(/digest/i);
 
-    const secret = clone(corpus.checkpointSnapshot) as { rows: Record<string, unknown>[] };
-    secret.rows[0]!["DEVICE_SECRET"] = "must-not-cross-boundary";
+    // Every tombstone is bound by the checkpoint digest: dropping or reviving one is tampering.
+    const forgotten = clone(corpus.checkpointSnapshot) as { state: { tombstones: unknown[] } };
+    forgotten.state.tombstones = [];
+    await expect(start({ checkpointSnapshot: forgotten })).rejects.toThrow(/digest/i);
+    const regenerated = clone(corpus.checkpointSnapshot) as { state: { assets: { entityGeneration: number }[] } };
+    regenerated.state.assets[0]!.entityGeneration = 2;
+    await expect(start({ checkpointSnapshot: regenerated })).rejects.toThrow(/digest/i);
+    const late = clone(corpus.checkpointSnapshot) as { state: { tombstones: { deletedServerRevision: number }[] } };
+    late.state.tombstones[0]!.deletedServerRevision = 3;
+    await expect(start({ checkpointSnapshot: late })).rejects.toThrow();
+    const legacy = clone(corpus.checkpointSnapshot) as Record<string, unknown>;
+    legacy["schemaVersion"] = 1;
+    await expect(start({ checkpointSnapshot: legacy })).rejects.toThrow();
+    await expect(start({
+      checkpointDescriptor: { ...(clone(corpus.checkpointDescriptor) as object), schemaVersion: 2 },
+    })).rejects.toThrow();
+
+    const secret = clone(corpus.checkpointSnapshot) as { state: { assets: Record<string, unknown>[] } };
+    secret.state.assets[0]!["DEVICE_SECRET"] = "must-not-cross-boundary";
     await expect(start({ checkpointSnapshot: secret })).rejects.toThrow();
 
     const foreign = clone(corpus.checkpointSnapshot) as { workspaceId: string };
@@ -235,15 +259,15 @@ describe("BootstrapRebuildAccumulator", () => {
   it("rejects accessors before invoking them", async () => {
     let getterCalls = 0;
     const snapshot = clone(corpus.checkpointSnapshot) as Record<string, unknown>;
-    Object.defineProperty(snapshot, "rows", {
+    Object.defineProperty(snapshot, "state", {
       enumerable: true,
-      get() { getterCalls += 1; return []; },
+      get() { getterCalls += 1; return { assets: [], tombstones: [] }; },
     });
     await expect(start({ checkpointSnapshot: snapshot })).rejects.toThrow(/accessor/i);
     expect(getterCalls).toBe(0);
   });
 
-  it("rejects page digest, cursor, target, workspace, schema, and unknown-entity drift atomically", async () => {
+  it("rejects page digest, cursor, target, workspace, schema, and delete drift atomically", async () => {
     const cases: {
       mutate(value: { cursor: string | null; page: Record<string, unknown> }): void;
       pattern?: RegExp;
@@ -258,8 +282,33 @@ describe("BootstrapRebuildAccumulator", () => {
         mutations[0]!["workspaceSchemaVersion"] = 999;
       } },
       { mutate: (value) => {
+        // An item for an id the checkpoint records as deleted is a revival, never a creation.
         const mutations = value.page["mutations"] as Record<string, unknown>[];
-        mutations[0]!["entityId"] = "missing-asset.test";
+        mutations[0]!["entityId"] = "c.test";
+      }, pattern: /revives a deleted entity/i, refreshDigest: true },
+      { mutate: (value) => {
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityGeneration"] = 2;
+      }, pattern: /generation/i, refreshDigest: true },
+      { mutate: (value) => {
+        // A re-add must name the tombstone's next generation.
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityId"] = "c.test";
+        mutations[0]!["entityGeneration"] = 3;
+        mutations[0]!["reAddsDeletedRevision"] = 1;
+      }, pattern: /re-add/i, refreshDigest: true },
+      { mutate: (value) => {
+        // A re-add of a live asset names no tombstone.
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityGeneration"] = 2;
+        mutations[0]!["reAddsDeletedRevision"] = 1;
+      }, pattern: /re-add/i, refreshDigest: true },
+      { mutate: (value) => {
+        const mutations = value.page["mutations"] as Record<string, unknown>[];
+        mutations[0]!["entityId"] = "never-held.test";
+        mutations[0]!["operationKind"] = "delete";
+        mutations[0]!["deletedAt"] = "2026-01-01T00:00:00Z";
+        mutations[0]!["changedFields"] = [];
       }, pattern: /unknown entity/i, refreshDigest: true },
     ];
     for (const testCase of cases) {
@@ -271,10 +320,60 @@ describe("BootstrapRebuildAccumulator", () => {
       }
       await expect(accumulator.appendPage(changed)).rejects.toThrow(testCase.pattern);
       expect(accumulator.snapshot().returnedThroughServerRevision).toBe(2);
-      expect(accumulator.snapshot().projection).toEqual(
-        (corpus.checkpointSnapshot as { rows: unknown }).rows,
-      );
+      expect(accumulator.snapshot().projection).toEqual(checkpointProjection());
+      expect(accumulator.snapshot().tombstones).toEqual(checkpointTombstones());
     }
+  });
+
+  it("replays a re-add of a checkpoint tombstone into a live asset holding only the re-add's fields", async () => {
+    const accumulator = await start();
+    const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+    const mutations = changed.page["mutations"] as Record<string, unknown>[];
+    mutations[0]!["entityId"] = "c.test";
+    mutations[0]!["entityGeneration"] = 2;
+    mutations[0]!["reAddsDeletedRevision"] = 1;
+    mutations[0]!["changedFields"] = [{ fieldPath: "note", value: "second life" }];
+    changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+    await accumulator.appendPage(changed);
+    const projection = accumulator.snapshot().projection as readonly { entityId: string }[];
+    expect(projection.find(({ entityId }) => entityId === "c.test")).toEqual({
+      entityId: "c.test", note: "second life", portfolioId: null, tags: [], targetPrice: null,
+    });
+    expect(accumulator.snapshot().tombstones).toEqual([]);
+  });
+
+  it("creates an asset the checkpoint does not hold from its first upsert, with default fields", async () => {
+    const accumulator = await start();
+    const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+    const mutations = changed.page["mutations"] as Record<string, unknown>[];
+    mutations[0]!["entityId"] = "added-locally.test";
+    mutations[0]!["changedFields"] = [{ fieldPath: "note", value: "first note" }];
+    changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+    await accumulator.appendPage(changed);
+    const projection = accumulator.snapshot().projection as readonly { entityId: string }[];
+    expect(projection.find(({ entityId }) => entityId === "added-locally.test")).toEqual({
+      entityId: "added-locally.test", note: "first note", portfolioId: null, tags: [], targetPrice: null,
+    });
+    // The rows the checkpoint held are unchanged by the creation.
+    expect(projection.filter(({ entityId }) => entityId !== "added-locally.test")).toEqual(checkpointProjection());
+  });
+
+  it("replays a delete into a tombstone that leaves the live projection", async () => {
+    const accumulator = await start();
+    const changed = clone(corpus.pages[0]!) as { cursor: string | null; page: Record<string, unknown> };
+    const mutations = changed.page["mutations"] as Record<string, unknown>[];
+    mutations[0]!["entityId"] = "b.test";
+    mutations[0]!["operationKind"] = "delete";
+    mutations[0]!["deletedAt"] = "2026-02-01T00:00:00Z";
+    mutations[0]!["changedFields"] = [];
+    changed.page["pageDigest"] = digestText(encodeMutationPageDigestInput(changed.page));
+    await accumulator.appendPage(changed);
+    const snapshot = accumulator.snapshot();
+    expect(snapshot.projection.map(({ entityId }) => entityId)).toEqual(["a.test"]);
+    expect(snapshot.tombstones).toEqual([
+      { entityId: "b.test", entityGeneration: 1, deletedServerRevision: 3, deletedAt: "2026-02-01T00:00:00Z" },
+      ...checkpointTombstones(),
+    ]);
   });
 
   it("rejects missing, duplicate, and reordered revisions without partial advancement", async () => {

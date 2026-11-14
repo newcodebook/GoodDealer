@@ -1,8 +1,15 @@
 import {
   createConflictResolutionIntent,
   type AssetLibraryViewModel,
+  type BatchOperationsReadPort,
+  type HistoryReadPort,
+  type ManualTasksReadPort,
   type ConflictCenterViewModel,
   type ConflictResolutionChoice,
+  type DnsHealthPort,
+  type RenewalsReadPort,
+  type SalesReadPort,
+  type SettingsReadPort,
   type SyncSnapshotViewModel,
   type ValidatedPortfolioPresentationPort,
 } from "@gooddealer/client-core";
@@ -13,6 +20,7 @@ import type {
   LocalConflictPort,
   LocalSyncStatusPort,
 } from "../adapters/tauri";
+import type { CloudflareConnectionPort } from "../features/connections";
 import type { AppRouteId } from "./app-route";
 
 export interface AuthoritativeWorkspacePublication {
@@ -24,6 +32,25 @@ export interface AuthoritativeWorkspacePublication {
 
 export interface AuthoritativeWorkspacePorts {
   readonly business: LocalBusinessPort;
+  /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
+  readonly dns: DnsHealthPort;
+  /** Read by the settings route on demand; not part of the workspace publication either. */
+  readonly settings: SettingsReadPort;
+  /** Read by the sales route on demand; not part of the workspace publication. */
+  readonly sales: SalesReadPort;
+  /** Read by the renewals route on demand; not part of the workspace publication. */
+  readonly renewals: RenewalsReadPort;
+  /** Read by the batch route on demand; not part of the workspace publication. */
+  readonly batches: BatchOperationsReadPort;
+  /** Read by the history route on demand; not part of the workspace publication. */
+  readonly history: HistoryReadPort;
+  /** Read by the manual task route on demand; not part of the workspace publication. */
+  readonly manualTasks: ManualTasksReadPort;
+  /**
+   * Read by settings and onboarding on demand; the Host status carries qualification and the last
+   * outcome. Onboarding also connects and revokes through it, under the Host's own gates.
+   */
+  readonly cloudflare: CloudflareConnectionPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;
@@ -82,6 +109,6 @@ export function eligibleWorkspaceRouteIds(
     || sync.recoveryRequired
     || sync.blockedReason === "security";
   return syncRouteBlocked
-    ? ["portfolio.list", "portfolio.detail", "dns.health"]
-    : ["portfolio.list", "portfolio.detail", "dns.health", "sync.conflicts"];
+    ? ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "settings"]
+    : ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "sync.conflicts", "settings"];
 }
