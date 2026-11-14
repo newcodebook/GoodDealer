@@ -5319,7 +5319,11 @@ fn map_container_error(error: BackupContainerError) -> DesktopBackupError {
 fn map_database_error(error: BusinessDatabaseError) -> DesktopBackupError {
     match error {
         BusinessDatabaseError::MutationStale => DesktopBackupError::AuthorityRejected,
-        BusinessDatabaseError::MutationConflict => DesktopBackupError::ConflictRejected,
+        // A provisional re-add (ADR-0029 decision 4) is current work the restore would overwrite,
+        // the same class of refusal as an open conflict: restore after it syncs.
+        BusinessDatabaseError::MutationConflict | BusinessDatabaseError::AssetReAddPending => {
+            DesktopBackupError::ConflictRejected
+        }
         BusinessDatabaseError::InvalidInput | BusinessDatabaseError::RevisionRejected => {
             DesktopBackupError::OperationRejected
         }
@@ -5439,6 +5443,18 @@ mod tests {
     use tempfile::TempDir;
 
     const OPERATION_ID: &str = "operation-opaque-0001";
+
+    #[test]
+    fn restore_refused_for_a_provisional_re_add_reports_a_conflict() {
+        assert_eq!(
+            map_database_error(BusinessDatabaseError::AssetReAddPending).code(),
+            "BACKUP_CONFLICT_REJECTED"
+        );
+        assert_eq!(
+            map_database_error(BusinessDatabaseError::MutationConflict).code(),
+            "BACKUP_CONFLICT_REJECTED"
+        );
+    }
 
     fn rebootstrap_fixture_digest(domain: &[u8], value: &serde_json::Value) -> String {
         let mut encoded = Vec::new();
