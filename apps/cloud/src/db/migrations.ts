@@ -29,6 +29,7 @@ import { drainProofSchemaVersionMigration } from "../modules/devices/migrations/
 import { mutationDrainResultChainMigration } from "../modules/workspace/mutations/migrations/202611130002-mutation-drain-result-chain";
 import { mutationResultLedgerMigration } from "../modules/workspace/mutations/migrations/202611130003-mutation-result-ledger";
 import { mutationDrainDeviceChainMigration } from "../modules/workspace/mutations/migrations/202611130004-mutation-drain-device-chain";
+import { mutationWireV3Migration } from "../modules/workspace/mutations/migrations/202611130005-mutation-wire-v3";
 import { buildMigrationCatalog, type CloudMigration } from "./index";
 
 /** Explicit imports make cross-module ordering reviewable without moving table ownership into db. */
@@ -64,6 +65,7 @@ export const cloudMigrations: readonly CloudMigration[] = [
   mutationDrainResultChainMigration,
   mutationResultLedgerMigration,
   mutationDrainDeviceChainMigration,
+  mutationWireV3Migration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

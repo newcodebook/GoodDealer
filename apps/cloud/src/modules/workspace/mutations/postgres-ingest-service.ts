@@ -1,5 +1,5 @@
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   workspaceMutationPushRequestSchema,
   submittedSyncMutationSchema,
   type SubmittedSyncMutation,
@@ -25,6 +25,7 @@ import {
   type MutationPersistenceFaultPoint,
   type RecordedMutationRejectionCode,
 } from "./postgres-repository";
+import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
@@ -62,6 +63,11 @@ export class PostgresWorkspaceMutationIngest {
       index === 0 || request.mutations[index - 1]!.deviceMutationSequence < mutation.deviceMutationSequence
         ? [] : [failure(index, mutation)]);
     if (orderFailures.length > 0) return reject("MUTATION_BATCH_UNORDERED", orderFailures);
+    // ADR-0029 C1a: generations are refused before the tenant transaction, so the refusal takes
+    // no lock and can leave no receipt or sequence behind.
+    const generationFailures = request.mutations.flatMap((mutation, index) =>
+      isFirstGenerationMutation(mutation) ? [] : [failure(index, mutation)]);
+    if (generationFailures.length > 0) return reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", generationFailures);
 
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
@@ -99,7 +105,9 @@ export class PostgresWorkspaceMutationIngest {
     const revision = await this.dependencies.revisions.lock(transaction);
     if (revision === null) throw new IngestRejected(reject("WORKSPACE_TENANT_UNRESOLVED"));
     const schemaFailures = request.mutations.flatMap((mutation, index) =>
-      mutation.workspaceSchemaVersion === revision.workspaceSchemaVersion ? [] : [failure(index, mutation)]);
+      mutation.workspaceSchemaVersion === revision.workspaceSchemaVersion
+        ? []
+        : [failure(index, mutation)]);
     if (schemaFailures.length > 0) {
       throw new IngestRejected(reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", schemaFailures));
     }
@@ -237,7 +245,7 @@ function parseRequest(value: unknown): MutationIngestRequest | null {
     workspaceId: "derived-after-tenant-parse",
   }));
   return {
-    schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+    schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
     workspaceId: "derived-after-tenant-parse",
     sourceDeviceId,
     activeLeaseEpoch: mutations[0]!.activeLeaseEpoch,

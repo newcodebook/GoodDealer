@@ -46,12 +46,13 @@ function mutation(input: {
         ? [{ fieldPath, value: `portfolio-${input.sequence}` }]
         : [{ fieldPath, value: { currency: "USD", amount: String(input.sequence) } }];
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: input.mutationId ?? `mutation-${input.sequence}`,
     workspaceId: "shared-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "shared.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: input.baseServerRevision ?? input.sequence - 1,
     changedFields: value,
@@ -63,7 +64,7 @@ function mutation(input: {
 
 function request(submitted: readonly SubmittedSyncMutation[]) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     workspaceId: "shared-workspace",
     sourceDeviceId: submitted[0]?.sourceDeviceId ?? "shared-device",
     activeLeaseEpoch: submitted[0]?.activeLeaseEpoch ?? 7,
@@ -199,6 +200,27 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     // A later sequence naming an older base than the device's own last write did not build on it.
     await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 5, baseServerRevision: 2 })])))
       .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ lastModifiedRevision: 4 }] });
+  });
+
+  it("ADR-0029 C1a refuses a later generation or a re-add before any receipt or revision", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation", proofSchemaVersion: 2 } as const;
+    await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
+    const later = { ...mutation({ sequence: 2, baseServerRevision: 1 }), entityGeneration: 2 } as SubmittedSyncMutation;
+    const reAdd = { ...later, reAddsDeletedRevision: 1 } as SubmittedSyncMutation;
+    for (const refused of [later, reAdd]) {
+      await expect(subject.ingest.ingest(scopeA, request([refused]))).resolves.toEqual({
+        accepted: false,
+        code: "MUTATION_SCHEMA_VERSION_UNSUPPORTED",
+        failures: [{ index: 0, mutationId: "mutation-2" }],
+      });
+    }
+    // No result ledger entry: the same sequence is still free for the first-generation write.
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(1);
+    await expect(subject.ledger.readWatermark(scopeA, domain)).resolves.toMatchObject({ highestReceivedSequence: 1 });
+    await expect(subject.ingest.ingest(scopeA, request([mutation({ sequence: 2, baseServerRevision: 1 })])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 2 });
   });
 
   it("ADR-0030 ends a single-item business rejection's sequence and replays it exactly", async () => {

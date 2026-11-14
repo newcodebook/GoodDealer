@@ -25,12 +25,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number, deviceMutationSequence: number): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-a",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],

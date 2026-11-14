@@ -14,8 +14,16 @@ import {
   domainAssetTagsSchema,
 } from "./domain-asset-fields";
 
-/** Current production workspace sync wire. Version 1 is intentionally not accepted. */
+/**
+ * Checkpoint and rebootstrap wire. Version 1 is intentionally not accepted. ADR-0029 C1b moves it
+ * to 3 together with generation-bearing snapshots and tombstones.
+ */
 export const WORKSPACE_SYNC_SCHEMA_VERSION = 2 as const;
+/**
+ * Mutation, push and pull wire. Version 3 (ADR-0029) makes every DomainAsset mutation carry its
+ * entity generation; version 2 requests are refused as unsupported, never upgraded in place.
+ */
+export const WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION = 3 as const;
 export const MAX_MUTATIONS_PER_PAGE = 256 as const;
 
 /** A SHA-256 value encoded as unpadded base64url. */
@@ -59,7 +67,7 @@ export const workspaceFieldMetadata = {
 } as const;
 
 const submittedSyncMutationPrefixFields = {
-  schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+  schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
   mutationId: identifier,
 } as const;
 
@@ -67,6 +75,10 @@ const submittedSyncMutationSuffixFields = {
   workspaceSchemaVersion: safePositiveInteger,
   entityType: z.literal("domain_asset"),
   entityId: domainAssetIdSchema,
+  /** ADR-0029: first add is 1, delete keeps it, a re-add is the tombstone's generation + 1. */
+  entityGeneration: safePositiveInteger,
+  /** ADR-0029: only on a re-add, the deletion revision of the tombstone it supersedes. */
+  reAddsDeletedRevision: safePositiveInteger.optional(),
   operationKind: z.enum(["upsert", "delete"]),
   deletedAt: canonicalUtcTimestamp.optional(),
   baseServerRevision: serverRevisionSchema,
@@ -81,10 +93,30 @@ function validateSubmittedSyncMutation(
     operationKind: "upsert" | "delete";
     deletedAt?: string | undefined;
     changedFields: readonly unknown[];
+    entityGeneration: number;
+    reAddsDeletedRevision?: number | undefined;
+    baseServerRevision: number;
   },
   context: z.RefinementCtx,
 ) {
   const operationKind = mutation.operationKind;
+  if (mutation.reAddsDeletedRevision !== undefined) {
+    // A re-add is an upsert that builds on the deletion it supersedes (R <= base) and names the
+    // generation after the tombstone's, which is at least 1.
+    if (operationKind !== "upsert") {
+      context.addIssue({ code: "custom", path: ["reAddsDeletedRevision"], message: "only an upsert can re-add" });
+    }
+    if (mutation.entityGeneration < 2) {
+      context.addIssue({ code: "custom", path: ["entityGeneration"], message: "a re-add names a later generation" });
+    }
+    if (mutation.reAddsDeletedRevision > mutation.baseServerRevision) {
+      context.addIssue({
+        code: "custom",
+        path: ["reAddsDeletedRevision"],
+        message: "a re-add must build on the deletion it supersedes",
+      });
+    }
+  }
   if (operationKind === "upsert") {
     if (mutation.changedFields.length === 0) {
       context.addIssue({ code: "custom", path: ["changedFields"], message: "upsert requires changed fields" });
@@ -175,7 +207,7 @@ export const mutationCursorSchema = z.string().min(1).max(512).regex(/^[A-Za-z0-
 
 export const mutationPageSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     workspaceId: identifier,
     fromServerRevisionExclusive: serverRevisionSchema,
     throughServerRevisionInclusive: serverRevisionSchema,
@@ -267,6 +299,36 @@ export function encodeWorkspaceEntityDigestsInput(value: unknown): Uint8Array {
 export function encodeSubmittedSyncMutationDigestInput(value: unknown): Uint8Array {
   const parsed = tenantNeutralSubmittedSyncMutationSchema.parse(value);
   return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-V2", parsed);
+}
+
+/**
+ * ADR-0029: wire v2 carried no generation. Mutations accepted under it keep their v2 digest and
+ * canonical bytes as immutable evidence, so retained receipts and records are compared against
+ * the v2 form derived here from the current form. Only a generation-1 mutation without a re-add
+ * has a v2 form; anything else fails closed. Nothing is ever submitted in this form.
+ */
+export function toLegacyV2SubmittedSyncMutation<Mutation extends {
+  readonly schemaVersion: number;
+  readonly entityGeneration: number;
+  readonly reAddsDeletedRevision?: number | undefined;
+}>(mutation: Mutation): Omit<Mutation, "schemaVersion" | "entityGeneration" | "reAddsDeletedRevision"> & {
+  readonly schemaVersion: 2;
+} {
+  if (mutation.entityGeneration !== 1 || mutation.reAddsDeletedRevision !== undefined) {
+    throw new TypeError("only a first-generation mutation without a re-add has a wire v2 form");
+  }
+  const {
+    schemaVersion: _schemaVersion,
+    entityGeneration: _entityGeneration,
+    reAddsDeletedRevision: _reAddsDeletedRevision,
+    ...rest
+  } = mutation;
+  return { ...rest, schemaVersion: 2 };
+}
+
+export function encodeLegacyV2SubmittedSyncMutationDigestInput(value: unknown): Uint8Array {
+  const parsed = tenantNeutralSubmittedSyncMutationSchema.parse(value);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-MUTATION-V2", toLegacyV2SubmittedSyncMutation(parsed));
 }
 
 export type WorkspaceRevision = z.infer<typeof serverRevisionSchema>;

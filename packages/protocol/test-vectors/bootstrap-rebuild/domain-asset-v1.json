@@ -42,18 +42,19 @@
     {
       "cursor": null,
       "page": {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "workspaceId": "workspace-fixture-1",
         "fromServerRevisionExclusive": 2,
         "throughServerRevisionInclusive": 4,
         "mutations": [
           {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "mutationId": "mutation-3",
             "workspaceId": "workspace-fixture-1",
             "workspaceSchemaVersion": 1,
             "entityType": "domain_asset",
             "entityId": "a.test",
+            "entityGeneration": 1,
             "baseServerRevision": 2,
             "changedFields": [
               {
@@ -77,24 +78,25 @@
         ],
         "returnedThroughServerRevision": 3,
         "nextCursor": "after-3",
-        "pageDigest": "xa1EroUm-4rmYcOqpXXdYYfqdHjsRfR0-HoExEASqTo"
+        "pageDigest": "AEfl97H1wHMDfoScgqD45kYE-PTlVkhVvy_KY3Uw0aU"
       }
     },
     {
       "cursor": "after-3",
       "page": {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "workspaceId": "workspace-fixture-1",
         "fromServerRevisionExclusive": 3,
         "throughServerRevisionInclusive": 4,
         "mutations": [
           {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "mutationId": "mutation-4",
             "workspaceId": "workspace-fixture-1",
             "workspaceSchemaVersion": 1,
             "entityType": "domain_asset",
             "entityId": "b.test",
+            "entityGeneration": 1,
             "baseServerRevision": 2,
             "changedFields": [
               {
@@ -118,7 +120,7 @@
         ],
         "returnedThroughServerRevision": 4,
         "nextCursor": null,
-        "pageDigest": "OU_pckYOviuE1gJycxi7C5O9_jexcvSiE45uneRAd8Q"
+        "pageDigest": "B29Q1vwIcbcNcNXYIpFDz0f-ct4cuF8exoXl5Xx4LCU"
       }
     }
   ],

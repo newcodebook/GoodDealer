@@ -1,6 +1,6 @@
 # ADR-0029：已删除域名的重新添加与实体 generation
 
-状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围；尚未实现，删除的域名目前不能重新添加。扩展
+状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围；实现中（C1a wire 版本 3 已实现，generation 列与删除/重新添加尚未实现），删除的域名目前不能重新添加。扩展
 [ADR-0004](0004-cloud-business-data-sync.md) 与 [ADR-0019](0019-complete-local-business-schema-and-cloud-replica-model.md)。
 
 ## 背景
@@ -189,3 +189,21 @@ checkpoint 数据；重新添加被 Cloud 拒绝后撤回暂定 generation，随
 
 完成条件：上述测试全部通过，且 PostgreSQL 资格证据覆盖新增的 ingest 路径；在此之前生产入口不存在
 重新添加的可执行路径。
+
+## 实施状态
+
+C1a 已实现：协议新增 `WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION = 3`，Push/Pull 请求、响应、MutationPage 与
+每条 Mutation 使用版本 3，`entityGeneration` 必填，`reAddsDeletedRevision` 只允许出现在 generation ≥ 2 的
+upsert 上且不大于 `baseServerRevision`；checkpoint 与 rebootstrap 仍为版本 2。版本 2 历史不可变：协议提供从
+generation 1 的版本 3 Mutation 重新导出版本 2 摘要输入与 drain envelope 的 legacy 编码器，Cloud 按回执记录的
+`wire_schema_version` 比较重放，读取已保留的提交 envelope 时接受版本 3 或该 legacy 编码，其余视为损坏。前向
+迁移 `202611130005`（workspace/mutations）只把设备序号 ledger 的版本白名单扩为 1、2、3。generation 列落地前
+Cloud 对 generation ≠ 1 或带 `reAddsDeletedRevision` 的 Mutation 以 `MUTATION_SCHEMA_VERSION_UNSUPPORTED`
+拒绝，先于租户事务，不写结果回执、不占用设备序号。Desktop 发送版本 3（generation 1），严格解析只接受
+generation 1、拒绝 re-add 字段；本地 SQLite 的 `wire_schema_version` 列仍固定为 2，记录同一 generation 1
+Mutation 的版本 2 编码摘要（内容等价、升级前已认领的行继续匹配）。这一临时例外在 C1c 重建本地同步表并加入
+generation 列时移除。rebootstrap 计划信封仍为版本 2，其中的 replay 页是版本 3 MutationPage，Desktop 按同样
+规则解析。已知缺口：升级后 Cloud drain 记录对升级前接受的 Mutation 保留 v2 提交 envelope、对之后的保存 v3；
+升级前认领、升级后 ACK 的本地行无法区分 Cloud 接受的是 v2 发送还是 v3 重发，Host 因而不能总是提供 ADR-0030 B3
+要求的“Cloud 记录的 envelope”。C1c 或设备切换端到端项须记录每行 Cloud 接受的 wire 版本（或给出判别方法），
+在此之前不得生成 v2 drain proof（Desktop 目前不生成）。重新添加在生产入口仍不可执行。

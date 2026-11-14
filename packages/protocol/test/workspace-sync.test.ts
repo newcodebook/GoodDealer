@@ -81,11 +81,30 @@ describe("workspace sync golden corpus", () => {
     });
   });
 
+  it("requires an entity generation and constrains a re-add (ADR-0029)", () => {
+    const valid = vector("valid/mutation.json") as Record<string, unknown>;
+    const parse = (override: Record<string, unknown>) => syncMutationSchema.safeParse({ ...valid, ...override }).success;
+    expect(parse({})).toBe(true);
+    const { entityGeneration: _entityGeneration, ...withoutGeneration } = valid;
+    expect(syncMutationSchema.safeParse(withoutGeneration).success).toBe(false);
+    expect(parse({ entityGeneration: 0 })).toBe(false);
+    expect(parse({ schemaVersion: 2 })).toBe(false);
+    // A re-add names a later generation and builds on the deletion it supersedes (R <= base).
+    expect(parse({ entityGeneration: 2, reAddsDeletedRevision: 4 })).toBe(true);
+    expect(parse({ entityGeneration: 1, reAddsDeletedRevision: 4 })).toBe(false);
+    expect(parse({ entityGeneration: 2, reAddsDeletedRevision: 5 })).toBe(false);
+    expect(parse({ entityGeneration: 2, reAddsDeletedRevision: 0 })).toBe(false);
+    expect(parse({
+      entityGeneration: 2, reAddsDeletedRevision: 4, operationKind: "delete",
+      deletedAt: "2026-08-28T00:00:00Z", changedFields: [],
+    })).toBe(false);
+  });
+
   it("freezes the mutation page digest transcript", () => {
     const digest = createHash("sha256")
       .update(encodeMutationPageDigestInput(vector("valid/mutation-page.json")))
       .digest("base64url");
-    expect(digest).toMatchInlineSnapshot(`"2JOxdJKimw9paT7l6cWKmZM187FqR5Qcg-OlhEC6KBM"`);
+    expect(digest).toMatchInlineSnapshot(`"Xl3ettkqfTzpWKe49RIyCXEpL7sHFO3mh5RduHEbu4k"`);
   });
 
   it("orders canonical domain asset identities by UTF-8 bytes", () => {

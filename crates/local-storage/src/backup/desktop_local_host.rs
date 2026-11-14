@@ -8209,17 +8209,18 @@ mod tests {
             .upsert_domain_asset("seed-conflict", "2026-09-15T08:00:00Z", &asset("local"))
             .unwrap();
         let page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": "workspace-local",
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 1,
             "mutations": [{
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": "remote-conflict",
                 "workspaceId": "workspace-local",
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": "backup.example",
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": 0,
                 "changedFields": [{"fieldPath": "note", "value": "remote"}],
@@ -8230,7 +8231,7 @@ mod tests {
             }],
             "returnedThroughServerRevision": 1,
             "nextCursor": null,
-            "pageDigest": "2S2lq2o99v0N6qj0CMA43KAKicm4ydvqX-ZtAM11ogg"
+            "pageDigest": "CEM15LbmHWo0wsDQgJ7ww85yoRWcjJ0CiSVlkgQf_p8"
         });
         database
             .apply_sync_page_v2("reader-local", &page.to_string(), "confirm-conflict")

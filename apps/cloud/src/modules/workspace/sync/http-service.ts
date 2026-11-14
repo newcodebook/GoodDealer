@@ -46,7 +46,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     const result = await this.dependencies.mutations.ingest(context.scope, request.data);
     if (!result.accepted) return rejectedPush(mapPushCode(result.code));
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: true,
       acknowledgements: result.assignments.map((assignment) => ({ ...assignment })),
       headServerRevision: result.headRevision,
@@ -73,7 +73,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     }
     if (!result.accepted) return this.pullRejection(context.scope, mapPullCode(result.code));
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: true,
       page: result.page,
       confirmedThrough: result.confirmedThrough,
@@ -117,14 +117,14 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
 }
 
 function rejectedPush(code: WorkspaceMutationPushRejectionCode): WorkspaceMutationPushResponse {
-  return { schemaVersion: 2, accepted: false, code, correlationId: `sync-${randomUUID()}` };
+  return { schemaVersion: 3, accepted: false, code, correlationId: `sync-${randomUUID()}` };
 }
 
 function rejectedPull(
   code: "SYNC_SCHEMA_UNSUPPORTED" | "SYNC_INPUT_REJECTED" | "SYNC_AUTHORIZATION_REJECTED" | "SYNC_TENANT_UNRESOLVED" | "SYNC_CURSOR_CONFLICT" | "SYNC_REBOOTSTRAP_REQUIRED" | "SYNC_STORAGE_REJECTED",
   checkpoint: Extract<WorkspaceMutationPullResponse, { accepted: false }>["checkpoint"] = null,
 ): WorkspaceMutationPullResponse {
-  return { schemaVersion: 2, accepted: false, code, checkpoint, correlationId: `sync-${randomUUID()}` };
+  return { schemaVersion: 3, accepted: false, code, checkpoint, correlationId: `sync-${randomUUID()}` };
 }
 
 /**

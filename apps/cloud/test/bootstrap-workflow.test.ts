@@ -42,12 +42,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-1",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
@@ -143,7 +144,7 @@ function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain =
     ? `bootstrap-after-${returnedThroughServerRevision}`
     : null;
   const draft = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     workspaceId: "workspace-1",
     fromServerRevisionExclusive: request.fromServerRevisionExclusive,
     throughServerRevisionInclusive: request.throughServerRevisionInclusive,

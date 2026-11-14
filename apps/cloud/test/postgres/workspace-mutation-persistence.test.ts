@@ -7,9 +7,13 @@ import {
   DRAIN_STREAM_GENESIS_DIGEST,
   encodeDrainChainStepInput,
   encodeDrainStreamEnvelope,
+  encodeLegacyV2MutationDrainEnvelope,
   encodeMutationDrainResultEnvelope,
 } from "@gooddealer/protocol/execution-events";
-import { submittedSyncMutationSchema } from "@gooddealer/protocol/workspace";
+import {
+  encodeLegacyV2SubmittedSyncMutationDigestInput,
+  submittedSyncMutationSchema,
+} from "@gooddealer/protocol/workspace";
 
 import { runCloudMigrations, TenantTransactionRunner } from "../../src/db/index";
 import { cloudMigrations } from "../../src/db/migrations";
@@ -217,12 +221,13 @@ describe("PostgreSQL workspace Mutation persistence", () => {
 
   it("persists an explicit DomainAsset deletion without manufacturing changed fields", async () => {
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "mutation-delete",
       workspaceId: scopeA.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "deleted.test",
+      entityGeneration: 1,
       operationKind: "delete",
       deletedAt: "2026-08-28T00:00:00Z",
       baseServerRevision: 0,
@@ -298,6 +303,122 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       accepted: false, code: "MUTATION_MALFORMED",
     });
     expect(getterCalls).toBe(0);
+  });
+
+  it("ADR-0029 C1a refuses a later generation or a re-add before any receipt or revision", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("generation-1", 1, 0))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 1 });
+    const later = submittedSyncMutationSchema.parse({ ...submitted("generation-2", 2, 1), entityGeneration: 2 });
+    const reAdd = submittedSyncMutationSchema.parse({ ...later, reAddsDeletedRevision: 1 });
+    const before = await readGlobalHead(scopeA);
+    for (const refused of [later, reAdd]) {
+      await expect(service.ingest(scopeA, pushRequest(refused))).resolves.toEqual({
+        accepted: false,
+        code: "MUTATION_SCHEMA_VERSION_UNSUPPORTED",
+        failures: [{ index: 0, mutationId: "generation-2" }],
+      });
+    }
+    // Refused before the tenant transaction: the device head, its row version, and the ledger are untouched.
+    await expect(readGlobalHead(scopeA)).resolves.toEqual(before);
+    expect(before).toMatchObject({ contiguous: "1", highest: "1", ledger: "1" });
+    await expect(service.ingest(scopeA, pushRequest(submitted("generation-2", 2, 1))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 2 });
+  });
+
+  it("ADR-0029 C1a replays and reads a mutation Cloud accepted under wire v2", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const mutation = submitted("accepted-under-v2", 1, 0);
+    await expect(service.ingest(scopeA, pushRequest(mutation))).resolves.toMatchObject({ accepted: true });
+    // Rewrite the row into the shape Cloud stored before migration 202611130005: version 2 and
+    // the v2 digest and envelope. The immutability triggers are suspended only for this fixture.
+    const { workspaceId: _workspaceId, ...tenantNeutral } = mutation;
+    const legacyEnvelope = Buffer.from(encodeLegacyV2MutationDrainEnvelope(mutation));
+    const legacyWireDigest = createHash("sha256").update(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral)).digest();
+    const envelopeDigest = createHash("sha256").update(legacyEnvelope).digest();
+    await ownerPool.query("BEGIN");
+    try {
+      await ownerPool.query("SELECT set_config('gooddealer.account_id', $1, true)", [scopeA.accountId]);
+      await ownerPool.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scopeA.workspaceId]);
+      for (const table of ["workspace_device_mutation_sequence_ledger", "workspace_mutations", "mutation_drain_records"]) {
+        await ownerPool.query(`ALTER TABLE ${table} DISABLE TRIGGER USER`);
+      }
+      await ownerPool.query(`UPDATE workspace_device_mutation_sequence_ledger
+        SET wire_schema_version = 2, wire_mutation_digest = $1 WHERE mutation_id = $2`, [legacyWireDigest, mutation.mutationId]);
+      await ownerPool.query(`UPDATE workspace_mutations
+        SET canonical_submitted_envelope = $1, submitted_envelope_digest = $2 WHERE mutation_id = $3`,
+      [legacyEnvelope, envelopeDigest, mutation.mutationId]);
+      await ownerPool.query(`UPDATE mutation_drain_records
+        SET canonical_envelope = $1, envelope_digest = $2 WHERE device_mutation_sequence = 1`, [legacyEnvelope, envelopeDigest]);
+      for (const table of ["workspace_device_mutation_sequence_ledger", "workspace_mutations", "mutation_drain_records"]) {
+        await ownerPool.query(`ALTER TABLE ${table} ENABLE TRIGGER USER`);
+      }
+      await ownerPool.query("COMMIT");
+    } catch (error) {
+      await ownerPool.query("ROLLBACK");
+      throw error;
+    }
+
+    // The v3 form of the same content is an exact replay of the v2 receipt; changed content is not.
+    await expect(service.ingest(scopeA, pushRequest(mutation))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: true }], headRevision: 1,
+    });
+    await expect(service.ingest(scopeA, pushRequest({ ...mutation, changedFields: [{ fieldPath: "note", value: "other" }] })))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
+    // Readers receive the stored v2 acceptance as a v3 first-generation mutation.
+    await transactions.withTenant(scopeA, async (transaction) => {
+      await expect(mutations.readRange(transaction, 0, 1)).resolves.toMatchObject([
+        { schemaVersion: 3, mutationId: mutation.mutationId, entityGeneration: 1, serverRevision: 1 },
+      ]);
+    });
+  });
+
+  it("ADR-0029 C1a replays a business rejection Cloud recorded under wire v2", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(submitted("note-1", 1, 0), submitted("note-2", 2, 0))))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(tags("tags-from-2", 3, 2)))).resolves.toMatchObject({ accepted: true });
+    const stale = tags("tags-stale", 4, 1);
+    await expect(service.ingest(scopeA, pushRequest(stale)))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
+
+    // Rewrite the rejection into its pre-migration shape: version 2, v2 digest, v2 envelope digest.
+    const { workspaceId: _workspaceId, ...tenantNeutral } = stale;
+    const legacyWireDigest = createHash("sha256").update(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral)).digest();
+    const legacyEnvelopeDigest = createHash("sha256").update(encodeLegacyV2MutationDrainEnvelope(stale)).digest();
+    await ownerPool.query("BEGIN");
+    try {
+      await ownerPool.query("SELECT set_config('gooddealer.account_id', $1, true)", [scopeA.accountId]);
+      await ownerPool.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scopeA.workspaceId]);
+      await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger DISABLE TRIGGER USER");
+      await ownerPool.query(`UPDATE workspace_device_mutation_sequence_ledger
+        SET wire_schema_version = 2, wire_mutation_digest = $1, rejected_envelope_digest = $2
+        WHERE device_mutation_sequence = 4`, [legacyWireDigest, legacyEnvelopeDigest]);
+      await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger ENABLE TRIGGER USER");
+      await ownerPool.query("COMMIT");
+    } catch (error) {
+      await ownerPool.query("ROLLBACK");
+      throw error;
+    }
+
+    // The v3 form of the same content replays the stored rejection; changed content conflicts.
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toEqual({
+      accepted: false, code: "MUTATION_FIELD_STALE", failures: [{ index: 0, mutationId: "tags-stale" }],
+    });
+    await expect(service.ingest(scopeA, pushRequest({ ...stale, changedFields: [{ fieldPath: "tags", value: ["other"] }] })))
+      .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
   });
 
   it("rejects a poison item without persisting any prefix of the v2 batch", async () => {
@@ -1360,12 +1481,13 @@ describe("PostgreSQL workspace Mutation persistence", () => {
 
 function submitted(mutationId: string, deviceMutationSequence: number, baseServerRevision: number) {
   return submittedSyncMutationSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId,
     workspaceId: "same-workspace",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "asset-1.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision,
     changedFields: [{ fieldPath: "note", value: `note-${mutationId}` }],
@@ -1377,7 +1499,7 @@ function submitted(mutationId: string, deviceMutationSequence: number, baseServe
 
 function pushRequest(...mutations: ReturnType<typeof submitted>[]) {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     mutations: mutations.map(({ workspaceId: _workspaceId, ...mutation }) => mutation),
   };
 }

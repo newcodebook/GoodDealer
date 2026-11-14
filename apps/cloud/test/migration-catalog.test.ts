@@ -175,6 +175,11 @@ const expectedCatalog = [
     owner: "workspace/mutations",
     checksum: "4ebf138104e67ce42e19c69b3c2ddf1fa3717eb2b066d3247d44f7ef13e8578a",
   },
+  {
+    id: "202611130005-mutation-wire-v3",
+    owner: "workspace/mutations",
+    checksum: "86dfdb076c3c3656d747eb3c1e56bb2a0bbfd3301885fd9c3fe6472c27ca1aaa",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -203,7 +208,7 @@ describe("Cloud migration catalog", () => {
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
-      + "  mutationDrainDeviceChainMigration,\n];",
+      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -216,7 +221,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(31);
+    expect(checkedCloudMigrationCatalog).toHaveLength(32);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

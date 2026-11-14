@@ -14,7 +14,7 @@ use crate::{
     CloudflareCredentialPreparation, CloudflareCredentialWitness,
     CloudflareDnsProjectionAcknowledgement, CloudflareDnsRecordWrite, DesktopLocalHost,
     DesktopLocalHostError, DesktopNativeCloudAdmission, NativeCheckpointDescriptor,
-    SyncMutationAcknowledgement, serialize_sync_push_request,
+    SYNC_MUTATION_WIRE_SCHEMA_VERSION, SyncMutationAcknowledgement, serialize_sync_push_request,
 };
 
 const MAX_SYNC_PULL_REQUEST_BYTES: usize = 2 * 1024;
@@ -1105,6 +1105,9 @@ struct SyncMutationWire {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
+    /// ADR-0029 C1a: only generation 1 is accepted until local generation columns land (C1c);
+    /// `reAddsDeletedRevision` is not declared, so `deny_unknown_fields` refuses any re-add.
+    entity_generation: u64,
     operation_kind: String,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1229,7 +1232,7 @@ fn validate_push_response(
     response: &SyncPushAcceptedWire,
     claimed: &[ClaimedSyncMutation],
 ) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || !response.accepted
         || response.acknowledgements.len() != claimed.len()
         || response.acknowledgements.len() > 256
@@ -1254,7 +1257,7 @@ fn validate_push_response(
 }
 
 fn validate_push_rejection(response: &SyncRejectedWire) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || response.accepted
         || !matches!(
             response.code.as_str(),
@@ -1276,7 +1279,7 @@ fn validate_pull_rejection(
     response: &SyncPullRejectedWire,
     expected_workspace_id: &str,
 ) -> Result<(), DesktopLocalHostError> {
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || response.accepted
         || !matches!(
             response.code.as_str(),
@@ -1307,11 +1310,11 @@ fn validate_pull_response(
 ) -> Result<(), DesktopLocalHostError> {
     let page = &response.page;
     let delivery = &response.pending_delivery;
-    if response.schema_version != 2
+    if response.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || !response.accepted
         || response.confirmed_through != exchange.expected_after_revision
         || response.confirmed_through > MAX_SAFE_INTEGER
-        || page.schema_version != 2
+        || page.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || page.workspace_id != exchange.expected_workspace_id
         || page.from_server_revision_exclusive != exchange.expected_after_revision
         || page.from_server_revision_exclusive > MAX_SAFE_INTEGER
@@ -1381,7 +1384,8 @@ fn validate_sync_mutation(
     workspace_id: &str,
     expected_revision: u64,
 ) -> Result<(), DesktopLocalHostError> {
-    if mutation.schema_version != 2
+    if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
+        || mutation.entity_generation != 1
         || mutation.workspace_id != workspace_id
         || mutation.workspace_schema_version == 0
         || mutation.workspace_schema_version > MAX_SAFE_INTEGER
@@ -1763,7 +1767,7 @@ mod tests {
         let request: Value = serde_json::from_slice(claim.request_body()).expect("push request");
         let mutation = &request["mutations"][0];
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "acknowledgements": [{
                 "mutationId": mutation["mutationId"],
@@ -1795,7 +1799,7 @@ mod tests {
                 .claim_native_sync_push(&admission)
                 .expect("claim mutation"),
         );
-        let malformed = br#"{"schemaVersion":2,"accepted":true,"acknowledgements":[{"mutationId":"substituted","deviceMutationSequence":2,"serverRevision":2,"duplicate":false}],"headServerRevision":2}"#;
+        let malformed = br#"{"schemaVersion":3,"accepted":true,"acknowledgements":[{"mutationId":"substituted","deviceMutationSequence":2,"serverRevision":2,"duplicate":false}],"headServerRevision":2}"#;
         assert_eq!(
             local_host.complete_native_sync_push(&admission, &claim, malformed),
             Err(DesktopLocalHostError::CloudProtocolRejected)
@@ -1832,7 +1836,7 @@ mod tests {
             local_host.complete_native_sync_push(
                 &admission,
                 &claim,
-                br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"correlation-1"}"#,
+                br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"correlation-1"}"#,
             ),
             Ok(DesktopSyncPushDisposition::Retryable)
         );
@@ -1861,7 +1865,7 @@ mod tests {
                 .claim_native_sync_push(&admission)
                 .expect("claim mutation"),
         );
-        let response = br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_INPUT_REJECTED","correlationId":"deterministic-1"}"#;
+        let response = br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_INPUT_REJECTED","correlationId":"deterministic-1"}"#;
 
         assert_eq!(
             local_host.complete_native_sync_push(&admission, &claim, response),
@@ -1874,7 +1878,7 @@ mod tests {
     fn mutation_conflict_isolates_a_batch_and_ends_only_the_conflicting_mutation() {
         let (_directory, local_host) = push_host_with_mutations(2);
         let admission = local_host.begin_native_cloud_run().expect("admit run");
-        let response = br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_MUTATION_CONFLICT","correlationId":"conflict-1"}"#;
+        let response = br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_MUTATION_CONFLICT","correlationId":"conflict-1"}"#;
         let batch = ready_push(
             local_host
                 .claim_native_sync_push(&admission)
@@ -1916,7 +1920,7 @@ mod tests {
             local_host.complete_native_sync_push(
                 &admission,
                 &left,
-                br#"{"schemaVersion":2,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"child-retry"}"#,
+                br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_STORAGE_REJECTED","correlationId":"child-retry"}"#,
             ),
             Ok(DesktopSyncPushDisposition::Retryable)
         );
@@ -1959,7 +1963,7 @@ mod tests {
     fn pull_response(page: &Value) -> Vec<u8> {
         let page_digest = page["pageDigest"].clone();
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "page": page,
             "confirmedThrough": 0,
@@ -1987,17 +1991,18 @@ mod tests {
             .prepare_native_sync_pull(&admission)
             .expect("prepare pull");
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": WORKSPACE_ID,
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 1,
             "mutations": [{
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": "remote-1",
                 "workspaceId": WORKSPACE_ID,
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": "remote.test",
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": 0,
                 "changedFields": [{"fieldPath": "note", "value": "remote"}],
@@ -2043,7 +2048,7 @@ mod tests {
             .prepare_native_sync_pull(&admission)
             .expect("prepare pull");
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": WORKSPACE_ID,
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 0,
@@ -2056,7 +2061,7 @@ mod tests {
             Value::String(canonical_page_digest(&page).expect("empty page digest"));
         let page_digest = page["pageDigest"].clone();
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": true,
             "page": page,
             "confirmedThrough": 0,
@@ -2121,7 +2126,7 @@ mod tests {
             .prepare_native_sync_pull(&other_admission)
             .expect("prepare pull");
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "accepted": false,
             "code": "SYNC_REBOOTSTRAP_REQUIRED",
             "checkpoint": checkpoint,

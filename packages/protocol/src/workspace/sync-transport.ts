@@ -3,6 +3,7 @@ import { z } from "zod";
 import { canonicalUtcTimestamp, encodeDomainSeparatedWireValue, identifier, safePositiveInteger } from "../wire/index";
 import {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   mutationCursorSchema,
@@ -28,7 +29,7 @@ export const workspaceSyncOperationSchema = z.enum([
 
 export const workspaceMutationPushRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     mutations: z
       .array(tenantNeutralSubmittedSyncMutationSchema)
       .min(1)
@@ -87,7 +88,7 @@ export const workspaceMutationPushRejectionCodeSchema = z.enum([
 export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       acknowledgements: z.array(workspaceMutationAcknowledgementSchema).max(MAX_MUTATIONS_PER_PAGE),
       headServerRevision: serverRevisionSchema,
@@ -119,7 +120,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
     }),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPushRejectionCodeSchema,
       correlationId: identifier,
@@ -129,7 +130,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
 
 export const workspaceMutationPullRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     afterServerRevision: serverRevisionSchema,
     cursor: mutationCursorSchema.nullable(),
     confirm: mutationCursorSchema.nullable(),
@@ -180,7 +181,7 @@ export const pendingDeliverySchema = z
 export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       page: mutationPageSchema,
       confirmedThrough: serverRevisionSchema,
@@ -190,7 +191,7 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
     .strict(),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPullRejectionCodeSchema,
       checkpoint: checkpointDescriptorSchema.nullable(),

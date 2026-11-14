@@ -14,6 +14,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{
     DatabaseRecoveryProof, DomainAssetProjectionRow, DomainAssetWrite, Money,
     RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId,
+    SYNC_MUTATION_WIRE_SCHEMA_VERSION,
     desktop_custody::{
         CandidateReservedEvidence, DesktopCustodyError, DesktopJournalStore, PreparedEvidence,
         VerifiedCustodyEvidence,
@@ -142,6 +143,9 @@ struct MutationWire {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
+    /// ADR-0029 C1a: only generation 1 replays until local generation columns land (C1c);
+    /// `reAddsDeletedRevision` is undeclared, so `deny_unknown_fields` refuses a re-add.
+    entity_generation: u64,
     operation_kind: String,
     #[serde(default)]
     deleted_at: Option<String>,
@@ -307,7 +311,8 @@ fn validate_page(
     workspace_id: &str,
     pinned_head: u64,
 ) -> Result<(), RebootstrapError> {
-    if page.schema_version != 2
+    // The plan envelope stays on version 2; its replay pages are mutation pages (wire v3).
+    if page.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
         || page.workspace_id != workspace_id
         || page.through_server_revision_inclusive != pinned_head
         || page.mutations.len() > 256
@@ -320,7 +325,8 @@ fn validate_page(
             .from_server_revision_exclusive
             .checked_add(index as u64 + 1)
             .ok_or(RebootstrapError::InvalidPlan)?;
-        if mutation.schema_version != 2
+        if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
+            || mutation.entity_generation != 1
             || mutation.workspace_id != workspace_id
             || mutation.workspace_schema_version == 0
             || mutation.workspace_schema_version > MAX_SAFE_INTEGER
@@ -2854,6 +2860,26 @@ const fn map_custody_error(error: DesktopCustodyError) -> RebootstrapError {
 
 #[cfg(test)]
 pub(crate) fn valid_rebootstrap_fixture(workspace_id: &str) -> (Vec<u8>, Vec<u8>) {
+    rebootstrap_fixture_with_replay(workspace_id, 0, Vec::new())
+}
+
+/// A signed plan over an empty checkpoint at revision 0 whose replay pages reach `pinned_head`.
+/// Each page's digest is recomputed here, so a test can shape the mutations freely.
+#[cfg(test)]
+pub(crate) fn rebootstrap_fixture_with_replay(
+    workspace_id: &str,
+    pinned_head: u64,
+    mut pages: Vec<serde_json::Value>,
+) -> (Vec<u8>, Vec<u8>) {
+    for page in &mut pages {
+        let object = page.as_object_mut().expect("fixture page is an object");
+        object.remove("pageDigest");
+        let digest = fixture_digest(
+            b"GOODDEALER-WORKSPACE-MUTATION-PAGE-V2",
+            &serde_json::Value::Object(object.clone()),
+        );
+        object.insert("pageDigest".to_owned(), serde_json::Value::String(digest));
+    }
     let empty_snapshot = serde_json::json!([]);
     let partition_digest = fixture_digest(b"GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", &empty_snapshot);
     let checkpoint_digest = fixture_digest(
@@ -2878,10 +2904,10 @@ pub(crate) fn valid_rebootstrap_fixture(workspace_id: &str) -> (Vec<u8>, Vec<u8>
         "snapshot": [],
         "requiredMutationRange": {
             "fromServerRevisionExclusive": 0,
-            "throughServerRevisionInclusive": 0,
+            "throughServerRevisionInclusive": pinned_head,
         },
-        "mutations": [],
-        "pinnedHeadRevision": 0,
+        "mutations": pages,
+        "pinnedHeadRevision": pinned_head,
     });
     let pinned_digest = fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", &plan);
     plan.as_object_mut()
@@ -3889,6 +3915,77 @@ mod tests {
                 .unwrap_err(),
             RebootstrapError::PhaseRejected
         );
+    }
+
+    #[test]
+    fn plan_replay_pages_are_mutation_wire_v3_with_first_generation_only() {
+        let page = |shape: fn(&mut serde_json::Value)| {
+            let mut mutation = serde_json::json!({
+                "schemaVersion": 3,
+                "mutationId": "replay-1",
+                "workspaceId": "workspace",
+                "workspaceSchemaVersion": 1,
+                "entityType": "domain_asset",
+                "entityId": "replayed.test",
+                "entityGeneration": 1,
+                "operationKind": "upsert",
+                "baseServerRevision": 0,
+                "changedFields": [{"fieldPath": "note", "value": "replayed"}],
+                "sourceDeviceId": "device-a",
+                "activeLeaseEpoch": 1,
+                "deviceMutationSequence": 1,
+                "serverRevision": 1,
+            });
+            let mut page = serde_json::json!({
+                "schemaVersion": 3,
+                "workspaceId": "workspace",
+                "fromServerRevisionExclusive": 0,
+                "throughServerRevisionInclusive": 1,
+                "mutations": [],
+                "returnedThroughServerRevision": 1,
+                "nextCursor": null,
+            });
+            shape(&mut mutation);
+            page["mutations"] = serde_json::json!([mutation]);
+            page
+        };
+        let parse = |page: serde_json::Value| {
+            let (checkpoint_wire, plan_wire) =
+                rebootstrap_fixture_with_replay("workspace", 1, vec![page]);
+            let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
+            RebootstrapPlan::parse(&checkpoint, &plan_wire)
+        };
+
+        let parsed = parse(page(|_| {})).unwrap();
+        assert_eq!(parsed.pinned_head_revision(), 1);
+        assert_eq!(parsed.replay_pages.len(), 1);
+        assert!(
+            parsed.replay_pages[0]
+                .page_json
+                .contains("\"entityGeneration\":1")
+        );
+
+        let refused: [fn(&mut serde_json::Value); 5] = [
+            |mutation| mutation["schemaVersion"] = serde_json::json!(2),
+            |mutation| {
+                mutation.as_object_mut().unwrap().remove("entityGeneration");
+            },
+            |mutation| mutation["entityGeneration"] = serde_json::json!(2),
+            |mutation| mutation["reAddsDeletedRevision"] = serde_json::json!(0),
+            |mutation| {
+                mutation["entityGeneration"] = serde_json::json!(2);
+                mutation["reAddsDeletedRevision"] = serde_json::json!(0);
+            },
+        ];
+        for shape in refused {
+            assert_eq!(
+                parse(page(shape)).unwrap_err(),
+                RebootstrapError::InvalidPlan
+            );
+        }
+        let mut v2_page = page(|_| {});
+        v2_page["schemaVersion"] = serde_json::json!(2);
+        assert_eq!(parse(v2_page).unwrap_err(), RebootstrapError::InvalidPlan);
     }
 
     #[test]

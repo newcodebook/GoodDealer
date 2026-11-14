@@ -13,11 +13,12 @@ const checkpoint = {
   checkpointDigest: "C".repeat(43),
 };
 const mutation = {
-  schemaVersion: 2 as const,
+  schemaVersion: 3 as const,
   mutationId: "mutation-sync",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset" as const,
   entityId: "asset.test",
+  entityGeneration: 1,
   operationKind: "upsert" as const,
   baseServerRevision: 0,
   changedFields: [{ fieldPath: "note" as const, value: "note" }],
@@ -25,7 +26,7 @@ const mutation = {
   activeLeaseEpoch: 1,
   deviceMutationSequence: 1,
 };
-const pullRequest = { schemaVersion: 2 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 256 };
+const pullRequest = { schemaVersion: 3 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 256 };
 
 function fixture(pullResults: unknown[]) {
   const ingest = vi.fn(async () => ({ accepted: true as const, assignments: [{
@@ -47,7 +48,7 @@ function fixture(pullResults: unknown[]) {
 describe("workspace sync authenticated application", () => {
   it("rejects a mutation provenance device that differs from the server-derived session device", async () => {
     const subject = fixture([]);
-    const result = await subject.application.push({ schemaVersion: 2, mutations: [{
+    const result = await subject.application.push({ schemaVersion: 3, mutations: [{
       ...mutation, sourceDeviceId: "other-device",
     }] }, principal);
     expect(result).toMatchObject({ accepted: false, code: "SYNC_AUTHORIZATION_REJECTED" });
@@ -57,7 +58,7 @@ describe("workspace sync authenticated application", () => {
   it("opens a first reader only from a token-free local revision and then returns its durable page", async () => {
     const accepted = {
       accepted: true as const,
-      page: { schemaVersion: 2, workspaceId: scope.workspaceId, fromServerRevisionExclusive: 0,
+      page: { schemaVersion: 3, workspaceId: scope.workspaceId, fromServerRevisionExclusive: 0,
         throughServerRevisionInclusive: 0, mutations: [], returnedThroughServerRevision: 0,
         nextCursor: null, pageDigest: "A".repeat(43) },
       confirmedThrough: 0,
@@ -108,7 +109,7 @@ describe("workspace sync push rejection mapping", () => {
   it.each(cases)("maps ingest %s to push %s", async (ingestCode, pushCode) => {
     const subject = fixture([]);
     subject.ingest.mockResolvedValueOnce({ accepted: false, code: ingestCode, failures: [] } as never);
-    const result = await subject.application.push({ schemaVersion: 2, mutations: [mutation] }, principal);
+    const result = await subject.application.push({ schemaVersion: 3, mutations: [mutation] }, principal);
     expect(result).toMatchObject({ accepted: false, code: pushCode });
   });
 });

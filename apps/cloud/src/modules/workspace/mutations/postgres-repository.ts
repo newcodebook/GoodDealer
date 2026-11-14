@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
+import { encodeDrainStreamEnvelope, encodeLegacyV2MutationDrainEnvelope } from "@gooddealer/protocol/execution-events";
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
+  encodeLegacyV2SubmittedSyncMutationDigestInput,
   encodeSubmittedSyncMutationDigestInput,
   submittedSyncMutationSchema,
   syncMutationSchema,
@@ -13,6 +14,7 @@ import {
 import { identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 
 import type { TenantTransaction } from "../../../db/index";
+import { isFirstGenerationMutation } from "./generation-rule";
 import type { MutationWriter } from "./stale-field-rule";
 
 const lockedDomainBrand: unique symbol = Symbol("locked mutation drain domain");
@@ -180,9 +182,13 @@ export class PostgresWorkspaceMutationRepository {
     const bySequence = receipts.find((receipt) =>
       receipt.sourceDeviceId === mutation.sourceDeviceId &&
       receipt.deviceMutationSequence === mutation.deviceMutationSequence);
-    const digest = wireDigest(mutation).toString("base64url");
     if (byId !== undefined) {
-      if (byId.submittedEnvelopeDigest !== digest) return { status: "mutation_id_conflict", receipt: byId };
+      // A receipt is compared at the wire version it was stored under (ADR-0029 C1a): replaying a
+      // mutation Cloud accepted under v2 must still resolve to that receipt after the upgrade.
+      const storedVersion = result.rows.find((row) => row.mutation_id === mutation.mutationId)?.wire_schema_version;
+      if (byId.submittedEnvelopeDigest !== wireDigestAt(mutation, storedVersion)) {
+        return { status: "mutation_id_conflict", receipt: byId };
+      }
       if (bySequence === undefined || bySequence.mutationId !== mutation.mutationId) {
         return { status: "sequence_conflict", receipt: bySequence ?? byId };
       }
@@ -233,7 +239,7 @@ export class PostgresWorkspaceMutationRepository {
          account_id, workspace_id, source_device_id, device_mutation_sequence,
          mutation_id, active_lease_epoch, wire_schema_version, wire_mutation_digest,
          outcome, rejection_code, rejected_at, rejected_envelope_digest
-       ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,'rejected',$8,transaction_timestamp(),$9)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,3,$7,'rejected',$8,transaction_timestamp(),$9)`,
       [transaction.scope.accountId, transaction.scope.workspaceId, mutation.sourceDeviceId,
         mutation.deviceMutationSequence, mutation.mutationId, mutation.activeLeaseEpoch,
         wireDigest(mutation), code, digestEnvelope(envelope)],
@@ -295,7 +301,7 @@ export class PostgresWorkspaceMutationRepository {
            account_id, workspace_id, source_device_id, device_mutation_sequence,
            mutation_id, active_lease_epoch, wire_schema_version, wire_mutation_digest,
            server_revision, accepted_at, outcome
-         ) VALUES ($1,$2,$3,$4,$5,$6,2,$7,$8,transaction_timestamp(),'accepted')`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,3,$7,$8,transaction_timestamp(),'accepted')`,
         [transaction.scope.accountId, transaction.scope.workspaceId, mutation.sourceDeviceId,
           mutation.deviceMutationSequence, mutation.mutationId, mutation.activeLeaseEpoch,
           wireDigest(mutation), serverRevision],
@@ -525,13 +531,15 @@ function parseStoredMutation(
     if (row.ordinal !== ordinal) throw new TypeError("stored mutation field ordinals are not contiguous");
     return parseStoredField(row);
   });
+  // Until C1b stores generations, every accepted mutation is generation 1: ingest refuses others.
   const mutation = syncMutationSchema.parse({
-    schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+    schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
     mutationId: header.mutation_id,
     workspaceId: transaction.scope.workspaceId,
     workspaceSchemaVersion: parseUnsignedInteger(header.workspace_schema_version, "stored workspace schema version"),
     entityType: header.entity_type,
     entityId: header.entity_id,
+    entityGeneration: 1,
     operationKind: header.operation_kind,
     ...(header.operation_kind === "delete" ? { deletedAt: required(header.deleted_at) } : {}),
     baseServerRevision: parseUnsignedInteger(header.base_server_revision, "stored base revision"),
@@ -543,10 +551,14 @@ function parseStoredMutation(
   });
   const { serverRevision: _revision, ...submittedValue } = mutation;
   const submitted = submittedSyncMutationSchema.parse(submittedValue);
-  const envelope = Buffer.from(encodeDrainStreamEnvelope("mutation", submitted));
-  const digest = digestEnvelope(envelope);
-  if (!header.canonical_submitted_envelope.equals(envelope) ||
-    !header.submitted_envelope_digest.equals(digest)) {
+  // Retained bytes stay as accepted: a mutation accepted before wire v3 keeps its v2 envelope,
+  // which is re-derived from the same content; anything else is corruption.
+  const stored = header.canonical_submitted_envelope;
+  const envelope = [
+    Buffer.from(encodeDrainStreamEnvelope("mutation", submitted)),
+    ...(isFirstGenerationMutation(submitted) ? [Buffer.from(encodeLegacyV2MutationDrainEnvelope(submitted))] : []),
+  ].find((candidate) => stored.equals(candidate));
+  if (envelope === undefined || !header.submitted_envelope_digest.equals(digestEnvelope(envelope))) {
     throw new TypeError("stored mutation canonical envelope is corrupt");
   }
   return mutation;
@@ -611,6 +623,16 @@ function wireDigest(mutation: SubmittedSyncMutation): Buffer {
   return createHash("sha256")
     .update(encodeSubmittedSyncMutationDigestInput(tenantNeutral))
     .digest();
+}
+
+/** The stored-version digest of `mutation`, or null when that version cannot express it. */
+function wireDigestAt(mutation: SubmittedSyncMutation, storedVersion: number | undefined): string | null {
+  const { workspaceId: _workspaceId, ...tenantNeutral } = mutation;
+  if (storedVersion === WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION) return wireDigest(mutation).toString("base64url");
+  if (storedVersion !== 2 || !isFirstGenerationMutation(mutation)) return null;
+  return createHash("sha256")
+    .update(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral))
+    .digest("base64url");
 }
 
 function parseDigest(value: Buffer, label: string): string {

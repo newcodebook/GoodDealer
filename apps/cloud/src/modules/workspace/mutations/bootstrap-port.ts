@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   mutationPageSchema,
 } from "@gooddealer/protocol/workspace";
@@ -29,7 +29,7 @@ export class PostgresBootstrapMutationPagePort implements BootstrapMutationPageP
     }
     const nextCursor = end === input.throughServerRevisionInclusive ? null : expectedCursor(end);
     const draft = {
-      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+      schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
       workspaceId: transaction.scope.workspaceId,
       fromServerRevisionExclusive: input.fromServerRevisionExclusive,
       throughServerRevisionInclusive: input.throughServerRevisionInclusive,

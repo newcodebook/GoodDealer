@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  encodeLegacyV2MutationDrainEnvelope,
   DRAIN_CHAIN_GENESIS_INPUT,
   DRAIN_PROOF_DIGEST_DOMAIN,
   DRAIN_PROOF_DIGEST_DOMAIN_V2,
@@ -394,7 +395,7 @@ describe("P17 canonical byte layouts", () => {
       proofTranscript: digest(encodeDrainProofSignatureTranscript(proof)),
       proofDigestInput: digest(encodeDrainProofDigestInput(proof)),
     }).toEqual({
-      mutationEnvelope: "bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac",
+      mutationEnvelope: "GraedUUM-E1daDqh76REQ2g2SV6ZMKYaehT5T2yfQ2w",
       executionFactTranscript: "3pNPc2ckw_aEBcDuCi4SLjSNCyU5iq8T6E3yuuWOQ9A",
       executionFactEnvelope: "ZJVnUm-9bcVTZLXRcDGd2LjUq2CU4Z131DeiZzysqNI",
       accountAuditTranscript: "AO_KE_einS6zs8tNRUU5aaT-Pomp4wOnK4YmbsFJYUI",
@@ -422,6 +423,15 @@ describe("P17 canonical byte layouts", () => {
     expect(decoder.decode(account)).toContain("account");
   });
 
+  it("ADR-0029 re-derives the retained wire v2 envelope of a generation-1 mutation byte for byte", () => {
+    const submitted = submittedSyncMutationSchema.parse(vector("execution-events/valid/mutation-submitted.json"));
+    // The pinned digest of this vector's envelope before wire v3; retained records keep it.
+    expect(digest(encodeLegacyV2MutationDrainEnvelope(submitted))).toBe("bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac");
+    expect(() => encodeLegacyV2MutationDrainEnvelope({ ...submitted, entityGeneration: 2 })).toThrow(/first-generation/);
+    expect(() => encodeLegacyV2MutationDrainEnvelope({ ...submitted, entityGeneration: 2, reAddsDeletedRevision: 1 }))
+      .toThrow(/first-generation/);
+  });
+
   it("P17-INV-5/7/8 keeps mutation submission additive and digest-invariant", () => {
     const submitted = vector("execution-events/valid/mutation-submitted.json");
     const enriched = vector("execution-events/valid/mutation-server-enriched.json");
@@ -434,6 +444,7 @@ describe("P17 canonical byte layouts", () => {
       "workspaceSchemaVersion",
       "entityType",
       "entityId",
+      "entityGeneration",
       "operationKind",
       "baseServerRevision",
       "changedFields",
@@ -567,7 +578,7 @@ describe("ADR-0030 versioned mutation drain results", () => {
   it("binds the outcome and leaves the frozen submitted envelope untouched", () => {
     const mutation = submittedSyncMutationSchema.parse(vector("execution-events/valid/mutation-submitted.json"));
     const submitted = encodeDrainStreamEnvelope("mutation", mutation);
-    expect(digest(submitted)).toBe("bs2VrWtJ3gpBKktmZyz8Wpx7OoU_EQUZcU4Khrhy8ac");
+    expect(digest(submitted)).toBe("GraedUUM-E1daDqh76REQ2g2SV6ZMKYaehT5T2yfQ2w");
     const submittedDigest = createHash("sha256").update(submitted).digest();
     const accepted = encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: submittedDigest });
     const rejected = encodeMutationDrainResultEnvelope({ outcome: "rejected", submittedEnvelopeDigest: submittedDigest });
@@ -722,12 +733,13 @@ describe("P17-INV-8 pre-existing workspace corpus remains unchanged", () => {
 
   it("represents deletion explicitly and rejects ambiguous upsert/delete payloads", () => {
     const base = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "mutation-delete",
       workspaceId: "workspace-delete",
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "deleted.test",
+      entityGeneration: 1,
       baseServerRevision: 4,
       sourceDeviceId: "device-delete",
       activeLeaseEpoch: 1,

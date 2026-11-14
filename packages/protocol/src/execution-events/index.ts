@@ -61,6 +61,7 @@ export {
   encodeDrainChainStepInput,
   encodeDrainSequenceDomain,
   encodeDrainStreamEnvelope,
+  encodeLegacyV2MutationDrainEnvelope,
   encodeMutationDrainResultEnvelope,
   encodeWorkspaceDeviceAuditChainDomain,
 } from "./streams";

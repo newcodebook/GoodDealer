@@ -93,12 +93,13 @@ describe("workspace sync transaction-aware owner ports", () => {
     const repository = new PostgresPortfolioRepository();
     const transaction = { scope, query } as unknown as TenantTransaction;
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "mutation-1",
       workspaceId: scope.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "asset-1.test",
+      entityGeneration: 1,
       operationKind: "upsert",
       baseServerRevision: 0,
       changedFields: [

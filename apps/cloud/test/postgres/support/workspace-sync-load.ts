@@ -114,12 +114,13 @@ export async function resetTenants(harness: DurabilityHarness, tenants: number):
 /** The `sequence`th (1-based) edit of a tenant: a note write based on the revision before it. */
 export function plannedPush(tenantIndex: number, sequence: number) {
   const mutation = submittedSyncMutationSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `durability-${tenantIndex}-${sequence}`,
     workspaceId: DURABILITY_WORKSPACE_ID,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: ENTITY_ID,
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: sequence - 1,
     changedFields: [{ fieldPath: "note", value: plannedNote(tenantIndex, sequence) }],
@@ -128,7 +129,7 @@ export function plannedPush(tenantIndex: number, sequence: number) {
     deviceMutationSequence: sequence,
   });
   const { workspaceId: _workspaceId, ...wire } = mutation;
-  return { schemaVersion: 2 as const, mutations: [wire] };
+  return { schemaVersion: 3 as const, mutations: [wire] };
 }
 
 export function plannedNote(tenantIndex: number, sequence: number): string {

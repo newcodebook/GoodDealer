@@ -24,7 +24,7 @@ import {
 } from "@gooddealer/protocol/execution-events";
 import { identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   submittedSyncMutationSchema,
   syncMutationSchema,
   type SubmittedSyncMutation,
@@ -36,6 +36,7 @@ import type { WorkspaceBindingPort } from "../revisions/index";
 import type { WorkspaceTenantScope } from "../tenant-scope";
 import { workspaceTenantKey } from "../tenant-scope";
 import type { PortfolioMutationPort } from "../state/portfolio/index";
+import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
 const MAX_MUTATIONS_PER_INGEST = 256;
@@ -63,7 +64,7 @@ export type MutationIngestRejectionCode =
 type RecordedRejectionCode = "MUTATION_FIELD_STALE" | "MUTATION_ENTITY_UNKNOWN";
 
 export interface MutationIngestRequest {
-  readonly schemaVersion: typeof WORKSPACE_SYNC_SCHEMA_VERSION;
+  readonly schemaVersion: typeof WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION;
   readonly workspaceId: string;
   readonly sourceDeviceId: string;
   readonly activeLeaseEpoch: number;
@@ -385,6 +386,10 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
 
     if (request.workspaceId !== scope.workspaceId) return reject("MUTATION_WORKSPACE_MISMATCH");
 
+    // ADR-0029 C1a: generations first, as the PostgreSQL service does before its transaction.
+    const generationFailures = request.mutations.flatMap((mutation, index) =>
+      isFirstGenerationMutation(mutation) ? [] : [failure(index, mutation)]);
+    if (generationFailures.length > 0) return reject("MUTATION_SCHEMA_VERSION_UNSUPPORTED", generationFailures);
     const schemaFailures = request.mutations.flatMap((mutation, index) =>
       mutation.workspaceSchemaVersion === binding.workspaceSchemaVersion ? [] : [failure(index, mutation)],
     );
@@ -689,7 +694,7 @@ function parseMutationIngestRequest(value: unknown): MutationIngestRequest | nul
     !keys.includes("sourceDeviceId") ||
     !keys.includes("activeLeaseEpoch") ||
     !keys.includes("mutations") ||
-    value.schemaVersion !== WORKSPACE_SYNC_SCHEMA_VERSION ||
+    value.schemaVersion !== WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION ||
     !identifier.safeParse(value.workspaceId).success ||
     !identifier.safeParse(value.sourceDeviceId).success ||
     !safePositiveInteger.safeParse(value.activeLeaseEpoch).success ||
@@ -709,7 +714,7 @@ function parseMutationIngestRequest(value: unknown): MutationIngestRequest | nul
     mutations.push(parsed.data);
   }
   return {
-    schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+    schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
     workspaceId: value.workspaceId as string,
     sourceDeviceId: value.sourceDeviceId as string,
     activeLeaseEpoch: value.activeLeaseEpoch as number,

@@ -180,12 +180,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     const build = coordinated.build(tenantA, "before-concurrent-ingest", 0);
     await captureStarted;
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "concurrent-build-mutation",
       workspaceId: tenantA.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "a.test",
+      entityGeneration: 1,
       operationKind: "upsert",
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note", value: "after-build" }],
@@ -431,12 +432,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     await seedWorkspace(tenantA, [{ ...initialRows[0]!, note: "accepted" }], 0);
     const persistentMutations = new PostgresWorkspaceMutationRepository();
     const mutation = submittedSyncMutationSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       mutationId: "compaction-rollback-mutation",
       workspaceId: tenantA.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset",
       entityId: "a.test",
+      entityGeneration: 1,
       operationKind: "upsert",
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note", value: "accepted" }],
@@ -663,12 +665,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
 
 describe("deterministic checkpoint rebuild", () => {
   const mutation = (revision: number, note: string): SyncMutation => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${revision}`,
     workspaceId: tenantA.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: revision - 1,
     changedFields: [{ fieldPath: "note", value: note }],
@@ -691,7 +694,7 @@ describe("deterministic checkpoint rebuild", () => {
     ]);
     // A delete of an asset the snapshot never held is a corrupt range, not a creation.
     const orphanDelete = {
-      ...mutation(1, "gone"), entityId: "never.test", operationKind: "delete",
+      ...mutation(1, "gone"), entityId: "never.test", entityGeneration: 1, operationKind: "delete",
       deletedAt: "2026-01-01T00:00:00Z", changedFields: [],
     };
     expect(() => replayDomainAssets(initialRows, [orphanDelete], 0, 1, tenantA.workspaceId)).toThrow(/unknown entity/);
@@ -746,12 +749,13 @@ function checkpointServiceWithWatermarks(
 async function seedReplayMutation(): Promise<void> {
   await seedWorkspace(tenantA, [{ ...initialRows[0]!, note: "accepted" }], 0);
   const mutation = submittedSyncMutationSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: "mutation-1",
     workspaceId: tenantA.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: 0,
     changedFields: [{ fieldPath: "note", value: "accepted" }],
@@ -874,12 +878,13 @@ async function advanceWorkspaceWithPersistedMutation(
   note: string,
 ): Promise<void> {
   const mutation = submittedSyncMutationSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId,
     workspaceId: scope.workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "a.test",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: 0,
     changedFields: [{ fieldPath: "note", value: note }],

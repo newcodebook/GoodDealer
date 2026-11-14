@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { SubmittedSyncMutation, SyncMutation } from "../workspace/index";
-import { submittedSyncMutationSchema, syncMutationSchema } from "../workspace/index";
+import { submittedSyncMutationSchema, syncMutationSchema, toLegacyV2SubmittedSyncMutation } from "../workspace/index";
 import {
   encodeDomainSeparatedWireValue,
   identifier,
@@ -119,6 +119,17 @@ export function encodeDrainChainStepInput(
     throw new TypeError("previous drain digest must contain exactly 32 bytes");
   }
   return concatenateDrainBytes([previousDigest, encodeLengthPrefixedDrainBytes(envelope)]);
+}
+
+/**
+ * ADR-0029: the canonical drain envelope a generation-1 mutation had under wire v2. Records and
+ * receipts accepted before wire v3 keep these bytes; see `toLegacyV2SubmittedSyncMutation`.
+ */
+export function encodeLegacyV2MutationDrainEnvelope(record: SubmittedSyncMutation | SyncMutation): Uint8Array {
+  return encodeDomainSeparatedWireValue(
+    "GOODDEALER-SYNC-MUTATION-SUBMITTED-V1",
+    toLegacyV2SubmittedSyncMutation(submittedMutation(record)),
+  );
 }
 
 function submittedMutation(record: SubmittedSyncMutation | SyncMutation): SubmittedSyncMutation {

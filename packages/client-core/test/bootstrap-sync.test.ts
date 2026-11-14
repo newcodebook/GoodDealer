@@ -91,12 +91,13 @@ const submitInput = {
 
 function mutation(serverRevision: number, workspaceId = "workspace-1"): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId,
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: `asset-${serverRevision}.test`,
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "note", value: `revision ${serverRevision}` }],
@@ -115,7 +116,7 @@ function page(input: {
   nextCursor: string | null;
 }): MutationPage {
   const withoutDigest = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     workspaceId: input.workspaceId ?? "workspace-1",
     fromServerRevisionExclusive: input.fromServerRevisionExclusive,
     throughServerRevisionInclusive: input.throughServerRevisionInclusive,

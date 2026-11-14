@@ -148,8 +148,8 @@ pub(crate) use active_workspace::business::{
     CloudflareDnsObservationWrite, CloudflareDnsProjectionAcknowledgement,
     CloudflarePrewriteFailureReason, DatabaseRecoveryProof, DomainAssetWrite, DurableSyncSnapshot,
     LocalDatabaseKey, NativeCheckpointDescriptor, PendingCloudflareDnsProjection,
-    SyncConflictCandidate, SyncMutationAcknowledgement, SyncPullRequestV2, SyncResolutionReceipt,
-    serialize_sync_push_request,
+    SYNC_MUTATION_WIRE_SCHEMA_VERSION, SyncConflictCandidate, SyncMutationAcknowledgement,
+    SyncPullRequestV2, SyncResolutionReceipt, serialize_sync_push_request,
 };
 #[cfg(test)]
 pub(crate) use active_workspace::business::{

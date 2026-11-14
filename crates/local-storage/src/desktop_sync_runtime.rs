@@ -1430,7 +1430,7 @@ mod tests {
         let pull = runtime
             .sync_pull_request(&database, &admission, 64)
             .expect("derive pull request");
-        assert_eq!(pull.schema_version, 2);
+        assert_eq!(pull.schema_version, 3);
         assert_eq!(pull.after_server_revision, 0);
         assert_eq!(pull.page_limit, 64);
         assert!(

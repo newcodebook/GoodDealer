@@ -58,11 +58,12 @@ const desktopGrant = {
 } as const;
 
 const mutation = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   mutationId: "mutation-1",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset",
   entityId: "example.test",
+  entityGeneration: 1,
   operationKind: "upsert",
   baseServerRevision: 0,
   changedFields: [{ fieldPath: "note", value: "local note" }],
@@ -114,10 +115,14 @@ describe("first-slice shared transport contract", () => {
   });
 
   it("accepts only tenant-neutral mutation push and progress requests", () => {
-    expect(workspaceMutationPushRequestSchema.parse({ schemaVersion: 2, mutations: [mutation] }))
-      .toEqual({ schemaVersion: 2, mutations: [mutation] });
+    expect(workspaceMutationPushRequestSchema.parse({ schemaVersion: 3, mutations: [mutation] }))
+      .toEqual({ schemaVersion: 3, mutations: [mutation] });
+    // Version 2 mutation wire is refused, never upgraded in place.
+    expect(workspaceMutationPushRequestSchema.safeParse({
+      schemaVersion: 2, mutations: [{ ...mutation, schemaVersion: 2 }],
+    }).success).toBe(false);
     expect(workspaceMutationPullRequestSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       afterServerRevision: 0,
       cursor: null,
       pageLimit: 64,
@@ -134,7 +139,7 @@ describe("first-slice shared transport contract", () => {
     { ...mutation, providerAccountId: "provider-account" },
     { ...mutation, accessToken: "secret" },
   ])("rejects tenant, Provider identity, and secret fields from mutation wire items %#", (value) => {
-    expect(workspaceMutationPushRequestSchema.safeParse({ schemaVersion: 2, mutations: [value] }).success)
+    expect(workspaceMutationPushRequestSchema.safeParse({ schemaVersion: 3, mutations: [value] }).success)
       .toBe(false);
   });
 

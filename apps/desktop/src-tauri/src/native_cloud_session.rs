@@ -1982,7 +1982,7 @@ mod tests {
 
         assert!(matches!(
             session.prepare_data_plane_request(
-                br#"{"schemaVersion":2}"#,
+                br#"{"schemaVersion":3}"#,
                 DataPlaneRoute::SyncPush,
                 Some(refreshed),
             ),

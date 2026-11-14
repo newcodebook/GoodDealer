@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   mutationPageSchema,
 } from "@gooddealer/protocol/workspace";
@@ -33,7 +33,7 @@ export class PostgresReaderMutationPage implements ReaderMutationPageQueryPort {
       throw new TypeError("reader mutation page is not dense");
     }
     const draft = {
-      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+      schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
       workspaceId: transaction.scope.workspaceId,
       fromServerRevisionExclusive: input.fromServerRevisionExclusive,
       throughServerRevisionInclusive: input.throughServerRevisionInclusive,

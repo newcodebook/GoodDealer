@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   encodeRebootstrapPlanDigestInput,
@@ -52,7 +53,7 @@ export class PostgresWorkspaceCheckpointReader implements WorkspaceCheckpointRea
         const pageFrom = from + offset;
         const returnedThrough = pageFrom + pageMutations.length;
         const draft = {
-          schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+          schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
           workspaceId: scope.workspaceId,
           fromServerRevisionExclusive: pageFrom,
           throughServerRevisionInclusive: through,

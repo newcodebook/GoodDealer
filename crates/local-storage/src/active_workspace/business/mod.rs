@@ -395,6 +395,10 @@ impl BusinessDatabase {
 
 pub(crate) const MAX_SYNC_PUSH_REQUEST_BYTES: usize = 1024 * 1024;
 
+/// The mutation push/pull wire version (ADR-0029 C1a): each mutation carries `entityGeneration`.
+/// Checkpoint and rebootstrap messages stay on version 2.
+pub(crate) const SYNC_MUTATION_WIRE_SCHEMA_VERSION: u8 = 3;
+
 pub(crate) fn serialize_sync_push_request(
     wire_mutations: &[String],
 ) -> Result<Vec<u8>, BusinessDatabaseError> {
@@ -404,7 +408,7 @@ pub(crate) fn serialize_sync_push_request(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     let request = serde_json::to_vec(&serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": SYNC_MUTATION_WIRE_SCHEMA_VERSION,
         "mutations": mutations,
     }))
     .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -548,6 +552,9 @@ struct SyncMutationV2 {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
+    /// Always 1 until generation-aware materialization lands (ADR-0029 C1c); a later generation
+    /// or a `reAddsDeletedRevision` (an unknown field here) is refused before materialization.
+    entity_generation: u64,
     operation_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     deleted_at: Option<String>,
@@ -3701,7 +3708,7 @@ impl BusinessDatabase {
         }
         let page: SyncPageV2 =
             serde_json::from_str(page_json).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        if page.schema_version != 2
+        if page.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
             || page.workspace_id != self.workspace_id
             || page.mutations.len() > 256
             || page.from_server_revision_exclusive > page.through_server_revision_inclusive
@@ -3729,7 +3736,8 @@ impl BusinessDatabase {
         }
         let mut expected_revision = page.from_server_revision_exclusive.saturating_add(1);
         for mutation in &page.mutations {
-            if mutation.schema_version != 2
+            if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
+                || mutation.entity_generation != 1
                 || mutation.server_revision != expected_revision
                 || mutation.entity_type != "domain_asset"
                 || mutation.workspace_id != page.workspace_id
@@ -3985,7 +3993,7 @@ impl BusinessDatabase {
             )
         };
         Ok(SyncPullRequestV2 {
-            schema_version: 2,
+            schema_version: SYNC_MUTATION_WIRE_SCHEMA_VERSION,
             after_server_revision: u64::try_from(revision)
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?,
             cursor,
@@ -4769,7 +4777,7 @@ impl BusinessDatabase {
             )?;
             let wire_json =
                 serde_json::to_string(&wire).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let wire_digest = canonical_sync_digest(&wire)?;
+            let wire_digest = local_wire_digest(&wire)?;
             if local_json_digest.as_deref() == Some(&wire_digest)
                 || stored_wire_digest
                     .as_ref()
@@ -5580,11 +5588,12 @@ fn reconstruct_sync_mutation_v2(
         changed_fields.push(serde_json::json!({ "fieldPath": field_path, "value": value }));
     }
     let mut mutation = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": SYNC_MUTATION_WIRE_SCHEMA_VERSION,
         "mutationId": mutation_id,
         "workspaceSchemaVersion": workspace_schema_version,
         "entityType": "domain_asset",
         "entityId": entity_id,
+        "entityGeneration": 1,
         "operationKind": operation_kind,
         "baseServerRevision": base_server_revision,
         "changedFields": changed_fields,
@@ -5784,7 +5793,28 @@ fn canonical_mutation_digest(mutation: &SyncMutationV2) -> Result<String, Busine
         object.remove("workspaceId");
         object.remove("serverRevision");
     }
-    canonical_sync_digest(&value)
+    local_wire_digest(&value)
+}
+
+/// The digest recorded in the local `wire_mutation_digest` columns, which SQLite still pins to
+/// `wire_schema_version = 2`: the v2 encoding of a first-generation mutation, re-derived from its
+/// v3 form by dropping `entityGeneration`. For generation 1 the two encodings carry the same
+/// content, so the column keeps identifying exactly one mutation, and rows claimed before the
+/// upgrade keep matching. Temporary: ADR-0029 C1c rebuilds these tables with generation columns
+/// and records version 3 digests; anything other than generation 1 is refused until then.
+fn local_wire_digest(value: &serde_json::Value) -> Result<String, BusinessDatabaseError> {
+    let mut legacy = value
+        .as_object()
+        .cloned()
+        .ok_or(BusinessDatabaseError::StorageRejected)?;
+    if legacy.get("schemaVersion") != Some(&serde_json::json!(SYNC_MUTATION_WIRE_SCHEMA_VERSION))
+        || legacy.remove("entityGeneration") != Some(serde_json::json!(1))
+        || legacy.contains_key("reAddsDeletedRevision")
+    {
+        return Err(BusinessDatabaseError::StorageRejected);
+    }
+    legacy.insert("schemaVersion".to_owned(), serde_json::json!(2));
+    canonical_sync_digest(&serde_json::Value::Object(legacy))
 }
 
 fn validate_sync_mutation_fields(mutation: &SyncMutationV2) -> Result<(), BusinessDatabaseError> {
@@ -11566,11 +11596,18 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first.len(), 1);
+        // ADR-0029 C1a: the bytes sent are wire v3, while the recorded digest is still the v2
+        // encoding of the same first-generation mutation, unchanged from before the upgrade.
         assert_eq!(
             first[0].wire_mutation_digest,
             "Aqu72459aAXWoEPGtAF3HWrcSqs4-Oz7byBPuq-C2qo"
         );
-        assert!(first[0].wire_mutation_json.contains("\"schemaVersion\":2"));
+        assert!(first[0].wire_mutation_json.contains("\"schemaVersion\":3"));
+        assert!(
+            first[0]
+                .wire_mutation_json
+                .contains("\"entityGeneration\":1")
+        );
         assert!(
             first[0]
                 .wire_mutation_json
@@ -11927,17 +11964,18 @@ mod tests {
 
     fn test_sync_page(revision: u64, note: &str) -> String {
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": "workspace-local",
             "fromServerRevisionExclusive": revision - 1,
             "throughServerRevisionInclusive": revision,
             "mutations": [{
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": format!("remote-{revision}"),
                 "workspaceId": "workspace-local",
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": "remote.test",
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": revision - 1,
                 "changedFields": [{"fieldPath": "note", "value": note}],
@@ -11970,10 +12008,10 @@ mod tests {
             )
             .unwrap();
         let mut page = serde_json::json!({
-            "schemaVersion":2,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
-            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":2,
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,
             "mutationId":"remote-delete-floor-guard","workspaceId":"workspace-local",
-            "workspaceSchemaVersion":1,"entityType":"domain_asset","entityId":"remote.test",
+            "workspaceSchemaVersion":1,"entityType":"domain_asset","entityId":"remote.test","entityGeneration":1,
             "operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
             "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device",
             "activeLeaseEpoch":1,"deviceMutationSequence":1,"serverRevision":1}],
@@ -12350,10 +12388,10 @@ mod tests {
             )
             .unwrap();
         let mut page = serde_json::json!({
-            "schemaVersion":2,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
-            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":2,"mutationId":"remote-delete",
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,"mutationId":"remote-delete",
             "workspaceId":"workspace-local","workspaceSchemaVersion":1,"entityType":"domain_asset",
-            "entityId":"remote.test","operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
+            "entityId":"remote.test","entityGeneration":1,"operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
             "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device","activeLeaseEpoch":1,
             "deviceMutationSequence":1,"serverRevision":1}],"returnedThroughServerRevision":1,"nextCursor":null,
             "pageDigest":"A".repeat(43)
@@ -12464,6 +12502,71 @@ mod tests {
     }
 
     #[test]
+    fn sync_page_refuses_a_later_generation_a_re_add_or_another_wire_version() {
+        // ADR-0029 C1a: until local generation columns land, only a first-generation v3
+        // mutation may materialize; every other shape is refused with nothing written.
+        let mut database = database();
+        let variants: [fn(&mut serde_json::Value); 5] = [
+            |page| page["mutations"][0]["entityGeneration"] = serde_json::json!(2),
+            |page| {
+                page["mutations"][0]["entityGeneration"] = serde_json::json!(2);
+                page["mutations"][0]["reAddsDeletedRevision"] = serde_json::json!(0);
+            },
+            |page| {
+                page["mutations"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("entityGeneration");
+            },
+            |page| page["mutations"][0]["schemaVersion"] = serde_json::json!(2),
+            |page| page["schemaVersion"] = serde_json::json!(2),
+        ];
+        for variant in variants {
+            let mut page: serde_json::Value =
+                serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+            variant(&mut page);
+            page["pageDigest"] = serde_json::Value::String(canonical_page_digest(&page).unwrap());
+            assert_eq!(
+                database.apply_sync_page_v2("reader-local", &page.to_string(), "confirm-1"),
+                Err(BusinessDatabaseError::InvalidInput)
+            );
+        }
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+        assert!(database.read_portfolio().unwrap().domains.is_empty());
+        let inbox_count: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_inbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(inbox_count, 0);
+        // The same page in its first-generation v3 form applies and records the legacy digest.
+        database
+            .apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1")
+            .unwrap();
+        let (version, digest): (i64, String) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT wire_schema_version, wire_mutation_digest FROM sync_inbox",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(&test_sync_page(1, "remote")).unwrap();
+        let legacy = legacy["mutations"][0].as_object_mut().unwrap();
+        legacy.remove("entityGeneration");
+        legacy.remove("workspaceId");
+        legacy.remove("serverRevision");
+        legacy.insert("schemaVersion".to_owned(), serde_json::json!(2));
+        assert_eq!(version, 2);
+        assert_eq!(
+            digest,
+            canonical_sync_digest(&serde_json::Value::Object(legacy.clone())).unwrap()
+        );
+    }
+
+    #[test]
     fn sync_v2_page_apply_rejects_gaps_without_partial_inbox_or_projection() {
         let mut database = database();
         let gap = test_sync_page(2, "gap");
@@ -12485,12 +12588,13 @@ mod tests {
     fn sync_v2_poisoned_page_rolls_back_earlier_mutation_and_reader_proof() {
         let mutation = |revision: u64, note: &str| {
             serde_json::json!({
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "mutationId": "duplicate-in-page",
                 "workspaceId": "workspace-local",
                 "workspaceSchemaVersion": 1,
                 "entityType": "domain_asset",
                 "entityId": format!("remote-{revision}.test"),
+                "entityGeneration": 1,
                 "operationKind": "upsert",
                 "baseServerRevision": revision - 1,
                 "changedFields": [{"fieldPath": "note", "value": note}],
@@ -12501,7 +12605,7 @@ mod tests {
             })
         };
         let mut page = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "workspaceId": "workspace-local",
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": 2,
