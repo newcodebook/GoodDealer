@@ -5508,17 +5508,19 @@ mod tests {
     }
 
     fn nonempty_rebootstrap_fixture(workspace_id: &str) -> (Vec<u8>, Vec<u8>) {
-        let snapshot = serde_json::json!([{
+        let assets = serde_json::json!([{
             "entityId": "candidate-remote.example",
             "note": "candidate-only",
             "portfolioId": null,
             "tags": ["candidate"],
             "targetPrice": null,
+            "entityGeneration": 1,
         }]);
         let partition_digest =
-            rebootstrap_fixture_digest(b"GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", &snapshot);
+            rebootstrap_fixture_digest(b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-V3", &assets);
+        let snapshot = serde_json::json!({ "assets": assets, "tombstones": [] });
         let checkpoint_digest = rebootstrap_fixture_digest(
-            b"GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V2",
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-ENTITY-DIGESTS-V3",
             &serde_json::json!([{
                 "entityType": "domain_asset",
                 "partitionId": "p0000",
@@ -5526,7 +5528,7 @@ mod tests {
             }]),
         );
         let checkpoint = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpointId": "checkpoint-nonempty-fixture",
             "workspaceId": workspace_id,
             "workspaceSchemaVersion": 1,
@@ -5534,7 +5536,7 @@ mod tests {
             "checkpointDigest": checkpoint_digest,
         });
         let mut plan = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpoint": checkpoint,
             "snapshot": snapshot,
             "requiredMutationRange": {
@@ -5545,7 +5547,7 @@ mod tests {
             "pinnedHeadRevision": 1,
         });
         let pinned_digest =
-            rebootstrap_fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", &plan);
+            rebootstrap_fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", &plan);
         plan.as_object_mut()
             .expect("fixture plan is an object")
             .insert(

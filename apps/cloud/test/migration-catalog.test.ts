@@ -195,6 +195,11 @@ const expectedCatalog = [
     owner: "workspace/mutations",
     checksum: "5e606fb7595c0f83cdf5c31261ef461446dc39fef80bc898a51f94a24a874bd5",
   },
+  {
+    id: "202611140004-workspace-checkpoint-state-v3",
+    owner: "workspace/checkpoints",
+    checksum: "e17416ad0a59000e57f092947acba9484949743b49ee2bf9a4df8bf3388f8119",
+  },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -223,7 +228,7 @@ describe("Cloud migration catalog", () => {
       + "  accountDefaultWorkspaceCapabilityPolicyMigration,\n  desktopLoginLoopbackRedirectMigration,\n"
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
-      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n];",
+      + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -236,7 +241,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(35);
+    expect(checkedCloudMigrationCatalog).toHaveLength(36);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

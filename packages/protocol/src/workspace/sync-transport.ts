@@ -12,7 +12,7 @@ import {
   serverRevisionSchema,
   tenantNeutralSubmittedSyncMutationSchema,
 } from "./sync-mutation";
-import { domainAssetProjectionSchema } from "./domain-asset-projection";
+import { workspaceCheckpointStateSchema } from "./checkpoint-state";
 
 export const WORKSPACE_SYNC_PUSH_OPERATION_ID = "workspace.sync.mutations.push" as const;
 export const WORKSPACE_SYNC_PULL_OPERATION_ID = "workspace.sync.mutations.pull" as const;
@@ -219,7 +219,7 @@ export const rebootstrapPlanSchema = z
   .object({
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     checkpoint: checkpointDescriptorSchema,
-    snapshot: domainAssetProjectionSchema,
+    snapshot: workspaceCheckpointStateSchema,
     requiredMutationRange: z.object({
       fromServerRevisionExclusive: serverRevisionSchema,
       throughServerRevisionInclusive: serverRevisionSchema,
@@ -236,6 +236,13 @@ export const rebootstrapPlanSchema = z
     }
     if (plan.checkpoint.throughServerRevision !== range.fromServerRevisionExclusive) {
       context.addIssue({ code: "custom", path: ["checkpoint", "throughServerRevision"], message: "checkpoint does not anchor the required range" });
+    }
+    // A checkpoint cannot record a deletion it has not reached.
+    const late = plan.snapshot.tombstones.findIndex(
+      (tombstone) => tombstone.deletedServerRevision > plan.checkpoint.throughServerRevision,
+    );
+    if (late !== -1) {
+      context.addIssue({ code: "custom", path: ["snapshot", "tombstones", late, "deletedServerRevision"], message: "tombstone postdates its checkpoint" });
     }
     if (plan.pinnedHeadRevision < range.throughServerRevisionInclusive) {
       context.addIssue({ code: "custom", path: ["pinnedHeadRevision"], message: "pinned head precedes required range" });
@@ -256,7 +263,7 @@ export const rebootstrapPlanSchema = z
 export function encodeRebootstrapPlanDigestInput(value: unknown): Uint8Array {
   const parsed = rebootstrapPlanSchema.parse(value);
   const { pinnedHeadDigest: _digest, ...input } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", input);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", input);
 }
 
 export type WorkspaceSyncOperation = z.infer<typeof workspaceSyncOperationSchema>;

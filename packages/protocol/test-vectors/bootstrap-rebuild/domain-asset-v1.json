@@ -4,39 +4,51 @@
   "workspaceSchemaVersion": 1,
   "targetServerRevision": 4,
   "checkpointDescriptor": {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "checkpointId": "checkpoint-fixture-1",
     "workspaceId": "workspace-fixture-1",
     "workspaceSchemaVersion": 1,
     "throughServerRevision": 2,
-    "checkpointDigest": "xn2aIfsOBBRpSpcOLscO9TzEuqCuHb1EBM79Lt3CpLc"
+    "checkpointDigest": "lehBmG8nsPKJC1oYNrwWgLUCph8kiXw5IqF6-oQY1ts"
   },
   "checkpointSnapshot": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "workspaceId": "workspace-fixture-1",
     "workspaceSchemaVersion": 1,
     "throughServerRevision": 2,
-    "rows": [
-      {
-        "entityId": "a.test",
-        "note": "checkpoint note",
-        "portfolioId": "portfolio-1",
-        "tags": [
-          "listed"
-        ],
-        "targetPrice": {
-          "currency": "USD",
-          "amount": "1000"
+    "state": {
+      "assets": [
+        {
+          "entityId": "a.test",
+          "note": "checkpoint note",
+          "portfolioId": "portfolio-1",
+          "tags": [
+            "listed"
+          ],
+          "targetPrice": {
+            "currency": "USD",
+            "amount": "1000"
+          },
+          "entityGeneration": 1
+        },
+        {
+          "entityId": "b.test",
+          "note": null,
+          "portfolioId": null,
+          "tags": [],
+          "targetPrice": null,
+          "entityGeneration": 1
         }
-      },
-      {
-        "entityId": "b.test",
-        "note": null,
-        "portfolioId": null,
-        "tags": [],
-        "targetPrice": null
-      }
-    ]
+      ],
+      "tombstones": [
+        {
+          "entityId": "c.test",
+          "entityGeneration": 1,
+          "deletedServerRevision": 1,
+          "deletedAt": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
   },
   "pages": [
     {

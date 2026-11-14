@@ -15,6 +15,7 @@ import {
 } from "../../src/db/index";
 import { checkedCloudMigrationCatalog, cloudMigrations } from "../../src/db/migrations";
 import { workspaceCheckpointV2Migration } from "../../src/modules/workspace/checkpoints/migrations/202609150001-workspace-checkpoint-v2";
+import { workspaceCheckpointStateV3Migration } from "../../src/modules/workspace/checkpoints/migrations/202611140004-workspace-checkpoint-state-v3";
 import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
 import {
   PostgresPortfolioMutationService,
@@ -113,12 +114,14 @@ describe("PostgreSQL tenant persistence", () => {
     expect(rolledBack.rows).toEqual([{ name: null, ledger_count: "0" }]);
   });
 
-  it("preserves v1 checkpoint rows while enabling v2 through an append-only migration", async () => {
+  it("keeps checkpoint migrations append-only and refuses version 3 over v1 or v2 rows", async () => {
     await ownerPool.query("BEGIN");
     try {
       await ownerPool.query(`
         ALTER TABLE workspace_checkpoints
-          DROP CONSTRAINT workspace_checkpoints_schema_version_check;
+          DROP CONSTRAINT workspace_checkpoints_schema_version_check,
+          DROP CONSTRAINT workspace_checkpoints_capture_codec_check,
+          DROP CONSTRAINT workspace_checkpoints_capture_schema_version_check;
         ALTER TABLE workspace_checkpoints
           ADD CONSTRAINT workspace_checkpoints_schema_version_check CHECK (schema_version = 1);
         INSERT INTO workspace_revisions (account_id, workspace_id, workspace_schema_version)
@@ -150,6 +153,8 @@ describe("PostgreSQL tenant persistence", () => {
         { checkpoint_id: "checkpoint-v1", schema_version: 1 },
         { checkpoint_id: "checkpoint-v2", schema_version: 2 },
       ]);
+      // ADR-0029: the version 3 migration refuses to run over checkpoints that cannot carry tombstones.
+      await expect(ownerPool.query(workspaceCheckpointStateV3Migration.sql)).rejects.toThrow("cannot carry tombstones");
     } finally {
       await ownerPool.query("ROLLBACK");
     }

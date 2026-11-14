@@ -71,7 +71,7 @@ const mutationPage = {
 } as const;
 
 const checkpoint = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   checkpointId: "checkpoint-1",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
@@ -196,7 +196,7 @@ function responses(): Record<CloudOperationId, unknown> {
       confirmToken: "confirm-token-1",
       page: mutationPage,
     },
-    [WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID]: { schemaVersion: 2, checkpoint },
+    [WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID]: { schemaVersion: 3, checkpoint },
     [DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID]: portfolioResponse,
   };
 }
@@ -294,7 +294,7 @@ describe("Cloud control-plane and sync clients", () => {
         operationId: WORKSPACE_SYNC_PULL_OPERATION_ID,
         payload: { schemaVersion: 3, afterServerRevision: 0, cursor: null, pageLimit: 64, confirm: null },
       },
-      { operationId: WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID, payload: { schemaVersion: 2 } },
+      { operationId: WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID, payload: { schemaVersion: 3 } },
       { operationId: DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID, payload: {} },
     ]);
     expect(JSON.stringify(calls)).not.toMatch(

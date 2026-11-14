@@ -15,10 +15,10 @@ import {
 } from "./domain-asset-fields";
 
 /**
- * Checkpoint and rebootstrap wire. Version 1 is intentionally not accepted. ADR-0029 C1b moves it
- * to 3 together with generation-bearing snapshots and tombstones.
+ * Checkpoint and rebootstrap wire. Version 3 (ADR-0029) checkpoints cover generation-bearing live
+ * assets and tombstones; versions 1 and 2 omitted deletions, so they are refused, never upgraded.
  */
-export const WORKSPACE_SYNC_SCHEMA_VERSION = 2 as const;
+export const WORKSPACE_SYNC_SCHEMA_VERSION = 3 as const;
 /**
  * Mutation, push and pull wire. Version 3 (ADR-0029) makes every DomainAsset mutation carry its
  * entity generation; version 2 requests are refused as unsupported, never upgraded in place.

@@ -178,12 +178,12 @@ const valid: GeneratedCase[] = [
   {
     name: "checkpoint-present",
     kind: "checkpoint-response",
-    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 2, checkpoint: fixtureCheckpoint }),
+    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 3, checkpoint: fixtureCheckpoint }),
   },
   {
     name: "checkpoint-null",
     kind: "checkpoint-response",
-    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 2, checkpoint: null }),
+    value: workspaceCheckpointReadResponseSchema.parse({ schemaVersion: 3, checkpoint: null }),
   },
   { name: "projection-current", kind: "projection-response", value: projectionAccepted },
   {
@@ -259,11 +259,16 @@ const invalid: GeneratedCase[] = [
   changedFieldCase("pull-mutation-portfolio-invalid-identifier", "portfolioId", "bad portfolio"),
   changedFieldCase("pull-mutation-tags-not-canonical", "tags", ["premium", "brandable"]),
   changedFieldCase("pull-mutation-target-price-not-canonical", "targetPrice", { currency: "USD", amount: "01" }),
-  { name: "checkpoint-unknown-field", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), extra: true } } },
-  { name: "checkpoint-missing", kind: "checkpoint-response", value: { schemaVersion: 2 } },
-  { name: "checkpoint-cross-workspace", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" } } },
-  { name: "checkpoint-digest-too-long", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), checkpointDigest: "A".repeat(44) } } },
-  { name: "checkpoint-unsafe-revision", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: { ...clone(fixtureCheckpoint), throughServerRevision: Number.MAX_SAFE_INTEGER + 1 } } },
+  { name: "checkpoint-unknown-field", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), extra: true } } },
+  // ADR-0029: version 1 and 2 checkpoints omit deletions, so a version 2 descriptor is refused
+  // both in the checkpoint read and inside a rebootstrap-required pull rejection.
+  { name: "checkpoint-response-version-2", kind: "checkpoint-response", value: { schemaVersion: 2, checkpoint: null } },
+  { name: "checkpoint-descriptor-version-2", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), schemaVersion: 2 } } },
+  { name: "pull-rejected-checkpoint-version-2", kind: "pull-response", value: { schemaVersion: 3, accepted: false, code: "SYNC_REBOOTSTRAP_REQUIRED", checkpoint: { ...clone(fixtureCheckpoint), schemaVersion: 2 }, correlationId: "correlation-invalid" } },
+  { name: "checkpoint-missing", kind: "checkpoint-response", value: { schemaVersion: 3 } },
+  { name: "checkpoint-cross-workspace", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), workspaceId: "workspace-other" } } },
+  { name: "checkpoint-digest-too-long", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), checkpointDigest: "A".repeat(44) } } },
+  { name: "checkpoint-unsafe-revision", kind: "checkpoint-response", value: { schemaVersion: 3, checkpoint: { ...clone(fixtureCheckpoint), throughServerRevision: Number.MAX_SAFE_INTEGER + 1 } } },
   { name: "projection-bad-digest-uppercase", kind: "projection-response", value: { ...clone(projectionAccepted), canonicalRequestDigest: "A".repeat(64) } },
   { name: "projection-bad-digest-length", kind: "projection-response", value: { ...clone(projectionAccepted), canonicalRequestDigest: "a".repeat(63) } },
   { name: "projection-extra-field", kind: "projection-response", value: { ...clone(projectionAccepted), provider: "cloudflare" } },
@@ -284,8 +289,8 @@ const generatedInvalid = invalid.map(({ name, kind, value }) => ({
 const rawInvalid: RawCase[] = [
   { name: "duplicate-top-level-key", kind: "push-response", wire: "{\"schemaVersion\":3,\"schemaVersion\":3,\"accepted\":true,\"acknowledgements\":[],\"headServerRevision\":0}", schemaAccepted: true },
   { name: "duplicate-nested-mutation-key", kind: "pull-response", wire: JSON.stringify(pullAccepted).replace("\"schemaVersion\":3,\"mutationId\"", "\"schemaVersion\":3,\"schemaVersion\":3,\"mutationId\""), schemaAccepted: true },
-  { name: "malformed-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":2,\"checkpoint\":" },
-  { name: "trailing-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":2,\"checkpoint\":null}{}" },
+  { name: "malformed-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":3,\"checkpoint\":" },
+  { name: "trailing-json", kind: "checkpoint-response", wire: "{\"schemaVersion\":3,\"checkpoint\":null}{}" },
   { name: "exponent-number", kind: "projection-response", wire: `{"schemaVersion":1,"accepted":true,"observationId":"${observationId}","leaseEpoch":7e0,"sourceSequence":1,"canonicalRequestDigest":"${projectionDigest}","observationSequence":1,"disposition":"current"}`, schemaAccepted: true },
 ];
 

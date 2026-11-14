@@ -1354,8 +1354,8 @@ describe("PostgreSQL workspace Mutation persistence", () => {
            workspace_schema_version, through_server_revision, checkpoint_digest,
            capture_codec, capture_schema_version, status,
            verified_at, published_at
-         ) VALUES ($1, $2, 'mutation-compaction-authority', 2, 1, 1,
-           decode(repeat('00', 32), 'hex'), 'domain-asset-projection-v1', 1,
+         ) VALUES ($1, $2, 'mutation-compaction-authority', 3, 1, 1,
+           decode(repeat('00', 32), 'hex'), 'workspace-checkpoint-state-v3', 3,
            'available', transaction_timestamp(), transaction_timestamp())`,
         [transaction.scope.accountId, transaction.scope.workspaceId],
       );

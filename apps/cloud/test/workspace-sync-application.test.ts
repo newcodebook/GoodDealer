@@ -5,7 +5,7 @@ import { PostgresWorkspaceSyncApplication } from "../src/modules/workspace/sync/
 const principal = { accountId: "account-sync", sessionId: "session-sync", clientKind: "desktop" as const };
 const scope = { accountId: principal.accountId, workspaceId: "workspace-sync" } as const;
 const checkpoint = {
-  schemaVersion: 2 as const,
+  schemaVersion: 3 as const,
   checkpointId: "checkpoint-sync",
   workspaceId: scope.workspaceId,
   workspaceSchemaVersion: 1,

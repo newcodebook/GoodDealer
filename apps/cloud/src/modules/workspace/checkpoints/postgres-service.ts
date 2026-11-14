@@ -4,14 +4,13 @@ import {
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   compareUtf8,
-  computeDomainAssetEntityDigests,
-  domainAssetProjectionSchema,
-  encodeDomainAssetProjectionDigestInput,
-  encodeWorkspaceEntityDigestsInput,
+  computeWorkspaceCheckpointEntityDigests,
+  encodeCheckpointEntityDigestsInput,
   syncMutationSchema,
   serverRevisionSchema,
-  type DomainAssetProjectionRow,
+  workspaceCheckpointStateSchema,
   type SyncMutation,
+  type WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 
 import { TenantTransactionRunner } from "../../../db/index";
@@ -54,8 +53,9 @@ export interface CompactionProjection {
 
 export interface RebuildProjection {
   readonly throughServerRevision: number;
-  readonly rows: readonly DomainAssetProjectionRow[];
-  readonly projectionDigest: string;
+  readonly state: WorkspaceCheckpointState;
+  /** The checkpoint digest of `state`, comparable with any checkpoint descriptor's digest. */
+  readonly stateDigest: string;
 }
 
 /**
@@ -85,11 +85,15 @@ export class PostgresCheckpointService {
       const revision = await this.dependencies.revisions.lock(transaction);
       if (revision === null) return reject("WORKSPACE_TENANT_UNRESOLVED");
       if (throughServerRevision !== revision.serverRevision) return reject("CHECKPOINT_HEAD_MISMATCH");
-      const snapshot = domainAssetProjectionSchema.parse(
-        await this.dependencies.portfolio.captureSnapshot(transaction),
+      const state = workspaceCheckpointStateSchema.parse(
+        await this.dependencies.portfolio.captureCheckpointState(transaction),
       );
-      const entityDigests = await computeDomainAssetEntityDigests(snapshot, sha256);
-      const checkpointDigest = digestBytes(encodeWorkspaceEntityDigestsInput(entityDigests));
+      // Captured under the revision lock at the head, so no tombstone can postdate the checkpoint.
+      if (state.tombstones.some((tombstone) => tombstone.deletedServerRevision > throughServerRevision)) {
+        throw new TypeError("checkpoint capture holds a deletion after its revision");
+      }
+      const entityDigests = await computeWorkspaceCheckpointEntityDigests(state, sha256);
+      const checkpointDigest = digestBytes(encodeCheckpointEntityDigestsInput(entityDigests));
       const descriptor = checkpointDescriptorSchema.parse({
         schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
         checkpointId,
@@ -101,7 +105,7 @@ export class PostgresCheckpointService {
       const checkpoint = await this.dependencies.checkpoints.createBuilding(
         transaction,
         descriptor,
-        snapshot,
+        state,
         entityDigests,
       );
       return accept(checkpoint);
@@ -117,10 +121,10 @@ export class PostgresCheckpointService {
       const checkpoint = await this.dependencies.checkpoints.read(transaction, checkpointId, true);
       if (checkpoint === null || checkpoint.status !== "building") return reject("CHECKPOINT_NOT_AVAILABLE");
       try {
-        const snapshot = await this.dependencies.checkpoints.readSnapshot(transaction, checkpointId);
+        const state = await this.dependencies.checkpoints.readState(transaction, checkpointId);
         const storedEntityDigests = await this.dependencies.checkpoints.readEntityDigests(transaction, checkpointId);
-        const recomputedEntityDigests = await computeDomainAssetEntityDigests(snapshot, sha256);
-        const recomputedCheckpointDigest = digestBytes(encodeWorkspaceEntityDigestsInput(recomputedEntityDigests));
+        const recomputedEntityDigests = await computeWorkspaceCheckpointEntityDigests(state, sha256);
+        const recomputedCheckpointDigest = digestBytes(encodeCheckpointEntityDigestsInput(recomputedEntityDigests));
         if (
           !sameEntityDigests(storedEntityDigests, recomputedEntityDigests) ||
           recomputedCheckpointDigest !== checkpoint.descriptor.checkpointDigest
@@ -251,11 +255,11 @@ export class PostgresCheckpointService {
     scope: unknown,
     checkpointIdValue: unknown,
     targetServerRevisionValue: unknown,
-    expectedProjectionDigest?: string,
+    expectedStateDigest?: string,
   ): Promise<CheckpointPersistenceResult<RebuildProjection>> {
     const checkpointId = parseIdentifier(checkpointIdValue, "checkpoint id");
     const targetServerRevision = serverRevisionSchema.parse(targetServerRevisionValue);
-    if (expectedProjectionDigest !== undefined) assertDigest(expectedProjectionDigest);
+    if (expectedStateDigest !== undefined) assertDigest(expectedStateDigest);
     return this.dependencies.transactions.withTenant(scope, async (transaction) => {
       const revision = await this.dependencies.revisions.read(transaction);
       if (revision === null) return reject("WORKSPACE_TENANT_UNRESOLVED");
@@ -267,38 +271,37 @@ export class PostgresCheckpointService {
         targetServerRevision < checkpoint.descriptor.throughServerRevision || targetServerRevision !== revision.serverRevision
       ) return reject("CHECKPOINT_NOT_AVAILABLE");
       try {
-        const snapshot = await this.dependencies.checkpoints.readSnapshot(transaction, checkpointId);
+        const snapshot = await this.dependencies.checkpoints.readState(transaction, checkpointId);
         const storedEntityDigests = await this.dependencies.checkpoints.readEntityDigests(transaction, checkpointId);
-        const snapshotEntityDigests = await computeDomainAssetEntityDigests(snapshot, sha256);
+        const snapshotEntityDigests = await computeWorkspaceCheckpointEntityDigests(snapshot, sha256);
         if (
           !sameEntityDigests(storedEntityDigests, snapshotEntityDigests) ||
-          digestBytes(encodeWorkspaceEntityDigestsInput(snapshotEntityDigests)) !== checkpoint.descriptor.checkpointDigest
+          digestBytes(encodeCheckpointEntityDigestsInput(snapshotEntityDigests)) !== checkpoint.descriptor.checkpointDigest
         ) return reject("REBUILD_CHAIN_INVALID");
         const mutations = await this.dependencies.mutations.readRange(
           transaction,
           checkpoint.descriptor.throughServerRevision,
           targetServerRevision,
         );
-        const rows = replayDomainAssets(
+        const state = replayCheckpointState(
           snapshot,
           mutations,
           checkpoint.descriptor.throughServerRevision,
           targetServerRevision,
           transaction.scope.workspaceId,
         );
-        // The entity digest encoder is the shared, domain-separated projection truth.
-        const projectionDigest = digestBytes(encodeDomainAssetProjectionDigestInput(rows));
-        const liveRows = domainAssetProjectionSchema.parse(
-          await this.dependencies.portfolio.captureSnapshot(transaction),
+        // The rebuilt state, tombstones and generations included, must equal the live replica.
+        const stateDigest = await checkpointStateDigest(state);
+        const liveStateDigest = await checkpointStateDigest(
+          await this.dependencies.portfolio.captureCheckpointState(transaction),
         );
-        const liveProjectionDigest = digestBytes(encodeDomainAssetProjectionDigestInput(liveRows));
         if (
-          projectionDigest !== liveProjectionDigest ||
-          (expectedProjectionDigest !== undefined && projectionDigest !== expectedProjectionDigest)
+          stateDigest !== liveStateDigest ||
+          (expectedStateDigest !== undefined && stateDigest !== expectedStateDigest)
         ) {
           return reject("REBUILD_DIGEST_MISMATCH");
         }
-        return accept({ throughServerRevision: targetServerRevision, rows, projectionDigest });
+        return accept({ throughServerRevision: targetServerRevision, state, stateDigest });
       } catch {
         return reject("REBUILD_CHAIN_INVALID");
       }
@@ -306,48 +309,71 @@ export class PostgresCheckpointService {
   }
 }
 
-export function replayDomainAssets(
+/**
+ * Replays a dense mutation range onto a checkpoint state (ADR-0029 decisions 1-3). A delete turns
+ * the live row into a tombstone of the same generation at the delete's revision and time; an
+ * upsert of a tombstoned id is a corrupt chain, not a creation. A creating upsert must be
+ * generation 1 and every other item must name the live row's generation, exactly as ingest admits.
+ *
+ * Until the mutation log stores generations (ADR-0029 C2 prerequisite), stored mutations read back
+ * as generation 1, so these generation checks only become discriminating once that column exists.
+ */
+export function replayCheckpointState(
   snapshotValue: unknown,
   mutationValues: readonly unknown[],
   fromServerRevisionExclusive: number,
   throughServerRevisionInclusive: number,
   workspaceId: string,
-): readonly DomainAssetProjectionRow[] {
-  const snapshot = domainAssetProjectionSchema.parse(snapshotValue);
+): WorkspaceCheckpointState {
+  const snapshot = workspaceCheckpointStateSchema.parse(snapshotValue);
   const fromRevision = serverRevisionSchema.parse(fromServerRevisionExclusive);
   const throughServerRevision = serverRevisionSchema.parse(throughServerRevisionInclusive);
   if (throughServerRevision < fromRevision) throw new TypeError("rebuild bounds are inverted");
+  if (snapshot.tombstones.some((tombstone) => tombstone.deletedServerRevision > fromRevision)) {
+    throw new TypeError("rebuild checkpoint holds a deletion after its revision");
+  }
   const mutations = mutationValues.map((value) => syncMutationSchema.parse(value));
   if (mutations.length !== throughServerRevision - fromRevision) {
     throw new TypeError("rebuild mutation range is incomplete");
   }
-  const rows = new Map(snapshot.map((row) => [row.entityId, cloneRow(row)]));
-  // ADR-0029 decision 2: a delete in the range leaves a tombstone, not a gap, so a later upsert of
-  // the same asset is a corrupt chain rather than a creation. Deletions before the checkpoint are
-  // absent from its snapshot; ingest refused any upsert of them, so the range cannot hold one.
-  const deleted = new Set<string>();
+  const rows = new Map(snapshot.assets.map((row) => [row.entityId, cloneRow(row)]));
+  const tombstones = new Map(snapshot.tombstones.map((tombstone) => [tombstone.entityId, { ...tombstone }]));
   let expectedRevision = fromRevision + 1;
   for (const mutation of mutations) {
     if (mutation.serverRevision !== expectedRevision) throw new TypeError("rebuild revisions are missing or reordered");
     if (mutation.workspaceId !== workspaceId) throw new TypeError("rebuild mutation crosses workspace scope");
+    if (tombstones.has(mutation.entityId)) throw new TypeError("rebuild mutation revives a deleted entity");
     const row = rows.get(mutation.entityId);
+    if (mutation.entityGeneration !== (row?.entityGeneration ?? 1)) {
+      throw new TypeError("rebuild mutation names another entity generation");
+    }
     if (mutation.operationKind === "delete") {
-      if (row === undefined) throw new TypeError("rebuild delete references an unknown entity");
+      if (row === undefined || mutation.deletedAt === undefined) throw new TypeError("rebuild delete references an unknown entity");
       rows.delete(mutation.entityId);
-      deleted.add(mutation.entityId);
-    } else if (deleted.has(mutation.entityId)) {
-      throw new TypeError("rebuild upsert revives a deleted entity");
+      tombstones.set(mutation.entityId, {
+        entityId: mutation.entityId,
+        entityGeneration: row.entityGeneration,
+        deletedServerRevision: mutation.serverRevision,
+        deletedAt: mutation.deletedAt,
+      });
     } else {
       // The first upsert of an asset the snapshot does not hold creates it, as ingest did.
       applyMutation(row ?? createDefaultRow(rows, mutation.entityId), mutation);
     }
     expectedRevision += 1;
   }
-  return domainAssetProjectionSchema.parse([...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)));
+  return workspaceCheckpointStateSchema.parse({
+    assets: [...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)),
+    tombstones: [...tombstones.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)),
+  });
+}
+
+async function checkpointStateDigest(state: unknown): Promise<string> {
+  return digestBytes(encodeCheckpointEntityDigestsInput(await computeWorkspaceCheckpointEntityDigests(state, sha256)));
 }
 
 function createDefaultRow(rows: Map<string, MutableDomainAsset>, entityId: string): MutableDomainAsset {
-  const row: MutableDomainAsset = { entityId, note: null, portfolioId: null, tags: [], targetPrice: null };
+  const row: MutableDomainAsset = { entityId, entityGeneration: 1, note: null, portfolioId: null, tags: [], targetPrice: null };
   rows.set(entityId, row);
   return row;
 }
@@ -365,15 +391,17 @@ function applyMutation(row: MutableDomainAsset, mutation: SyncMutation): void {
 
 interface MutableDomainAsset {
   entityId: string;
+  entityGeneration: number;
   note: string | null;
   portfolioId: string | null;
   tags: string[];
   targetPrice: { currency: string; amount: string } | null;
 }
 
-function cloneRow(row: DomainAssetProjectionRow): MutableDomainAsset {
+function cloneRow(row: WorkspaceCheckpointState["assets"][number]): MutableDomainAsset {
   return {
     entityId: row.entityId,
+    entityGeneration: row.entityGeneration,
     note: row.note,
     portfolioId: row.portfolioId,
     tags: [...row.tags],

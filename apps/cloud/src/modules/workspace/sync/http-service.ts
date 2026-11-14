@@ -1,4 +1,5 @@
 import {
+  WORKSPACE_SYNC_SCHEMA_VERSION,
   workspaceCheckpointReadRequestSchema,
   workspaceRebootstrapRequestSchema,
   workspaceMutationPullRequestSchema,
@@ -83,11 +84,11 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
   }
 
   async checkpoint(value: unknown, principal: PublicPrincipal): Promise<unknown> {
-    if (principal.clientKind !== "desktop") return { schemaVersion: 2, checkpoint: null };
+    if (principal.clientKind !== "desktop") return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: null };
     workspaceCheckpointReadRequestSchema.parse(value);
     const context = await this.context(principal);
-    if (context === null) return { schemaVersion: 2, checkpoint: null };
-    return { schemaVersion: 2, checkpoint: await this.dependencies.checkpoints.readLatestAvailable(context.scope) };
+    if (context === null) return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: null };
+    return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: await this.dependencies.checkpoints.readLatestAvailable(context.scope) };
   }
 
   async rebootstrap(value: unknown, principal: PublicPrincipal): Promise<unknown> {

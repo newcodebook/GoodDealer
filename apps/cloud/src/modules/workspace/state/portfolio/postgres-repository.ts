@@ -7,8 +7,10 @@ import {
   submittedSyncMutationSchema,
   workspacePortfolioReadResponseSchema,
   serverRevisionSchema,
+  workspaceCheckpointStateSchema,
   type DomainAssetProjectionRow,
   type SubmittedSyncMutation,
+  type WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 
 import {
@@ -57,6 +59,8 @@ export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPo
     assignments: readonly { readonly mutation: SubmittedSyncMutation; readonly serverRevision: number }[],
   ): Promise<void>;
   captureSnapshot(transaction: TenantTransaction): Promise<readonly DomainAssetProjectionRow[]>;
+  /** The whole replicated state a checkpoint records: live assets and tombstones, with generations. */
+  captureCheckpointState(transaction: TenantTransaction): Promise<WorkspaceCheckpointState>;
 }
 
 export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort {
@@ -219,6 +223,78 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
     );
     return domainAssetProjectionSchema.parse(result.rows.map(parseProjection));
   }
+
+  /**
+   * Captures under the caller's revision lock (or repeatable-read snapshot) so the state matches one
+   * revision. Fails closed unless every tombstone names its own soft-deleted row of the same
+   * generation and every soft-deleted row has exactly that tombstone; the triggers from migrations
+   * 202611140001/2 should make this unreachable, and a checkpoint must not paper over a violation.
+   */
+  async captureCheckpointState(transaction: TenantTransaction): Promise<WorkspaceCheckpointState> {
+    const assets = await transaction.query<Pick<StoredDomainAssetRow,
+      "entity_id" | "note" | "portfolio_id" | "tags" | "target_price_currency" | "target_price_amount">
+      & { entity_generation: unknown }>(
+      `SELECT entity_id, entity_generation::text AS entity_generation, note, portfolio_id, tags,
+              target_price_currency, target_price_amount
+       FROM workspace_replica_domain_assets
+       WHERE account_id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+       ORDER BY entity_id COLLATE "C"`,
+      [transaction.scope.accountId, transaction.scope.workspaceId],
+    );
+    const tombstones = await transaction.query<Record<string, unknown>>(
+      `SELECT tombstone.entity_id, tombstone.entity_generation::text AS entity_generation,
+              tombstone.deleted_server_revision::text AS deleted_server_revision,
+              extract(epoch FROM tombstone.deleted_at)::text AS deleted_at_epoch,
+              asset.entity_generation::text AS asset_generation,
+              (asset.deleted_at IS NOT NULL) AS asset_deleted
+       FROM workspace_replica_tombstones tombstone
+       LEFT JOIN workspace_replica_domain_assets asset
+         ON asset.account_id = tombstone.account_id AND asset.workspace_id = tombstone.workspace_id
+           AND asset.entity_id = tombstone.entity_id
+       WHERE tombstone.account_id = $1 AND tombstone.workspace_id = $2
+         AND tombstone.entity_type = 'domain_asset'
+       ORDER BY tombstone.entity_id COLLATE "C"`,
+      [transaction.scope.accountId, transaction.scope.workspaceId],
+    );
+    const deletedRows = await transaction.query<{ count: unknown }>(
+      `SELECT count(*)::text AS count FROM workspace_replica_domain_assets
+       WHERE account_id = $1 AND workspace_id = $2 AND deleted_at IS NOT NULL`,
+      [transaction.scope.accountId, transaction.scope.workspaceId],
+    );
+    if (deletedRows.rows[0]?.count !== String(tombstones.rows.length)) {
+      throw new TypeError("replica deleted rows and tombstones do not pair");
+    }
+    return workspaceCheckpointStateSchema.parse({
+      assets: assets.rows.map(({ entity_generation: generation, ...row }) => ({
+        ...parseProjection(row),
+        entityGeneration: parseStoredGeneration(generation),
+      })),
+      tombstones: tombstones.rows.map((value) => {
+        const row = strictRow(value, [
+          "entity_id", "entity_generation", "deleted_server_revision", "deleted_at_epoch",
+          "asset_generation", "asset_deleted",
+        ] as const);
+        if (row.asset_deleted !== true || row.asset_generation !== row.entity_generation) {
+          throw new TypeError("replica tombstone does not name its deleted row of the same generation");
+        }
+        return {
+          entityId: row.entity_id,
+          entityGeneration: parseStoredGeneration(row.entity_generation),
+          deletedServerRevision: parseStoredGeneration(row.deleted_server_revision),
+          deletedAt: epochToCanonicalUtc(row.deleted_at_epoch),
+        };
+      }),
+    });
+  }
+}
+
+/** A stored deletion time is whole seconds; anything else has no canonical wire form. */
+function epochToCanonicalUtc(value: unknown): string {
+  const match = typeof value === "string" ? /^(0|[1-9][0-9]{0,15})(?:\.0+)?$/u.exec(value) : null;
+  if (match === null) throw new TypeError("stored deletion time is not whole seconds");
+  const seconds = Number(match[1]);
+  if (!Number.isSafeInteger(seconds)) throw new TypeError("stored deletion time is malformed");
+  return new Date(seconds * 1_000).toISOString().replace(/\.000Z$/u, "Z");
 }
 
 export class PostgresPortfolioProjectionQuery implements PortfolioProjectionQueryPort {

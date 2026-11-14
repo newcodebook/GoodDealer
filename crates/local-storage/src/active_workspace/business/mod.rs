@@ -4107,7 +4107,8 @@ impl BusinessDatabase {
         validate_timestamp(Some(checked_at.to_owned()))
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         if let Some(descriptor) = descriptor {
-            if descriptor.schema_version != 2
+            // ADR-0029: only version 3 descriptors (checkpoints that carry tombstones) are stored.
+            if descriptor.schema_version != 3
                 || descriptor.workspace_id != self.workspace_id
                 || descriptor.workspace_schema_version == 0
                 || descriptor.workspace_schema_version > 9_007_199_254_740_991
@@ -5677,7 +5678,7 @@ pub fn verify_rebootstrap_plan_digest(
     append_frame(
         &mut encoded,
         b'd',
-        b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2",
+        b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3",
     );
     append_frame(
         &mut encoded,
@@ -5690,11 +5691,15 @@ pub fn verify_rebootstrap_plan_digest(
     Ok(())
 }
 
-/// Verifies that a complete checkpoint snapshot matches its advertised aggregate digest.
+/// Verifies that a complete version 3 checkpoint state matches its advertised aggregate digest.
 ///
-/// The computation mirrors the protocol's bounded 512-row domain-asset partitions and its
-/// domain-separated aggregate of entity digests. Callers must perform this check before creating
-/// a candidate key or touching staged storage.
+/// The computation mirrors the protocol (ADR-0029): live assets, each carrying its entity
+/// generation, in bounded 512-row partitions `p0000…` (or the single `empty` partition), then
+/// tombstones in partitions `t0000…`, each under its own domain, aggregated under the checkpoint
+/// entity-digest domain. `state` is the strictly deserialized wire object, so its canonical
+/// encoding is exactly what the Cloud digested; `rows` are its live assets, validated here with the
+/// local business rules. Callers must perform this check before creating a candidate key or
+/// touching staged storage.
 ///
 /// # Errors
 ///
@@ -5702,27 +5707,51 @@ pub fn verify_rebootstrap_plan_digest(
 #[cfg(test)]
 pub fn verify_rebootstrap_checkpoint_digest(
     rows: &[DomainAssetProjectionRow],
+    state: &serde_json::Value,
     advertised: &str,
 ) -> Result<(), BusinessDatabaseError> {
     validate_projection(rows).map_err(|_| BusinessDatabaseError::InvalidInput)?;
     validate_digest(advertised)?;
-    let partitions: Vec<(String, &[DomainAssetProjectionRow])> = if rows.is_empty() {
-        vec![("empty".to_owned(), rows)]
-    } else {
-        rows.chunks(512)
-            .enumerate()
-            .map(|(index, partition)| (format!("p{index:04}"), partition))
-            .collect()
+    let section = |key: &str| {
+        state
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .ok_or(BusinessDatabaseError::InvalidInput)
     };
+    let assets = section("assets")?;
+    let tombstones = section("tombstones")?;
+    if assets.len() != rows.len() {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    let mut partitions: Vec<(&str, String, &[serde_json::Value])> = Vec::new();
+    if assets.is_empty() {
+        partitions.push(("domain_asset", "empty".to_owned(), assets));
+    }
+    for (index, partition) in assets.chunks(512).enumerate() {
+        partitions.push(("domain_asset", format!("p{index:04}"), partition));
+    }
+    for (index, partition) in tombstones.chunks(512).enumerate() {
+        partitions.push(("domain_asset_tombstone", format!("t{index:04}"), partition));
+    }
+    if partitions.len() > 4_096 {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
     let mut entity_digests = Vec::with_capacity(partitions.len());
-    for (partition_id, partition) in partitions {
+    for (entity_type, partition_id, partition) in partitions {
+        let domain: &[u8] = if entity_type == "domain_asset" {
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-V3"
+        } else {
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-TOMBSTONE-V3"
+        };
         let mut encoded = Vec::new();
-        append_frame(&mut encoded, b'd', b"GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1");
-        let value =
-            serde_json::to_value(partition).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        append_frame(&mut encoded, b'v', &canonical_wire_value(&value)?);
+        append_frame(&mut encoded, b'd', domain);
+        append_frame(
+            &mut encoded,
+            b'v',
+            &canonical_wire_value(&serde_json::Value::Array(partition.to_vec()))?,
+        );
         entity_digests.push(serde_json::json!({
-            "entityType": "domain_asset",
+            "entityType": entity_type,
             "partitionId": partition_id,
             "digest": base64url(&Sha256::digest(encoded)),
         }));
@@ -5731,7 +5760,7 @@ pub fn verify_rebootstrap_checkpoint_digest(
     append_frame(
         &mut aggregate,
         b'd',
-        b"GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V2",
+        b"GOODDEALER-WORKSPACE-CHECKPOINT-ENTITY-DIGESTS-V3",
     );
     append_frame(
         &mut aggregate,
@@ -6895,7 +6924,7 @@ mod tests {
         let mut database = database();
         assert_eq!(database.native_checkpoint_due(), Ok(true));
         let invalid = NativeCheckpointDescriptor {
-            schema_version: 2,
+            schema_version: 3,
             checkpoint_id: "checkpoint-1".to_owned(),
             workspace_id: "other-workspace".to_owned(),
             workspace_schema_version: 1,
@@ -6920,6 +6949,61 @@ mod tests {
             .mark_sync_rebootstrap_required_v2("device-local")
             .unwrap();
         assert_eq!(database.native_checkpoint_due(), Ok(true));
+    }
+
+    /// A descriptor stored before the version 3 upgrade is inert: nothing reads its fields back, the
+    /// due bit alone schedules the next fetch, and that fetch replaces it. A version 2 response is
+    /// refused rather than stored again.
+    #[test]
+    fn native_checkpoint_state_from_a_version_2_descriptor_upgrades_on_the_next_fetch() {
+        let mut database = database();
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "INSERT INTO native_cloud_checkpoint_state
+                    (workspace_id,checkpoint_due,checkpoint_id,checkpoint_schema_version,
+                     through_server_revision,workspace_schema_version,checkpoint_digest,checked_at)
+                 VALUES ('workspace-local',0,'legacy',2,0,1,?1,?2)",
+                rusqlite::params!["B".repeat(43), TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(database.native_checkpoint_due(), Ok(false));
+        database
+            .mark_sync_rebootstrap_required_v2("device-local")
+            .unwrap();
+        assert_eq!(database.native_checkpoint_due(), Ok(true));
+        let legacy = NativeCheckpointDescriptor {
+            schema_version: 2,
+            checkpoint_id: "checkpoint-2".to_owned(),
+            workspace_id: "workspace-local".to_owned(),
+            workspace_schema_version: 1,
+            through_server_revision: 0,
+            checkpoint_digest: "A".repeat(43),
+        };
+        assert_eq!(
+            database.complete_native_checkpoint_guarded(Some(&legacy), TIMESTAMP, || Ok(())),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let current = NativeCheckpointDescriptor {
+            schema_version: 3,
+            ..legacy
+        };
+        database
+            .complete_native_checkpoint_guarded(Some(&current), TIMESTAMP, || Ok(()))
+            .unwrap();
+        let stored: (String, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT checkpoint_id,checkpoint_schema_version FROM native_cloud_checkpoint_state
+                 WHERE workspace_id='workspace-local'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored, ("checkpoint-2".to_owned(), 3));
+        assert_eq!(database.native_checkpoint_due(), Ok(false));
     }
 
     #[test]

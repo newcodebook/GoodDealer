@@ -90,15 +90,17 @@ function createHarness() {
     config: { schemaVersion: 1, leaseTtlSeconds: 60 },
   });
   const checkpointState = {
-    readEntityDigestsAt: async (
-      checkpointScope: typeof scope,
-      throughServerRevision: number,
-      digest: (bytes: Uint8Array) => Promise<Uint8Array>,
-    ) => {
-      const entityDigests = await portfolio.readEntityDigestsAt(checkpointScope, throughServerRevision, digest);
+    readCheckpointStateAt: (checkpointScope: typeof scope, throughServerRevision: number) => {
+      const state = portfolio.readCheckpointStateAt(checkpointScope, throughServerRevision);
+      // A stored state that gained a tombstone it never had must fail verification.
       return corruptCheckpointRead
-        ? entityDigests.map((entry) => ({ ...entry, digest: zeroDigest }))
-        : entityDigests;
+        ? {
+          ...state,
+          tombstones: [...state.tombstones, {
+            entityId: "zz-corrupt.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-01-01T00:00:00Z",
+          }],
+        }
+        : state;
     },
   };
   const checkpoints = new InMemoryCheckpointCatalog({

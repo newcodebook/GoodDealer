@@ -15,7 +15,7 @@ const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const checkpoint: CheckpointDescriptor = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-a",
   workspaceSchemaVersion: 1,

@@ -20,12 +20,15 @@ import {
   checkpointDescriptorSchema,
   compareUtf8,
   computeDomainAssetEntityDigests,
+  computeWorkspaceCheckpointDigest,
   domainAssetProjectionSchema,
   encodeMutationPageDigestInput,
   encodeWorkspaceEntityDigestsInput,
   mutationCursorSchema,
   mutationPageSchema,
   serverRevisionSchema,
+  workspaceCheckpointStateSchema,
+  type CheckpointDomainAssetTombstone,
   type DomainAssetProjectionRow,
   type SyncMutation,
   type WorkspaceEntityDigest,
@@ -450,6 +453,8 @@ export interface BootstrapRebuildSnapshot {
   readonly nextCursor: string | null;
   readonly completed: boolean;
   readonly projection: readonly DomainAssetProjectionRow[];
+  /** Deleted assets as of the returned revision (ADR-0029); never part of the live projection. */
+  readonly tombstones: readonly CheckpointDomainAssetTombstone[];
 }
 
 export interface BootstrapRebuildDigestSet {
@@ -459,15 +464,24 @@ export interface BootstrapRebuildDigestSet {
   readonly digest: string;
 }
 
+/**
+ * Version 2 carries the whole checkpoint state (ADR-0029): live assets with their generations and
+ * tombstones. Version 1 held live rows only, so it could not prove which ids were deleted.
+ */
 const bootstrapCheckpointSnapshotSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     workspaceId: identifier,
     workspaceSchemaVersion: safePositiveInteger,
     throughServerRevision: serverRevisionSchema,
-    rows: domainAssetProjectionSchema,
+    state: workspaceCheckpointStateSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (snapshot.state.tombstones.some((tombstone) => tombstone.deletedServerRevision > snapshot.throughServerRevision)) {
+      context.addIssue({ code: "custom", path: ["state", "tombstones"], message: "tombstone postdates its checkpoint" });
+    }
+  });
 
 export interface BootstrapRebuildAccumulatorOptions {
   readonly sha256: Sha256Port;
@@ -485,6 +499,7 @@ export interface BootstrapMutationPagePresentation {
 
 type MutableDomainAsset = {
   entityId: string;
+  entityGeneration: number;
   note: string | null;
   portfolioId: string | null;
   tags: string[];
@@ -499,6 +514,7 @@ export class BootstrapRebuildAccumulator {
   readonly #fromServerRevisionExclusive: number;
   readonly #throughServerRevisionInclusive: number;
   #projection: Map<string, MutableDomainAsset>;
+  #tombstones: Map<string, CheckpointDomainAssetTombstone>;
   #mutationIds = new Set<string>();
   #returnedThroughServerRevision: number;
   #nextCursor: string | null = null;
@@ -512,6 +528,7 @@ export class BootstrapRebuildAccumulator {
     readonly fromServerRevisionExclusive: number;
     readonly throughServerRevisionInclusive: number;
     readonly projection: Map<string, MutableDomainAsset>;
+    readonly tombstones: Map<string, CheckpointDomainAssetTombstone>;
   }) {
     this.#sha256 = input.sha256;
     this.#workspaceId = input.workspaceId;
@@ -520,6 +537,7 @@ export class BootstrapRebuildAccumulator {
     this.#throughServerRevisionInclusive = input.throughServerRevisionInclusive;
     this.#returnedThroughServerRevision = input.fromServerRevisionExclusive;
     this.#projection = input.projection;
+    this.#tombstones = input.tombstones;
   }
 
   static async start(options: BootstrapRebuildAccumulatorOptions): Promise<BootstrapRebuildAccumulator> {
@@ -538,12 +556,9 @@ export class BootstrapRebuildAccumulator {
     ) {
       throw new TypeError("checkpoint snapshot, descriptor, and rebuild binding do not match");
     }
-    const entityDigests = await computeDomainAssetEntityDigests(
-      snapshot.rows,
+    const checkpointDigest = await computeWorkspaceCheckpointDigest(
+      snapshot.state,
       options.sha256.digest.bind(options.sha256),
-    );
-    const checkpointDigest = encodeSha256Digest(
-      await options.sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
     );
     if (checkpointDigest !== descriptor.checkpointDigest) {
       throw new TypeError("checkpoint snapshot digest does not match its descriptor");
@@ -554,7 +569,8 @@ export class BootstrapRebuildAccumulator {
       workspaceSchemaVersion,
       fromServerRevisionExclusive: descriptor.throughServerRevision,
       throughServerRevisionInclusive: targetServerRevision,
-      projection: new Map(snapshot.rows.map((row) => [row.entityId, cloneDomainAsset(row)])),
+      projection: new Map(snapshot.state.assets.map((row) => [row.entityId, cloneDomainAsset(row)])),
+      tombstones: new Map(snapshot.state.tombstones.map((tombstone) => [tombstone.entityId, { ...tombstone }])),
     });
   }
 
@@ -590,16 +606,18 @@ export class BootstrapRebuildAccumulator {
       if (page.pageDigest !== expectedDigest) throw new TypeError("mutation page digest does not match");
 
       const projection = cloneProjection(this.#projection);
+      const tombstones = new Map(this.#tombstones);
       const mutationIds = new Set(this.#mutationIds);
       for (const mutation of page.mutations) {
         if (mutationIds.has(mutation.mutationId)) {
           throw new TypeError("rebuild mutation identity is duplicated");
         }
         mutationIds.add(mutation.mutationId);
-        applyDomainAssetMutation(projection, mutation);
+        applyDomainAssetMutation(projection, tombstones, mutation);
       }
       domainAssetProjectionSchema.parse(canonicalProjection(projection));
       this.#projection = projection;
+      this.#tombstones = tombstones;
       this.#mutationIds = mutationIds;
       this.#returnedThroughServerRevision = page.returnedThroughServerRevision;
       this.#nextCursor = page.nextCursor;
@@ -619,6 +637,9 @@ export class BootstrapRebuildAccumulator {
       nextCursor: this.#nextCursor,
       completed: this.#completed,
       projection: canonicalProjection(this.#projection),
+      tombstones: [...this.#tombstones.values()]
+        .sort((left, right) => compareUtf8(left.entityId, right.entityId))
+        .map((tombstone) => ({ ...tombstone })),
     };
   }
 
@@ -641,9 +662,10 @@ export class BootstrapRebuildAccumulator {
   }
 }
 
-function cloneDomainAsset(row: DomainAssetProjectionRow): MutableDomainAsset {
+function cloneDomainAsset(row: DomainAssetProjectionRow & { readonly entityGeneration: number }): MutableDomainAsset {
   return {
     entityId: row.entityId,
+    entityGeneration: row.entityGeneration,
     note: row.note,
     portfolioId: row.portfolioId,
     tags: [...row.tags],
@@ -655,19 +677,47 @@ function cloneProjection(input: Map<string, MutableDomainAsset>): Map<string, Mu
   return new Map([...input].map(([entityId, row]) => [entityId, cloneDomainAsset(row)]));
 }
 
+/** The live projection; generations are replica bookkeeping and stay out of the projection digest. */
 function canonicalProjection(input: Map<string, MutableDomainAsset>): DomainAssetProjectionRow[] {
   return [...input.values()]
     .sort((left, right) => compareUtf8(left.entityId, right.entityId))
-    .map(cloneDomainAsset);
+    .map(({ entityGeneration: _generation, ...row }) => ({
+      ...row,
+      tags: [...row.tags],
+      targetPrice: row.targetPrice === null ? null : { ...row.targetPrice },
+    }));
 }
 
-function applyDomainAssetMutation(projection: Map<string, MutableDomainAsset>, mutation: SyncMutation): void {
-  if (mutation.operationKind === "delete") throw new TypeError("rebuild mutation deletes an entity");
+/**
+ * Mirrors the Cloud rebuild (ADR-0029 decisions 1-3): a delete turns the live row into a tombstone
+ * of its generation; any later item for a tombstoned id is a revival the chain cannot contain; a
+ * creating upsert is generation 1 and every other item names the live row's generation.
+ */
+function applyDomainAssetMutation(
+  projection: Map<string, MutableDomainAsset>,
+  tombstones: Map<string, CheckpointDomainAssetTombstone>,
+  mutation: SyncMutation,
+): void {
+  if (tombstones.has(mutation.entityId)) throw new TypeError("rebuild mutation revives a deleted entity");
+  let row = projection.get(mutation.entityId);
+  if (mutation.entityGeneration !== (row?.entityGeneration ?? 1)) {
+    throw new TypeError("rebuild mutation names another entity generation");
+  }
+  if (mutation.operationKind === "delete") {
+    if (row === undefined || mutation.deletedAt === undefined) throw new TypeError("rebuild delete names an unknown entity");
+    projection.delete(mutation.entityId);
+    tombstones.set(mutation.entityId, {
+      entityId: mutation.entityId,
+      entityGeneration: row.entityGeneration,
+      deletedServerRevision: mutation.serverRevision,
+      deletedAt: mutation.deletedAt,
+    });
+    return;
+  }
   // The first upsert of an asset the checkpoint does not hold creates it with default fields, as
   // the Cloud ingest does for a local add.
-  let row = projection.get(mutation.entityId);
   if (row === undefined) {
-    row = { entityId: mutation.entityId, note: null, portfolioId: null, tags: [], targetPrice: null };
+    row = { entityId: mutation.entityId, entityGeneration: 1, note: null, portfolioId: null, tags: [], targetPrice: null };
     projection.set(mutation.entityId, row);
   }
   for (const field of mutation.changedFields) {

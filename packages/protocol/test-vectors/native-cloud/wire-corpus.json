@@ -116,17 +116,17 @@
     {
       "name": "pull-rebootstrap-required-checkpoint-present",
       "kind": "pull-response",
-      "wire": "{\"schemaVersion\":3,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-pull-rebootstrap-checkpoint\"}"
+      "wire": "{\"schemaVersion\":3,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-pull-rebootstrap-checkpoint\"}"
     },
     {
       "name": "checkpoint-present",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}"
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}"
     },
     {
       "name": "checkpoint-null",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":null}"
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":null}"
     },
     {
       "name": "projection-current",
@@ -269,7 +269,7 @@
     {
       "name": "pull-rejected-cross-workspace-checkpoint",
       "kind": "pull-response",
-      "wire": "{\"schemaVersion\":3,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-invalid\"}",
+      "wire": "{\"schemaVersion\":3,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-invalid\"}",
       "schemaAccepted": true
     },
     {
@@ -371,31 +371,49 @@
     {
       "name": "checkpoint-unknown-field",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"extra\":true}}",
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"extra\":true}}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-response-version-2",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":2,\"checkpoint\":null}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "checkpoint-descriptor-version-2",
+      "kind": "checkpoint-response",
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "schemaAccepted": false
+    },
+    {
+      "name": "pull-rejected-checkpoint-version-2",
+      "kind": "pull-response",
+      "wire": "{\"schemaVersion\":3,\"accepted\":false,\"code\":\"SYNC_REBOOTSTRAP_REQUIRED\",\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"correlationId\":\"correlation-invalid\"}",
       "schemaAccepted": false
     },
     {
       "name": "checkpoint-missing",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2}",
+      "wire": "{\"schemaVersion\":3}",
       "schemaAccepted": false
     },
     {
       "name": "checkpoint-cross-workspace",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-other\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
       "schemaAccepted": true
     },
     {
       "name": "checkpoint-digest-too-long",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":4,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
       "schemaAccepted": false
     },
     {
       "name": "checkpoint-unsafe-revision",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":{\"schemaVersion\":2,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":9007199254740992,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":{\"schemaVersion\":3,\"checkpointId\":\"checkpoint-4\",\"workspaceId\":\"workspace-a\",\"workspaceSchemaVersion\":1,\"throughServerRevision\":9007199254740992,\"checkpointDigest\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
       "schemaAccepted": false
     },
     {
@@ -461,12 +479,12 @@
     {
       "name": "malformed-json",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":"
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":"
     },
     {
       "name": "trailing-json",
       "kind": "checkpoint-response",
-      "wire": "{\"schemaVersion\":2,\"checkpoint\":null}{}"
+      "wire": "{\"schemaVersion\":3,\"checkpoint\":null}{}"
     },
     {
       "name": "exponent-number",

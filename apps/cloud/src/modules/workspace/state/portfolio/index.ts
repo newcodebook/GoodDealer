@@ -1,8 +1,10 @@
 import {
   compareUtf8,
   computeDomainAssetEntityDigests,
+  workspaceCheckpointStateSchema,
   type DomainAssetProjectionRow,
   type SubmittedSyncMutation,
+  type WorkspaceCheckpointState,
   type WorkspaceEntityDigest,
 } from "@gooddealer/protocol/workspace";
 
@@ -38,6 +40,17 @@ interface StoredDomainAsset {
   readonly targetPrice: StoredField<{ readonly currency: string; readonly amount: string } | null>;
 }
 
+interface StoredTombstone {
+  readonly entityGeneration: number;
+  readonly deletedServerRevision: number;
+  readonly deletedAt: string;
+}
+
+interface StoredRevisionState {
+  readonly rows: Map<string, StoredDomainAsset>;
+  readonly tombstones: Map<string, StoredTombstone>;
+}
+
 export interface DomainAssetProjection extends DomainAssetProjectionRow {
   readonly lastModifiedRevision: Readonly<Record<DomainAssetFieldPath, number>>;
 }
@@ -62,9 +75,9 @@ export interface PortfolioMutationPort {
 /** In-memory V1 domain_asset projection; revision metadata never enters business digests. */
 export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
   readonly #rows = new Map<string, Map<string, StoredDomainAsset>>();
-  readonly #history = new Map<string, Map<number, Map<string, StoredDomainAsset>>>();
-  /** Tombstoned entity ids with the generation each deleted. */
-  readonly #tombstones = new Map<string, Map<string, number>>();
+  readonly #history = new Map<string, Map<number, StoredRevisionState>>();
+  /** Tombstoned entity ids with the generation each deleted and when. */
+  readonly #tombstones = new Map<string, Map<string, StoredTombstone>>();
 
   seedDomainAsset(scope: WorkspaceTenantScope, seed: DomainAssetSeed): void {
     const rows = this.#workspaceRows(scope);
@@ -77,13 +90,21 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       tags: { value: [...(seed.tags ?? [])], lastModifiedRevision: 0 },
       targetPrice: { value: seed.targetPrice === undefined ? null : cloneMoney(seed.targetPrice), lastModifiedRevision: 0 },
     });
-    this.#recordSnapshot(scope, 0, rows);
+    this.#recordSnapshot(scope, 0);
   }
 
   /** Test double only: records a tombstone for an asset deleted before this replica's history. */
-  seedDomainAssetTombstone(scope: WorkspaceTenantScope, entityId: string): void {
+  seedDomainAssetTombstone(
+    scope: WorkspaceTenantScope,
+    entityId: string,
+    tombstone: Partial<StoredTombstone> = {},
+  ): void {
     if (this.#workspaceRows(scope).has(entityId)) throw new TypeError("a tombstoned domain asset has no live row");
-    this.#workspaceTombstones(scope).set(entityId, 1);
+    this.#workspaceTombstones(scope).set(entityId, {
+      entityGeneration: tombstone.entityGeneration ?? 1,
+      deletedServerRevision: tombstone.deletedServerRevision ?? 1,
+      deletedAt: tombstone.deletedAt ?? "2026-01-01T00:00:00Z",
+    });
   }
 
   readDomainAssetEntry(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaEntry {
@@ -91,7 +112,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     const row = this.#rows.get(key)?.get(entityId);
     if (row !== undefined) return { state: "active", generation: row.entityGeneration };
     const tombstone = this.#tombstones.get(key)?.get(entityId);
-    return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone };
+    return tombstone === undefined ? { state: "absent" } : { state: "deleted", generation: tombstone.entityGeneration };
   }
 
   readDomainAssetState(scope: WorkspaceTenantScope, entityId: string): DomainAssetReplicaState {
@@ -117,16 +138,22 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
       if (mutation.operationKind === "delete") {
         // The ingest admitted this delete only for a live asset; the replica keeps its tombstone.
         const deleted = rows.get(mutation.entityId);
-        if (deleted === undefined) throw new TypeError("accepted delete names no live domain asset");
+        if (deleted === undefined || mutation.deletedAt === undefined) {
+          throw new TypeError("accepted delete names no live domain asset");
+        }
         rows.delete(mutation.entityId);
-        tombstones.set(mutation.entityId, deleted.entityGeneration);
+        tombstones.set(mutation.entityId, {
+          entityGeneration: deleted.entityGeneration,
+          deletedServerRevision: serverRevision,
+          deletedAt: mutation.deletedAt,
+        });
       } else {
         if (tombstones.has(mutation.entityId)) throw new TypeError("accepted upsert names a deleted domain asset");
         // The first upsert of an asset creates it with every field at its default and revision 0.
         const row = rows.get(mutation.entityId) ?? createDefaultRow(rows, mutation.entityId);
         for (const field of mutation.changedFields) applyField(row, field, serverRevision);
       }
-      this.#recordSnapshot(scope, serverRevision, rows);
+      this.#recordSnapshot(scope, serverRevision);
     }
     return {
       rollback: () => {
@@ -153,9 +180,33 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     if (!Number.isSafeInteger(throughServerRevision) || throughServerRevision < 0) {
       throw new TypeError("workspace snapshot revision must be unsigned");
     }
-    const rows = this.#history.get(workspaceTenantKey(scope))?.get(throughServerRevision);
-    if (rows === undefined) throw new TypeError("workspace snapshot revision is unavailable");
-    return [...rows.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)).map(projectRow);
+    return [...this.#stateAt(scope, throughServerRevision).rows.values()]
+      .sort((left, right) => compareUtf8(left.entityId, right.entityId)).map(projectRow);
+  }
+
+  /** The checkpoint state (live assets and tombstones, with generations) as of one revision. */
+  readCheckpointStateAt(scope: WorkspaceTenantScope, throughServerRevision: number): WorkspaceCheckpointState {
+    const state = this.#stateAt(scope, throughServerRevision);
+    return workspaceCheckpointStateSchema.parse({
+      assets: [...state.rows.values()]
+        .sort((left, right) => compareUtf8(left.entityId, right.entityId))
+        .map((row) => {
+          const { lastModifiedRevision: _revision, ...projection } = projectRow(row);
+          return { ...projection, entityGeneration: row.entityGeneration };
+        }),
+      tombstones: [...state.tombstones]
+        .sort(([left], [right]) => compareUtf8(left, right))
+        .map(([entityId, tombstone]) => ({ entityId, ...tombstone })),
+    });
+  }
+
+  #stateAt(scope: WorkspaceTenantScope, throughServerRevision: number): StoredRevisionState {
+    if (!Number.isSafeInteger(throughServerRevision) || throughServerRevision < 0) {
+      throw new TypeError("workspace snapshot revision must be unsigned");
+    }
+    const state = this.#history.get(workspaceTenantKey(scope))?.get(throughServerRevision);
+    if (state === undefined) throw new TypeError("workspace snapshot revision is unavailable");
+    return state;
   }
 
   async computeBusinessDigest(
@@ -188,7 +239,7 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     return rows;
   }
 
-  #workspaceTombstones(scope: WorkspaceTenantScope): Map<string, number> {
+  #workspaceTombstones(scope: WorkspaceTenantScope): Map<string, StoredTombstone> {
     const key = workspaceTenantKey(scope);
     let tombstones = this.#tombstones.get(key);
     if (tombstones === undefined) {
@@ -198,10 +249,13 @@ export class InMemoryDomainAssetPortfolio implements PortfolioMutationPort {
     return tombstones;
   }
 
-  #recordSnapshot(scope: WorkspaceTenantScope, revision: number, rows: Map<string, StoredDomainAsset>): void {
+  #recordSnapshot(scope: WorkspaceTenantScope, revision: number): void {
     const key = workspaceTenantKey(scope);
-    const history = this.#history.get(key) ?? new Map<number, Map<string, StoredDomainAsset>>();
-    history.set(revision, cloneRows(rows));
+    const history = this.#history.get(key) ?? new Map<number, StoredRevisionState>();
+    history.set(revision, {
+      rows: cloneRows(this.#workspaceRows(scope)),
+      tombstones: new Map(this.#workspaceTombstones(scope)),
+    });
     this.#history.set(key, history);
   }
 }
@@ -268,11 +322,14 @@ function cloneRows(rows: Map<string, StoredDomainAsset>): Map<string, StoredDoma
 }
 
 function cloneHistory(
-  history: Map<number, Map<string, StoredDomainAsset>> | undefined,
-): Map<number, Map<string, StoredDomainAsset>> | undefined {
+  history: Map<number, StoredRevisionState> | undefined,
+): Map<number, StoredRevisionState> | undefined {
   return history === undefined
     ? undefined
-    : new Map([...history].map(([revision, rows]) => [revision, cloneRows(rows)]));
+    : new Map([...history].map(([revision, state]) => [revision, {
+      rows: cloneRows(state.rows),
+      tombstones: new Map(state.tombstones),
+    }]));
 }
 
 function cloneMoney<Value extends { readonly currency: string; readonly amount: string } | null>(value: Value): Value {

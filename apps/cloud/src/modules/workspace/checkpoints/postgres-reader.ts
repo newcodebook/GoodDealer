@@ -44,7 +44,7 @@ export class PostgresWorkspaceCheckpointReader implements WorkspaceCheckpointRea
       if (checkpoint === null || head === null) return null;
       const from = checkpoint.descriptor.throughServerRevision;
       const through = head.serverRevision;
-      const snapshot = await this.checkpoints.readSnapshot(transaction, checkpoint.descriptor.checkpointId);
+      const snapshot = await this.checkpoints.readState(transaction, checkpoint.descriptor.checkpointId);
       const mutations = await this.mutations.readRange(transaction, from, through);
       if (mutations.length !== through - from) throw new TypeError("rebootstrap mutation range is incomplete");
       const pages = [];

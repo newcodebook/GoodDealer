@@ -909,7 +909,7 @@ impl DesktopLocalHost {
     #[must_use]
     pub fn prepare_native_checkpoint() -> DesktopCheckpointExchange {
         DesktopCheckpointExchange {
-            request_body: br#"{"schemaVersion":2}"#.to_vec(),
+            request_body: br#"{"schemaVersion":3}"#.to_vec(),
         }
     }
 
@@ -925,7 +925,7 @@ impl DesktopLocalHost {
         response_wire: &[u8],
     ) -> Result<DesktopSyncCheckpointDisposition, DesktopLocalHostError> {
         let response: CheckpointResponseWire = strict_json(response_wire)?;
-        if response.schema_version != 2 {
+        if u64::from(response.schema_version) != CHECKPOINT_WIRE_SCHEMA_VERSION {
             return Err(DesktopLocalHostError::CloudProtocolRejected);
         }
         let descriptor = response
@@ -1176,6 +1176,11 @@ struct CheckpointResponseWire {
     checkpoint: Option<CheckpointWire>,
 }
 
+/// Checkpoint descriptor wire version (ADR-0029). Version 3 checkpoints cover tombstones and entity
+/// generations; a version 2 descriptor omits deletions, so it is refused in the checkpoint read and
+/// inside a rebootstrap-required pull rejection alike.
+const CHECKPOINT_WIRE_SCHEMA_VERSION: u64 = 3;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CheckpointWire {
@@ -1192,7 +1197,7 @@ impl CheckpointWire {
         validate_identifier(&self.checkpoint_id, 160)?;
         validate_identifier(&self.workspace_id, 160)?;
         validate_digest43(&self.checkpoint_digest)?;
-        if self.schema_version != 2
+        if self.schema_version != CHECKPOINT_WIRE_SCHEMA_VERSION
             || self.workspace_schema_version == 0
             || self.workspace_schema_version > MAX_SAFE_INTEGER
             || self.through_server_revision > MAX_SAFE_INTEGER
@@ -2099,7 +2104,7 @@ mod tests {
         assert_eq!(local_host.native_checkpoint_due(&admission), Ok(true));
         let exchange = DesktopLocalHost::prepare_native_checkpoint();
         let checkpoint = serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpointId": "checkpoint-1",
             "workspaceId": WORKSPACE_ID,
             "workspaceSchemaVersion": 1,
@@ -2107,10 +2112,27 @@ mod tests {
             "checkpointDigest": "A".repeat(43)
         });
         let response = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "checkpoint": checkpoint
         }))
         .expect("checkpoint response");
+        // ADR-0029: version 2 checkpoints omit deletions; neither envelope nor descriptor is stored.
+        let mut legacy_descriptor = checkpoint.clone();
+        legacy_descriptor["schemaVersion"] = serde_json::json!(2);
+        for legacy in [
+            serde_json::json!({ "schemaVersion": 2, "checkpoint": null }),
+            serde_json::json!({ "schemaVersion": 3, "checkpoint": legacy_descriptor }),
+        ] {
+            assert_eq!(
+                local_host.complete_native_checkpoint(
+                    &admission,
+                    &exchange,
+                    &serde_json::to_vec(&legacy).expect("legacy response"),
+                ),
+                Err(DesktopLocalHostError::CloudProtocolRejected)
+            );
+            assert_eq!(local_host.native_checkpoint_due(&admission), Ok(true));
+        }
         assert_eq!(
             local_host.complete_native_checkpoint(&admission, &exchange, &response),
             Ok(DesktopSyncCheckpointDisposition::Completed)
@@ -2983,7 +3005,7 @@ mod tests {
                 test_case.wire.as_bytes(),
             )
             .is_ok_and(|response| {
-                response.schema_version == 2
+                u64::from(response.schema_version) == CHECKPOINT_WIRE_SCHEMA_VERSION
                     && response.checkpoint.as_ref().is_none_or(|checkpoint| {
                         checkpoint.validate().is_ok()
                             && checkpoint.workspace_id == correlation.workspace_id

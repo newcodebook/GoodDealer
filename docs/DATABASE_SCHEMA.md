@@ -124,8 +124,8 @@ changed fields。Cloud ingest 接受活跃资产的 delete，并在同一事务�
 准入都排除已删除行。迁移 `202611140001` 同时为此前已接受、却留成活跃行的 delete 补做软删除与墓碑。副本资产行与墓碑各带 `entity_generation`（迁移 `202611140002`，现有为 1，application role 不可写，墓碑与软删除行同代）；到达活跃行的 mutation 必须与其 generation 相等、新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝并记回执。Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内
 以默认字段与 revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产的 upsert 或 delete、以及副本
 从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断；重新添加见
-ADR-0029。Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；Cloud 重建把 delete 物化为
-移除，范围内再次 upsert 已删除资产视为链损坏。
+ADR-0029。Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；重建把 delete 物化为同代墓碑，
+范围内对已删除资产的任何后续条目视为链损坏。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 
@@ -167,9 +167,10 @@ constraint 会在事务提交时拒绝仍领先于 head 的 Mutation 和孤立 R
 `compacted_through_server_revision` 列更新或 Mutation `DELETE` 权限；只能调用受限 compaction 函数。该函数在
 数据库内重新验证完整 replay chain、available Checkpoint、Device/Reader Cursor、Checkpoint Pin 和
 未解决 Recovery comparison，先原子推进 watermark，随后才允许删除该 watermark 以内的 replay
-行；Receipt 和 Drain 证据永久保留。Checkpoint DomainAsset 以每 512 行一个稳定
-`pNNNN` range partition 保存，最多 4096 个 digest 分区，可表示超过 100 万资产；空快照使用独立
-`empty` digest。Recovery 预留带 page/range/count/encoded-bytes/digest 的 page 目录，当前旧式单次
+行；Receipt 和 Drain 证据永久保留。Checkpoint 只存版本 3（迁移 `202611140004`，存在版本 1/2 行时拒绝执行）：状态是活跃 DomainAsset（带
+`entity_generation`）与墓碑（`workspace_checkpoint_domain_asset_tombstones`，带 generation、删除 revision 与
+时间）。活跃资产以每 512 行一个稳定 `pNNNN` range partition 保存，没有活跃资产时使用独立 `empty`
+digest；墓碑以 `tNNNN` 分区保存；两类合计最多 4096 个 digest 分区，可表示超过 100 万资产。Recovery 预留带 page/range/count/encoded-bytes/digest 的 page 目录，当前旧式单次
 request 路径不因此获得批量运行资格。
 
 Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资格版本为 18.6。

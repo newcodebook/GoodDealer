@@ -88,7 +88,7 @@ impl RebootstrapCheckpoint {
         }
         let checkpoint: CheckpointWire =
             serde_json::from_slice(wire).map_err(|_| RebootstrapError::InvalidPlan)?;
-        if checkpoint.schema_version != 2
+        if checkpoint.schema_version != 3
             || !valid_identifier(&checkpoint.checkpoint_id)
             || !valid_identifier(&checkpoint.workspace_id)
             || checkpoint.workspace_schema_version == 0
@@ -107,11 +107,55 @@ impl RebootstrapCheckpoint {
 struct PlanWire {
     schema_version: u8,
     checkpoint: CheckpointWire,
-    snapshot: Vec<DomainAssetProjectionRow>,
+    snapshot: CheckpointStateWire,
     required_mutation_range: RevisionRangeWire,
     mutations: Vec<serde_json::Value>,
     pinned_head_revision: u64,
     pinned_head_digest: String,
+}
+
+/// ADR-0029 version 3 checkpoint state: live assets with generations, and tombstones.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CheckpointStateWire {
+    assets: Vec<CheckpointAssetWire>,
+    tombstones: Vec<CheckpointTombstoneWire>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CheckpointAssetWire {
+    entity_id: String,
+    note: Option<String>,
+    portfolio_id: Option<String>,
+    tags: Vec<String>,
+    target_price: Option<Money>,
+    entity_generation: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CheckpointTombstoneWire {
+    #[expect(
+        dead_code,
+        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
+    )]
+    entity_id: String,
+    #[expect(
+        dead_code,
+        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
+    )]
+    entity_generation: u64,
+    #[expect(
+        dead_code,
+        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
+    )]
+    deleted_server_revision: u64,
+    #[expect(
+        dead_code,
+        reason = "C1c stores tombstones; until then any tombstone refuses the plan"
+    )]
+    deleted_at: String,
 }
 
 #[derive(Deserialize)]
@@ -197,15 +241,43 @@ impl RebootstrapPlan {
         let value: serde_json::Value =
             serde_json::from_slice(wire).map_err(|_| RebootstrapError::InvalidPlan)?;
         verify_rebootstrap_plan_digest(&value).map_err(|_| RebootstrapError::InvalidPlan)?;
+        let state = value
+            .get("snapshot")
+            .cloned()
+            .ok_or(RebootstrapError::InvalidPlan)?;
         let plan: PlanWire =
             serde_json::from_value(value).map_err(|_| RebootstrapError::InvalidPlan)?;
-        verify_rebootstrap_checkpoint_digest(&plan.snapshot, &plan.checkpoint.checkpoint_digest)
+        // ADR-0029 C1c adds local generation columns and tombstone storage. Until then a checkpoint
+        // that records any deletion or any later generation cannot be installed faithfully, so
+        // the plan is refused rather than installed without its tombstones.
+        if !plan.snapshot.tombstones.is_empty()
+            || plan
+                .snapshot
+                .assets
+                .iter()
+                .any(|asset| asset.entity_generation != 1)
+        {
+            return Err(RebootstrapError::InvalidPlan);
+        }
+        let rows = plan
+            .snapshot
+            .assets
+            .into_iter()
+            .map(|asset| DomainAssetProjectionRow {
+                entity_id: asset.entity_id,
+                note: asset.note,
+                portfolio_id: asset.portfolio_id,
+                tags: asset.tags,
+                target_price: asset.target_price,
+            })
+            .collect::<Vec<_>>();
+        verify_rebootstrap_checkpoint_digest(&rows, &state, &plan.checkpoint.checkpoint_digest)
             .map_err(|_| RebootstrapError::InvalidPlan)?;
-        if plan.schema_version != 2
+        if plan.schema_version != 3
             || plan.checkpoint != expected.0
             || plan.pinned_head_revision > MAX_SAFE_INTEGER
             || plan.pinned_head_digest.len() != 43
-            || plan.snapshot.len() > 10_000
+            || rows.len() > 10_000
             || plan.mutations.len() > 4_096
             || plan.required_mutation_range.from_server_revision_exclusive
                 != plan.checkpoint.through_server_revision
@@ -240,8 +312,7 @@ impl RebootstrapPlan {
         if expected_revision != plan.pinned_head_revision {
             return Err(RebootstrapError::InvalidPlan);
         }
-        let snapshot = plan
-            .snapshot
+        let snapshot = rows
             .into_iter()
             .map(|asset| DomainAssetWrite {
                 entity_id: asset.entity_id,
@@ -2869,7 +2940,20 @@ pub(crate) fn valid_rebootstrap_fixture(workspace_id: &str) -> (Vec<u8>, Vec<u8>
 pub(crate) fn rebootstrap_fixture_with_replay(
     workspace_id: &str,
     pinned_head: u64,
+    pages: Vec<serde_json::Value>,
+) -> (Vec<u8>, Vec<u8>) {
+    rebootstrap_fixture_with_state(workspace_id, pinned_head, pages, &[], &[])
+}
+
+/// A correctly signed plan whose checkpoint (at revision 0 unless a tombstone needs a later one)
+/// holds `assets` and `tombstones`, digested independently of the verifier under test.
+#[cfg(test)]
+fn rebootstrap_fixture_with_state(
+    workspace_id: &str,
+    pinned_head: u64,
     mut pages: Vec<serde_json::Value>,
+    assets: &[serde_json::Value],
+    tombstones: &[serde_json::Value],
 ) -> (Vec<u8>, Vec<u8>) {
     for page in &mut pages {
         let object = page.as_object_mut().expect("fixture page is an object");
@@ -2880,18 +2964,30 @@ pub(crate) fn rebootstrap_fixture_with_replay(
         );
         object.insert("pageDigest".to_owned(), serde_json::Value::String(digest));
     }
-    let empty_snapshot = serde_json::json!([]);
-    let partition_digest = fixture_digest(b"GOODDEALER-WORKSPACE-DOMAIN-ASSET-V1", &empty_snapshot);
+    let mut entity_digests = vec![serde_json::json!({
+        "entityType": "domain_asset",
+        "partitionId": if assets.is_empty() { "empty" } else { "p0000" },
+        "digest": fixture_digest(
+            b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-V3",
+            &serde_json::Value::Array(assets.to_vec()),
+        ),
+    })];
+    if !tombstones.is_empty() {
+        entity_digests.push(serde_json::json!({
+            "entityType": "domain_asset_tombstone",
+            "partitionId": "t0000",
+            "digest": fixture_digest(
+                b"GOODDEALER-WORKSPACE-CHECKPOINT-DOMAIN-ASSET-TOMBSTONE-V3",
+                &serde_json::Value::Array(tombstones.to_vec()),
+            ),
+        }));
+    }
     let checkpoint_digest = fixture_digest(
-        b"GOODDEALER-WORKSPACE-ENTITY-DIGESTS-V2",
-        &serde_json::json!([{
-            "entityType": "domain_asset",
-            "partitionId": "empty",
-            "digest": partition_digest,
-        }]),
+        b"GOODDEALER-WORKSPACE-CHECKPOINT-ENTITY-DIGESTS-V3",
+        &serde_json::Value::Array(entity_digests),
     );
     let checkpoint = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "checkpointId": "checkpoint-fixture",
         "workspaceId": workspace_id,
         "workspaceSchemaVersion": 1,
@@ -2899,9 +2995,9 @@ pub(crate) fn rebootstrap_fixture_with_replay(
         "checkpointDigest": checkpoint_digest,
     });
     let mut plan = serde_json::json!({
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "checkpoint": checkpoint,
-        "snapshot": [],
+        "snapshot": { "assets": assets, "tombstones": tombstones },
         "requiredMutationRange": {
             "fromServerRevisionExclusive": 0,
             "throughServerRevisionInclusive": pinned_head,
@@ -2909,7 +3005,7 @@ pub(crate) fn rebootstrap_fixture_with_replay(
         "mutations": pages,
         "pinnedHeadRevision": pinned_head,
     });
-    let pinned_digest = fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", &plan);
+    let pinned_digest = fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", &plan);
     plan.as_object_mut()
         .expect("fixture plan is an object")
         .insert(
@@ -3989,6 +4085,74 @@ mod tests {
     }
 
     #[test]
+    fn version_3_checkpoint_state_is_verified_and_refused_until_local_tombstones_exist() {
+        let asset = |generation: u64| {
+            serde_json::json!({
+                "entityId": "remote.example",
+                "note": null,
+                "portfolioId": null,
+                "tags": [],
+                "targetPrice": null,
+                "entityGeneration": generation,
+            })
+        };
+        let parse = |assets: &[serde_json::Value], tombstones: &[serde_json::Value]| {
+            let (checkpoint_wire, plan_wire) =
+                rebootstrap_fixture_with_state("workspace", 0, Vec::new(), assets, tombstones);
+            let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
+            RebootstrapPlan::parse(&checkpoint, &plan_wire)
+        };
+        // A first-generation live asset installs; its digest covers the generation.
+        let parsed = parse(&[asset(1)], &[]).unwrap();
+        assert_eq!(parsed.snapshot.len(), 1);
+        // Correctly signed, but C1c has not yet given the local store generations or tombstones,
+        // so installing either would silently lose it.
+        assert_eq!(
+            parse(&[asset(2)], &[]).unwrap_err(),
+            RebootstrapError::InvalidPlan
+        );
+        let tombstone = serde_json::json!({
+            "entityId": "deleted.example",
+            "entityGeneration": 1,
+            "deletedServerRevision": 1,
+            "deletedAt": "2026-11-14T00:00:00Z",
+        });
+        assert_eq!(
+            parse(&[], &[tombstone]).unwrap_err(),
+            RebootstrapError::InvalidPlan
+        );
+
+        // The checkpoint digest binds the state: a plan re-signed after an asset was altered no
+        // longer matches its checkpoint and is refused.
+        let (checkpoint_wire, plan_wire) =
+            rebootstrap_fixture_with_state("workspace", 0, Vec::new(), &[asset(1)], &[]);
+        let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
+        let mut plan: serde_json::Value = serde_json::from_slice(&plan_wire).unwrap();
+        plan["snapshot"]["assets"][0]["note"] = serde_json::json!("tampered");
+        let object = plan.as_object_mut().unwrap();
+        object.remove("pinnedHeadDigest");
+        let resigned = fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", &plan);
+        plan["pinnedHeadDigest"] = serde_json::Value::String(resigned);
+        assert_eq!(
+            RebootstrapPlan::parse(&checkpoint, &serde_json::to_vec(&plan).unwrap()).unwrap_err(),
+            RebootstrapError::InvalidPlan
+        );
+
+        // A version 2 plan envelope and the version 1 projection-array snapshot are refused.
+        let mut legacy: serde_json::Value = serde_json::from_slice(&plan_wire).unwrap();
+        legacy["snapshot"] = serde_json::json!([]);
+        assert!(
+            RebootstrapPlan::parse(&checkpoint, &serde_json::to_vec(&legacy).unwrap()).is_err()
+        );
+        let mut legacy_checkpoint: serde_json::Value =
+            serde_json::from_slice(&checkpoint_wire).unwrap();
+        legacy_checkpoint["schemaVersion"] = serde_json::json!(2);
+        assert!(
+            RebootstrapCheckpoint::parse(&serde_json::to_vec(&legacy_checkpoint).unwrap()).is_err()
+        );
+    }
+
+    #[test]
     fn hostile_checkpoint_and_plan_are_bounded_and_exact() {
         let (checkpoint_wire, plan_wire) = valid_rebootstrap_fixture("workspace");
         let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
@@ -3999,7 +4163,7 @@ mod tests {
         assert!(RebootstrapCheckpoint::parse(&[]).is_err());
         assert!(RebootstrapCheckpoint::parse(&vec![b'x'; MAX_CHECKPOINT_BYTES + 1]).is_err());
         let checkpoint = RebootstrapCheckpoint(CheckpointWire {
-            schema_version: 2,
+            schema_version: 3,
             checkpoint_id: "checkpoint".to_owned(),
             workspace_id: "workspace".to_owned(),
             workspace_schema_version: 1,

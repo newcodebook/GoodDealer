@@ -128,9 +128,10 @@ describe("first-slice shared transport contract", () => {
       pageLimit: 64,
       confirm: null,
     })).toMatchObject({ afterServerRevision: 0, cursor: null });
-    expect(workspaceCheckpointReadRequestSchema.parse({ schemaVersion: 2 })).toEqual({
-      schemaVersion: 2,
+    expect(workspaceCheckpointReadRequestSchema.parse({ schemaVersion: 3 })).toEqual({
+      schemaVersion: 3,
     });
+    expect(workspaceCheckpointReadRequestSchema.safeParse({ schemaVersion: 2 }).success).toBe(false);
   });
 
   it.each([

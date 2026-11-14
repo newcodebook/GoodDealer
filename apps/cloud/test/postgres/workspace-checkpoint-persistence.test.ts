@@ -6,8 +6,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   domainAssetProjectionSchema,
   submittedSyncMutationSchema,
+  workspaceCheckpointStateSchema,
   type DomainAssetProjectionRow,
   type SyncMutation,
+  type WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 import { encodeDrainStreamEnvelope } from "@gooddealer/protocol/execution-events";
 
@@ -27,15 +29,18 @@ import type {
 } from "../../src/modules/workspace/checkpoints/postgres-ports";
 import {
   PostgresCheckpointService,
-  replayDomainAssets,
+  replayCheckpointState,
 } from "../../src/modules/workspace/checkpoints/postgres-service";
+import { PostgresWorkspaceCheckpointReader } from "../../src/modules/workspace/checkpoints/postgres-reader";
+import { PostgresPortfolioRepository } from "../../src/modules/workspace/state/portfolio/postgres-repository";
+import { workspaceCheckpointStateV3Migration } from "../../src/modules/workspace/checkpoints/migrations/202611140004-workspace-checkpoint-state-v3";
 
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 1 });
 const appPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_APP_URL"), max: 4 });
 const transactions = new TenantTransactionRunner(appPool);
 const checkpoints = new PostgresCheckpointRepository();
 let revisions: TestRevisionPort;
-let portfolio: TestPortfolioSnapshotPort;
+let portfolio: PostgresPortfolioRepository;
 let mutationPort: TestMutationRangePort;
 const deviceCursors = { async readMinimumActiveRevision() { return null; } };
 const readerCursors = { async retireExpiredAndReadMinimumActiveRevision() { return null; } };
@@ -52,10 +57,15 @@ const initialRows = domainAssetProjectionSchema.parse([{
   tags: [],
   targetPrice: null,
 }]);
+const generation1 = (rows: readonly DomainAssetProjectionRow[]) => rows.map((row) => ({ ...row, entityGeneration: 1 }));
+const initialState: WorkspaceCheckpointState = workspaceCheckpointStateSchema.parse({
+  assets: generation1(initialRows),
+  tombstones: [],
+});
 
 beforeAll(async () => {
   revisions = new TestRevisionPort();
-  portfolio = new TestPortfolioSnapshotPort();
+  portfolio = new PostgresPortfolioRepository();
   mutationPort = new TestMutationRangePort();
   service = checkpointService(recovery);
   await runCloudMigrations(ownerPool, cloudMigrations);
@@ -78,6 +88,7 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
       "workspace_checkpoints",
       "workspace_checkpoint_entity_digests",
       "workspace_checkpoint_domain_assets",
+      "workspace_checkpoint_domain_asset_tombstones",
       "workspace_checkpoint_pins",
       "workspace_checkpoint_diagnostics",
     ];
@@ -133,22 +144,134 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     });
   });
 
-  it("reads a persisted v1 checkpoint as the public v2 descriptor", async () => {
+  it("stores only version 3 checkpoints and refuses to migrate over a legacy one", async () => {
     await seedWorkspace(tenantA, initialRows, 0);
-    await ownerPool.query(
+    const legacy = (version: number) => ownerPool.query(
       `INSERT INTO workspace_checkpoints (
          account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
-         through_server_revision, checkpoint_digest, capture_codec, capture_schema_version,
-         status, verified_at, published_at
-       ) VALUES ($1, $2, 'legacy-v1', 1, 1, 0, decode(repeat('33', 32), 'hex'),
-                 'domain-asset-projection-v1', 1, 'available', transaction_timestamp(), transaction_timestamp())`,
-      [tenantA.accountId, tenantA.workspaceId],
+         through_server_revision, checkpoint_digest, capture_codec, capture_schema_version, status
+       ) VALUES ($1, $2, 'legacy', $3, 1, 0, decode(repeat('33', 32), 'hex'),
+                 'domain-asset-projection-v1', 1, 'building')`,
+      [tenantA.accountId, tenantA.workspaceId, version],
     );
-    await transactions.withTenant(tenantA, async (transaction) => {
-      const latest = await checkpoints.readLatestAvailable(transaction);
-      expect(latest?.descriptor.schemaVersion).toBe(2);
-      expect(latest?.descriptor.checkpointId).toBe("legacy-v1");
+    for (const version of [1, 2]) await expect(legacy(version)).rejects.toMatchObject({ code: "23514" });
+    // The migration's guard runs before it tightens the checks; replay it against a database that
+    // still admits a version 2 row and observe the refusal. DDL is transactional, so nothing leaks.
+    const guard = workspaceCheckpointStateV3Migration.sql.slice(0, workspaceCheckpointStateV3Migration.sql.indexOf("END $$;") + 7);
+    const client = await ownerPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`ALTER TABLE workspace_checkpoints
+        DROP CONSTRAINT workspace_checkpoints_schema_version_check,
+        DROP CONSTRAINT workspace_checkpoints_capture_codec_check,
+        DROP CONSTRAINT workspace_checkpoints_capture_schema_version_check`);
+      await client.query(
+        `INSERT INTO workspace_checkpoints (
+           account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
+           through_server_revision, checkpoint_digest, capture_codec, capture_schema_version, status
+         ) VALUES ($1, $2, 'legacy', 2, 1, 0, decode(repeat('33', 32), 'hex'), 'domain-asset-projection-v1', 1, 'building')`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+      await expect(client.query(guard)).rejects.toThrow("cannot carry tombstones");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    await expect(ownerPool.query("SELECT count(*)::int AS count FROM workspace_checkpoints"))
+      .resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("checkpoints tombstones with their generation and serves them in the rebootstrap plan", async () => {
+    await seedWorkspace(tenantA, initialRows, 0);
+    await seedDeletedAsset(tenantA, "deleted.test", 1, "2026-11-14T01:02:03Z");
+    await makeAvailable("with-tombstone");
+    const expected = workspaceCheckpointStateSchema.parse({
+      assets: initialState.assets,
+      tombstones: [{
+        entityId: "deleted.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-11-14T01:02:03Z",
+      }],
     });
+    await transactions.withTenant(tenantA, async (transaction) => {
+      await expect(checkpoints.readState(transaction, "with-tombstone")).resolves.toEqual(expected);
+      await expect(checkpoints.readEntityDigests(transaction, "with-tombstone")).resolves.toMatchObject([
+        { entityType: "domain_asset", partitionId: "p0000" },
+        { entityType: "domain_asset_tombstone", partitionId: "t0000" },
+      ]);
+    });
+    const plan = await new PostgresWorkspaceCheckpointReader(transactions).readRebootstrapPlan(tenantA);
+    expect(plan).toMatchObject({ schemaVersion: 3, checkpoint: { schemaVersion: 3, throughServerRevision: 1 }, snapshot: expected });
+    await expect(new PostgresWorkspaceCheckpointReader(transactions).readLatestAvailable(tenantA))
+      .resolves.toMatchObject({ schemaVersion: 3, checkpointId: "with-tombstone" });
+  });
+
+  it("fails checkpoint capture closed when a deleted row and its tombstone do not pair", async () => {
+    await seedWorkspace(tenantA, initialRows, 0);
+    await seedDeletedAsset(tenantA, "deleted.test", 1, "2026-11-14T01:02:03Z");
+    // Within one owner transaction a soft-deleted row can briefly lack its tombstone (the pairing
+    // trigger is deferred to commit); a capture at that moment must refuse rather than drop it.
+    await expect(withOwnerTenant(tenantA, async (transaction) => {
+      await transaction.query(
+        `UPDATE workspace_replica_domain_assets SET deleted_at = '2026-11-14T00:00:00Z', lifecycle_status = 'archived'
+         WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'a.test'`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+      await expect(portfolio.captureCheckpointState(transaction)).rejects.toThrow("do not pair");
+      throw new Error("roll back the unpaired probe");
+    })).rejects.toThrow("roll back the unpaired probe");
+    await transactions.withTenant(tenantA, async (transaction) => {
+      await expect(portfolio.captureCheckpointState(transaction)).resolves.toMatchObject({
+        assets: [{ entityId: "a.test" }],
+        tombstones: [{ entityId: "deleted.test" }],
+      });
+    });
+  });
+
+  it("marks a checkpoint invalid when its tombstones are removed, moved, or retyped", async () => {
+    await seedWorkspace(tenantA, initialRows, 0);
+    await seedDeletedAsset(tenantA, "deleted.test", 1, "2026-11-14T01:02:03Z");
+    await service.build(tenantA, "drop-tombstones", 1);
+    await withOwnerTenant(tenantA, async (transaction) => {
+      await transaction.query(
+        `DELETE FROM workspace_checkpoint_domain_asset_tombstones
+         WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = 'drop-tombstones'`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+      await transaction.query(
+        `DELETE FROM workspace_checkpoint_entity_digests
+         WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = 'drop-tombstones'
+           AND entity_type = 'domain_asset_tombstone'`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+    });
+    await expect(service.verify(tenantA, "drop-tombstones")).resolves.toEqual({
+      accepted: false, code: "CHECKPOINT_DIGEST_MISMATCH",
+    });
+
+    await service.build(tenantA, "move-tombstone", 1);
+    await withOwnerTenant(tenantA, async (transaction) => {
+      await transaction.query(
+        `DELETE FROM workspace_checkpoint_domain_asset_tombstones
+         WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = 'move-tombstone'`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+      await transaction.query(
+        `INSERT INTO workspace_checkpoint_domain_assets (
+           account_id, workspace_id, checkpoint_id, entity_id, partition_id, entity_generation, tags
+         ) VALUES ($1, $2, 'move-tombstone', 'deleted.test', 'p0000', 1, '{}')`,
+        [tenantA.accountId, tenantA.workspaceId],
+      );
+    });
+    await expect(service.verify(tenantA, "move-tombstone")).resolves.toEqual({
+      accepted: false, code: "CHECKPOINT_DIGEST_MISMATCH",
+    });
+
+    await service.build(tenantA, "retype-partition", 1);
+    await expect(withOwnerTenant(tenantA, (transaction) => transaction.query(
+      `UPDATE workspace_checkpoint_entity_digests SET entity_type = 'domain_asset'
+       WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = 'retype-partition' AND partition_id = 't0000'`,
+      [tenantA.accountId, tenantA.workspaceId],
+    ))).rejects.toMatchObject({ code: "23514" });
+    await expect(service.verify(tenantA, "retype-partition")).resolves.toMatchObject({ accepted: true });
   });
 
   it("serializes checkpoint build before concurrent persisted ingest", async () => {
@@ -166,10 +289,10 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
       checkpoints,
       revisions,
       portfolio: {
-        async captureSnapshot(transaction) {
+        async captureCheckpointState(transaction) {
           announceCapture();
           await captureGate;
-          return portfolio.captureSnapshot(transaction);
+          return portfolio.captureCheckpointState(transaction);
         },
       },
       mutations: persistedMutations,
@@ -221,7 +344,7 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     });
     await ingest;
     await transactions.withTenant(tenantA, async (transaction) => {
-      await expect(checkpoints.readSnapshot(transaction, "before-concurrent-ingest")).resolves.toEqual(initialRows);
+      await expect(checkpoints.readState(transaction, "before-concurrent-ingest")).resolves.toEqual(initialState);
       await expect(portfolio.captureSnapshot(transaction)).resolves.toEqual([
         { ...initialRows[0]!, note: "after-build" },
       ]);
@@ -268,14 +391,14 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
 
   it("rejects secret-bearing and cross-workspace checkpoint snapshots before storage", async () => {
     await seedWorkspace(tenantA, initialRows, 0);
-    const secretBearingRows = [{ ...initialRows[0]!, credentialRef: "must-not-persist" }];
+    const secretBearingRows = [{ ...initialState.assets[0]!, credentialRef: "must-not-persist" }];
     const secretBearing = new PostgresCheckpointService({
       transactions,
       checkpoints,
       revisions,
       portfolio: {
-        async captureSnapshot() {
-          return secretBearingRows;
+        async captureCheckpointState() {
+          return { assets: secretBearingRows, tombstones: [] } as unknown as WorkspaceCheckpointState;
         },
       },
       mutations: mutationPort,
@@ -286,13 +409,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     await expect(secretBearing.build(tenantA, "secret-bearing", 0)).rejects.toThrow();
     await transactions.withTenant(tenantA, async (transaction) => {
       await expect(checkpoints.createBuilding(transaction, {
-        schemaVersion: 2,
+        schemaVersion: 3,
         checkpointId: "cross-workspace",
         workspaceId: "another-workspace",
         workspaceSchemaVersion: 1,
         throughServerRevision: 0,
         checkpointDigest: "A".repeat(43),
-      }, initialRows, [{ entityType: "domain_asset", partitionId: null, digest: "A".repeat(43) }]))
+      }, initialState, [{ entityType: "domain_asset", partitionId: "p0000", digest: "A".repeat(43) }]))
         .rejects.toThrow("checkpoint workspace does not match tenant scope");
       const stored = await transaction.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM workspace_checkpoints
@@ -333,12 +456,13 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     await service.build(tenantA, "same-checkpoint", 0);
     await service.build(tenantB, "same-checkpoint", 0);
     await transactions.withTenant(tenantA, async (transaction) => {
-      await expect(checkpoints.readSnapshot(transaction, "same-checkpoint")).resolves.toEqual(initialRows);
+      await expect(checkpoints.readState(transaction, "same-checkpoint")).resolves.toEqual(initialState);
     });
     await transactions.withTenant(tenantB, async (transaction) => {
-      await expect(checkpoints.readSnapshot(transaction, "same-checkpoint")).resolves.toEqual([
-        { ...initialRows[0]!, note: "tenant-b" },
-      ]);
+      await expect(checkpoints.readState(transaction, "same-checkpoint")).resolves.toEqual({
+        assets: [{ ...initialState.assets[0]!, note: "tenant-b" }],
+        tombstones: [],
+      });
     });
   });
 
@@ -580,14 +704,38 @@ describe("PostgreSQL workspace checkpoint persistence", () => {
     expect(tenantAFirst).toEqual(tenantASecond);
     expect(tenantAFirst).toMatchObject({
       accepted: true,
-      value: { throughServerRevision: 1, rows: [{ entityId: "a.test", note: "tenant-a-rebuilt" }] },
+      value: { throughServerRevision: 1, state: { assets: [{ entityId: "a.test", note: "tenant-a-rebuilt" }] } },
     });
     expect(tenantBResult).toMatchObject({
       accepted: true,
-      value: { throughServerRevision: 1, rows: [{ entityId: "a.test", note: "tenant-b-rebuilt" }] },
+      value: { throughServerRevision: 1, state: { assets: [{ entityId: "a.test", note: "tenant-b-rebuilt" }] } },
     });
     if (!tenantAFirst.accepted || !tenantBResult.accepted) throw new Error("persistent rebuild failed");
-    expect(tenantAFirst.value.projectionDigest).not.toBe(tenantBResult.value.projectionDigest);
+    expect(tenantAFirst.value.stateDigest).not.toBe(tenantBResult.value.stateDigest);
+  });
+
+  it("rebuilds a persisted delete into the tombstone the live replica holds", async () => {
+    const persistedMutations = new PostgresWorkspaceMutationRepository();
+    const rebuilding = checkpointService(recovery, persistedMutations);
+    await seedWorkspace(tenantA, initialRows, 0);
+    await makeAvailable("before-delete");
+    await advanceWorkspaceWithPersistedDelete(tenantA, persistedMutations, "a.test", "2026-11-14T02:03:04Z");
+    const rebuilt = await rebuilding.rebuild(tenantA, "before-delete", 1);
+    expect(rebuilt).toMatchObject({
+      accepted: true,
+      value: {
+        throughServerRevision: 1,
+        state: {
+          assets: [],
+          tombstones: [{ entityId: "a.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-11-14T02:03:04Z" }],
+        },
+      },
+    });
+    // A checkpoint built after the delete records the same state the rebuild reached.
+    await makeAvailable("after-delete");
+    const after = await transactions.withTenant(tenantA, (transaction) => checkpoints.read(transaction, "after-delete"));
+    if (!rebuilt.accepted || after === null) throw new Error("delete rebuild fixture failed");
+    expect(after.descriptor.checkpointDigest).toBe(rebuilt.value.stateDigest);
   });
 
   it("rejects a corrupt persisted checkpoint snapshot during service rebuild", async () => {
@@ -681,35 +829,55 @@ describe("deterministic checkpoint rebuild", () => {
     serverRevision: revision,
   });
 
+  const deletion = (revision: number, entityId = "a.test"): SyncMutation => ({
+    ...mutation(revision, "gone"), entityId, operationKind: "delete",
+    deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+  });
+
   it("replays a complete ordered range deterministically", () => {
-    expect(replayDomainAssets(initialRows, [mutation(1, "one"), mutation(2, "two")], 0, 2, tenantA.workspaceId))
-      .toEqual([{ ...initialRows[0]!, note: "two" }]);
+    expect(replayCheckpointState(initialState, [mutation(1, "one"), mutation(2, "two")], 0, 2, tenantA.workspaceId))
+      .toEqual({ assets: [{ ...initialState.assets[0]!, note: "two" }], tombstones: [] });
   });
 
   it("creates an asset the snapshot does not hold from its first upsert, as ingest does", () => {
     const created = { ...mutation(1, "first"), entityId: "added.test" };
-    expect(replayDomainAssets(initialRows, [created, mutation(2, "two")], 0, 2, tenantA.workspaceId)).toEqual([
-      { ...initialRows[0]!, note: "two" },
-      { entityId: "added.test", note: "first", portfolioId: null, tags: [], targetPrice: null },
-    ]);
+    expect(replayCheckpointState(initialState, [created, mutation(2, "two")], 0, 2, tenantA.workspaceId)).toEqual({
+      assets: [
+        { ...initialState.assets[0]!, note: "two" },
+        { entityId: "added.test", entityGeneration: 1, note: "first", portfolioId: null, tags: [], targetPrice: null },
+      ],
+      tombstones: [],
+    });
     // A delete of an asset the snapshot never held is a corrupt range, not a creation.
-    const orphanDelete = {
-      ...mutation(1, "gone"), entityId: "never.test", entityGeneration: 1, operationKind: "delete",
-      deletedAt: "2026-01-01T00:00:00Z", changedFields: [],
-    };
-    expect(() => replayDomainAssets(initialRows, [orphanDelete], 0, 1, tenantA.workspaceId)).toThrow(/unknown entity/);
+    expect(() => replayCheckpointState(initialState, [deletion(1, "never.test")], 0, 1, tenantA.workspaceId))
+      .toThrow(/unknown entity/);
   });
 
-  it("replays a delete as a removal that a later upsert of the same asset cannot revive", () => {
-    const removed = {
-      ...mutation(1, "gone"), entityId: initialRows[0]!.entityId, operationKind: "delete",
-      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
-    };
-    expect(replayDomainAssets(initialRows, [removed], 0, 1, tenantA.workspaceId)).toEqual([]);
-    expect(() => replayDomainAssets(initialRows, [removed, mutation(2, "revived")], 0, 2, tenantA.workspaceId))
+  it("replays a delete into a tombstone that a later item cannot revive", () => {
+    expect(replayCheckpointState(initialState, [deletion(1)], 0, 1, tenantA.workspaceId)).toEqual({
+      assets: [],
+      tombstones: [{ entityId: "a.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-11-14T01:02:03Z" }],
+    });
+    expect(() => replayCheckpointState(initialState, [deletion(1), mutation(2, "revived")], 0, 2, tenantA.workspaceId))
       .toThrow(/revives a deleted entity/);
-    expect(() => replayDomainAssets(initialRows, [removed, { ...removed, mutationId: "again", serverRevision: 2, deviceMutationSequence: 2 }], 0, 2, tenantA.workspaceId))
-      .toThrow(/unknown entity/);
+    expect(() => replayCheckpointState(initialState, [deletion(1), deletion(2)], 0, 2, tenantA.workspaceId))
+      .toThrow(/revives a deleted entity/);
+    // A tombstone already in the checkpoint is equally final.
+    const deletedState = { assets: [], tombstones: [{ entityId: "a.test", entityGeneration: 1, deletedServerRevision: 1, deletedAt: "2026-11-14T01:02:03Z" }] };
+    expect(() => replayCheckpointState(deletedState, [mutation(2, "revived")], 1, 2, tenantA.workspaceId))
+      .toThrow(/revives a deleted entity/);
+    expect(() => replayCheckpointState(deletedState, [], 0, 0, tenantA.workspaceId)).toThrow(/deletion after its revision/);
+  });
+
+  it("requires every replayed item to name the generation it reaches", () => {
+    const later = { assets: [{ ...initialState.assets[0]!, entityGeneration: 2 }], tombstones: [] };
+    expect(() => replayCheckpointState(later, [mutation(1, "stale")], 0, 1, tenantA.workspaceId)).toThrow(/generation/);
+    expect(replayCheckpointState(later, [{ ...mutation(1, "current"), entityGeneration: 2 }], 0, 1, tenantA.workspaceId))
+      .toMatchObject({ assets: [{ entityGeneration: 2, note: "current" }] });
+    expect(() => replayCheckpointState(initialState, [{ ...mutation(1, "new"), entityId: "added.test", entityGeneration: 2 }], 0, 1, tenantA.workspaceId))
+      .toThrow(/generation/);
+    expect(replayCheckpointState(later, [{ ...deletion(1), entityGeneration: 2 }], 0, 1, tenantA.workspaceId))
+      .toMatchObject({ tombstones: [{ entityGeneration: 2 }] });
   });
 
   it("rejects missing duplicate reordered and corrupt persisted mutation ranges", () => {
@@ -720,7 +888,7 @@ describe("deterministic checkpoint rebuild", () => {
       [{ ...mutation(1, "one"), changedFields: [{ fieldPath: "unknown", value: "x" }] }, mutation(2, "two")],
     ];
     for (const values of invalidRanges) {
-      expect(() => replayDomainAssets(initialRows, values, 0, 2, tenantA.workspaceId)).toThrow();
+      expect(() => replayCheckpointState(initialState, values, 0, 2, tenantA.workspaceId)).toThrow();
     }
   });
 });
@@ -928,6 +1096,74 @@ async function advanceWorkspaceWithPersistedMutation(
   });
 }
 
+/** Seeds an asset the replica already deleted: its soft-deleted row and paired tombstone. */
+async function seedDeletedAsset(
+  scope: typeof tenantA | typeof tenantB,
+  entityId: string,
+  deletedServerRevision: number,
+  deletedAt: string,
+): Promise<void> {
+  await withOwnerTenant(scope, async (transaction) => {
+    await insertSyntheticMutationPrefix(transaction, scope, 0, deletedServerRevision);
+    await transaction.query(
+      `UPDATE workspace_revisions SET server_revision = $3 WHERE account_id = $1 AND workspace_id = $2`,
+      [scope.accountId, scope.workspaceId, deletedServerRevision],
+    );
+    await transaction.query(
+      `INSERT INTO workspace_replica_domain_assets (
+         account_id, workspace_id, entity_id, deleted_at, lifecycle_status, lifecycle_status_server_revision
+       ) VALUES ($1, $2, $3, $4::timestamptz, 'archived', $5)`,
+      [scope.accountId, scope.workspaceId, entityId, deletedAt, deletedServerRevision],
+    );
+    await transaction.query(
+      `INSERT INTO workspace_replica_tombstones (
+         account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at
+       ) VALUES ($1, $2, 'domain_asset', $3, $4, $5::timestamptz)`,
+      [scope.accountId, scope.workspaceId, entityId, deletedServerRevision, deletedAt],
+    );
+  });
+}
+
+/** Appends one accepted delete at revision 1 and materializes it as ingest does. */
+async function advanceWorkspaceWithPersistedDelete(
+  scope: typeof tenantA | typeof tenantB,
+  persistedMutations: PostgresWorkspaceMutationRepository,
+  entityId: string,
+  deletedAt: string,
+): Promise<void> {
+  const mutation = submittedSyncMutationSchema.parse({
+    schemaVersion: 3,
+    mutationId: `${scope.accountId}-delete`,
+    workspaceId: scope.workspaceId,
+    workspaceSchemaVersion: 1,
+    entityType: "domain_asset",
+    entityId,
+    entityGeneration: 1,
+    operationKind: "delete",
+    deletedAt,
+    baseServerRevision: 0,
+    changedFields: [],
+    sourceDeviceId: `${scope.accountId}-device`,
+    activeLeaseEpoch: 1,
+    deviceMutationSequence: 1,
+  });
+  await seedActiveMutationDrainDomain(scope, mutation.sourceDeviceId);
+  await transactions.withTenant(scope, async (transaction) => {
+    const lock = await persistedMutations.lockDrainDomain(transaction, {
+      sourceDeviceId: mutation.sourceDeviceId,
+      activeLeaseEpoch: mutation.activeLeaseEpoch,
+    });
+    await persistedMutations.appendAccepted(transaction, lock, [{ mutation, serverRevision: 1 }]);
+    await portfolio.applyAcceptedMutations(transaction, [{ mutation, serverRevision: 1 }]);
+    const revision = await transaction.query(
+      `UPDATE workspace_revisions SET server_revision = 1
+       WHERE account_id = $1 AND workspace_id = $2 AND server_revision = 0`,
+      [scope.accountId, scope.workspaceId],
+    );
+    if (revision.rowCount !== 1) throw new Error("persistent delete fixture failed to advance workspace");
+  });
+}
+
 async function seedWorkspace(
   scope: typeof tenantA | typeof tenantB,
   rows: readonly DomainAssetProjectionRow[],
@@ -1008,14 +1244,17 @@ async function makeAvailable(checkpointId: string): Promise<void> {
 
 async function withOwnerTenant<Result>(
   scope: typeof tenantA | typeof tenantB,
-  operation: (transaction: { query: TenantTransaction["query"] }) => Promise<Result>,
+  operation: (transaction: TenantTransaction) => Promise<Result>,
 ): Promise<Result> {
   const client = await ownerPool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT set_config('gooddealer.account_id', $1, true)", [scope.accountId]);
     await client.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scope.workspaceId]);
-    const result = await operation({ query: (text, values) => client.query(text, values === undefined ? undefined : [...values]) });
+    const result = await operation({
+      scope,
+      query: (text, values) => client.query(text, values === undefined ? undefined : [...values]),
+    });
     await client.query("COMMIT");
     return result;
   } catch (error) {
@@ -1065,32 +1304,6 @@ class TestRevisionPort implements CheckpointRevisionPort {
       lastReplicationActivityAt: null,
       lastSuccessfulProviderObservationAt: null,
     };
-  }
-}
-
-class TestPortfolioSnapshotPort {
-  async captureSnapshot(transaction: TenantTransaction): Promise<readonly DomainAssetProjectionRow[]> {
-    const result = await transaction.query<{
-      entity_id: string;
-      note: string | null;
-      portfolio_id: string | null;
-      tags: string[];
-      target_price_currency: string | null;
-      target_price_amount: string | null;
-    }>(
-      `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount
-       FROM workspace_replica_domain_assets WHERE account_id = $1 AND workspace_id = $2 ORDER BY entity_id COLLATE "C"`,
-      [transaction.scope.accountId, transaction.scope.workspaceId],
-    );
-    return domainAssetProjectionSchema.parse(result.rows.map((row) => ({
-      entityId: row.entity_id,
-      note: row.note,
-      portfolioId: row.portfolio_id,
-      tags: row.tags,
-      targetPrice: row.target_price_currency === null || row.target_price_amount === null
-        ? null
-        : { currency: row.target_price_currency, amount: row.target_price_amount },
-    })));
   }
 }
 

@@ -13,8 +13,15 @@ import {
   domainAssetProjectionSchema,
   encodeDomainAssetProjectionDigestInput,
   encodeMutationPageDigestInput,
+  checkpointEntityDigestsSchema,
+  computeWorkspaceCheckpointDigest,
+  computeWorkspaceCheckpointEntityDigests,
+  encodeCheckpointEntityDigestsInput,
   mutationPageSchema,
+  rebootstrapPlanSchema,
   syncMutationSchema,
+  workspaceCheckpointReadRequestSchema,
+  workspaceCheckpointStateSchema,
   workspaceFieldMetadata,
 } from "../src/workspace/index";
 
@@ -160,5 +167,97 @@ describe("workspace sync golden corpus", () => {
       const input = JSON.parse(readFileSync(resolve(projectionVectors, `invalid/${path}`), "utf8"));
       expect(domainAssetProjectionSchema.safeParse(input).success).toBe(false);
     }
+  });
+});
+
+describe("workspace checkpoint state v3 (ADR-0029)", () => {
+  const sha256 = async (bytes: Uint8Array) => createHash("sha256").update(bytes).digest();
+  const asset = (entityId: string, entityGeneration = 1) => ({
+    entityId, note: null, portfolioId: null, tags: [], targetPrice: null, entityGeneration,
+  });
+  const tombstone = (entityId: string, deletedServerRevision = 3) => ({
+    entityId, entityGeneration: 1, deletedServerRevision, deletedAt: "2026-08-28T00:00:00Z",
+  });
+
+  it("refuses version 2 checkpoint requests and descriptors", () => {
+    expect(checkpointDescriptorSchema.safeParse({ ...(vector("valid/checkpoint.json") as object), schemaVersion: 2 }).success)
+      .toBe(false);
+    expect(workspaceCheckpointReadRequestSchema.safeParse({ schemaVersion: 2 }).success).toBe(false);
+    expect(workspaceCheckpointReadRequestSchema.safeParse({ schemaVersion: 3 }).success).toBe(true);
+  });
+
+  it("requires ordered, disjoint, generation-bearing entities", () => {
+    const parse = (value: unknown) => workspaceCheckpointStateSchema.safeParse(value).success;
+    expect(parse({ assets: [asset("a.test")], tombstones: [tombstone("b.test")] })).toBe(true);
+    expect(parse({ assets: [asset("a.test")], tombstones: [tombstone("a.test")] })).toBe(false);
+    expect(parse({ assets: [asset("b.test"), asset("a.test")], tombstones: [] })).toBe(false);
+    expect(parse({ assets: [], tombstones: [tombstone("b.test"), tombstone("a.test")] })).toBe(false);
+    expect(parse({ assets: [{ ...asset("a.test"), entityGeneration: 0 }], tombstones: [] })).toBe(false);
+    const { entityGeneration: _generation, ...ungenerated } = asset("a.test");
+    expect(parse({ assets: [ungenerated], tombstones: [] })).toBe(false);
+    expect(parse({ assets: [], tombstones: [tombstone("a.test", 0)] })).toBe(false);
+    expect(parse({ assets: [], tombstones: [{ ...tombstone("a.test"), deletedAt: "2026-08-28" }] })).toBe(false);
+    expect(parse({ assets: [], tombstones: [{ ...tombstone("a.test"), extra: true }] })).toBe(false);
+    expect(parse({ assets: [] })).toBe(false);
+  });
+
+  it("partitions live assets and tombstones under separate types and domains", async () => {
+    const digests = await computeWorkspaceCheckpointEntityDigests(
+      { assets: [], tombstones: [tombstone("a.test")] },
+      sha256,
+    );
+    expect(digests.map(({ entityType, partitionId }) => [entityType, partitionId])).toEqual([
+      ["domain_asset", "empty"],
+      ["domain_asset_tombstone", "t0000"],
+    ]);
+    const live = await computeWorkspaceCheckpointEntityDigests({ assets: [asset("a.test")], tombstones: [] }, sha256);
+    expect(live.map(({ partitionId }) => partitionId)).toEqual(["p0000"]);
+    // The same id live and deleted digests differently, and generation is covered.
+    const regenerated = await computeWorkspaceCheckpointEntityDigests({ assets: [asset("a.test", 2)], tombstones: [] }, sha256);
+    expect(regenerated[0]!.digest).not.toBe(live[0]!.digest);
+    const many = await computeWorkspaceCheckpointEntityDigests({
+      assets: [],
+      tombstones: Array.from({ length: 513 }, (_, index) => tombstone(`t${index.toString().padStart(4, "0")}.test`)),
+    }, sha256);
+    expect(many.map(({ partitionId }) => partitionId)).toEqual(["empty", "t0000", "t0001"]);
+  });
+
+  it("binds every tombstone into the aggregate checkpoint digest", async () => {
+    const withTombstone = await computeWorkspaceCheckpointDigest({ assets: [asset("a.test")], tombstones: [tombstone("b.test")] }, sha256);
+    const without = await computeWorkspaceCheckpointDigest({ assets: [asset("a.test")], tombstones: [] }, sha256);
+    expect(withTombstone).not.toBe(without);
+    const moved = await computeWorkspaceCheckpointDigest({ assets: [asset("a.test"), asset("b.test")], tombstones: [] }, sha256);
+    expect(moved).not.toBe(withTombstone);
+    expect(withTombstone).toMatchInlineSnapshot(`"xkQ6BnsKFdJ5BE4VhCUPukv8DV-GyfUYZQXVpKQKvdk"`);
+  });
+
+  it("refuses entity digest lists whose partition shape contradicts their type", () => {
+    const digest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const parse = (value: unknown) => checkpointEntityDigestsSchema.safeParse(value).success;
+    expect(parse([{ entityType: "domain_asset", partitionId: "empty", digest }])).toBe(true);
+    expect(parse([{ entityType: "domain_asset", partitionId: "t0000", digest }])).toBe(false);
+    expect(parse([{ entityType: "domain_asset_tombstone", partitionId: "p0000", digest }])).toBe(false);
+    expect(parse([{ entityType: "domain_asset_tombstone", partitionId: "empty", digest }])).toBe(false);
+    expect(parse([
+      { entityType: "domain_asset_tombstone", partitionId: "t0000", digest },
+      { entityType: "domain_asset", partitionId: "empty", digest },
+    ])).toBe(false);
+    expect(() => encodeCheckpointEntityDigestsInput([])).toThrow();
+  });
+
+  it("refuses a rebootstrap plan whose checkpoint holds a later deletion", () => {
+    const descriptor = { ...(vector("valid/checkpoint.json") as Record<string, unknown>), throughServerRevision: 2 };
+    const plan = (deletedServerRevision: number) => ({
+      schemaVersion: 3,
+      checkpoint: descriptor,
+      snapshot: { assets: [], tombstones: [tombstone("a.test", deletedServerRevision)] },
+      requiredMutationRange: { fromServerRevisionExclusive: 2, throughServerRevisionInclusive: 2 },
+      mutations: [],
+      pinnedHeadRevision: 2,
+      pinnedHeadDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    expect(rebootstrapPlanSchema.safeParse(plan(2)).success).toBe(true);
+    expect(rebootstrapPlanSchema.safeParse(plan(3)).success).toBe(false);
+    expect(rebootstrapPlanSchema.safeParse({ ...plan(2), schemaVersion: 2 }).success).toBe(false);
   });
 });
