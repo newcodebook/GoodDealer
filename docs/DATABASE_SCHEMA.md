@@ -106,11 +106,13 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_outbox_fields` | 严格字段白名单、规范值和 digest。 |
 | `sync_inbox` | 按连续 `server_revision` 接收、验证和原子应用下行 Mutation。 |
 | `sync_conflicts` | 本地值、远端候选、两个版本和显式解决状态。 |
-| `sync_tombstones` | 显式删除、ACK、复制和延迟清理。 |
+| `sync_tombstones` | 显式删除、ACK、复制和延迟清理；`entity_generation` 与所指资产行同代（ADR-0029）。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
 | `local_backup_catalog` | 本地备份 manifest、覆盖 revision、crypto profile、验证状态、保留期和清理期限。 |
 
-本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
+`domain_assets`、`sync_tombstones` 与 `sync_outbox` 的 `entity_generation`（迁移 `202611140001`，现有行为 1）写入后不变，
+墓碑与 Outbox mutation 必须与所指资产行同代，Inbox 拒绝与本地行不同代的 mutation；重新添加（ADR-0029 C2）前
+只有 generation 1。本地业务写入、字段版本和 Outbox 必须在一个 `IMMEDIATE` 事务中提交。ACK 只改变复制状态。Inbox
 应用不得生成回声 Outbox。墓碑在所有保留设备和恢复窗口安全越过删除 revision 前不得清理。
 同步记录使用 `mutation_payload_json + mutation_payload_sha256`，字段行使用
 `field_value_json + field_value_sha256`；本地历史使用 `event_payload_json + event_payload_sha256`，

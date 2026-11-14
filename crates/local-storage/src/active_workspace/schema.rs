@@ -186,6 +186,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
             "deleted_at",
             "local_commit_sequence",
+            "entity_generation",
         ],
     ),
     (
@@ -678,6 +679,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "delivery_attempt_fence",
             "wire_schema_version",
             "wire_mutation_digest",
+            "entity_generation",
         ],
     ),
     ("sales_listing_generation", &["singleton", "generation"]),
@@ -746,6 +748,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "order_server_revision",
             "order_source_device_id",
             "order_mutation_id",
+            "entity_generation",
         ],
     ),
     (
@@ -800,3 +803,7 @@ pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_OWNER: &str =
     "active-workspace/sales-listing-confirmation";
 pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_SQL: &str =
     include_str!("sales_listing_confirmation.sql");
+
+pub(crate) const ENTITY_GENERATION_MIGRATION_ID: i64 = 202_611_140_001;
+pub(crate) const ENTITY_GENERATION_MIGRATION_OWNER: &str = "active-workspace/entity-generation";
+pub(crate) const ENTITY_GENERATION_MIGRATION_SQL: &str = include_str!("entity_generation.sql");

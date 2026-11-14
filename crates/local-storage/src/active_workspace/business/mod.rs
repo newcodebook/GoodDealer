@@ -552,8 +552,9 @@ struct SyncMutationV2 {
     workspace_schema_version: u64,
     entity_type: String,
     entity_id: String,
-    /// Always 1 until generation-aware materialization lands (ADR-0029 C1c); a later generation
-    /// or a `reAddsDeletedRevision` (an unknown field here) is refused before materialization.
+    /// Always 1 until re-adding lands (ADR-0029 C2); a later generation or a
+    /// `reAddsDeletedRevision` (an unknown field here) is refused before materialization, and a
+    /// mutation whose generation differs from the local row is refused at materialization.
     entity_generation: u64,
     operation_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5544,6 +5545,15 @@ fn reconstruct_sync_mutation_v2(
     if operation_kind != "upsert" && operation_kind != "delete" {
         return Err(BusinessDatabaseError::StorageRejected);
     }
+    // ADR-0029 C1c1: the generation is frozen on the outbox row when the mutation is enqueued,
+    // so a retry re-derives the same envelope even after the asset moves to a later generation.
+    let entity_generation: i64 = transaction
+        .query_row(
+            "SELECT entity_generation FROM sync_outbox WHERE workspace_id=?1 AND mutation_id=?2",
+            params![workspace_id, mutation_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     let fields = {
         let mut statement = transaction
             .prepare(
@@ -5594,7 +5604,7 @@ fn reconstruct_sync_mutation_v2(
         "workspaceSchemaVersion": workspace_schema_version,
         "entityType": "domain_asset",
         "entityId": entity_id,
-        "entityGeneration": 1,
+        "entityGeneration": entity_generation,
         "operationKind": operation_kind,
         "baseServerRevision": base_server_revision,
         "changedFields": changed_fields,
@@ -5829,8 +5839,9 @@ fn canonical_mutation_digest(mutation: &SyncMutationV2) -> Result<String, Busine
 /// `wire_schema_version = 2`: the v2 encoding of a first-generation mutation, re-derived from its
 /// v3 form by dropping `entityGeneration`. For generation 1 the two encodings carry the same
 /// content, so the column keeps identifying exactly one mutation, and rows claimed before the
-/// upgrade keep matching. Temporary: ADR-0029 C1c rebuilds these tables with generation columns
-/// and records version 3 digests; anything other than generation 1 is refused until then.
+/// upgrade keep matching. Temporary: ADR-0029 C1c2 rebuilds these tables to record version 3
+/// digests (C1c1 already added the generation columns); anything other than generation 1 is
+/// refused until then.
 fn local_wire_digest(value: &serde_json::Value) -> Result<String, BusinessDatabaseError> {
     let mut legacy = value
         .as_object()
@@ -5911,6 +5922,25 @@ fn apply_sync_mutation_projection(
     {
         return Err(BusinessDatabaseError::InvalidInput);
     }
+    // ADR-0029 C1c1: a replicated mutation names the generation it applies to; a local row on any
+    // other generation is a different entity, so the page is refused rather than merged into it.
+    let generation = i64::try_from(mutation.entity_generation)
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    // A replicated tombstone can exist before any asset row, so both record the local generation.
+    let other_generations: i64 = transaction
+        .query_row(
+            "SELECT (SELECT count(*) FROM domain_assets
+                     WHERE workspace_id=?1 AND entity_id=?2 AND entity_generation!=?3)
+                  + (SELECT count(*) FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                       AND entity_generation!=?3)",
+            params![workspace_id, mutation.entity_id, generation],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if other_generations != 0 {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
     let local_commit_sequence: i64 = transaction
         .query_row(
             "UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1,
@@ -5952,8 +5982,8 @@ fn apply_sync_mutation_projection(
                 "INSERT INTO sync_tombstones
                  (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
                   deleted_server_revision,deleted_at,purge_after,state,barrier_state,
-                  order_server_revision,order_source_device_id,order_mutation_id)
-                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','contested',?4,?6,?7)
+                  order_server_revision,order_source_device_id,order_mutation_id,entity_generation)
+                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','contested',?4,?6,?7,?8)
                  ON CONFLICT(workspace_id,entity_kind,entity_id) DO UPDATE SET
                    deleted_server_revision=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.deleted_server_revision ELSE sync_tombstones.deleted_server_revision END,
                    deleted_at=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.deleted_at ELSE sync_tombstones.deleted_at END,
@@ -5961,7 +5991,7 @@ fn apply_sync_mutation_projection(
                    order_server_revision=MAX(COALESCE(sync_tombstones.order_server_revision,0),excluded.order_server_revision),
                    order_source_device_id=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.order_source_device_id ELSE sync_tombstones.order_source_device_id END,
                    order_mutation_id=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision,0) THEN excluded.order_mutation_id ELSE sync_tombstones.order_mutation_id END",
-                params![workspace_id,mutation.entity_id,local_commit_sequence,i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?,mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"),mutation.source_device_id,mutation.mutation_id]
+                params![workspace_id,mutation.entity_id,local_commit_sequence,i64::try_from(mutation.server_revision).map_err(|_| BusinessDatabaseError::InvalidInput)?,mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"),mutation.source_device_id,mutation.mutation_id,generation]
             ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
             return Ok(true);
         }
@@ -5970,8 +6000,8 @@ fn apply_sync_mutation_projection(
                 "INSERT INTO sync_tombstones
                  (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,
                   deleted_server_revision,deleted_at,purge_after,state,barrier_state,
-                  order_server_revision,order_source_device_id,order_mutation_id)
-                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,?6,?7)
+                  order_server_revision,order_source_device_id,order_mutation_id,entity_generation)
+                 VALUES (?1,'domain_asset',?2,?3,?4,?5,NULL,'replicated','replicated',?4,?6,?7,?8)
                  ON CONFLICT(workspace_id,entity_kind,entity_id) DO UPDATE SET
                    deleted_server_revision=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision, 0) THEN excluded.deleted_server_revision ELSE sync_tombstones.deleted_server_revision END,
                    deleted_at=CASE WHEN excluded.order_server_revision > COALESCE(sync_tombstones.order_server_revision, 0) THEN excluded.deleted_at ELSE sync_tombstones.deleted_at END,
@@ -5992,18 +6022,19 @@ fn apply_sync_mutation_projection(
                         .unwrap_or("1970-01-01T00:00:00Z"),
                     mutation.source_device_id,
                     mutation.mutation_id,
+                    generation,
                 ],
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         transaction
             .execute(
                 "INSERT INTO domain_assets
-                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,local_commit_sequence)
-                 VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4)
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,deleted_at,local_commit_sequence,entity_generation)
+                 VALUES (?1,?2,'archived',strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?3,?4,?5)
                  ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
                    lifecycle_status='archived',updated_at=excluded.updated_at,
                    deleted_at=excluded.deleted_at,local_commit_sequence=excluded.local_commit_sequence",
-                params![workspace_id, mutation.entity_id, mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"), local_commit_sequence],
+                params![workspace_id, mutation.entity_id, mutation.deleted_at.as_deref().unwrap_or("1970-01-01T00:00:00Z"), local_commit_sequence, generation],
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         return Ok(pending != 0);
@@ -6024,12 +6055,12 @@ fn apply_sync_mutation_projection(
     transaction
         .execute(
             "INSERT INTO domain_assets
-             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
-             VALUES (?1,?2,'active',strftime('%Y-%m-%dT%H:%M:%SZ','now'),strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3)
+             (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,entity_generation)
+             VALUES (?1,?2,'active',strftime('%Y-%m-%dT%H:%M:%SZ','now'),strftime('%Y-%m-%dT%H:%M:%SZ','now'),?3,?4)
              ON CONFLICT(workspace_id,entity_id) DO UPDATE SET
                lifecycle_status='active',deleted_at=NULL,updated_at=excluded.updated_at,
                local_commit_sequence=excluded.local_commit_sequence",
-            params![workspace_id, mutation.entity_id, local_commit_sequence],
+            params![workspace_id, mutation.entity_id, local_commit_sequence, generation],
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     transaction
@@ -12664,8 +12695,8 @@ mod tests {
 
     #[test]
     fn sync_page_refuses_a_later_generation_a_re_add_or_another_wire_version() {
-        // ADR-0029 C1a: until local generation columns land, only a first-generation v3
-        // mutation may materialize; every other shape is refused with nothing written.
+        // ADR-0029 C1a: until re-adding lands (C2), only a first-generation v3 mutation may
+        // materialize; every other shape is refused with nothing written.
         let mut database = database();
         let variants: [fn(&mut serde_json::Value); 5] = [
             |page| page["mutations"][0]["entityGeneration"] = serde_json::json!(2),
@@ -12725,6 +12756,86 @@ mod tests {
             digest,
             canonical_sync_digest(&serde_json::Value::Object(legacy.clone())).unwrap()
         );
+    }
+
+    #[test]
+    fn sync_page_refuses_a_mutation_for_another_generation_of_the_local_row() {
+        // ADR-0029 C1c1: a local row on another generation is a different entity, so a pulled
+        // mutation for it is refused with nothing written instead of merged into it.
+        let mut database = database();
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,
+                  entity_generation)
+                 VALUES ('workspace-local','remote.test','active',?1,?1,1,2)",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(
+            database.apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1"),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+        let inbox_count: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_inbox", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(inbox_count, 0);
+    }
+
+    #[test]
+    fn sync_page_refuses_a_mutation_for_another_generation_of_a_local_tombstone() {
+        let mut database = database();
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_at,state,
+                  barrier_state,entity_generation)
+                 VALUES ('workspace-local','domain_asset','remote.test',1,?1,'pending','pending',2)",
+                [TIMESTAMP],
+            )
+            .unwrap();
+        assert_eq!(
+            database.apply_sync_page_v2("reader-local", &test_sync_page(1, "remote"), "confirm-1"),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(database.current_server_revision().unwrap(), 0);
+    }
+
+    #[test]
+    fn sync_page_delete_records_the_generation_it_deleted() {
+        let mut database = database();
+        let mut page = serde_json::json!({
+            "schemaVersion":3,"workspaceId":"workspace-local","fromServerRevisionExclusive":0,
+            "throughServerRevisionInclusive":1,"mutations":[{"schemaVersion":3,"mutationId":"remote-delete",
+            "workspaceId":"workspace-local","workspaceSchemaVersion":1,"entityType":"domain_asset",
+            "entityId":"remote.test","entityGeneration":1,"operationKind":"delete","deletedAt":"2026-08-28T00:00:00Z",
+            "baseServerRevision":0,"changedFields":[],"sourceDeviceId":"cloud-device","activeLeaseEpoch":1,
+            "deviceMutationSequence":1,"serverRevision":1}],"returnedThroughServerRevision":1,"nextCursor":null,
+            "pageDigest":"A".repeat(43)
+        });
+        page["pageDigest"] = serde_json::Value::String(canonical_page_digest(&page).unwrap());
+        database
+            .apply_sync_page_v2("reader-local", &page.to_string(), "confirm")
+            .unwrap();
+        let generations: (i64, i64) = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT t.entity_generation, a.entity_generation
+                 FROM sync_tombstones t JOIN domain_assets a USING (workspace_id, entity_id)
+                 WHERE t.entity_id='remote.test' AND a.deleted_at IS NOT NULL",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(generations, (1, 1));
     }
 
     #[test]

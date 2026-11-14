@@ -9,17 +9,19 @@ use crate::active_workspace::schema::{
     CLOUDFLARE_V1_MIGRATION_ID, CLOUDFLARE_V1_MIGRATION_OWNER, CLOUDFLARE_V1_MIGRATION_SQL,
     CLOUDFLARE_V2_MIGRATION_ID, CLOUDFLARE_V2_MIGRATION_OWNER, CLOUDFLARE_V2_MIGRATION_SQL,
     DOMAIN_PROVIDER_BINDING_MIGRATION_ID, DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER,
-    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, OUTBOX_INTEGRITY_MIGRATION_ID,
-    OUTBOX_INTEGRITY_MIGRATION_OWNER, OUTBOX_INTEGRITY_MIGRATION_SQL,
-    OUTBOX_LOCAL_CREATIONS_MIGRATION_ID, OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER,
-    OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL, SALES_LISTING_CONFIRMATION_MIGRATION_ID,
-    SALES_LISTING_CONFIRMATION_MIGRATION_OWNER, SALES_LISTING_CONFIRMATION_MIGRATION_SQL,
-    SALES_LISTING_GENERATION_MIGRATION_ID, SALES_LISTING_GENERATION_MIGRATION_OWNER,
-    SALES_LISTING_GENERATION_MIGRATION_SQL, STORAGE_INTEGRITY_MIGRATION_ID,
-    STORAGE_INTEGRITY_MIGRATION_OWNER, STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID,
-    SYNC_V2_MIGRATION_OWNER, SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER,
-    SYNC_V3_MIGRATION_SQL, SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL,
-    SYNC_V5_MIGRATION_ID, SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
+    DOMAIN_PROVIDER_BINDING_MIGRATION_SQL, ENTITY_GENERATION_MIGRATION_ID,
+    ENTITY_GENERATION_MIGRATION_OWNER, ENTITY_GENERATION_MIGRATION_SQL,
+    OUTBOX_INTEGRITY_MIGRATION_ID, OUTBOX_INTEGRITY_MIGRATION_OWNER,
+    OUTBOX_INTEGRITY_MIGRATION_SQL, OUTBOX_LOCAL_CREATIONS_MIGRATION_ID,
+    OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER, OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL,
+    SALES_LISTING_CONFIRMATION_MIGRATION_ID, SALES_LISTING_CONFIRMATION_MIGRATION_OWNER,
+    SALES_LISTING_CONFIRMATION_MIGRATION_SQL, SALES_LISTING_GENERATION_MIGRATION_ID,
+    SALES_LISTING_GENERATION_MIGRATION_OWNER, SALES_LISTING_GENERATION_MIGRATION_SQL,
+    STORAGE_INTEGRITY_MIGRATION_ID, STORAGE_INTEGRITY_MIGRATION_OWNER,
+    STORAGE_INTEGRITY_MIGRATION_SQL, SYNC_V2_MIGRATION_ID, SYNC_V2_MIGRATION_OWNER,
+    SYNC_V2_MIGRATION_SQL, SYNC_V3_MIGRATION_ID, SYNC_V3_MIGRATION_OWNER, SYNC_V3_MIGRATION_SQL,
+    SYNC_V4_MIGRATION_ID, SYNC_V4_MIGRATION_OWNER, SYNC_V4_MIGRATION_SQL, SYNC_V5_MIGRATION_ID,
+    SYNC_V5_MIGRATION_OWNER, SYNC_V5_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: SALES_LISTING_CONFIRMATION_MIGRATION_ID,
         owner: SALES_LISTING_CONFIRMATION_MIGRATION_OWNER,
         sql: SALES_LISTING_CONFIRMATION_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: ENTITY_GENERATION_MIGRATION_ID,
+        owner: ENTITY_GENERATION_MIGRATION_OWNER,
+        sql: ENTITY_GENERATION_MIGRATION_SQL,
     },
 ];
 
@@ -394,7 +401,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 15);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 16);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -1002,8 +1009,18 @@ mod tests {
             .unwrap();
         let snapshot = |connection: &Connection| {
             ["domain_assets", "active_workspace_metadata"].map(|table| {
+                // Later append-only migrations may add columns (ADR-0029 C1c1 adds
+                // `entity_generation`); the rows' existing values are what must survive.
+                let columns: String = connection
+                    .query_row(
+                        "SELECT group_concat(name, ',') FROM pragma_table_info(?1)
+                         WHERE name != 'entity_generation'",
+                        [table],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
                 let mut statement = connection
-                    .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                    .prepare(&format!("SELECT {columns} FROM {table} ORDER BY rowid"))
                     .unwrap();
                 let columns = statement.column_count();
                 statement
@@ -1137,5 +1154,116 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn entity_generation_starts_at_one_and_pairs_assets_tombstones_and_outbox() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        run_active_migrations(&mut connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO active_workspace_metadata
+             (singleton,storage_domain,workspace_id,workspace_schema_version,
+              applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,
+              created_at,updated_at)
+             VALUES (1,'active_workspace','workspace-local',1,0,1,1,?1,?1)",
+                ["2026-11-14T00:00:00Z"],
+            )
+            .unwrap();
+        let insert_asset = |entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence,
+                  entity_generation)
+                 VALUES ('workspace-local',?1,'active','2026-11-14T00:00:00Z','2026-11-14T00:00:00Z',1,?2)",
+                rusqlite::params![entity_id, generation],
+            )
+        };
+        let insert_tombstone = |entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_tombstones
+                 (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_at,state,
+                  barrier_state,entity_generation)
+                 VALUES ('workspace-local','domain_asset',?1,1,'2026-11-14T00:00:00Z','pending','pending',?2)",
+                rusqlite::params![entity_id, generation],
+            )
+        };
+        let insert_outbox = |mutation_id: &str, entity_id: &str, generation: i64| {
+            connection.execute(
+                "INSERT INTO sync_outbox
+                 (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
+                  entity_generation)
+                 VALUES ('workspace-local',?1,'domain_asset',?2,'{}','2026-11-14T00:00:00Z',?3)",
+                rusqlite::params![mutation_id, entity_id, generation],
+            )
+        };
+        let message = |result: rusqlite::Result<usize>| result.unwrap_err().to_string();
+
+        // Defaults: every row written without a generation is generation 1.
+        connection
+            .execute(
+                "INSERT INTO domain_assets
+                 (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence)
+                 VALUES ('workspace-local','default.test','active','2026-11-14T00:00:00Z',
+                         '2026-11-14T00:00:00Z',1)",
+                [],
+            )
+            .unwrap();
+        let generation: i64 = connection
+            .query_row(
+                "SELECT entity_generation FROM domain_assets WHERE entity_id='default.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(generation, 1);
+        assert!(message(insert_asset("zero.test", 0)).contains("CHECK constraint failed"));
+
+        // A generation never changes until re-adding exists (ADR-0029 C2).
+        assert!(
+            message(connection.execute(
+                "UPDATE domain_assets SET entity_generation=2 WHERE entity_id='default.test'",
+                [],
+            ))
+            .contains("entity generation changes only through re-adding")
+        );
+
+        // Tombstones and outbox mutations carry the generation of the asset row they name.
+        insert_asset("paired.test", 2).unwrap();
+        assert!(
+            message(insert_tombstone("paired.test", 1))
+                .contains("tombstone generation differs from its asset")
+        );
+        assert!(
+            message(insert_outbox("mutation-mismatch", "paired.test", 1))
+                .contains("outbox mutation generation differs from its asset")
+        );
+        insert_outbox("mutation-paired", "paired.test", 2).unwrap();
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_outbox SET entity_generation=1 WHERE mutation_id='mutation-paired'",
+                [],
+            ))
+            .contains("outbox mutation generation is immutable")
+        );
+        insert_tombstone("paired.test", 2).unwrap();
+        assert!(
+            message(connection.execute(
+                "UPDATE sync_tombstones SET entity_generation=3 WHERE entity_id='paired.test'",
+                [],
+            ))
+            .contains("entity generation changes only through re-adding")
+        );
+
+        // A replicated tombstone may arrive before its asset row; the row must then match it.
+        insert_tombstone("remote-only.test", 4).unwrap();
+        assert!(
+            message(insert_asset("remote-only.test", 1))
+                .contains("asset generation differs from its tombstone")
+        );
+        insert_asset("remote-only.test", 4).unwrap();
     }
 }
