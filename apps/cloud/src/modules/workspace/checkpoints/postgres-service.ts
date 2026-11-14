@@ -322,6 +322,10 @@ export function replayDomainAssets(
     throw new TypeError("rebuild mutation range is incomplete");
   }
   const rows = new Map(snapshot.map((row) => [row.entityId, cloneRow(row)]));
+  // ADR-0029 decision 2: a delete in the range leaves a tombstone, not a gap, so a later upsert of
+  // the same asset is a corrupt chain rather than a creation. Deletions before the checkpoint are
+  // absent from its snapshot; ingest refused any upsert of them, so the range cannot hold one.
+  const deleted = new Set<string>();
   let expectedRevision = fromRevision + 1;
   for (const mutation of mutations) {
     if (mutation.serverRevision !== expectedRevision) throw new TypeError("rebuild revisions are missing or reordered");
@@ -330,6 +334,9 @@ export function replayDomainAssets(
     if (mutation.operationKind === "delete") {
       if (row === undefined) throw new TypeError("rebuild delete references an unknown entity");
       rows.delete(mutation.entityId);
+      deleted.add(mutation.entityId);
+    } else if (deleted.has(mutation.entityId)) {
+      throw new TypeError("rebuild upsert revives a deleted entity");
     } else {
       // The first upsert of an asset the snapshot does not hold creates it, as ingest did.
       applyMutation(row ?? createDefaultRow(rows, mutation.entityId), mutation);

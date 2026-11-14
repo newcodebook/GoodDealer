@@ -313,6 +313,34 @@ describe("PostgreSQL tenant persistence", () => {
     })).rejects.toThrow();
   });
 
+  it("lets the application role write only the deletion columns of tombstones and replica assets", async () => {
+    const result = await appPool.query<{ table_name: string; column_name: string; can_insert: boolean; can_update: boolean }>(
+      `SELECT c.table_name, c.column_name,
+              has_column_privilege(current_user, c.table_name, c.column_name, 'INSERT') AS can_insert,
+              has_column_privilege(current_user, c.table_name, c.column_name, 'UPDATE') AS can_update
+       FROM information_schema.columns c
+       WHERE c.table_schema = 'public'
+         AND (c.table_name = 'workspace_replica_tombstones'
+          OR (c.table_name = 'workspace_replica_domain_assets'
+            AND c.column_name IN ('deleted_at', 'lifecycle_status', 'lifecycle_status_server_revision', 'expires_on')))
+       ORDER BY c.table_name, c.column_name`,
+    );
+    expect(result.rows).toEqual([
+      { table_name: "workspace_replica_domain_assets", column_name: "deleted_at", can_insert: false, can_update: true },
+      { table_name: "workspace_replica_domain_assets", column_name: "expires_on", can_insert: false, can_update: false },
+      { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status", can_insert: false, can_update: true },
+      { table_name: "workspace_replica_domain_assets", column_name: "lifecycle_status_server_revision", can_insert: false, can_update: true },
+      ...["account_id", "deleted_at", "deleted_server_revision", "entity_id", "entity_type", "purge_after", "workspace_id"]
+        .map((column_name) => ({
+          table_name: "workspace_replica_tombstones",
+          column_name,
+          can_insert: column_name !== "purge_after",
+          can_update: false,
+        })),
+    ]);
+  });
+
+  // Tombstones gained column-level INSERT for deletion (above); no table-wide write exists.
   it("keeps unimplemented replica families read-only for the application role", async () => {
     const privileges = await appPool.query<{ table_name: string; can_select: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }>(
       `SELECT table_name,

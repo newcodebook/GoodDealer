@@ -37,6 +37,7 @@ observation writes belong to other modules.
 - MUST: Never accept Provider account identity, labels, credential bindings, or secrets.
 - MUST: Use `workspace_replica_*` final table names so database semantics cannot imply Desktop Repository ownership.
 - MUST: Deny application-role hard deletes, and keep future replica families read-only until strict wire schemas, materializers, tombstone semantics, and recovery tests exist.
+- MUST: Materialize an accepted DomainAsset delete as a soft-deleted row plus its tombstone in the ingest transaction, and exclude deleted rows from every read; the row stays because immutable DNS observation receipts reference it (ADR-0029 decision 2). The database refuses an unpaired or edited deleted row.
 - MUST: Grant application writes by column; current fields and server revisions cannot authorize future lifecycle or materialization columns.
 
 ## Boundaries

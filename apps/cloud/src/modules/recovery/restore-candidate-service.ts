@@ -301,7 +301,7 @@ async function readCurrentValues(
   }>(
     `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount
      FROM workspace_replica_domain_assets
-     WHERE account_id = $1 AND workspace_id = $2 AND entity_id = ANY($3::text[])
+     WHERE account_id = $1 AND workspace_id = $2 AND entity_id = ANY($3::text[]) AND deleted_at IS NULL
      ORDER BY entity_id COLLATE "C"`,
     [transaction.scope.accountId, transaction.scope.workspaceId, entityIds],
   );

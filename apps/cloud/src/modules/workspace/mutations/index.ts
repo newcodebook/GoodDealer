@@ -36,6 +36,7 @@ import type { WorkspaceBindingPort } from "../revisions/index";
 import type { WorkspaceTenantScope } from "../tenant-scope";
 import { workspaceTenantKey } from "../tenant-scope";
 import type { PortfolioMutationPort } from "../state/portfolio/index";
+import { findUnknownEntityIndexes } from "./entity-state-rule";
 import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
@@ -469,11 +470,11 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
     }
     if (sequenceFailures.length > 0) return reject("MUTATION_SEQUENCE_CONFLICT", sequenceFailures);
 
-    const entityFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisions.has(index) || !this.#portfolio.isDomainAssetTombstoned(scope, mutation.entityId)
-        ? []
-        : [failure(index, mutation)],
-    );
+    const entityFailures = findUnknownEntityIndexes(
+      request.mutations,
+      (index) => duplicateRevisions.has(index),
+      (entityId) => this.#portfolio.readDomainAssetState(scope, entityId),
+    ).map((index) => failure(index, request.mutations[index]!));
     if (entityFailures.length > 0) return this.#rejectBusiness(scope, request, "MUTATION_ENTITY_UNKNOWN", entityFailures);
 
     const observedHead = this.#revisions.readHead(scope).serverRevision;
@@ -705,7 +706,7 @@ function parseMutationIngestRequest(value: unknown): MutationIngestRequest | nul
   const mutations: SubmittedSyncMutation[] = [];
   for (const mutation of value.mutations) {
     const parsed = submittedSyncMutationSchema.safeParse(mutation);
-    if (!parsed.success || parsed.data.operationKind === "delete") return null;
+    if (!parsed.success) return null;
     if (
       parsed.data.workspaceId !== value.workspaceId ||
       parsed.data.sourceDeviceId !== value.sourceDeviceId ||

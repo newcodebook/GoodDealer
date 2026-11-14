@@ -18,6 +18,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "isolates identical literal ids and clears scope across pooled commit and rollback reuse",
     "rejects invalid scope before acquiring a pool connection",
     "blocks direct cross-tenant writes and cross-tenant foreign keys through forced RLS",
+    "lets the application role write only the deletion columns of tombstones and replica assets",
     "keeps unimplemented replica families read-only for the application role",
     "rejects direct projection CAS when no dense mutation-log prefix exists",
     "rejects a projection-only revision advance before materialization",
@@ -71,6 +72,12 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "isolates identical ids and rejects forged tenant writes",
     "rejects conflicting receipts and malformed persisted replay rather than returning partial data",
     "rolls every mutation table and Drain head back on injected faults",
+    "materializes an accepted delete as a soft-deleted row with its tombstone and hides it from every read",
+    "rejects an upsert or a second delete of a deleted asset and a delete of an asset never held",
+    "judges a batch in order: create then delete is accepted, delete then upsert writes nothing",
+    "deletes an asset that immutable DNS observation receipts still reference",
+    "repairs a delete accepted before C1b1 that the replica left live, once and only for that asset",
+    "keeps a deleted row and its tombstone paired and final for every role",
   ],
   "test/postgres/workspace-reader-cursor-persistence.test.ts": [
     "keeps v2 delivery pending until confirm and byte-replays both lost responses",
@@ -109,6 +116,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "rejects missing and corrupt persisted mutation ranges during service rebuild",
     "replays a complete ordered range deterministically",
     "creates an asset the snapshot does not hold from its first upsert, as ingest does",
+    "replays a delete as a removal that a later upsert of the same asset cannot revive",
     "rejects missing duplicate reordered and corrupt persisted mutation ranges",
   ],
 });

@@ -700,6 +700,18 @@ describe("deterministic checkpoint rebuild", () => {
     expect(() => replayDomainAssets(initialRows, [orphanDelete], 0, 1, tenantA.workspaceId)).toThrow(/unknown entity/);
   });
 
+  it("replays a delete as a removal that a later upsert of the same asset cannot revive", () => {
+    const removed = {
+      ...mutation(1, "gone"), entityId: initialRows[0]!.entityId, operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    };
+    expect(replayDomainAssets(initialRows, [removed], 0, 1, tenantA.workspaceId)).toEqual([]);
+    expect(() => replayDomainAssets(initialRows, [removed, mutation(2, "revived")], 0, 2, tenantA.workspaceId))
+      .toThrow(/revives a deleted entity/);
+    expect(() => replayDomainAssets(initialRows, [removed, { ...removed, mutationId: "again", serverRevision: 2, deviceMutationSequence: 2 }], 0, 2, tenantA.workspaceId))
+      .toThrow(/unknown entity/);
+  });
+
   it("rejects missing duplicate reordered and corrupt persisted mutation ranges", () => {
     const invalidRanges = [
       [mutation(1, "one")],

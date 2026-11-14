@@ -41,6 +41,7 @@ export interface LockedDomainAsset extends DomainAssetProjectionRow {
 
 /** Transaction-aware state boundary used by sync/checkpoint owners; it never allocates revisions. */
 export interface PortfolioSyncPersistencePort extends PortfolioMaterializationPort {
+  /** Live rows among `entityIds`; a soft-deleted row is reported by `readDomainAssetTombstones`. */
   lockDomainAssets(
     transaction: TenantTransaction,
     entityIds: readonly string[],
@@ -82,7 +83,8 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
            note_server_revision = EXCLUDED.note_server_revision,
            portfolio_id_server_revision = EXCLUDED.portfolio_id_server_revision,
            tags_server_revision = EXCLUDED.tags_server_revision,
-           target_price_server_revision = EXCLUDED.target_price_server_revision`,
+           target_price_server_revision = EXCLUDED.target_price_server_revision
+         WHERE workspace_replica_domain_assets.deleted_at IS NULL`,
         [
           transaction.scope.accountId,
           transaction.scope.workspaceId,
@@ -94,7 +96,10 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
           row.targetPrice?.amount ?? null,
           revision,
         ],
-      );
+      ).then((result) => {
+        // A snapshot naming a deleted asset would revive it; ADR-0029 re-add is the only way back.
+        if (result.rowCount !== 1) throw new TypeError("portfolio materialization names a deleted domain asset");
+      });
     }
     const state = await transaction.query(
       `UPDATE workspace_replica_portfolio_state
@@ -139,7 +144,7 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
       `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount,
               note_server_revision, portfolio_id_server_revision, tags_server_revision, target_price_server_revision
        FROM workspace_replica_domain_assets
-       WHERE account_id = $1 AND workspace_id = $2 AND entity_id = ANY($3::text[])
+       WHERE account_id = $1 AND workspace_id = $2 AND entity_id = ANY($3::text[]) AND deleted_at IS NULL
        ORDER BY entity_id COLLATE "C" FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, entityIds],
     );
@@ -173,6 +178,10 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
       if (revision < 1 || mutation.workspaceId !== transaction.scope.workspaceId) {
         throw new TypeError("accepted portfolio mutation binding is invalid");
       }
+      if (mutation.operationKind === "delete") {
+        await softDeleteDomainAsset(transaction, mutation, revision);
+        continue;
+      }
       // The first upsert of an asset the replica does not hold creates it with every field at its
       // default and revision 0; the ingest has already refused assets that are tombstoned.
       await transaction.query(
@@ -184,7 +193,7 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
         const { assignments, parameters } = fieldAssignment(field, revision);
         const result = await transaction.query(
           `UPDATE workspace_replica_domain_assets SET ${assignments}
-           WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3`,
+           WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3 AND deleted_at IS NULL`,
           [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, ...parameters],
         );
         if (result.rowCount !== 1) throw new TypeError("accepted mutation entity is unavailable");
@@ -197,7 +206,7 @@ export class PostgresPortfolioRepository implements PortfolioSyncPersistencePort
       "entity_id" | "note" | "portfolio_id" | "tags" | "target_price_currency" | "target_price_amount">>(
       `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount
        FROM workspace_replica_domain_assets
-       WHERE account_id = $1 AND workspace_id = $2
+       WHERE account_id = $1 AND workspace_id = $2 AND deleted_at IS NULL
        ORDER BY entity_id COLLATE "C"`,
       [transaction.scope.accountId, transaction.scope.workspaceId],
     );
@@ -220,7 +229,7 @@ export class PostgresPortfolioProjectionQuery implements PortfolioProjectionQuer
                   AS materialized_at,
                 projection_availability, projection_evidence_status
          FROM workspace_replica_domain_assets
-         WHERE account_id = $1 AND workspace_id = $2
+         WHERE account_id = $1 AND workspace_id = $2 AND deleted_at IS NULL
          ORDER BY entity_id COLLATE "C"`,
         [transaction.scope.accountId, transaction.scope.workspaceId],
       );
@@ -245,6 +254,36 @@ export class PostgresPortfolioProjectionQuery implements PortfolioProjectionQuer
       });
     }, { readOnly: true, repeatableRead: true });
   }
+}
+
+/**
+ * ADR-0029 decision 2: the row stays, because immutable DNS observation receipts reference it, but
+ * keeps none of its business fields and is archived; the tombstone carries the deletion revision.
+ * The database refuses a deleted row without its tombstone at commit and any later change to it.
+ */
+async function softDeleteDomainAsset(
+  transaction: TenantTransaction,
+  mutation: SubmittedSyncMutation,
+  revision: number,
+): Promise<void> {
+  if (mutation.deletedAt === undefined) throw new TypeError("accepted delete has no deletion time");
+  const deleted = await transaction.query(
+    `UPDATE workspace_replica_domain_assets SET
+       deleted_at = $4::timestamptz, lifecycle_status = 'archived', lifecycle_status_server_revision = $5,
+       note = NULL, note_server_revision = $5,
+       portfolio_id = NULL, portfolio_id_server_revision = $5,
+       tags = '{}', tags_server_revision = $5,
+       target_price_currency = NULL, target_price_amount = NULL, target_price_server_revision = $5
+     WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3 AND deleted_at IS NULL`,
+    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, mutation.deletedAt, revision],
+  );
+  if (deleted.rowCount !== 1) throw new TypeError("accepted delete names no live domain asset");
+  await transaction.query(
+    `INSERT INTO workspace_replica_tombstones (
+       account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at
+     ) VALUES ($1, $2, 'domain_asset', $3, $4, $5::timestamptz)`,
+    [transaction.scope.accountId, transaction.scope.workspaceId, mutation.entityId, revision, mutation.deletedAt],
+  );
 }
 
 interface StoredDomainAssetRow {

@@ -29,6 +29,7 @@ import { PostgresWorkspaceMutationIngest } from "../../src/modules/workspace/mut
 import { PostgresWorkspaceMutationRepository } from "../../src/modules/workspace/mutations/postgres-repository";
 import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
 import { PostgresPortfolioRepository } from "../../src/modules/workspace/state/portfolio/index";
+import { legacyAcceptedDeleteRepairSql } from "../../src/modules/workspace/state/portfolio/migrations/202611140001-replica-domain-asset-deletion";
 import type { WorkspaceTenantScope } from "../../src/modules/workspace/tenant-scope";
 
 const ownerPool = new Pool({ connectionString: requiredEnvironment("GOODDEALER_POSTGRES_OWNER_URL"), max: 1 });
@@ -428,9 +429,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
     const good = submitted("poison-prefix-good", 1, 0);
     // A tombstoned asset stays unknown until ADR-0029's generation exists; it poisons the batch.
-    await ownerPool.query(`INSERT INTO workspace_replica_tombstones
-      (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at)
-      VALUES ($1, $2, 'domain_asset', 'deleted.test', 1, now())`, [scopeA.accountId, scopeA.workspaceId]);
+    await seedDeletedAsset(scopeA, "deleted.test");
     const poison = submittedSyncMutationSchema.parse({
       ...submitted("poison-unknown-entity", 2, 0),
       entityId: "deleted.test",
@@ -1477,6 +1476,201 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       expect(counts.rows[0]).toEqual({ receipts: "0", replay: "0", fields: "0", drain: "0", contiguous: "0" });
     }
   });
+  it("materializes an accepted delete as a soft-deleted row with its tombstone and hides it from every read", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const created = submittedSyncMutationSchema.parse({
+      ...submitted("delete-create", 1, 0),
+      changedFields: [{ fieldPath: "note", value: "private" }, { fieldPath: "tags", value: ["kept"] },
+        { fieldPath: "targetPrice", value: { currency: "USD", amount: "10" } }],
+    });
+    await expect(service.ingest(scopeA, pushRequest(created))).resolves.toMatchObject({ accepted: true, headRevision: 1 });
+    const removed = deletion("delete-asset", 2, 1);
+    const request = pushRequest(removed);
+    await expect(service.ingest(scopeA, request)).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 2, duplicate: false }], headRevision: 2,
+    });
+    // A lost-response retry is the exact duplicate and writes nothing twice.
+    await expect(service.ingest(scopeA, request)).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 2, duplicate: true }], headRevision: 2,
+    });
+
+    const stored = await transactions.withTenant(scopeA, (transaction) => transaction.query(`
+      SELECT asset.entity_id, asset.note, asset.portfolio_id, asset.tags, asset.target_price_currency,
+             asset.target_price_amount, asset.lifecycle_status,
+             asset.note_server_revision::int AS note_revision, asset.tags_server_revision::int AS tags_revision,
+             asset.target_price_server_revision::int AS price_revision,
+             asset.lifecycle_status_server_revision::int AS lifecycle_revision,
+             to_char(asset.deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS asset_deleted_at,
+             tombstone.deleted_server_revision::int AS deleted_revision,
+             to_char(tombstone.deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS tombstone_deleted_at,
+             tombstone.purge_after
+      FROM workspace_replica_domain_assets asset
+      JOIN workspace_replica_tombstones tombstone USING (account_id, workspace_id, entity_id)
+      WHERE tombstone.entity_type = 'domain_asset'`));
+    expect(stored.rows).toEqual([{
+      entity_id: "asset-1.test", note: null, portfolio_id: null, tags: [], target_price_currency: null,
+      target_price_amount: null, lifecycle_status: "archived",
+      note_revision: 2, tags_revision: 2, price_revision: 2, lifecycle_revision: 2,
+      asset_deleted_at: "2026-11-14T01:02:03Z", deleted_revision: 2,
+      tombstone_deleted_at: "2026-11-14T01:02:03Z", purge_after: null,
+    }]);
+
+    await transactions.withTenant(scopeA, async (transaction) => {
+      await expect(portfolio.captureSnapshot(transaction)).resolves.toEqual([]);
+      await expect(portfolio.lockDomainAssets(transaction, ["asset-1.test"])).resolves.toEqual([]);
+      await expect(portfolio.readDomainAssetTombstones(transaction, ["asset-1.test"]))
+        .resolves.toEqual(new Set(["asset-1.test"]));
+    });
+    // The other tenant shares the workspace id and holds no tombstone.
+    await expect(replicaCounts(scopeB)).resolves.toMatchObject({ assets: "0", tombstones: "0" });
+  });
+
+  it("rejects an upsert or a second delete of a deleted asset and a delete of an asset never held", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("held", 1, 0)))).resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(deletion("held-delete", 2, 1)))).resolves.toMatchObject({ accepted: true });
+    const before = await replicaCounts(scopeA);
+    expect(before).toEqual({ revision: "2", assets: "1", tombstones: "1", replay: "2", receipts: "2", ledger: "2" });
+
+    // Each single-item business rejection records only its sequence-ledger receipt (ADR-0030).
+    for (const [index, mutation] of [
+      submitted("revive", 3, 2),
+      deletion("delete-again", 4, 2),
+      deletion("delete-never-held", 5, 2, "never.test"),
+    ].entries()) {
+      await expect(service.ingest(scopeA, pushRequest(mutation))).resolves.toEqual({
+        accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 0, mutationId: mutation.mutationId }],
+      });
+      await expect(replicaCounts(scopeA)).resolves.toEqual({ ...before, ledger: String(3 + index) });
+    }
+  });
+
+  it("judges a batch in order: create then delete is accepted, delete then upsert writes nothing", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const created = submittedSyncMutationSchema.parse({ ...submitted("batch-create", 1, 0), entityId: "brief.test" });
+    await expect(service.ingest(scopeA, pushRequest(created, deletion("batch-delete", 2, 0, "brief.test"))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 2 });
+    await expect(replicaCounts(scopeA)).resolves.toEqual({
+      revision: "2", assets: "1", tombstones: "1", replay: "2", receipts: "2", ledger: "2",
+    });
+
+    await expect(service.ingest(scopeA, pushRequest(submitted("live", 3, 2)))).resolves.toMatchObject({ accepted: true });
+    const before = await replicaCounts(scopeA);
+    await expect(service.ingest(scopeA, pushRequest(deletion("batch-delete-live", 4, 3), submitted("batch-revive", 5, 3))))
+      .resolves.toEqual({
+        accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1, mutationId: "batch-revive" }],
+      });
+    await expect(replicaCounts(scopeA)).resolves.toEqual(before);
+    await transactions.withTenant(scopeA, async (transaction) => {
+      await expect(portfolio.lockDomainAssets(transaction, ["asset-1.test"])).resolves.toHaveLength(1);
+    });
+  });
+
+  it("deletes an asset that immutable DNS observation receipts still reference", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("observed", 1, 0)))).resolves.toMatchObject({ accepted: true });
+    await ownerPool.query(`INSERT INTO cloudflare_dns_observation_receipts
+      (account_id, workspace_id, observation_id, device_id, lease_epoch, source_sequence, entity_id,
+       canonical_request_digest, observed_at, observation_sequence, disposition)
+      VALUES ($1, $2, '00000000-0000-4000-8000-000000000001', 'device-1', 1, 1, 'asset-1.test',
+        decode(repeat('ab', 32), 'hex'), now(), 1, 'current')`, [scopeA.accountId, scopeA.workspaceId]);
+
+    await expect(service.ingest(scopeA, pushRequest(deletion("observed-delete", 2, 1))))
+      .resolves.toMatchObject({ accepted: true, headRevision: 2 });
+    const evidence = await ownerPool.query(`SELECT receipt.entity_id, asset.deleted_at IS NOT NULL AS deleted
+      FROM cloudflare_dns_observation_receipts receipt
+      JOIN workspace_replica_domain_assets asset USING (account_id, workspace_id, entity_id)`);
+    expect(evidence.rows).toEqual([{ entity_id: "asset-1.test", deleted: true }]);
+  });
+
+  it("repairs a delete accepted before C1b1 that the replica left live, once and only for that asset", async () => {
+    // The pre-C1b1 ingest logged the delete and ran the upsert path, which left a live default row.
+    for (const scope of [scopeA, scopeB]) {
+      await transactions.withTenant(scope, async (transaction) => {
+        for (const entityId of ["asset-1.test", "kept.test"]) {
+          await portfolio.seed(transaction, { entityId, note: "old", portfolioId: null, tags: ["x"], targetPrice: null });
+        }
+      });
+    }
+    await append(scopeA, submitted("legacy-edit", 1, 0), 1);
+    await append(scopeA, deletion("legacy-delete", 2, 1), 2);
+    await append(scopeA, { ...submitted("legacy-kept", 3, 2), entityId: "kept.test" }, 3);
+
+    for (let run = 0; run < 2; run += 1) {
+      const client = await ownerPool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(legacyAcceptedDeleteRepairSql);
+        await client.query("COMMIT");
+      } finally {
+        client.release();
+      }
+      const rows = await ownerPool.query(`
+        SELECT asset.account_id, asset.entity_id, asset.note, asset.lifecycle_status,
+               to_char(asset.deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS deleted_at,
+               tombstone.deleted_server_revision::int AS deleted_revision
+        FROM workspace_replica_domain_assets asset
+        LEFT JOIN workspace_replica_tombstones tombstone USING (account_id, workspace_id, entity_id)
+        ORDER BY asset.account_id, asset.entity_id`);
+      expect(rows.rows).toEqual([
+        { account_id: scopeA.accountId, entity_id: "asset-1.test", note: null, lifecycle_status: "archived",
+          deleted_at: "2026-11-14T01:02:03Z", deleted_revision: 2 },
+        { account_id: scopeA.accountId, entity_id: "kept.test", note: "old", lifecycle_status: "active",
+          deleted_at: null, deleted_revision: null },
+        { account_id: scopeB.accountId, entity_id: "asset-1.test", note: "old", lifecycle_status: "active",
+          deleted_at: null, deleted_revision: null },
+        { account_id: scopeB.accountId, entity_id: "kept.test", note: "old", lifecycle_status: "active",
+          deleted_at: null, deleted_revision: null },
+      ]);
+    }
+  });
+
+  it("keeps a deleted row and its tombstone paired and final for every role", async () => {
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    await expect(service.ingest(scopeA, pushRequest(submitted("pair-create", 1, 0)))).resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(deletion("pair-delete", 2, 1)))).resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest({ ...submitted("other-live", 3, 2), entityId: "live.test" })))
+      .resolves.toMatchObject({ accepted: true });
+    const before = await replicaCounts(scopeA);
+    const tenant = [scopeA.accountId, scopeA.workspaceId] as const;
+
+    const refusals: readonly [string, string][] = [
+      // A deleted row is final: neither undeleted nor edited.
+      ["UPDATE workspace_replica_domain_assets SET deleted_at = NULL, lifecycle_status = 'active' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "is final"],
+      ["UPDATE workspace_replica_domain_assets SET note = 'revived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'", "is final"],
+      // A soft delete without its tombstone fails at commit.
+      ["UPDATE workspace_replica_domain_assets SET deleted_at = now(), lifecycle_status = 'archived' WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'live.test'", "requires its tombstone"],
+      // A tombstone must name a soft-deleted row of its tenant.
+      ["INSERT INTO workspace_replica_tombstones (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at) VALUES ($1, $2, 'domain_asset', 'live.test', 3, now())", "requires its deleted replica row"],
+      ["INSERT INTO workspace_replica_tombstones (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at) VALUES ($1, $2, 'domain_asset', 'never.test', 3, now())", "requires its deleted replica row"],
+    ];
+    for (const [sql, message] of refusals) {
+      await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(sql, [...tenant])))
+        .rejects.toThrow(message);
+      const owner = await ownerPool.connect();
+      try {
+        await owner.query("BEGIN");
+        await expect(owner.query(sql, [...tenant]).then(() => owner.query("COMMIT"))).rejects.toThrow(message);
+      } finally {
+        await owner.query("ROLLBACK");
+        owner.release();
+      }
+    }
+    // The application role cannot remove a tombstone or a row, nor rewrite a tombstone.
+    for (const sql of [
+      "DELETE FROM workspace_replica_tombstones WHERE account_id = $1 AND workspace_id = $2",
+      "UPDATE workspace_replica_tombstones SET deleted_server_revision = 3 WHERE account_id = $1 AND workspace_id = $2",
+      "DELETE FROM workspace_replica_domain_assets WHERE account_id = $1 AND workspace_id = $2 AND entity_id = 'asset-1.test'",
+    ]) {
+      await expect(transactions.withTenant(scopeA, (transaction) => transaction.query(sql, [...tenant])))
+        .rejects.toThrow(/permission denied/u);
+    }
+    // Another tenant cannot write a tombstone into this tenant.
+    await expect(transactions.withTenant(scopeB, (transaction) => transaction.query(
+      `INSERT INTO workspace_replica_tombstones (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at)
+       VALUES ($1, $2, 'domain_asset', 'asset-1.test', 9, now())`, [...tenant]))).rejects.toThrow();
+    await expect(replicaCounts(scopeA)).resolves.toEqual(before);
+  });
 });
 
 function submitted(mutationId: string, deviceMutationSequence: number, baseServerRevision: number) {
@@ -1502,6 +1696,47 @@ function pushRequest(...mutations: ReturnType<typeof submitted>[]) {
     schemaVersion: 3 as const,
     mutations: mutations.map(({ workspaceId: _workspaceId, ...mutation }) => mutation),
   };
+}
+
+/** An asset deleted before the test: its soft-deleted row and tombstone, committed together. */
+async function seedDeletedAsset(scope: WorkspaceTenantScope, entityId: string): Promise<void> {
+  const client = await ownerPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`INSERT INTO workspace_replica_domain_assets
+      (account_id, workspace_id, entity_id, lifecycle_status, deleted_at)
+      VALUES ($1, $2, $3, 'archived', now())`, [scope.accountId, scope.workspaceId, entityId]);
+    await client.query(`INSERT INTO workspace_replica_tombstones
+      (account_id, workspace_id, entity_type, entity_id, deleted_server_revision, deleted_at)
+      VALUES ($1, $2, 'domain_asset', $3, 1, now())`, [scope.accountId, scope.workspaceId, entityId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function deletion(mutationId: string, deviceMutationSequence: number, baseServerRevision: number, entityId = "asset-1.test") {
+  return submittedSyncMutationSchema.parse({
+    ...submitted(mutationId, deviceMutationSequence, baseServerRevision),
+    entityId,
+    operationKind: "delete",
+    deletedAt: "2026-11-14T01:02:03Z",
+    changedFields: [],
+  });
+}
+
+async function replicaCounts(scope: WorkspaceTenantScope): Promise<Record<string, string>> {
+  return transactions.withTenant(scope, async (transaction) => (await transaction.query<Record<string, string>>(`
+    SELECT
+      (SELECT server_revision::text FROM workspace_revisions) AS revision,
+      (SELECT count(*)::text FROM workspace_replica_domain_assets) AS assets,
+      (SELECT count(*)::text FROM workspace_replica_tombstones) AS tombstones,
+      (SELECT count(*)::text FROM workspace_mutations) AS replay,
+      (SELECT count(*)::text FROM workspace_mutation_receipts) AS receipts,
+      (SELECT count(*)::text FROM workspace_device_mutation_sequence_ledger) AS ledger`)).rows[0]!);
 }
 
 function domain() {

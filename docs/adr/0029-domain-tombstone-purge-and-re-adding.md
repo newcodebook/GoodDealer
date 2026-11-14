@@ -1,6 +1,6 @@
 # ADR-0029：已删除域名的重新添加与实体 generation
 
-状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围；实现中（C1a wire 版本 3 已实现，generation 列与删除/重新添加尚未实现），删除的域名目前不能重新添加。扩展
+状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围，于 2026-11-14 确认 Cloud 删除采用软删除（决策 2）；实现中（C1a wire 版本 3 与 C1b1 删除物化已实现，generation 列与重新添加尚未实现），删除的域名目前不能重新添加。扩展
 [ADR-0004](0004-cloud-business-data-sync.md) 与 [ADR-0019](0019-complete-local-business-schema-and-cloud-replica-model.md)。
 
 ## 背景
@@ -34,7 +34,8 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 删除的那一代）；重新添加为墓碑 generation + 1。generation 只增不减。
 
 - **Cloud**：`workspace_replica_domain_assets` 与 `workspace_replica_tombstones` 各增加 `entity_generation`。
-  任一时刻每个实体至多一行：活跃行或墓碑行，generation 标记始终在现存的那一行里，不需要单独的历史表。
+  活跃实体只有资产行；已删除实体是软删除的资产行加一行墓碑（决策 2），两行的 generation 相同。
+  generation 标记始终在现存的行里，不需要单独的历史表。
 - **本地**：`domain_assets` 与 `sync_tombstones` 各增加 `entity_generation`，规则相同。
 - **wire**：每条 DomainAsset mutation 带 `entityGeneration`；重新添加另带 `reAddsDeletedRevision`
   （被取代的墓碑的删除 revision R）。同步 schema version 升级；旧版本请求按版本不匹配拒绝。
@@ -46,9 +47,16 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 在任何重新添加路径之前，先交付（可作为独立任务）：
 
 - **首次添加 ingest**（已交付，见背景）：引入 generation 后，其 `entityGeneration` 必须为 1。
-- **删除 ingest 与物化**：`entityGeneration` 等于活跃行 generation 的 delete，在 ingest 事务内删除活跃
-  行并写入同一 generation 的墓碑行；checkpoint 重建同样把 delete 物化为墓碑而不是移除行；本地 Inbox 已写入的墓碑
-  补上 generation。
+- **删除 ingest 与物化（软删除）**：`entityGeneration` 等于活跃行 generation 的 delete，在 ingest 事务内把
+  资产行改为软删除——`deleted_at` 取 mutation 的删除时间，`lifecycle_status='archived'`，业务字段清空为默认值，
+  字段 revision 置为本次 revision——并写入同一 generation 的墓碑行。资产行不移除：Cloudflare DNS 观察回执
+  不可变，并以 `ON DELETE RESTRICT` 外键引用资产行，移除活跃行会被拒绝；保留行让不可变证据与数据库层的
+  引用完整性都不变，与本地 `deleted_at` 模型一致。数据库保证两者同进同出：软删除必须在同一事务内有墓碑，
+  墓碑必须指向已软删除的行，已删除行在重新添加（决策 3）实现前不可再修改。所有读取——投影、快照、
+  checkpoint 与引导、恢复候选、观察准入——都排除已删除行。对副本中没有活跃行的实体（不存在或已删除）
+  的 delete，以及对已删除实体的 upsert，以 `MUTATION_ENTITY_UNKNOWN` 拒绝；同一批次内按顺序判断，先
+  upsert 新建再 delete 可以接受。delete 不做字段过期判定：它只要求实体当前活跃（generation 落地后另要求 generation 相等），所以其他设备在其 base 之后的字段编辑不阻止删除，删除胜出；那些设备经 Inbox 收到删除，有待发送字段时按冲突处理。checkpoint 重建同样把 delete 物化为删除：被删除的行不进入结果，范围内
+  再次 upsert 已删除实体视为链损坏；本地 Inbox 已写入的墓碑补上 generation（C1c）。
 
 ### 3. 经同步的重新添加
 
@@ -59,8 +67,8 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   2. `reAddsDeletedRevision = R` 且 `entityGeneration = g + 1`；
   3. `R <= baseServerRevision <= head`。
 
-  否则以 `MUTATION_GENERATION_MISMATCH` 拒绝。接受时，在同一事务中删除墓碑行、插入 generation g + 1 的
-  活跃行（所有字段只来自本次 upsert，未提供的取默认值，旧字段不复活）、把该实体所有字段 revision 置为
+  否则以 `MUTATION_GENERATION_MISMATCH` 拒绝。接受时，在同一事务中删除墓碑行、把软删除的资产行重置为
+  generation g + 1 的活跃行（清除 `deleted_at`，所有字段只来自本次 upsert，未提供的取默认值，旧字段不复活）、把该实体所有字段 revision 置为
   本次分配的 revision、写入 mutation log 与回执。重复提交按现有回执返回精确重复，不会分配第二个
   generation。
 - **为什么 `R <= base` 足够**：Inbox 按 revision 顺序应用，设备观察到的 head ≥ R 就意味着已应用这次删除；
@@ -152,6 +160,8 @@ revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑�
 - **不引入 generation，只凭墓碑判断**：重新添加后墓碑消失，删除前的备份与旧 mutation 无从识别。不采用。
 - **用 Cloud revision 充当 generation**：设备在 ACK 前不知道分配的 revision，本地重新添加与恢复防护无法
   在离线时确定。不采用。
+- **删除时移除资产行，证据只按 `entity_id` 关联**：须先去掉不可变观察回执与投影对资产行的外键，失去数据库
+  层的引用完整性，并改动已冻结的证据约束。不采用（产品负责人 2026-11-14 选择软删除）。
 - **给重新添加的域名分配新身份**：与 ADR-0019“域名即 `entity_id`、不保留第二身份列”冲突。不采用。
 
 ## 产品确认
@@ -207,3 +217,5 @@ generation 列时移除。rebootstrap 计划信封仍为版本 2，其中的 rep
 升级前认领、升级后 ACK 的本地行无法区分 Cloud 接受的是 v2 发送还是 v3 重发，Host 因而不能总是提供 ADR-0030 B3
 要求的“Cloud 记录的 envelope”。C1c 或设备切换端到端项须记录每行 Cloud 接受的 wire 版本（或给出判别方法），
 在此之前不得生成 v2 drain proof（Desktop 目前不生成）。重新添加在生产入口仍不可执行。
+
+C1b1 已实现（决策 2，软删除）：Cloud ingest——PostgreSQL 与内存实现共用同一条按批次顺序的实体状态规则——接受活跃资产的 delete，在 ingest 事务内软删除资产行并写墓碑行；对已删除资产的 upsert 或 delete、对副本从未持有的资产的 delete 以 `MUTATION_ENTITY_UNKNOWN` 拒绝。迁移 `202611140001` 只授予删除所写的列，触发器保证软删除行与墓碑成对、已删除行不可再修改。迁移同时修复此前已被 PostgreSQL ingest 接受、却按 upsert 路径留成活跃行的 delete：对最新保留 mutation 为 delete 的活跃行补做软删除与墓碑（压缩只删前缀，且尚无部署组合执行过压缩，所以没有被隐藏的删除；重复执行无变化）。所有读取排除已删除行，新设备从快照引导不再看到已删除域名；Cloud 重建把 delete 物化为移除，范围内再次 upsert 视为链损坏。generation 列与精确匹配、checkpoint 携带墓碑与 generation 属于 C1b2。

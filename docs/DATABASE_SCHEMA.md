@@ -116,11 +116,16 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 `field_value_json + field_value_sha256`；本地历史使用 `event_payload_json + event_payload_sha256`，
 不得用裸 `payload` 或把普通 SHA-256 冒充协议 digest。
 同步 wire 和 Cloud mutation log 已区分 upsert 与显式 delete；delete 必须带规范删除时间且不能伪造
-changed fields。端到端 tombstone materializer 上线前，Cloud ingest 对 delete 保持 fail-closed 拒绝。
-Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内以默认字段与
-revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产仍以 `MUTATION_ENTITY_UNKNOWN` 拒绝，重新添加
-见 [ADR-0029](adr/0029-domain-tombstone-purge-and-re-adding.md)。Cloud 与 client-core 的 checkpoint 重建
-对同一情形同样创建默认行。
+changed fields。Cloud ingest 接受活跃资产的 delete，并在同一事务内软删除副本行（`deleted_at` 取删除
+时间，`lifecycle_status='archived'`，业务字段清空，字段 revision 置为本次 revision）且写入
+`workspace_replica_tombstones`；资产行保留，因为不可变的 Cloudflare DNS 观察回执以 `ON DELETE RESTRICT`
+外键引用它（[ADR-0029](adr/0029-domain-tombstone-purge-and-re-adding.md) 决策 2）。数据库触发器保证软删除
+行在提交时有墓碑、墓碑指向软删除行、已删除行不可再修改；投影读取、快照与 checkpoint、恢复候选和观察
+准入都排除已删除行。迁移 `202611140001` 同时为此前已接受、却留成活跃行的 delete 补做软删除与墓碑。Cloud 副本中既无该资产行也无墓碑时，该资产的首个 upsert（本地新增）在 ingest 事务内
+以默认字段与 revision 0 创建副本行，再应用其字段；当前状态为墓碑的资产的 upsert 或 delete、以及副本
+从未持有的资产的 delete，都以 `MUTATION_ENTITY_UNKNOWN` 拒绝，同一批次内按顺序判断；重新添加见
+ADR-0029。Cloud 与 client-core 的 checkpoint 重建对首个 upsert 同样创建默认行；Cloud 重建把 delete 物化为
+移除，范围内再次 upsert 已删除资产视为链损坏。
 本地 Inbox 只有在同一 entity/revision 的墓碑已存在时才能把 delete 标记为 applied。备份 manifest
 digest 统一使用 43 字符无填充 base64url SHA-256；storage locator digest 是独立的本地索引值。
 
@@ -143,8 +148,10 @@ Cloud 的身份、会话、商业授权、设备、Lease/Epoch、Job 和服务�
 `observation_origin + observation_capability + provider_kind`，不保存具体本地连接身份。
 
 普通 Cloud application role 目前只对已实现的 DomainAsset/Portfolio State materializer 拥有列级
-`SELECT/INSERT/UPDATE`：仅当前四个同步字段、对应 server revision 和投影状态可写；生命周期、materialization
-等未来列不可写，也不拥有硬删除权限。其余未来副本族只有 `SELECT`。只有在严格 wire schema、
+`SELECT/INSERT/UPDATE`：仅当前四个同步字段、对应 server revision、投影状态，以及删除物化所写的
+`deleted_at`、`lifecycle_status` 与其 revision 可写；其余生命周期、materialization 等未来列不可写，也不
+拥有硬删除权限。`workspace_replica_tombstones` 只对删除物化写入的列有 `INSERT`（`purge_after` 不可写，无
+`UPDATE`/`DELETE`）。其余未来副本族只有 `SELECT`。只有在严格 wire schema、
 owner materializer、secret-canary、墓碑和恢复测试一起落地后，才允许扩大对应表的 DML。
 
 Cloud Mutation receipt/log/field、Cursor、Checkpoint 和 Restore Candidate 是复制协调权威。它们
@@ -171,7 +178,7 @@ Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资�
 
 集中 schema 已覆盖未来实体、约束、索引、同步状态和恢复元数据，但 schema coverage 不等于旅程已
 上线。当前 DomainAsset 本地写入和窄副本读取已存在；以下仍是 runtime 实现任务：新实体
-首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、delete ingest 与端到端墓碑、
+首次 Cloud ingest、字段级 Inbox/conflict materializer、ACK revision settlement、墓碑清除与重新添加、
 Portfolio/观察/Operation 副本 writer、完整本地备份恢复、全副本 checkpoint，以及 10 万/100 万
 资产 keyset/page composition。在这些验收完成前，不得把对应旅程描述为可用。
 

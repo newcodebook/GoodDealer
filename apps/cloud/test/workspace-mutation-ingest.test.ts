@@ -185,6 +185,65 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     await expect(subject.ingest.ingest(scopeB, request([otherCreate]))).resolves.toMatchObject({ accepted: true });
   });
 
+  it("tombstones an accepted delete, keeps it out of snapshots, and judges a batch in order", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    subject.bind(scopeB);
+    const deletion = (sequence: number, baseServerRevision: number, entityId = "shared.test"): SubmittedSyncMutation => ({
+      ...mutation({ sequence, baseServerRevision }), entityId, operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    });
+    await expect(subject.ingest.ingest(scopeA, request([deletion(1, 0)]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: false }], headRevision: 1,
+    });
+    // The exact replay is a duplicate, not a second delete of an unknown asset.
+    await expect(subject.ingest.ingest(scopeA, request([deletion(1, 0)]))).resolves.toMatchObject({
+      accepted: true, assignments: [{ serverRevision: 1, duplicate: true }],
+    });
+    expect(subject.portfolio.inspectDomainAsset(scopeA, "shared.test")).toBeNull();
+    expect(subject.portfolio.readDomainAssetState(scopeA, "shared.test")).toBe("deleted");
+    expect(subject.portfolio.snapshotAtRevision(scopeA, 1)).toEqual([]);
+    expect(subject.portfolio.readDomainAssetState(scopeB, "shared.test")).toBe("active");
+
+    for (const [sequence, unknown] of [
+      [2, { ...mutation({ sequence: 2, baseServerRevision: 1 }) }],
+      [3, deletion(3, 1)],
+      [4, deletion(4, 1, "never.test")],
+    ] as const) {
+      await expect(subject.ingest.ingest(scopeA, request([unknown]))).resolves.toEqual({
+        accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 0, mutationId: `mutation-${sequence}` }],
+      });
+    }
+    expect(subject.portfolio.readDomainAssetState(scopeA, "never.test")).toBe("absent");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(1);
+
+    // Create then delete in one push is accepted; delete then upsert writes nothing.
+    const created = { ...mutation({ sequence: 5, baseServerRevision: 1, fieldPath: "note" }), entityId: "brief.test" };
+    await expect(subject.ingest.ingest(scopeA, request([created, deletion(6, 1, "brief.test")])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    expect(subject.portfolio.readDomainAssetState(scopeA, "brief.test")).toBe("deleted");
+    const live = { ...mutation({ sequence: 7, baseServerRevision: 3, fieldPath: "note" }), entityId: "live.test" };
+    await expect(subject.ingest.ingest(scopeA, request([live]))).resolves.toMatchObject({ accepted: true, headRevision: 4 });
+    const revive = { ...mutation({ sequence: 9, baseServerRevision: 4 }), entityId: "live.test" };
+    await expect(subject.ingest.ingest(scopeA, request([deletion(8, 4, "live.test"), revive]))).resolves.toEqual({
+      accepted: false, code: "MUTATION_ENTITY_UNKNOWN", failures: [{ index: 1, mutationId: "mutation-9" }],
+    });
+    expect(subject.portfolio.readDomainAssetState(scopeA, "live.test")).toBe("active");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(4);
+  });
+
+  it("rolls a staged delete back with its tombstone when the commit fails", async () => {
+    const subject = harness((point) => { if (point === "after_log_insert") throw new Error("injected"); });
+    subject.bind(scopeA);
+    const removed: SubmittedSyncMutation = {
+      ...mutation({ sequence: 1, baseServerRevision: 0 }), operationKind: "delete",
+      deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    };
+    await expect(subject.ingest.ingest(scopeA, request([removed]))).rejects.toThrow("injected");
+    expect(subject.portfolio.readDomainAssetState(scopeA, "shared.test")).toBe("active");
+    expect(subject.revisions.readHead(scopeA).serverRevision).toBe(0);
+  });
+
   it("accepts a device's own consecutive unacknowledged edits of a field but not one from an older base", async () => {
     const subject = harness();
     subject.bind(scopeA);

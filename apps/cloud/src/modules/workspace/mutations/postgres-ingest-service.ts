@@ -25,6 +25,7 @@ import {
   type MutationPersistenceFaultPoint,
   type RecordedMutationRejectionCode,
 } from "./postgres-repository";
+import { findUnknownEntityIndexes } from "./entity-state-rule";
 import { isFirstGenerationMutation } from "./generation-rule";
 import { isOwnEarlierWrite, writerOf, type MutationWriter } from "./stale-field-rule";
 
@@ -140,10 +141,12 @@ export class PostgresWorkspaceMutationIngest {
       }
     }
 
-    // An asset the replica does not hold is created by its first upsert (a local add); one whose
-    // current state is a tombstone stays unknown, because re-adding needs ADR-0029's generation.
-    const entityFailures = request.mutations.flatMap((mutation, index) =>
-      duplicateRevisionByIndex.has(index) || !tombstoned.has(mutation.entityId) ? [] : [failure(index, mutation)]);
+    // Locked assets are live rows only; a soft-deleted row is known through its tombstone.
+    const entityFailures = findUnknownEntityIndexes(
+      request.mutations,
+      (index) => duplicateRevisionByIndex.has(index),
+      (entityId) => assetsById.has(entityId) ? "active" : tombstoned.has(entityId) ? "deleted" : "absent",
+    ).map((index) => failure(index, request.mutations[index]!));
     if (entityFailures.length > 0) {
       return this.#rejectBusiness(transaction, request, drainByEpoch, "MUTATION_ENTITY_UNKNOWN", entityFailures);
     }
