@@ -50,7 +50,8 @@
   - C1b：Cloud generation 前向迁移、ingest 按副本 generation 精确匹配、删除 ingest 与墓碑物化、checkpoint 重建保留墓碑与 generation。
   - C1c：本地 generation 列、Inbox/checkpoint/rebootstrap/连续性恢复保留墓碑与 generation，删除可 ACK 与拉取。
 - C1a：已实现。协议 Mutation wire 版本 3 与 legacy v2 编码器；向量与 native 语料重新生成（新增 generation 缺失/为 0、版本 2、首代 re-add、re-add 晚于 base 的拒绝用例）。Cloud 按记录版本比较回执与提交 envelope，迁移 `202611130005` 扩展 ledger 版本白名单；generation ≠ 1 或 re-add 以 schema 不支持拒绝、不写回执（内存与 PostgreSQL 测试），并以改写成迁移前形态的 v2 行验证精确重放、内容冲突与 v3 读取。cloud-client Push 使用版本 3。Desktop 发送 v3、严格解析只接受 generation 1；本地 `wire_schema_version` 列仍为 2 并记录同一内容的 v2 编码摘要（既有认领摘要不变，有测试固定），C1c 重建本地表时移除。独立评估第一轮 FAIL：Desktop rebootstrap 仍只接受 v2 replay 页；已改为接受 v3/generation 1 并新增含 replay 页的 Rust 测试，generation 拒绝移到 PostgreSQL 租户事务之前，补 v2 时代拒绝回执的重放测试，并把跨升级行的 drain envelope 版本缺口记入 ADR-0029 与设备切换暂停项。本机 PostgreSQL 18.4 诊断：mutation 套件 31 项通过（非资格）。
-- 下一批：C1b。
+- C1b 暂停（待决）：ADR-0029 决策 1 要求删除时移除活跃行并写入同代墓碑行（“每个实体至多一行”），但 `cloudflare_dns_observation_receipts` 与 `cloudflare_dns_observation_projections` 以 `ON DELETE RESTRICT` 外键引用 `workspace_replica_domain_assets`，回执不可变，已有 DNS 观察的域名删除物化必然失败。可选：A. 保留资产行并置 `deleted_at`/`lifecycle_status='archived'`（现有列与 CHECK 已支持）作为删除状态，同时写墓碑行，“活跃行”定义为 `deleted_at IS NULL`；B. 墓碑行取代资产行，观察回执与投影改为不以外键引用资产行（实体身份由墓碑或资产二者之一承载），观察历史作为已删除实体的证据保留。两者都修订已接受的 ADR-0029 决策 1，须用户决定后先改 ADR 再实现。
+- 下一批：C1b（待上项决定）。
 
 上位执行计划：[Phase 0 执行计划](PHASE0_EXECUTION_PLAN.md)。
 架构依据：[ADR-0028](../adr/0028-refused-cloudflare-custody-purge.md)、
