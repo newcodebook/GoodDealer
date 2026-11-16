@@ -148,8 +148,12 @@ impl<'a> ActiveRenewalsReader<'a> {
         // when some invalid name exists, to decide whether an expiring asset actually shows it.
         let all_valid = registrar_names_valid(
             &transaction,
-            "SELECT DISTINCT registrar_name FROM registrar_observations
-             WHERE workspace_id = ?1 AND observation_availability = 'available'",
+            "SELECT DISTINCT o.registrar_name FROM registrar_observations o
+             WHERE o.workspace_id = ?1 AND o.observation_availability = 'available'
+               AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                               WHERE x.workspace_id = o.workspace_id
+                                 AND x.repair_kind = 'registrar_observation'
+                                 AND x.row_key = o.observation_id)",
             requested_workspace_id,
         )?;
         if !all_valid
@@ -228,10 +232,14 @@ pub(super) fn invalid_registrar_observations(
 ) -> Result<u32, PortfolioReadError> {
     let mut statement = connection
         .prepare(
-            "SELECT registrar_name, count(*) FROM registrar_observations
-             WHERE workspace_id = ?1 AND observation_availability = 'available'
-               AND registrar_name IS NOT NULL
-             GROUP BY registrar_name",
+            "SELECT o.registrar_name, count(*) FROM registrar_observations o
+             WHERE o.workspace_id = ?1 AND o.observation_availability = 'available'
+               AND o.registrar_name IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                               WHERE x.workspace_id = o.workspace_id
+                                 AND x.repair_kind = 'registrar_observation'
+                                 AND x.row_key = o.observation_id)
+             GROUP BY o.registrar_name",
         )
         .map_err(|_| PortfolioReadError::SchemaRejected)?;
     let mut invalid = 0_u32;
@@ -249,6 +257,44 @@ pub(super) fn invalid_registrar_observations(
             if crate::portfolio_projection::valid_registrar_name(name));
         if !valid {
             invalid = invalid.saturating_add(u32::try_from(count).unwrap_or(u32::MAX));
+        }
+    }
+    Ok(invalid)
+}
+
+/// The available registrar observations `invalid_registrar_observations` counts, with the stored
+/// name serialized for the repair receipt's digest (ADR-0031).
+pub(super) fn invalid_registrar_observation_ids(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<(String, String)>, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT o.observation_id, o.registrar_name FROM registrar_observations o
+             WHERE o.workspace_id = ?1 AND o.observation_availability = 'available'
+               AND o.registrar_name IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                               WHERE x.workspace_id = o.workspace_id
+                                 AND x.repair_kind = 'registrar_observation'
+                                 AND x.row_key = o.observation_id)
+             ORDER BY o.observation_id",
+        )
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, rusqlite::types::Value>(1)?,
+            ))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut invalid = Vec::new();
+    for row in rows {
+        let (observation_id, name) = row.map_err(|_| PortfolioReadError::StorageRejected)?;
+        let valid = matches!(&name, rusqlite::types::Value::Text(name)
+            if crate::portfolio_projection::valid_registrar_name(name));
+        if !valid {
+            invalid.push((observation_id, format!("{name:?}")));
         }
     }
     Ok(invalid)
@@ -279,10 +325,17 @@ fn registrar_names_valid(
     Ok(true)
 }
 
-/// The latest confirmed, available registrar observation's registrar name for each `alias` row.
-fn registrar_name(alias: &str) -> String {
+/// The latest confirmed, available registrar observation's registrar name for each `alias` row. A
+/// latest observation a storage repair quarantined (ADR-0031) shows no name; an older observation
+/// does not stand in for it.
+pub(super) fn registrar_name(alias: &str) -> String {
     format!(
-        "(SELECT registrar_name FROM registrar_observations r
+        "(SELECT CASE WHEN EXISTS (SELECT 1 FROM storage_repair_receipts x
+                                   WHERE x.workspace_id = r.workspace_id
+                                     AND x.repair_kind = 'registrar_observation'
+                                     AND x.row_key = r.observation_id)
+                      THEN NULL ELSE r.registrar_name END
+          FROM registrar_observations r
           WHERE r.workspace_id = {alias}.workspace_id
             AND r.entity_id = {alias}.entity_id
             AND r.observation_availability = 'available' AND {confirmed}

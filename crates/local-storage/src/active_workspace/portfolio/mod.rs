@@ -167,6 +167,7 @@ impl<'a> ActivePortfolioReader<'a> {
                   WHERE m.workspace_id = domain_assets.workspace_id AND m.entity_id = domain_assets.entity_id
                     AND m.observation_availability = 'available'
                     AND m.listing_status IN ('active', 'reserved') AND {confirmed_listing}
+                    AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x WHERE x.workspace_id = m.workspace_id AND x.repair_kind = 'listing_observation' AND x.row_key = m.listing_observation_id)
                     AND NOT EXISTS (SELECT 1 FROM marketplace_listing_observations newer
                       WHERE newer.workspace_id = m.workspace_id AND newer.entity_id = m.entity_id
                         AND newer.marketplace_kind = m.marketplace_kind AND {confirmed_newer}
@@ -202,7 +203,7 @@ impl<'a> ActivePortfolioReader<'a> {
         let mut statement = transaction.prepare(&format!(
             "SELECT a.entity_id,
                (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id = a.workspace_id AND t.entity_id = a.entity_id ORDER BY tag COLLATE BINARY)),
-               (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id = a.workspace_id AND r.entity_id = a.entity_id AND r.observation_availability = 'available' AND {confirmed_registrar} ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
+               {registrar_name},
                a.lifecycle_status,
                CASE
                  WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
@@ -212,7 +213,7 @@ impl<'a> ActivePortfolioReader<'a> {
                d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring}
              FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
              WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
-            confirmed_registrar = super::observation_runs::confirmed("r"),
+            registrar_name = super::renewals::registrar_name("a"),
             expiring = expiring_column(&today),
         )).map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
@@ -266,7 +267,7 @@ impl<'a> ActivePortfolioReader<'a> {
         crate::portfolio_projection::validate_domain_asset_id(entity_id)?;
         let sql = format!("SELECT a.entity_id,
           (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id=a.workspace_id AND t.entity_id=a.entity_id ORDER BY tag COLLATE BINARY)),
-          (SELECT registrar_name FROM registrar_observations r WHERE r.workspace_id=a.workspace_id AND r.entity_id=a.entity_id AND r.observation_availability='available' AND {confirmed_registrar} ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1),
+          {registrar_name},
           a.lifecycle_status,
           CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
@@ -275,7 +276,7 @@ impl<'a> ActivePortfolioReader<'a> {
           a.acquired_on, a.acquisition_cost_currency, a.acquisition_cost_amount, a.auto_renew, a.registrar_lock, d.note, d.portfolio_id
           FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
           WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL",
-          confirmed_registrar = super::observation_runs::confirmed("r"),
+          registrar_name = super::renewals::registrar_name("a"),
           expiring = expiring_column(&super::renewals::HostDay::read(&transaction)?));
         let detail = transaction
             .query_row(&sql, params![requested_workspace_id, entity_id], |row| {

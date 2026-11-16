@@ -2877,6 +2877,31 @@ impl DesktopLocalHost {
         })
     }
 
+    /// Repairs one category of stored rows that reads reject (ADR-0031) under the current Host
+    /// commit fence. The repair is local and writes no Outbox row.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed authority or storage error when admission, validation, or the final
+    /// durable commit fence fails.
+    pub fn repair_stored_rows(
+        &self,
+        request: crate::DesktopStorageRepairRequest,
+    ) -> Result<crate::DesktopStorageRepairReceipt, DesktopLocalHostError> {
+        self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            let context = BusinessMutationContext::new(
+                authority.device_id.clone(),
+                authority.lease_epoch,
+                format_timestamp(
+                    current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
+                ),
+            )?;
+            runtime.repair_stored_rows_guarded(request, &context, || {
+                self.require_business_commit_fence(captured_epoch, authority)
+            })
+        })
+    }
+
     /// Applies one domain-asset mutation under the current Host commit fence.
     ///
     /// # Errors
@@ -8548,6 +8573,54 @@ mod tests {
         assert_eq!(
             DesktopLocalHostError::AssetDeleted.to_string(),
             "DESKTOP_LOCAL_ASSET_DELETED"
+        );
+    }
+
+    #[test]
+    fn storage_repair_is_closed_to_unknown_input_stale_reads_and_a_moved_fence() {
+        // ADR-0031: the Renderer names only a category it read a count for.
+        let (_directory, host) = development_business_host();
+        let generation = host.business_status().read_generation;
+        let request = |kind: &str, generation: u64| -> crate::DesktopStorageRepairRequest {
+            serde_json::from_value(serde_json::json!({
+                "schemaVersion": 1, "expectedReadGeneration": generation, "repairKind": kind,
+            }))
+            .unwrap()
+        };
+        assert!(
+            serde_json::from_value::<crate::DesktopStorageRepairRequest>(serde_json::json!({
+                "schemaVersion": 1, "expectedReadGeneration": generation,
+                "repairKind": "malformedExpiries", "rowKey": "alpha.test",
+            }))
+            .is_err()
+        );
+        assert!(
+            host.repair_stored_rows(request("everything", generation))
+                .is_err()
+        );
+        assert!(
+            host.repair_stored_rows(request("malformedOutboxRows", generation))
+                .is_err()
+        );
+        assert!(
+            host.repair_stored_rows(request("malformedExpiries", generation + 1))
+                .is_err()
+        );
+        // Nothing to repair: an empty receipt, and the read generation does not move.
+        assert_eq!(
+            host.repair_stored_rows(request("malformedExpiries", generation)),
+            Ok(crate::DesktopStorageRepairReceipt {
+                schema_version: 1,
+                repair_kind: "malformedExpiries".to_owned(),
+                repaired_rows: 0,
+            })
+        );
+        assert_eq!(host.business_status().read_generation, generation);
+        host.publish_transition_at_next_business_commit_for_test()
+            .unwrap();
+        assert_eq!(
+            host.repair_stored_rows(request("malformedExpiries", generation)),
+            Err(DesktopLocalHostError::AuthorityRejected)
         );
     }
 

@@ -31,7 +31,8 @@ use crate::active_workspace::schema::{
     CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID, CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER,
     CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL, INBOX_RE_ADD_MIGRATION_ID,
     INBOX_RE_ADD_MIGRATION_OWNER, INBOX_RE_ADD_MIGRATION_SQL, LOCAL_RE_ADD_MIGRATION_ID,
-    LOCAL_RE_ADD_MIGRATION_OWNER, LOCAL_RE_ADD_MIGRATION_SQL,
+    LOCAL_RE_ADD_MIGRATION_OWNER, LOCAL_RE_ADD_MIGRATION_SQL, STORAGE_REPAIR_MIGRATION_ID,
+    STORAGE_REPAIR_MIGRATION_OWNER, STORAGE_REPAIR_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +158,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID,
         owner: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER,
         sql: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: STORAGE_REPAIR_MIGRATION_ID,
+        owner: STORAGE_REPAIR_MIGRATION_OWNER,
+        sql: STORAGE_REPAIR_MIGRATION_SQL,
     },
 ];
 
@@ -492,7 +498,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 22);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 23);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -517,7 +523,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 49);
+        assert_eq!(table_count, 50);
         assert!(business_index_count >= 24);
 
         connection

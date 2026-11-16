@@ -173,6 +173,7 @@ pub use active_workspace::sales::{SalesListingRow, SalesMoney, SalesReadSnapshot
 pub use active_workspace::settings::{
     SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
 };
+pub use active_workspace::storage_repair::StorageRepairKind;
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
@@ -204,7 +205,8 @@ pub use desktop_business_runtime::{
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
     DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopHistoryReadRequest,
     DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
-    DesktopSyncSnapshotView, DesktopSyncTransportState,
+    DesktopStorageRepairReceipt, DesktopStorageRepairRequest, DesktopSyncSnapshotView,
+    DesktopSyncTransportState,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

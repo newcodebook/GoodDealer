@@ -17,6 +17,8 @@ pub(crate) mod sales;
 
 pub(crate) mod settings;
 
+pub(crate) mod storage_repair;
+
 pub(crate) mod portfolio;
 
 pub(crate) mod schema;

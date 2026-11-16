@@ -35,7 +35,10 @@ use super::portfolio::{read_freshness, validate_workspace};
 /// merge. Deleted assets are dropped by `for_each_latest` from a set read once, not joined per row.
 const CONFIRMED_LISTINGS: &str = "SELECT m.entity_id, m.marketplace_kind, m.listing_status,
         m.asking_price_currency, m.asking_price_amount, m.observation_availability,
-        m.evidence_status
+        m.evidence_status, m.listing_observation_id,
+        EXISTS (SELECT 1 FROM storage_repair_receipts x
+                WHERE x.workspace_id = m.workspace_id AND x.repair_kind = 'listing_observation'
+                  AND x.row_key = m.listing_observation_id)
      FROM marketplace_listing_observations m
      WHERE m.workspace_id = ?1 AND m.confirmed = 1
      ORDER BY m.entity_id, m.marketplace_kind, m.observed_at DESC, m.listing_observation_id DESC";
@@ -46,12 +49,14 @@ const DELETED_ASSETS: &str = "SELECT entity_id FROM domain_assets
      WHERE workspace_id = ?1 AND lifecycle_status = 'archived' AND deleted_at IS NOT NULL";
 
 /// Calls `visit` with the latest confirmed listing of every (asset, marketplace) whose state is not
-/// `unlisted`, in domain then marketplace order. Older rows of a group are skipped unread, as the
-/// window function this replaces never selected them.
+/// `unlisted`, in domain then marketplace order, with that observation's ID. Older rows of a group
+/// are skipped unread, as the window function this replaces never selected them. A latest
+/// observation a storage repair quarantined (ADR-0031) leaves its group unlisted: an older
+/// observation does not stand in for it.
 fn for_each_latest(
     connection: &Connection,
     workspace_id: &str,
-    mut visit: impl FnMut(rusqlite::Result<RawListing>) -> Result<(), PortfolioReadError>,
+    mut visit: impl FnMut(&str, rusqlite::Result<RawListing>) -> Result<(), PortfolioReadError>,
 ) -> Result<(), PortfolioReadError> {
     let deleted = connection
         .prepare(DELETED_ASSETS)
@@ -78,7 +83,7 @@ fn for_each_latest(
             Ok(key) => key,
             // A key of the wrong type belongs to no group; the visit rejects it.
             Err(error) => {
-                visit(Err(error))?;
+                visit("", Err(error))?;
                 continue;
             }
         };
@@ -90,6 +95,15 @@ fn for_each_latest(
         }
         group = Some((entity_id.clone(), kind.clone()));
         if deleted.contains(&entity_id) {
+            continue;
+        }
+        let observation_id: String = row
+            .get(7)
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        if row
+            .get::<_, bool>(8)
+            .map_err(|_| PortfolioReadError::StorageRejected)?
+        {
             continue;
         }
         let listing = (|| {
@@ -104,7 +118,7 @@ fn for_each_latest(
             ))
         })();
         if !matches!(&listing, Ok((_, _, status, ..)) if status == "unlisted") {
-            visit(listing)?;
+            visit(&observation_id, listing)?;
         }
     }
     Ok(())
@@ -441,7 +455,7 @@ fn merge_desk(
 ) -> Result<MergedDesk, PortfolioReadError> {
     let mut desk = SalesDesk::new();
     let mut domain: Option<(String, Vec<MarketListing>)> = None;
-    for_each_latest(transaction, requested_workspace_id, |raw| {
+    for_each_latest(transaction, requested_workspace_id, |_, raw| {
         let raw = raw.map_err(|_| PortfolioReadError::ProjectionRejected)?;
         let (entity_id, market) = project_listing(raw)?;
         match &mut domain {
@@ -473,9 +487,30 @@ pub(super) fn rejected_listings(
     workspace_id: &str,
 ) -> Result<u32, PortfolioReadError> {
     let mut rejected = 0_u32;
-    for_each_latest(connection, workspace_id, |raw| {
+    for_each_latest(connection, workspace_id, |_, raw| {
         if super::unreadable_row(raw, project_listing)? {
             rejected = rejected.saturating_add(1);
+        }
+        Ok(())
+    })?;
+    Ok(rejected)
+}
+
+/// The latest listing observations `rejected_listings` counts, with their stored columns serialized
+/// for the repair receipt's digest (ADR-0031).
+pub(super) fn rejected_listing_ids(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<(String, String)>, PortfolioReadError> {
+    let mut rejected = Vec::new();
+    for_each_latest(connection, workspace_id, |observation_id, raw| {
+        let shown = format!("{raw:?}");
+        if super::unreadable_row(raw, project_listing)? {
+            if observation_id.is_empty() {
+                // Only a key of the wrong type reaches here without an ID; no receipt can name it.
+                return Err(PortfolioReadError::StorageRejected);
+            }
+            rejected.push((observation_id.to_owned(), shown));
         }
         Ok(())
     })?;

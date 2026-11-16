@@ -124,6 +124,16 @@ pub struct DesktopDomainAssetProviderBindingRequest {
     pub(crate) entity_id: String,
 }
 
+/// Repairs one category of stored rows that reads reject (ADR-0031). The category is the settings
+/// integrity count it clears; the Renderer sends no row identity or value.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopStorageRepairRequest {
+    pub(crate) schema_version: u8,
+    pub(crate) expected_read_generation: u64,
+    pub(crate) repair_kind: String,
+}
+
 /// Inputs for one conflict resolution CAS operation.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -405,6 +415,14 @@ pub struct DesktopCloudflareObservationRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DesktopStorageRepairReceipt {
+    pub schema_version: u8,
+    pub repair_kind: String,
+    pub repaired_rows: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopDomainAssetProviderBindingReceipt {
     pub schema_version: u8,
     pub disposition: &'static str,
@@ -629,6 +647,44 @@ impl DesktopBusinessRuntime {
         let mut value = self.database.read_cloudflare_observation(entity_id)?;
         value.read_generation = self.read_generation;
         Ok(value)
+    }
+
+    pub(crate) fn repair_stored_rows_guarded(
+        &mut self,
+        request: DesktopStorageRepairRequest,
+        context: &BusinessMutationContext,
+        commit_fence: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<DesktopStorageRepairReceipt, BusinessDatabaseError> {
+        if request.schema_version != 1 || request.expected_read_generation > MAX_SAFE_INTEGER {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        let kind = match request.repair_kind.as_str() {
+            "malformedExpiries" => crate::StorageRepairKind::MalformedExpiries,
+            "invalidRegistrarObservations" => {
+                crate::StorageRepairKind::InvalidRegistrarObservations
+            }
+            "rejectedDnsRows" => crate::StorageRepairKind::RejectedDnsRows,
+            "rejectedListings" => crate::StorageRepairKind::RejectedListings,
+            _ => return Err(BusinessDatabaseError::InvalidInput),
+        };
+        // The user confirmed a count read at this generation; any later change re-reads first.
+        if request.expected_read_generation != self.read_generation {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        if !self.has_read_generation_capacity() {
+            return Err(BusinessDatabaseError::SequenceExhausted);
+        }
+        let repaired_rows =
+            self.database
+                .repair_stored_rows_guarded(kind, &context.committed_at, commit_fence)?;
+        if repaired_rows != 0 {
+            self.bump_read_generation_after_preflight();
+        }
+        Ok(DesktopStorageRepairReceipt {
+            schema_version: 1,
+            repair_kind: request.repair_kind,
+            repaired_rows,
+        })
     }
 
     #[expect(

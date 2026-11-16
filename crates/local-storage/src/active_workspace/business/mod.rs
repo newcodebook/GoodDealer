@@ -1290,6 +1290,40 @@ pub(crate) fn latest_bindable_zone(
 }
 
 impl BusinessDatabase {
+    /// Repairs every stored row of `kind` that a read rejects (ADR-0031) in one immediate
+    /// transaction and returns how many repair receipts it wrote; zero when nothing is left. The
+    /// repair is local: it quarantines Provider observations and Zone bindings, or clears an
+    /// asset's local expiry, and writes no Outbox row. `commit_fence` runs last, inside the
+    /// transaction, so the Host can refuse the commit when its authority changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an input, fence, or storage error; nothing is written on error.
+    pub fn repair_stored_rows_guarded(
+        &mut self,
+        kind: crate::StorageRepairKind,
+        repaired_at: &str,
+        commit_fence: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<u32, BusinessDatabaseError> {
+        validate_timestamp(Some(repaired_at.to_owned()))
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let repaired =
+            super::storage_repair::repair(&transaction, &self.workspace_id, kind, repaired_at)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        commit_fence()?;
+        transaction
+            .commit()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok(repaired)
+    }
+}
+
+impl BusinessDatabase {
     #[cfg(test)]
     pub(crate) fn provider_binding_snapshot_for_test(&self) -> Vec<Vec<Vec<String>>> {
         [
@@ -11821,6 +11855,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "each count is seeded, read, repaired and read again as one ADR-0031 scenario"
+    )]
     fn settings_counts_stored_rows_the_other_reads_reject_without_failing() {
         let mut database = sales_database(&[
             (
@@ -11890,9 +11928,24 @@ mod tests {
         ] {
             connection.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at) VALUES ('workspace-local',?1,'domain_asset','alpha.test','{}',?2)", [mutation, created_at]).unwrap();
         }
+        // The two invalid names come from completed runs, so the library and detail show them.
+        connection
+            .execute_batch(
+                "UPDATE provider_observation_targets SET status = 'succeeded',
+                   completed_at = requested_at
+                 WHERE observation_run_id IN ('registrar-run-0', 'registrar-run-1');
+                 UPDATE provider_observation_runs SET status = 'succeeded',
+                   completed_at = started_at
+                 WHERE observation_run_id IN ('registrar-run-0', 'registrar-run-1');",
+            )
+            .unwrap();
         let _ = connection;
 
         assert_eq!(integrity(&database), [1, 2, 1, 1, 2]);
+        assert!(matches!(
+            database.read_domain_detail("alpha.test"),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
         // Each count names a read that fails closed on those rows.
         assert!(matches!(
             database.read_dns_health(0, 10, ""),
@@ -11902,6 +11955,184 @@ mod tests {
             database.read_history(0, 10, HISTORY_DAY),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+
+        // ADR-0031: a repair the Host fence refuses writes nothing.
+        assert_eq!(
+            database.repair_stored_rows_guarded(
+                crate::StorageRepairKind::MalformedExpiries,
+                TIMESTAMP,
+                || Err(BusinessDatabaseError::WorkspaceRejected),
+            ),
+            Err(BusinessDatabaseError::WorkspaceRejected)
+        );
+        assert_eq!(integrity(&database), [1, 2, 1, 1, 2]);
+        // Each repair clears exactly its count, writes one receipt per row, and is then a no-op.
+        for (kind, rows) in [
+            (crate::StorageRepairKind::MalformedExpiries, 1),
+            (crate::StorageRepairKind::InvalidRegistrarObservations, 2),
+            (crate::StorageRepairKind::RejectedDnsRows, 1),
+            (crate::StorageRepairKind::RejectedListings, 1),
+        ] {
+            assert_eq!(
+                database.repair_stored_rows_guarded(kind, TIMESTAMP, || Ok(())),
+                Ok(rows)
+            );
+            assert_eq!(
+                database.repair_stored_rows_guarded(kind, TIMESTAMP, || Ok(())),
+                Ok(0)
+            );
+        }
+        assert_eq!(integrity(&database), [0, 0, 0, 0, 2]);
+        let receipts: Vec<(String, String)> = database
+            .store
+            .raw_connection()
+            .prepare("SELECT repair_kind, row_key FROM storage_repair_receipts ORDER BY 1, 2")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            receipts,
+            [
+                ("asset_expiry", "charlie.test"),
+                ("dns_binding", "alpha.test"),
+                ("listing_observation", "listing-secret-1"),
+                ("registrar_observation", "registrar-0"),
+                ("registrar_observation", "registrar-1"),
+            ]
+            .map(|(kind, key)| (kind.to_owned(), key.to_owned()))
+        );
+        // Only the local expiry is rewritten; the deleted asset's is not touched.
+        let expiries: Vec<Option<String>> = database
+            .store
+            .raw_connection()
+            .prepare("SELECT expires_on FROM domain_assets WHERE entity_id IN ('charlie.test','gone.test') ORDER BY entity_id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(expiries, [None, Some("soon".to_owned())]);
+        // The reads that failed closed now read: the quarantined binding as no binding, the
+        // quarantined listing as no listing on that marketplace, the quarantined names as none.
+        let dns = database.read_dns_health(0, 10, "").unwrap();
+        assert!(dns.window.rows.iter().all(|row| row.zone_binding.is_none()));
+        let sales = database.read_sales(0, 10).unwrap();
+        assert_eq!(sales.total_rows, 1);
+        database.read_renewals(0, 10).unwrap();
+        // A quarantined latest registrar observation shows no name in the library and detail too.
+        let library = database.read_asset_library(0, 10, "").unwrap();
+        assert!(
+            library
+                .window
+                .rows
+                .iter()
+                .filter(|row| row.domain != "charlie.test")
+                .all(|row| row.registrar.is_none())
+        );
+        assert_eq!(
+            database
+                .read_domain_detail("alpha.test")
+                .unwrap()
+                .asset
+                .registrar,
+            None
+        );
+        // Outbox commit times are ADR-0031's other half and still fail history closed.
+        assert!(matches!(
+            database.read_history(0, 10, HISTORY_DAY),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        // Receipts are immutable and name only existing rows.
+        let connection = database.store.raw_connection();
+        assert!(
+            connection
+                .execute("DELETE FROM storage_repair_receipts", [])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE storage_repair_receipts SET repaired_at = repaired_at",
+                    []
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO storage_repair_receipts VALUES
+                 ('workspace-local','listing_observation','no-such-listing',?1,?2)",
+                    rusqlite::params!["a".repeat(64), TIMESTAMP],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_quarantined_latest_listing_is_not_replaced_by_an_older_one() {
+        // ADR-0031: a quarantined observation reads as no usable observation. The older, valid
+        // listing on the same marketplace would show a state the platform has since left.
+        let mut database = sales_database(&[
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("USD"),
+                Some("10"),
+                "2026-08-27T00:00:00Z",
+            ),
+            (
+                "alpha.test",
+                "atom",
+                "active",
+                Some("usd"),
+                Some("10"),
+                "2026-08-28T00:00:00Z",
+            ),
+        ]);
+        assert!(matches!(
+            database.read_sales(0, 10),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        let generation: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT generation FROM sales_listing_generation",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            database.repair_stored_rows_guarded(
+                crate::StorageRepairKind::RejectedListings,
+                TIMESTAMP,
+                || Ok(()),
+            ),
+            Ok(1)
+        );
+        // The cached desk is keyed on this generation, so the repair invalidates it.
+        let after: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT generation FROM sales_listing_generation",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(after > generation);
+        assert_eq!(database.read_sales(0, 10).unwrap().total_rows, 0);
+        // The library counts listed domains from the same latest observation.
+        assert_eq!(
+            database
+                .read_asset_library(0, 10, "")
+                .unwrap()
+                .listing_count,
+            0
+        );
     }
 
     #[test]
@@ -12184,6 +12415,128 @@ mod tests {
             listed.read_settings(),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the observation fixture is written out in full beside the repair it exercises"
+    )]
+    fn a_rejected_zone_observation_is_quarantined_alone_and_counts_follow() {
+        // ADR-0031: only the failing part of a DNS row is quarantined. This asset has no binding,
+        // so its observation alone is set aside and the asset reads as unobserved, with the
+        // workspace counts derived from the same joins.
+        let mut database = database();
+        let connection = database.store.fixture_connection();
+        for entity in ["observed.test", "plain.test"] {
+            connection.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES ('workspace-local',?1,'active',?2,?2,1)", rusqlite::params![entity, TIMESTAMP]).unwrap();
+        }
+        connection.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,capabilities_json,credential_use_state,active_credential_generation,active_credential_scope_digest,active_credential_zone_digest,active_credential_public_proof,validation_status) VALUES ('workspace-local','cf-observe','cloudflare','Cloudflare',?1,'[\"dns\"]','active',1,?2,?3,?4,'valid')", rusqlite::params![TIMESTAMP,"a".repeat(64),"c".repeat(64),"b".repeat(64)]).unwrap();
+        let _ = connection;
+        database
+            .commit_cloudflare_dns_observation(&CloudflareDnsObservationWrite {
+                observation_id: "00000000-0000-4000-8000-000000000001".into(),
+                observation_run_id: "00000000-0000-4000-8000-000000000002".into(),
+                entity_id: "observed.test".into(),
+                connection_id: "cf-observe".into(),
+                lease_epoch: 3,
+                observed_at: TIMESTAMP.into(),
+                zone_name_ascii: "observed.test".into(),
+                authoritative_nameservers: vec!["ada.ns.cloudflare.com".into()],
+                dnssec_status: "unknown".into(),
+                availability: "available".into(),
+                zone_status: "active".into(),
+                records: vec![
+                    CloudflareDnsRecordWrite {
+                        record_key: "r1".into(),
+                        record_type: "A".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: None,
+                        priority: None,
+                        canonical_value: "192.0.2.1".into(),
+                        proxied: Some(true),
+                    },
+                    CloudflareDnsRecordWrite {
+                        record_key: "r2".into(),
+                        record_type: "TXT".into(),
+                        owner_name_ascii: "observed.test".into(),
+                        ttl_seconds: Some(300),
+                        priority: None,
+                        canonical_value: "v=spf1 -all".into(),
+                        proxied: None,
+                    },
+                ],
+                provider_version_token: "v1".into(),
+                credential_generation: 1,
+                credential_scope_digest: "a".repeat(64),
+                credential_zone_digest: "c".repeat(64),
+                credential_public_proof: "b".repeat(64),
+            })
+            .unwrap();
+
+        let connection = database.store.fixture_connection();
+        connection
+            .execute_batch(
+                "DROP TRIGGER dns_zone_observations_no_update;
+                 UPDATE dns_zone_observations
+                 SET authoritative_nameservers_json = '[\"bad\\u0007.ns\"]';",
+            )
+            .unwrap();
+        let _ = connection;
+        assert_eq!(
+            database
+                .read_settings()
+                .unwrap()
+                .storage_integrity
+                .rejected_dns_rows,
+            1
+        );
+        assert!(matches!(
+            database.read_dns_health(0, 10, ""),
+            Err(BusinessDatabaseError::ProjectionRejected)
+        ));
+        assert_eq!(
+            database.repair_stored_rows_guarded(
+                crate::StorageRepairKind::RejectedDnsRows,
+                TIMESTAMP,
+                || Ok(()),
+            ),
+            Ok(1)
+        );
+        let kinds: Vec<(String, String)> = database
+            .store
+            .raw_connection()
+            .prepare("SELECT repair_kind, row_key FROM storage_repair_receipts")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            kinds,
+            [(
+                "dns_zone_observation".to_owned(),
+                "00000000-0000-4000-8000-000000000001".to_owned()
+            )]
+        );
+        let snapshot = database.read_dns_health(0, 10, "").unwrap();
+        assert_eq!(snapshot.observed_count, 0);
+        assert_eq!(snapshot.warning_count, 0);
+        assert!(
+            snapshot
+                .window
+                .rows
+                .iter()
+                .all(|row| row.observation.is_none() && row.zone_binding.is_none())
+        );
+        assert_eq!(
+            database
+                .read_settings()
+                .unwrap()
+                .storage_integrity
+                .rejected_dns_rows,
+            0
+        );
     }
 
     #[test]

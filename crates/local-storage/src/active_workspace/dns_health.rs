@@ -116,16 +116,26 @@ const PREFIX: &str = "(?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
 /// observed, and an observation says nothing about a Zone bound on another platform, so it joins
 /// only for an unbound or detached asset or a Cloudflare-bound one. The Renderer applies the same
 /// rule per row; joining here keeps the workspace-wide counts consistent with it.
+///
+/// A binding or observation a storage repair quarantined (ADR-0031) joins as absent: the asset reads
+/// as unbound or unobserved instead of failing the page.
 const ZONE_JOINS: &str = "
      LEFT JOIN domain_asset_provider_bindings b
        ON b.workspace_id = a.workspace_id AND b.entity_id = a.entity_id AND b.resource_kind = 'zone'
+      AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                      WHERE x.workspace_id = a.workspace_id AND x.repair_kind = 'dns_binding'
+                        AND x.row_key = a.entity_id)
      LEFT JOIN local_provider_connections c
        ON c.workspace_id = b.workspace_id AND c.connection_id = b.connection_id
      LEFT JOIN cloudflare_dns_projection_heads h
        ON h.workspace_id = a.workspace_id AND h.entity_id = a.entity_id
       AND (b.entity_id IS NULL OR b.validation_status = 'detached' OR b.provider_kind = 'cloudflare')
      LEFT JOIN dns_zone_observations z
-       ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id";
+       ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id
+      AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                      WHERE x.workspace_id = h.workspace_id
+                        AND x.repair_kind = 'dns_zone_observation'
+                        AND x.row_key = h.observation_id)";
 
 /// The binding and observation columns `project_row` validates, in its order; the page read adds the
 /// record counts after them.
@@ -310,6 +320,114 @@ pub(super) fn rejected_rows(
         if super::unreadable_row(row, project_row)? {
             rejected = rejected.saturating_add(1);
         }
+    }
+    Ok(rejected)
+}
+
+/// A row `rejected_rows` counts, split into the part that fails: its Zone binding (keyed by the
+/// asset) and its Zone observation. ADR-0031's repair quarantines exactly the failing parts. The
+/// two parts validate independently in `project_row`, so each is checked with the other absent.
+pub(super) struct RejectedDnsRow {
+    pub(super) entity_id: String,
+    /// The binding's columns, serialized for the receipt's digest, when the binding fails.
+    pub(super) binding: Option<String>,
+    /// The observation's ID and columns when the observation fails.
+    pub(super) observation: Option<(String, String)>,
+}
+
+pub(super) fn rejected_parts(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<RejectedDnsRow>, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {ROW_COLUMNS}, z.zone_observation_id FROM domain_assets a {ZONE_JOINS}
+             WHERE {ASSETS} AND (b.entity_id IS NOT NULL OR z.zone_observation_id IS NOT NULL)"
+        ))
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let mut rows = statement
+        .query([workspace_id])
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut rejected = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|_| PortfolioReadError::StorageRejected)?
+    {
+        let entity_id: String = row
+            .get(0)
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        let text = |range: std::ops::Range<usize>| -> (Option<Vec<Option<String>>>, String) {
+            let raw: Vec<rusqlite::types::Value> = range
+                .map(|index| row.get(index).unwrap_or(rusqlite::types::Value::Null))
+                .collect();
+            let shown = format!("{raw:?}");
+            let typed = raw
+                .into_iter()
+                .map(|value| match value {
+                    rusqlite::types::Value::Null => Ok(None),
+                    rusqlite::types::Value::Text(text) => Ok(Some(text)),
+                    _ => Err(()),
+                })
+                .collect::<Result<Vec<_>, ()>>()
+                .ok();
+            (typed, shown)
+        };
+        let (binding, binding_shown) = text(1..6);
+        let (observation, observation_shown) = text(6..13);
+        let binding_bad = binding.is_none_or(|columns| {
+            let raw: RawRow = (
+                entity_id.clone(),
+                columns[0].clone(),
+                columns[1].clone(),
+                columns[2].clone(),
+                columns[3].clone(),
+                columns[4].clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                [0; 5],
+            );
+            project_row(raw).is_err()
+        });
+        let observation_bad = observation.is_none_or(|columns| {
+            let raw: RawRow = (
+                entity_id.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                columns[0].clone(),
+                columns[1].clone(),
+                columns[2].clone(),
+                columns[3].clone(),
+                columns[4].clone(),
+                columns[5].clone(),
+                columns[6].clone(),
+                [0; 5],
+            );
+            project_row(raw).is_err()
+        });
+        let observation_id: Option<String> = row.get(13).ok().flatten();
+        if !binding_bad && !observation_bad {
+            continue;
+        }
+        rejected.push(RejectedDnsRow {
+            entity_id,
+            binding: binding_bad.then_some(binding_shown),
+            observation: if observation_bad {
+                Some((
+                    observation_id.ok_or(PortfolioReadError::StorageRejected)?,
+                    observation_shown,
+                ))
+            } else {
+                None
+            },
+        });
     }
     Ok(rejected)
 }

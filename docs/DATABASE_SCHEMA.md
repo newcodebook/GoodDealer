@@ -110,6 +110,7 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_domain_asset_re_adds` | 每个被重新添加取代的 generation 一行：删除 revision、重新添加 mutation 与 revision、来源（`replicated` 或 `local`）；不可改不可删（ADR-0029 C2b、C2c1）。 |
 | `sync_domain_asset_provisional_re_adds` | 本设备尚未被 Cloud 确认的重新添加：每实体至多一行，指向其 Outbox 行；只在 ACK 确认或拒绝撤回后删除（ADR-0029 C2c1）。 |
 | `sync_domain_asset_checkpoint_advances` | rebootstrap checkpoint 越过本地已确认 generation 时的前进记录：离开与到达的 generation、checkpoint revision；不可改不可删，插入时要求离开的是当前 generation 且本地状态已结束（ADR-0029 C3b2）。 |
+| `storage_repair_receipts` | 读取拒绝的存储坏行的修复回执（ADR-0031，迁移 `202611160002`）：类别、行键、原值 SHA-256（不存原值）与修复时间；不可改不可删，只能指名现存行。它同时是读取遵循的标记：到期日期已置为未知、注册商/Zone/挂牌观察或 Zone 绑定已隔离，读取把被隔离者视为没有可用观察或没有绑定。隔离挂牌递增 `sales_listing_generation`。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
 | `local_backup_catalog` | 本地备份 manifest、覆盖 revision、crypto profile、验证状态、保留期和清理期限。 |
 

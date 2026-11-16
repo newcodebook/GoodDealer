@@ -745,6 +745,16 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "storage_repair_receipts",
+        &[
+            "workspace_id",
+            "repair_kind",
+            "row_key",
+            "prior_value_sha256",
+            "repaired_at",
+        ],
+    ),
+    (
         "sync_domain_asset_checkpoint_advances",
         &[
             "workspace_id",
@@ -873,3 +883,7 @@ pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER: &str =
     "active-workspace/checkpoint-generation-advance";
 pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL: &str =
     include_str!("checkpoint_generation_advance.sql");
+
+pub(crate) const STORAGE_REPAIR_MIGRATION_ID: i64 = 202_611_160_002;
+pub(crate) const STORAGE_REPAIR_MIGRATION_OWNER: &str = "active-workspace/storage-repair";
+pub(crate) const STORAGE_REPAIR_MIGRATION_SQL: &str = include_str!("storage_repair.sql");

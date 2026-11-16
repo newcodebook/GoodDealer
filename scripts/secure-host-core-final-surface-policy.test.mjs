@@ -182,6 +182,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::renewals",
   "active_workspace::sales",
   "active_workspace::settings",
+  "active_workspace::storage_repair",
   "portfolio_projection",
   "application_root",
   "backup",
@@ -259,6 +260,8 @@ const expectedLocalStoragePublicExports = [
   "DesktopSyncPushClaim",
   "DesktopSyncPushDisposition",
   "DesktopSyncPushWork",
+  "DesktopStorageRepairReceipt",
+  "DesktopStorageRepairRequest",
   "DesktopSyncSnapshotView",
   "DesktopSyncTransportState",
   "BatchOperationRow",
@@ -301,6 +304,7 @@ const expectedLocalStoragePublicExports = [
   "SettingsConnection",
   "SettingsConnectionRole",
   "SettingsReadSnapshot",
+  "StorageRepairKind",
 ].sort();
 
 export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot } = {}) {
