@@ -360,6 +360,42 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       .resolves.toMatchObject({ accepted: true, headRevision: 4 });
   });
 
+  it("ADR-0029 refuses a former Active device's old-generation mutation after a re-add and a handover", async () => {
+    const subject = harness();
+    subject.bind(scopeA);
+    const at = (sequence: number, baseServerRevision: number, overrides: Partial<SubmittedSyncMutation> = {}) =>
+      ({ ...mutation({ sequence, baseServerRevision, fieldPath: "note" }), entityId: "again.test", ...overrides }) as
+        SubmittedSyncMutation;
+    await subject.ingest.ingest(scopeA, request([at(1, 0)]));
+    await subject.ingest.ingest(scopeA, request([at(2, 1, {
+      operationKind: "delete", deletedAt: "2026-11-14T01:02:03Z", changedFields: [],
+    } as Partial<SubmittedSyncMutation>)]));
+    await expect(subject.ingest.ingest(scopeA, request([at(3, 2, { entityGeneration: 2, reAddsDeletedRevision: 2 })])))
+      .resolves.toMatchObject({ accepted: true, headRevision: 3 });
+    // The lease moves to another device; the former Active device still holds a generation-1
+    // edit it wrote before the deletion reached it.
+    subject.leases.bindDevice(scopeA, "standby-device", "active", 8);
+    const before = { head: subject.revisions.readHead(scopeA), state: subject.portfolio.snapshot(scopeA) };
+    const stale = at(4, 1);
+    await expect(subject.ingest.ingest(scopeA, request([stale]))).resolves.toEqual({
+      accepted: false, code: "MUTATION_DEVICE_NOT_ACTIVE", failures: [{ index: 0, mutationId: "mutation-4" }],
+    });
+    // Promoted again under a later lease, it cannot replay that edit under its old epoch either.
+    subject.leases.bindDevice(scopeA, "shared-device", "active", 9);
+    await expect(subject.ingest.ingest(scopeA, request([stale]))).resolves.toEqual({
+      accepted: false, code: "MUTATION_EPOCH_STALE", failures: [{ index: 0, mutationId: "mutation-4" }],
+    });
+    expect(subject.revisions.readHead(scopeA)).toEqual(before.head);
+    expect(subject.portfolio.snapshot(scopeA)).toEqual(before.state);
+    // Resent under the current lease, the generation-1 edit meets generation 2 and is a recorded
+    // conflict, never applied to the re-added entity.
+    await expect(subject.ingest.ingest(scopeA, request([{ ...stale, activeLeaseEpoch: 9 }]))).resolves.toEqual({
+      accepted: false, code: "MUTATION_GENERATION_MISMATCH", failures: [{ index: 0, mutationId: "mutation-4" }],
+    });
+    expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test")).toEqual({ state: "active", generation: 2 });
+    expect(subject.revisions.readHead(scopeA)).toEqual(before.head);
+  });
+
   it("ADR-0029 judges a re-add in batch order", async () => {
     const subject = harness();
     subject.bind(scopeA);
