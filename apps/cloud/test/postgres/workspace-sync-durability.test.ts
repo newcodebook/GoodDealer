@@ -4,8 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   durabilityHarness,
+  lifecycleInvariantErrors,
+  lifecycleItem,
+  lifecyclePush,
   percentile,
   plannedPush,
+  readLifecycle,
   readTenant,
   requireQualifiedServer,
   resetTenants,
@@ -22,6 +26,8 @@ const APP_CONNECTIONS = 8;
 // CI raises the soak to its qualification length; the default keeps `pnpm test:postgres` short.
 const SOAK_SECONDS = soakSeconds();
 const SOAK_TENANTS = 8;
+const LIFECYCLE_TENANTS = 8;
+const LIFECYCLE_CYCLES = 6;
 
 const harness = durabilityHarness(APP_CONNECTIONS);
 
@@ -36,12 +42,13 @@ afterAll(async () => {
 describe("PostgreSQL workspace sync durability", () => {
   it("sustains concurrent multi-tenant ingest with dense heads, exact receipts, and forced RLS isolation", async () => {
     await resetTenants(harness, CAPACITY_TENANTS);
-    // Isolation below is behavioural; this pins why it holds. Every table the workload writes or
-    // the invariant reads forces RLS (so even its owner is confined), and the application role
-    // neither owns them nor bypasses RLS.
+    // Isolation below is behavioural; this pins why it holds. Every table the workloads (the re-add
+    // lifecycle included) write or their invariants read forces RLS (so even its owner is
+    // confined), and the application role neither owns them nor bypasses RLS.
     const workloadTables = [
-      "mutation_drain_heads", "workspace_mutation_fields", "workspace_mutation_receipts",
-      "workspace_mutations", "workspace_replica_domain_assets", "workspace_revisions",
+      "mutation_drain_heads", "workspace_device_mutation_heads", "workspace_device_mutation_sequence_ledger",
+      "workspace_mutation_fields", "workspace_mutation_receipts", "workspace_mutations",
+      "workspace_replica_domain_assets", "workspace_replica_tombstones", "workspace_revisions",
     ];
     const catalog = await harness.ownerPool.query<{ relname: string; enabled: boolean; forced: boolean; owner: string }>(
       `SELECT c.relname, c.relrowsecurity AS enabled, c.relforcerowsecurity AS forced, pg_get_userbyid(c.relowner) AS owner
@@ -179,6 +186,83 @@ describe("PostgreSQL workspace sync durability", () => {
       accepted: true, assignments: [{ serverRevision: 1, duplicate: false }],
     });
   }, 60_000);
+
+  it("re-adds a deleted asset exactly once per generation under concurrent tenants and racing re-adds", async () => {
+    // ADR-0029 decision 3 under load: every tenant deletes its asset and races two different
+    // re-adds of that deletion (plus a resubmission of the first) on the shared connection pool.
+    // Exactly one re-add takes the next generation; the other, and a late edit of the deleted
+    // generation, are recorded as single-item refusals that occupy their device sequences.
+    await resetTenants(harness, LIFECYCLE_TENANTS);
+    const outcomes = { reAddsAccepted: 0, reAddsRefused: 0, resubmissionsMatched: 0, staleRefused: 0 };
+    const errors: string[] = [];
+    const lifecycle = async (index: number): Promise<void> => {
+      let head = 0;
+      for (let cycle = 1; cycle <= LIFECYCLE_CYCLES; cycle += 1) {
+        const deleted = await harness.ingest.ingest(tenant(index), lifecyclePush(index, cycle, "delete", head, 0));
+        if (!deleted.accepted || deleted.assignments[0]?.serverRevision !== head + 1) {
+          errors.push(`tenant ${index} cycle ${cycle}: delete ${JSON.stringify(deleted)}`);
+          return;
+        }
+        head += 1;
+        const deletedRevision = head;
+        const reAddA = lifecyclePush(index, cycle, "re-add-a", deletedRevision, deletedRevision);
+        const [first, second, resubmitted] = await Promise.all([
+          harness.ingest.ingest(tenant(index), reAddA),
+          harness.ingest.ingest(tenant(index), lifecyclePush(index, cycle, "re-add-b", deletedRevision, deletedRevision)),
+          harness.ingest.ingest(tenant(index), reAddA),
+        ]);
+        const winners = [first, second].filter((result) => result.accepted);
+        const losers = [first, second].filter((result) => !result.accepted);
+        if (winners.length !== 1 || losers.length !== 1
+          || winners[0]?.accepted !== true || winners[0].assignments[0]?.serverRevision !== head + 1
+          || losers[0]?.accepted !== false || losers[0].code !== "MUTATION_GENERATION_MISMATCH") {
+          errors.push(`tenant ${index} cycle ${cycle}: re-adds ${JSON.stringify([first, second])}`);
+          return;
+        }
+        // The resubmission answers with the first re-add's own stored result, whichever it was.
+        const resubmissionMatches = first.accepted
+          ? resubmitted.accepted && resubmitted.assignments[0]?.serverRevision === head + 1
+          : !resubmitted.accepted && resubmitted.code === first.code;
+        if (!resubmissionMatches) {
+          errors.push(`tenant ${index} cycle ${cycle}: resubmission ${JSON.stringify([first, resubmitted])}`);
+          return;
+        }
+        outcomes.reAddsAccepted += 1;
+        outcomes.reAddsRefused += 1;
+        outcomes.resubmissionsMatched += 1;
+        head += 1;
+        const stale = await harness.ingest.ingest(tenant(index), lifecyclePush(index, cycle, "stale", head, 0));
+        if (stale.accepted || stale.code !== "MUTATION_GENERATION_MISMATCH") {
+          errors.push(`tenant ${index} cycle ${cycle}: stale ${JSON.stringify(stale)}`);
+          return;
+        }
+        outcomes.staleRefused += 1;
+        const edited = await harness.ingest.ingest(tenant(index), lifecyclePush(index, cycle, "edit", head, 0));
+        if (!edited.accepted || edited.assignments[0]?.serverRevision !== head + 1) {
+          errors.push(`tenant ${index} cycle ${cycle}: edit ${JSON.stringify(edited)}`);
+          return;
+        }
+        head += 1;
+      }
+    };
+    await Promise.all(Array.from({ length: LIFECYCLE_TENANTS }, (_, index) => lifecycle(index)));
+    expect(errors).toEqual([]);
+    const expected = LIFECYCLE_TENANTS * LIFECYCLE_CYCLES;
+    expect(outcomes).toEqual({
+      reAddsAccepted: expected, reAddsRefused: expected, resubmissionsMatched: expected, staleRefused: expected,
+    });
+    for (let index = 0; index < LIFECYCLE_TENANTS; index += 1) {
+      expect(lifecycleInvariantErrors(index, LIFECYCLE_CYCLES, await readLifecycle(harness, index))).toEqual([]);
+    }
+    // The invariant is evidence, not a tautology: a doubled generation or a surviving tombstone fails it.
+    const sound = await readLifecycle(harness, 0);
+    expect(lifecycleInvariantErrors(0, LIFECYCLE_CYCLES, { ...sound, reAdds: [...sound.reAdds, "8@19"] }))
+      .toHaveLength(1);
+    expect(lifecycleInvariantErrors(0, LIFECYCLE_CYCLES, { ...sound, tombstones: 1 })).toHaveLength(1);
+    expect(lifecycleItem(0, 2, "delete").deviceSequence).toBe(6);
+    console.info(`durability re-add: ${LIFECYCLE_TENANTS} tenants x ${LIFECYCLE_CYCLES} generations, `
+      + `${expected} re-adds accepted once, ${expected} racing re-adds and ${expected} stale writes refused`);
+  }, 300_000);
 });
 
 /** The evidence collector names a file to receive the measured figures; ordinary runs only log. */

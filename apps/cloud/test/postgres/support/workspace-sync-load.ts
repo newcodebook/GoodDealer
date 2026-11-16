@@ -77,6 +77,7 @@ export async function resetTenants(harness: DurabilityHarness, tenants: number):
   await runCloudMigrations(harness.ownerPool, cloudMigrations);
   await harness.ownerPool.query(`TRUNCATE
     workspace_mutation_fields, workspace_mutations, workspace_mutation_receipts,
+    workspace_device_mutation_sequence_ledger, workspace_replica_tombstones,
     workspace_device_audit_drain_seals, workspace_device_audit_drain_records,
     workspace_device_audit_drain_heads,
     execution_fact_drain_seals, execution_fact_drain_records, execution_fact_drain_heads,
@@ -261,4 +262,165 @@ export function requiredEnvironment(name: string): string {
     throw new Error(`${name} is required; PostgreSQL integration evidence never skips`);
   }
   return value;
+}
+
+/**
+ * ADR-0029 generation lifecycle for one tenant's asset: in each cycle the current generation is
+ * deleted, two different re-adds of that deletion race (with a duplicate of the first), an edit
+ * of the deleted generation arrives late, and the new generation is edited. Every item is fully
+ * determined by (tenant, cycle, role), so results are comparable across tenants.
+ */
+export type LifecycleRole = "delete" | "re-add-a" | "re-add-b" | "stale" | "edit";
+
+export interface LifecycleItem {
+  readonly role: LifecycleRole;
+  readonly mutationId: string;
+  readonly deviceSequence: number;
+}
+
+export function lifecyclePush(
+  tenantIndex: number,
+  cycle: number,
+  role: LifecycleRole,
+  base: number,
+  deletedRevision: number,
+) {
+  const generation = cycle;
+  const fields: Record<string, unknown> = role === "delete"
+    ? { entityGeneration: generation, operationKind: "delete", changedFields: [], deletedAt: "2026-11-16T00:00:00Z" }
+    : role === "stale"
+      ? { entityGeneration: generation, changedFields: [{ fieldPath: "note", value: `stale-${tenantIndex}-${cycle}` }] }
+      : role === "edit"
+        ? { entityGeneration: generation + 1, changedFields: [{ fieldPath: "note", value: lifecycleNote(tenantIndex, cycle) }] }
+        : {
+          entityGeneration: generation + 1,
+          reAddsDeletedRevision: deletedRevision,
+          changedFields: [{ fieldPath: "note", value: `${role}-${tenantIndex}-${cycle}` }],
+        };
+  const item = lifecycleItem(tenantIndex, cycle, role);
+  const mutation = submittedSyncMutationSchema.parse({
+    schemaVersion: 3,
+    mutationId: item.mutationId,
+    workspaceId: DURABILITY_WORKSPACE_ID,
+    workspaceSchemaVersion: 1,
+    entityType: "domain_asset",
+    entityId: ENTITY_ID,
+    operationKind: "upsert",
+    baseServerRevision: base,
+    sourceDeviceId: DEVICE_ID,
+    activeLeaseEpoch: 1,
+    deviceMutationSequence: item.deviceSequence,
+    ...fields,
+  });
+  const { workspaceId: _workspaceId, ...wire } = mutation;
+  return { schemaVersion: 3 as const, mutations: [wire] };
+}
+
+const LIFECYCLE_ROLES: readonly LifecycleRole[] = ["delete", "re-add-a", "re-add-b", "stale", "edit"];
+
+export function lifecycleItem(tenantIndex: number, cycle: number, role: LifecycleRole): LifecycleItem {
+  return {
+    role,
+    mutationId: `lifecycle-${tenantIndex}-${cycle}-${role}`,
+    deviceSequence: (cycle - 1) * LIFECYCLE_ROLES.length + LIFECYCLE_ROLES.indexOf(role) + 1,
+  };
+}
+
+export function lifecycleNote(tenantIndex: number, cycle: number): string {
+  return `life-${tenantIndex}-${cycle}`;
+}
+
+export interface LifecycleState {
+  readonly head: number;
+  readonly generation: number | null;
+  readonly deleted: boolean;
+  readonly note: string | null;
+  readonly tombstones: number;
+  readonly mutations: number;
+  readonly receipts: number;
+  readonly ledger: number;
+  readonly rejectedLedger: number;
+  /** Each accepted re-add as `generation@deletedRevision`, in revision order. */
+  readonly reAdds: readonly string[];
+  /**
+   * The device's ADR-0030 sequence head, which counts accepted and refused sequences alike (the
+   * Drain head counts accepted ones only, per lease epoch, so it cannot witness the refusals).
+   */
+  readonly sequenceContiguous: number;
+  readonly sequenceHighest: number;
+  readonly foreignRows: number;
+}
+
+/** Reads one tenant's generation lifecycle through the application role on one snapshot. */
+export async function readLifecycle(harness: DurabilityHarness, tenantIndex: number): Promise<LifecycleState> {
+  const scope = tenant(tenantIndex);
+  return harness.transactions.withTenant(scope, async (transaction) => {
+    const row = (await transaction.query<Record<string, string | null>>(`SELECT
+        (SELECT server_revision::text FROM workspace_revisions) AS head,
+        (SELECT entity_generation::text FROM workspace_replica_domain_assets WHERE entity_id = $1) AS generation,
+        (SELECT (deleted_at IS NOT NULL)::text FROM workspace_replica_domain_assets WHERE entity_id = $1) AS deleted,
+        (SELECT note FROM workspace_replica_domain_assets WHERE entity_id = $1) AS note,
+        (SELECT count(*)::text FROM workspace_replica_tombstones) AS tombstones,
+        (SELECT count(*)::text FROM workspace_mutations) AS mutations,
+        (SELECT count(*)::text FROM workspace_mutation_receipts) AS receipts,
+        (SELECT count(*)::text FROM workspace_device_mutation_sequence_ledger) AS ledger,
+        (SELECT count(*)::text FROM workspace_device_mutation_sequence_ledger WHERE outcome = 'rejected') AS rejected,
+        (SELECT string_agg(entity_generation::text || '@' || re_adds_deleted_revision::text, ',' ORDER BY server_revision)
+           FROM workspace_mutations WHERE re_adds_deleted_revision IS NOT NULL) AS re_adds,
+        (SELECT contiguous_received_through::text FROM workspace_device_mutation_heads) AS contiguous,
+        (SELECT highest_received_sequence::text FROM workspace_device_mutation_heads) AS highest,
+        ((SELECT count(*) FROM workspace_mutations WHERE account_id <> $2)
+          + (SELECT count(*) FROM workspace_device_mutation_sequence_ledger WHERE account_id <> $2)
+          + (SELECT count(*) FROM workspace_replica_domain_assets WHERE account_id <> $2)
+          + (SELECT count(*) FROM workspace_replica_tombstones WHERE account_id <> $2))::text AS foreign`,
+    [ENTITY_ID, scope.accountId])).rows[0];
+    if (row === undefined) throw new Error(`tenant ${tenantIndex} lifecycle is unreadable`);
+    return {
+      head: Number(row.head ?? Number.NaN),
+      generation: row.generation === null || row.generation === undefined ? null : Number(row.generation),
+      deleted: row.deleted === "true",
+      note: row.note ?? null,
+      tombstones: Number(row.tombstones),
+      mutations: Number(row.mutations),
+      receipts: Number(row.receipts),
+      ledger: Number(row.ledger),
+      rejectedLedger: Number(row.rejected),
+      reAdds: row.re_adds === null || row.re_adds === undefined ? [] : row.re_adds.split(","),
+      sequenceContiguous: Number(row.contiguous ?? 0),
+      sequenceHighest: Number(row.highest ?? 0),
+      foreignRows: Number(row.foreign),
+    };
+  }, { readOnly: true, repeatableRead: true });
+}
+
+/**
+ * After `cycles` complete cycles: three accepted items and two refusals per cycle, one re-add per
+ * generation naming the deletion of the generation before it, the last generation live with its
+ * last edit, no tombstone, every device sequence occupied by exactly one result, and nothing of
+ * another tenant visible.
+ */
+export function lifecycleInvariantErrors(tenantIndex: number, cycles: number, state: LifecycleState): readonly string[] {
+  const errors: string[] = [];
+  const accepted = 3 * cycles;
+  const sequences = 5 * cycles;
+  if (state.head !== accepted) errors.push(`head ${state.head}, not ${accepted}`);
+  if (state.mutations !== accepted || state.receipts !== accepted) {
+    errors.push(`${state.mutations} mutations and ${state.receipts} receipts for ${accepted} accepted`);
+  }
+  if (state.ledger !== sequences || state.rejectedLedger !== 2 * cycles) {
+    errors.push(`ledger ${state.ledger} (${state.rejectedLedger} rejected) for ${sequences} sequences`);
+  }
+  if (state.sequenceContiguous !== sequences || state.sequenceHighest !== sequences) {
+    errors.push(`sequence head ${state.sequenceContiguous}/${state.sequenceHighest} for ${sequences} sequences`);
+  }
+  const expectedReAdds = Array.from({ length: cycles }, (_, index) => `${index + 2}@${3 * index + 1}`);
+  if (JSON.stringify(state.reAdds) !== JSON.stringify(expectedReAdds)) {
+    errors.push(`re-adds ${state.reAdds.join(",")}, not ${expectedReAdds.join(",")}`);
+  }
+  if (state.generation !== cycles + 1 || state.deleted || state.tombstones !== 0) {
+    errors.push(`asset generation ${state.generation} deleted=${state.deleted} with ${state.tombstones} tombstones`);
+  }
+  if (state.note !== lifecycleNote(tenantIndex, cycles)) errors.push(`note ${state.note}`);
+  if (state.foreignRows !== 0) errors.push(`${state.foreignRows} rows of other tenants are visible`);
+  return errors.map((error) => `tenant ${tenantIndex}: ${error}`);
 }

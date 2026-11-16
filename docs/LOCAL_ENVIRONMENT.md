@@ -80,7 +80,7 @@ Desktop 运行数据库是由 Host 管理的本地 SQLCipher Active Workspace。
 5. 从仓库根目录运行 `pnpm test:postgres`。命令自动读取 `.env.local`；不需要先在 shell 中
    export 变量。其中 `workspace-sync-durability.test.ts` 的持续负载默认 15 秒，可用
    `GOODDEALER_POSTGRES_SOAK_SECONDS` 调整。
-6. 同步持久性证据（容量、持续负载与服务器崩溃恢复）由 `pnpm evidence:wp2:workspace-sync-durability`
+6. 同步持久性证据（容量、持续负载、并发删除与重新添加的 generation 生命周期，以及服务器崩溃恢复）由 `pnpm evidence:wp2:workspace-sync-durability`
    收集。它会在多租户写入途中杀掉 PostgreSQL 服务器再重启，所以必须由能控制该服务器的环境提供
    `GOODDEALER_POSTGRES_CRASH_ARGV` 与 `GOODDEALER_POSTGRES_RESTART_ARGV`（JSON argv 数组，不经 shell，
    只允许 `docker` 或 `pg_ctl`；本机集群用 `pg_ctl -D <data> -m immediate stop` 与对应的 `start`），

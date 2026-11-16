@@ -22,6 +22,7 @@ export const DURABILITY_TEST_NAMES = [
   "keeps every invariant and a bounded connection count through a sustained mixed workload",
   "detects a torn tenant, so a passing invariant is evidence and not a tautology",
   "answers a resubmitted or concurrently doubled plan with exact duplicates and never applies an item twice",
+  "re-adds a deleted asset exactly once per generation under concurrent tenants and racing re-adds",
 ];
 export const CRASH_PLAN_LENGTH = 1_000;
 export const CRASH_TENANTS = 12;
