@@ -6346,8 +6346,8 @@ fn checkpoint_asset_may_merge(
 /// Advances an entity from the confirmed local generation `from` to the checkpoint's later
 /// generation `to` (ADR-0029 C3b2): Cloud deleted and re-added it in history compaction folded
 /// away. Only settled local state advances. This device's unfinished work on the entity (an
-/// unsettled or contested deletion, a provisional re-add, an Outbox row still to send, or an
-/// unsynced or conflicted field) belongs to a generation Cloud has superseded, and it must end
+/// unsettled or contested deletion, a provisional re-add, an Outbox row still to send, or a
+/// conflicted field) belongs to a generation Cloud has superseded, and it must end
 /// through its push result or conflict resolution first, so the installation waits with
 /// `MutationConflict`. The row is then reset exactly as an Inbox re-add resets it (sync fields,
 /// tags and local intent cleared, local lifecycle fields emptied, field versions removed; Provider
@@ -6376,8 +6376,7 @@ fn advance_to_checkpoint_generation(
                                   OR barrier_state='contested'
                                   OR deleted_server_revision IS NULL))
                  OR EXISTS(SELECT 1 FROM domain_asset_field_versions
-                           WHERE workspace_id=?1 AND entity_id=?2
-                             AND sync_state IN ('pending','conflicted'))
+                           WHERE workspace_id=?1 AND entity_id=?2 AND sync_state='conflicted')
                  OR EXISTS(SELECT 1 FROM sync_conflicts
                            WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
                              AND status='open')",
@@ -6386,9 +6385,11 @@ fn advance_to_checkpoint_generation(
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     // The schema re-checks the transition itself (current generation, confirmed uncontested
-    // tombstone, no provisional re-add or unfinished Outbox row). Unsynced fields and open
+    // tombstone, no provisional re-add or unfinished Outbox row). Conflicted fields and open
     // conflicts are only checked here: they decide whether to wait, not whether the advance is a
-    // valid transition.
+    // valid transition. A `pending` field mark with no unfinished Outbox row is what a write Cloud
+    // refused leaves behind; nothing is owed for it, so it does not hold the advance, and the reset
+    // below retires it while the refused Outbox row keeps the evidence (decision 3).
     if unsettled {
         return Err(BusinessDatabaseError::MutationConflict);
     }
@@ -6802,8 +6803,8 @@ fn apply_sync_mutation_projection(
     let re_adds = mutation
         .re_adds_deleted_revision
         .filter(|_| !own_confirmed_re_add);
-    let re_add_pending_fields = if re_adds.is_some() {
-        check_replicated_re_add(transaction, workspace_id, mutation)?
+    if re_adds.is_some() {
+        check_replicated_re_add(transaction, workspace_id, mutation)?;
     } else {
         // A replicated tombstone can exist before any asset row, so both record the local
         // generation. An entity this replica never held starts at generation 1; a later one is
@@ -6825,8 +6826,7 @@ fn apply_sync_mutation_projection(
         if other_generations != 0 || (held == 0 && generation != 1) {
             return Err(BusinessDatabaseError::InvalidInput);
         }
-        Vec::new()
-    };
+    }
     let local_commit_sequence: i64 = transaction
         .query_row(
             "UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1,
@@ -6854,37 +6854,6 @@ fn apply_sync_mutation_projection(
             deleted_revision,
             local_commit_sequence,
         )?;
-        for (field_path, local_value) in &re_add_pending_fields {
-            restore_re_add_local_field(
-                transaction,
-                workspace_id,
-                &mutation.entity_id,
-                field_path,
-                local_value,
-                local_commit_sequence,
-            )?;
-            if !mutation
-                .changed_fields
-                .iter()
-                .any(|field| field.field_path == *field_path)
-            {
-                persist_conflict_candidate(
-                    transaction,
-                    workspace_id,
-                    mutation,
-                    field_path,
-                    local_value.clone(),
-                    Some(default_or_remote_field_value(mutation, field_path)),
-                )?;
-                transaction
-                    .execute(
-                        "UPDATE domain_asset_field_versions SET sync_state='conflicted'
-                     WHERE workspace_id=?1 AND entity_id=?2 AND field_path=?3",
-                        params![workspace_id, mutation.entity_id, field_path],
-                    )
-                    .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-        }
     }
     if mutation.operation_kind == "delete" {
         if pending != 0 {
@@ -7020,7 +6989,7 @@ fn apply_sync_mutation_projection(
             params![workspace_id, mutation.entity_id, local_commit_sequence],
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    let mut conflict = !re_add_pending_fields.is_empty();
+    let mut conflict = false;
     for field in &mutation.changed_fields {
         if !matches!(
             field.field_path.as_str(),
@@ -7131,15 +7100,11 @@ fn apply_sync_mutation_projection(
 /// still owed on the entity, would be silently discarded by the reset, so the page is refused as a
 /// conflict instead and retried on a later cycle, once the Outbox has drained and the conflict has
 /// been resolved.
-#[expect(
-    clippy::too_many_lines,
-    reason = "every precondition is read in the one page transaction, in the order the ADR lists them"
-)]
 fn check_replicated_re_add(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
     mutation: &SyncMutationV2,
-) -> Result<Vec<(String, serde_json::Value)>, BusinessDatabaseError> {
+) -> Result<(), BusinessDatabaseError> {
     let deleted_revision = mutation
         .re_adds_deleted_revision
         .ok_or(BusinessDatabaseError::InvalidInput)?;
@@ -7204,28 +7169,11 @@ fn check_replicated_re_add(
     if unknown_outcome != 0 {
         return Err(BusinessDatabaseError::MutationConflict);
     }
-    let mut pending_fields = Vec::new();
-    let mut statement = transaction
-        .prepare(
-            "SELECT field_path FROM domain_asset_field_versions
-         WHERE workspace_id=?1 AND entity_id=?2 AND sync_state='pending'
-         ORDER BY field_path",
-        )
-        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    let fields = statement
-        .query_map(params![workspace_id, mutation.entity_id], |row| {
-            row.get::<_, String>(0)
-        })
-        .map_err(|_| BusinessDatabaseError::StorageRejected)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    drop(statement);
-    for field_path in fields {
-        pending_fields.push((
-            field_path.clone(),
-            read_local_conflict_value(transaction, workspace_id, &mutation.entity_id, &field_path)?,
-        ));
-    }
+    // Decision 3: no field of the deleted generation revives. A queued write of that generation
+    // is still owed and Cloud will refuse it against the tombstone, so the page waits for that
+    // terminal answer. A `pending` field mark with no queued write left is the residue of a write
+    // Cloud already refused: its terminal Outbox row keeps the evidence, nothing is owed, and the
+    // re-add's field reset retires the mark instead of stalling the pull behind it.
     let pending_outbox: i64 = transaction
         .query_row(
             "SELECT count(*) FROM sync_outbox
@@ -7235,7 +7183,7 @@ fn check_replicated_re_add(
             |row| row.get(0),
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    if pending_outbox != 0 && pending_fields.is_empty() {
+    if pending_outbox != 0 {
         return Err(BusinessDatabaseError::MutationConflict);
     }
     // Once nothing is owed, the tombstone pairs with a soft-deleted row of its generation, or with
@@ -7252,77 +7200,6 @@ fn check_replicated_re_add(
     if live_or_other != 0 {
         return Err(BusinessDatabaseError::InvalidInput);
     }
-    Ok(pending_fields)
-}
-
-fn default_or_remote_field_value(mutation: &SyncMutationV2, field_path: &str) -> serde_json::Value {
-    mutation
-        .changed_fields
-        .iter()
-        .find(|field| field.field_path == field_path)
-        .map_or_else(
-            || match field_path {
-                "tags" => serde_json::json!([]),
-                _ => serde_json::Value::Null,
-            },
-            |field| field.value.clone(),
-        )
-}
-
-fn restore_re_add_local_field(
-    transaction: &rusqlite::Connection,
-    workspace_id: &str,
-    entity_id: &str,
-    field_path: &str,
-    value: &serde_json::Value,
-    local_commit_sequence: i64,
-) -> Result<(), BusinessDatabaseError> {
-    let serialized =
-        serde_json::to_string(value).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-    match field_path {
-        "note" => {
-            let value = value.as_str();
-            transaction.execute("UPDATE portfolio_domain_assets SET note=?1 WHERE workspace_id=?2 AND entity_id=?3", params![value, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("UPDATE domain_asset_desired_state SET note=?1 WHERE workspace_id=?2 AND entity_id=?3", params![value, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        }
-        "portfolioId" => {
-            let value = value.as_str();
-            transaction.execute("UPDATE portfolio_domain_assets SET portfolio_id=?1 WHERE workspace_id=?2 AND entity_id=?3", params![value, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?1 WHERE workspace_id=?2 AND entity_id=?3", params![value, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        }
-        "tags" => {
-            let tags = value
-                .as_array()
-                .ok_or(BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("UPDATE portfolio_domain_assets SET tags_json=?1 WHERE workspace_id=?2 AND entity_id=?3", params![serialized, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction
-                .execute(
-                    "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
-                    params![workspace_id, entity_id],
-                )
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            for tag in tags {
-                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![workspace_id, entity_id, tag.as_str().ok_or(BusinessDatabaseError::StorageRejected)?, local_commit_sequence]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-        }
-        "targetPrice" => {
-            let currency = value.get("currency").and_then(serde_json::Value::as_str);
-            let amount = value.get("amount").and_then(serde_json::Value::as_str);
-            transaction.execute("UPDATE portfolio_domain_assets SET target_price_currency=?1,target_price_amount=?2 WHERE workspace_id=?3 AND entity_id=?4", params![currency, amount, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("UPDATE domain_asset_desired_state SET target_price_currency=?1,target_price_amount=?2 WHERE workspace_id=?3 AND entity_id=?4", params![currency, amount, workspace_id, entity_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        }
-        _ => return Err(BusinessDatabaseError::StorageRejected),
-    }
-    transaction.execute(
-        "INSERT INTO domain_asset_field_versions
-         (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at)
-         SELECT ?1,?2,?3,applied_through_server_revision,?4,'pending',strftime('%Y-%m-%dT%H:%M:%SZ','now')
-         FROM active_workspace_metadata WHERE singleton=1
-         ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET
-           sync_state='pending',local_commit_sequence=excluded.local_commit_sequence,
-           updated_at=excluded.updated_at",
-        params![workspace_id, entity_id, field_path, local_commit_sequence],
-    ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
     Ok(())
 }
 
@@ -14858,50 +14735,152 @@ mod tests {
     }
 
     #[test]
-    fn re_add_with_pending_local_fields_advances_cursor_and_preserves_conflict_candidates() {
-        let mut database = database_with_replicated_tombstone();
-        database.store.raw_connection().execute_batch(
-            "UPDATE portfolio_domain_assets SET tags_json='[\"local-tag\"]'
-             WHERE workspace_id='workspace-local' AND entity_id='remote.test';
-             INSERT INTO domain_asset_tags
-               (workspace_id,entity_id,tag,local_commit_sequence)
-             VALUES ('workspace-local','remote.test','local-tag',2);
-             UPDATE domain_asset_field_versions SET server_revision=2,local_commit_sequence=2,
-               sync_state='pending',updated_at='2026-08-28T00:00:00Z'
-             WHERE workspace_id='workspace-local' AND entity_id='remote.test' AND field_path='tags'",
-        ).unwrap();
-
-        let page = generation_page(2, vec![re_add_mutation(2, 2, 2)]);
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the edit is followed from its hold through rejection to the re-add it unblocks"
+    )]
+    fn a_re_add_waits_for_a_queued_edit_then_retires_the_marks_of_its_rejection() {
+        // Decision 3: no field of the deleted generation revives. A queued edit of that generation
+        // is still owed, so the re-add waits for Cloud's answer to it; once Cloud refused it, its
+        // `pending` field marks are residue, and the re-add retires them instead of stalling.
+        let mut database = database();
         database
-            .apply_sync_page_v2("reader-local", &page, "confirm-re-add")
+            .apply_sync_page_v2(
+                "reader-local",
+                &generation_page(
+                    0,
+                    vec![generation_mutation(
+                        "other-create",
+                        "remote.test",
+                        1,
+                        0,
+                        &serde_json::json!([{"fieldPath": "note", "value": "first life"}]),
+                    )],
+                ),
+                "confirm-1",
+            )
             .unwrap();
+        let version = database
+            .read_domain_detail("remote.test")
+            .unwrap()
+            .asset
+            .asset_version;
+        database
+            .edit_domain_asset(
+                "local-edit",
+                version,
+                "device-local",
+                1,
+                TIMESTAMP,
+                &DomainAssetWrite {
+                    entity_id: "remote.test".to_owned(),
+                    note: Some("first life".to_owned()),
+                    portfolio_id: None,
+                    tags: vec!["mine".to_owned()],
+                    target_price: None,
+                },
+                true,
+            )
+            .unwrap();
+        database
+            .apply_sync_page_v2(
+                "reader-local",
+                &generation_page(
+                    1,
+                    vec![generation_mutation(
+                        "other-delete",
+                        "remote.test",
+                        1,
+                        1,
+                        &serde_json::json!([]),
+                    )],
+                ),
+                "confirm-2",
+            )
+            .unwrap();
+        let candidate = database.read_sync_conflicts(10).unwrap().remove(0);
+        assert_eq!(candidate.field_path, "lifecycleStatus");
+        database
+            .resolve_sync_conflict(
+                "accept-delete",
+                &candidate.conflict_id,
+                2,
+                candidate.candidate_version,
+                candidate.remote_server_revision,
+                &candidate.local_value_hash,
+                "accept_remote",
+                "device-local",
+                1,
+                TIMESTAMP,
+            )
+            .unwrap();
+        let pending_marks = |database: &TestDatabase| -> i64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT count(*) FROM domain_asset_field_versions
+                     WHERE entity_id='remote.test' AND sync_state='pending'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert!(pending_marks(&database) > 0);
 
-        assert_eq!(database.current_server_revision().unwrap(), 3);
+        // The deletion is settled, but the edit is still queued: the page waits, unwritten.
+        let page = generation_page(2, vec![re_add_mutation(2, 2, 2)]);
+        let before = re_add_footprint(&database);
+        assert_eq!(
+            database.apply_sync_page_v2("reader-local", &page, "confirm-3"),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(re_add_footprint(&database), before);
+
+        // Cloud refuses the edit against its tombstone. The marks stay, but nothing is owed.
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-1",
+                "2026-08-28T00:01:01Z",
+                "2026-08-28T00:02:01Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        database
+            .reject_sync_batch_v2("owner-1", &claimed, SyncRejectionKind::MutationConflict)
+            .unwrap();
+        assert!(pending_marks(&database) > 0);
+
+        database
+            .apply_sync_page_v2("reader-local", &page, "confirm-4")
+            .unwrap();
+        assert_eq!(re_add_footprint(&database), (3, 0, 1, 2, 3));
         let detail = database.read_domain_detail("remote.test").unwrap();
-        assert_eq!(detail.asset.tags, vec!["local-tag"]);
-        let generation: i64 = database
+        assert_eq!(detail.asset.note.as_deref(), Some("second life"));
+        assert!(detail.asset.tags.is_empty());
+        assert_eq!(pending_marks(&database), 0);
+        assert!(
+            database
+                .read_sync_conflicts(10)
+                .unwrap()
+                .iter()
+                .all(|candidate| candidate.status != "open")
+        );
+        // The refused edit stays as evidence of what the deleted generation did not keep.
+        let evidence: (String, String) = database
             .store
             .raw_connection()
             .query_row(
-                "SELECT entity_generation FROM domain_assets WHERE entity_id='remote.test'",
+                "SELECT state, last_error_code FROM sync_outbox WHERE mutation_id='local-edit'",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(generation, 2);
-        let candidates = database.read_sync_conflicts(10).unwrap();
-        let tags = candidates
-            .iter()
-            .find(|candidate| candidate.field_path == "tags")
-            .unwrap();
-        assert_eq!(tags.local_value_json, "[\"local-tag\"]");
-        assert_eq!(tags.remote_value_json, "[]");
-        let state: (String, i64) = database.store.raw_connection().query_row(
-            "SELECT sync_state, (SELECT read_through_server_revision FROM sync_reader_state WHERE device_id='reader-local')
-             FROM domain_asset_field_versions WHERE entity_id='remote.test' AND field_path='tags'",
-            [], |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
-        assert_eq!(state, ("conflicted".to_owned(), 3));
+        assert_eq!(
+            evidence,
+            ("conflicted".to_owned(), "sync_mutation_conflict".to_owned())
+        );
     }
 
     #[test]
@@ -18276,6 +18255,91 @@ mod tests {
             Err(BusinessDatabaseError::MutationConflict)
         );
         assert_eq!(remote_footprint(&provisional), before);
+    }
+
+    #[test]
+    fn rebootstrap_advances_over_the_field_marks_a_refused_edit_left() {
+        // An edit of generation 1 that Cloud refused leaves its fields marked `pending` with
+        // nothing queued. Nothing is owed, so the advance proceeds and retires the marks; the
+        // refused Outbox row stays as evidence. No field of generation 1 reaches generation 2.
+        let mut database = database();
+        own_create(&mut database);
+        let echoes = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &echoes, "confirm-create").unwrap();
+        let version: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_assets WHERE entity_id='remote.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        database
+            .edit_domain_asset(
+                "edit-refused",
+                u64::try_from(version).unwrap(),
+                "device-local",
+                1,
+                "2026-08-28T00:01:00Z",
+                &re_add_write("mine"),
+                true,
+            )
+            .unwrap();
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "owner-refuse",
+                "2026-08-28T01:00:00Z",
+                "2026-08-28T01:01:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        database
+            .reject_sync_batch_v2(
+                "owner-refuse",
+                &claimed,
+                SyncRejectionKind::MutationConflict,
+            )
+            .unwrap();
+        let marks = |database: &TestDatabase| -> i64 {
+            database
+                .store
+                .raw_connection()
+                .query_row(
+                    "SELECT count(*) FROM domain_asset_field_versions
+                     WHERE entity_id='remote.test' AND sync_state='pending'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert!(marks(&database) > 0);
+
+        install_generations(
+            &mut database,
+            &[RebootstrapAsset {
+                asset: re_add_write("later"),
+                entity_generation: 2,
+            }],
+            &[],
+            3,
+        )
+        .unwrap();
+        assert_eq!(marks(&database), 0);
+        assert_eq!(advances(&database).len(), 1);
+        let detail = database.read_domain_detail("remote.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("later"));
+        let evidence: String = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state FROM sync_outbox WHERE mutation_id='edit-refused'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(evidence, "conflicted");
     }
 
     #[test]
