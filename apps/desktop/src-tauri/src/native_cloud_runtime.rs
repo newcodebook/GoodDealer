@@ -971,7 +971,9 @@ const fn stage_from_host_error(
         gooddealer_local_storage::DesktopLocalHostError::StorageRejected
         | gooddealer_local_storage::DesktopLocalHostError::Unavailable
         | gooddealer_local_storage::DesktopLocalHostError::AssetExists
-        | gooddealer_local_storage::DesktopLocalHostError::AssetDeleted => {
+        | gooddealer_local_storage::DesktopLocalHostError::AssetDeleted
+        | gooddealer_local_storage::DesktopLocalHostError::AssetReAddBlocked
+        | gooddealer_local_storage::DesktopLocalHostError::AssetReAddPending => {
             SyncStageOutcome::Retryable
         }
     }

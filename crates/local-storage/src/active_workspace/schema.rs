@@ -850,3 +850,9 @@ pub(crate) const INBOX_RE_ADD_MIGRATION_SQL: &str = include_str!("inbox_re_add.s
 pub(crate) const LOCAL_RE_ADD_MIGRATION_ID: i64 = 202_611_140_005;
 pub(crate) const LOCAL_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/local-re-add";
 pub(crate) const LOCAL_RE_ADD_MIGRATION_SQL: &str = include_str!("local_re_add.sql");
+
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_ID: i64 = 202_611_140_006;
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_OWNER: &str =
+    "active-workspace/rejected-local-delete";
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_SQL: &str =
+    include_str!("rejected_local_delete.sql");

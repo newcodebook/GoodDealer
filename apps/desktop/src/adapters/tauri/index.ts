@@ -74,13 +74,13 @@ export interface LocalBusinessStatus {
 }
 
 /** The Host refusals of an add the person can act on; every other refusal stays opaque. */
-const localWriteErrorCodes = ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED"] as const;
+const localWriteErrorCodes = ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED", "DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED", "DESKTOP_LOCAL_ASSET_RE_ADD_PENDING"] as const;
 export type LocalWriteErrorCode = (typeof localWriteErrorCodes)[number];
 
 /**
  * A write the Host refused for a reason the person can act on: the domain is already held, or it
- * was deleted and keeps its tombstone, so it cannot be re-added yet. Every other refusal stays an
- * opaque failure, as for edits.
+ * was deleted but its re-add preconditions are unmet, or its re-add is already waiting for Cloud.
+ * Every other refusal stays an opaque failure, as for edits.
  */
 export class LocalWriteError extends Error {
   constructor(readonly code: LocalWriteErrorCode) {
@@ -487,7 +487,7 @@ export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProvider
       }
       const parsedReceipt = localDomainAssetMutationReceiptSchema.parse(receipt);
       // The Host answers for the request it was given; anything else is not this write's receipt.
-      if (parsedReceipt.operation !== "create" || parsedReceipt.entityId !== parsed.asset.entityId || parsedReceipt.mutationId !== parsed.mutationId) {
+      if (!(parsedReceipt.operation === "create" || parsedReceipt.operation === "re_add") || parsedReceipt.entityId !== parsed.asset.entityId || parsedReceipt.mutationId !== parsed.mutationId) {
         throw new TypeError("create receipt does not match the request");
       }
       return parsedReceipt;

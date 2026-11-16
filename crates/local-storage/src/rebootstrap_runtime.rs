@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+use crate::active_workspace::business::RebootstrapAsset;
 use crate::{
     DatabaseRecoveryProof, DomainAssetProjectionRow, DomainAssetWrite, Money,
     RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
@@ -174,6 +175,8 @@ struct MutationWire {
     /// ADR-0029 C1a: only generation 1 replays until local generation columns land (C1c);
     /// `reAddsDeletedRevision` is undeclared, so `deny_unknown_fields` refuses a re-add.
     entity_generation: u64,
+    #[serde(default)]
+    re_adds_deleted_revision: Option<u64>,
     operation_kind: String,
     #[serde(default)]
     deleted_at: Option<String>,
@@ -196,7 +199,7 @@ pub(crate) struct RebootstrapPlan {
     workspace_id: String,
     checkpoint_revision: u64,
     pinned_head_revision: u64,
-    snapshot: Vec<DomainAssetWrite>,
+    snapshot: Vec<RebootstrapAsset>,
     tombstones: Vec<RebootstrapTombstone>,
     replay_pages: Vec<RebootstrapReplayPage>,
 }
@@ -232,18 +235,16 @@ impl RebootstrapPlan {
             .ok_or(RebootstrapError::InvalidPlan)?;
         let mut plan: PlanWire =
             serde_json::from_value(value).map_err(|_| RebootstrapError::InvalidPlan)?;
-        // ADR-0029: deletions install as checkpoint tombstones (C1c2a). Only generation 1 exists
-        // until re-adding lands (C2), so a later generation is refused rather than installed.
         if plan
             .snapshot
             .assets
             .iter()
-            .any(|asset| asset.entity_generation != 1)
+            .any(|asset| !(1..=MAX_SAFE_INTEGER).contains(&asset.entity_generation))
             || plan
                 .snapshot
                 .tombstones
                 .iter()
-                .any(|tombstone| tombstone.entity_generation != 1)
+                .any(|tombstone| !(1..=MAX_SAFE_INTEGER).contains(&tombstone.entity_generation))
         {
             return Err(RebootstrapError::InvalidPlan);
         }
@@ -256,16 +257,30 @@ impl RebootstrapPlan {
                 deleted_at: tombstone.deleted_at,
             })
             .collect::<Vec<_>>();
-        let rows = plan
+        let snapshot = plan
             .snapshot
             .assets
             .into_iter()
-            .map(|asset| DomainAssetProjectionRow {
-                entity_id: asset.entity_id,
-                note: asset.note,
-                portfolio_id: asset.portfolio_id,
-                tags: asset.tags,
-                target_price: asset.target_price,
+            .map(|asset| {
+                let entity_generation = asset.entity_generation;
+                let asset = DomainAssetWrite {
+                    entity_id: asset.entity_id,
+                    note: asset.note,
+                    portfolio_id: asset.portfolio_id,
+                    tags: asset.tags,
+                    target_price: asset.target_price,
+                };
+                (asset, entity_generation)
+            })
+            .collect::<Vec<_>>();
+        let rows = snapshot
+            .iter()
+            .map(|(asset, _)| DomainAssetProjectionRow {
+                entity_id: asset.entity_id.clone(),
+                note: asset.note.clone(),
+                portfolio_id: asset.portfolio_id.clone(),
+                tags: asset.tags.clone(),
+                target_price: asset.target_price.clone(),
             })
             .collect::<Vec<_>>();
         verify_rebootstrap_checkpoint_digest(&rows, &state, &plan.checkpoint.checkpoint_digest)
@@ -309,18 +324,15 @@ impl RebootstrapPlan {
         if expected_revision != plan.pinned_head_revision {
             return Err(RebootstrapError::InvalidPlan);
         }
-        let snapshot = rows
+        let snapshot = snapshot
             .into_iter()
-            .map(|asset| DomainAssetWrite {
-                entity_id: asset.entity_id,
-                note: asset.note,
-                portfolio_id: asset.portfolio_id,
-                tags: asset.tags,
-                target_price: asset.target_price,
+            .map(|(asset, entity_generation)| RebootstrapAsset {
+                asset,
+                entity_generation,
             })
             .collect::<Vec<_>>();
         for asset in &snapshot {
-            validate_rebootstrap_asset(asset).map_err(|_| RebootstrapError::InvalidPlan)?;
+            validate_rebootstrap_asset(&asset.asset).map_err(|_| RebootstrapError::InvalidPlan)?;
         }
         for tombstone in &tombstones {
             validate_rebootstrap_timestamp(&tombstone.deleted_at)
@@ -361,7 +373,7 @@ impl RebootstrapPlan {
         dead_code,
         reason = "the private test protocol retains the independently inspectable snapshot fact"
     )]
-    pub(crate) fn snapshot(&self) -> &[DomainAssetWrite] {
+    pub(crate) fn snapshot(&self) -> &[RebootstrapAsset] {
         &self.snapshot
     }
 
@@ -376,7 +388,7 @@ impl RebootstrapPlan {
     pub(crate) fn installation_input(
         &self,
     ) -> (
-        Vec<DomainAssetWrite>,
+        Vec<RebootstrapAsset>,
         Vec<RebootstrapTombstone>,
         u64,
         Vec<RebootstrapReplayPage>,
@@ -410,7 +422,7 @@ fn validate_page(
             .checked_add(index as u64 + 1)
             .ok_or(RebootstrapError::InvalidPlan)?;
         if mutation.schema_version != SYNC_MUTATION_WIRE_SCHEMA_VERSION
-            || mutation.entity_generation != 1
+            || !(1..=MAX_SAFE_INTEGER).contains(&mutation.entity_generation)
             || mutation.workspace_id != workspace_id
             || mutation.workspace_schema_version == 0
             || mutation.workspace_schema_version > MAX_SAFE_INTEGER
@@ -425,6 +437,15 @@ fn validate_page(
             || mutation.server_revision != revision
             || mutation.base_server_revision >= mutation.server_revision
             || !matches!(mutation.operation_kind.as_str(), "upsert" | "delete")
+            || mutation
+                .re_adds_deleted_revision
+                .is_some_and(|deleted_revision| {
+                    mutation.operation_kind != "upsert"
+                        || mutation.entity_generation < 2
+                        || deleted_revision == 0
+                        || deleted_revision > mutation.base_server_revision
+                })
+            || (mutation.entity_generation >= 2 && mutation.re_adds_deleted_revision.is_none())
             || (mutation.operation_kind == "delete"
                 && (mutation.deleted_at.is_none() || !mutation.changed_fields.is_empty()))
             || (mutation.operation_kind == "upsert"
@@ -4034,7 +4055,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_replay_pages_are_mutation_wire_v3_with_first_generation_only() {
+    fn plan_replay_pages_accept_valid_generations_and_re_adds_only() {
         let page = |shape: fn(&mut serde_json::Value)| {
             let mut mutation = serde_json::json!({
                 "schemaVersion": 3,
@@ -4086,7 +4107,7 @@ mod tests {
             |mutation| {
                 mutation.as_object_mut().unwrap().remove("entityGeneration");
             },
-            |mutation| mutation["entityGeneration"] = serde_json::json!(2),
+            |mutation| mutation["entityGeneration"] = serde_json::json!(0),
             |mutation| mutation["reAddsDeletedRevision"] = serde_json::json!(0),
             |mutation| {
                 mutation["entityGeneration"] = serde_json::json!(2);
@@ -4099,6 +4120,32 @@ mod tests {
                 RebootstrapError::InvalidPlan
             );
         }
+        let mut re_add_page = page(|mutation| {
+            mutation["entityGeneration"] = serde_json::json!(2);
+            mutation["baseServerRevision"] = serde_json::json!(1);
+            mutation["reAddsDeletedRevision"] = serde_json::json!(1);
+            mutation["serverRevision"] = serde_json::json!(2);
+        });
+        re_add_page["fromServerRevisionExclusive"] = serde_json::json!(1);
+        re_add_page["throughServerRevisionInclusive"] = serde_json::json!(2);
+        re_add_page["returnedThroughServerRevision"] = serde_json::json!(2);
+        let (checkpoint_wire, plan_wire) = rebootstrap_fixture_with_state(
+            "workspace",
+            2,
+            vec![re_add_page],
+            &[],
+            &[serde_json::json!({
+                "entityId":"deleted.test", "entityGeneration":1,
+                "deletedServerRevision":1, "deletedAt":"2026-11-14T00:00:00Z"
+            })],
+        );
+        let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
+        let parsed = RebootstrapPlan::parse(&checkpoint, &plan_wire).unwrap();
+        assert!(
+            parsed.replay_pages[0]
+                .page_json
+                .contains("reAddsDeletedRevision")
+        );
         let mut v2_page = page(|_| {});
         v2_page["schemaVersion"] = serde_json::json!(2);
         assert_eq!(parse(v2_page).unwrap_err(), RebootstrapError::InvalidPlan);
@@ -4135,11 +4182,9 @@ mod tests {
         // A first-generation live asset installs; its digest covers the generation.
         let parsed = parse(&[asset(1)], &[]).unwrap();
         assert_eq!(parsed.snapshot.len(), 1);
-        // Correctly signed, but only generation 1 exists until re-adding lands (ADR-0029 C2).
-        assert_eq!(
-            parse(&[asset(2)], &[]).unwrap_err(),
-            RebootstrapError::InvalidPlan
-        );
+        assert_eq!(parsed.snapshot[0].entity_generation, 1);
+        let parsed = parse(&[asset(2)], &[]).unwrap();
+        assert_eq!(parsed.snapshot[0].entity_generation, 2);
         let tombstone = |generation: u64| {
             serde_json::json!({
                 "entityId": "deleted.example",
@@ -4148,7 +4193,7 @@ mod tests {
                 "deletedAt": "2026-11-14T00:00:00Z",
             })
         };
-        // A first-generation tombstone is carried to installation (ADR-0029 C1c2a).
+        // A high-generation tombstone is carried to installation without losing its generation.
         let parsed = parse(&[asset(1)], &[tombstone(1)]).unwrap();
         assert_eq!(
             parsed.installation_input().1,
@@ -4160,8 +4205,8 @@ mod tests {
             }]
         );
         assert_eq!(
-            parse(&[], &[tombstone(2)]).unwrap_err(),
-            RebootstrapError::InvalidPlan
+            parse(&[], &[tombstone(2)]).unwrap().tombstones[0].entity_generation,
+            2
         );
 
         // The checkpoint digest binds the state: a plan re-signed after an asset was altered no

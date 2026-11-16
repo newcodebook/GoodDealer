@@ -45,7 +45,7 @@ function detail(domain: string, readGeneration: number): DomainDetailViewModel {
   };
 }
 
-function receipt(operation: "create" | "edit" | "delete", entityId: string, readGeneration: number): LocalDomainAssetMutationReceipt {
+function receipt(operation: "create" | "re_add" | "edit" | "delete", entityId: string, readGeneration: number): LocalDomainAssetMutationReceipt {
   return {
     schemaVersion: 1,
     disposition: "committed",
@@ -282,6 +282,12 @@ describe("Adding a domain", () => {
     expect((await addDomainAsset(duplicate, createPortfolioMutationController(duplicate), "held.test", 7)).outcome).toBe("exists");
     const tombstoned = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_DELETED"); });
     expect((await addDomainAsset(tombstoned, createPortfolioMutationController(tombstoned), "gone.test", 7)).outcome).toBe("deleted");
+    const blocked = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED"); });
+    expect((await addDomainAsset(blocked, createPortfolioMutationController(blocked), "blocked.test", 7)).outcome).toBe("blocked");
+    const pending = port(async () => { throw new LocalWriteError("DESKTOP_LOCAL_ASSET_RE_ADD_PENDING"); });
+    expect((await addDomainAsset(pending, createPortfolioMutationController(pending), "pending.test", 7)).outcome).toBe("pending");
+    const readding = port(async () => receipt("re_add", "gone.test", 8));
+    expect((await addDomainAsset(readding, createPortfolioMutationController(readding), "gone.test", 7)).outcome).toBe("re-adding");
     const broken = port(async () => { throw "DESKTOP_LOCAL_HOST_STORAGE_REJECTED"; });
     expect((await addDomainAsset(broken, createPortfolioMutationController(broken), "x.test", 7)).outcome).toBe("failed");
     // The status no longer matches the receipt's generation, so the add is not published as done.

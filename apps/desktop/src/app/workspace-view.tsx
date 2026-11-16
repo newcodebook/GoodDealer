@@ -575,7 +575,7 @@ function AssetLibraryRoute({ locale, ports, initial, readGeneration, writable, o
   // An added domain republishes the workspace at the receipt's generation, as an edit does.
   const addDomain = async (domain: CanonicalDomainName) => {
     const result = await addDomainAsset(ports.business, mutations, domain, readGeneration);
-    if (result.outcome === "added") {
+    if (result.outcome === "added" || result.outcome === "re-adding") {
       void readAuthoritativeWorkspacePublication(ports, result.accepted.receipt.readGeneration).then(onPublication, onFailure);
     }
     return result.outcome;

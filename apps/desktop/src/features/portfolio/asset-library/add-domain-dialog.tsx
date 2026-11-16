@@ -4,10 +4,10 @@ import { Button, Dialog, Input } from "@gooddealer/ui";
 import { useState } from "react";
 
 /**
- * What the Host did with one add: the domain is the deduplication key, so a held one is `exists`,
- * and a deleted one is `deleted`: no path purges its tombstone yet, so it cannot be re-added.
+ * What the Host did with one add: the domain is the deduplication key, and a confirmed deletion
+ * can re-enter the same create path as a provisional next-generation re-add.
  */
-export type AddDomainOutcome = "added" | "exists" | "deleted" | "failed";
+export type AddDomainOutcome = "added" | "re-adding" | "exists" | "deleted" | "blocked" | "pending" | "failed";
 
 export interface AddDomainDialogProps {
   readonly locale: Locale;
@@ -17,7 +17,7 @@ export interface AddDomainDialogProps {
   readonly onSubmit: (domain: CanonicalDomainName) => Promise<AddDomainOutcome>;
 }
 
-type Problem = Exclude<AddDomainOutcome, "added"> | "invalid" | null;
+type Problem = Exclude<AddDomainOutcome, "added" | "re-adding"> | "invalid" | "re-adding" | null;
 
 /**
  * Adds one domain by hand. The typed name is canonicalized here (IDNA ASCII, no path, port or IP
@@ -40,6 +40,7 @@ export function AddDomainDialog({ locale, open, onClose, onSubmit }: AddDomainDi
       .then((outcome) => {
         setBusy(false);
         if (outcome === "added") close();
+        else if (outcome === "re-adding") setProblem("re-adding");
         else setProblem(outcome);
       });
   };
@@ -47,6 +48,9 @@ export function AddDomainDialog({ locale, open, onClose, onSubmit }: AddDomainDi
     invalid: copy.domainInvalid,
     exists: copy.domainExists,
     deleted: copy.domainDeleted,
+    blocked: copy.domainReAddBlocked,
+    pending: copy.domainReAddPending,
+    "re-adding": copy.domainReAdding,
     failed: copy.addDomainFailed,
   }[problem];
 
@@ -69,8 +73,8 @@ export function AddDomainDialog({ locale, open, onClose, onSubmit }: AddDomainDi
         mono
         autoFocus
         placeholder="example.com"
-        hint={copy.addDomainHint}
-        {...(message === undefined ? {} : { error: message })}
+        hint={problem === "re-adding" ? copy.domainReAdding : copy.addDomainHint}
+        {...(message === undefined || problem === "re-adding" ? {} : { error: message })}
         onChange={(event) => { setValue(event.currentTarget.value); setProblem(null); }}
         onKeyDown={(event) => { if (event.key === "Enter" && !busy && value.trim() !== "") submit(); }}
       />

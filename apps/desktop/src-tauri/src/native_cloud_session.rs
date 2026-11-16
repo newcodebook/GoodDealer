@@ -1016,6 +1016,8 @@ impl NativeCloudSession {
                 | DesktopLocalHostError::Unavailable
                 | DesktopLocalHostError::AssetExists
                 | DesktopLocalHostError::AssetDeleted
+                | DesktopLocalHostError::AssetReAddBlocked
+                | DesktopLocalHostError::AssetReAddPending
                 | DesktopLocalHostError::CapabilityUnqualified
                 | DesktopLocalHostError::ZoneUnimportable,
             ) => Err(NativeCloudRequestError::Unavailable),

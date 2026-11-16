@@ -144,7 +144,10 @@ describe("Desktop Tauri local-business adapter", () => {
     await expect(port.createDomainAsset(request)).resolves.toEqual(receipt);
     expect(invokeMock).toHaveBeenCalledWith("local_domain_asset_create", { request });
 
-    for (const code of ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED"] as const) {
+    invokeMock.mockResolvedValueOnce({ ...receipt, operation: "re_add" });
+    await expect(port.createDomainAsset(request)).resolves.toMatchObject({ operation: "re_add" });
+
+    for (const code of ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED", "DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED", "DESKTOP_LOCAL_ASSET_RE_ADD_PENDING"] as const) {
       invokeMock.mockRejectedValueOnce(code);
       await expect(port.createDomainAsset(request)).rejects.toEqual(expect.objectContaining({ name: "LocalWriteError", code }));
     }

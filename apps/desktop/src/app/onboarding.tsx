@@ -233,11 +233,11 @@ export function Onboarding({ locale, windowFrame, lease, publication, ports, onP
   // Same path as the asset library: the domain is the deduplication key, so a repeat is `exists`.
   const addDomain = async (domain: CanonicalDomainName): Promise<AddDomainOutcome> => {
     const result = await addDomainAsset(ports.business, mutations, domain, publication.status.readGeneration);
-    if (result.outcome !== "added") return result.outcome;
+    if (result.outcome !== "added" && result.outcome !== "re-adding") return result.outcome;
     setAdded((count) => count + 1);
     // The add is committed; a failed re-read only leaves the counts stale until the next publication.
     void readAuthoritativeWorkspacePublication(ports, result.accepted.receipt.readGeneration).then(onPublication, () => undefined);
-    return "added";
+    return result.outcome;
   };
 
   return (

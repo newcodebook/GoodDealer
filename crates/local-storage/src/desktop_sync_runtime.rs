@@ -486,7 +486,8 @@ impl DesktopSyncRuntime {
             Err(
                 BusinessDatabaseError::InvalidInput
                 | BusinessDatabaseError::AssetDeleted
-                | BusinessDatabaseError::AssetReAddPending,
+                | BusinessDatabaseError::AssetReAddPending
+                | BusinessDatabaseError::AssetReAddBlocked,
             ) => Err(DesktopSyncError::ZoneUnimportable),
             Err(error) => Err(map_database_error(error)),
         }

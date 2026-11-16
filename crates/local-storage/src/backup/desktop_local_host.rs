@@ -65,8 +65,12 @@ pub enum DesktopLocalHostError {
     /// The workspace already holds the domain being added; nothing was written.
     AssetExists,
     /// The domain was deleted and keeps its tombstone, so it cannot be added or changed again
-    /// under the same identity (no path purges a tombstone yet); nothing was written.
+    /// because the re-add preconditions are not met; nothing was written.
     AssetDeleted,
+    /// The deleted entity has unfinished synchronization work or a contested deletion barrier.
+    AssetReAddBlocked,
+    /// A re-add is already waiting for Cloud to confirm or reject it.
+    AssetReAddPending,
     /// The capability has not passed ADR-0024 qualification; nothing was attempted.
     CapabilityUnqualified,
     /// The activated Cloudflare Zone's name cannot become a domain asset (the create path
@@ -84,6 +88,8 @@ impl fmt::Display for DesktopLocalHostError {
             Self::Unavailable => "DESKTOP_LOCAL_HOST_UNAVAILABLE",
             Self::AssetExists => "DESKTOP_LOCAL_ASSET_EXISTS",
             Self::AssetDeleted => "DESKTOP_LOCAL_ASSET_DELETED",
+            Self::AssetReAddBlocked => "DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED",
+            Self::AssetReAddPending => "DESKTOP_LOCAL_ASSET_RE_ADD_PENDING",
             Self::CapabilityUnqualified => "DESKTOP_CAPABILITY_UNQUALIFIED",
             Self::ZoneUnimportable => "DESKTOP_CLOUDFLARE_ZONE_UNIMPORTABLE",
         })
@@ -3556,7 +3562,7 @@ impl DesktopLocalHost {
                 current.workspace_id.as_str(),
                 |database| {
                     database
-                        .install_rebootstrap_plan_guarded(
+                        .install_rebootstrap_plan_with_generations_guarded(
                             &snapshot,
                             &tombstones,
                             checkpoint_revision,
@@ -4710,6 +4716,8 @@ impl DesktopLocalHost {
             | DesktopLocalHostError::Unavailable
             | DesktopLocalHostError::AssetExists
             | DesktopLocalHostError::AssetDeleted
+            | DesktopLocalHostError::AssetReAddBlocked
+            | DesktopLocalHostError::AssetReAddPending
             | DesktopLocalHostError::CapabilityUnqualified
             | DesktopLocalHostError::ZoneUnimportable => DesktopBackupError::StorageRejected,
         })
@@ -5340,6 +5348,8 @@ fn map_host_database_error(error: BusinessDatabaseError) -> DesktopLocalHostErro
         // held, or it was deleted and keeps its tombstone), so each keeps its own code.
         BusinessDatabaseError::AssetExists => DesktopLocalHostError::AssetExists,
         BusinessDatabaseError::AssetDeleted => DesktopLocalHostError::AssetDeleted,
+        BusinessDatabaseError::AssetReAddBlocked => DesktopLocalHostError::AssetReAddBlocked,
+        BusinessDatabaseError::AssetReAddPending => DesktopLocalHostError::AssetReAddPending,
         _ => DesktopLocalHostError::StorageRejected,
     }
 }
@@ -8487,7 +8497,7 @@ mod tests {
     }
 
     #[test]
-    fn business_create_of_a_still_tombstoned_domain_names_the_deletion_and_writes_nothing() {
+    fn business_create_of_an_unsettled_deleted_domain_is_blocked_without_writing() {
         let (_directory, host) = development_business_host();
         let before = host.read_domain_detail(domain_detail_request()).unwrap();
         let generation = host.business_status().read_generation;
@@ -8497,14 +8507,42 @@ mod tests {
             before.asset.asset_version,
         ))
         .unwrap();
-        // The deleted domain keeps its tombstone and identity: re-adding is refused
-        // with its own code, not as a duplicate or an opaque storage failure.
+        // A pending deletion cannot be re-added; the Host keeps the refusal actionable and
+        // does not create a second mutation.
         let pending = pending_mutation_count(&host);
         let generation = host.business_status().read_generation;
         let refused =
             host.create_domain_asset(create_request("host-readd", generation, "backup.example"));
-        assert_eq!(refused, Err(DesktopLocalHostError::AssetDeleted));
+        assert_eq!(refused, Err(DesktopLocalHostError::AssetReAddBlocked));
         assert_ne!(refused, Err(DesktopLocalHostError::AssetExists));
+        assert_eq!(pending_mutation_count(&host), pending);
+        assert_eq!(host.business_status().read_generation, generation);
+        assert_eq!(
+            DesktopLocalHostError::AssetReAddBlocked.to_string(),
+            "DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED"
+        );
+    }
+
+    #[test]
+    fn business_create_of_a_deleted_domain_is_refused_as_deleted_while_re_add_is_closed() {
+        // Production builds keep the re-add entry closed until ADR-0029's completion condition
+        // holds, so the Host answers a deleted domain exactly as it did before re-adding existed.
+        crate::active_workspace::business::close_local_re_add_entry_for_test();
+        let (_directory, host) = development_business_host();
+        let before = host.read_domain_detail(domain_detail_request()).unwrap();
+        let generation = host.business_status().read_generation;
+        host.delete_domain_asset(delete_request(
+            "host-delete",
+            generation,
+            before.asset.asset_version,
+        ))
+        .unwrap();
+        let pending = pending_mutation_count(&host);
+        let generation = host.business_status().read_generation;
+        assert_eq!(
+            host.create_domain_asset(create_request("host-readd", generation, "backup.example")),
+            Err(DesktopLocalHostError::AssetDeleted)
+        );
         assert_eq!(pending_mutation_count(&host), pending);
         assert_eq!(host.business_status().read_generation, generation);
         assert_eq!(
