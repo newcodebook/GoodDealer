@@ -4152,6 +4152,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the generation, digest and legacy refusals of one checkpoint state are one matrix"
+    )]
     fn version_3_checkpoint_state_is_verified_and_carries_its_tombstones() {
         let asset = |generation: u64| {
             serde_json::json!({
@@ -4224,6 +4228,61 @@ mod tests {
             RebootstrapPlan::parse(&checkpoint, &serde_json::to_vec(&plan).unwrap()).unwrap_err(),
             RebootstrapError::InvalidPlan
         );
+
+        // The same holds for the generation: an asset or tombstone re-signed into another
+        // generation is not the checkpoint's state (an older generation must not slip past the
+        // install's generation guard, nor a newer one force an advance).
+        let (checkpoint_wire, plan_wire) = rebootstrap_fixture_with_state(
+            "workspace",
+            1,
+            Vec::new(),
+            &[asset(2)],
+            &[tombstone(2)],
+        );
+        let checkpoint = RebootstrapCheckpoint::parse(&checkpoint_wire).unwrap();
+        for (pointer, generation) in [
+            ("/snapshot/assets/0/entityGeneration", 1_u64),
+            ("/snapshot/assets/0/entityGeneration", 3),
+            ("/snapshot/tombstones/0/entityGeneration", 1),
+            ("/snapshot/tombstones/0/entityGeneration", 3),
+        ] {
+            let mut plan: serde_json::Value = serde_json::from_slice(&plan_wire).unwrap();
+            *plan.pointer_mut(pointer).unwrap() = serde_json::json!(generation);
+            plan.as_object_mut().unwrap().remove("pinnedHeadDigest");
+            let resigned = fixture_digest(b"GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", &plan);
+            plan["pinnedHeadDigest"] = serde_json::Value::String(resigned);
+            assert_eq!(
+                RebootstrapPlan::parse(&checkpoint, &serde_json::to_vec(&plan).unwrap())
+                    .unwrap_err(),
+                RebootstrapError::InvalidPlan,
+                "{pointer} = {generation}"
+            );
+        }
+        // Generations outside 1..=2^53-1 never parse, even when the fixture signs them.
+        for generation in [
+            serde_json::json!(0),
+            serde_json::json!(9_007_199_254_740_992_u64),
+        ] {
+            let mut bad_asset = asset(1);
+            bad_asset["entityGeneration"] = generation.clone();
+            let mut bad_tombstone = tombstone(1);
+            bad_tombstone["entityGeneration"] = generation;
+            for (assets, tombstones) in [(vec![bad_asset], vec![]), (vec![], vec![bad_tombstone])] {
+                let (checkpoint_wire, plan_wire) = rebootstrap_fixture_with_state(
+                    "workspace",
+                    1,
+                    Vec::new(),
+                    &assets,
+                    &tombstones,
+                );
+                let refused = RebootstrapCheckpoint::parse(&checkpoint_wire)
+                    .map_err(|_| RebootstrapError::InvalidPlan)
+                    .and_then(|checkpoint| {
+                        RebootstrapPlan::parse(&checkpoint, &plan_wire).map(|_| ())
+                    });
+                assert!(refused.is_err());
+            }
+        }
 
         // A version 2 plan envelope and the version 1 projection-array snapshot are refused.
         let mut legacy: serde_json::Value = serde_json::from_slice(&plan_wire).unwrap();

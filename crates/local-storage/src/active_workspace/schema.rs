@@ -745,6 +745,17 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sync_domain_asset_checkpoint_advances",
+        &[
+            "workspace_id",
+            "entity_id",
+            "from_generation",
+            "to_generation",
+            "checkpoint_server_revision",
+            "local_commit_sequence",
+        ],
+    ),
+    (
         "sync_domain_asset_re_adds",
         &[
             "workspace_id",
@@ -856,3 +867,9 @@ pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_OWNER: &str =
     "active-workspace/rejected-local-delete";
 pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_SQL: &str =
     include_str!("rejected_local_delete.sql");
+
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID: i64 = 202_611_160_001;
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER: &str =
+    "active-workspace/checkpoint-generation-advance";
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL: &str =
+    include_str!("checkpoint_generation_advance.sql");

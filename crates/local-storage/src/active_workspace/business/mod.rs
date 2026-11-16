@@ -3673,10 +3673,46 @@ impl BusinessDatabase {
                 )
                 .optional()
                 .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            if let Some((local_generation, deleted_at)) = root {
-                if local_generation != entity_generation || deleted_at.is_some() {
-                    return Err(BusinessDatabaseError::InvalidInput);
-                }
+            let tombstone_generation: Option<i64> = transaction
+                .query_row(
+                    "SELECT entity_generation FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2",
+                    params![self.workspace_id, asset.entity_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            // The confirmed local generation is the row's, or a tombstone's that arrived alone.
+            let local_generation = root
+                .as_ref()
+                .map(|(generation, _)| *generation)
+                .or(tombstone_generation);
+            if let Some(local_generation) =
+                local_generation.filter(|local| *local < entity_generation)
+            {
+                // Cloud moved on past every generation this replica holds; take its state. The
+                // entity is then installed below exactly as one this replica never held.
+                advance_to_checkpoint_generation(
+                    &transaction,
+                    &self.workspace_id,
+                    &asset.entity_id,
+                    local_generation,
+                    entity_generation,
+                    revision,
+                    local_commit_sequence,
+                )?;
+            } else if root.is_none() && tombstone_generation.is_some() {
+                // A tombstone of this generation or a later one: the live checkpoint asset is older.
+                return Err(BusinessDatabaseError::InvalidInput);
+            } else if let Some((local_generation, deleted_at)) = root {
+                checkpoint_asset_may_merge(
+                    &transaction,
+                    &self.workspace_id,
+                    &asset.entity_id,
+                    entity_generation,
+                    local_generation,
+                    deleted_at.is_some(),
+                )?;
                 merge_checkpoint_existing_asset(
                     &transaction,
                     &self.workspace_id,
@@ -3786,6 +3822,7 @@ impl BusinessDatabase {
                 &transaction,
                 &self.workspace_id,
                 tombstone,
+                revision,
                 local_commit_sequence,
             )?;
         }
@@ -6264,16 +6301,191 @@ fn validate_checkpoint_tombstones(
     Ok(())
 }
 
-/// Installs one checkpoint tombstone exactly as a replicated delete of a clean entity would, with
-/// the checkpoint's deletion revision as its only order evidence. A local tombstone for the same
-/// generation already records this deletion and is kept as is: until re-adding, a generation is
-/// deleted at most once. Unsynced local edits to a deleted entity refuse the whole installation:
-/// a rebootstrap does not yet surface them as conflicts, and they must not be silently dropped.
+/// Whether a live checkpoint asset of `generation` may merge into the local row (ADR-0029 decision
+/// 5). Only a live, settled local row of the same generation merges. Two local states are still
+/// moving and are waited for with `MutationConflict`: this device's own unsettled deletion of that
+/// generation (Cloud has not answered it, so the asset is still live there), and a provisional
+/// re-add that the checkpoint's generation may already contain. Anything else is older or
+/// different data and refuses the installation.
 #[cfg(test)]
+fn checkpoint_asset_may_merge(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+    generation: i64,
+    local_generation: i64,
+    local_deleted: bool,
+) -> Result<(), BusinessDatabaseError> {
+    let (tombstone_state, provisional): (Option<String>, bool) = transaction
+        .query_row(
+            "SELECT (SELECT state FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                       AND entity_generation=?3),
+                    EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+                           WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, entity_id, generation],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if local_generation != generation {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    if local_deleted {
+        return if tombstone_state.as_deref() == Some("pending") {
+            Err(BusinessDatabaseError::MutationConflict)
+        } else {
+            Err(BusinessDatabaseError::InvalidInput)
+        };
+    }
+    if provisional {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    Ok(())
+}
+
+/// Advances an entity from the confirmed local generation `from` to the checkpoint's later
+/// generation `to` (ADR-0029 C3b2): Cloud deleted and re-added it in history compaction folded
+/// away. Only settled local state advances. This device's unfinished work on the entity (an
+/// unsettled or contested deletion, a provisional re-add, an Outbox row still to send, or an
+/// unsynced or conflicted field) belongs to a generation Cloud has superseded, and it must end
+/// through its push result or conflict resolution first, so the installation waits with
+/// `MutationConflict`. The row is then reset exactly as an Inbox re-add resets it (sync fields,
+/// tags and local intent cleared, local lifecycle fields emptied, field versions removed; Provider
+/// bindings and observations describe the real domain and stay), leaving a clean live row of
+/// generation `to` for the checkpoint's values or tombstone.
+#[cfg(test)]
+fn advance_to_checkpoint_generation(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    entity_id: &str,
+    from: i64,
+    to: i64,
+    checkpoint_revision: i64,
+    local_commit_sequence: i64,
+) -> Result<(), BusinessDatabaseError> {
+    let unsettled: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+                           WHERE workspace_id=?1 AND entity_id=?2)
+                 OR EXISTS(SELECT 1 FROM sync_outbox
+                           WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                             AND state IN ('pending','sending'))
+                 OR EXISTS(SELECT 1 FROM sync_tombstones
+                           WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                             AND (state NOT IN ('acknowledged','replicated')
+                                  OR barrier_state='contested'
+                                  OR deleted_server_revision IS NULL))
+                 OR EXISTS(SELECT 1 FROM domain_asset_field_versions
+                           WHERE workspace_id=?1 AND entity_id=?2
+                             AND sync_state IN ('pending','conflicted'))
+                 OR EXISTS(SELECT 1 FROM sync_conflicts
+                           WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
+                             AND status='open')",
+            params![workspace_id, entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    // The schema re-checks the transition itself (current generation, confirmed uncontested
+    // tombstone, no provisional re-add or unfinished Outbox row). Unsynced fields and open
+    // conflicts are only checked here: they decide whether to wait, not whether the advance is a
+    // valid transition.
+    if unsettled {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    transaction
+        .execute(
+            "INSERT INTO sync_domain_asset_checkpoint_advances
+             (workspace_id,entity_id,from_generation,to_generation,checkpoint_server_revision,
+              local_commit_sequence)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                workspace_id,
+                entity_id,
+                from,
+                to,
+                checkpoint_revision,
+                local_commit_sequence
+            ],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "DELETE FROM sync_tombstones
+             WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2",
+            params![workspace_id, entity_id],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "UPDATE domain_assets SET entity_generation=?3, lifecycle_status='active',
+               deleted_at=NULL, acquired_on=NULL, expires_on=NULL,
+               acquisition_cost_currency=NULL, acquisition_cost_amount=NULL, auto_renew=NULL,
+               registrar_lock=NULL, local_commit_sequence=?4,
+               updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+             WHERE workspace_id=?1 AND entity_id=?2",
+            params![workspace_id, entity_id, to, local_commit_sequence],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "UPDATE portfolio_domain_assets SET note=NULL, portfolio_id=NULL, tags_json='[]',
+               target_price_currency=NULL, target_price_amount=NULL, note_server_revision=?3,
+               portfolio_id_server_revision=?3, tags_server_revision=?3,
+               target_price_server_revision=?3
+             WHERE workspace_id=?1 AND entity_id=?2",
+            params![workspace_id, entity_id, checkpoint_revision],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    transaction
+        .execute(
+            "UPDATE domain_asset_desired_state SET portfolio_id=NULL, note=NULL,
+               target_price_currency=NULL, target_price_amount=NULL, desired_sale_status='hold',
+               desired_nameservers_json='[]', local_commit_sequence=?3,
+               updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+             WHERE workspace_id=?1 AND entity_id=?2",
+            params![workspace_id, entity_id, local_commit_sequence],
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    for statement in [
+        "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
+        "DELETE FROM domain_asset_field_versions WHERE workspace_id=?1 AND entity_id=?2",
+    ] {
+        transaction
+            .execute(statement, params![workspace_id, entity_id])
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    Ok(())
+}
+
+/// The local state a checkpoint tombstone is compared with.
+#[cfg(test)]
+struct LocalTombstoneState {
+    tombstone_generation: Option<i64>,
+    state: Option<String>,
+    barrier: Option<String>,
+    deleted_server_revision: Option<i64>,
+    asset_generation: Option<i64>,
+    asset_deleted: bool,
+    provisional_re_add: bool,
+}
+
+/// Installs one checkpoint tombstone exactly as a replicated delete of a clean entity would, with
+/// the checkpoint's deletion revision as its only order evidence. A generation is deleted at most
+/// once, so a confirmed local tombstone of the same generation and revision is this deletion and
+/// is kept as is (under a provisional re-add it is only confirmed). A later checkpoint generation
+/// first advances the entity to it. Unsynced local edits to the deleted entity make the whole
+/// installation wait: a rebootstrap does not yet surface them as conflicts, and they must not be
+/// silently dropped.
+#[cfg(test)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the generation comparison, the advance and the tombstone write share one decision"
+)]
 fn install_checkpoint_tombstone(
     transaction: &rusqlite::Connection,
     workspace_id: &str,
     tombstone: &RebootstrapTombstone,
+    checkpoint_revision: i64,
     local_commit_sequence: i64,
 ) -> Result<(), BusinessDatabaseError> {
     let generation = i64::try_from(tombstone.entity_generation)
@@ -6288,6 +6500,8 @@ fn install_checkpoint_tombstone(
                      WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2),
                     (SELECT barrier_state FROM sync_tombstones
                      WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2),
+                    (SELECT deleted_server_revision FROM sync_tombstones
+                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2),
                     (SELECT entity_generation FROM domain_assets
                      WHERE workspace_id=?1 AND entity_id=?2),
                     (SELECT deleted_at FROM domain_assets
@@ -6296,34 +6510,71 @@ fn install_checkpoint_tombstone(
                            WHERE workspace_id=?1 AND entity_id=?2)",
             params![workspace_id, tombstone.entity_id],
             |row| {
-                Ok((
-                    row.get::<_, Option<i64>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, bool>(5)?,
-                ))
+                Ok(LocalTombstoneState {
+                    tombstone_generation: row.get(0)?,
+                    state: row.get(1)?,
+                    barrier: row.get(2)?,
+                    deleted_server_revision: row.get(3)?,
+                    asset_generation: row.get(4)?,
+                    asset_deleted: row.get::<_, Option<String>>(5)?.is_some(),
+                    provisional_re_add: row.get(6)?,
+                })
             },
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    match local_state {
-        (Some(local), Some(state), Some(barrier), Some(asset_generation), Some(_), false) => {
-            return if local == generation
-                && asset_generation == generation
-                && matches!(state.as_str(), "acknowledged" | "replicated")
-                && barrier != "contested"
-            {
-                Ok(())
-            } else {
-                Err(BusinessDatabaseError::InvalidInput)
-            };
+    // ADR-0029 decision 5: the confirmed local generation is the tombstone's, else the row's. A
+    // later one makes the checkpoint older data; an earlier one means Cloud deleted and re-added
+    // the entity since, so the replica advances to the checkpoint's generation first and then
+    // installs its deletion like that of any live entity of that generation.
+    let confirmed_generation = local_state
+        .tombstone_generation
+        .or(local_state.asset_generation);
+    if let Some(local) = confirmed_generation.filter(|local| *local < generation) {
+        if local_state.provisional_re_add {
+            return Err(BusinessDatabaseError::MutationConflict);
         }
-        (Some(_), _, _, _, _, _) => return Err(BusinessDatabaseError::InvalidInput),
-        (None, _, _, Some(local), _, _) if local != generation => {
+        advance_to_checkpoint_generation(
+            transaction,
+            workspace_id,
+            &tombstone.entity_id,
+            local,
+            generation,
+            checkpoint_revision,
+            local_commit_sequence,
+        )?;
+    } else if let Some(local) = local_state.tombstone_generation {
+        if local != generation {
             return Err(BusinessDatabaseError::InvalidInput);
         }
-        _ => {}
+        // This device's own deletion is still unsettled (sent or waiting, no Cloud revision yet),
+        // or a remote deletion met unsynced local edits. Both end through the existing push result
+        // or conflict resolution, so the installation waits rather than deciding for them.
+        if local_state.state.as_deref() == Some("pending")
+            || local_state.barrier.as_deref() == Some("contested")
+        {
+            return Err(BusinessDatabaseError::MutationConflict);
+        }
+        let confirmed = matches!(
+            local_state.state.as_deref(),
+            Some("acknowledged" | "replicated")
+        ) && local_state.deleted_server_revision == Some(revision);
+        // A confirmed tombstone of this generation is the checkpoint's deletion. Under a
+        // provisional re-add it only confirms that tombstone (decision 4): the provisional g + 1
+        // row and its Outbox item are left to the acknowledgement or rejection.
+        let row_matches = if local_state.provisional_re_add {
+            local_state.asset_generation == Some(generation + 1) && !local_state.asset_deleted
+        } else {
+            local_state.asset_generation == Some(generation) && local_state.asset_deleted
+        };
+        return if confirmed && row_matches {
+            Ok(())
+        } else {
+            Err(BusinessDatabaseError::InvalidInput)
+        };
+    } else if let Some(local) = local_state.asset_generation
+        && local != generation
+    {
+        return Err(BusinessDatabaseError::InvalidInput);
     }
     let unsynced: i64 = transaction
         .query_row(
@@ -16227,7 +16478,7 @@ mod tests {
         };
         refused(
             "DELETE FROM sync_tombstones",
-            "a tombstone is removed only by a confirmed re-add or rejected local delete",
+            "a tombstone is removed only by a confirmed re-add, a rejected local delete or a checkpoint advance",
         );
         // Either guard may fire first; both refuse a revival under the tombstone.
         refused(
@@ -17646,26 +17897,537 @@ mod tests {
         assert_eq!(generations, (2, 2, 2));
     }
 
+    fn install_generations(
+        database: &mut TestDatabase,
+        assets: &[RebootstrapAsset],
+        tombstones: &[RebootstrapTombstone],
+        checkpoint_revision: u64,
+    ) -> Result<(), BusinessDatabaseError> {
+        // Each installation publishes its own journal entry.
+        let publication: i64 = database
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT count(*) + 1 FROM sync_rebootstrap_journal",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        database
+            .install_rebootstrap_plan_with_generations_guarded(
+                assets,
+                tombstones,
+                checkpoint_revision,
+                "reader-local",
+                &[],
+                |proof| Ok(journal_link(proof, u64::try_from(publication).unwrap())),
+                || Ok(()),
+            )
+            .map(|_| ())
+    }
+
+    fn remote_tombstone(generation: u64, deleted_server_revision: u64) -> RebootstrapTombstone {
+        RebootstrapTombstone {
+            entity_id: "remote.test".to_owned(),
+            entity_generation: generation,
+            deleted_server_revision,
+            deleted_at: "2026-11-14T00:00:00Z".to_owned(),
+        }
+    }
+
+    /// Everything an installation could write for `remote.test`, plus the recovery proof.
+    type RemoteFootprint = (
+        DatabaseRecoveryProof,
+        (i64, Option<String>, i64, i64, i64),
+        i64,
+    );
+
+    fn remote_footprint(database: &TestDatabase) -> RemoteFootprint {
+        let outbox: i64 = database
+            .store
+            .raw_connection()
+            .query_row("SELECT count(*) FROM sync_outbox", [], |row| row.get(0))
+            .unwrap();
+        (
+            database.recovery_proof().unwrap(),
+            local_re_add_state(database),
+            outbox,
+        )
+    }
+
     #[test]
-    fn rebootstrap_rejects_checkpoint_tombstone_from_a_different_local_generation() {
+    fn rebootstrap_only_confirms_the_tombstone_under_a_provisional_re_add() {
+        // ADR-0029 decision 4: while g + 1 is provisional, a checkpoint carrying the generation-g
+        // tombstone agrees with the confirmed local state. It confirms that tombstone and leaves
+        // the provisional row and its Outbox item to the acknowledgement or rejection.
         let mut database = database_with_replicated_tombstone();
-        let before = database.recovery_proof().unwrap();
-        let rejected = database.install_rebootstrap_plan_with_generations_guarded(
-            &[],
-            &[RebootstrapTombstone {
-                entity_id: "remote.test".to_owned(),
-                entity_generation: 2,
-                deleted_server_revision: 3,
-                deleted_at: "2026-11-14T00:00:00Z".to_owned(),
-            }],
-            3,
-            "reader-local",
-            &[],
-            |proof| Ok(journal_link(proof, 1)),
-            || Ok(()),
+        database
+            .re_add_domain_asset(
+                "re-add-provisional",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("provisional"),
+            )
+            .unwrap();
+        let state = local_re_add_state(&database);
+        install_generations(&mut database, &[], &[remote_tombstone(1, 2)], 2).unwrap();
+        assert_eq!(local_re_add_state(&database), state);
+        assert_eq!(state.0, 2);
+        assert_eq!(state.3, 1);
+        assert_eq!(
+            database
+                .read_domain_detail("remote.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("provisional")
         );
-        assert_eq!(rejected, Err(BusinessDatabaseError::InvalidInput));
-        assert_eq!(database.recovery_proof().unwrap(), before);
+        // Cloud may already hold g + 1 (this re-add, its acknowledgement lost, or another
+        // device's): the installation waits for the push result rather than deciding it.
+        let before = remote_footprint(&database);
+        assert_eq!(
+            install_generations(
+                &mut database,
+                &[RebootstrapAsset {
+                    asset: re_add_write("cloud"),
+                    entity_generation: 2
+                }],
+                &[],
+                3,
+            ),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(remote_footprint(&database), before);
+        // A tombstone of the same generation at another revision is not this deletion.
+        assert_eq!(
+            install_generations(&mut database, &[], &[remote_tombstone(1, 3)], 3),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(remote_footprint(&database), before);
+    }
+
+    #[test]
+    fn rebootstrap_waits_for_this_devices_unsettled_delete() {
+        let mut database = database();
+        own_create(&mut database);
+        let echoes = acknowledge_claimed(&mut database, 1);
+        pull_echoes(&mut database, 0, &echoes, "confirm-create").unwrap();
+        let version = own_asset_version(&database);
+        database
+            .delete_domain_asset(
+                "delete-unsettled",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:01:00Z",
+                "remote.test",
+                true,
+            )
+            .unwrap();
+        let before = remote_footprint(&database);
+        // Cloud has not answered the delete: the checkpoint may still hold the live asset, or
+        // already hold this deletion. Either way the push result settles it first.
+        assert_eq!(
+            install_generations(
+                &mut database,
+                &[RebootstrapAsset {
+                    asset: re_add_write("cloud"),
+                    entity_generation: 1
+                }],
+                &[],
+                2,
+            ),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(
+            install_generations(&mut database, &[], &[remote_tombstone(1, 2)], 2),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(remote_footprint(&database), before);
+    }
+
+    #[test]
+    fn rebootstrap_waits_for_a_contested_deletion_barrier() {
+        let mut database = database_with_replicated_tombstone();
+        database
+            .store
+            .raw_connection()
+            .execute("UPDATE sync_tombstones SET barrier_state='contested'", [])
+            .unwrap();
+        let before = remote_footprint(&database);
+        assert_eq!(
+            install_generations(&mut database, &[], &[remote_tombstone(1, 2)], 2),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(remote_footprint(&database), before);
+    }
+
+    #[test]
+    fn rebootstrap_refuses_checkpoint_data_older_than_the_confirmed_generation() {
+        // The settled generation-1 tombstone is the confirmed state; a checkpoint showing that
+        // generation live, or a generation-1 deletion at another revision, is older data.
+        let mut database = database_with_replicated_tombstone();
+        let before = remote_footprint(&database);
+        for (assets, tombstones) in [
+            (
+                vec![RebootstrapAsset {
+                    asset: re_add_write("old"),
+                    entity_generation: 1,
+                }],
+                vec![],
+            ),
+            (vec![], vec![remote_tombstone(1, 1)]),
+        ] {
+            assert_eq!(
+                install_generations(&mut database, &assets, &tombstones, 2),
+                Err(BusinessDatabaseError::InvalidInput)
+            );
+            assert_eq!(remote_footprint(&database), before);
+        }
+        // The tombstone itself is accepted and changes nothing.
+        install_generations(&mut database, &[], &[remote_tombstone(1, 2)], 2).unwrap();
+        assert_eq!(remote_footprint(&database).1, before.1);
+    }
+
+    fn advances(database: &TestDatabase) -> Vec<(i64, i64, i64)> {
+        let connection = database.store.raw_connection();
+        let mut statement = connection
+            .prepare(
+                "SELECT from_generation, to_generation, checkpoint_server_revision
+                 FROM sync_domain_asset_checkpoint_advances ORDER BY from_generation",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    /// The generation, deletion and tombstone (generation, revision) of `remote.test`.
+    fn remote_generation(database: &TestDatabase) -> (i64, bool, Option<(i64, i64)>) {
+        let connection = database.store.raw_connection();
+        let (generation, deleted): (i64, Option<String>) = connection
+            .query_row(
+                "SELECT entity_generation, deleted_at FROM domain_assets WHERE entity_id='remote.test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let tombstone = connection
+            .query_row(
+                "SELECT entity_generation, deleted_server_revision FROM sync_tombstones
+                 WHERE entity_id='remote.test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .unwrap();
+        (generation, deleted.is_some(), tombstone)
+    }
+
+    #[test]
+    fn rebootstrap_advances_a_settled_tombstone_to_a_later_checkpoint_deletion() {
+        // Cloud re-added and deleted the entity again in history compaction folded away: the
+        // checkpoint's generation-2 deletion replaces the confirmed generation-1 tombstone.
+        let mut database = database_with_replicated_tombstone();
+        install_generations(&mut database, &[], &[remote_tombstone(2, 3)], 3).unwrap();
+        assert_eq!(remote_generation(&database), (2, true, Some((2, 3))));
+        assert_eq!(advances(&database), [(1, 2, 3)]);
+        // Re-installing the same checkpoint meets its own tombstone and changes nothing.
+        let before = remote_footprint(&database);
+        install_generations(&mut database, &[], &[remote_tombstone(2, 3)], 3).unwrap();
+        assert_eq!(remote_footprint(&database).1, before.1);
+        assert_eq!(advances(&database), [(1, 2, 3)]);
+        // The generation-1 checkpoint data is now older and refused.
+        assert_eq!(
+            install_generations(&mut database, &[], &[remote_tombstone(1, 2)], 3),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+    }
+
+    #[test]
+    fn rebootstrap_advances_a_settled_entity_to_a_later_live_generation() {
+        // From a confirmed tombstone to a live later generation.
+        let mut deleted = database_with_replicated_tombstone();
+        install_generations(
+            &mut deleted,
+            &[RebootstrapAsset {
+                asset: re_add_write("generation two"),
+                entity_generation: 2,
+            }],
+            &[],
+            3,
+        )
+        .unwrap();
+        assert_eq!(remote_generation(&deleted), (2, false, None));
+        assert_eq!(advances(&deleted), [(1, 2, 3)]);
+        let detail = deleted.read_domain_detail("remote.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("generation two"));
+        assert_eq!(detail.asset.tags, ["fresh"]);
+
+        // From a live, synced generation 1 straight to generation 3: nothing of generation 1
+        // survives, and the fields are clean replicated values at the checkpoint revision.
+        let mut live = database();
+        own_create(&mut live);
+        let echoes = acknowledge_claimed(&mut live, 1);
+        pull_echoes(&mut live, 0, &echoes, "confirm-create").unwrap();
+        install_generations(
+            &mut live,
+            &[RebootstrapAsset {
+                asset: DomainAssetWrite {
+                    tags: vec![],
+                    ..re_add_write("generation three")
+                },
+                entity_generation: 3,
+            }],
+            &[],
+            5,
+        )
+        .unwrap();
+        assert_eq!(remote_generation(&live), (3, false, None));
+        assert_eq!(advances(&live), [(1, 3, 5)]);
+        let detail = live.read_domain_detail("remote.test").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("generation three"));
+        assert!(detail.asset.tags.is_empty());
+        let unclean: i64 = live
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT count(*) FROM domain_asset_field_versions
+                 WHERE entity_id='remote.test' AND (sync_state!='clean' OR server_revision!=5)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(unclean, 0);
+    }
+
+    #[test]
+    fn rebootstrap_waits_before_advancing_over_unsettled_local_work() {
+        let later = |generation| RebootstrapAsset {
+            asset: re_add_write("later"),
+            entity_generation: generation,
+        };
+        // An unsynced edit of generation 1 (Cloud has since deleted that generation).
+        let mut edited = database();
+        own_create(&mut edited);
+        let echoes = acknowledge_claimed(&mut edited, 1);
+        pull_echoes(&mut edited, 0, &echoes, "confirm-create").unwrap();
+        let version: i64 = edited
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT local_commit_sequence FROM domain_assets WHERE entity_id='remote.test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version = u64::try_from(version).unwrap();
+        edited
+            .edit_domain_asset(
+                "edit-unsynced",
+                version,
+                "device-local",
+                1,
+                "2026-08-28T00:01:00Z",
+                &re_add_write("mine"),
+                true,
+            )
+            .unwrap();
+        // A provisional re-add whose generation the checkpoint has already passed.
+        let mut provisional = database_with_replicated_tombstone();
+        provisional
+            .re_add_domain_asset(
+                "re-add-provisional",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("provisional"),
+            )
+            .unwrap();
+        for (mut database, assets, tombstones) in [
+            (edited, vec![later(2)], vec![]),
+            (provisional, vec![later(3)], vec![]),
+        ] {
+            let before = remote_footprint(&database);
+            assert_eq!(
+                install_generations(&mut database, &assets, &tombstones, 3),
+                Err(BusinessDatabaseError::MutationConflict)
+            );
+            assert_eq!(remote_footprint(&database), before);
+            assert!(advances(&database).is_empty());
+        }
+        let mut provisional = database_with_replicated_tombstone();
+        provisional
+            .re_add_domain_asset(
+                "re-add-provisional",
+                "device-local",
+                1,
+                "2026-08-28T00:10:00Z",
+                &re_add_write("provisional"),
+            )
+            .unwrap();
+        let before = remote_footprint(&provisional);
+        assert_eq!(
+            install_generations(&mut provisional, &[], &[remote_tombstone(2, 3)], 3),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(remote_footprint(&provisional), before);
+    }
+
+    #[test]
+    fn a_withdrawn_re_add_then_takes_the_cloud_snapshot_and_tombstone() {
+        // ADR-0029: Cloud refuses this device's re-add (another device re-added first), the
+        // provisional generation is withdrawn, and the checkpoint then carries Cloud's state.
+        let rejected = || {
+            let mut database = database_with_replicated_tombstone();
+            database
+                .re_add_domain_asset(
+                    "re-add-refused",
+                    "device-local",
+                    1,
+                    "2026-08-28T00:10:00Z",
+                    &re_add_write("mine"),
+                )
+                .unwrap();
+            let claimed = database
+                .claim_sync_mutations_v2(
+                    "owner-refuse",
+                    "2026-08-28T01:00:00Z",
+                    "2026-08-28T01:01:00Z",
+                    256,
+                )
+                .unwrap();
+            database
+                .reject_sync_batch_v2(
+                    "owner-refuse",
+                    &claimed,
+                    SyncRejectionKind::MutationConflict,
+                )
+                .unwrap();
+            assert_eq!(remote_generation(&database), (1, true, Some((1, 2))));
+            database
+        };
+        // The other device's generation 2 is live in the checkpoint.
+        let mut live = rejected();
+        install_generations(
+            &mut live,
+            &[RebootstrapAsset {
+                asset: re_add_write("theirs"),
+                entity_generation: 2,
+            }],
+            &[],
+            3,
+        )
+        .unwrap();
+        assert_eq!(remote_generation(&live), (2, false, None));
+        assert_eq!(
+            live.read_domain_detail("remote.test")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("theirs")
+        );
+        // The refused attempt stays as evidence.
+        let state: String = live
+            .store
+            .raw_connection()
+            .query_row(
+                "SELECT state FROM sync_outbox WHERE mutation_id='re-add-refused'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "conflicted");
+        // Or Cloud still holds the same generation-1 tombstone: it is confirmed unchanged.
+        let mut deleted = rejected();
+        install_generations(&mut deleted, &[], &[remote_tombstone(1, 2)], 3).unwrap();
+        assert_eq!(remote_generation(&deleted), (1, true, Some((1, 2))));
+        assert!(advances(&deleted).is_empty());
+    }
+
+    #[test]
+    fn a_generation_advances_only_through_its_recorded_settled_checkpoint_advance() {
+        let database = database_with_replicated_tombstone();
+        let connection = database.store.raw_connection();
+        // No record: the generation cannot move, and the tombstone cannot be removed.
+        assert!(
+            connection
+                .execute(
+                    "DELETE FROM sync_tombstones WHERE entity_id='remote.test'",
+                    []
+                )
+                .is_err()
+        );
+        // A record must leave the confirmed generation, and settled state only.
+        for (from, to) in [(2, 3), (1, 1)] {
+            assert!(
+                connection
+                    .execute(
+                        "INSERT INTO sync_domain_asset_checkpoint_advances
+                         VALUES ('workspace-local','remote.test',?1,?2,3,1)",
+                        params![from, to],
+                    )
+                    .is_err()
+            );
+        }
+        connection
+            .execute("UPDATE sync_tombstones SET barrier_state='contested'", [])
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO sync_domain_asset_checkpoint_advances
+                     VALUES ('workspace-local','remote.test',1,2,3,1)",
+                    [],
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("requires settled local state")
+        );
+        connection
+            .execute("UPDATE sync_tombstones SET barrier_state='replicated'", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO sync_domain_asset_checkpoint_advances
+                 VALUES ('workspace-local','remote.test',1,2,3,1)",
+                [],
+            )
+            .unwrap();
+        // The recorded advance names generation 2; no other generation is admitted, and the
+        // record itself is immutable.
+        connection
+            .execute(
+                "DELETE FROM sync_tombstones WHERE entity_id='remote.test'",
+                [],
+            )
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    "UPDATE domain_assets SET entity_generation=3, deleted_at=NULL,
+                     lifecycle_status='active' WHERE entity_id='remote.test'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM sync_domain_asset_checkpoint_advances", [])
+                .is_err()
+        );
+        connection
+            .execute(
+                "UPDATE domain_assets SET entity_generation=2, deleted_at=NULL,
+                 lifecycle_status='active' WHERE entity_id='remote.test'",
+                [],
+            )
+            .unwrap();
     }
 
     #[test]

@@ -28,8 +28,10 @@ use crate::active_workspace::schema::{
     SYNC_WIRE_V3_MIGRATION_ID, SYNC_WIRE_V3_MIGRATION_OWNER, SYNC_WIRE_V3_MIGRATION_SQL,
 };
 use crate::active_workspace::schema::{
-    INBOX_RE_ADD_MIGRATION_ID, INBOX_RE_ADD_MIGRATION_OWNER, INBOX_RE_ADD_MIGRATION_SQL,
-    LOCAL_RE_ADD_MIGRATION_ID, LOCAL_RE_ADD_MIGRATION_OWNER, LOCAL_RE_ADD_MIGRATION_SQL,
+    CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID, CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER,
+    CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL, INBOX_RE_ADD_MIGRATION_ID,
+    INBOX_RE_ADD_MIGRATION_OWNER, INBOX_RE_ADD_MIGRATION_SQL, LOCAL_RE_ADD_MIGRATION_ID,
+    LOCAL_RE_ADD_MIGRATION_OWNER, LOCAL_RE_ADD_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +152,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: REJECTED_LOCAL_DELETE_MIGRATION_ID,
         owner: REJECTED_LOCAL_DELETE_MIGRATION_OWNER,
         sql: REJECTED_LOCAL_DELETE_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID,
+        owner: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER,
+        sql: CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL,
     },
 ];
 
@@ -485,7 +492,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 21);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 22);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -510,7 +517,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 48);
+        assert_eq!(table_count, 49);
         assert!(business_index_count >= 24);
 
         connection
