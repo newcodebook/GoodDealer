@@ -16,6 +16,8 @@ use crate::portfolio_projection::{
 
 mod cloudflare_credential;
 mod cloudflare_retirement;
+#[allow(dead_code)] // ADR-0032 S2a: consumed by the S2b drain coordinator; remove with that slice.
+mod drain_claims;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
     CloudflareCredentialPreparation, CloudflareCredentialPreparationDisposition,

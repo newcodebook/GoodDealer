@@ -407,6 +407,17 @@ describe("P17 canonical byte layouts", () => {
     });
   });
 
+  it("pins the v2 handoff proof transcript and digest input the Desktop Host reproduces (ADR-0032 S2)", () => {
+    const proof = drainProofSchema.parse(vector("drain/valid/proof-handoff-v2-three-streams.json"));
+    expect({
+      proofTranscript: digest(encodeDrainProofSignatureTranscript(proof)),
+      proofDigestInput: digest(encodeDrainProofDigestInput(proof)),
+    }).toEqual({
+      proofTranscript: "XYqcVqbAtXfallw52YDJOmG_VSdcSesHZ13dAF1RY98",
+      proofDigestInput: "wkohcTfRlEUJJcXOFftXcxeVQdDRQlyYGk0d3wmDsZk",
+    });
+  });
+
   it("P17-INV-4 domain-separates workspace and account device-audit chain ids", () => {
     const workspace = encodeWorkspaceDeviceAuditChainDomain({
       workspaceId: "workspace-a",
