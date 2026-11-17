@@ -1,7 +1,7 @@
 # ADR-0032：Desktop 设备切换与 drain 交接
 
 状态：Accepted — 产品负责人于 2026-11-17 按建议接受第 1–5 节与“待产品负责人决定”的全部五项建议（2026-11-16 已决定
-把设备切换纳入 v1，台账第 195 行）。实现中：S1–S4 待完成。实施 [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md)
+把设备切换纳入 v1，台账第 195 行）。实现中：S1a 已实现，S1b–S1d、S2–S4 待完成。实施 [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md)
 的 v2 drain 串通，并是 [ADR-0029](0029-domain-tombstone-purge-and-re-adding.md) 生产重新添加入口的剩余前置。
 
 ## 背景
@@ -95,7 +95,18 @@ ActiveDeviceLease，业务执行在本地 SQLCipher 中进行。把执行权从�
 ## 实施
 
 - S1 Cloud：PostgreSQL 切换请求服务、drain 提交、引导步骤与激活的 HTTP 路由及回执查询；保存 `proof.schemaVersion`；
-  跨租户、过期、重放与绑定不符的负向测试；PostgreSQL 资格运行。
+  跨租户、过期、重放与绑定不符的负向测试；PostgreSQL 资格运行。2026-11-17 源码快照：PostgreSQL 的
+  `PostgresDeviceDrainTransition`、`PostgresBootstrapStepService`、`PostgresBootstrapActivation` 已存在但未组合进任何入口，
+  切换请求只有内存参考实现，引导能力的生产验证密钥源固定拒绝。按共享面拆为：
+  - S1a 本设备回执查询（决策 4）：协议请求/响应、按会话派生的设备读取 `workspace_device_mutation_sequence_ledger`
+    中本设备的 mutation（不接受调用方提供的设备），路由与负向测试。已实现：`POST /v1/workspace-sync/mutations/receipts`（协议
+    `workspaceMutationReceiptRead*` v1，一次至多 256 个互不相同的 mutation id），只对当前 Active 的 Desktop 会话设备
+    返回其自己的回执（mutation id、Lease epoch、设备序号、Cloud 记录的 wire 版本 2/3 与摘要、接受或拒绝），未记录或
+    属于其他设备、其他租户的 id 不出现在结果中；未组合读取器时路由不注册。查询要求会话设备仍持有未释放、未过期的
+    Lease，所以 S2 必须在提交 drain proof（释放 Lease）之前完成版本 2 行的判别；
+  - S1b 切换请求的 PostgreSQL 服务与路由（发起、状态、取消、强制接管），规则与内存参考实现一致；
+  - S1c drain 提交路由：组合 PostgreSQL drain 验证端口与 `PostgresDeviceDrainTransition`，保存 `proof.schemaVersion`；
+  - S1d 引导步骤与激活路由：组合已有服务，引导能力以独立用途密钥签发；开发 OpenBao 可组合，生产密钥属外部资格。
 - S2 Host：停写栅栏、drain 进度、v2 声明折叠与设备密钥签名、版本 2 行判别；rebootstrap 安装进入生产组合。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

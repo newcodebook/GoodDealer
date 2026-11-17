@@ -200,6 +200,49 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
     .strict(),
 ]);
 
+/**
+ * ADR-0032 decision 4: the calling device reads Cloud's own receipts for its mutations, to learn the
+ * wire version and digest Cloud recorded for each. The device is derived from the authenticated
+ * session, never named by the caller, and an id Cloud has no receipt for is simply absent.
+ */
+export const WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION = 1 as const;
+export const MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS = 256 as const;
+
+export const workspaceMutationReceiptReadRequestSchema = z
+  .object({
+    schemaVersion: z.literal(WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION),
+    mutationIds: z.array(identifier).min(1).max(MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS).readonly(),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    if (new Set(request.mutationIds).size !== request.mutationIds.length) {
+      context.addIssue({ code: "custom", path: ["mutationIds"], message: "mutation ids must be unique" });
+    }
+  });
+
+export const workspaceMutationReceiptSchema = z
+  .object({
+    mutationId: identifier,
+    activeLeaseEpoch: safePositiveInteger,
+    deviceMutationSequence: safePositiveInteger,
+    wireSchemaVersion: z.union([z.literal(2), z.literal(3)]),
+    wireMutationDigest: sha256DigestSchema,
+    outcome: z.enum(["accepted", "rejected"]),
+  })
+  .strict();
+
+export const workspaceMutationReceiptReadResponseSchema = z
+  .object({
+    schemaVersion: z.literal(WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION),
+    receipts: z.array(workspaceMutationReceiptSchema).max(MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS).readonly(),
+  })
+  .strict()
+  .superRefine((response, context) => {
+    if (new Set(response.receipts.map((receipt) => receipt.mutationId)).size !== response.receipts.length) {
+      context.addIssue({ code: "custom", path: ["receipts"], message: "receipt mutation ids must be unique" });
+    }
+  });
+
 /** The authenticated server binding selects the workspace whose checkpoint is returned. */
 export const workspaceCheckpointReadRequestSchema = z
   .object({ schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION) })
@@ -281,6 +324,9 @@ export type WorkspaceMutationPullRejectionCode = z.infer<
 >;
 export type WorkspaceMutationPullResponse = z.infer<typeof workspaceMutationPullResponseSchema>;
 export type PendingDelivery = z.infer<typeof pendingDeliverySchema>;
+export type WorkspaceMutationReceiptReadRequest = z.infer<typeof workspaceMutationReceiptReadRequestSchema>;
+export type WorkspaceMutationReceipt = z.infer<typeof workspaceMutationReceiptSchema>;
+export type WorkspaceMutationReceiptReadResponse = z.infer<typeof workspaceMutationReceiptReadResponseSchema>;
 export type WorkspaceCheckpointReadRequest = z.infer<typeof workspaceCheckpointReadRequestSchema>;
 export type WorkspaceCheckpointReadResponse = z.infer<typeof workspaceCheckpointReadResponseSchema>;
 export type WorkspaceRebootstrapRequest = z.infer<typeof workspaceRebootstrapRequestSchema>;

@@ -1,6 +1,10 @@
 import {
+  WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   workspaceCheckpointReadRequestSchema,
+  workspaceMutationReceiptReadRequestSchema,
+  workspaceMutationReceiptReadResponseSchema,
+  type WorkspaceMutationReceiptReadResponse,
   workspaceRebootstrapRequestSchema,
   workspaceMutationPullRequestSchema,
   workspaceMutationPushRequestSchema,
@@ -16,6 +20,7 @@ import type { WorkspaceCheckpointReaderPort } from "../checkpoints/postgres-read
 import type { DefaultWorkspaceTenantResolverPort } from "../default-workspace/index";
 import type { MutationIngestRejectionCode } from "../mutations/index";
 import { PostgresWorkspaceMutationIngest } from "../mutations/postgres-ingest-service";
+import type { PostgresWorkspaceMutationReceiptReader } from "../mutations/postgres-receipt-reader";
 import { PostgresReaderCursorService } from "../cursors/postgres-reader-cursor-service";
 import type { WorkspaceTenantScope } from "../tenant-scope";
 
@@ -24,6 +29,8 @@ export interface WorkspaceSyncApplicationPort {
   pull(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationPullResponse>;
   checkpoint(value: unknown, principal: PublicPrincipal): Promise<unknown>;
   rebootstrap?(value: unknown, principal: PublicPrincipal): Promise<unknown>;
+  /** Null when the session has no active device in a resolved workspace; the route then refuses. */
+  receipts?(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationReceiptReadResponse | null>;
 }
 
 /** Authenticated desktop data-plane adapter. All workspace and device selectors are server-derived. */
@@ -34,6 +41,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     readonly mutations: Pick<PostgresWorkspaceMutationIngest, "ingest">;
     readonly readers: Pick<PostgresReaderCursorService, "open" | "pullV2">;
     readonly checkpoints: WorkspaceCheckpointReaderPort;
+    readonly receipts?: Pick<PostgresWorkspaceMutationReceiptReader, "readOwn">;
   }) {}
 
   async push(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationPushResponse> {
@@ -97,6 +105,22 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     const context = await this.context(principal);
     if (context === null) return null;
     return this.dependencies.checkpoints.readRebootstrapPlan?.(context.scope) ?? null;
+  }
+
+  /**
+   * ADR-0032 decision 4. The device is the session's active device, so a device can read only its
+   * own receipts; a request naming another device's mutation ids simply finds none of them.
+   */
+  async receipts(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationReceiptReadResponse | null> {
+    if (principal.clientKind !== "desktop" || this.dependencies.receipts === undefined) return null;
+    const request = workspaceMutationReceiptReadRequestSchema.parse(value);
+    const context = await this.context(principal);
+    if (context === null) return null;
+    const receipts = await this.dependencies.receipts.readOwn(context.scope, context.deviceId, request.mutationIds);
+    return workspaceMutationReceiptReadResponseSchema.parse({
+      schemaVersion: WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION,
+      receipts,
+    });
   }
 
   private async context(principal: PublicPrincipal): Promise<{ scope: WorkspaceTenantScope; deviceId: string } | null> {

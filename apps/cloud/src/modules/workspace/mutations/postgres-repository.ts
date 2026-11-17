@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { encodeDrainStreamEnvelope, encodeLegacyV2MutationDrainEnvelope } from "@gooddealer/protocol/execution-events";
 import {
   WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
+  workspaceMutationReceiptSchema,
+  type WorkspaceMutationReceipt,
   encodeLegacyV2SubmittedSyncMutationDigestInput,
   encodeSubmittedSyncMutationDigestInput,
   submittedSyncMutationSchema,
@@ -159,6 +161,44 @@ export class PostgresWorkspaceMutationRepository {
     locks.add(handle);
     this.#locks.set(transaction, locks);
     return handle;
+  }
+
+  /**
+   * ADR-0032 decision 4: the receipts Cloud holds for one device's own mutations, with the wire
+   * version and digest each was recorded under. Receipts are insert-only, so a plain read in the
+   * tenant transaction is consistent; ids without a receipt are omitted, never invented.
+   */
+  async readOwnReceipts(
+    transaction: TenantTransaction,
+    sourceDeviceId: string,
+    mutationIds: readonly string[],
+  ): Promise<WorkspaceMutationReceipt[]> {
+    const result = await transaction.query<{
+      mutation_id: string;
+      active_lease_epoch: string;
+      device_mutation_sequence: string;
+      wire_schema_version: number;
+      wire_mutation_digest: Buffer;
+      outcome: string;
+    }>(
+      `SELECT mutation_id, active_lease_epoch, device_mutation_sequence,
+              wire_schema_version, wire_mutation_digest, outcome
+       FROM workspace_device_mutation_sequence_ledger
+       WHERE account_id = $1 AND workspace_id = $2 AND source_device_id = $3
+         AND mutation_id = ANY($4::text[])
+       ORDER BY mutation_id COLLATE "C"`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, identifier.parse(sourceDeviceId), [...mutationIds]],
+    );
+    // A row stored under wire version 1 is outside the receipt contract; the whole read throws
+    // rather than omitting it, so the Host never mistakes it for an unsent mutation.
+    return result.rows.map((row) => workspaceMutationReceiptSchema.parse({
+      mutationId: row.mutation_id,
+      activeLeaseEpoch: parseUnsignedInteger(row.active_lease_epoch, "receipt lease epoch"),
+      deviceMutationSequence: parseUnsignedInteger(row.device_mutation_sequence, "receipt sequence"),
+      wireSchemaVersion: row.wire_schema_version,
+      wireMutationDigest: parseDigest(row.wire_mutation_digest, "receipt wire digest"),
+      outcome: row.outcome,
+    }));
   }
 
   async resolveReceipt(

@@ -28,7 +28,7 @@ const mutation = {
 };
 const pullRequest = { schemaVersion: 3 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 256 };
 
-function fixture(pullResults: unknown[]) {
+function fixture(pullResults: unknown[], receipts?: { readOwn: ReturnType<typeof vi.fn> }, activeDevice: string | null = "device-sync") {
   const ingest = vi.fn(async () => ({ accepted: true as const, assignments: [{
     mutationId: mutation.mutationId, deviceMutationSequence: 1, serverRevision: 1, duplicate: false,
   }], headRevision: 1 }));
@@ -36,11 +36,12 @@ function fixture(pullResults: unknown[]) {
   const pullV2 = vi.fn(async () => pullResults.shift() as never);
   const readLatestAvailable = vi.fn(async () => checkpoint);
   const application = new PostgresWorkspaceSyncApplication({
-    authority: { resolveActiveDevice: vi.fn(async () => "device-sync") },
+    authority: { resolveActiveDevice: vi.fn(async () => activeDevice) },
     workspaces: { resolve: vi.fn(async () => scope) },
     mutations: { ingest },
     readers: { open, pullV2 },
     checkpoints: { readLatestAvailable },
+    ...(receipts === undefined ? {} : { receipts: receipts as never }),
   });
   return { application, ingest, open, pullV2, readLatestAvailable };
 }
@@ -85,6 +86,49 @@ describe("workspace sync authenticated application", () => {
       checkpoint,
     });
     expect(subject.readLatestAvailable).toHaveBeenCalledWith(scope);
+  });
+});
+
+describe("workspace sync own-receipt lookup (ADR-0032 decision 4)", () => {
+  const receipt = {
+    mutationId: "mutation-sync", activeLeaseEpoch: 1, deviceMutationSequence: 1,
+    wireSchemaVersion: 2, wireMutationDigest: "D".repeat(43), outcome: "accepted",
+  } as const;
+  const request = { schemaVersion: 1, mutationIds: ["mutation-sync", "mutation-other"] } as const;
+
+  it("reads only the session's active device, never a device the caller names", async () => {
+    const readOwn = vi.fn(async () => [receipt]);
+    const subject = fixture([], { readOwn });
+    await expect(subject.application.receipts(request, principal)).resolves.toEqual({ schemaVersion: 1, receipts: [receipt] });
+    expect(readOwn).toHaveBeenCalledWith(scope, "device-sync", ["mutation-sync", "mutation-other"]);
+    // A caller-supplied device is unknown wire, rejected before any read.
+    await expect(subject.application.receipts({ ...request, sourceDeviceId: "other-device" }, principal)).rejects.toThrow();
+    expect(readOwn).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns nothing for a non-Desktop client, no active device, or no composed reader", async () => {
+    const readOwn = vi.fn(async () => [receipt]);
+    await expect(fixture([], { readOwn }).application.receipts(request, { ...principal, clientKind: "web" as never })).resolves.toBeNull();
+    await expect(fixture([], { readOwn }, null).application.receipts(request, principal)).resolves.toBeNull();
+    await expect(fixture([]).application.receipts(request, principal)).resolves.toBeNull();
+    expect(readOwn).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on a hostile request or a reader result outside the response contract", async () => {
+    const readOwn = vi.fn(async () => [receipt]);
+    const subject = fixture([], { readOwn });
+    for (const hostile of [
+      { schemaVersion: 1, mutationIds: [] },
+      { schemaVersion: 1, mutationIds: ["a", "a"] },
+      { schemaVersion: 2, mutationIds: ["a"] },
+      { schemaVersion: 1, mutationIds: Array.from({ length: 257 }, (_, index) => `m-${index}`) },
+    ]) {
+      await expect(subject.application.receipts(hostile, principal)).rejects.toThrow();
+    }
+    expect(readOwn).not.toHaveBeenCalled();
+    for (const bad of [[{ ...receipt, wireSchemaVersion: 1 }], [receipt, receipt], [{ ...receipt, sourceDeviceId: "device-sync" }]]) {
+      await expect(fixture([], { readOwn: vi.fn(async () => bad) }).application.receipts(request, principal)).rejects.toThrow();
+    }
   });
 });
 

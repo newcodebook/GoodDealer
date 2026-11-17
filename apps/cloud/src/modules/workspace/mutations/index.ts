@@ -10,6 +10,7 @@ export {
   type MutationReceipt,
   type MutationReceiptResolution,
 } from "./postgres-repository";
+export { PostgresWorkspaceMutationReceiptReader } from "./postgres-receipt-reader";
 export {
   PostgresWorkspaceMutationIngest,
   type PostgresMutationCommitFaultPoint,

@@ -80,6 +80,11 @@ export {
   workspaceMutationPushResponseSchema,
   pendingDeliverySchema,
   workspaceSyncOperationSchema,
+  MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS,
+  WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION,
+  workspaceMutationReceiptReadRequestSchema,
+  workspaceMutationReceiptReadResponseSchema,
+  workspaceMutationReceiptSchema,
 } from "./sync-transport";
 export type {
   WorkspaceCheckpointReadRequest,
@@ -95,6 +100,9 @@ export type {
   WorkspaceMutationPushResponse,
   PendingDelivery,
   WorkspaceSyncOperation,
+  WorkspaceMutationReceipt,
+  WorkspaceMutationReceiptReadRequest,
+  WorkspaceMutationReceiptReadResponse,
 } from "./sync-transport";
 
 export {

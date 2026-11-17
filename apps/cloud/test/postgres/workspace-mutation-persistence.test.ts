@@ -24,7 +24,7 @@ import {
 } from "../../src/modules/devices/index";
 import { PostgresExecutionFactDrainLedger } from "../../src/modules/execution-ledger/index";
 import { PostgresIdentityAccountSecurityStatePort } from "../../src/modules/identity/index";
-import { PostgresMutationDrainLedger } from "../../src/modules/workspace/mutations/index";
+import { PostgresMutationDrainLedger, PostgresWorkspaceMutationReceiptReader } from "../../src/modules/workspace/mutations/index";
 import { PostgresWorkspaceMutationIngest } from "../../src/modules/workspace/mutations/postgres-ingest-service";
 import { PostgresWorkspaceMutationRepository } from "../../src/modules/workspace/mutations/postgres-repository";
 import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
@@ -506,6 +506,49 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     });
     await expect(service.ingest(scopeA, pushRequest({ ...stale, changedFields: [{ fieldPath: "tags", value: ["other"] }] })))
       .resolves.toMatchObject({ accepted: false, code: "MUTATION_ID_CONFLICT" });
+  });
+
+  it("ADR-0032 reads a device's own receipts with the wire version and digest Cloud recorded", async () => {
+    await transactions.withTenant(scopeA, (transaction) => portfolio.seed(transaction, {
+      entityId: "asset-1.test", note: null, portfolioId: null, tags: [], targetPrice: null,
+    }));
+    const service = new PostgresWorkspaceMutationIngest({ transactions, authority, revisions, portfolio, mutations });
+    const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
+      ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
+    });
+    const accepted = submitted("own-accepted", 1, 0);
+    await expect(service.ingest(scopeA, pushRequest(accepted, tags("own-tags", 2, 0)))).resolves.toMatchObject({ accepted: true });
+    const stale = tags("own-stale", 3, 0);
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({ accepted: false });
+    // Cloud recorded the rejection before C1a: version 2 and its v2 digest.
+    const { workspaceId: _workspaceId, ...tenantNeutral } = stale;
+    const legacyWireDigest = createHash("sha256").update(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral)).digest();
+    await ownerPool.query("BEGIN");
+    try {
+      await ownerPool.query("SELECT set_config('gooddealer.account_id', $1, true)", [scopeA.accountId]);
+      await ownerPool.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scopeA.workspaceId]);
+      await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger DISABLE TRIGGER USER");
+      await ownerPool.query(`UPDATE workspace_device_mutation_sequence_ledger
+        SET wire_schema_version = 2, wire_mutation_digest = $1 WHERE device_mutation_sequence = 3`, [legacyWireDigest]);
+      await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger ENABLE TRIGGER USER");
+      await ownerPool.query("COMMIT");
+    } catch (error) {
+      await ownerPool.query("ROLLBACK");
+      throw error;
+    }
+
+    const reader = new PostgresWorkspaceMutationReceiptReader({ transactions, repository: mutations });
+    const ids = ["own-stale", "own-accepted", "never-sent"];
+    const receipts = await reader.readOwn(scopeA, "device-1", ids);
+    expect(receipts).toEqual([
+      expect.objectContaining({ mutationId: "own-accepted", deviceMutationSequence: 1, wireSchemaVersion: 3, outcome: "accepted" }),
+      { mutationId: "own-stale", activeLeaseEpoch: 1, deviceMutationSequence: 3, wireSchemaVersion: 2,
+        wireMutationDigest: legacyWireDigest.toString("base64url"), outcome: "rejected" },
+    ]);
+    // Another device's view and another tenant holding the same ids see none of them.
+    await expect(reader.readOwn(scopeA, "device-2", ids)).resolves.toEqual([]);
+    await expect(reader.readOwn(scopeB, "device-1", ids)).resolves.toEqual([]);
+    await expect(reader.readOwn({ accountId: "", workspaceId: scopeA.workspaceId }, "device-1", ids)).rejects.toThrow();
   });
 
   it("rejects a poison item without persisting any prefix of the v2 batch", async () => {

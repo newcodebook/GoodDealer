@@ -28,6 +28,7 @@ import { PostgresWorkspaceCheckpointReader } from "../modules/workspace/checkpoi
 import { PostgresReaderCursorRepository } from "../modules/workspace/cursors/postgres-reader-cursor-repository";
 import { PostgresReaderCursorService } from "../modules/workspace/cursors/postgres-reader-cursor-service";
 import { PostgresWorkspaceMutationIngest } from "../modules/workspace/mutations/postgres-ingest-service";
+import { PostgresWorkspaceMutationReceiptReader } from "../modules/workspace/mutations/postgres-receipt-reader";
 import { PostgresReaderMutationPage } from "../modules/workspace/mutations/postgres-reader-page";
 import { PostgresWorkspaceMutationRepository } from "../modules/workspace/mutations/postgres-repository";
 import { PostgresWorkspaceRevisionRepository } from "../modules/workspace/revisions/postgres-repository";
@@ -212,6 +213,7 @@ export function createPostgresCloudPublicHttp(
       }),
       readers,
       checkpoints: new PostgresWorkspaceCheckpointReader(tenantTransactions),
+      receipts: new PostgresWorkspaceMutationReceiptReader({ transactions: tenantTransactions, repository: mutations }),
     });
   })();
   return createCloudPublicHttp({

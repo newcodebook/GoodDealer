@@ -51,6 +51,7 @@ export const POSTGRES_WORKSPACE_SYNC_TESTS = Object.freeze({
     "ADR-0029 assigns one generation when the same re-add arrives twice at once",
     "ADR-0029 C1a replays and reads a mutation Cloud accepted under wire v2",
     "ADR-0029 C1a replays a business rejection Cloud recorded under wire v2",
+    "ADR-0032 reads a device's own receipts with the wire version and digest Cloud recorded",
     "rejects a poison item without persisting any prefix of the v2 batch",
     "creates an asset the replica does not hold from its first upsert, in this tenant only",
     "serializes two concurrent first upserts of one asset into one creation",

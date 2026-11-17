@@ -7,6 +7,7 @@ import {
   WORKSPACE_SYNC_CHECKPOINT_ROUTE,
   WORKSPACE_SYNC_PULL_ROUTE,
   WORKSPACE_SYNC_PUSH_ROUTE,
+  WORKSPACE_SYNC_RECEIPTS_ROUTE,
 } from "../../src/entrypoints/routes/public/boundary";
 import { StaticPublicSessionVerifier } from "../support/public-session";
 
@@ -30,7 +31,7 @@ describe("workspace sync public routes", () => {
   const apps: FastifyInstance[] = [];
   afterEach(async () => Promise.all(apps.splice(0).map(async (app) => app.close())));
 
-  function create() {
+  function create(options: { receipts?: boolean } = {}) {
     const push = vi.fn(async () => ({
       schemaVersion: 3 as const,
       accepted: true as const,
@@ -64,6 +65,11 @@ describe("workspace sync public routes", () => {
       confirmToken: "B".repeat(43),
     }));
     const checkpoint = vi.fn(async () => ({ schemaVersion: 3 as const, checkpoint: null }));
+    const receipts = vi.fn(async (request: { mutationIds: readonly string[] }) => (request.mutationIds.includes("denied") ? null : {
+      schemaVersion: 1 as const,
+      receipts: [{ mutationId: mutation.mutationId, activeLeaseEpoch: 1, deviceMutationSequence: 1,
+        wireSchemaVersion: 2 as const, wireMutationDigest: "D".repeat(43), outcome: "accepted" as const }],
+    }));
     const app = createPublicHttp({
       sessions: new StaticPublicSessionVerifier([]),
       desktopAccessTokens: { async verifyAccessToken(token) { return token === "sync-token" ? principal : null; } },
@@ -80,11 +86,11 @@ describe("workspace sync public routes", () => {
           requestFirstPurchaseRefund: async () => null, readFirstPurchaseRefundStatus: async () => null,
           claimApprovalRedirect: async () => null,
         },
-        workspaceSync: { push, pull, checkpoint },
+        workspaceSync: { push, pull, checkpoint, ...(options.receipts === false ? {} : { receipts }) },
       },
     });
     apps.push(app);
-    return { app, push, pull, checkpoint };
+    return { app, push, pull, checkpoint, receipts };
   }
 
   it("exposes push, pull, and checkpoint only to a verified desktop bearer", async () => {
@@ -122,5 +128,52 @@ describe("workspace sync public routes", () => {
       headers: { cookie: "gd_session=unknown" }, payload: { schemaVersion: 3 },
     });
     expect(cookie.statusCode).toBe(401);
+  });
+
+  it("reads own receipts only for a verified desktop bearer and never accepts a named device", async () => {
+    const { app, receipts } = create();
+    const headers = { authorization: "Bearer sync-token" };
+    const request = { schemaVersion: 1, mutationIds: [mutation.mutationId] };
+    const ok = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers, payload: request });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ schemaVersion: 1, receipts: [{ mutationId: mutation.mutationId, wireSchemaVersion: 2 }] });
+    expect(receipts).toHaveBeenCalledWith(request, principal);
+    for (const payload of [
+      { ...request, sourceDeviceId: "other-device" },
+      { ...request, workspaceId: "foreign" },
+      { schemaVersion: 1, mutationIds: [] },
+      { schemaVersion: 1, mutationIds: ["a", "a"] },
+    ]) {
+      const rejected = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers, payload });
+      expect(rejected.statusCode).toBe(400);
+    }
+    expect(receipts).toHaveBeenCalledTimes(1);
+    const denied = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers, payload: { schemaVersion: 1, mutationIds: ["denied"] } });
+    expect(denied.statusCode).toBeGreaterThanOrEqual(400);
+    expect(denied.json()).not.toHaveProperty("receipts");
+    const cookie = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers: { cookie: "gd_session=unknown" }, payload: request });
+    expect(cookie.statusCode).toBe(401);
+  });
+
+  it("admits the largest schema-valid receipt request and refuses one id more", async () => {
+    const { app, receipts } = create();
+    const headers = { authorization: "Bearer sync-token" };
+    // Every character escapes to two JSON bytes; a distinct prefix keeps the ids unique.
+    const ids = Array.from({ length: 256 }, (_, index) => `${index.toString().padStart(3, "0")}${"\\".repeat(157)}`);
+    const largest = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers, payload: { schemaVersion: 1, mutationIds: ids } });
+    expect(largest.statusCode).toBe(200);
+    expect(receipts).toHaveBeenCalledTimes(1);
+    const tooMany = await app.inject({ method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE, headers, payload: { schemaVersion: 1, mutationIds: [...ids, "extra"] } });
+    expect(tooMany.statusCode).toBe(400);
+    expect(receipts).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not register the receipt route without a composed reader", async () => {
+    const { app } = create({ receipts: false });
+    const response = await app.inject({
+      method: "POST", url: WORKSPACE_SYNC_RECEIPTS_ROUTE,
+      headers: { authorization: "Bearer sync-token" }, payload: { schemaVersion: 1, mutationIds: [mutation.mutationId] },
+    });
+    expect(response.statusCode).toBe(404);
   });
 });

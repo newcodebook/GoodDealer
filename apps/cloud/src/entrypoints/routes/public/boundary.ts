@@ -47,6 +47,8 @@ import {
   workspaceCheckpointReadRequestSchema,
   workspaceCheckpointReadResponseSchema,
   workspaceRebootstrapRequestSchema,
+  workspaceMutationReceiptReadRequestSchema,
+  workspaceMutationReceiptReadResponseSchema,
   rebootstrapPlanSchema,
   workspaceMutationPullRequestSchema,
   workspaceMutationPullResponseSchema,
@@ -55,6 +57,7 @@ import {
   type WorkspaceCheckpointReadRequest,
   type WorkspaceCheckpointReadResponse,
   type WorkspaceRebootstrapRequest,
+  type WorkspaceMutationReceiptReadRequest,
   type WorkspaceMutationPullRequest,
   type WorkspaceMutationPullResponse,
   type WorkspaceMutationPushRequest,
@@ -122,6 +125,7 @@ export const WORKSPACE_SYNC_PUSH_ROUTE = "/v1/workspace-sync/mutations/push" as 
 export const WORKSPACE_SYNC_PULL_ROUTE = "/v1/workspace-sync/mutations/pull" as const;
 export const WORKSPACE_SYNC_CHECKPOINT_ROUTE = "/v1/workspace-sync/checkpoint" as const;
 export const WORKSPACE_REBOOTSTRAP_ROUTE = "/v1/workspace-sync/rebootstrap" as const;
+export const WORKSPACE_SYNC_RECEIPTS_ROUTE = "/v1/workspace-sync/mutations/receipts" as const;
 export const CLOUDFLARE_DNS_OBSERVATION_ROUTE = "/v1/workspace-observations/cloudflare-dns" as const;
 
 export class PublicRouteAuthorizationError extends Error {}
@@ -313,6 +317,24 @@ export function createPublicBusinessRoutes(
         ports.workspaceSync!.rebootstrap?.(request, principal) ?? Promise.resolve(null),
       bodyLimit: 256,
     },
+    ...(ports.workspaceSync.receipts === undefined ? [] : [{
+      surface: PUBLIC_SURFACE,
+      method: "POST",
+      path: WORKSPACE_SYNC_RECEIPTS_ROUTE,
+      request: workspaceMutationReceiptReadRequestSchema,
+      response: workspaceMutationReceiptReadResponseSchema,
+      requiredScope: null,
+      authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+      invoke: async (request: WorkspaceMutationReceiptReadRequest, principal: PublicPrincipal) => {
+        const response = await ports.workspaceSync!.receipts!(request, principal);
+        if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+        return response;
+      },
+      // Worst schema-valid body: 256 identifiers of 160 printable ASCII characters, each of which
+      // may be `"` or `\` and JSON-escape to two bytes, plus quotes and separators (256 * 323 bytes
+      // = 82,688) and the envelope. 96 KiB admits that and nothing near an order of magnitude more.
+      bodyLimit: 96 * 1024,
+    } as PublicRoute<any, any>]),
   ];
   const cloudflareObservationRoutes: readonly PublicRoute<any, any>[] = ports.cloudflareDnsObservation === undefined ? [] : [
     {
