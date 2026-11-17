@@ -15,3 +15,12 @@ overrides:
 # Remove this patch once a thread-stream release compiles against the current @types/node.
 patchedDependencies:
   thread-stream@4.2.0: patches/thread-stream@4.2.0.patch
+
+# Temporary exception: GHSA-fc5q-39xc-vjpf (picomatch <=4.0.7 extglob ReDoS) has no patched release.
+# Every path reaches picomatch only through build and test tooling (vite, vitest, tinyglobby, astro's
+# static build), which matches repository-authored globs, never untrusted input; no shipped Cloud,
+# Account Web, Desktop, or static marketing output contains it. Remove this entry as soon as a
+# patched picomatch is published and resolved.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
