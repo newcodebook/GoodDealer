@@ -1,6 +1,6 @@
 # ADR-0030：结束被确定性拒绝的 mutation 设备序号
 
-状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1、B2 已实现；B3 的客户端合同已实现，设备切换端到端串通待 Desktop 设备切换流程交付）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
+状态：Accepted — 产品负责人于 2026-11-13 接受独立审查后的修订方案；实现中（B1、B2 已实现；B3 的客户端合同已实现，设备切换端到端串通按 [ADR-0032](0032-desktop-device-switch-and-drain-handoff.md)（2026-11-17 已接受）实施）。扩展 [ADR-0004](0004-cloud-business-data-sync.md) 与
 [ADR-0005](0005-single-active-device-and-continuity.md) 的 drain 合同。
 
 ## 背景
