@@ -10,9 +10,13 @@
 //! two orders agree for the ASCII keys every drain-proof and mutation object uses.
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
-use super::{BusinessDatabaseError, append_frame, canonical_wire_value};
+use super::{
+    BusinessDatabase, BusinessDatabaseError, append_frame, canonical_wire_value,
+    reconstruct_sync_mutation_v2,
+};
 
 const DRAIN_STREAM_GENESIS_DOMAIN: &[u8] = b"GOODDEALER-DRAIN-SHA256-V1";
 const SUBMITTED_MUTATION_DOMAIN: &[u8] = b"GOODDEALER-SYNC-MUTATION-SUBMITTED-V1";
@@ -177,7 +181,11 @@ pub(crate) struct PersistedMutationResult<'a> {
 /// Only an ACK or a single-item `SYNC_MUTATION_CONFLICT` is a durable Cloud result; pending,
 /// sending, input rejections and idempotency conflicts leave a gap (ADR-0030 decisions 4 and 5).
 fn classify(row: &PersistedMutationResult<'_>) -> Option<&'static [u8]> {
-    match (row.outbox_state, row.last_error_code) {
+    classify_parts(row.outbox_state, row.last_error_code)
+}
+
+fn classify_parts(outbox_state: &str, last_error_code: Option<&str>) -> Option<&'static [u8]> {
+    match (outbox_state, last_error_code) {
         ("acknowledged", None) => Some(b"accepted"),
         ("conflicted", Some(SYNC_MUTATION_CONFLICT)) => Some(b"rejected"),
         _ => None,
@@ -227,6 +235,208 @@ pub(crate) fn fold_persisted_mutation_results(
         contiguous_received_through,
         rolling_digest: URL_SAFE_NO_PAD.encode(rolling_digest),
     })
+}
+
+/// Where this device's mutation stream stands for a handoff drain (ADR-0032 decision 2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DrainMutationProgress {
+    /// Every assigned sequence has a durable Cloud result; the claim can be signed.
+    Ready(DrainStreamClaim),
+    /// Rows are still pending or sending; pushing continues and the user may cancel.
+    Waiting { unconfirmed: u64 },
+    /// A sequence can never gain a Cloud result (a terminal local rejection, an idempotency
+    /// conflict, or a missing row), so no proof can match Cloud's ledger; the drain fails closed.
+    Blocked,
+}
+
+struct DrainOutboxRow {
+    mutation_id: String,
+    entity_id: String,
+    operation_kind: String,
+    base_server_revision: i64,
+    workspace_schema_version: i64,
+    source_device_id: Option<String>,
+    active_lease_epoch: Option<i64>,
+    device_mutation_sequence: Option<i64>,
+    created_at: String,
+    state: String,
+    last_error_code: Option<String>,
+    wire_schema_version: Option<i64>,
+}
+
+impl BusinessDatabase {
+    /// Closes local mutation admission for one device switch (ADR-0032 S2b). Idempotent for the
+    /// same switch; a barrier left by another switch must be cleared first. Writers that try to
+    /// assign a device sequence or add an Outbox row afterwards fail inside SQLite.
+    pub(crate) fn begin_device_handoff_barrier(
+        &mut self,
+        device_switch_request_id: &str,
+        began_at: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        let workspace_id = self.workspace_id.clone();
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction
+            .execute(
+                "INSERT INTO device_handoff_barriers (workspace_id, device_switch_request_id, began_at)
+                 VALUES (?1, ?2, ?3) ON CONFLICT (workspace_id) DO NOTHING",
+                params![workspace_id, device_switch_request_id, began_at],
+            )
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let held: String = transaction
+            .query_row(
+                "SELECT device_switch_request_id FROM device_handoff_barriers WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if held != device_switch_request_id {
+            return Err(BusinessDatabaseError::MutationConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)
+    }
+
+    /// The switch whose barrier currently closes local mutation admission, if any.
+    pub(crate) fn device_handoff_barrier(&self) -> Result<Option<String>, BusinessDatabaseError> {
+        self.store
+            .raw_connection()
+            .query_row(
+                "SELECT device_switch_request_id FROM device_handoff_barriers WHERE workspace_id = ?1",
+                params![self.workspace_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)
+    }
+
+    /// Reopens local mutation admission after the named switch was cancelled, failed, or completed.
+    /// Clearing another switch's barrier is refused; clearing an absent barrier is a no-op.
+    pub(crate) fn clear_device_handoff_barrier(
+        &mut self,
+        device_switch_request_id: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        match self.device_handoff_barrier()? {
+            None => Ok(()),
+            Some(held) if held != device_switch_request_id => {
+                Err(BusinessDatabaseError::MutationConflict)
+            }
+            Some(_) => self
+                .store
+                .fixture_connection()
+                .execute(
+                    "DELETE FROM device_handoff_barriers
+                     WHERE workspace_id = ?1 AND device_switch_request_id = ?2",
+                    params![self.workspace_id, device_switch_request_id],
+                )
+                .map(|_| ())
+                .map_err(|_| BusinessDatabaseError::StorageRejected),
+        }
+    }
+
+    /// Reads, in one snapshot, the last sequence this device assigned and every Outbox row, and
+    /// folds the persisted Cloud results into the v2 mutation claim. Each confirmed row's drain
+    /// envelope is rebuilt from its immutable claimed fields under the wire version it was sent
+    /// with and stamped with this workspace id, as Cloud recorded it. Rows are never pruned, so the
+    /// fold always starts at genesis; a row naming another device is storage corruption.
+    pub(crate) fn read_drain_mutation_progress(
+        &mut self,
+        source_device_id: &str,
+    ) -> Result<DrainMutationProgress, BusinessDatabaseError> {
+        let workspace_id = self.workspace_id.clone();
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let next: i64 = transaction
+            .query_row(
+                "SELECT next_device_mutation_sequence FROM active_workspace_metadata
+                 WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let last_assigned =
+            u64::try_from(next - 1).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let rows = load_drain_outbox_rows(&transaction, &workspace_id)?;
+        let mut sequences = Vec::with_capacity(rows.len());
+        let mut envelopes = Vec::with_capacity(rows.len());
+        let mut blocked = false;
+        for row in &rows {
+            let (Some(row_device_id), Some(active_lease_epoch), Some(sequence)) = (
+                row.source_device_id.as_deref(),
+                row.active_lease_epoch,
+                row.device_mutation_sequence,
+            ) else {
+                return Err(BusinessDatabaseError::StorageRejected);
+            };
+            if row_device_id != source_device_id {
+                return Err(BusinessDatabaseError::StorageRejected);
+            }
+            sequences
+                .push(u64::try_from(sequence).map_err(|_| BusinessDatabaseError::StorageRejected)?);
+            let has_result = classify_parts(&row.state, row.last_error_code.as_deref()).is_some();
+            blocked |= !has_result && !matches!(row.state.as_str(), "pending" | "sending");
+            let envelope = if has_result {
+                let mut wire = reconstruct_sync_mutation_v2(
+                    &transaction,
+                    &workspace_id,
+                    &row.mutation_id,
+                    &row.entity_id,
+                    &row.operation_kind,
+                    row.base_server_revision,
+                    row.workspace_schema_version,
+                    row_device_id,
+                    active_lease_epoch,
+                    sequence,
+                    &row.created_at,
+                )?;
+                wire.as_object_mut()
+                    .ok_or(BusinessDatabaseError::StorageRejected)?
+                    .insert("workspaceId".to_owned(), serde_json::json!(workspace_id));
+                let version = row
+                    .wire_schema_version
+                    .ok_or(BusinessDatabaseError::StorageRejected)?;
+                submitted_mutation_drain_envelope(&wire, version)
+                    .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            } else {
+                Vec::new()
+            };
+            envelopes.push(envelope);
+        }
+        drop(transaction);
+        // Sequences are assigned densely from 1 when a row is created; anything else means a row
+        // Cloud may hold is missing here, and no local fold could match Cloud's chain.
+        if sequences.iter().copied().ne(1..=last_assigned) {
+            return Ok(DrainMutationProgress::Blocked);
+        }
+        let persisted = rows
+            .iter()
+            .zip(&sequences)
+            .zip(&envelopes)
+            .map(|((row, sequence), envelope)| PersistedMutationResult {
+                device_mutation_sequence: *sequence,
+                outbox_state: &row.state,
+                last_error_code: row.last_error_code.as_deref(),
+                submitted_envelope: envelope,
+            })
+            .collect::<Vec<_>>();
+        let claim = fold_persisted_mutation_results(last_assigned, &persisted)?;
+        Ok(if blocked {
+            DrainMutationProgress::Blocked
+        } else if claim.pending_count() == 0 {
+            DrainMutationProgress::Ready(claim)
+        } else {
+            DrainMutationProgress::Waiting {
+                unconfirmed: claim.pending_count(),
+            }
+        })
+    }
 }
 
 /// A handoff drain proof before its signature. Host-owned fields (proof id, key binding, trusted
@@ -332,6 +542,43 @@ impl HandoffDrainProofClaims {
         append_length_prefixed(&mut input, &signed)?;
         Ok(input)
     }
+}
+
+/// Every Outbox row of this workspace in device-sequence order, read inside the caller's snapshot.
+fn load_drain_outbox_rows(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+) -> Result<Vec<DrainOutboxRow>, BusinessDatabaseError> {
+    let mut statement = transaction
+        .prepare(
+            "SELECT mutation_id, entity_id, operation_kind, base_server_revision,
+                        workspace_schema_version, source_device_id, active_lease_epoch,
+                        device_mutation_sequence, created_at, state, last_error_code,
+                        wire_schema_version
+                 FROM sync_outbox WHERE workspace_id = ?1
+                 ORDER BY device_mutation_sequence, created_at, mutation_id",
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    statement
+        .query_map(params![workspace_id], |row| {
+            Ok(DrainOutboxRow {
+                mutation_id: row.get(0)?,
+                entity_id: row.get(1)?,
+                operation_kind: row.get(2)?,
+                base_server_revision: row.get(3)?,
+                workspace_schema_version: row.get(4)?,
+                source_device_id: row.get(5)?,
+                active_lease_epoch: row.get(6)?,
+                device_mutation_sequence: row.get(7)?,
+                created_at: row.get(8)?,
+                state: row.get(9)?,
+                last_error_code: row.get(10)?,
+                wire_schema_version: row.get(11)?,
+            })
+        })
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
 #[cfg(test)]

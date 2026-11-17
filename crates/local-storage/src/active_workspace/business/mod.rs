@@ -16,7 +16,8 @@ use crate::portfolio_projection::{
 
 mod cloudflare_credential;
 mod cloudflare_retirement;
-#[allow(dead_code)] // ADR-0032 S2a: consumed by the S2b drain coordinator; remove with that slice.
+#[allow(dead_code)]
+// ADR-0032 S2a/S2b: consumed by the S2d drain coordinator; remove with that slice.
 mod drain_claims;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -13690,6 +13691,294 @@ mod tests {
                 .iter()
                 .any(|step| step.contains("USE TEMP B-TREE FOR ORDER BY"))
         );
+    }
+
+    fn create_for_drain(database: &mut BusinessDatabase, name: &str) {
+        let write = DomainAssetWrite {
+            entity_id: format!("{name}.test"),
+            note: None,
+            portfolio_id: None,
+            tags: vec!["drain".to_owned()],
+            target_price: None,
+        };
+        database
+            .create_domain_asset_guarded(
+                &format!("create-{name}"),
+                "device-1",
+                7,
+                TIMESTAMP,
+                &write,
+                true,
+                |_| Ok(()),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+    }
+
+    fn acknowledgements_for(
+        claimed: &[ClaimedSyncMutation],
+        first_revision: u64,
+    ) -> Vec<SyncMutationAcknowledgement> {
+        claimed
+            .iter()
+            .zip(first_revision..)
+            .map(|(mutation, server_revision)| SyncMutationAcknowledgement {
+                mutation_id: mutation.mutation_id.clone(),
+                source_device_id: mutation.source_device_id.clone(),
+                active_lease_epoch: mutation.active_lease_epoch,
+                device_mutation_sequence: mutation.device_mutation_sequence,
+                delivery_attempt_fence: mutation.delivery_attempt_fence,
+                wire_mutation_digest: mutation.wire_mutation_digest.clone(),
+                server_revision,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn drain_progress_waits_for_cloud_results_then_folds_them_as_cloud_recorded() {
+        use super::drain_claims::{
+            DrainMutationProgress, PersistedMutationResult, fold_persisted_mutation_results,
+            submitted_mutation_drain_envelope,
+        };
+        let mut database = database();
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::Ready(super::drain_claims::DrainStreamClaim::empty())
+        );
+        for name in ["one", "two", "three"] {
+            create_for_drain(&mut database, name);
+        }
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::Waiting { unconfirmed: 3 }
+        );
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "drain-owner",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(claimed.len(), 3);
+        database
+            .acknowledge_sync_batch_v2_guarded(
+                "drain-owner",
+                &acknowledgements_for(&claimed[..2], 1),
+                "2026-08-28T00:02:30Z",
+                |_| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::Waiting { unconfirmed: 1 }
+        );
+        database
+            .reject_sync_batch_v2(
+                "drain-owner",
+                &claimed[2..],
+                SyncRejectionKind::MutationConflict,
+            )
+            .unwrap();
+        let DrainMutationProgress::Ready(claim) =
+            database.read_drain_mutation_progress("device-1").unwrap()
+        else {
+            panic!("a fully confirmed stream is ready");
+        };
+        // Independently: the bytes sent, stamped with the tenant workspace id, folded with the
+        // outcomes Cloud returned (two ACKs, then one single-item conflict).
+        let envelopes = claimed
+            .iter()
+            .map(|mutation| {
+                let mut wire: serde_json::Value =
+                    serde_json::from_str(&mutation.wire_mutation_json).unwrap();
+                wire["workspaceId"] = serde_json::json!("workspace-local");
+                submitted_mutation_drain_envelope(&wire, 3).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let outcomes = [
+            ("acknowledged", None),
+            ("acknowledged", None),
+            ("conflicted", Some("sync_mutation_conflict")),
+        ];
+        let rows = envelopes
+            .iter()
+            .zip(outcomes)
+            .zip(1..)
+            .map(
+                |((envelope, (state, code)), sequence)| PersistedMutationResult {
+                    device_mutation_sequence: sequence,
+                    outbox_state: state,
+                    last_error_code: code,
+                    submitted_envelope: envelope,
+                },
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(claim, fold_persisted_mutation_results(3, &rows).unwrap());
+        assert_eq!(
+            (claim.last_assigned_sequence, claim.pending_count()),
+            (3, 0)
+        );
+        // A row naming another device is never folded into this device's proof.
+        assert!(matches!(
+            database.read_drain_mutation_progress("device-2"),
+            Err(BusinessDatabaseError::StorageRejected)
+        ));
+    }
+
+    #[test]
+    fn drain_progress_blocks_on_results_cloud_never_records_or_a_missing_row() {
+        use super::drain_claims::DrainMutationProgress;
+        for kind in [
+            SyncRejectionKind::Deterministic,
+            SyncRejectionKind::IdempotencyConflict,
+        ] {
+            let mut database = database();
+            create_for_drain(&mut database, "one");
+            create_for_drain(&mut database, "two");
+            let claimed = database
+                .claim_sync_mutations_v2(
+                    "drain-owner",
+                    "2026-08-28T00:02:00Z",
+                    "2026-08-28T00:03:00Z",
+                    256,
+                )
+                .unwrap();
+            database
+                .acknowledge_sync_batch_v2_guarded(
+                    "drain-owner",
+                    &acknowledgements_for(&claimed[1..], 1),
+                    "2026-08-28T00:02:30Z",
+                    |_| Ok(()),
+                )
+                .unwrap();
+            database
+                .reject_sync_batch_v2("drain-owner", &claimed[..1], kind)
+                .unwrap();
+            assert_eq!(
+                database.read_drain_mutation_progress("device-1").unwrap(),
+                DrainMutationProgress::Blocked
+            );
+        }
+        let mut database = database();
+        create_for_drain(&mut database, "one");
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE active_workspace_metadata SET next_device_mutation_sequence = next_device_mutation_sequence + 1",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::Blocked
+        );
+    }
+
+    #[test]
+    fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
+        use super::drain_claims::DrainMutationProgress;
+        let mut database = database();
+        create_for_drain(&mut database, "one");
+        let claimed = database
+            .claim_sync_mutations_v2(
+                "drain-owner",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                256,
+            )
+            .unwrap();
+        assert_eq!(database.device_handoff_barrier().unwrap(), None);
+        database
+            .begin_device_handoff_barrier("switch-1", "2026-08-28T00:02:10Z")
+            .unwrap();
+        // Idempotent for the same switch; another switch must wait for this one to clear.
+        database
+            .begin_device_handoff_barrier("switch-1", "2026-08-28T00:02:11Z")
+            .unwrap();
+        assert!(matches!(
+            database.begin_device_handoff_barrier("switch-2", "2026-08-28T00:02:12Z"),
+            Err(BusinessDatabaseError::MutationConflict)
+        ));
+        assert!(matches!(
+            database.clear_device_handoff_barrier("switch-2"),
+            Err(BusinessDatabaseError::MutationConflict)
+        ));
+        assert_eq!(
+            database.device_handoff_barrier().unwrap().as_deref(),
+            Some("switch-1")
+        );
+
+        // Every local writer is closed at the database: the guarded create path, a raw sequence
+        // allocation, and a raw Outbox insert all fail, and the failed create leaves nothing.
+        let write = DomainAssetWrite {
+            entity_id: "blocked.test".to_owned(),
+            note: None,
+            portfolio_id: None,
+            tags: Vec::new(),
+            target_price: None,
+        };
+        assert!(
+            database
+                .create_domain_asset_guarded(
+                    "create-blocked",
+                    "device-1",
+                    7,
+                    TIMESTAMP,
+                    &write,
+                    true,
+                    |_| Ok(()),
+                    |(), _| Ok(()),
+                )
+                .is_err()
+        );
+        let connection = database.store.fixture_connection();
+        let blocked_rows: i64 = connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM domain_assets WHERE entity_id = 'blocked.test')
+                      + (SELECT count(*) FROM sync_outbox WHERE mutation_id = 'create-blocked')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blocked_rows, 0);
+        assert!(
+            connection
+                .execute(
+                    "UPDATE active_workspace_metadata
+                     SET next_device_mutation_sequence = next_device_mutation_sequence + 1",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE device_handoff_barriers SET device_switch_request_id = 'switch-2'",
+                    [],
+                )
+                .is_err()
+        );
+
+        // Cloud results still land while closed, so the drain can finish.
+        database
+            .acknowledge_sync_batch_v2_guarded(
+                "drain-owner",
+                &acknowledgements_for(&claimed, 1),
+                "2026-08-28T00:02:30Z",
+                |_| Ok(()),
+            )
+            .unwrap();
+        assert!(matches!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::Ready(_)
+        ));
+
+        database.clear_device_handoff_barrier("switch-1").unwrap();
+        database.clear_device_handoff_barrier("switch-1").unwrap();
+        assert_eq!(database.device_handoff_barrier().unwrap(), None);
+        create_for_drain(&mut database, "two");
     }
 
     #[test]

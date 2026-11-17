@@ -839,6 +839,10 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
         ],
     ),
+    (
+        "device_handoff_barriers",
+        &["workspace_id", "device_switch_request_id", "began_at"],
+    ),
 ];
 
 pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID: i64 = 202_611_130_001;
@@ -902,3 +906,9 @@ pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER: &str =
     "active-workspace/outbox-commit-time-marks";
 pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL: &str =
     include_str!("outbox_commit_time_marks.sql");
+
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_ID: i64 = 202_611_170_001;
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_OWNER: &str =
+    "active-workspace/device-handoff-barrier";
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_SQL: &str =
+    include_str!("device_handoff_barrier.sql");

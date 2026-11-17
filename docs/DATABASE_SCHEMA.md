@@ -112,6 +112,7 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_domain_asset_checkpoint_advances` | rebootstrap checkpoint 越过本地已确认 generation 时的前进记录：离开与到达的 generation、checkpoint revision；不可改不可删，插入时要求离开的是当前 generation 且本地状态已结束（ADR-0029 C3b2）。 |
 | `storage_repair_receipts` | 读取拒绝的存储坏行的修复回执（ADR-0031，迁移 `202611160002`）：类别、行键、原值 SHA-256（不存原值）与修复时间；不可改不可删，只能指名现存行。它同时是读取遵循的标记：到期日期已置为未知、注册商/Zone/挂牌观察或 Zone 绑定已隔离，读取把被隔离者视为没有可用观察或没有绑定。隔离挂牌递增 `sales_listing_generation`。 |
 | `sync_outbox_commit_time_marks` | Outbox 提交时间标记（ADR-0031 R2，迁移 `202611160003`）：工作区、mutation、原 `created_at` 的 SHA-256 与标记时间；不可改不可删，只能标记 `created_at` 非规范的现存 Outbox 行。`sync_outbox` 本身不改写；历史读取把已标记行的提交时间显示为“时间无效”，设置计数不再计入它。 |
+| `device_handoff_barriers` | 设备切换停写栅栏（ADR-0032 S2b，迁移 `202611170001`）：每工作区至多一行，记切换请求 id 与开始时间；行不可改。存在时触发器拒绝推进 `next_device_mutation_sequence` 与插入 `sync_outbox`，所以编辑、冲突解决、平台导入与备份恢复都在数据库内失败关闭；Cloud 结果（ACK、拒绝）照常落盘，drain 得以完成。由切换协调在取消、失败或交接完成后删除；重启后仍保持关闭。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
 | `local_backup_catalog` | 本地备份 manifest、覆盖 revision、crypto profile、验证状态、保留期和清理期限。 |
 
