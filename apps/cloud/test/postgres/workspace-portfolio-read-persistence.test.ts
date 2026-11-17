@@ -404,7 +404,9 @@ function interceptClient(client: PoolClient, afterQuery: (sql: string) => Promis
 }
 
 function assertConsolidatedCatalog(): void {
-  expect(cloudMigrations).toHaveLength(38);
+  // Only the consolidated prefix matters here; migration-catalog.test.ts owns the full ordered
+  // list and its length, so later migrations do not have to be counted twice.
+  expect(cloudMigrations.length).toBeGreaterThan(14);
   expect([cloudMigrations[0], cloudMigrations[1], cloudMigrations[13], cloudMigrations[14]].map(
     (migration) => migration === undefined ? undefined : { id: migration.id, owner: migration.owner },
   )).toEqual([
