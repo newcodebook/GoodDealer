@@ -2030,14 +2030,15 @@ async function seedDrainRace(): Promise<void> {
       VALUES ($1, 'device-2', 2, 'bound', 1)`, [scopeA.accountId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, 'device-1', 1, 'mutation-race-key', $2, $3, 'active')`,
-    [scopeA.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, 'device-1', 1, 'mutation-race-key', $2, $3, 'active'),
+        ($1, 'device-2', 1, 'mutation-race-target-key', $4, $5, 'active')`,
+    [scopeA.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, 'mutation-race-workflow', 'device_switch', 'normal', $3, 'mutation-race-idem',
-        'draining', 1, 'device-1', 'device-2', 'mutation-race-key', 1, 1,
+        'draining', 1, 'device-1', 'device-2', 'mutation-race-target-key', 1, 1,
         transaction_timestamp() + interval '1 hour')`, [scopeA.accountId, scopeA.workspaceId, Buffer.alloc(32, 5)]);
   });
   await withOwnerTenant(scopeA, async (transaction) => {
@@ -2099,15 +2100,16 @@ async function seedDirectMutationSealAuthority(leaseEpoch = 1): Promise<void> {
       ON CONFLICT (account_id, device_id) DO NOTHING`, [scopeA.accountId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, 'device-1', 1, 'direct-app-seal-key', $2, $3, 'active')`,
-    [scopeA.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, 'device-1', 1, 'direct-app-seal-key', $2, $3, 'active'),
+        ($1, 'device-2', 1, 'direct-app-seal-target-key', $4, $5, 'active')`,
+    [scopeA.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, 'direct-app-seal-workflow', 'device_switch', 'normal', $3,
         'direct-app-seal-idempotency', 'draining', 1, 'device-1', 'device-2',
-        'direct-app-seal-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
+        'direct-app-seal-target-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
     [scopeA.accountId, scopeA.workspaceId, Buffer.alloc(32, 5)]);
     await seedDirectMutationSealProofInTransaction(
       transaction,

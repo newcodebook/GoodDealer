@@ -461,6 +461,9 @@ describe("persistent device Drain transition", () => {
           pg_catalog.sha256($2::bytea), $2::bytea, pg_catalog.sha256($2::bytea)
         )`, ["device-old", Buffer.from("drain-fixture-audit-fork", "utf8")])).then(() => undefined), "STREAM_HEAD_CONFLICT"],
       ["key status", () => tenantUpdate("UPDATE device_signing_keys SET status = 'revoked', retired_at = transaction_timestamp()"), "SIGNING_KEY_CONFLICT"],
+      // ADR-0032 S1c: the workflow binds the target's key; a revoked target key stops the handoff.
+      ["target key status", () => tenantUpdate("UPDATE device_signing_keys SET status = 'revoked', retired_at = transaction_timestamp() WHERE device_id = 'device-new'"), "SIGNING_KEY_CONFLICT"],
+      ["bound key drift", () => tenantUpdate("UPDATE device_switch_workflows SET bound_key_id = 'key-old'"), "SIGNING_KEY_CONFLICT"],
       ["binding status", () => tenantUpdate(`UPDATE device_bindings SET status = 'removed', slot = NULL,
         removed_at = transaction_timestamp(), removal_reason = 'test' WHERE device_id = 'device-new'`), "BINDING_CONFLICT"],
     ];
@@ -611,13 +614,14 @@ async function resetAndSeed(): Promise<void> {
       VALUES ($1, 'device-old', 1, 'bound', 1), ($1, 'device-new', 2, 'bound', 1)`, [scope.accountId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, 'device-old', 1, 'key-old', $2, $3, 'active')`, [scope.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, 'device-old', 1, 'key-old', $2, $3, 'active'), ($1, 'device-new', 1, 'key-new', $4, $5, 'active')`,
+    [scope.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, 'workflow-one', 'device_switch', 'normal', $3, 'idem-one', 'draining',
-        3, 'device-old', 'device-new', 'key-old', 1, 1, transaction_timestamp() + interval '1 hour')`,
+        3, 'device-old', 'device-new', 'key-new', 1, 1, transaction_timestamp() + interval '1 hour')`,
       [scope.accountId, scope.workspaceId, Buffer.alloc(32, 5)]);
     await transaction.query(`INSERT INTO device_lease_epoch_allocations
       (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)

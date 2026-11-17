@@ -15,6 +15,7 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/modules/devices/postgres-drain-transition.ts",
   "apps/cloud/src/modules/devices/postgres-switch-requests.ts",
   "apps/cloud/src/modules/devices/migrations/202608200004-device-control.ts",
+  "apps/cloud/src/modules/devices/migrations/202611170001-drain-handoff-target-key.ts",
   "apps/cloud/src/modules/workspace/mutations/migrations/202608200006-mutation-drain-ledger.ts",
   "apps/cloud/src/modules/execution-ledger/migrations/202608200007-execution-fact-drain-ledger.ts",
   "apps/cloud/src/modules/audit/migrations/202608200008-workspace-device-audit-drain-ledger.ts",

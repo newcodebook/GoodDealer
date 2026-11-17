@@ -121,9 +121,13 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     引导开始前进行（引导中的取消须烧掉待定 epoch 与引导能力，归 S1d）。强制接管返回 `FORCED_SWITCH_UNAVAILABLE`，
     等待上文“待决：Standby 会话”；
   - S1c drain 提交路由：组合 PostgreSQL drain 验证端口与 `PostgresDeviceDrainTransition`，保存 `proof.schemaVersion`。
-    须先修正：`PostgresDeviceDrainTransition` 把工作流的 `bound_key_id` 与来源设备的 proof 签名密钥比较，而引导步骤与
-    激活把它当作目标设备的密钥，两者不可能同时成立；以目标密钥为准（与内存参考实现和 S1b 一致），drain 只核对
-    proof 签名密钥是来源设备当前有效的密钥；
+    S1c1 已实现：`PostgresDeviceDrainTransition` 与 SQL `device_consume_drain_proof` 原先把工作流的 `bound_key_id` 与
+    来源设备的 proof 签名密钥比较，而引导步骤与激活把它当作目标设备的密钥，两者不可能同时成立；迁移
+    `202611170001-drain-handoff-target-key` 与 TypeScript 交接改为要求绑定密钥是目标设备当前有效的密钥，并保留
+    proof 签名密钥必须是来源设备当前有效密钥的检查。S1c2 待完成：PostgreSQL 的 proof 准入（以来源设备公钥按
+    drain proof 签名域验签、写入 `device_drain_proofs` 需要所有者函数，应用角色只有读取权）与 drain 提交路由；
+    流水核对由交接事务内三条流的 seal 例程按不可变 head 完成，`execution_fact`/`device_audit` 空流声明须在
+    PostgreSQL 中验证可 seal；
   - S1d 引导步骤与激活路由：组合已有服务，引导能力以独立用途密钥签发；开发 OpenBao 可组合，生产密钥属外部资格。
 - S2 Host：停写栅栏、drain 进度、v2 声明折叠与设备密钥签名、版本 2 行判别；rebootstrap 安装进入生产组合。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
