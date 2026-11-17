@@ -2,7 +2,7 @@
 
 状态：Accepted — 产品负责人于 2026-11-16 采用台账第 106 行的建议方案：复制的业务数据以新的变更修复，
 保持副本收敛；已确认的 Outbox 历史保持不可变，只标记、不改写。本文把该方案落到现有各类坏行上。
-实现中：R1 已实现（见文末“实施”）；R2 待完成。
+已实现：R1、R2 均已交付（见文末“实施”）；第 3 节的全表校验移除另作变更。
 
 ## 背景
 
@@ -81,11 +81,20 @@
   （绑定与观察分别判定、只隔离失败的部分）与挂牌四类修复复用设置计数与读取的同一校验谓词，在一个
   IMMEDIATE 事务中执行，Host 提交栅栏在提交前最后检查。Host 命令 `repair_stored_rows` 接受
   `{schemaVersion: 1, expectedReadGeneration, repairKind}`（`deny_unknown_fields`，类别取设置计数名，
-  未知类别、`malformedOutboxRows` 与过期 read generation 一律拒绝）；有修复时推进 read generation。
+  未知类别与过期 read generation 一律拒绝；`malformedOutboxRows` 在 R1 中拒绝，R2 起接受）；有修复时推进 read generation。
   资产库与域名详情的注册商名称、资产库的挂牌计数与续费、销售遵循同一隔离。
   测试：四类修复各清除自己的计数、回执逐行、重复执行为 0、被栅栏拒绝时零写入、读取恢复且被隔离者
   按上文显示（含资产库、域名详情与挂牌计数）、Zone 观察单独被隔离且 DNS 计数随之一致、回执不可改不可删且不能预先指名不存在的行、隔离最新挂牌不由更早挂牌顶替、Host 拒绝
   多余字段/未知类别/过期 generation 与移动的栅栏。
-- **R2（待完成）**：Outbox 提交时间标记与历史读取显示“时间无效”（历史合同的 `committedAt` 变为可空）；
-  Tauri 命令、client-core 合同、设置“关于”中按类别的修复确认与结果（按 `brand/ui_kits/desktop`），
-  以及第 3 节的全表校验移除条件。
+- **R2（已实现）**：本地迁移 `202611160003`（active-workspace/outbox-commit-time-marks）新增不可变的
+  `sync_outbox_commit_time_marks`（mutation、原 `created_at` 的 SHA-256、标记时间；插入触发器要求该 Outbox
+  行存在且 `created_at` 非规范）。`malformedOutboxRows` 修复只写标记，不改写任何 Outbox 行；历史读取与设置
+  计数跳过已标记行的时间校验，历史合同的 `committedAt`（及历史条目的 `occurredAt`）变为可空，界面显示
+  “时间无效”。Tauri 命令 `local_storage_repair`（能力 `allow-local-storage-repair`）只转发
+  `{schemaVersion, expectedReadGeneration, repairKind}`；client-core 的请求与回执合同严格校验，回执必须回答所请求的
+  类别。设置“关于”在可写工作区为每个非零类别提供“修复”，确认对话框写明数量、该类修复的效果与回执只存摘要；
+  无论成功与否都重新读取计数，成功时刷新工作区发布（read generation 已推进）；只读或没有 Host 命令时不提供
+  修复并说明原因。测试：Outbox 标记清零计数、重复为 0、历史以空时间读出、原时间不变、对规范行插入标记与删除
+  标记被拒；适配器只发送三字段并拒绝多余字段/未知类别/错配回执；面板只在可修复时显示按钮、确认框的数量与效果、
+  执行中锁定。
+- **第 3 节的移除条件**不因 R1/R2 改变：本 ADR 范围内不移除任何读取侧全表校验；修复前读取行为不变。

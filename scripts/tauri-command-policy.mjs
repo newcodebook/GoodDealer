@@ -36,6 +36,7 @@ const reviewedCommands = [
   "local_renewals_read",
   "local_sales_read",
   "local_settings_read",
+  "local_storage_repair",
   "local_sync_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(

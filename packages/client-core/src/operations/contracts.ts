@@ -277,7 +277,8 @@ export const operationHistoryEntrySchema = z
   .object({
     revisionId: operationIdentifierSchema,
     revisionLabel: displayTextSchema,
-    occurredAt: z.iso.datetime(),
+    /** `null` when the stored commit time was marked invalid by a storage repair (ADR-0031). */
+    occurredAt: z.iso.datetime().nullable(),
     actorLabel: displayTextSchema,
     scope: z.enum(["batch", "single_domain", "system", "sync"]),
     actionLabel: displayTextSchema,

@@ -29,6 +29,7 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_device_lease_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
+    expect(handlers).toMatch(/fn local_storage_repair/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
     expect(handlers).toMatch(/fn cloudflare_connection_create/u);
     expect(handlers).toMatch(/fn cloudflare_connection_revoke/u);
@@ -94,6 +95,7 @@ describe("Desktop native policy", () => {
       "allow-local-domain-asset-create",
       "allow-local-domain-asset-delete",
       "allow-local-domain-asset-provider-bind",
+      "allow-local-storage-repair",
       "allow-local-conflict-center-read",
       "allow-local-conflict-resolve",
       "allow-local-sync-status",

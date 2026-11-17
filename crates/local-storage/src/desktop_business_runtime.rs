@@ -665,6 +665,7 @@ impl DesktopBusinessRuntime {
             }
             "rejectedDnsRows" => crate::StorageRepairKind::RejectedDnsRows,
             "rejectedListings" => crate::StorageRepairKind::RejectedListings,
+            "malformedOutboxRows" => crate::StorageRepairKind::MalformedOutboxRows,
             _ => return Err(BusinessDatabaseError::InvalidInput),
         };
         // The user confirmed a count read at this generation; any later change re-reads first.

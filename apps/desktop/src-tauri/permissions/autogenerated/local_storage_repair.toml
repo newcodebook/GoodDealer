@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-storage-repair"
+description = "Enables the local_storage_repair command without any pre-configured scope."
+commands.allow = ["local_storage_repair"]
+
+[[permission]]
+identifier = "deny-local-storage-repair"
+description = "Denies the local_storage_repair command without any pre-configured scope."
+commands.deny = ["local_storage_repair"]

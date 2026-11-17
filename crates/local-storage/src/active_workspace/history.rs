@@ -24,8 +24,17 @@ use super::portfolio::{read_freshness, validate_workspace};
 /// Whether an outbox row's commit time is anything but canonical UTC seconds. `strftime` returns
 /// such a value unchanged, but it also keeps hour 24, hence the hour bound; the outbox integrity
 /// triggers apply the same rule, only on new writes.
+/// An Outbox row whose malformed commit time a storage repair marked (ADR-0031): history shows it
+/// with no time instead of failing, and the time itself is never rewritten.
+const MARKED: &str = "EXISTS (SELECT 1 FROM sync_outbox_commit_time_marks k
+     WHERE k.workspace_id = sync_outbox.workspace_id AND k.mutation_id = sync_outbox.mutation_id)";
 const MALFORMED_CREATED_AT: &str = "(created_at IS NOT strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
      OR substr(created_at, 12, 2) > '23')";
+
+/// The predicate, over `sync_outbox`, for a malformed commit time no repair has marked yet.
+pub(super) fn unmarked_malformed_created_at() -> String {
+    format!("({MALFORMED_CREATED_AT} AND NOT {MARKED})")
+}
 
 /// How many of the workspace's outbox rows have a malformed commit time. Any one fails the history
 /// read closed; settings diagnostics report the count so the cause is visible.
@@ -35,7 +44,7 @@ pub(super) fn malformed_outbox_rows(
 ) -> Result<u32, PortfolioReadError> {
     let malformed: i64 = connection
         .query_row(
-            &format!("SELECT count(*) FROM sync_outbox WHERE workspace_id = ?1 AND {MALFORMED_CREATED_AT}"),
+            &format!("SELECT count(*) FROM sync_outbox WHERE workspace_id = ?1 AND {MALFORMED_CREATED_AT} AND NOT {MARKED}"),
             [workspace_id],
             |row| row.get(0),
         )
@@ -72,7 +81,8 @@ pub struct HistoryRow {
     pub local_revision: u64,
     pub entity_id: String,
     pub operation: String,
-    pub committed_at: String,
+    /// The commit time; `null` when a storage repair marked the stored time invalid (ADR-0031).
+    pub committed_at: Option<String>,
     pub state: String,
     pub server_revision: Option<u64>,
     pub changes: Vec<HistoryFieldChange>,
@@ -94,7 +104,7 @@ type RawRevision = (
     i64,
     String,
     String,
-    String,
+    Option<String>,
     String,
     Option<i64>,
     i64,
@@ -128,14 +138,15 @@ impl<'a> ActiveHistoryReader<'a> {
         // Commit times are written as canonical UTC seconds, so they compare as text with the
         // canonical bounds; the day is counted in the same pass as the totals. The outbox integrity
         // triggers enforce that form only on new writes, so an older malformed row anywhere in the
-        // ledger fails the read rather than being silently miscounted on a page nobody reads.
+        // ledger fails the read rather than being silently miscounted on a page nobody reads. A
+        // marked row (ADR-0031) has no usable time, so it is never counted as today's either.
         let (total_rows, pending_rows, changes_today, malformed): (i64, i64, i64, i64) =
             transaction
                 .query_row(
                     &format!(
                         "SELECT count(*), coalesce(sum(state IN ('pending', 'sending')), 0),
-                        coalesce(sum(created_at >= ?2 AND created_at < ?3), 0),
-                        coalesce(sum({MALFORMED_CREATED_AT}), 0)
+                        coalesce(sum(created_at >= ?2 AND created_at < ?3 AND NOT {MARKED}), 0),
+                        coalesce(sum({MALFORMED_CREATED_AT} AND NOT {MARKED}), 0)
                  FROM sync_outbox WHERE workspace_id = ?1"
                     ),
                     params![requested_workspace_id, today.0, today.1],
@@ -147,15 +158,16 @@ impl<'a> ActiveHistoryReader<'a> {
         }
         let revisions = {
             let mut statement = transaction
-                .prepare(
+                .prepare(&format!(
                     "SELECT mutation_id, local_commit_sequence, entity_id, operation_kind,
-                            created_at, state, server_revision, base_server_revision,
+                            CASE WHEN {MARKED} THEN NULL ELSE created_at END,
+                            state, server_revision, base_server_revision,
                             EXISTS(SELECT 1 FROM sync_outbox_local_creations AS creation
                                    WHERE creation.workspace_id = sync_outbox.workspace_id
                                      AND creation.mutation_id = sync_outbox.mutation_id)
                      FROM sync_outbox WHERE workspace_id = ?1
-                     ORDER BY local_commit_sequence DESC, mutation_id DESC LIMIT ?2 OFFSET ?3",
-                )
+                     ORDER BY local_commit_sequence DESC, mutation_id DESC LIMIT ?2 OFFSET ?3"
+                ))
                 .map_err(|_| PortfolioReadError::SchemaRejected)?;
             statement
                 .query_map(params![requested_workspace_id, size, start_index], |row| {
@@ -397,8 +409,12 @@ fn project_revision(
         local_revision: unsigned(sequence)?,
         entity_id,
         operation: operation.to_owned(),
-        committed_at: validate_timestamp(Some(committed_at))?
-            .ok_or(PortfolioReadError::ProjectionRejected)?,
+        // `None` only for a time a storage repair marked malformed; any other must be valid.
+        committed_at: committed_at
+            .map(|time| {
+                validate_timestamp(Some(time))?.ok_or(PortfolioReadError::ProjectionRejected)
+            })
+            .transpose()?,
         state,
         server_revision: server_revision.map(unsigned).transpose()?,
         changes,

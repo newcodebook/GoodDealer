@@ -20,6 +20,9 @@ pub enum StorageRepairKind {
     RejectedDnsRows,
     /// `rejectedListings`: the failing latest listing observations are quarantined.
     RejectedListings,
+    /// `malformedOutboxRows`: each malformed commit time is marked, never rewritten; history shows
+    /// the row with no time.
+    MalformedOutboxRows,
 }
 
 /// Repairs every row of `kind` in the workspace and returns how many receipts it wrote. The caller
@@ -72,6 +75,9 @@ pub(crate) fn repair(
                 }
             }
         }
+        StorageRepairKind::MalformedOutboxRows => {
+            return mark_outbox_commit_times(transaction, workspace_id, repaired_at);
+        }
         StorageRepairKind::RejectedListings => {
             for (observation_id, shown) in
                 super::sales::rejected_listing_ids(transaction, workspace_id)?
@@ -101,6 +107,41 @@ pub(crate) fn repair(
         }
     }
     u32::try_from(receipts.len()).map_err(|_| PortfolioReadError::ProjectionRejected)
+}
+
+/// Marks every unmarked malformed Outbox commit time the history read rejects. The Outbox is this
+/// device's change ledger, and an acknowledged row is synced history, so only a mark is written.
+fn mark_outbox_commit_times(
+    transaction: &Connection,
+    workspace_id: &str,
+    marked_at: &str,
+) -> Result<u32, PortfolioReadError> {
+    let malformed: Vec<(String, rusqlite::types::Value)> = {
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT mutation_id, created_at FROM sync_outbox
+                 WHERE workspace_id = ?1 AND {} ORDER BY mutation_id",
+                super::history::unmarked_malformed_created_at()
+            ))
+            .map_err(|_| PortfolioReadError::SchemaRejected)?;
+        statement
+            .query_map([workspace_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|_| PortfolioReadError::ProjectionRejected)?
+            .collect::<Result<_, _>>()
+            .map_err(|_| PortfolioReadError::StorageRejected)?
+    };
+    for (mutation_id, created_at) in &malformed {
+        let digest = hex(&Sha256::digest(format!("{created_at:?}").as_bytes()));
+        transaction
+            .execute(
+                "INSERT INTO sync_outbox_commit_time_marks
+                 (workspace_id, mutation_id, prior_value_sha256, marked_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![workspace_id, mutation_id, digest, marked_at],
+            )
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+    }
+    u32::try_from(malformed.len()).map_err(|_| PortfolioReadError::ProjectionRejected)
 }
 
 fn hex(bytes: &[u8]) -> String {

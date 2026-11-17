@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel, type SettingsConnection } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type StorageRepairKind, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel, type SettingsConnection } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -210,6 +210,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               ports={ports}
               writable={readOnly === null}
               revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
+              onRepaired={onRefresh}
               onLocaleChange={onLocaleChange}
               {...(readOnly === null && onRunOnboarding !== undefined ? { onRunOnboarding } : {})}
             />
@@ -232,7 +233,13 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
 
 type SettingsState =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly connections: ConnectionSettingsViewModel; readonly storageIntegrity: SettingsStorageIntegrity }
+  | {
+    readonly kind: "ready";
+    readonly connections: ConnectionSettingsViewModel;
+    readonly storageIntegrity: SettingsStorageIntegrity;
+    /** The generation the counts were read at; a repair is refused unless the Host is still there. */
+    readonly readGeneration: number;
+  }
   | { readonly kind: "failed" };
 
 /**
@@ -241,11 +248,13 @@ type SettingsState =
  * pull cadence and build facts have no Host source yet, so
  * the panel shows those as unavailable instead of placeholder values.
  */
-function SettingsRoute({ locale, ports, revisionBase, writable, onLocaleChange, onRunOnboarding }: {
+function SettingsRoute({ locale, ports, revisionBase, writable, onRepaired, onLocaleChange, onRunOnboarding }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly revisionBase: number | null;
   readonly writable: boolean;
+  /** A repair may advance the read generation, so the workspace publication is read again. */
+  readonly onRepaired: () => void;
   readonly onLocaleChange: (locale: Locale) => void;
   readonly onRunOnboarding?: () => void;
 }) {
@@ -260,13 +269,14 @@ function SettingsRoute({ locale, ports, revisionBase, writable, onLocaleChange, 
     Promise.all([ports.settings.loadSettings(), readCloudflareNotice(ports.cloudflare)])
       .then(([read, cloudflare]) => {
         const summary = (connection: SettingsConnection) => connection.providerKind === "cloudflare" ? copy[cloudflareNoticeCopyKey[cloudflare.notice]] : copy.capabilityPendingSummary;
-        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, summary), storageIntegrity: read.storageIntegrity });
+        if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, summary), storageIntegrity: read.storageIntegrity, readGeneration: read.readGeneration });
       })
       .catch(() => { if (!cancelled) setState({ kind: "failed" }); });
     return () => { cancelled = true; };
   }, [ports, attempt, copy]);
 
   if (state.kind === "loading") return <p className="gd-t-meta">{copy.loading}</p>;
+  const repairStoredRows = ports.settings.repairStoredRows;
   if (state.kind === "failed") {
     return (
       <Banner tone="danger" title={copy.loadFailed}>
@@ -285,6 +295,12 @@ function SettingsRoute({ locale, ports, revisionBase, writable, onLocaleChange, 
       sync={null}
       about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}
       onLocaleChange={onLocaleChange}
+      {...(writable && repairStoredRows !== undefined ? {
+        // Either way the counts and the workspace are read again: a failed call may still have
+        // committed and advanced the read generation.
+        onRepairStoredRows: (repairKind: StorageRepairKind) => repairStoredRows.call(ports.settings, { schemaVersion: 1, expectedReadGeneration: state.readGeneration, repairKind })
+          .then(() => { setAttempt((current) => current + 1); onRepaired(); }, (error: unknown) => { setAttempt((current) => current + 1); onRepaired(); throw error; }),
+      } : {})}
       {...(onRunOnboarding === undefined ? {} : { onRunOnboarding })}
     />
   );

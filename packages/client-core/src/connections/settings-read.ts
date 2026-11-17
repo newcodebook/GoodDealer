@@ -62,8 +62,43 @@ export function parseSettingsRead(input: unknown): SettingsRead {
   return settingsReadSchema.parse(copyPlainData(input));
 }
 
+/** The integrity counts a storage repair clears, named as the settings read names them (ADR-0031). */
+export const storageRepairKindSchema = z.enum([
+  "malformedExpiries",
+  "invalidRegistrarObservations",
+  "rejectedDnsRows",
+  "rejectedListings",
+  "malformedOutboxRows",
+]);
+
+/** The repair request carries only the category and the read generation its count was shown at. */
+export const storageRepairRequestSchema = z.object({
+  schemaVersion: z.literal(1),
+  expectedReadGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  repairKind: storageRepairKindSchema,
+}).strict();
+
+export const storageRepairReceiptSchema = z.object({
+  schemaVersion: z.literal(1),
+  repairKind: storageRepairKindSchema,
+  repairedRows: z.number().int().nonnegative().max(4_294_967_295),
+}).strict();
+
+export type StorageRepairKind = z.infer<typeof storageRepairKindSchema>;
+export type StorageRepairRequest = z.infer<typeof storageRepairRequestSchema>;
+export type StorageRepairReceipt = z.infer<typeof storageRepairReceiptSchema>;
+
+/** Parses a Host repair receipt, which must answer the category that was requested. */
+export function parseStorageRepairReceipt(input: unknown, requested: StorageRepairKind): StorageRepairReceipt {
+  const receipt = storageRepairReceiptSchema.parse(copyPlainData(input));
+  if (receipt.repairKind !== requested) throw new TypeError("storage repair receipt names another category");
+  return receipt;
+}
+
 export interface SettingsReadPort {
   loadSettings(): Promise<SettingsRead>;
+  /** Present only where the Host can repair stored rows; absent, the panel offers no repair. */
+  repairStoredRows?(request: StorageRepairRequest): Promise<StorageRepairReceipt>;
 }
 
 /** Closed mapping from Host credential facts to the settings badge; revocation always wins. */

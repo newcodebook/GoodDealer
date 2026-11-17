@@ -36,6 +36,7 @@
     "allow-local-domain-asset-create",
     "allow-local-domain-asset-delete",
     "allow-local-domain-asset-provider-bind",
+    "allow-local-storage-repair",
     "allow-local-conflict-center-read",
     "allow-local-conflict-resolve",
     "allow-local-sync-status",

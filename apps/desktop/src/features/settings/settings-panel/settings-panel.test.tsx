@@ -2,7 +2,7 @@ import { connectionSettingsViewModelSchema, parseSettingsRead, projectConnection
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { SettingsPanel } from "./settings-panel";
+import { SettingsPanel, StorageRepairDialog } from "./settings-panel";
 import { canHandoffTo, connectionStatus, type DeviceRuntimeView } from "./settings-contract";
 
 const sync = syncSettingsViewModelSchema.parse({
@@ -170,13 +170,13 @@ describe("Settings from the Host projection", () => {
     expect(about).toContain(">7<");
   });
 
-  it("reports stored rows other reads reject, says which read each affects, and that repair is unavailable", () => {
+  it("reports stored rows other reads reject, says which read each affects, and when repair is unavailable", () => {
     const panel = (storageIntegrity: Parameters<typeof SettingsPanel>[0]["about"]["storageIntegrity"], locale: "zh-CN" | "en-US" = "zh-CN") => renderToStaticMarkup(
       <SettingsPanel locale={locale} initialSection="about" connections={connections} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: null, storageIntegrity }} />,
     );
     const clean = { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 };
     expect(panel(clean)).toContain("没有被读取拒绝的数据");
-    expect(panel(clean)).not.toContain("修复入口");
+    expect(panel(clean)).not.toContain("修复需要");
     expect(panel(null)).toMatch(/本地数据完整性<\/dt><dd class="gd-key-value--muted">暂不可用/u);
 
     const html = panel({ ...clean, invalidRegistrarObservations: 1200, malformedOutboxRows: 1 });
@@ -186,7 +186,37 @@ describe("Settings from the Host projection", () => {
     // Only the classes with rows appear.
     expect(html).not.toContain("到期日期无效");
     expect(html).not.toContain("挂牌观察无效");
-    expect(html).toContain("修复入口尚不可用");
+    // Without a repair capability (read-only, or no Host command) there is no repair button.
+    expect(html).toContain("修复需要本设备上可写的工作区");
+    expect(html).not.toContain(">修复</button>");
     expect(panel({ ...clean, rejectedDnsRows: 2, rejectedListings: 3, malformedExpiries: 4 }, "en-US")).toMatch(/4 assets with an invalid expiry date: the asset library cannot be read, and renewals may not be.*2 assets with an invalid DNS binding.*3 invalid listing observations/su);
+  });
+
+  it("offers a repair per affected category only when the workspace can repair", () => {
+    const issues = { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 2, rejectedListings: 0, malformedOutboxRows: 1 };
+    const html = renderToStaticMarkup(
+      <SettingsPanel locale="zh-CN" initialSection="about" connections={connections} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: null, storageIntegrity: issues }} onRepairStoredRows={() => Promise.resolve()} />,
+    );
+    expect(html.match(/>修复<\/button>/gu)).toHaveLength(2);
+    expect(html).not.toContain("修复需要");
+  });
+
+  it("names the count and the effect of a repair before it runs, and locks while it runs", () => {
+    const dialog = (kind: Parameters<typeof StorageRepairDialog>[0]["kind"], pending = false, count = 3, locale: "zh-CN" | "en-US" = "zh-CN") => renderToStaticMarkup(
+      <StorageRepairDialog locale={locale} kind={kind} count={count} pending={pending} onClose={() => undefined} onConfirm={() => undefined} />,
+    );
+    expect(dialog(null)).toBe("");
+    const outbox = dialog("malformedOutboxRows");
+    expect(outbox).toContain("3 条变更记录的时间无效");
+    expect(outbox).toContain("已同步的历史不会被改写");
+    expect(outbox).toContain("只保留原值的摘要");
+    expect(outbox).toContain("修复 3 行");
+    expect(dialog("rejectedDnsRows")).toContain("被隔离的绑定仍占据该资产的 Zone 绑定");
+    expect(dialog("malformedExpiries", false, 4, "en-US")).toMatch(/4 assets with an invalid expiry date.*expiry becomes unknown until the next registrar observation.*Repair 4 rows/su);
+    const running = dialog("rejectedListings", true);
+    expect(running).toContain("正在修复…");
+    expect(running.match(/<button[^>]*disabled=""[^>]*>/gu)?.length).toBe(2);
+    // A count that reached 0 elsewhere cannot be confirmed.
+    expect(dialog("rejectedListings", false, 0)).toMatch(/<button[^>]*disabled=""[^>]*>修复 0 行/u);
   });
 });

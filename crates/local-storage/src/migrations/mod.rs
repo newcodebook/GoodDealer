@@ -34,6 +34,10 @@ use crate::active_workspace::schema::{
     LOCAL_RE_ADD_MIGRATION_OWNER, LOCAL_RE_ADD_MIGRATION_SQL, STORAGE_REPAIR_MIGRATION_ID,
     STORAGE_REPAIR_MIGRATION_OWNER, STORAGE_REPAIR_MIGRATION_SQL,
 };
+use crate::active_workspace::schema::{
+    OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID, OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER,
+    OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MigrationError {
@@ -163,6 +167,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: STORAGE_REPAIR_MIGRATION_ID,
         owner: STORAGE_REPAIR_MIGRATION_OWNER,
         sql: STORAGE_REPAIR_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID,
+        owner: OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER,
+        sql: OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL,
     },
 ];
 
@@ -498,7 +507,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 23);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 24);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -523,7 +532,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 50);
+        assert_eq!(table_count, 51);
         assert!(business_index_count >= 24);
 
         connection

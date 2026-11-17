@@ -12039,11 +12039,82 @@ mod tests {
                 .registrar,
             None
         );
-        // Outbox commit times are ADR-0031's other half and still fail history closed.
+        // Outbox commit times are only marked: history then shows those rows with no time, and
+        // the stored times are unchanged.
         assert!(matches!(
             database.read_history(0, 10, HISTORY_DAY),
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
+        assert_eq!(
+            database.repair_stored_rows_guarded(
+                crate::StorageRepairKind::MalformedOutboxRows,
+                TIMESTAMP,
+                || Ok(()),
+            ),
+            Ok(2)
+        );
+        assert_eq!(
+            database.repair_stored_rows_guarded(
+                crate::StorageRepairKind::MalformedOutboxRows,
+                TIMESTAMP,
+                || Ok(()),
+            ),
+            Ok(0)
+        );
+        assert_eq!(integrity(&database), [0, 0, 0, 0, 0]);
+        let history = database.read_history(0, 10, HISTORY_DAY).unwrap();
+        let times: Vec<(String, Option<String>)> = history
+            .window
+            .rows
+            .iter()
+            .filter(|row| row.entity_id == "alpha.test")
+            .map(|row| (row.operation.clone(), row.committed_at.clone()))
+            .collect();
+        assert_eq!(times.iter().filter(|(_, time)| time.is_none()).count(), 2);
+        // `2026-08-28T24:00:00Z` sorts inside the day as text, but a marked row has no usable time,
+        // so today's count holds only rows the page shows with a time on that day.
+        let shown_today = history
+            .window
+            .rows
+            .iter()
+            .filter(|row| {
+                row.committed_at
+                    .as_deref()
+                    .is_some_and(|at| at.starts_with("2026-08-28T"))
+            })
+            .count();
+        assert_eq!(usize::try_from(history.changes_today), Ok(shown_today));
+        assert!(
+            times
+                .iter()
+                .any(|(_, time)| time.as_deref() == Some("2026-08-28T12:00:00Z"))
+        );
+        let stored: Vec<String> = database
+            .store
+            .raw_connection()
+            .prepare("SELECT created_at FROM sync_outbox WHERE mutation_id LIKE 'legacy-%' ORDER BY mutation_id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(stored, ["2026-08-28 12:00:00", "2026-08-28T24:00:00Z"]);
+        // A mark names only a malformed time, and is immutable.
+        let connection = database.store.raw_connection();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO sync_outbox_commit_time_marks VALUES
+                 ('workspace-local','canonical',?1,?2)",
+                    rusqlite::params!["a".repeat(64), TIMESTAMP],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM sync_outbox_commit_time_marks", [])
+                .is_err()
+        );
         // Receipts are immutable and name only existing rows.
         let connection = database.store.raw_connection();
         assert!(

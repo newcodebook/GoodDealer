@@ -2,11 +2,13 @@ import type {
   ConnectionSettingsAction,
   ConnectionSettingsItemViewModel,
   ConnectionSettingsViewModel,
+  StorageRepairKind,
   SyncSettingsViewModel,
 } from "@gooddealer/client-core";
 import { defaultLocale, formatDate, formatNumber, getPresentationCopy, isLocale, supportedLocales, type Locale } from "@gooddealer/i18n";
 import {
   Badge,
+  Banner,
   Button,
   Checkbox,
   Dialog,
@@ -31,6 +33,7 @@ import {
   leaseHolder,
   settingsSections,
   storageIntegrityChecks,
+  storageRepairEffectCopyKey,
   type AboutView,
   type DeviceRuntimeEntry,
   type DeviceRuntimeView,
@@ -62,6 +65,11 @@ export interface SettingsPanelProps {
   readonly onPullRefreshChange?: (cadence: PullRefreshCadence) => void;
   readonly about: AboutView;
   readonly onLocaleChange?: (locale: Locale) => void;
+  /**
+   * Present only on a writable workspace. Resolves once the Host repaired the category and the
+   * caller started reading the counts again; rejects when the Host reported no result.
+   */
+  readonly onRepairStoredRows?: (kind: StorageRepairKind) => Promise<void>;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -89,11 +97,13 @@ export function SettingsPanel({
   onPullRefreshChange,
   about,
   onLocaleChange,
+  onRepairStoredRows,
 }: SettingsPanelProps) {
   const copy = getPresentationCopy(locale, "settings");
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [handoffTarget, setHandoffTarget] = useState<DeviceRuntimeEntry | null>(null);
   const [handoffAck, setHandoffAck] = useState(false);
+  const [repair, setRepair] = useState<StorageRepairState>({ kind: null, pending: false, failed: false });
   const sectionLabels: Readonly<Record<SettingsSection, string>> = {
     connections: copy.connections,
     devices: copy.devicesAndRuntime,
@@ -105,6 +115,15 @@ export function SettingsPanel({
   const integrity = about.storageIntegrity;
   const integrityIssues = integrity === null ? [] : storageIntegrityChecks.flatMap((check) => integrity[check] === 0 ? [] : [[check, integrity[check]] as const]);
   const closeHandoff = () => { setHandoffTarget(null); setHandoffAck(false); };
+  const repairCount = repair.kind === null || integrity === null ? 0 : integrity[repair.kind];
+  const confirmRepair = (kind: StorageRepairKind) => {
+    if (onRepairStoredRows === undefined) return;
+    setRepair({ kind, pending: true, failed: false });
+    onRepairStoredRows(kind).then(
+      () => setRepair({ kind: null, pending: false, failed: false }),
+      () => setRepair({ kind: null, pending: false, failed: true }),
+    );
+  };
   const cadenceLabel = (cadence: PullRefreshCadence) => cadence === "when_visible" ? copy.whenVisible : cadence === "every_5_minutes" ? copy.every5Minutes : copy.every15Minutes;
 
   return (
@@ -235,20 +254,37 @@ export function SettingsPanel({
                   tone={integrityIssues.length === 0 ? "muted" : "danger"}
                   value={about.storageIntegrity === null ? copy.notAvailable : integrityIssues.length === 0 ? copy.storageIntegrityClean : (
                     <span className="settings-notes">
-                      {integrityIssues.map(([check, count]) => <span key={check}>{fill(copy[check], { count: formatNumber(locale, count) })}</span>)}
+                      {integrityIssues.map(([check, count]) => (
+                        <span key={check} className="settings-row">
+                          <span>{fill(copy[check], { count: formatNumber(locale, count) })}</span>
+                          {onRepairStoredRows === undefined ? null : (
+                            <Button size="sm" disabled={repair.pending} onClick={() => setRepair({ kind: check, pending: false, failed: false })}>{copy.storageRepairAction}</Button>
+                          )}
+                        </span>
+                      ))}
                     </span>
                   )}
                 />
               </KeyValueList>
-              {integrityIssues.length === 0 ? null : (
+              {integrityIssues.length === 0 || onRepairStoredRows !== undefined ? null : (
                 <div className="settings-notes settings-notes--inset">
                   <span className="gd-t-meta">{copy.storageRepairUnavailable}</span>
                 </div>
               )}
+              {repair.failed ? <Banner tone="danger" title={copy.storageRepairFailed} /> : null}
             </Panel>
           ) : null}
         </div>
       </div>
+
+      <StorageRepairDialog
+        locale={locale}
+        kind={repair.kind}
+        count={repairCount}
+        pending={repair.pending}
+        onClose={() => { if (!repair.pending) setRepair({ kind: null, pending: false, failed: false }); }}
+        onConfirm={confirmRepair}
+      />
 
       <Dialog
         open={handoffTarget !== null}
@@ -277,6 +313,52 @@ export function SettingsPanel({
         )}
       </Dialog>
     </section>
+  );
+}
+
+interface StorageRepairState {
+  /** The category whose confirmation is open, or null. */
+  readonly kind: StorageRepairKind | null;
+  readonly pending: boolean;
+  readonly failed: boolean;
+}
+
+/**
+ * Confirms one repair category. It names the count the user saw and what the repair does to those
+ * rows; the Host reselects them with the same predicate, so nothing else is touched.
+ */
+export function StorageRepairDialog({ locale, kind, count, pending, onClose, onConfirm }: {
+  readonly locale: Locale;
+  readonly kind: StorageRepairKind | null;
+  readonly count: number;
+  readonly pending: boolean;
+  readonly onClose: () => void;
+  readonly onConfirm: (kind: StorageRepairKind) => void;
+}) {
+  const copy = getPresentationCopy(locale, "settings");
+  return (
+    <Dialog
+      open={kind !== null}
+      onClose={onClose}
+      title={copy.storageRepairTitle}
+      width={512}
+      footer={kind === null ? null : (
+        <>
+          <Button disabled={pending} onClick={onClose}>{copy.cancel}</Button>
+          <Button variant="primary" disabled={pending || count === 0} onClick={() => onConfirm(kind)}>
+            {pending ? copy.storageRepairRunning : fill(copy.storageRepairConfirm, { count: formatNumber(locale, count) })}
+          </Button>
+        </>
+      )}
+    >
+      {kind === null ? null : (
+        <div className="settings-dialog">
+          <span className="gd-t-body">{fill(copy[kind], { count: formatNumber(locale, count) })}</span>
+          <span className="gd-t-body">{copy[storageRepairEffectCopyKey[kind]]}</span>
+          <span className="gd-t-meta">{copy.storageRepairAudit}</span>
+        </div>
+      )}
+    </Dialog>
   );
 }
 

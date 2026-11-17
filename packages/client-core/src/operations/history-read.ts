@@ -28,7 +28,8 @@ const historyRowSchema = z.object({
   entityId: z.string().min(1).max(253),
   /** `create` only for an add the Host's create path recorded; earlier adds read as `edit`. */
   operation: z.enum(["create", "edit", "delete"]),
-  committedAt: z.iso.datetime(),
+  /** `null` only when a storage repair marked the stored commit time invalid (ADR-0031). */
+  committedAt: z.iso.datetime().nullable(),
   state: z.enum(["pending", "sending", "acknowledged", "conflicted", "rejected"]),
   serverRevision: revisionSchema.min(1).nullable(),
   changes: z.array(historyFieldChangeSchema).max(4).readonly(),

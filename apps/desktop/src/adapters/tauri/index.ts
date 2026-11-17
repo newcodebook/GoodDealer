@@ -24,6 +24,8 @@ import {
   parseRenewalsRead,
   parseSalesRead,
   parseSettingsRead,
+  parseStorageRepairReceipt,
+  storageRepairRequestSchema,
   renewalsWindowRequestSchema,
   salesWindowRequestSchema,
   dnsHealthWindowRequestSchema,
@@ -201,6 +203,7 @@ const commands = {
   readDomainDetail: "local_domain_detail_read",
   readDnsHealth: "local_dns_health_read",
   readSettings: "local_settings_read",
+  repairStoredRows: "local_storage_repair",
   readRenewals: "local_renewals_read",
   readBatchOperations: "local_batch_operations_read",
   readHistory: "local_history_read",
@@ -398,6 +401,14 @@ export function createLocalSettingsPort(): SettingsReadPort {
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
+    },
+    async repairStoredRows(request) {
+      // Only a closed category and a read generation reach the Host; no row identity or value.
+      const validatedRequest = storageRepairRequestSchema.parse(request);
+      return parseStorageRepairReceipt(
+        await invoke(commands.repairStoredRows, { request: validatedRequest }),
+        validatedRequest.repairKind,
+      );
     },
   };
 }

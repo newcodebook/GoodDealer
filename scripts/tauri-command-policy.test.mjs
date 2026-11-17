@@ -48,6 +48,7 @@ function createFixture() {
     "local_renewals_read",
     "local_sales_read",
     "local_settings_read",
+    "local_storage_repair",
   ];
   writeFile(root, "apps/desktop/src-tauri/build.rs", `AppManifest::new().commands(&[${commands.map((command) => `"${command}"`).join(",")}])\n`);
   writeFile(root, "apps/desktop/src-tauri/src/main.rs", `

@@ -154,6 +154,7 @@ writes nothing, and a domain already held is left as it is.
 - `local_domain_asset_create`
 - `local_domain_asset_delete`
 - `local_domain_asset_provider_bind`
+- `local_storage_repair`
 - `local_sync_status`
 - `local_conflict_center_read`
 - `local_conflict_resolve`
@@ -227,6 +228,17 @@ close and marks its title bar with `data-tauri-drag-region`; the capability admi
 Overlay`, `hiddenTitle`, `trafficLightPosition`); the shell reserves their inset and draws no controls.
 The macOS patch may change only title-bar presentation, verified by `src/app/native-policy.test.ts`.
 The traffic-light position and undecorated resizing still need checking on each target platform.
+
+## Local storage repair
+
+`local_storage_repair` repairs one category of the stored rows that the Settings integrity counts
+report (ADR-0031). The Renderer sends only `{schemaVersion, expectedReadGeneration, repairKind}`, never
+a row identity or value; the Host reselects the rows with the read's own predicate in one immediate
+transaction, refuses a stale read generation, and answers with the category and a row count. It
+quarantines observations and bindings, sets an unreplicated expiry to unknown, or marks an Outbox
+commit time; it rewrites no synced history and uses no credential. Settings offers it per non-zero
+category only on a writable surface, after a confirmation that names the count and the effect, and
+re-reads the counts and republishes the workspace whether or not the call reported a result.
 
 ## Local Provider binding
 

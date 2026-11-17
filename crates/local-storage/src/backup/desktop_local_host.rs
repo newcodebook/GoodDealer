@@ -8599,7 +8599,7 @@ mod tests {
                 .is_err()
         );
         assert!(
-            host.repair_stored_rows(request("malformedOutboxRows", generation))
+            host.repair_stored_rows(request("MalformedExpiries", generation))
                 .is_err()
         );
         assert!(

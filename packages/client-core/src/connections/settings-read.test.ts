@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConnectionSettingsViewModel } from "./index";
-import { parseSettingsRead, projectConnectionSettings, settingsConnectionHealth, type SettingsConnection } from "./settings-read";
+import { parseSettingsRead, parseStorageRepairReceipt, projectConnectionSettings, settingsConnectionHealth, storageRepairRequestSchema, type SettingsConnection } from "./settings-read";
 
 const connection = {
   providerKind: "cloudflare",
@@ -95,5 +95,17 @@ describe("settings Host read", () => {
     expect(health({ credentialUseState: "transition_pending" })).toBe("verifying");
     expect(health({ credentialUseState: "remediation_required" })).toBe("action_required");
     expect(health({ lifecycleStatus: "revoked", validationStatus: "valid" })).toBe("revoked");
+  });
+
+  it("sends only a closed repair category and accepts only the receipt for it", () => {
+    const request = { schemaVersion: 1, expectedReadGeneration: 4, repairKind: "rejectedDnsRows" };
+    expect(storageRepairRequestSchema.parse(request)).toEqual(request);
+    for (const hostile of [{ ...request, entityId: "a.com" }, { ...request, repairKind: "RejectedDnsRows" }, { ...request, schemaVersion: 2 }, { ...request, expectedReadGeneration: 1.5 }]) {
+      expect(() => storageRepairRequestSchema.parse(hostile)).toThrow();
+    }
+    expect(parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedDnsRows", repairedRows: 0 }, "rejectedDnsRows").repairedRows).toBe(0);
+    expect(() => parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedListings", repairedRows: 1 }, "rejectedDnsRows")).toThrow();
+    expect(() => parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedDnsRows", repairedRows: 2 ** 32 }, "rejectedDnsRows")).toThrow();
+    expect(() => parseStorageRepairReceipt("ok", "rejectedDnsRows")).toThrow();
   });
 });

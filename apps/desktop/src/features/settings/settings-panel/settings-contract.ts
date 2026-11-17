@@ -1,4 +1,4 @@
-import type { ConnectionSettingsItemViewModel, SettingsStorageIntegrity } from "@gooddealer/client-core";
+import type { ConnectionSettingsItemViewModel, SettingsStorageIntegrity, StorageRepairKind } from "@gooddealer/client-core";
 
 export type SettingsSection = "connections" | "devices" | "license" | "sync" | "about";
 export const settingsSections: readonly SettingsSection[] = ["connections", "devices", "license", "sync", "about"];
@@ -48,6 +48,15 @@ export const storageIntegrityChecks = [
   "rejectedListings",
   "malformedOutboxRows",
 ] as const satisfies readonly (keyof SettingsStorageIntegrity)[];
+
+/** What each repair does to the rows it covers (ADR-0031), shown before the user confirms it. */
+export const storageRepairEffectCopyKey = {
+  malformedExpiries: "repairEffectMalformedExpiries",
+  invalidRegistrarObservations: "repairEffectInvalidRegistrarObservations",
+  rejectedDnsRows: "repairEffectRejectedDnsRows",
+  rejectedListings: "repairEffectRejectedListings",
+  malformedOutboxRows: "repairEffectMalformedOutboxRows",
+} as const satisfies Readonly<Record<StorageRepairKind, string>>;
 
 /** The device that holds, or is releasing, the current lease. */
 export function leaseHolder(view: DeviceRuntimeView): DeviceRuntimeEntry | null {

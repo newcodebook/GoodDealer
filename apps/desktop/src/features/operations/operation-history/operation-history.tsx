@@ -55,7 +55,7 @@ export function OperationHistory({ locale, view, onSelect, onPlanReversal, onExp
     && (needle === "" || entry.actionLabel.includes(needle) || entry.revisionLabel.includes(needle) || entry.platformLabel.includes(needle)));
   const selected = view.entries.find((entry) => entry.revisionId === view.selectedRevisionId) ?? rows[0] ?? null;
   const rolledBack = view.entries.filter((entry) => entry.state === "rolled_back").length;
-  const when = (value: string) => relativeTime(value, copy, now);
+  const when = (value: string | null) => (value === null ? copy.timeInvalid : relativeTime(value, copy, now));
 
   const stateBadge = (entry: OperationHistoryEntry) => {
     switch (entry.state) {

@@ -745,6 +745,15 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sync_outbox_commit_time_marks",
+        &[
+            "workspace_id",
+            "mutation_id",
+            "prior_value_sha256",
+            "marked_at",
+        ],
+    ),
+    (
         "storage_repair_receipts",
         &[
             "workspace_id",
@@ -887,3 +896,9 @@ pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL: &str =
 pub(crate) const STORAGE_REPAIR_MIGRATION_ID: i64 = 202_611_160_002;
 pub(crate) const STORAGE_REPAIR_MIGRATION_OWNER: &str = "active-workspace/storage-repair";
 pub(crate) const STORAGE_REPAIR_MIGRATION_SQL: &str = include_str!("storage_repair.sql");
+
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID: i64 = 202_611_160_003;
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-commit-time-marks";
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL: &str =
+    include_str!("outbox_commit_time_marks.sql");

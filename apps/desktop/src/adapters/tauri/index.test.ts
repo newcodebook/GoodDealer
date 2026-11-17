@@ -373,6 +373,34 @@ describe("Desktop Tauri local-business adapter", () => {
     }
   });
 
+  it("repairs one category through the narrow command and accepts only the receipt it asked for", async () => {
+    const port = createLocalSettingsPort();
+    const request = { schemaVersion: 1, expectedReadGeneration: 3, repairKind: "malformedOutboxRows" } as const;
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, repairKind: "malformedOutboxRows", repairedRows: 2 });
+    await expect(port.repairStoredRows?.(request)).resolves.toEqual({ schemaVersion: 1, repairKind: "malformedOutboxRows", repairedRows: 2 });
+    expect(invokeMock).toHaveBeenLastCalledWith("local_storage_repair", { request });
+    // A row identity, an unknown category or a negative generation never reaches the Host.
+    invokeMock.mockClear();
+    for (const hostile of [
+      { ...request, rowKey: "asset-1" },
+      { ...request, repairKind: "allRows" },
+      { ...request, expectedReadGeneration: -1 },
+    ]) {
+      await expect(port.repairStoredRows?.(hostile as never)).rejects.toThrow();
+    }
+    expect(invokeMock).not.toHaveBeenCalled();
+    for (const receipt of [
+      { schemaVersion: 1, repairKind: "rejectedListings", repairedRows: 2 },
+      { schemaVersion: 1, repairKind: "malformedOutboxRows", repairedRows: -1 },
+      { schemaVersion: 1, repairKind: "malformedOutboxRows", repairedRows: 2, rowKeys: ["m1"] },
+    ]) {
+      invokeMock.mockResolvedValueOnce(receipt);
+      await expect(port.repairStoredRows?.(request)).rejects.toThrow();
+    }
+    invokeMock.mockRejectedValueOnce("LOCAL_REVISION_REJECTED");
+    await expect(port.repairStoredRows?.(request)).rejects.toBe("LOCAL_REVISION_REJECTED");
+  });
+
   it("reads the Active lease for display and rejects anything beyond the identifiers", async () => {
     invokeMock.mockResolvedValueOnce({ schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3 });
     await expect(createLocalDeviceLeasePort().read()).resolves.toEqual({ schemaVersion: 1, deviceId: "device-01HZX", leaseEpoch: 3 });

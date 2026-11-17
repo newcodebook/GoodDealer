@@ -745,6 +745,7 @@ const zhCNDictionary = {
   },
   operationHistory: {
     title: "操作历史",
+    timeInvalid: "时间无效",
     local: "本地",
     synced: "已同步",
     rolledBack: "已回滚",
@@ -942,7 +943,18 @@ const zhCNDictionary = {
     rejectedDnsRows: "{count} 个资产的 DNS 绑定或观察无效：DNS 健康无法读取",
     rejectedListings: "{count} 条挂牌观察无效：销售无法读取",
     malformedOutboxRows: "{count} 条变更记录的时间无效：历史无法读取",
-    storageRepairUnavailable: "这些数据早于完整性校验写入，其他数据不受影响；修复入口尚不可用。",
+    storageRepairUnavailable: "这些数据早于完整性校验写入，其他数据不受影响。修复需要本设备上可写的工作区。",
+    storageRepairAction: "修复",
+    storageRepairTitle: "修复存储数据",
+    storageRepairConfirm: "修复 {count} 行",
+    storageRepairRunning: "正在修复…",
+    storageRepairAudit: "每修复一行写入一条不可变回执，只保留原值的摘要。修复不使用任何凭据，也不改动任何平台。",
+    storageRepairFailed: "修复没有返回结果。计数已重新读取；如仍有剩余，可再次修复。",
+    repairEffectMalformedExpiries: "这些资产的到期日期变为未知，直到下一次注册商观察重新写入。",
+    repairEffectInvalidRegistrarObservations: "这些观察被隔离：注册商名称显示为未知，直到下一次观察；更早的观察不会顶替。",
+    repairEffectRejectedDnsRows: "每个资产中校验失败的绑定或 Zone 观察被隔离：读取视为没有绑定或 Zone 未观察。被隔离的绑定仍占据该资产的 Zone 绑定。修复后计数仍不为 0，说明它此前遮住的观察也无效，再修复一次即可。",
+    repairEffectRejectedListings: "这些挂牌观察被隔离：该市场不显示挂牌，直到下一次观察；更早的挂牌不会顶替。",
+    repairEffectMalformedOutboxRows: "这些变更记录保留原有时间并被标记：历史中显示为时间无效。已同步的历史不会被改写。",
   },
 } as const;
 
