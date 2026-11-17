@@ -1,6 +1,7 @@
 import {
   desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantSchema,
+  deviceSwitchDrainRequestSchema,
   deviceSwitchLookupRequestSchema,
   deviceSwitchRequestSchema,
   deviceSwitchResponseSchema,
@@ -134,6 +135,7 @@ export const CLOUDFLARE_DNS_OBSERVATION_ROUTE = "/v1/workspace-observations/clou
 export const DEVICE_SWITCH_REQUEST_ROUTE = "/v1/device-switch/requests" as const;
 export const DEVICE_SWITCH_STATUS_ROUTE = "/v1/device-switch/requests/status" as const;
 export const DEVICE_SWITCH_CANCEL_ROUTE = "/v1/device-switch/requests/cancel" as const;
+export const DEVICE_SWITCH_DRAIN_ROUTE = "/v1/device-switch/requests/drain" as const;
 
 export class PublicRouteAuthorizationError extends Error {}
 
@@ -364,8 +366,11 @@ export function createPublicBusinessRoutes(
   const deviceSwitch = ports.deviceSwitch;
   const deviceSwitchRoute = (
     path: string,
-    request: typeof deviceSwitchRequestSchema | typeof deviceSwitchLookupRequestSchema,
+    request: typeof deviceSwitchRequestSchema | typeof deviceSwitchLookupRequestSchema | typeof deviceSwitchDrainRequestSchema,
     invoke: (port: DeviceSwitchApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceSwitchApplicationPort["request"]>,
+    // Request, status and cancel carry at most three identifiers of 160 printable characters,
+    // each JSON-escaped at worst to two bytes: under 1.1 KiB.
+    bodyLimit = 2 * 1024,
   ): PublicRoute<any, any> => ({
     surface: PUBLIC_SURFACE,
     method: "POST",
@@ -379,14 +384,21 @@ export function createPublicBusinessRoutes(
       if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
       return response;
     },
-    // Three identifiers of at most 160 printable characters, each JSON-escaped at worst to two
-    // bytes, plus field names: under 1.1 KiB.
-    bodyLimit: 2 * 1024,
+    bodyLimit,
   });
   const deviceSwitchRoutes: readonly PublicRoute<any, any>[] = deviceSwitch === undefined ? [] : [
     deviceSwitchRoute(DEVICE_SWITCH_REQUEST_ROUTE, deviceSwitchRequestSchema, (port, value, principal) => port.request(value, principal)),
     deviceSwitchRoute(DEVICE_SWITCH_STATUS_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.status(value, principal)),
     deviceSwitchRoute(DEVICE_SWITCH_CANCEL_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.cancel(value, principal)),
+    ...(deviceSwitch.drain === undefined ? [] : [deviceSwitchRoute(
+      DEVICE_SWITCH_DRAIN_ROUTE,
+      deviceSwitchDrainRequestSchema,
+      (port, value, principal) => port.drain!(value, principal),
+      // A handoff manifest: about twenty fields of at most 200 printable characters, three stream
+      // claims with 43-character digests and a signature of at most 1024 characters. Escaping
+      // every character still stays under 16 KiB.
+      16 * 1024,
+    )]),
   ];
   return [
     accountActivationRoute,

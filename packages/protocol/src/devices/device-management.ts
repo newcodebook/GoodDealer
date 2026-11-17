@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { canonicalUtcTimestamp, displayLabel, identifier, safePositiveInteger } from "../wire/index";
+import { drainManifestSchema } from "../execution-events/drain-proof";
 
 export const DEVICE_MANAGEMENT_SCHEMA_VERSION = 1 as const;
 
@@ -233,7 +234,23 @@ export const deviceSwitchRejectionCodeSchema = z.enum([
   "TARGET_REMOVED",
   "ACCOUNT_RECOVERY_PENDING",
   "FORCED_SWITCH_UNAVAILABLE",
+  "DRAIN_PROOF_INVALID",
+  "DRAIN_PROOF_EXPIRED",
+  "DRAIN_STREAMS_INCOMPLETE",
 ]);
+
+/**
+ * The source device's signed drain proof for its own switch (ADR-0032 S1c2). Only a handoff
+ * manifest is accepted; Cloud verifies its signature, bindings and every stream before handing
+ * the switch to bootstrap.
+ */
+export const deviceSwitchDrainRequestSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    requestId: identifier,
+    proof: drainManifestSchema,
+  })
+  .strict();
 
 export const deviceSwitchResponseSchema = z.discriminatedUnion("accepted", [
   z.object({
@@ -261,3 +278,4 @@ export type DeviceSwitchRequestView = z.infer<typeof deviceSwitchRequestViewSche
 export type DeviceSwitchLookupRequest = z.infer<typeof deviceSwitchLookupRequestSchema>;
 export type DeviceSwitchRejectionCode = z.infer<typeof deviceSwitchRejectionCodeSchema>;
 export type DeviceSwitchResponse = z.infer<typeof deviceSwitchResponseSchema>;
+export type DeviceSwitchDrainRequest = z.infer<typeof deviceSwitchDrainRequestSchema>;

@@ -27,6 +27,7 @@ import { desktopLoginLoopbackRedirectMigration } from "../modules/devices/migrat
 import { desktopCodeLoopbackRedirectMigration } from "../modules/identity/migrations/202611020002-desktop-code-loopback-redirect";
 import { drainProofSchemaVersionMigration } from "../modules/devices/migrations/202611130001-drain-proof-schema-version";
 import { drainHandoffTargetKeyMigration } from "../modules/devices/migrations/202611170001-drain-handoff-target-key";
+import { drainProofAdmissionMigration } from "../modules/devices/migrations/202611170002-drain-proof-admission";
 import { mutationDrainResultChainMigration } from "../modules/workspace/mutations/migrations/202611130002-mutation-drain-result-chain";
 import { mutationResultLedgerMigration } from "../modules/workspace/mutations/migrations/202611130003-mutation-result-ledger";
 import { mutationDrainDeviceChainMigration } from "../modules/workspace/mutations/migrations/202611130004-mutation-drain-device-chain";
@@ -80,6 +81,7 @@ export const cloudMigrations: readonly CloudMigration[] = [
   mutationLogGenerationMigration,
   replicaDomainAssetReAddMigration,
   drainHandoffTargetKeyMigration,
+  drainProofAdmissionMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

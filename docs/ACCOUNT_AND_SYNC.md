@@ -95,7 +95,7 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 请求的重放得到同一拒绝，多项批次不写回执。其余拒绝（输入、schema、权限、ID/序号冲突）不占用序号，缺口仍使
 设备切换的 drain 验证失败关闭。见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
 （Accepted，实现中：结果回执与 drain proof v2 已交付；client-core 只从持久化的 ACK 与单项业务拒绝折叠 v2
-结果链并生成 v2 声明，Desktop 设备切换按 [ADR-0032](adr/0032-desktop-device-switch-and-drain-handoff.md) 实施中，生产中还没有 proof 签名与上传；Cloud 已提供本设备回执查询，供 Host 判别跨 C1a 升级的版本 2 行）。
+结果链并生成 v2 声明，Desktop 设备切换按 [ADR-0032](adr/0032-desktop-device-switch-and-drain-handoff.md) 实施中，Host 还没有 proof 签名与上传；Cloud 已提供本设备回执查询，供 Host 判别跨 C1a 升级的版本 2 行，并已提供 Active 设备发起普通切换与提交已签名 drain proof 的路由）。
 
 ### Cloudflare 本机凭据清理
 

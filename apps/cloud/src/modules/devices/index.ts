@@ -102,6 +102,7 @@ export {
   PostgresDeviceDrainTransition,
 } from "./postgres-drain-transition";
 export { PostgresDesktopAuthorizationApplicationService } from "./postgres-desktop-authorization";
+export { PostgresDeviceSwitchDrain } from "./postgres-switch-drain";
 export { PostgresDeviceSwitchRequests } from "./postgres-switch-requests";
 export type { DeviceSwitchSubject } from "./postgres-switch-requests";
 export { PostgresDeviceSwitchApplication } from "./switch-application";

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PostgresDeviceSwitchApplication } from "../src/modules/devices/index";
+import { drainProofKeyPair, signedHandoffDrainProof } from "./support/drain-proof";
 
 const principal = { accountId: "account-switch", sessionId: "session-switch", clientKind: "desktop" as const };
 const scope = { accountId: principal.accountId, workspaceId: "workspace-switch" } as const;
@@ -18,12 +19,14 @@ function fixture(options: { device?: string | null; workspace?: typeof scope | n
     read: vi.fn(async () => view),
     cancel: vi.fn(async () => view),
   };
+  const drains = { submit: vi.fn(async () => view) };
   const application = new PostgresDeviceSwitchApplication({
     workspaces: { resolve: vi.fn(async () => (options.workspace === undefined ? scope : options.workspace)) },
     authority: { resolveActiveDevice: vi.fn(async () => (options.device === undefined ? "device-old" : options.device)) },
     requests,
+    drains,
   });
-  return { application, requests };
+  return { application, requests, drains };
 }
 
 describe("device switch application (ADR-0032 S1b)", () => {
@@ -77,5 +80,23 @@ describe("device switch application (ADR-0032 S1b)", () => {
     expect(requests.requestNormal).not.toHaveBeenCalled();
     expect(requests.read).not.toHaveBeenCalled();
     expect(requests.cancel).not.toHaveBeenCalled();
+  });
+
+  it("hands a drain proof to the service only for the session's own device (S1c2)", async () => {
+    const proof = signedHandoffDrainProof(drainProofKeyPair().privateKey);
+    const { application, drains } = fixture();
+    await expect(application.drain({ schemaVersion: 1, requestId: "switch-1", proof }, principal)).resolves.toEqual(view);
+    expect(drains.submit).toHaveBeenCalledWith(subject, "switch-1", proof);
+    for (const hostile of [
+      { schemaVersion: 1, requestId: "switch-1", proof: { ...proof, unknown: true } },
+      { schemaVersion: 1, requestId: "switch-1", proof, deviceId: "device-x" },
+      { schemaVersion: 1, requestId: "switch-1" },
+    ]) {
+      await expect(application.drain(hostile, principal)).rejects.toThrow();
+    }
+    const denied = fixture({ device: null });
+    await expect(denied.application.drain({ schemaVersion: 1, requestId: "switch-1", proof }, principal)).resolves.toBeNull();
+    expect(drains.submit).toHaveBeenCalledTimes(1);
+    expect(denied.drains.submit).not.toHaveBeenCalled();
   });
 });

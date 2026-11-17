@@ -1,5 +1,6 @@
 import {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  deviceSwitchDrainRequestSchema,
   deviceSwitchLookupRequestSchema,
   deviceSwitchRequestSchema,
   type DeviceSwitchResponse,
@@ -7,6 +8,7 @@ import {
 
 import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
 import type { DefaultWorkspaceTenantResolverPort } from "../workspace/default-workspace/index";
+import type { PostgresDeviceSwitchDrain } from "./postgres-switch-drain";
 import type { PostgresDeviceSwitchRequests } from "./postgres-switch-requests";
 import type { DesktopSyncAuthorityPort } from "./postgres-sync-authority";
 
@@ -15,6 +17,8 @@ export interface DeviceSwitchApplicationPort {
   request(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null>;
   status(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null>;
   cancel(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null>;
+  /** Absent until the drain path is composed; the route is then not registered. */
+  drain?(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null>;
 }
 
 /**
@@ -28,6 +32,7 @@ export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationP
     readonly workspaces: DefaultWorkspaceTenantResolverPort;
     readonly authority: DesktopSyncAuthorityPort;
     readonly requests: Pick<PostgresDeviceSwitchRequests, "requestNormal" | "read" | "cancel">;
+    readonly drains: Pick<PostgresDeviceSwitchDrain, "submit">;
   }) {}
 
   async request(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
@@ -50,6 +55,13 @@ export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationP
     const request = deviceSwitchLookupRequestSchema.parse(value);
     const subject = await this.#subject(principal);
     return subject === null ? null : this.dependencies.requests.cancel(subject, request.requestId);
+  }
+
+  /** The source device hands its switch to bootstrap with its signed drain proof (S1c2). */
+  async drain(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
+    const request = deviceSwitchDrainRequestSchema.parse(value);
+    const subject = await this.#subject(principal);
+    return subject === null ? null : this.dependencies.drains.submit(subject, request.requestId, request.proof);
   }
 
   async #subject(principal: PublicPrincipal) {

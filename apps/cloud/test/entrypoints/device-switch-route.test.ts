@@ -5,9 +5,11 @@ import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 import { createPublicHttp } from "../../src/entrypoints/http";
 import {
   DEVICE_SWITCH_CANCEL_ROUTE,
+  DEVICE_SWITCH_DRAIN_ROUTE,
   DEVICE_SWITCH_REQUEST_ROUTE,
   DEVICE_SWITCH_STATUS_ROUTE,
 } from "../../src/entrypoints/routes/public/boundary";
+import { drainProofKeyPair, signedHandoffDrainProof } from "../support/drain-proof";
 import { StaticPublicSessionVerifier } from "../support/public-session";
 
 const principal = { accountId: "account-switch", sessionId: "session-switch", clientKind: "desktop" as const };
@@ -23,10 +25,10 @@ describe("device switch public routes", () => {
   const apps: FastifyInstance[] = [];
   afterEach(async () => Promise.all(apps.splice(0).map(async (app) => app.close())));
 
-  function create(options: { deviceSwitch?: boolean; denied?: boolean; hostile?: boolean } = {}) {
+  function create(options: { deviceSwitch?: boolean; denied?: boolean; hostile?: boolean; drain?: boolean } = {}) {
     const respond = vi.fn(async () => (options.denied === true ? null
       : options.hostile === true ? { ...view, request: { ...view.request, fromDeviceId: 7 } } as never : view));
-    const port = { request: respond, status: respond, cancel: respond };
+    const port = { request: respond, status: respond, cancel: respond, ...(options.drain === false ? {} : { drain: respond }) };
     const app = createPublicHttp({
       sessions: new StaticPublicSessionVerifier([]),
       desktopAccessTokens: { async verifyAccessToken(token) { return token === "switch-token" ? principal : null; } },
@@ -93,5 +95,20 @@ describe("device switch public routes", () => {
     const { app } = create({ deviceSwitch: false });
     const response = await app.inject({ method: "POST", url: DEVICE_SWITCH_REQUEST_ROUTE, headers, payload: switchRequest });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("accepts a drain proof up to its body limit and refuses an oversized or extended one (S1c2)", async () => {
+    const proof = signedHandoffDrainProof(drainProofKeyPair().privateKey);
+    const { app, respond } = create();
+    const accepted = await app.inject({ method: "POST", url: DEVICE_SWITCH_DRAIN_ROUTE, headers, payload: { schemaVersion: 1, requestId: "switch-1", proof } });
+    expect(accepted.statusCode).toBe(200);
+    expect(respond).toHaveBeenCalledWith({ schemaVersion: 1, requestId: "switch-1", proof }, principal);
+    const extended = await app.inject({ method: "POST", url: DEVICE_SWITCH_DRAIN_ROUTE, headers, payload: { schemaVersion: 1, requestId: "switch-1", proof, deviceId: "device-x" } });
+    expect(extended.statusCode).toBe(400);
+    const oversized = await app.inject({ method: "POST", url: DEVICE_SWITCH_DRAIN_ROUTE, headers, payload: { schemaVersion: 1, requestId: "switch-1", proof: { ...proof, pad: "x".repeat(17 * 1024) } } });
+    expect(oversized.statusCode).toBe(413);
+    expect(respond).toHaveBeenCalledTimes(1);
+    const absent = await create({ drain: false }).app.inject({ method: "POST", url: DEVICE_SWITCH_DRAIN_ROUTE, headers, payload: { schemaVersion: 1, requestId: "switch-1" } });
+    expect(absent.statusCode).toBe(404);
   });
 });

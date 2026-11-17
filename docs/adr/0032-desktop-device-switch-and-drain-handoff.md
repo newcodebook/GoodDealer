@@ -124,10 +124,15 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     S1c1 已实现：`PostgresDeviceDrainTransition` 与 SQL `device_consume_drain_proof` 原先把工作流的 `bound_key_id` 与
     来源设备的 proof 签名密钥比较，而引导步骤与激活把它当作目标设备的密钥，两者不可能同时成立；迁移
     `202611170001-drain-handoff-target-key` 与 TypeScript 交接改为要求绑定密钥是目标设备当前有效的密钥，并保留
-    proof 签名密钥必须是来源设备当前有效密钥的检查。S1c2 待完成：PostgreSQL 的 proof 准入（以来源设备公钥按
-    drain proof 签名域验签、写入 `device_drain_proofs` 需要所有者函数，应用角色只有读取权）与 drain 提交路由；
-    流水核对由交接事务内三条流的 seal 例程按不可变 head 完成，`execution_fact`/`device_audit` 空流声明须在
-    PostgreSQL 中验证可 seal；
+    proof 签名密钥必须是来源设备当前有效密钥的检查。S1c2 已实现：`/v1/device-switch/requests/drain`（16 KiB）只接受
+    会话设备为来源、指名本切换与本工作区的 proof；Cloud 以来源设备当前有效 ADR-0011 公钥按 drain proof 签名域验
+    Ed25519 签名（PostgreSQL 无此原语，与 Desktop 登录 proof 同样由应用验签），再调用所有者例程
+    `device_record_drain_proof`（迁移 `202611170002-drain-proof-admission`；应用角色对 `device_drain_proofs` 仍只有
+    读取权）独立复核本来源的 `draining` 工作流、来源密钥与绑定、当前持有的 Lease、proof 时间窗与 600 秒上限，并把
+    proof id 永久绑定到一个摘要；随后交接事务消费 proof，三条流的 seal 例程按不可变 head 核对，短缺、缺口或分叉
+    整体回滚并返回 `DRAIN_STREAMS_INCOMPLETE`，切换保持 `draining` 以便提交新的 proof。成功后返回 `bootstrapping`；
+    同一 proof 重放返回切换当前状态。`execution_fact`/`device_audit` 空流以序号 0 与创世摘要声明，PostgreSQL 用例
+    验证其可 seal；
   - S1d 引导步骤与激活路由：组合已有服务，引导能力以独立用途密钥签发；开发 OpenBao 可组合，生产密钥属外部资格。
 - S2 Host：停写栅栏、drain 进度、v2 声明折叠与设备密钥签名、版本 2 行判别；rebootstrap 安装进入生产组合。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
