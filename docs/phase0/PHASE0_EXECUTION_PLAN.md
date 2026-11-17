@@ -192,7 +192,7 @@ dead-letter outbox 和 Session 撤销；
 - [x] 同一字段连续未确认的编辑永久卡住同步：本地编辑以提交时的 `applied_through_server_revision` 作为 `baseServerRevision`，Outbox 的 wire 在提交时冻结；同一字段的第二次编辑若在第一次 ACK 前提交，其 base 小于第一次被分配的 revision，Cloud 按字段 revision 判为 `MUTATION_FIELD_STALE`，Desktop 把映射后的 `SYNC_STORAGE_REJECTED` 视为可重试，于是该项与其后的整条 Outbox 永久重试（已复现：PostgreSQL 测试中同一设备 base 均为 0 的两次编辑，第二次被判过期；Rust 测试证明 ACK 前的两次编辑带同一 base、设备序号递增。修复：Cloud 的过期判定——PostgreSQL 与内存实现共用 `stale-field-rule.ts`——把同一设备、同一 Lease epoch、更小设备序号且 base 不大于本次的已接受写入视为本设备的先前编辑而不是冲突；写入者从 `workspace_mutations` 读取，replay 已压缩时失败关闭为过期。负向测试：以更旧 base 提交的后续写入、另一 Lease epoch 的写入仍判过期；并发同字段测试改为两次互不知情的写入。`ACCOUNT_AND_SYNC` 写明该规则。CI `wp2-workspace-sync-persistence` 运行 43437306915 在 eb25634 上通过，报告 `qualified: true`，PostgreSQL 18.6） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 确定性的推送拒绝不应无限重试：`sync/http-service.ts` 的 `mapPushCode` 把 `MUTATION_FIELD_STALE`、`MUTATION_BASE_REVISION_AHEAD` 与 `MUTATION_ENTITY_UNKNOWN` 都映射为 `SYNC_STORAGE_REJECTED`，Desktop 把它视为可重试，所以真正的冲突让 Outbox 头永久重试、阻塞其后全部同步（`mapPushCode` 改为对 ingest 拒绝码的穷举映射；新增推送拒绝码 `SYNC_MUTATION_CONFLICT`，覆盖字段过期与墓碑实体，协议 schema、wire 语料（生成）与 Rust 严格校验同时更新；Desktop 对多项批次先隔离，单项把 Outbox 行终止为 `conflicted`、`last_error_code='sync_mutation_conflict'`，保留行与字段，其后 Outbox 继续发送；字段 `sync_state` 不变，拉取到对方写入时进入冲突中心而不覆盖本地值。`MUTATION_BASE_REVISION_AHEAD` 只在 Cloud 状态回退时出现，与 `MUTATION_DRAIN_SEALED`、`MUTATION_WORKSPACE_MISMATCH` 一同保持可重试以保住本地编辑。Cloud 应用层逐码测试、Rust 业务层与推送处置测试。被拒绝序号在 drain 中的缺口拆为下一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 被确定性拒绝的 mutation 序号在设备切换 drain 中留下缺口：Cloud ingest 接受序号缺口，但 drain 验证（`devices/drain-verification.ts`）要求 `mutation` 流连续接收水位等于最后分配序号、无缺失区间且 rolling digest 一致，否则 `DRAIN_STREAM_GAP`；本地 `sync_outbox_fields_v2_immutable_delete` 禁止删除已认领行，不能靠丢弃 Outbox 行解决；Desktop 目前尚不生成 drain proof，所以在设备切换交付前须解决。ADR-0029 的经同步重新添加以本项为前置（决策已接受：产品负责人于 2026-11-13 接受原子拒绝回执、全局设备序号身份及独立有版本的 drain 结果摘要，待实现与资格验证。见 [ADR-0030](../adr/0030-closing-deterministically-rejected-mutation-sequences.md)（Accepted，2026-11-13；实现中：B1 的结果 envelope、drain proof v2 与 PostgreSQL v2 seal 重建，B2 的结果联合 ledger 与单项业务拒绝同事务记账，以及 B3 的客户端 v2 结果链合同与跨 Lease epoch 的全局 v2 seal 已交付；设备切换端到端串通见下一项））（已交付 Cloud 原子拒绝回执、v2 结果链与 seal 及客户端合同；设备切换端到端串通在第 191 行，暂停中） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 设备切换端到端串通 ADR-0030 v2 drain：Host 按序读取 Outbox 的持久 Cloud 结果（`acknowledged` 与 `conflicted`/`sync_mutation_conflict`），用 client-core `foldPersistedMutationResults` 与 `buildDrainProofClaims`（v2）生成声明并签名，Cloud 接收 proof 写入 `device_drain_proofs` 时保存 `proof.schemaVersion`；端到端覆盖拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功；跨 ADR-0029 C1a 升级的行须能确定 Cloud 记录的是 v2 还是 v3 提交 envelope（本地目前只记 v2 编码摘要，升级前认领、升级后 ACK 的行两者皆有可能），C1c2b 之后新记录的行以版本 3 记录、可判别，此前记录为版本 2 的行由本项给出 Cloud 接受版本的判别（产品负责人 2026-11-16 决定纳入 v1；仓库尚无 Desktop 设备切换流程与 Cloud proof 接收路径，须先写 Task Frame）
+- [ ] 设备切换端到端串通 ADR-0030 v2 drain：Host 按序读取 Outbox 的持久 Cloud 结果（`acknowledged` 与 `conflicted`/`sync_mutation_conflict`），用 client-core `foldPersistedMutationResults` 与 `buildDrainProofClaims`（v2）生成声明并签名，Cloud 接收 proof 写入 `device_drain_proofs` 时保存 `proof.schemaVersion`；端到端覆盖拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功；跨 ADR-0029 C1a 升级的行须能确定 Cloud 记录的是 v2 还是 v3 提交 envelope（本地目前只记 v2 编码摘要，升级前认领、升级后 ACK 的行两者皆有可能），C1c2b 之后新记录的行以版本 3 记录、可判别，此前记录为版本 2 的行由本项给出 Cloud 接受版本的判别（产品负责人 2026-11-16 决定纳入 v1；仓库尚无 Desktop 设备切换流程与 Cloud proof 接收路径，须先写 Task Frame）（决策已接受：产品负责人于 2026-11-17 按建议接受 [ADR-0032](../adr/0032-desktop-device-switch-and-drain-handoff.md)——普通切换在 Active 设备发起、强制接管在目标设备发起并纳入 v1；`execution_fact`/`device_audit` 以空流声明，交付两条流是第一项 Provider 能力资格化的前置；drain proof 以 ADR-0011 设备签名密钥签名；跨 C1a 的版本 2 行以 Cloud 本设备回执查询判别；新设备不迁移本地专有数据。实施分 S1 Cloud 路由与回执查询、S2 Host 停写/折叠/签名与 rebootstrap 进入生产、S3 Desktop 界面、S4 端到端；均待完成）
 
 ### 4. 当前范围全系统 V1 汇合验收
 
@@ -201,15 +201,15 @@ dead-letter outbox 和 Session 撤销；
 
 ### 5. 多平台共用框架与 Cloudflare 全能力
 
-暂停：本阶段以阶段 4 V1 汇合验收为进入条件（ROADMAP「当前执行顺序」），阶段 4 暂停于打包构件逐屏对照（需用户本人登录），并等待 ADR-0029 C1b2–C3 的实现；阶段 6–11 依次随之等待。若允许框架源码在阶段 4 之前先行，须由用户修订进入条件。
+本阶段以阶段 4 V1 汇合验收为进入条件（ROADMAP「当前执行顺序」）。产品负责人于 2026-11-16 修订：框架源码（第 206–212 行）可先于阶段 4 进行，全部能力不可执行、不具资格，见 [阶段 5 框架 Task Frame](PHASE5_FRAMEWORK_PLAN.md)；Cloudflare 能力（第 213–217 行）与阶段 6–11 仍随阶段 4 暂停。
 
-- [ ] 平台连接与角色模型（registrar、dns、marketplace、acquisition）（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] binding 增加 `listing` 资源类型（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 每平台私有 Service 骨架和能力 manifest，以及资格登记（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 跨平台所有权验证的本地操作计划（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 对账任务模型（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 逐笔资金确认组件（含出价）（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [x] 平台连接与角色模型（registrar、dns、marketplace、acquisition）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。F1：平台连接 = 平台 + 角色集合（`local_provider_connections.provider_kind` 与 `capabilities_json`），Host 设置读取接受四种角色、对其他角色或重复角色失败关闭、每个角色在资格认证前不可用；client-core 角色取自协议 `domainProviderRoleSchema`，设置界面始终列出四种角色。按 manifest 与凭据实际权限派生角色须平台事实，随第 6–10 阶段各平台交付） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] binding 增加 `listing` 资源类型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [ ] 每平台私有 Service 骨架和能力 manifest，以及资格登记（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。F1 已交付能力目录版本 2 与 manifest 骨架：8 个平台 × 全部目录能力逐项不可执行并写明原因，无可执行状态；资格登记 `capability_qualification.rs` 已存在且为空。F3 待完成：`secure-host-core` 平台 Service 准入骨架，资格登记按 manifest 能力标识校验）
+- [ ] 跨平台所有权验证的本地操作计划（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [ ] 逐笔资金确认组件（含出价）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] Cloudflare Registrar 能力（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
 - [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
 - [ ] Cloudflare DNS 写入与 DNSSEC（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）

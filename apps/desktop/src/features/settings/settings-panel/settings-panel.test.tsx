@@ -145,7 +145,7 @@ describe("Settings from the Host projection", () => {
     }), () => "能力资格认证前不可用");
     const groups = Object.fromEntries(multi.groups.map((group) => [group.category, group.connections.map((connection) => [connection.provider, connection.method])]));
     // Spaceship's connection method is recorded in its own ADR-0027 phase, so none is shown yet.
-    expect(groups).toEqual({ registrar: [["Spaceship", null]], dns: [["Cloudflare", "api"]], marketplace: [["Spaceship", null]] });
+    expect(groups).toEqual({ registrar: [["Spaceship", null]], dns: [["Cloudflare", "api"]], marketplace: [["Spaceship", null]], acquisition: [] });
     for (const locale of ["zh-CN", "en-US"] as const) {
       const html = renderToStaticMarkup(
         <SettingsPanel locale={locale} initialSection="connections" connections={multi} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }} />,
@@ -155,6 +155,8 @@ describe("Settings from the Host projection", () => {
       expect(html.match(/>API</gu)).toHaveLength(1);
       expect(html).not.toContain(">OAuth<");
       expect(html.match(/<span class="settings-conn-action"><\/span>/gu)).toHaveLength(3);
+      // The acquisition role is listed even with no connection, so its absence is never silent.
+      expect(html).toContain(locale === "zh-CN" ? "获取平台" : "Acquisition platform");
     }
   });
 

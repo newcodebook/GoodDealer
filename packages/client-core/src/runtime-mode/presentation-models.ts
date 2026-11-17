@@ -1,3 +1,4 @@
+import { domainProviderRoleSchema } from "@gooddealer/protocol/domain-providers";
 import { z } from "zod";
 
 const identifier = z.string().trim().min(1).max(128);
@@ -193,7 +194,7 @@ const providerSchema = z.object({
   providerId: identifier,
   displayName: displayText,
   metadata: displayText,
-  category: z.enum(["registrar", "dns", "marketplace"]),
+  category: domainProviderRoleSchema,
   // `unavailable`: the capability is not qualified (ADR-0024), so no connection path exists.
   connectionState: z.enum(["disconnected", "connecting", "connected", "failed", "unavailable"]),
   /**

@@ -49,6 +49,7 @@ describe("settings Host read", () => {
       connection,
       { ...connection, providerKind: "porkbun", connectionLabel: "Porkbun main", roles: [{ role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" }] },
       { ...connection, providerKind: "godaddy", connectionLabel: "GoDaddy", roles: [{ role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+      { ...connection, providerKind: "dynadot", connectionLabel: "Dynadot", roles: [{ role: "acquisition", availability: "unavailable", unavailableReason: "qualification_pending" }] },
     ] })), () => "unavailable before qualification");
     expect(parseConnectionSettingsViewModel(view)).toEqual(view);
     const byCategory = Object.fromEntries(view.groups.map((group) => [group.category, group.connections.map((item) => [item.provider, item.method, item.admission.actionAvailability])]));
@@ -56,6 +57,7 @@ describe("settings Host read", () => {
       registrar: [["Porkbun", null, "unavailable"]],
       dns: [["Cloudflare", "api", "unavailable"]],
       marketplace: [["GoDaddy", null, "unavailable"]],
+      acquisition: [["Dynadot", null, "unavailable"]],
     });
   });
 
@@ -64,7 +66,8 @@ describe("settings Host read", () => {
       read({ extra: true }),
       read({ connections: [{ ...connection, connectionId: "cf-1" }] }),
       read({ connections: [{ ...connection, roles: [{ role: "dns", availability: "available", unavailableReason: "qualification_pending" }] }] }),
-      read({ connections: [{ ...connection, roles: [{ role: "acquisition", availability: "unavailable", unavailableReason: "qualification_pending" }] }] }),
+      read({ connections: [{ ...connection, roles: [{ role: "monitoring", availability: "unavailable", unavailableReason: "qualification_pending" }] }] }),
+      read({ connections: [{ ...connection, roles: [{ role: "acquisition", availability: "available", unavailableReason: "qualification_pending" }] }] }),
       read({ connections: [{ ...connection, roles: [connection.roles[0], connection.roles[0]] }] }),
       read({ connections: [{ ...connection, connectionLabel: "Cloud\u0007flare" }] }),
       read({ connections: [{ ...connection, providerKind: "sedo" }] }),

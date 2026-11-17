@@ -12335,6 +12335,35 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(database.read_settings().unwrap().connections.len(), 1);
+
+        // All four ADR-0027 roles are listed, each unavailable until qualified.
+        database
+            .store
+            .fixture_connection()
+            .execute(
+                "UPDATE local_provider_connections SET capabilities_json='[\"registrar\",\"dns\",\"marketplace\",\"acquisition\"]'",
+                [],
+            )
+            .unwrap();
+        let roles: Vec<(String, String, String)> = database.read_settings().unwrap().connections[0]
+            .roles
+            .iter()
+            .map(|role| {
+                (
+                    role.role.clone(),
+                    role.availability.clone(),
+                    role.unavailable_reason.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            roles,
+            ["registrar", "dns", "marketplace", "acquisition"].map(|role| (
+                role.to_owned(),
+                "unavailable".to_owned(),
+                "qualification_pending".to_owned()
+            ))
+        );
     }
 
     #[test]

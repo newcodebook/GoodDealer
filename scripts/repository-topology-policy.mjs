@@ -340,12 +340,13 @@ export const repositoryTopology = Object.freeze([
       workspaceImport("@gooddealer/protocol", "Client-domain protocol contracts.", [
         "./account",
         "./devices",
+        "./domain-providers",
         "./execution-events",
         "./wire",
         "./workspace",
       ]),
     ],
-    protocolSubpaths: ["./account", "./devices", "./execution-events", "./wire", "./workspace"],
+    protocolSubpaths: ["./account", "./devices", "./domain-providers", "./execution-events", "./wire", "./workspace"],
     externalDependencies: ["zod"],
   }),
   topologyUnit({
@@ -410,6 +411,7 @@ export const repositoryTopology = Object.freeze([
       publicEntrypoint("./admin", "src/admin/index.ts", true),
       publicEntrypoint("./connectors", "src/connectors/index.ts", true),
       publicEntrypoint("./devices", "src/devices/index.ts", true),
+      publicEntrypoint("./domain-providers", "src/domain-providers/index.ts", true),
       publicEntrypoint("./execution-events", "src/execution-events/index.ts", true),
       publicEntrypoint("./jobs", "src/jobs/index.ts", true),
       publicEntrypoint("./recovery", "src/recovery/index.ts", true),

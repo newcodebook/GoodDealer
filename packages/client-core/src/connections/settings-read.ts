@@ -1,3 +1,4 @@
+import { domainProviderRoles, domainProviderRoleSchema } from "@gooddealer/protocol/domain-providers";
 import { z } from "zod";
 
 import { launchPlatformKindSchema, launchPlatformNames } from "./launch-platforms";
@@ -5,7 +6,10 @@ import { copyPlainData, portfolioFreshnessSchema } from "../portfolio/view-model
 import { connectionLabelSchema } from "./connection-label";
 import type { ConnectionSettingsItemViewModel, ConnectionSettingsViewModel, ProviderConnectionHealth } from "./index";
 
-const connectionRoleSchema = z.enum(["registrar", "dns", "marketplace"]);
+const connectionRoleSchema = domainProviderRoleSchema;
+
+/** The four ADR-0027 roles settings lists, in display order; the Host's `ROLES` is pinned to it. */
+export const settingsConnectionRoles = domainProviderRoles;
 
 const settingsConnectionRoleSchema = z.object({
   role: connectionRoleSchema,
@@ -131,7 +135,7 @@ export function projectConnectionSettings(
   read: SettingsRead,
   summary: (connection: SettingsConnection) => string,
 ): ConnectionSettingsViewModel {
-  const groups = (["registrar", "dns", "marketplace"] as const).map((category) => ({
+  const groups = settingsConnectionRoles.map((category) => ({
     category,
     connections: read.connections.flatMap((connection, index): ConnectionSettingsItemViewModel[] =>
       connection.roles.some((item) => item.role === category)

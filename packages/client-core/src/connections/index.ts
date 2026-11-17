@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { domainProviderRoleSchema } from "@gooddealer/protocol/domain-providers";
 
 export * from "./device-credential-lifecycle";
 export * from "./connection-label";
@@ -57,7 +58,7 @@ const connectionMetadataSchema = z
     provider: z.string().min(1).max(80),
     accountAlias: z.string().min(1).max(120),
     remoteAccountId: z.string().min(1).max(160).nullable(),
-    category: z.enum(["registrar", "dns", "marketplace"]),
+    category: domainProviderRoleSchema,
     method: z.enum(["api", "oauth"]).nullable(),
     summary: z.string().min(1).max(240),
   })
@@ -119,7 +120,7 @@ export const connectionSettingsItemSchema = z.discriminatedUnion("view", [
 
 export const connectionSettingsGroupSchema = z
   .object({
-    category: z.enum(["registrar", "dns", "marketplace"]),
+    category: domainProviderRoleSchema,
     connections: z.array(connectionSettingsItemSchema).max(100),
   })
   .strict()
@@ -139,7 +140,7 @@ export const connectionSettingsViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
     surface: z.enum(["active", "standby"]),
-    groups: z.array(connectionSettingsGroupSchema).min(1).max(3),
+    groups: z.array(connectionSettingsGroupSchema).min(1).max(4),
   })
   .strict()
   .superRefine((model, context) => {

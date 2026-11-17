@@ -898,6 +898,8 @@ const zhCNDictionary = {
     workspaceLabel: "Workspace",
     selfDeviceName: "{name}（本机）",
     salesPlatformDescription: "改价 / 上下架处理平台 · 按账号连接",
+    acquisitionPlatform: "获取平台",
+    acquisitionPlatformDescription: "搜索、竞价与购买处理平台 · 每次出价单独确认",
     capabilityPendingSummary: "能力资格认证前不可用，暂不能执行任何操作",
     cloudflareUnreadable: "无法从 Host 读取 Cloudflare 状态。",
     cloudflareBusy: "Cloudflare 操作正在进行。",

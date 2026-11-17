@@ -50,7 +50,7 @@ v1 按以下阶段推进。阶段编号只表示顺序，不是新的工作包�
 | **2. Desktop 设计页面生产组合** | D1、H1 | DNS 健康、设置、销售、续费、批量、历史与人工任务从 `visual-fixtures` 设计稿变为 Host 投影驱动的生产页面；人工任务只表达“在平台页面完成、回到 Desktop 对账”；没有 Host 能力的控件显示不可用及原因。 | 阶段 1。 |
 | **3. Cloudflare 路径稳定** | C1、L1、H1、D1 | 引导流程（欢迎 → 设备门 → 连接 Cloudflare（可跳过）→ 从观察导入或手动添加 → 完成）、资产创建、绑定 UI、Grant/Lease 能力门禁和原子凭据撤销进入生产导航；Cloudflare 流程的 generation/auth fences 接入生产组合。 | 阶段 2 的页面骨架。 |
 | **4. 当前范围全系统 V1 汇合验收** | V1 | 在同一候选快照上覆盖账号/商业授权、Desktop OAuth/Grant/Lease、本地业务、同步/Conflict Center、Cloudflare、Cloud/PostgreSQL 和 Tauri/Rust，并完成独立复审。通过即为 ADR-0027 所说的“Cloudflare 路径稳定”。 | 阶段 3。 |
-| **5. 多平台共用框架与 Cloudflare 全能力** | C1、L1、H1、D1 | 平台连接与角色模型（registrar、dns、marketplace、acquisition）、binding 的 `listing` 资源类型、每平台私有 Service 骨架、能力 manifest 与资格登记、跨平台所有权验证的本地操作计划、对账任务、逐笔资金确认；同时补齐 Cloudflare 的 Registrar、DNS/DNSSEC 写入与监控。 | 阶段 4。 |
+| **5. 多平台共用框架与 Cloudflare 全能力** | C1、L1、H1、D1 | 平台连接与角色模型（registrar、dns、marketplace、acquisition）、binding 的 `listing` 资源类型、每平台私有 Service 骨架、能力 manifest 与资格登记、跨平台所有权验证的本地操作计划、对账任务、逐笔资金确认；同时补齐 Cloudflare 的 Registrar、DNS/DNSSEC 写入与监控。 | 阶段 4。框架源码（不开放任何能力执行路径）经产品负责人 2026-11-16 决定可先行，见 [Task Frame](phase0/PHASE5_FRAMEWORK_PLAN.md)。 |
 | **6. Porkbun** | C1、D1 | 第一个非 Cloudflare 平台，验证框架无需改动核心模型。 | 阶段 5。 |
 | **7. Spaceship（含 SellerHub）** | C1、D1 | 第一个多角色平台：一个平台连接同时承担 registrar、dns、marketplace 角色，凭据范围与资格按角色隔离。 | 阶段 6。 |
 | **8. Dynadot、Namecheap** | C1、D1 | Dynadot HMAC 签名密钥只在 Host custody；Namecheap IP 白名单不满足时失败关闭并给出修复说明。 | 阶段 6；可与阶段 7 并行。 |

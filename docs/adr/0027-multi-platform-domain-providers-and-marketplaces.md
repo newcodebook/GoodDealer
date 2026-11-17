@@ -180,4 +180,9 @@ Phase 0 执行计划与外部资格台账、`brand/README.md` 与 Desktop README
 ## 当前实现
 
 本 ADR 不开放任何执行路径。当前生产源码仍只组合 Cloudflare Zone/DNS 只读观察；其他平台没有 Service、
-合同或 Desktop 组合。
+合同或 Desktop 组合。阶段 5 框架（产品负责人 2026-11-16 允许先于阶段 4 进行，见
+[Task Frame](../phase0/PHASE5_FRAMEWORK_PLAN.md)）已交付 F1：协议能力目录版本 2 为第 2 节每项能力标注四种角色之一，
+每平台 manifest 骨架为 8 个平台逐项写明不可执行原因（平台事实待核对；Cloudflare 只读观察待资格认证），8 个平台
+清单在 TypeScript 中只在协议声明一次（与角色、目录和 manifest 同在不含 Provider wire 的 `@gooddealer/protocol/domain-providers`，
+client-core 只可导入该子路径、不可导入含 Cloudflare wire 的 `./connectors`）；开启自动续费授权未来扣款，按资金操作分类；设置读取与界面接受 `acquisition` 角色并始终列出四种角色。连接的角色仍是
+Host 写入的声明，按 manifest 与凭据实际权限派生角色随各平台阶段的事实核对交付。

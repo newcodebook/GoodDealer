@@ -23,9 +23,9 @@ use super::sales::{SalesCache, data_generation};
 
 /// Upper bound on connections in one read; a larger table fails closed instead of truncating.
 const MAX_CONNECTIONS: u16 = 64;
-/// Roles the settings surface can present. ADR-0027's `acquisition` role arrives with the phase 5
-/// connection-role model; until then a connection declaring it fails the read instead of hiding.
-const ROLES: [&str; 3] = ["registrar", "dns", "marketplace"];
+/// ADR-0027's four platform roles; a connection declaring any other fails the read instead of
+/// hiding it. The protocol's `domainProviderRoles` lists the same four.
+const ROLES: [&str; 4] = ["registrar", "dns", "marketplace", "acquisition"];
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

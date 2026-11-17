@@ -3,7 +3,7 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { launchPlatformKindSchema, launchPlatformNames } from "@gooddealer/client-core";
+import { launchPlatformKindSchema, launchPlatformNames, settingsConnectionRoles } from "@gooddealer/client-core";
 
 const repository = fileURLToPath(new URL("../../../../", import.meta.url));
 const hostReads = join(repository, "crates/local-storage/src/active_workspace/");
@@ -31,12 +31,19 @@ describe("ADR-0027 launch platforms", () => {
   it("are declared once per runtime rather than copied into each read", () => {
     // A copied list could drift from the one pinned above, so no other source may spell out the
     // platforms; "namecheap" is the marker because no other identifier or copy uses that word.
-    const copies = [...sources("crates/local-storage/src", ".rs"), ...sources("packages/client-core/src", ".ts")]
+    const copies = [...sources("crates/local-storage/src", ".rs"), ...sources("packages/client-core/src", ".ts"), ...sources("packages/protocol/src", ".ts")]
       .filter((file) => file.text.includes('"namecheap"'))
       .map((file) => file.path);
     expect(copies.sort()).toEqual([
       "crates/local-storage/src/active_workspace/launch_platforms.rs",
-      "packages/client-core/src/connections/launch-platforms.ts",
+      "packages/protocol/src/domain-providers/launch-platforms.ts",
     ]);
+  });
+
+  it("have the same four roles on the Host as in the protocol", () => {
+    const settings = readFileSync(`${hostReads}settings.rs`, "utf8");
+    const list = /const ROLES: \[&str; 4\] = \[([^\]]*)\];/u.exec(settings)?.[1];
+    expect(list).toBeDefined();
+    expect([...(list ?? "").matchAll(/"([a-z]+)"/gu)].map((match) => match[1])).toEqual([...settingsConnectionRoles]);
   });
 });

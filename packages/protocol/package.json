@@ -12,6 +12,7 @@
     "./execution-events": "./src/execution-events/index.ts",
     "./recovery": "./src/recovery/index.ts",
     "./connectors": "./src/connectors/index.ts",
+    "./domain-providers": "./src/domain-providers/index.ts",
     "./workspace-observations/cloudflare-dns": "./src/workspace-observations/cloudflare-dns.ts",
     "./admin": "./src/admin/index.ts",
     "./jobs": "./src/jobs/index.ts"

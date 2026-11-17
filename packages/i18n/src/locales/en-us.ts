@@ -1069,6 +1069,8 @@ const enUSDictionary = {
     workspaceLabel: "Workspace",
     selfDeviceName: "{name} (this device)",
     salesPlatformDescription: "Pricing and listing platform · Connected by account",
+    acquisitionPlatform: "Acquisition platform",
+    acquisitionPlatformDescription: "Search, bidding and purchase platform · Every bid is confirmed on its own",
     capabilityPendingSummary: "Capabilities are unavailable until qualified; nothing can run yet",
     cloudflareUnreadable: "Cloudflare status could not be read from the Host.",
     cloudflareBusy: "A Cloudflare operation is running.",
