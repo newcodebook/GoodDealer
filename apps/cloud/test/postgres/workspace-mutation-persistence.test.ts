@@ -516,10 +516,12 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     const tags = (id: string, sequence: number, base: number) => submittedSyncMutationSchema.parse({
       ...submitted(id, sequence, base), changedFields: [{ fieldPath: "tags", value: [id] }],
     });
-    const accepted = submitted("own-accepted", 1, 0);
-    await expect(service.ingest(scopeA, pushRequest(accepted, tags("own-tags", 2, 0)))).resolves.toMatchObject({ accepted: true });
-    const stale = tags("own-stale", 3, 0);
-    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({ accepted: false });
+    // The same sequence as the v2 rejection test: a tags write based on revision 1 after one based on 2.
+    await expect(service.ingest(scopeA, pushRequest(submitted("own-accepted", 1, 0), submitted("own-note", 2, 0))))
+      .resolves.toMatchObject({ accepted: true });
+    await expect(service.ingest(scopeA, pushRequest(tags("own-tags", 3, 2)))).resolves.toMatchObject({ accepted: true });
+    const stale = tags("own-stale", 4, 1);
+    await expect(service.ingest(scopeA, pushRequest(stale))).resolves.toMatchObject({ accepted: false, code: "MUTATION_FIELD_STALE" });
     // Cloud recorded the rejection before C1a: version 2 and its v2 digest.
     const { workspaceId: _workspaceId, ...tenantNeutral } = stale;
     const legacyWireDigest = createHash("sha256").update(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral)).digest();
@@ -529,7 +531,9 @@ describe("PostgreSQL workspace Mutation persistence", () => {
       await ownerPool.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [scopeA.workspaceId]);
       await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger DISABLE TRIGGER USER");
       await ownerPool.query(`UPDATE workspace_device_mutation_sequence_ledger
-        SET wire_schema_version = 2, wire_mutation_digest = $1 WHERE device_mutation_sequence = 3`, [legacyWireDigest]);
+        SET wire_schema_version = 2, wire_mutation_digest = $1, rejected_envelope_digest = $2
+        WHERE device_mutation_sequence = 4`,
+      [legacyWireDigest, createHash("sha256").update(encodeLegacyV2MutationDrainEnvelope(stale)).digest()]);
       await ownerPool.query("ALTER TABLE workspace_device_mutation_sequence_ledger ENABLE TRIGGER USER");
       await ownerPool.query("COMMIT");
     } catch (error) {
@@ -542,7 +546,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     const receipts = await reader.readOwn(scopeA, "device-1", ids);
     expect(receipts).toEqual([
       expect.objectContaining({ mutationId: "own-accepted", deviceMutationSequence: 1, wireSchemaVersion: 3, outcome: "accepted" }),
-      { mutationId: "own-stale", activeLeaseEpoch: 1, deviceMutationSequence: 3, wireSchemaVersion: 2,
+      { mutationId: "own-stale", activeLeaseEpoch: 1, deviceMutationSequence: 4, wireSchemaVersion: 2,
         wireMutationDigest: legacyWireDigest.toString("base64url"), outcome: "rejected" },
     ]);
     // Another device's view and another tenant holding the same ids see none of them.
