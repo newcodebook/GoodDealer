@@ -874,9 +874,14 @@ function pnpmWorkspaceRoots(root, errors) {
     errors.push("pnpm-workspace.yaml is missing");
     return [];
   }
-  const patterns = [...readFileSync(workspacePath, "utf8").matchAll(/^\s*-\s+["']?([^"'\s]+)["']?\s*$/gmu)].map(
-    (match) => match[1],
-  );
+  // Only the top-level `packages:` block lists workspace roots; other top-level keys (for example
+  // `auditConfig.ignoreGhsas`) also hold YAML lists and must not be read as package patterns.
+  const block = /^packages:[ \t]*\n((?:[ \t]+.*\n?|[ \t]*\n)*)/mu.exec(readFileSync(workspacePath, "utf8"));
+  if (block === null) {
+    errors.push("pnpm-workspace.yaml has no top-level packages block");
+    return [];
+  }
+  const patterns = [...block[1].matchAll(/^\s*-\s+["']?([^"'\s]+)["']?\s*$/gmu)].map((match) => match[1]);
   const roots = [];
   for (const pattern of patterns) {
     if (!pattern.endsWith("/*") || pattern.slice(0, -2).includes("*")) {
