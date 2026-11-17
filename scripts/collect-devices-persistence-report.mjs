@@ -13,6 +13,7 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/db/migrations.ts",
   "apps/cloud/src/modules/devices/ports.ts",
   "apps/cloud/src/modules/devices/postgres-drain-transition.ts",
+  "apps/cloud/src/modules/devices/postgres-switch-requests.ts",
   "apps/cloud/src/modules/devices/migrations/202608200004-device-control.ts",
   "apps/cloud/src/modules/workspace/mutations/migrations/202608200006-mutation-drain-ledger.ts",
   "apps/cloud/src/modules/execution-ledger/migrations/202608200007-execution-fact-drain-ledger.ts",
@@ -25,6 +26,7 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/test/postgres/workspace-mutation-persistence.test.ts",
   "apps/cloud/test/postgres/workspace-checkpoint-persistence.test.ts",
   "apps/cloud/test/postgres/immutable-drain-ledger.test.ts",
+  "apps/cloud/test/postgres/device-switch-request-persistence.test.ts",
   "scripts/collect-devices-persistence-report.mjs",
   "scripts/collect-cloud-boundary-report.mjs",
   "scripts/devices-persistence-evidence-policy.test.mjs",
@@ -64,9 +66,20 @@ export const IMMUTABLE_DRAIN_TEST_NAMES = [
   "keeps every hardened table read-only to the app role and force-enables tenant RLS",
 ];
 
+/** ADR-0032 S1b: the normal switch request that a drain proof later completes. */
+export const SWITCH_REQUEST_TEST_NAMES = [
+  "starts a normal switch only from the Lease holder, binds the target's key, and replays its idempotency key",
+  "denies a caller without the current unexpired Lease and refuses ineligible targets without writing",
+  "shows a switch only to its two devices and lets the source cancel it once before bootstrap",
+  "isolates identical workspace, device, and idempotency ids across two accounts",
+  "fails an expired switch that never reached bootstrap when the next request arrives",
+  "lets exactly one of two concurrent requests open a switch",
+];
+
 export const POSTGRES_DRAIN_TEST_FILES = [
   { file: "test/postgres/device-drain-persistence.test.ts", names: POSTGRES_DEVICES_TEST_NAMES },
   { file: "test/postgres/immutable-drain-ledger.test.ts", names: IMMUTABLE_DRAIN_TEST_NAMES },
+  { file: "test/postgres/device-switch-request-persistence.test.ts", names: SWITCH_REQUEST_TEST_NAMES },
 ];
 
 export const DEVICE_PERSISTENCE_TABLES = [

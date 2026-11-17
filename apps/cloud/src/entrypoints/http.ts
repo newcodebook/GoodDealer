@@ -18,12 +18,14 @@ import {
 } from "../modules/licensing/index";
 import {
   AccountActivationApplicationService,
+  PostgresIdentityAccountSecurityStatePort,
   type AccountActivationSubjectReaderPort,
 } from "../modules/identity/index";
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/index";
 import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
 import { PostgresMutationAuthority } from "../modules/devices/postgres-mutation-authority";
 import { PostgresDesktopSyncAuthority } from "../modules/devices/postgres-sync-authority";
+import { PostgresDeviceSwitchApplication, PostgresDeviceSwitchRequests } from "../modules/devices/index";
 import { PostgresWorkspaceCheckpointReader } from "../modules/workspace/checkpoints/postgres-reader";
 import { PostgresReaderCursorRepository } from "../modules/workspace/cursors/postgres-reader-cursor-repository";
 import { PostgresReaderCursorService } from "../modules/workspace/cursors/postgres-reader-cursor-service";
@@ -227,6 +229,18 @@ export function createPostgresCloudPublicHttp(
       desktopAuthorization,
       commercialCheckout,
       ...(workspaceSync === undefined ? {} : { workspaceSync }),
+      ...(workspaceSync === undefined || identityTransactions === undefined ? {} : {
+        // Composed with the sync data plane: the switch caller is resolved exactly as a sync
+        // caller is, from a Desktop session holding the workspace's current Lease.
+        deviceSwitch: new PostgresDeviceSwitchApplication({
+          workspaces,
+          authority: new PostgresDesktopSyncAuthority(accountTransactions),
+          requests: new PostgresDeviceSwitchRequests({
+            transactions: new TenantTransactionRunner(pool),
+            accountSecurity: new PostgresIdentityAccountSecurityStatePort(),
+          }),
+        }),
+      }),
       ...(identityTransactions === undefined ? {} : {
         cloudflareDnsObservation: new PostgresCloudflareDnsObservationIngress({
           transactions: identityTransactions,

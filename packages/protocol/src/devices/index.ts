@@ -41,8 +41,11 @@ export {
   devicePlatformSchema,
   deviceRemovalRequestSchema,
   deviceRoleSchema,
+  deviceSwitchLookupRequestSchema,
+  deviceSwitchRejectionCodeSchema,
   deviceSwitchRequestSchema,
   deviceSwitchRequestViewSchema,
+  deviceSwitchResponseSchema,
 } from "./device-management";
 export type {
   ActiveDeviceLeaseStatus,
@@ -53,8 +56,11 @@ export type {
   DevicePlatform,
   DeviceRemovalRequest,
   DeviceRole,
+  DeviceSwitchLookupRequest,
+  DeviceSwitchRejectionCode,
   DeviceSwitchRequest,
   DeviceSwitchRequestView,
+  DeviceSwitchResponse,
 } from "./device-management";
 
 export { deviceOperationSchema } from "./operations";

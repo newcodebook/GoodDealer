@@ -1,6 +1,9 @@
 import {
   desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantSchema,
+  deviceSwitchLookupRequestSchema,
+  deviceSwitchRequestSchema,
+  deviceSwitchResponseSchema,
   type DesktopAuthorizationGrant,
   type DesktopAuthorizationGrantRequest,
 } from "@gooddealer/protocol/devices";
@@ -78,6 +81,7 @@ import {
 import type { AccountActivationApplicationPort } from "../../ports/account-activation";
 import type { DesktopAuthorizationApplicationPort } from "../../ports/desktop-authorization";
 import type { PublicPrincipal } from "../../ports/public-session";
+import type { DeviceSwitchApplicationPort } from "../../../modules/devices/index";
 import type { CommercialCheckoutApplicationPort } from "../../../modules/licensing/index";
 import type {
   CloudflareDnsObservationIngressPort,
@@ -127,6 +131,9 @@ export const WORKSPACE_SYNC_CHECKPOINT_ROUTE = "/v1/workspace-sync/checkpoint" a
 export const WORKSPACE_REBOOTSTRAP_ROUTE = "/v1/workspace-sync/rebootstrap" as const;
 export const WORKSPACE_SYNC_RECEIPTS_ROUTE = "/v1/workspace-sync/mutations/receipts" as const;
 export const CLOUDFLARE_DNS_OBSERVATION_ROUTE = "/v1/workspace-observations/cloudflare-dns" as const;
+export const DEVICE_SWITCH_REQUEST_ROUTE = "/v1/device-switch/requests" as const;
+export const DEVICE_SWITCH_STATUS_ROUTE = "/v1/device-switch/requests/status" as const;
+export const DEVICE_SWITCH_CANCEL_ROUTE = "/v1/device-switch/requests/cancel" as const;
 
 export class PublicRouteAuthorizationError extends Error {}
 
@@ -136,6 +143,7 @@ export interface PublicBusinessRoutePorts {
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
   readonly workspaceSync?: WorkspaceSyncApplicationPort;
   readonly cloudflareDnsObservation?: CloudflareDnsObservationIngressPort;
+  readonly deviceSwitch?: DeviceSwitchApplicationPort;
 }
 
 export function createPublicBusinessRoutes(
@@ -353,6 +361,33 @@ export function createPublicBusinessRoutes(
       bodyLimit: 64 * 1024,
     },
   ];
+  const deviceSwitch = ports.deviceSwitch;
+  const deviceSwitchRoute = (
+    path: string,
+    request: typeof deviceSwitchRequestSchema | typeof deviceSwitchLookupRequestSchema,
+    invoke: (port: DeviceSwitchApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceSwitchApplicationPort["request"]>,
+  ): PublicRoute<any, any> => ({
+    surface: PUBLIC_SURFACE,
+    method: "POST",
+    path,
+    request,
+    response: deviceSwitchResponseSchema,
+    requiredScope: null,
+    authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+    invoke: async (value: unknown, principal: PublicPrincipal) => {
+      const response = await invoke(deviceSwitch!, value, principal);
+      if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+      return response;
+    },
+    // Three identifiers of at most 160 printable characters, each JSON-escaped at worst to two
+    // bytes, plus field names: under 1.1 KiB.
+    bodyLimit: 2 * 1024,
+  });
+  const deviceSwitchRoutes: readonly PublicRoute<any, any>[] = deviceSwitch === undefined ? [] : [
+    deviceSwitchRoute(DEVICE_SWITCH_REQUEST_ROUTE, deviceSwitchRequestSchema, (port, value, principal) => port.request(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_STATUS_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.status(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_CANCEL_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.cancel(value, principal)),
+  ];
   return [
     accountActivationRoute,
     desktopAuthorizationRoute,
@@ -364,5 +399,6 @@ export function createPublicBusinessRoutes(
     billingFirstPurchaseRefundStatusRoute,
     ...workspaceSyncRoutes,
     ...cloudflareObservationRoutes,
+    ...deviceSwitchRoutes,
   ];
 }

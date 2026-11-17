@@ -92,6 +92,15 @@ ActiveDeviceLease，业务执行在本地 SQLCipher 中进行。把执行权从�
 4. 版本 2 行以 Cloud 本设备回执查询判别，不符或查询失败即不出证明。
 5. 新设备不迁移本地专有数据，激活后提示重新连接平台；旧设备保留为 Standby 只读副本。
 
+## 待决：Standby 会话（2026-11-17 实施 S1b 时发现）
+
+决策 1、4、5 假定目标设备与交接后的旧设备能以 Standby 身份登录 Cloud。源码中 Desktop OAuth 换码与登录 Lease
+签发在另一台设备持有当前 Lease 时拒绝，生产中没有无 Lease 的 Desktop 会话，也没有 ADR 规定它。在决定前只推进
+Active 设备一侧（S1b 普通发起/状态/取消、S1c、S2）。方案 A（推荐）：新 ADR 规定已绑定且密钥有效的设备可取得
+无 Lease 的 Standby 会话与不含 Lease 的 Grant，只能调用只读同步、切换状态、强制接管发起和持引导能力的引导步骤；
+push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备只凭一次性引导能力引导、强制接管由 Account Web
+重新认证发起，旧设备交接后退出登录、只保留本地只读副本。
+
 ## 实施
 
 - S1 Cloud：PostgreSQL 切换请求服务、drain 提交、引导步骤与激活的 HTTP 路由及回执查询；保存 `proof.schemaVersion`；
@@ -104,8 +113,17 @@ ActiveDeviceLease，业务执行在本地 SQLCipher 中进行。把执行权从�
     返回其自己的回执（mutation id、Lease epoch、设备序号、Cloud 记录的 wire 版本 2/3 与摘要、接受或拒绝），未记录或
     属于其他设备、其他租户的 id 不出现在结果中；未组合读取器时路由不注册。查询要求会话设备仍持有未释放、未过期的
     Lease，所以 S2 必须在提交 drain proof（释放 Lease）之前完成版本 2 行的判别；
-  - S1b 切换请求的 PostgreSQL 服务与路由（发起、状态、取消、强制接管），规则与内存参考实现一致；
-  - S1c drain 提交路由：组合 PostgreSQL drain 验证端口与 `PostgresDeviceDrainTransition`，保存 `proof.schemaVersion`；
+  - S1b 切换请求的 PostgreSQL 服务与路由（发起、状态、取消、强制接管），规则与内存参考实现一致。已实现普通部分：
+    `POST /v1/device-switch/requests`、`…/status`、`…/cancel`（协议 `deviceSwitchResponseSchema`，接受时返回请求视图，
+    拒绝时只返回封闭代码）。只有持有本工作区当前未过期 Lease 的 Desktop 会话设备能发起，按 drain 锁序加锁，直接进入
+    `draining`（24 小时期限），工作流绑定目标设备的有效签名密钥（引导步骤与激活据此验签）；同一幂等键重放返回首个
+    结果，内容不同则冲突；一个账户同时只有一个未结束的切换。状态只对切换涉及的两台设备可见，取消只能由来源设备在
+    引导开始前进行（引导中的取消须烧掉待定 epoch 与引导能力，归 S1d）。强制接管返回 `FORCED_SWITCH_UNAVAILABLE`，
+    等待上文“待决：Standby 会话”；
+  - S1c drain 提交路由：组合 PostgreSQL drain 验证端口与 `PostgresDeviceDrainTransition`，保存 `proof.schemaVersion`。
+    须先修正：`PostgresDeviceDrainTransition` 把工作流的 `bound_key_id` 与来源设备的 proof 签名密钥比较，而引导步骤与
+    激活把它当作目标设备的密钥，两者不可能同时成立；以目标密钥为准（与内存参考实现和 S1b 一致），drain 只核对
+    proof 签名密钥是来源设备当前有效的密钥；
   - S1d 引导步骤与激活路由：组合已有服务，引导能力以独立用途密钥签发；开发 OpenBao 可组合，生产密钥属外部资格。
 - S2 Host：停写栅栏、drain 进度、v2 声明折叠与设备密钥签名、版本 2 行判别；rebootstrap 安装进入生产组合。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。

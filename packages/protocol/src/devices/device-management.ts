@@ -211,6 +211,43 @@ export const deviceSwitchRequestViewSchema = z
     }
   });
 
+/** Names one switch request; the caller's device and account come from its session, never the body. */
+export const deviceSwitchLookupRequestSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    requestId: identifier,
+  })
+  .strict();
+
+/**
+ * Closed outcomes a Desktop can act on (ADR-0032). `FORCED_SWITCH_UNAVAILABLE` stays until a
+ * target device can hold a session without the Lease; Cloud then has no forced-takeover path.
+ */
+export const deviceSwitchRejectionCodeSchema = z.enum([
+  "SWITCH_IN_PROGRESS",
+  "SWITCH_NOT_FOUND",
+  "SWITCH_NOT_CANCELLABLE",
+  "IDEMPOTENCY_CONFLICT",
+  "TARGET_IS_SOURCE",
+  "TARGET_NOT_BOUND",
+  "TARGET_REMOVED",
+  "ACCOUNT_RECOVERY_PENDING",
+  "FORCED_SWITCH_UNAVAILABLE",
+]);
+
+export const deviceSwitchResponseSchema = z.discriminatedUnion("accepted", [
+  z.object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    accepted: z.literal(true),
+    request: deviceSwitchRequestViewSchema,
+  }).strict(),
+  z.object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    accepted: z.literal(false),
+    code: deviceSwitchRejectionCodeSchema,
+  }).strict(),
+]);
+
 export type DevicePlatform = z.infer<typeof devicePlatformSchema>;
 export type DeviceRole = z.infer<typeof deviceRoleSchema>;
 export type DeviceBindingSummary = z.infer<typeof deviceBindingSummarySchema>;
@@ -221,3 +258,6 @@ export type DeviceAuthorityProjection = z.infer<typeof deviceAuthorityProjection
 export type DeviceRemovalRequest = z.infer<typeof deviceRemovalRequestSchema>;
 export type DeviceSwitchRequest = z.infer<typeof deviceSwitchRequestSchema>;
 export type DeviceSwitchRequestView = z.infer<typeof deviceSwitchRequestViewSchema>;
+export type DeviceSwitchLookupRequest = z.infer<typeof deviceSwitchLookupRequestSchema>;
+export type DeviceSwitchRejectionCode = z.infer<typeof deviceSwitchRejectionCodeSchema>;
+export type DeviceSwitchResponse = z.infer<typeof deviceSwitchResponseSchema>;
