@@ -5,15 +5,16 @@ import { drainManifestSchema } from "../execution-events/drain-proof";
 
 export const DEVICE_MANAGEMENT_SCHEMA_VERSION = 1 as const;
 
-export const devicePlatformSchema = z.enum(["windows", "macos", "ios", "android"]);
+export const devicePlatformSchema = z.enum(["windows", "macos", "linux", "ios", "android"]);
 export const deviceRoleSchema = z.enum(["active", "standby", "none"]);
 
 export const deviceBindingSummarySchema = z
   .object({
     schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
     deviceId: identifier,
-    platform: devicePlatformSchema,
-    displayName: displayLabel,
+    /** `null` until the device reports itself (ADR-0032 S3a); Cloud never guesses either. */
+    platform: devicePlatformSchema.nullable(),
+    displayName: displayLabel.nullable(),
     status: z.enum(["bound", "removed"]),
     role: deviceRoleSchema,
     credentialEpoch: safePositiveInteger,
@@ -21,7 +22,8 @@ export const deviceBindingSummarySchema = z
     signingKeyVersion: safePositiveInteger,
     signingKeyStatus: z.enum(["active", "rotated", "revoked"]),
     boundAt: canonicalUtcTimestamp,
-    lastSeenAt: canonicalUtcTimestamp,
+    /** Whole hours only, so the list does not reveal finer activity; `null` before any report. */
+    lastSeenAt: canonicalUtcTimestamp.nullable(),
     removedAt: canonicalUtcTimestamp.nullable(),
     currentDevice: z.boolean(),
   })
@@ -36,7 +38,14 @@ export const deviceBindingSummarySchema = z
     if (value.role !== "none" && value.status !== "bound") {
       context.addIssue({ code: "custom", path: ["role"], message: "a role requires a bound device" });
     }
-    if (value.boundAt > value.lastSeenAt || (value.removedAt !== null && value.boundAt > value.removedAt)) {
+    if (value.lastSeenAt !== null && value.lastSeenAt.slice(14) !== "00:00Z") {
+      context.addIssue({ code: "custom", path: ["lastSeenAt"], message: "last seen is reported in whole hours" });
+    }
+    // Last seen is floored to the hour, so it may precede the bind time within that hour only.
+    if (
+      (value.lastSeenAt !== null && value.lastSeenAt < `${value.boundAt.slice(0, 13)}:00:00Z`)
+      || (value.removedAt !== null && value.boundAt > value.removedAt)
+    ) {
       context.addIssue({ code: "custom", path: ["boundAt"], message: "device timestamps are out of order" });
     }
     if (value.signingKeyStatus === "revoked" && value.role !== "none") {
@@ -66,6 +75,23 @@ export const deviceBindingListSchema = z
       context.addIssue({ code: "custom", path: ["devices"], message: "at most one device may be current" });
     }
   });
+
+/** Lists the caller's account devices; account and current device come only from the session. */
+export const deviceListRequestSchema = z
+  .object({ schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION) })
+  .strict();
+
+/**
+ * A Desktop reports its own platform and display name (ADR-0032 S3a). The device is the session's;
+ * the body names nothing else. Reporting also records last seen, in whole hours.
+ */
+export const deviceSelfReportSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    platform: devicePlatformSchema,
+    displayName: displayLabel,
+  })
+  .strict();
 
 export const activeDeviceLeaseStatusSchema = z
   .object({
@@ -268,6 +294,8 @@ export const deviceSwitchResponseSchema = z.discriminatedUnion("accepted", [
 export type DevicePlatform = z.infer<typeof devicePlatformSchema>;
 export type DeviceRole = z.infer<typeof deviceRoleSchema>;
 export type DeviceBindingSummary = z.infer<typeof deviceBindingSummarySchema>;
+export type DeviceListRequest = z.infer<typeof deviceListRequestSchema>;
+export type DeviceSelfReport = z.infer<typeof deviceSelfReportSchema>;
 export type DeviceBindingList = z.infer<typeof deviceBindingListSchema>;
 export type ActiveDeviceLeaseStatus = z.infer<typeof activeDeviceLeaseStatusSchema>;
 export type CloudScope = z.infer<typeof cloudScopeSchema>;

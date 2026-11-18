@@ -188,6 +188,12 @@ request 路径不因此获得批量运行资格。
 
 Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资格版本为 18.6。
 
+`device_bindings` 另有设备自报告列（ADR-0032 S3a，迁移 `202611180001`）：`platform`（`windows`/`macos`/`linux`/`ios`/`android`）
+与 `display_name`（1–64 字符，与协议 `displayLabel` 同一规则：无 Cc/Cf 字符、首尾无空白）同时为空或同时存在，`last_seen_at` 只存整点（数据库检查等于 UTC 小时取整），列表因此
+不透露更细的活动时间。只有已绑定设备的有效 Desktop 会话能经 `/v1/devices/self` 写自己的行，设备由会话派生；名称或平台变化时
+`device_account_states.binding_list_revision` 加一，只刷新最近在线不加。`/v1/devices/list` 只读本账户的设备（至多 8 台：已绑定
+在前、其余为最近移除），角色由当前未释放的 Lease 推出，签名密钥只给 id、版本与状态；两条路由都不要求持有 Lease。
+
 ## 当前落地与运行链路边界
 
 集中 schema 已覆盖未来实体、约束、索引、同步状态和恢复元数据，但 schema coverage 不等于旅程已

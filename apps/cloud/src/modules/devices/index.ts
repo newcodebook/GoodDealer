@@ -105,6 +105,8 @@ export { PostgresDesktopAuthorizationApplicationService } from "./postgres-deskt
 export { PostgresDeviceSwitchDrain } from "./postgres-switch-drain";
 export { PostgresDeviceSwitchRequests } from "./postgres-switch-requests";
 export type { DeviceSwitchSubject } from "./postgres-switch-requests";
+export { PostgresDeviceDirectory } from "./postgres-device-directory";
+export type { DeviceDirectoryApplicationPort } from "./postgres-device-directory";
 export { PostgresDeviceSwitchApplication } from "./switch-application";
 export type { DeviceSwitchApplicationPort } from "./switch-application";
 export { PostgresDesktopLoginLease } from "./postgres-desktop-login-lease";

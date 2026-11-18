@@ -183,5 +183,12 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     `device_switch_status`、`device_switch_cancel` 调用协调器，只返回封闭步骤码与 Cloud 的状态或拒绝码，错误为封闭码；
     适配器 `createDeviceSwitchPort` 从 `unknown` 严格解析，切换 id、Lease、回执、proof 与签名不进入 Renderer；
     设置“设备”界面随 S3；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+- S3a 设备名称（产品负责人 2026-11-18 决定方案 A）：Desktop 在绑定与每次登录时报告平台与可改的显示名称（默认主机名），Cloud
+  记录并按小时取整最近在线，只读列表服务本账户设备。S3a1 已实现 Cloud 一侧：协议 `deviceListRequestSchema` 与
+  `deviceSelfReportSchema`（严格，不接受设备或账户字段），摘要的 `platform`、`displayName`、`lastSeenAt` 在报告前为 `null`、
+  最近在线只取整点；迁移 `202611180001` 为 `device_bindings` 加三列与检查约束；`POST /v1/devices/list` 与 `POST /v1/devices/self`
+  （1 KiB）只接受已绑定设备的有效 Desktop 会话（未撤销、安全纪元一致、刷新族有效、账户非恢复中），不要求 Lease；报告只写会话
+  自己的设备，按 `DEVICE_DRAIN_LOCK_ORDER`（安全状态、账户设备状态、绑定）加锁，名称或平台变化才推进列表修订；数据库检查与
+  协议 `displayLabel` 同一规则（无 Cc/Cf 字符、首尾无空白）；拒绝不带原因。S3a2 Desktop 报告与 Host 列表命令、S3a3 设置界面待完成。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

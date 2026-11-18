@@ -15,9 +15,11 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/modules/devices/postgres-drain-transition.ts",
   "apps/cloud/src/modules/devices/postgres-switch-requests.ts",
   "apps/cloud/src/modules/devices/postgres-switch-drain.ts",
+  "apps/cloud/src/modules/devices/postgres-device-directory.ts",
   "apps/cloud/src/modules/devices/migrations/202608200004-device-control.ts",
   "apps/cloud/src/modules/devices/migrations/202611170001-drain-handoff-target-key.ts",
   "apps/cloud/src/modules/devices/migrations/202611170002-drain-proof-admission.ts",
+  "apps/cloud/src/modules/devices/migrations/202611180001-device-self-report.ts",
   "apps/cloud/src/modules/workspace/mutations/migrations/202608200006-mutation-drain-ledger.ts",
   "apps/cloud/src/modules/execution-ledger/migrations/202608200007-execution-fact-drain-ledger.ts",
   "apps/cloud/src/modules/audit/migrations/202608200008-workspace-device-audit-drain-ledger.ts",
@@ -31,6 +33,7 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/test/postgres/immutable-drain-ledger.test.ts",
   "apps/cloud/test/postgres/device-switch-request-persistence.test.ts",
   "apps/cloud/test/postgres/device-switch-drain-persistence.test.ts",
+  "apps/cloud/test/postgres/device-directory-persistence.test.ts",
   "apps/cloud/test/support/drain-proof.ts",
   "scripts/collect-devices-persistence-report.mjs",
   "scripts/collect-cloud-boundary-report.mjs",
@@ -88,11 +91,24 @@ export const SWITCH_DRAIN_TEST_NAMES = [
   "gives the target device and other tenants no drain path, and keeps the proof table owner-written",
 ];
 
+/** ADR-0032 S3a: the account's device list and a Desktop's report of itself. */
+export const DEVICE_DIRECTORY_TEST_NAMES = [
+  "lists the account's devices with roles from the Lease, before any device reports itself",
+  "records a report for the session's own device, floors last seen to the hour, and bumps the revision only on change",
+  "denies web sessions, revoked or stale sessions, removed devices, and recovery without writing",
+  "serializes renames with writers that lock in drain order, without deadlock",
+  "rejects a report naming a device or carrying an invalid name before touching the database",
+  "isolates identical device and session ids across two accounts",
+  "keeps the self-report columns within their constraints even for the database owner",
+  "enforces the protocol display-label rule in the database for every Cc and Cf character and trimmed whitespace",
+];
+
 export const POSTGRES_DRAIN_TEST_FILES = [
   { file: "test/postgres/device-drain-persistence.test.ts", names: POSTGRES_DEVICES_TEST_NAMES },
   { file: "test/postgres/immutable-drain-ledger.test.ts", names: IMMUTABLE_DRAIN_TEST_NAMES },
   { file: "test/postgres/device-switch-request-persistence.test.ts", names: SWITCH_REQUEST_TEST_NAMES },
   { file: "test/postgres/device-switch-drain-persistence.test.ts", names: SWITCH_DRAIN_TEST_NAMES },
+  { file: "test/postgres/device-directory-persistence.test.ts", names: DEVICE_DIRECTORY_TEST_NAMES },
 ];
 
 export const DEVICE_PERSISTENCE_TABLES = [

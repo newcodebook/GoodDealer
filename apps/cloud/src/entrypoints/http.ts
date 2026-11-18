@@ -27,6 +27,7 @@ import { PostgresMutationAuthority } from "../modules/devices/postgres-mutation-
 import { PostgresDesktopSyncAuthority } from "../modules/devices/postgres-sync-authority";
 import {
   PostgresDeviceDrainTransition,
+  PostgresDeviceDirectory,
   PostgresDeviceSwitchApplication,
   PostgresDeviceSwitchDrain,
   PostgresDeviceSwitchRequests,
@@ -262,6 +263,9 @@ export function createPostgresCloudPublicHttp(
           });
         })(),
       }),
+      // The device list and self-report need only a bound Desktop session, not the Lease, so a
+      // Standby device can read them too.
+      ...(identityTransactions === undefined ? {} : { deviceDirectory: new PostgresDeviceDirectory(accountTransactions) }),
       ...(identityTransactions === undefined ? {} : {
         cloudflareDnsObservation: new PostgresCloudflareDnsObservationIngress({
           transactions: identityTransactions,

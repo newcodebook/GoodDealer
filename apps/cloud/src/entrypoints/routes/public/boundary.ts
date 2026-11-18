@@ -1,6 +1,9 @@
 import {
   desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantSchema,
+  deviceBindingListSchema,
+  deviceListRequestSchema,
+  deviceSelfReportSchema,
   deviceSwitchDrainRequestSchema,
   deviceSwitchLookupRequestSchema,
   deviceSwitchRequestSchema,
@@ -82,7 +85,7 @@ import {
 import type { AccountActivationApplicationPort } from "../../ports/account-activation";
 import type { DesktopAuthorizationApplicationPort } from "../../ports/desktop-authorization";
 import type { PublicPrincipal } from "../../ports/public-session";
-import type { DeviceSwitchApplicationPort } from "../../../modules/devices/index";
+import type { DeviceDirectoryApplicationPort, DeviceSwitchApplicationPort } from "../../../modules/devices/index";
 import type { CommercialCheckoutApplicationPort } from "../../../modules/licensing/index";
 import type {
   CloudflareDnsObservationIngressPort,
@@ -136,6 +139,8 @@ export const DEVICE_SWITCH_REQUEST_ROUTE = "/v1/device-switch/requests" as const
 export const DEVICE_SWITCH_STATUS_ROUTE = "/v1/device-switch/requests/status" as const;
 export const DEVICE_SWITCH_CANCEL_ROUTE = "/v1/device-switch/requests/cancel" as const;
 export const DEVICE_SWITCH_DRAIN_ROUTE = "/v1/device-switch/requests/drain" as const;
+export const DEVICE_LIST_ROUTE = "/v1/devices/list" as const;
+export const DEVICE_SELF_REPORT_ROUTE = "/v1/devices/self" as const;
 
 export class PublicRouteAuthorizationError extends Error {}
 
@@ -146,6 +151,7 @@ export interface PublicBusinessRoutePorts {
   readonly workspaceSync?: WorkspaceSyncApplicationPort;
   readonly cloudflareDnsObservation?: CloudflareDnsObservationIngressPort;
   readonly deviceSwitch?: DeviceSwitchApplicationPort;
+  readonly deviceDirectory?: DeviceDirectoryApplicationPort;
 }
 
 export function createPublicBusinessRoutes(
@@ -400,6 +406,33 @@ export function createPublicBusinessRoutes(
       16 * 1024,
     )]),
   ];
+  const deviceDirectory = ports.deviceDirectory;
+  const deviceDirectoryRoute = (
+    path: string,
+    request: typeof deviceListRequestSchema | typeof deviceSelfReportSchema,
+    invoke: (port: DeviceDirectoryApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceDirectoryApplicationPort["list"]>,
+  ): PublicRoute<any, any> => ({
+    surface: PUBLIC_SURFACE,
+    method: "POST",
+    path,
+    request,
+    response: deviceBindingListSchema,
+    requiredScope: null,
+    authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+    invoke: async (value: unknown, principal: PublicPrincipal) => {
+      const response = await invoke(deviceDirectory!, value, principal);
+      if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+      return response;
+    },
+    // A self-report is a platform word and a display name of at most 64 characters (at most four
+    // UTF-8 bytes each, as JSON permits them unescaped): well under 512 bytes. The list request is
+    // a version field alone.
+    bodyLimit: 1024,
+  });
+  const deviceDirectoryRoutes: readonly PublicRoute<any, any>[] = deviceDirectory === undefined ? [] : [
+    deviceDirectoryRoute(DEVICE_LIST_ROUTE, deviceListRequestSchema, (port, value, principal) => port.list(value, principal)),
+    deviceDirectoryRoute(DEVICE_SELF_REPORT_ROUTE, deviceSelfReportSchema, (port, value, principal) => port.reportSelf(value, principal)),
+  ];
   return [
     accountActivationRoute,
     desktopAuthorizationRoute,
@@ -412,5 +445,6 @@ export function createPublicBusinessRoutes(
     ...workspaceSyncRoutes,
     ...cloudflareObservationRoutes,
     ...deviceSwitchRoutes,
+    ...deviceDirectoryRoutes,
   ];
 }
