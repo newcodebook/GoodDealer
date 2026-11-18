@@ -1,12 +1,11 @@
 use super::{
-    BackupAuthorityKind, BusinessDatabaseError, BusinessMutationContext,
-    DesktopAssetLibraryReadRequest, DesktopBusinessRuntime, DesktopConflictCenterView,
-    DesktopConflictResolveRequest, DesktopDomainAssetCreateRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainDetailReadRequest, DesktopLocalHost, DesktopLocalHostError, Ordering,
-    PrivateBackupAuthority, RuntimeRestriction, current_unix_seconds, format_timestamp,
-    map_host_database_error,
+    BusinessDatabaseError, BusinessMutationContext, DesktopAssetLibraryReadRequest,
+    DesktopBusinessRuntime, DesktopConflictCenterView, DesktopConflictResolveRequest,
+    DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
+    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest, DesktopLocalHost,
+    DesktopLocalHostError, Ordering, PrivateWorkspaceAuthority, RuntimeRestriction,
+    WorkspaceAuthorityKind, current_unix_seconds, format_timestamp, map_host_database_error,
 };
 
 impl DesktopLocalHost {
@@ -428,7 +427,7 @@ impl DesktopLocalHost {
         mutable: bool,
         operation: impl FnOnce(
             &mut DesktopBusinessRuntime,
-            &PrivateBackupAuthority,
+            &PrivateWorkspaceAuthority,
             u64,
             RuntimeRestriction,
         ) -> Result<T, BusinessDatabaseError>,
@@ -450,10 +449,10 @@ impl DesktopLocalHost {
         let captured_epoch = authority.applied_authority_epoch;
         let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
         let restriction_authorizes = match authority.restriction {
-            RuntimeRestriction::Active => current.kind == BackupAuthorityKind::Active,
+            RuntimeRestriction::Active => current.kind == WorkspaceAuthorityKind::Active,
             RuntimeRestriction::CommercialReadOnly => {
                 !mutable
-                    && current.kind == BackupAuthorityKind::VerifiedLocalContinuation
+                    && current.kind == WorkspaceAuthorityKind::VerifiedLocalContinuation
                     && matches!(
                         (
                             authority.continuity.as_ref(),
@@ -492,7 +491,7 @@ impl DesktopLocalHost {
     pub(super) fn require_business_commit_fence(
         &self,
         captured_epoch: u64,
-        authority: &PrivateBackupAuthority,
+        authority: &PrivateWorkspaceAuthority,
     ) -> Result<(), BusinessDatabaseError> {
         #[cfg_attr(not(unix), cfg(any()))]
         #[cfg(test)]

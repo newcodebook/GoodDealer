@@ -58,8 +58,8 @@ use crate::desktop_custody::{
     rebootstrap_inspection_snapshot_for_test, reset_rebootstrap_inspection_for_test,
 };
 use crate::desktop_local_host::authority::{
-    BackupAuthorityReplacementFloor, BackupAuthorityVerifier, TrustedBackupBinding,
-    VerifiedBackupAuthority,
+    TrustedWorkspaceBinding, VerifiedWorkspaceAuthority, WorkspaceAuthorityReplacementFloor,
+    WorkspaceAuthorityVerifier,
 };
 use crate::desktop_local_host::container::{
     BackupContainerError, BackupContainerHost, ExportRequest,
@@ -448,8 +448,10 @@ struct BackupRestoreRequest {
     confirmation: String,
 }
 
+/// Serializes authority transitions with operations; the generation fences all capabilities.
+/// The selected handles and artifact fields belong only to the backup workflow.
 #[derive(Default)]
-struct BackupOperationState {
+struct HostOperationState {
     export_operation_id: Option<String>,
     export_consumed: bool,
     selection_operation_id: Option<String>,
@@ -461,10 +463,16 @@ struct BackupOperationState {
     generation: u64,
 }
 
-struct BackupAuthorityPublicationState {
+/// Artifact custody is a consumer of workspace authority, never its source. Both remain under
+/// the same publication mutex so a transition fences an artifact publication atomically.
+struct BackupArtifactState {
     native: NativeBackupComposition,
-    authority: Option<PrivateBackupAuthority>,
     container: Option<BackupContainerHost>,
+}
+
+struct WorkspaceAuthorityState {
+    authority: Option<PrivateWorkspaceAuthority>,
+    backup: BackupArtifactState,
     applied_authority_epoch: u64,
     restriction: RuntimeRestriction,
     continuity: Option<ContinuityManager>,
@@ -496,12 +504,14 @@ impl DesktopStatusSnapshot {
     }
 }
 
-impl Default for BackupAuthorityPublicationState {
+impl Default for WorkspaceAuthorityState {
     fn default() -> Self {
         Self {
-            native: NativeBackupComposition::Unavailable,
             authority: None,
-            container: None,
+            backup: BackupArtifactState {
+                native: NativeBackupComposition::Unavailable,
+                container: None,
+            },
             applied_authority_epoch: 0,
             restriction: RuntimeRestriction::ActivationRequired,
             continuity: None,
@@ -524,13 +534,13 @@ enum RuntimeRestriction {
     dead_code,
     reason = "authority activation is added only with the qualified signed-wire verifier"
 )]
-enum BackupAuthorityKind {
+enum WorkspaceAuthorityKind {
     Active,
     VerifiedLocalContinuation,
     Unavailable,
 }
 
-impl BackupAuthorityKind {
+impl WorkspaceAuthorityKind {
     const fn wire(self) -> &'static str {
         match self {
             Self::Active => "active",
@@ -544,8 +554,8 @@ impl BackupAuthorityKind {
     }
 }
 
-struct PrivateBackupAuthority {
-    kind: BackupAuthorityKind,
+struct PrivateWorkspaceAuthority {
+    kind: WorkspaceAuthorityKind,
     #[cfg_attr(
         not(test),
         allow(
@@ -568,14 +578,14 @@ struct PrivateBackupAuthority {
     digest: [u8; 32],
 }
 
-impl fmt::Debug for PrivateBackupAuthority {
+impl fmt::Debug for PrivateWorkspaceAuthority {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("PrivateBackupAuthority([REDACTED])")
+        formatter.write_str("PrivateWorkspaceAuthority([REDACTED])")
     }
 }
 
-impl PrivateBackupAuthority {
-    fn from_verified(authority: &VerifiedBackupAuthority, generation: u64) -> Self {
+impl PrivateWorkspaceAuthority {
+    fn from_verified(authority: &VerifiedWorkspaceAuthority, generation: u64) -> Self {
         let snapshot_digest = authority.snapshot_digest_hex();
         let mut digest = [0_u8; 32];
         for (index, chunk) in snapshot_digest
@@ -588,7 +598,7 @@ impl PrivateBackupAuthority {
             digest[index] = (hex_nibble(chunk[0]) << 4) | hex_nibble(chunk[1]);
         }
         Self {
-            kind: BackupAuthorityKind::Active,
+            kind: WorkspaceAuthorityKind::Active,
             account_id: authority.account_id().to_owned(),
             workspace_id: authority.workspace_id().to_owned(),
             device_id: authority.device_id().to_owned(),
@@ -605,8 +615,8 @@ impl PrivateBackupAuthority {
         }
     }
 
-    fn can_replace_with(&self, replacement: &VerifiedBackupAuthority) -> bool {
-        replacement.can_replace_floor(&BackupAuthorityReplacementFloor {
+    fn can_replace_with(&self, replacement: &VerifiedWorkspaceAuthority) -> bool {
+        replacement.can_replace_floor(&WorkspaceAuthorityReplacementFloor {
             workspace_id: &self.workspace_id,
             account_id: &self.account_id,
             device_id: &self.device_id,
@@ -643,11 +653,11 @@ impl PrivateBackupAuthority {
     }
 }
 
-/// Synchronous owner of the Desktop database writer and the complete private backup pipeline.
+/// Synchronous owner of workspace authority, the database writer and private capability state.
 ///
 /// The production constructor deliberately starts closed. Native file handles, independent
-/// rollback-anchor persistence, and signed backup authority must all be installed inside this
-/// crate before any operation can become available.
+/// rollback-anchor persistence and artifact composition gate backup operations independently
+/// from the signed workspace authority used by business and Provider capabilities.
 pub struct DesktopLocalHost {
     #[allow(
         dead_code,
@@ -659,7 +669,7 @@ pub struct DesktopLocalHost {
         reason = "production custody is retained for future qualified native composition"
     )]
     production_custody: Option<Mutex<DesktopProductionCustody>>,
-    authority_verifier: Option<BackupAuthorityVerifier>,
+    authority_verifier: Option<WorkspaceAuthorityVerifier>,
     /// Published before any authority transition waits for the operation lock.
     transition_requested_epoch: AtomicU64,
     /// Advances on both sides of every Cloudflare connection create and backup restore, the only
@@ -667,9 +677,9 @@ pub struct DesktopLocalHost {
     /// [`Self::provider_connection_generation`].
     provider_connection_generation: AtomicU64,
     /// Lock order begins here for every backup selection or operation.
-    operation_selection: Mutex<BackupOperationState>,
+    operation_selection: Mutex<HostOperationState>,
     /// Authority and publication are fenced while the operation lock is held.
-    authority_publication: Mutex<BackupAuthorityPublicationState>,
+    authority_publication: Mutex<WorkspaceAuthorityState>,
     /// The aggregate, not Desktop composition, owns the database and sync coordinator together.
     runtime_state: Mutex<Option<DesktopRuntimeState>>,
     /// Private crash-recovery state machine. It never owns a database, path, key, or writer.
@@ -721,8 +731,8 @@ impl DesktopLocalHost {
             authority_verifier: None,
             transition_requested_epoch: AtomicU64::new(0),
             provider_connection_generation: AtomicU64::new(0),
-            operation_selection: Mutex::new(BackupOperationState::default()),
-            authority_publication: Mutex::new(BackupAuthorityPublicationState::default()),
+            operation_selection: Mutex::new(HostOperationState::default()),
+            authority_publication: Mutex::new(WorkspaceAuthorityState::default()),
             runtime_state: Mutex::new(None),
             #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
@@ -773,7 +783,7 @@ impl DesktopLocalHost {
         // `load_or_create` owns the single pre-effect rebootstrap-residue gate. Do not observe
         // that state again after custody may have opened or created ordinary database/key state.
         let mut host = Self::production_unavailable();
-        host.authority_verifier = BackupAuthorityVerifier::production().ok();
+        host.authority_verifier = WorkspaceAuthorityVerifier::production().ok();
         host.application_root = Some(root);
         host.production_custody = Some(Mutex::new(custody));
         Ok(host)
@@ -796,7 +806,7 @@ fn hex_nibble(value: u8) -> u8 {
     }
 }
 
-fn clear_operation_state(operation: &mut BackupOperationState) {
+fn clear_operation_state(operation: &mut HostOperationState) {
     operation.selected_handle = None;
     operation.selected_artifact = None;
     operation.selected_authority_generation = None;
@@ -840,7 +850,7 @@ fn hex_digest(digest: &[u8; 32]) -> String {
 
 #[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
-fn rebootstrap_binding_digest(authority: &PrivateBackupAuthority) -> String {
+fn rebootstrap_binding_digest(authority: &PrivateWorkspaceAuthority) -> String {
     let mut digest = Sha256::new();
     digest.update(b"GOODDEALER/REBOOTSTRAP-BINDING-V1\0");
     for component in [
@@ -856,7 +866,7 @@ fn rebootstrap_binding_digest(authority: &PrivateBackupAuthority) -> String {
 
 #[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
-fn rebootstrap_floor_digest(authority: &PrivateBackupAuthority) -> String {
+fn rebootstrap_floor_digest(authority: &PrivateWorkspaceAuthority) -> String {
     let mut digest = Sha256::new();
     digest.update(b"GOODDEALER/REBOOTSTRAP-FLOORS-V1\0");
     digest.update(authority.account_security_epoch.to_be_bytes());

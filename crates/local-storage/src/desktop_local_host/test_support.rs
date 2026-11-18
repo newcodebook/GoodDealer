@@ -23,8 +23,8 @@ impl DesktopLocalHost {
             digest.update(value.as_bytes());
         }
         digest.update(generation.to_be_bytes());
-        let authority = PrivateBackupAuthority {
-            kind: BackupAuthorityKind::Active,
+        let authority = PrivateWorkspaceAuthority {
+            kind: WorkspaceAuthorityKind::Active,
             account_id: account_id.to_owned(),
             workspace_id: workspace_id.to_owned(),
             device_id: device_id.to_owned(),
@@ -119,13 +119,15 @@ impl DesktopLocalHost {
             authority_verifier: None,
             transition_requested_epoch: AtomicU64::new(generation),
             provider_connection_generation: AtomicU64::new(0),
-            operation_selection: Mutex::new(BackupOperationState::default()),
-            authority_publication: Mutex::new(BackupAuthorityPublicationState {
-                native: NativeBackupComposition::Development(DevelopmentNativeBackup::new(
-                    native_root,
-                )?),
+            operation_selection: Mutex::new(HostOperationState::default()),
+            authority_publication: Mutex::new(WorkspaceAuthorityState {
                 authority: Some(authority),
-                container: Some(container),
+                backup: BackupArtifactState {
+                    native: NativeBackupComposition::Development(DevelopmentNativeBackup::new(
+                        native_root,
+                    )?),
+                    container: Some(container),
+                },
                 applied_authority_epoch: generation,
                 restriction: RuntimeRestriction::Active,
                 continuity: Some(continuity),

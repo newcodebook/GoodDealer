@@ -4,6 +4,17 @@
 交付十二平台、非资金整批一次确认、Windows/macOS 完整能力与两条恢复旅程。
 下文已勾选的八平台与逐项确认项保留当时证据，不代表新目标完成；后续待办按新决策执行。
 
+## 2026-11-18 工程结构整合
+
+- 已完成 BusinessDatabase 私有能力与测试拆分、WorkspaceAuthority 与备份工件状态归属、
+  Native Cloudflare 适配归属及 Unix OS 密钥库后端提取。数据库 writer、锁顺序和提交栅栏保持。
+- 新增 Listing 绑定前向迁移 `202611180001`，支持多市场/多账户及 detached incarnation 历史，
+  保留 Registrar/DNS 单资源约束；迁移兼容、身份冲突、跨工作区、平台错配和回滚列入数据库测试。
+- 已更新 [工程结构结果](../ENGINEERING_STRUCTURE_REVIEW.md)、[当前实现](../CURRENT_IMPLEMENTATION.md)
+  与 [下一轮提示词](../IMPLEMENTATION_PROMPT.md)。真实平台写入、Windows custody、Standby 和双恢复旅程继续按最终 ADR 交付。
+- 验证：根 `pnpm check`、local-storage Clippy 与 28 项公开边界编译测试通过；详情见工程结构结果，
+  不将 Linux 源码测试作为 Windows/macOS 或真实 Provider 资格。
+
 ## 目标
 
 Phase 0 建立“Cloud 控制面授权、本地 SQLCipher 执行业务、Cloud 保存脱敏同步副本”的可验证

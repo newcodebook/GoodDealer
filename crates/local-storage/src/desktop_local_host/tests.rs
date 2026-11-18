@@ -271,9 +271,9 @@ fn activate_recovered_host(
         .load_device_id()
         .unwrap();
     assert_eq!(device_id, "device-local", "device mismatch for {name}");
-    VerifiedBackupAuthority::verify(
+    VerifiedWorkspaceAuthority::verify(
         &signed_wire,
-        &TrustedBackupBinding {
+        &TrustedWorkspaceBinding {
             account_id: None,
             device_id: &device_id,
             minimum_account_security_epoch: 0,
@@ -502,9 +502,9 @@ fn activate_recovered_host_and_assert_empty_business(host: &mut DesktopLocalHost
         .unwrap()
         .load_device_id()
         .unwrap();
-    VerifiedBackupAuthority::verify(
+    VerifiedWorkspaceAuthority::verify(
         &signed_wire,
-        &TrustedBackupBinding {
+        &TrustedWorkspaceBinding {
             account_id: None,
             device_id: &device_id,
             minimum_account_security_epoch: 0,
@@ -2064,9 +2064,9 @@ fn fresh_grant_read_and_sync_admission_linearize_after_recovery() {
         .unwrap()
         .load_device_id()
         .unwrap();
-    VerifiedBackupAuthority::verify(
+    VerifiedWorkspaceAuthority::verify(
         &signed_wire,
-        &TrustedBackupBinding {
+        &TrustedWorkspaceBinding {
             account_id: None,
             device_id: &device_id,
             minimum_account_security_epoch: 0,

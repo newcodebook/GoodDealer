@@ -1,21 +1,21 @@
 use super::{
-    ActionAdmission, BackupArtifactSelectRequest, BackupAuthorityKind,
-    BackupAuthorityPublicationState, BackupExportRequest, BackupRestoreRequest,
+    ActionAdmission, BackupArtifactSelectRequest, BackupExportRequest, BackupRestoreRequest,
     BusinessDatabaseError, ConnectionGenerationAdvance, DesktopBackupError,
     DesktopBackupExportStatus, DesktopBackupRestoreStatus, DesktopLocalHost,
     DesktopVerifiedBackupArtifact, ExportRequest, IsolatedBackupCandidate, MAX_SAFE_INTEGER,
-    Ordering, RestoreAdmission, SelectedArtifactView, current_unix_seconds, format_timestamp,
-    hex_digest, map_container_error, map_database_error, opaque_artifact_id, parse_request,
-    random_identifier, validate_restore_request, validate_schema_and_operation,
+    Ordering, RestoreAdmission, SelectedArtifactView, WorkspaceAuthorityKind,
+    WorkspaceAuthorityState, current_unix_seconds, format_timestamp, hex_digest,
+    map_container_error, map_database_error, opaque_artifact_id, parse_request, random_identifier,
+    validate_restore_request, validate_schema_and_operation,
 };
 
 impl DesktopLocalHost {
     pub(super) fn require_current_authority(
         &self,
-        state: &BackupAuthorityPublicationState,
+        state: &WorkspaceAuthorityState,
         restore: bool,
     ) -> Result<u64, DesktopBackupError> {
-        if !state.native.is_qualified() {
+        if !state.backup.native.is_qualified() {
             return Err(DesktopBackupError::StorageRejected);
         }
         let authority = state
@@ -23,7 +23,7 @@ impl DesktopLocalHost {
             .as_ref()
             .ok_or(DesktopBackupError::AuthorityRejected)?;
         if restore {
-            if authority.kind != BackupAuthorityKind::Active {
+            if authority.kind != WorkspaceAuthorityKind::Active {
                 return Err(DesktopBackupError::AuthorityRejected);
             }
         } else if !authority.kind.can_export_or_inspect() {
@@ -36,7 +36,7 @@ impl DesktopLocalHost {
 
     fn require_captured_epoch(
         &self,
-        state: &BackupAuthorityPublicationState,
+        state: &WorkspaceAuthorityState,
         captured_epoch: u64,
         restore: bool,
     ) -> Result<(), DesktopBackupError> {
@@ -49,7 +49,7 @@ impl DesktopLocalHost {
             || state.applied_authority_epoch != captured_epoch
             || self.transition_requested_epoch.load(Ordering::Acquire) != captured_epoch
             || !authority.is_current_at(now)
-            || restore && authority.kind != BackupAuthorityKind::Active
+            || restore && authority.kind != WorkspaceAuthorityKind::Active
         {
             return Err(DesktopBackupError::AuthorityRejected);
         }
@@ -72,7 +72,7 @@ impl DesktopLocalHost {
             operation.selection_consumed = true;
             return DesktopBackupRestoreStatus::unavailable(None);
         };
-        if !authority.native.is_qualified()
+        if !authority.backup.native.is_qualified()
             || !current_authority.kind.can_export_or_inspect()
             || self.transition_requested_epoch.load(Ordering::Acquire)
                 != authority.applied_authority_epoch
@@ -175,6 +175,7 @@ impl DesktopLocalHost {
         let data_plaintext_bytes =
             data_plaintext_bytes.ok_or(DesktopBackupError::ArtifactRejected)?;
         let container = authority
+            .backup
             .container
             .as_ref()
             .ok_or(DesktopBackupError::KeyUnavailable)?;
@@ -198,16 +199,17 @@ impl DesktopLocalHost {
             .map_err(map_container_error)?;
         self.require_captured_epoch(&authority, captured_epoch, false)?;
         let staged = authority
+            .backup
             .native
             .stage_publication(&request.operation_id, sealed.bytes())?;
         if let Err(error) = self.require_captured_epoch(&authority, captured_epoch, false) {
-            authority.native.quarantine(&staged);
+            authority.backup.native.quarantine(&staged);
             return Err(error);
         }
         // Catalog visibility is the operation's linearization point. A transition publishes its
         // pending epoch before waiting for this authority guard; an intent observed above aborts,
         // while an intent published after the check is ordered after this guarded commit.
-        authority.native.mark_available(&staged)?;
+        authority.backup.native.mark_available(&staged)?;
         Ok(DesktopBackupExportStatus::completed())
     }
 
@@ -243,9 +245,9 @@ impl DesktopLocalHost {
         operation.selected_handle = None;
         operation.selected_artifact = None;
         let captured_epoch = self.require_current_authority(&authority, false)?;
-        let handle = authority.native.select()?;
+        let handle = authority.backup.native.select()?;
         self.require_captured_epoch(&authority, captured_epoch, false)?;
-        let artifact_bytes = authority.native.read(&handle)?;
+        let artifact_bytes = authority.backup.native.read(&handle)?;
         self.require_captured_epoch(&authority, captured_epoch, false)?;
         let candidate_set_version = operation
             .generation
@@ -253,6 +255,7 @@ impl DesktopLocalHost {
             .filter(|value| *value <= MAX_SAFE_INTEGER)
             .ok_or(DesktopBackupError::StorageRejected)?;
         let container = authority
+            .backup
             .container
             .as_ref()
             .ok_or(DesktopBackupError::KeyUnavailable)?;
@@ -300,7 +303,7 @@ impl DesktopLocalHost {
         let restore_admission = if authority
             .authority
             .as_ref()
-            .is_some_and(|current| current.kind == BackupAuthorityKind::Active)
+            .is_some_and(|current| current.kind == WorkspaceAuthorityKind::Active)
             && compatibility == "compatible"
         {
             RestoreAdmission::Available {
@@ -390,7 +393,7 @@ impl DesktopLocalHost {
             .selected_handle
             .take()
             .ok_or(DesktopBackupError::OperationRejected)?;
-        let artifact_bytes = authority.native.read(&handle)?;
+        let artifact_bytes = authority.backup.native.read(&handle)?;
         self.require_captured_epoch(&authority, captured_epoch, true)?;
         let current_authority = authority
             .authority
@@ -426,6 +429,7 @@ impl DesktopLocalHost {
             .business
             .database_for_backup_mut();
         let container = authority
+            .backup
             .container
             .as_ref()
             .ok_or(DesktopBackupError::KeyUnavailable)?;

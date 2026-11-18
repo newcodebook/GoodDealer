@@ -35,8 +35,11 @@
 - 一个**平台连接**代表用户在一个平台上的一个账户及其本地凭据，可同时承担 `registrar`、`dns`、`marketplace`、
   `acquisition` 中的一种或多种角色；角色由该平台的 manifest 与凭据实际权限共同决定，不由 Renderer 声明。
 - 同一公司下认证体系不同的平台按独立平台处理（Afternic 与 GoDaddy 各自一份连接和凭据）。
-- 一个域名资产可以同时绑定：一个注册商资源、一个 DNS 资源，以及每个交易市场各一个 Listing。
-  Listing 唯一键必须包含连接身份；本地连接表达平台与角色集合，schema 由 `local-storage` 以迁移维护。
+- 一个域名资产可以同时绑定：一个注册商资源、一个 DNS 资源，以及每个平台连接一个当前 Listing。
+  同市场多账户分别绑定；Listing 身份包含连接和资源标识摘要。同一连接下，一个远端 Listing 只归属于一个域名。
+  已 detached 的旧 Listing 身份保留，新资源可以接替；禁止旧身份与当前身份同时恢复为有效绑定。
+  Registrar/DNS 保持各自单资源唯一性。身份与观察事实分别拥有，本地连接表达平台与角色集合，
+  schema 由 `local-storage` 以追加迁移维护。
 - Provider 账户 ID、账户别名、凭据、平台原始响应继续只存在本地 Host，不进入 Sync Outbox 或 Cloud
   （[ADR-0016](0016-local-business-database-and-cloud-sync-boundary.md)）；Listing 状态与价格等可同步字段沿用允许字段白名单。
 

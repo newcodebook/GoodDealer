@@ -12,6 +12,15 @@ const hostReads = join(repository, "crates/local-storage/src/active_workspace/")
 function sources(root: string, extension: string): { readonly path: string; readonly text: string }[] {
   return readdirSync(join(repository, root), { recursive: true, encoding: "utf8" })
     .filter((path) => path.endsWith(extension) && !path.endsWith(`.test${extension}`))
+    .filter((path) => {
+      if (root === "crates/local-storage/src" && path.split(sep).join("/").startsWith("active_workspace/business/tests/")) {
+        // Exclude this moved test subtree only while its owner actually gates it from production.
+        const owner = readFileSync(join(hostReads, "business/mod.rs"), "utf8");
+        expect(owner).toMatch(/#\[cfg\(test\)\]\s*mod tests;/u);
+        return false;
+      }
+      return true;
+    })
     .map((path) => {
       const text = readFileSync(join(repository, root, path), "utf8");
       return { path: relative(repository, join(repository, root, path)).split(sep).join("/"), text: text.replace(/#\[cfg\(test\)\]\s*mod tests \{[\s\S]*$/u, "") };

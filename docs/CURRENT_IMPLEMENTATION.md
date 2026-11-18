@@ -18,6 +18,10 @@
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
+- `active_workspace/business/` 已按资产、Provider 观察、读投影、同步收发、冲突、checkpoint、wire 和修复
+  拆分私有实现及测试；仍共享一个数据库 owner。Host 工作区授权与备份工件状态已明确分离，保持同一锁和 epoch。
+- Native Provider facade 已分离 Cloudflare 私有适配；Unix custody 的 OS 密钥库细节已提取私有后端。
+  Windows custody 尚未实现，仍是下一轮必须完成的原生功能。
 
 ## Provider
 
@@ -32,6 +36,10 @@
   名录和展示名称不授予 Provider 执行能力，销售聚合的临时位图也已扩容以保留全部平台。
 - [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)已明确已确认官方能力使用官方 API，当前其余缺口全部自研私有 HTTP 接口；
   [公开核查](PROVIDER_API_REVIEW.md)已补充接口语义与社区线索，尚未新增私有会话 custody、Service 或执行资格。
+
+- 本地新增迁移 `202611180001`：原资源绑定表支持连接范围的 Listing、多市场/多账户和 detached 历史；
+  Registrar/DNS 单资源约束及已有数据保持。Listing Service、写入准入、观察关联和批量执行仍待交付，
+  此模型扩展不授予执行资格。
 
 ## Cloud 与 Account Web
 

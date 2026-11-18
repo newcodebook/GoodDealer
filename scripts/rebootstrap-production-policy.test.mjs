@@ -17,7 +17,15 @@ const runtimePath = "crates/local-storage/src/rebootstrap_runtime.rs";
 const desktopBusinessRuntimePath = "crates/local-storage/src/desktop_business_runtime.rs";
 const activeWorkspacePath = "crates/local-storage/src/active_workspace/mod.rs";
 const businessPath = "crates/local-storage/src/active_workspace/business/mod.rs";
+const businessCapabilityPaths = [
+  "assets", "checkpoint", "conflicts", "database", "inbox", "outbox",
+  "provider_observations", "reads", "repair", "wire", "cloudflare_credential", "cloudflare_retirement", "drain_claims",
+].map((name) => `crates/local-storage/src/active_workspace/business/${name}.rs`);
+const custodyBackendPaths = ["macos", "linux", "unsupported"]
+  .map((name) => `crates/local-storage/src/desktop_custody/${name}.rs`);
 const sourcePaths = [
+  ...businessCapabilityPaths,
+  ...custodyBackendPaths,
   libraryPath,
   custodyPath,
   localHostPath,
@@ -39,12 +47,14 @@ export function rebootstrapProductionPolicyErrors({ root = repositoryRoot } = {}
   const localHost = [sources[localHostPath], ...localHostCapabilityPaths.map((path) => sources[path]),
     `\n#[cfg(test)]\nmod tests {\n${sources[localHostTestsPath]}\n}`].join("\n");
   validateRuntimeModuleAndHostBoundary(sources[libraryPath], localHost, errors);
-  validateCreateOnlySlotBoundary(sources[custodyPath], errors);
-  validatePristineProductionConstructor(sources[custodyPath], errors);
-  validateCustodyProtocolIsTestOnly(sources[custodyPath], errors);
+  const custody = [...custodyBackendPaths.map((path) => sources[path]), sources[custodyPath]].join("\n");
+  const business = [sources[businessPath], ...businessCapabilityPaths.map((path) => sources[path])].join("\n");
+  validateCreateOnlySlotBoundary(custody, errors);
+  validatePristineProductionConstructor(custody, errors);
+  validateCustodyProtocolIsTestOnly(custody, errors);
   validateDesktopBusinessProtocolIsTestOnly(sources[desktopBusinessRuntimePath], errors);
-  validateActiveWorkspaceProtocolIsTestOnly(sources[activeWorkspacePath], sources[businessPath], errors);
-  validateOfficialDependencyAndSelectors(root, sources[custodyPath], localHost, errors);
+  validateActiveWorkspaceProtocolIsTestOnly(sources[activeWorkspacePath], business, errors);
+  validateOfficialDependencyAndSelectors(root, custody, localHost, errors);
   return errors;
 }
 
@@ -334,8 +344,15 @@ function hasNotTestCfg(prefix) {
 }
 
 function isTestFunction(block, source) {
-  const testModule = source.search(/\n#\[cfg\(test\)\]\nmod\s+tests\s*\{/u);
-  return hasTestCfg(block.prefix) || (testModule >= 0 && block.index > testModule);
+  if (hasTestCfg(block.prefix)) return true;
+  // Capability sources are concatenated: a test module in one file must not classify all
+  // production functions from later files as tests.
+  for (const match of source.matchAll(/#\[cfg\(test\)\]\s*mod\s+tests\s*\{/gu)) {
+    const open = match.index + match[0].lastIndexOf("{");
+    const close = matchingBrace(source, open);
+    if (block.index > open && block.index < close) return true;
+  }
+  return false;
 }
 
 function matchingBrace(source, open) {
@@ -503,15 +520,15 @@ test("rejects non-test active-workspace clone and checkpoint protocol seams", (t
   assert.ok(rebootstrapProductionPolicyErrors({ root: clone }).some((error) => error.includes("clone_keyed_database")));
 
   const plan = fixture(t);
-  mutate(plan, businessPath, "    #[cfg(test)]\n    pub fn install_rebootstrap_plan_guarded(", "    pub fn install_rebootstrap_plan_guarded(");
+  mutate(plan, "crates/local-storage/src/active_workspace/business/checkpoint.rs", "    #[cfg(test)]\n    pub fn install_rebootstrap_plan_guarded(", "    pub fn install_rebootstrap_plan_guarded(");
   assert.ok(rebootstrapProductionPolicyErrors({ root: plan }).some((error) => error.includes("install_rebootstrap_plan_guarded")));
 
   const recoveryProof = fixture(t);
   mutate(
     recoveryProof,
-    businessPath,
-    "#[cfg(test)]\nfn recovery_proof_from_connection(",
-    "fn recovery_proof_from_connection(",
+    "crates/local-storage/src/active_workspace/business/database.rs",
+    "#[cfg(test)]\npub(super) fn recovery_proof_from_connection(",
+    "pub(super) fn recovery_proof_from_connection(",
   );
   assert.ok(rebootstrapProductionPolicyErrors({ root: recoveryProof }).some((error) => error.includes("recovery_proof_from_connection")));
 });
@@ -551,4 +568,11 @@ test("the non-test local-storage source compiles without the protocol", () => {
     maxBuffer: 16 * 1024 * 1024,
   });
   assert.equal(result.status, 0, `${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+});
+
+test("a later production capability cannot inherit a preceding test module's exemption", (t) => {
+  const root = fixture(t);
+  const target = resolve(root, "crates/local-storage/src/desktop_local_host/backup_workflow.rs");
+  writeFileSync(target, `${readFileSync(target, "utf8")}\n#[cfg(test)]\nmod tests { }\n\nfn illicit_later_runtime() { let _ = RebootstrapRuntime::new(); }\n`);
+  assert.ok(rebootstrapProductionPolicyErrors({ root }).some((error) => error.includes("illicit_later_runtime")));
 });

@@ -1,10 +1,10 @@
 use super::{
-    BackupAuthorityKind, BackupAuthorityPublicationState, BackupOperationState, BarrierReason,
-    DesktopAuthorityIdentity, DesktopBusinessRuntime, DesktopDeviceLease,
+    BarrierReason, DesktopAuthorityIdentity, DesktopBusinessRuntime, DesktopDeviceLease,
     DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
     DesktopLocalHost, DesktopLocalHostError, DesktopRuntimeState, DesktopStatusSnapshot,
-    DesktopSyncRuntime, MAX_SAFE_INTEGER, Ordering, PrivateBackupAuthority, RuntimeRestriction,
-    TrustedBackupBinding, VerifiedBackupAuthority, clear_operation_state, closed_business_status,
+    DesktopSyncRuntime, HostOperationState, MAX_SAFE_INTEGER, Ordering, PrivateWorkspaceAuthority,
+    RuntimeRestriction, TrustedWorkspaceBinding, VerifiedWorkspaceAuthority,
+    WorkspaceAuthorityKind, WorkspaceAuthorityState, clear_operation_state, closed_business_status,
     current_unix_seconds, format_timestamp,
 };
 
@@ -133,7 +133,7 @@ impl DesktopLocalHost {
                 DesktopLocalHostError::AuthorityRejected,
             ));
         };
-        let binding = TrustedBackupBinding {
+        let binding = TrustedWorkspaceBinding {
             account_id: authority
                 .authority
                 .as_ref()
@@ -149,7 +149,7 @@ impl DesktopLocalHost {
                 .map_or(0, |value| value.lease_epoch),
         };
         let Ok(verified_authority) =
-            VerifiedBackupAuthority::verify(signed_wire, &binding, now, verifier)
+            VerifiedWorkspaceAuthority::verify(signed_wire, &binding, now, verifier)
         else {
             return Err(self.abort_transition(
                 &mut authority,
@@ -192,7 +192,7 @@ impl DesktopLocalHost {
                     DesktopLocalHostError::StorageRejected,
                 )
             })?;
-        let replacement = PrivateBackupAuthority::from_verified(&verified_authority, requested);
+        let replacement = PrivateWorkspaceAuthority::from_verified(&verified_authority, requested);
         let sync_runtime = DesktopSyncRuntime::new(
             verified_authority.workspace_id().to_owned(),
             verified_authority.device_id().to_owned(),
@@ -311,7 +311,7 @@ impl DesktopLocalHost {
                 );
                 let active_authority_is_current =
                     authority.authority.as_ref().is_some_and(|current| {
-                        current.kind == BackupAuthorityKind::Active && current.is_current_at(now)
+                        current.kind == WorkspaceAuthorityKind::Active && current.is_current_at(now)
                     });
                 if !continuation_is_current || !active_authority_is_current || runtime.is_none() {
                     return Err(self.abort_transition(
@@ -326,7 +326,7 @@ impl DesktopLocalHost {
                     .authority
                     .as_mut()
                     .expect("authority presence was checked above")
-                    .kind = BackupAuthorityKind::VerifiedLocalContinuation;
+                    .kind = WorkspaceAuthorityKind::VerifiedLocalContinuation;
             }
             RuntimeRestriction::RetryableLocked | RuntimeRestriction::SecurityLocked => {
                 let barrier_persisted = match (
@@ -380,9 +380,9 @@ impl DesktopLocalHost {
     )]
     fn abort_transition(
         &self,
-        authority: &mut BackupAuthorityPublicationState,
+        authority: &mut WorkspaceAuthorityState,
         runtime: &mut std::sync::MutexGuard<'_, Option<DesktopRuntimeState>>,
-        operation: &mut BackupOperationState,
+        operation: &mut HostOperationState,
         requested: u64,
         original_error: DesktopLocalHostError,
     ) -> DesktopLocalHostError {
@@ -498,7 +498,7 @@ impl DesktopLocalHost {
             .authority
             .as_ref()
             .filter(|current| {
-                current.kind == BackupAuthorityKind::Active && current.is_current_at(now)
+                current.kind == WorkspaceAuthorityKind::Active && current.is_current_at(now)
             })
             .map(|current| DesktopDeviceLease {
                 schema_version: 1,
@@ -549,7 +549,7 @@ impl DesktopLocalHost {
             RuntimeRestriction::Active => {
                 let valid = runtime.is_some()
                     && authority.authority.as_ref().is_some_and(|current| {
-                        current.kind == BackupAuthorityKind::Active && current.is_current_at(now)
+                        current.kind == WorkspaceAuthorityKind::Active && current.is_current_at(now)
                     });
                 if valid {
                     DesktopStatusSnapshot {
@@ -569,7 +569,7 @@ impl DesktopLocalHost {
                         .as_ref()
                         .is_some_and(|continuation| continuation.is_current_at(now))
                     && authority.authority.as_ref().is_some_and(|current| {
-                        current.kind == BackupAuthorityKind::VerifiedLocalContinuation
+                        current.kind == WorkspaceAuthorityKind::VerifiedLocalContinuation
                             && current.is_current_at(now)
                     });
                 if valid {

@@ -939,3 +939,10 @@ pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_OWNER: &str =
     "active-workspace/device-handoff-barrier-epoch";
 pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_SQL: &str =
     include_str!("device_handoff_barrier_epoch.sql");
+
+// Listing identity evolves through a forward migration; applied SQL remains immutable.
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_ID: i64 = 202_611_180_001;
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_OWNER: &str =
+    "active-workspace/listing-provider-binding";
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_SQL: &str =
+    include_str!("listing_provider_binding.sql");

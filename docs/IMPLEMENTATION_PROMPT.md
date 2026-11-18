@@ -6,7 +6,7 @@
 
 请继续实施 GoodDealer 已接受的产品与架构目标，直接推进代码、客户旅程和验证，不止于评审、计划、文档或能力骨架。
 
-项目目录为 `/home/sean/Programs/GoodDealer`，本轮整理基线为 `60d00f8`。先检查当前 HEAD、工作区、AGENTS.md
+项目目录为 `/home/sean/Programs/GoodDealer`，工程结构调整已完成，以当前 HEAD 为基线。先检查工作区、AGENTS.md
 及已有工作线进度；保留其他工作，不 reset、覆盖或混合提交。基线工作区有独立的 Standby Grant 协议增量，位于
 `packages/protocol/src/devices/authorization-grant.ts`、`index.ts`、对应测试及 `test-vectors/standby-grant/`。
 它可能已在后续提交中完成，先核对，再接续，不能重复开发或把它误认为完整 Standby 功能。
@@ -16,7 +16,7 @@
 - `docs/adr/README.md`：最终决策索引。
 - `docs/CURRENT_IMPLEMENTATION.md`：当前实现入口。
 - `docs/IMPLEMENTATION_STRATEGY.md`：工作包、依赖与验收方案。
-- `docs/ENGINEERING_STRUCTURE_REVIEW.md`：当前结构的具体缺口与随功能切片调整的顺序。
+- `docs/ENGINEERING_STRUCTURE_REVIEW.md`：已完成的结构调整与尚未实现的产品能力。
 - `docs/PRODUCT_DISCOVERY.md`、`docs/PROVIDER_API_REVIEW.md`：用户事实及接口证据。
 - `docs/ROADMAP.md`、`docs/VERIFICATION.md`、`docs/ORCHESTRATION.md` 与执行台账。
 
@@ -57,11 +57,16 @@
 保持单一数据库所有者和最终提交栅栏。秘密、Cookie、CSRF、恢复材料与文件 handle 留在 Native；
 Provider 账号身份和凭据不进入 Cloud、普通 TypeScript、日志或业务备份。
 
-落实工程结构改进：`active_workspace/business/mod.rs` 按本次修改的业务能力提取私有模块与测试，
-保持同一事务；Listing 绑定支持连接身份和多市场；工作区授权与备份工件语义明确区分；
-尽早验证 Windows 加密工作区启动和重开。Native 壳层保持调度/适配，持久业务状态机归拥有模块。
-不要以拆文件代替功能，不用第二个数据库 writer、通用代理或秘密桥接换取表面解耦。
+复用已经完成的工程结构，不重复进行结构重写：
 
+- `active_workspace/business/` 已拆分资产、Provider 观察、读投影、Inbox/Outbox、冲突、checkpoint、数据库、wire 和修复，测试随能力组织；仍只有一个数据库 writer。
+- 迁移 `202611180001` 已扩展原资源绑定表：Listing 身份含连接与资源 digest，同域名/连接仅一个未 detached 的绑定，旧 incarnation 保留；Registrar/DNS 仍为单资源约束。实现真实绑定准入、观察归属、代次检查、对账与客户路径，不另建重复的 Listing repository。
+- Host 已使用 WorkspaceAuthority 语义，BackupArtifactState 独立表达工件状态，仍共享原 publication mutex 与提交栅栏。备份读取不能推导 Active 执行能力。
+- Native Provider facade 的 Cloudflare 私有适配已明确；新平台按相同所有权接入，持久业务状态机仍放在 local-storage。
+- Unix custody 的 OS 密钥库实现已提取。Windows custody 仍不可用，需要真正实现加密工作区启动、关闭重开、设备/平台秘密托管与恢复；不能把已有拒绝分支或目录当成交付。
+
+这些调整不代表 Afternic、其他平台、Standby 或跨设备恢复已经实现。直接从用户旅程推进功能，
+不建立第二个数据库 writer、通用代理或秘密桥接。
 每个切片同时交付严格合同、持久化与迁移、拥有模块实现、真实组合、客户入口及相应测试。
 所有外部输入从 unknown 验证；测试覆盖错用途签名、跨租户、代次变化、撤销、并发、崩溃、未知结果和重放。
 不改写已应用迁移 SQL；生成物改源后重生成。保持 Windows/macOS 目标一致，原生资格分别取证。

@@ -1,4 +1,5 @@
-//! Private, purpose-separated backup authority verification and monotonic state.
+//! Signed workspace execution authority and monotonic replacement rules.
+//! Artifact admission remains in the backup workflow; it cannot grant workspace authority.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -27,7 +28,7 @@ const ED25519_PUBLIC_KEY_BYTES: usize = 32;
 const ED25519_SIGNATURE_BYTES: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BackupAuthorityError {
+pub(super) enum WorkspaceAuthorityError {
     Malformed,
     SignatureRejected,
     ScopeRejected,
@@ -43,7 +44,7 @@ pub(super) enum BackupAuthorityError {
     Unavailable,
 }
 
-impl fmt::Display for BackupAuthorityError {
+impl fmt::Display for WorkspaceAuthorityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Malformed => "BACKUP_AUTHORITY_MALFORMED",
@@ -73,43 +74,43 @@ impl VerificationKey {
         purpose: CredentialPurpose,
         key_id: &str,
         public_key: &[u8],
-    ) -> Result<Self, BackupAuthorityError> {
+    ) -> Result<Self, WorkspaceAuthorityError> {
         if !valid_identifier(key_id) {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         Ok(Self {
             purpose,
             key_id: key_id.to_owned(),
             public_key: public_key
                 .try_into()
-                .map_err(|_| BackupAuthorityError::Malformed)?,
+                .map_err(|_| WorkspaceAuthorityError::Malformed)?,
         })
     }
 }
 
 /// Immutable build-pinned verifier. It is private so callers cannot substitute trust roots.
-pub(super) struct BackupAuthorityVerifier {
+pub(super) struct WorkspaceAuthorityVerifier {
     keys: BTreeMap<(CredentialPurpose, String), [u8; ED25519_PUBLIC_KEY_BYTES]>,
 }
 
-impl BackupAuthorityVerifier {
-    pub(super) fn production() -> Result<Self, BackupAuthorityError> {
+impl WorkspaceAuthorityVerifier {
+    pub(super) fn production() -> Result<Self, WorkspaceAuthorityError> {
         let registry = option_env!("GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON")
-            .ok_or(BackupAuthorityError::Unavailable)?;
+            .ok_or(WorkspaceAuthorityError::Unavailable)?;
         Self::parse_registry(registry)
     }
 
-    fn parse_registry(value: &str) -> Result<Self, BackupAuthorityError> {
+    fn parse_registry(value: &str) -> Result<Self, WorkspaceAuthorityError> {
         if value.is_empty() || value.len() > MAX_REGISTRY_BYTES {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         let registry: VerificationRegistryWire =
-            serde_json::from_str(value).map_err(|_| BackupAuthorityError::Malformed)?;
+            serde_json::from_str(value).map_err(|_| WorkspaceAuthorityError::Malformed)?;
         if registry.schema_version != 1
             || registry.keys.is_empty()
             || registry.keys.len() > MAX_REGISTRY_KEYS
         {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         let mut has_grant = false;
         let mut has_lease = false;
@@ -127,21 +128,21 @@ impl BackupAuthorityVerifier {
             };
             let decoded = URL_SAFE_NO_PAD
                 .decode(wire.public_key.as_bytes())
-                .map_err(|_| BackupAuthorityError::Malformed)?;
+                .map_err(|_| WorkspaceAuthorityError::Malformed)?;
             if URL_SAFE_NO_PAD.encode(&decoded) != wire.public_key {
-                return Err(BackupAuthorityError::Malformed);
+                return Err(WorkspaceAuthorityError::Malformed);
             }
             keys.push(VerificationKey::new(purpose, &wire.key_id, &decoded)?);
         }
         if !has_grant || !has_lease {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         Self::from_keys(keys)
     }
 
     fn from_keys(
         keys: impl IntoIterator<Item = VerificationKey>,
-    ) -> Result<Self, BackupAuthorityError> {
+    ) -> Result<Self, WorkspaceAuthorityError> {
         let mut registry = BTreeMap::new();
         for key in keys {
             if registry.keys().any(|(_, key_id)| key_id == &key.key_id)
@@ -152,7 +153,7 @@ impl BackupAuthorityVerifier {
                     .insert((key.purpose, key.key_id), key.public_key)
                     .is_some()
             {
-                return Err(BackupAuthorityError::Malformed);
+                return Err(WorkspaceAuthorityError::Malformed);
             }
         }
         Ok(Self { keys: registry })
@@ -183,7 +184,7 @@ impl BackupAuthorityVerifier {
         grant_public_key: &[u8],
         lease_key_id: &str,
         lease_public_key: &[u8],
-    ) -> Result<Self, BackupAuthorityError> {
+    ) -> Result<Self, WorkspaceAuthorityError> {
         Self::from_keys([
             VerificationKey::new(CredentialPurpose::GrantV3, grant_key_id, grant_public_key)?,
             VerificationKey::new(
@@ -218,15 +219,15 @@ enum VerificationPurposeWire {
 }
 
 /// Host-owned binding and monotonic floors used during signed-wire verification.
-pub(super) struct TrustedBackupBinding<'a> {
+pub(super) struct TrustedWorkspaceBinding<'a> {
     pub(super) account_id: Option<&'a str>,
     pub(super) device_id: &'a str,
     pub(super) minimum_account_security_epoch: u64,
     pub(super) minimum_lease_epoch: u64,
 }
 
-/// Fully verified backup authority. Every identity and deadline remains crate-private.
-pub(super) struct VerifiedBackupAuthority {
+/// Fully verified workspace authority. Every identity and deadline remains crate-private.
+pub(super) struct VerifiedWorkspaceAuthority {
     workspace_id: String,
     account_id: String,
     device_id: String,
@@ -251,7 +252,7 @@ pub(super) struct VerifiedBackupAuthority {
 /// Borrowed monotonic floor for comparing a verified replacement with the authority already
 /// published by another private aggregate representation. Keeping the comparison here prevents
 /// the signed-authority and `LocalHost` snapshots from drifting on commercial payload semantics.
-pub(super) struct BackupAuthorityReplacementFloor<'a> {
+pub(super) struct WorkspaceAuthorityReplacementFloor<'a> {
     pub(super) workspace_id: &'a str,
     pub(super) account_id: &'a str,
     pub(super) device_id: &'a str,
@@ -263,22 +264,22 @@ pub(super) struct BackupAuthorityReplacementFloor<'a> {
     pub(super) capability: &'a str,
 }
 
-impl VerifiedBackupAuthority {
+impl VerifiedWorkspaceAuthority {
     pub(super) fn verify(
         wire: &[u8],
-        binding: &TrustedBackupBinding<'_>,
+        binding: &TrustedWorkspaceBinding<'_>,
         now: i64,
-        verifier: &BackupAuthorityVerifier,
-    ) -> Result<Self, BackupAuthorityError> {
+        verifier: &WorkspaceAuthorityVerifier,
+    ) -> Result<Self, WorkspaceAuthorityError> {
         if wire.is_empty() || wire.len() > MAX_SIGNED_WIRE_BYTES {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         let mut deserializer = serde_json::Deserializer::from_slice(wire);
         let grant = DesktopAuthorizationGrant::deserialize(&mut deserializer)
-            .map_err(|_| BackupAuthorityError::Malformed)?;
+            .map_err(|_| WorkspaceAuthorityError::Malformed)?;
         deserializer
             .end()
-            .map_err(|_| BackupAuthorityError::Malformed)?;
+            .map_err(|_| WorkspaceAuthorityError::Malformed)?;
         grant.validate_shape()?;
         if !verifier.verify(
             CredentialPurpose::GrantV3,
@@ -291,7 +292,7 @@ impl VerifiedBackupAuthority {
             &grant.active_device_lease.signature_transcript(),
             &grant.active_device_lease.signature,
         ) {
-            return Err(BackupAuthorityError::SignatureRejected);
+            return Err(WorkspaceAuthorityError::SignatureRejected);
         }
         let DesktopAuthorizationGrant {
             workspace,
@@ -306,17 +307,17 @@ impl VerifiedBackupAuthority {
             || lease.account_security_epoch < binding.minimum_account_security_epoch
             || lease.payload.lease_epoch < binding.minimum_lease_epoch
         {
-            return Err(BackupAuthorityError::ScopeRejected);
+            return Err(WorkspaceAuthorityError::ScopeRejected);
         }
         let issued_at = parse_canonical_utc(&lease.issued_at)?;
         let execute_before = parse_canonical_utc(&lease.payload.offline_execute_until)?;
         let commercial_deadline = parse_canonical_utc(&commercial_authority.commercial_expires_at)?;
         let effective_deadline = execute_before.min(commercial_deadline);
         if now < issued_at || now >= effective_deadline {
-            return Err(BackupAuthorityError::Expired);
+            return Err(WorkspaceAuthorityError::Expired);
         }
-        let remaining =
-            u64::try_from(effective_deadline - now).map_err(|_| BackupAuthorityError::Expired)?;
+        let remaining = u64::try_from(effective_deadline - now)
+            .map_err(|_| WorkspaceAuthorityError::Expired)?;
         Ok(Self {
             workspace_id: workspace.workspace_id,
             account_id: lease.account_id,
@@ -327,7 +328,7 @@ impl VerifiedBackupAuthority {
             admitted_not_before: now,
             monotonic_deadline: Instant::now()
                 .checked_add(Duration::from_secs(remaining))
-                .ok_or(BackupAuthorityError::Expired)?,
+                .ok_or(WorkspaceAuthorityError::Expired)?,
             entitlement_revision: commercial_authority.entitlement_revision,
             entitlement_projection_digest: commercial_authority.entitlement_projection_digest,
             commercial_expires_at: commercial_authority.commercial_expires_at,
@@ -359,7 +360,10 @@ impl VerifiedBackupAuthority {
         other.can_replace_floor(&self.replacement_floor())
     }
 
-    pub(super) fn can_replace_floor(&self, current: &BackupAuthorityReplacementFloor<'_>) -> bool {
+    pub(super) fn can_replace_floor(
+        &self,
+        current: &WorkspaceAuthorityReplacementFloor<'_>,
+    ) -> bool {
         let commercial_payload_advances =
             if current.entitlement_revision == self.entitlement_revision {
                 current.entitlement_projection_digest == self.entitlement_projection_digest
@@ -386,8 +390,8 @@ impl VerifiedBackupAuthority {
             reason = "the owned-to-borrowed floor adapter is retained for monotonic protocol tests"
         )
     )]
-    fn replacement_floor(&self) -> BackupAuthorityReplacementFloor<'_> {
-        BackupAuthorityReplacementFloor {
+    fn replacement_floor(&self) -> WorkspaceAuthorityReplacementFloor<'_> {
+        WorkspaceAuthorityReplacementFloor {
             workspace_id: &self.workspace_id,
             account_id: &self.account_id,
             device_id: &self.device_id,
@@ -494,7 +498,7 @@ impl VerifiedBackupAuthority {
     }
 }
 
-impl Drop for VerifiedBackupAuthority {
+impl Drop for VerifiedWorkspaceAuthority {
     fn drop(&mut self) {
         self.workspace_id.zeroize();
         self.account_id.zeroize();
@@ -513,8 +517,8 @@ impl Drop for VerifiedBackupAuthority {
         reason = "the standalone monotonic state machine is retained as private protocol evidence"
     )
 )]
-pub(super) struct MonotonicBackupAuthority {
-    current: Option<VerifiedBackupAuthority>,
+pub(super) struct MonotonicWorkspaceAuthority {
+    current: Option<VerifiedWorkspaceAuthority>,
     applied_epoch: u64,
     exhausted: bool,
 }
@@ -526,7 +530,7 @@ pub(super) struct MonotonicBackupAuthority {
         reason = "the standalone monotonic state machine is retained as private protocol evidence"
     )
 )]
-impl MonotonicBackupAuthority {
+impl MonotonicWorkspaceAuthority {
     pub(super) const fn unavailable() -> Self {
         Self {
             current: None,
@@ -538,8 +542,8 @@ impl MonotonicBackupAuthority {
     pub(super) fn apply_replacement(
         &mut self,
         requested_epoch: u64,
-        replacement: VerifiedBackupAuthority,
-    ) -> Result<(), BackupAuthorityError> {
+        replacement: VerifiedWorkspaceAuthority,
+    ) -> Result<(), WorkspaceAuthorityError> {
         if self.exhausted
             || requested_epoch == 0
             || requested_epoch != self.applied_epoch.checked_add(1).unwrap_or(0)
@@ -552,7 +556,7 @@ impl MonotonicBackupAuthority {
             if self.applied_epoch == u64::MAX {
                 self.exhausted = true;
             }
-            return Err(BackupAuthorityError::RollbackRejected);
+            return Err(WorkspaceAuthorityError::RollbackRejected);
         }
         self.current = Some(replacement);
         self.applied_epoch = requested_epoch;
@@ -566,7 +570,7 @@ impl MonotonicBackupAuthority {
     pub(super) fn apply_restriction(
         &mut self,
         requested_epoch: u64,
-    ) -> Result<(), BackupAuthorityError> {
+    ) -> Result<(), WorkspaceAuthorityError> {
         if self.exhausted
             || requested_epoch == 0
             || requested_epoch != self.applied_epoch.checked_add(1).unwrap_or(0)
@@ -575,7 +579,7 @@ impl MonotonicBackupAuthority {
             if self.applied_epoch == u64::MAX {
                 self.exhausted = true;
             }
-            return Err(BackupAuthorityError::RollbackRejected);
+            return Err(WorkspaceAuthorityError::RollbackRejected);
         }
         self.current = None;
         self.applied_epoch = requested_epoch;
@@ -590,14 +594,14 @@ impl MonotonicBackupAuthority {
         &self,
         requested_epoch: u64,
         now: i64,
-    ) -> Result<&VerifiedBackupAuthority, BackupAuthorityError> {
+    ) -> Result<&VerifiedWorkspaceAuthority, WorkspaceAuthorityError> {
         if self.exhausted || requested_epoch != self.applied_epoch {
-            return Err(BackupAuthorityError::RollbackRejected);
+            return Err(WorkspaceAuthorityError::RollbackRejected);
         }
         self.current
             .as_ref()
             .filter(|authority| authority.allows_at(now))
-            .ok_or(BackupAuthorityError::Expired)
+            .ok_or(WorkspaceAuthorityError::Expired)
     }
 }
 
@@ -664,7 +668,7 @@ struct ActiveDeviceLeasePayload {
 }
 
 impl DesktopAuthorizationGrant {
-    fn validate_shape(&self) -> Result<(), BackupAuthorityError> {
+    fn validate_shape(&self) -> Result<(), WorkspaceAuthorityError> {
         if self.schema_version != 3
             || self.typ != EXPECTED_GRANT_TYPE
             || self.iss != EXPECTED_ISSUER
@@ -692,7 +696,7 @@ impl DesktopAuthorizationGrant {
             || self.issued_at != self.active_device_lease.issued_at
             || self.expires_at != self.active_device_lease.expires_at
         {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         self.active_device_lease.validate_shape()
     }
@@ -766,7 +770,7 @@ impl DesktopAuthorizationGrant {
 }
 
 impl ActiveDeviceLeaseEnvelope {
-    fn validate_shape(&self) -> Result<(), BackupAuthorityError> {
+    fn validate_shape(&self) -> Result<(), WorkspaceAuthorityError> {
         let issued = parse_canonical_utc(&self.issued_at)?;
         let expires = parse_canonical_utc(&self.expires_at)?;
         let renew = parse_canonical_utc(&self.payload.renew_after)?;
@@ -792,7 +796,7 @@ impl ActiveDeviceLeaseEnvelope {
             || offline != expires
             || offline - issued > MAX_OFFLINE_WINDOW_SECONDS
         {
-            return Err(BackupAuthorityError::Malformed);
+            return Err(WorkspaceAuthorityError::Malformed);
         }
         Ok(())
     }
@@ -945,7 +949,7 @@ fn frame(tag: u8, payload: &[u8]) -> Vec<u8> {
     value
 }
 
-fn parse_canonical_utc(value: &str) -> Result<i64, BackupAuthorityError> {
+fn parse_canonical_utc(value: &str) -> Result<i64, WorkspaceAuthorityError> {
     let bytes = value.as_bytes();
     if bytes.len() != 20
         || bytes[4] != b'-'
@@ -955,7 +959,7 @@ fn parse_canonical_utc(value: &str) -> Result<i64, BackupAuthorityError> {
         || bytes[16] != b':'
         || bytes[19] != b'Z'
     {
-        return Err(BackupAuthorityError::Malformed);
+        return Err(WorkspaceAuthorityError::Malformed);
     }
     let year = decimal(bytes, 0, 4)?;
     let month = decimal(bytes, 5, 2)?;
@@ -971,19 +975,19 @@ fn parse_canonical_utc(value: &str) -> Result<i64, BackupAuthorityError> {
         || minute > 59
         || second > 59
     {
-        return Err(BackupAuthorityError::Malformed);
+        return Err(WorkspaceAuthorityError::Malformed);
     }
     let days = days_before_year(year) + days_before_month(year, month) + i64::from(day - 1);
     Ok(days * 86_400 + i64::from(hour * 3_600 + minute * 60 + second))
 }
 
-fn decimal(bytes: &[u8], start: usize, length: usize) -> Result<u32, BackupAuthorityError> {
+fn decimal(bytes: &[u8], start: usize, length: usize) -> Result<u32, WorkspaceAuthorityError> {
     bytes[start..start + length]
         .iter()
         .try_fold(0_u32, |value, byte| {
             byte.is_ascii_digit()
                 .then(|| value * 10 + u32::from(byte - b'0'))
-                .ok_or(BackupAuthorityError::Malformed)
+                .ok_or(WorkspaceAuthorityError::Malformed)
         })
 }
 
@@ -1054,7 +1058,7 @@ pub(crate) mod tests {
         entitlement_revision: u64,
         entitlement_projection_digest: &str,
         commercial_expires_at: &str,
-    ) -> (BackupAuthorityVerifier, Vec<u8>) {
+    ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
         let now = i64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1068,7 +1072,7 @@ pub(crate) mod tests {
         let offline_execute_until = test_timestamp(now + 82_800);
         let grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x51; 32]).unwrap();
         let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x52; 32]).unwrap();
-        let verifier = BackupAuthorityVerifier::for_test(
+        let verifier = WorkspaceAuthorityVerifier::for_test(
             "grant-key-host-test",
             grant_pair.public_key().as_ref(),
             "lease-key-host-test",
@@ -1126,10 +1130,10 @@ pub(crate) mod tests {
         format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
     }
 
-    fn verified() -> (VerifiedBackupAuthority, Vec<u8>) {
+    fn verified() -> (VerifiedWorkspaceAuthority, Vec<u8>) {
         let grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x41; 32]).unwrap();
         let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).unwrap();
-        let verifier = BackupAuthorityVerifier::for_test(
+        let verifier = WorkspaceAuthorityVerifier::for_test(
             "grant-key-1",
             grant_pair.public_key().as_ref(),
             "lease-key-1",
@@ -1137,9 +1141,9 @@ pub(crate) mod tests {
         )
         .unwrap();
         let wire = signed_grant(&grant_pair, &lease_pair);
-        let authority = VerifiedBackupAuthority::verify(
+        let authority = VerifiedWorkspaceAuthority::verify(
             &wire,
-            &TrustedBackupBinding {
+            &TrustedWorkspaceBinding {
                 account_id: Some("account-local"),
                 device_id: "device-local",
                 minimum_account_security_epoch: 4,
@@ -1158,7 +1162,7 @@ pub(crate) mod tests {
         assert_eq!(authority.workspace_id(), "workspace-local");
         let grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x41; 32]).unwrap();
         let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).unwrap();
-        let verifier = BackupAuthorityVerifier::for_test(
+        let verifier = WorkspaceAuthorityVerifier::for_test(
             "grant-key-1",
             grant_pair.public_key().as_ref(),
             "lease-key-1",
@@ -1169,9 +1173,9 @@ pub(crate) mod tests {
         let position = tampered.iter().position(|byte| *byte == b'a').unwrap();
         tampered[position] = b'b';
         assert!(
-            VerifiedBackupAuthority::verify(
+            VerifiedWorkspaceAuthority::verify(
                 &tampered,
-                &TrustedBackupBinding {
+                &TrustedWorkspaceBinding {
                     account_id: Some("account-local"),
                     device_id: "device-local",
                     minimum_account_security_epoch: 4,
@@ -1187,13 +1191,13 @@ pub(crate) mod tests {
     #[test]
     fn monotonic_state_rejects_epoch_and_authority_rollback() {
         let (authority, _) = verified();
-        let mut state = MonotonicBackupAuthority::unavailable();
+        let mut state = MonotonicWorkspaceAuthority::unavailable();
         state.apply_replacement(1, authority).unwrap();
         assert_eq!(state.applied_epoch(), 1);
         let (replayed, _) = verified();
         assert_eq!(
             state.apply_replacement(1, replayed),
-            Err(BackupAuthorityError::RollbackRejected)
+            Err(WorkspaceAuthorityError::RollbackRejected)
         );
         assert!(
             state
@@ -1205,7 +1209,7 @@ pub(crate) mod tests {
     #[test]
     fn replacement_floor_rejects_changed_deadline_when_projection_digest_is_unchanged() {
         let (replacement, _) = verified();
-        let current = BackupAuthorityReplacementFloor {
+        let current = WorkspaceAuthorityReplacementFloor {
             workspace_id: "workspace-local",
             account_id: "account-local",
             device_id: "device-local",
@@ -1222,11 +1226,11 @@ pub(crate) mod tests {
 
     #[test]
     fn registry_and_signed_wire_are_strictly_bounded() {
-        assert!(BackupAuthorityVerifier::parse_registry("{}").is_err());
+        assert!(WorkspaceAuthorityVerifier::parse_registry("{}").is_err());
         let oversized = vec![b' '; MAX_SIGNED_WIRE_BYTES + 1];
         let grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x41; 32]).unwrap();
         let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).unwrap();
-        let verifier = BackupAuthorityVerifier::for_test(
+        let verifier = WorkspaceAuthorityVerifier::for_test(
             "grant-key-1",
             grant_pair.public_key().as_ref(),
             "lease-key-1",
@@ -1234,9 +1238,9 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(matches!(
-            VerifiedBackupAuthority::verify(
+            VerifiedWorkspaceAuthority::verify(
                 &oversized,
-                &TrustedBackupBinding {
+                &TrustedWorkspaceBinding {
                     account_id: None,
                     device_id: "device-local",
                     minimum_account_security_epoch: 0,
@@ -1245,7 +1249,7 @@ pub(crate) mod tests {
                 0,
                 &verifier,
             ),
-            Err(BackupAuthorityError::Malformed)
+            Err(WorkspaceAuthorityError::Malformed)
         ));
     }
 }

@@ -108,6 +108,31 @@ manifest 与 capability 为准，Cloud 路由以对应 composition factory 和�
 这些模块共享同一个 Host 状态，不各自创建数据库 writer。授权转换先发布代次，业务、同步与备份
 仍遵守原有锁顺序和提交栅栏；拆分不增加跨 crate 的数据库、密钥、明文或任意回调接口。
 
+工作区授权采用 `WorkspaceAuthorityVerifier`、`VerifiedWorkspaceAuthority` 与 `WorkspaceAuthorityState`。
+`BackupArtifactState` 只持有工件容器和 Native 发布组合，与工作区授权共享 publication mutex，不能授予执行权。
+`HostOperationState` 保留统一操作代次及备份选择状态，不增加第二套锁或权威。
+
+`active_workspace/business/` 内部按能力组织：
+
+| 私有模块 | 职责 |
+| --- | --- |
+| `mod.rs` | 数据库 owner、领域类型与私有组合 |
+| `assets.rs` / `reads.rs` | 资产生命周期与本地读投影 |
+| `provider_observations.rs` | 资源绑定、Cloudflare 观察及投影提交 |
+| `inbox.rs` / `outbox.rs` / `conflicts.rs` | 副本应用、可靠交付、冲突与裁决 |
+| `checkpoint.rs` / `database.rs` | checkpoint 安装、数据库打开/克隆和完整性证明 |
+| `wire.rs` / `repair.rs` | 确定性 wire 验证与编码 / 有界存储修复 |
+| `cloudflare_credential.rs` / `cloudflare_retirement.rs` / `drain_claims.rs` | 已有凭据事务、退役和设备交接 drain |
+| `tests/` | 各能力行为测试及跨能力事务 fixture |
+
+`domain_asset_provider_bindings` 统一拥有注册商、DNS 与 Listing 资源身份；Listing 唯一性包含连接，
+每个域名/连接最多一个当前 Listing，detached 历史可保留。Registrar/DNS 继续各自单资源约束。
+平台观察仍属于既有 observation 表，不能把绑定当成已验证的外部结果。
+
+Native `provider_credential_orchestrator/mod.rs` 是窄 facade，`cloudflare.rs` 适配现有平台，持久业务判断
+不搬到壳层。`desktop_custody/{macos,linux,unsupported}.rs` 只承载私有 OS 密钥库细节；
+文件身份、加密库所有权与恢复策略仍由 custody owner 管理，Windows 在独立后端完成 handle 语义。
+
 ## Cloud 领域与持久化所有权
 
 | 领域 | 拥有内容 | 必须保持的边界 |

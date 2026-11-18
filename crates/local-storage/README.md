@@ -59,11 +59,11 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 ## Adversarial Surfaces
 
 - **sqlcipher-key-and-path-injection**: Only Host composition supplies the path, key, and workspace; IPC has no selectors. Verified by: `../../apps/desktop/src/app/native-policy.test.ts`.
-- **cross-workspace-row-injection**: Root tables structurally reference the singleton workspace; rogue workspace rows fail at insertion and the manifest rejects schema drift. Verified by: `src/active_workspace/business/mod.rs` and `src/migrations/mod.rs` tests.
-- **provider-secret-replication**: Provider identity and credentials exist only in local tables; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/mod.rs` tests.
+- **cross-workspace-row-injection**: Root tables structurally reference the singleton workspace; rogue workspace rows fail at insertion and the manifest rejects schema drift. Verified by: `src/active_workspace/business/tests/` and `src/migrations/mod.rs` tests.
+- **provider-secret-replication**: Provider identity and credentials exist only in local tables; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/tests/` tests.
 - **prewrite-custody-crash**: Ordinary `prepared` alone proves Keychain was never entered. Provision prewrite atomically sets `transition_pending`; mismatch cancellation discards staged evidence and sets `remediation_required` without ledger/head/root advance, while orphan recovery is always sticky remediation. Verified by: `src/active_workspace/business/cloudflare_credential.rs` tests.
-- **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/mod.rs` tests.
-- **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/mod.rs` tests.
+- **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/tests/` tests.
+- **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/tests/` tests.
 - **backup-secret-or-floor-import**: The owner verifies strict GDBK/KEK binding and projects only allowlisted business roots; Provider identity/credentials, OAuth/session/authority and sync-control rows are excluded. Guarded restore creates fresh mutations/outbox in the current database and preserves all current floors. Product availability still waits for qualified native picker/handle/KEK custody, an independent monotonic anchor, true create-only rebootstrap slot custody, safe active-database move detection, and target-platform fault evidence. Verified by: `src/desktop_local_host` tests and `../../docs/VERIFICATION.md`.
 
 ## Open Questions
@@ -336,3 +336,15 @@ evidence exist. Ordinary Keychain storage is not monotonic evidence, and preflig
 create-only. Therefore product backup, continuity, and rebootstrap remain
 `unavailable`. See
 `../../docs/adr/0023-business-backup-and-recovery.md`.
+
+## Internal capability ownership
+
+`active_workspace/business/` keeps one database owner and private asset, provider observation,
+read, sync inbox/outbox, conflict, checkpoint, database, wire and repair implementations.
+`desktop_local_host` separates signed workspace authority from backup artifact state without
+changing its lock order or commit fences. The Native credential facade delegates to its private
+Cloudflare adapter; OS key stores live under `desktop_custody/`.
+
+Migration `202611180001` extends the existing resource-binding owner for connection-scoped Listing
+incarnations, retaining detached history and the DNS/registrar singleton constraints. It does not
+implement Provider listing execution; that requires Host admission and observed platform evidence.
