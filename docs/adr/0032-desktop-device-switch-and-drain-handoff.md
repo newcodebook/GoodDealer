@@ -3,7 +3,7 @@
 状态：Accepted — 产品负责人于 2026-11-17 按建议接受第 1–5 节与“待产品负责人决定”的全部五项建议（2026-11-16 已决定
 把设备切换纳入 v1，台账第 195 行）。实现中：S1a、S1b 普通部分、S1c、S2a、S2b、S2c 本地部分已实现，S1b 强制部分、S1d、S2d、S3、S4 待完成。实施 [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md)
 的 v2 drain 串通，并是 [ADR-0029](0029-domain-tombstone-purge-and-re-adding.md) 生产重新添加入口的剩余前置。
-“待决：Standby 会话”的方案 A 由 [ADR-0033](0033-lease-less-standby-desktop-session.md)（Proposed）规定。
+“待决：Standby 会话”的方案 A 由 [ADR-0033](0033-lease-less-standby-desktop-session.md)（产品负责人 2026-11-18 接受）规定。
 
 ## 背景
 
@@ -101,7 +101,7 @@ Active 设备一侧（S1b 普通发起/状态/取消、S1c、S2）。方案 A（
 无 Lease 的 Standby 会话与不含 Lease 的 Grant，只能调用只读同步、切换状态、强制接管发起和持引导能力的引导步骤；
 push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备只凭一次性引导能力引导、强制接管由 Account Web
 重新认证发起，旧设备交接后退出登录、只保留本地只读副本。
-产品负责人 2026-11-17 选择方案 A，规则见 [ADR-0033](0033-lease-less-standby-desktop-session.md)（Proposed）。
+产品负责人 2026-11-17 选择方案 A，规则见 [ADR-0033](0033-lease-less-standby-desktop-session.md)（产品负责人 2026-11-18 接受）。
 
 ## 实施
 

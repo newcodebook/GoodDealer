@@ -1,8 +1,8 @@
 # ADR-0033：无 Lease 的 Standby Desktop 会话与 Grant
 
-状态：Proposed（2026-11-18）。回应 [ADR-0032](0032-desktop-device-switch-and-drain-handoff.md)“待决：Standby 会话”；
-产品负责人 2026-11-17 选择其方案 A，本 ADR 给出方案 A 的规定，待接受。接受前不改变任何源码行为；本 ADR 不声明
-V1 验收或任何外部资格。
+状态：Accepted（产品负责人 2026-11-18 接受，“待产品负责人决定”五项均按建议）。回应
+[ADR-0032](0032-desktop-device-switch-and-drain-handoff.md)“待决：Standby 会话”；产品负责人 2026-11-17 选择其方案 A，
+本 ADR 给出方案 A 的规定。接受本身不改变源码行为，实施按下文“实施”分步进行；本 ADR 不声明 V1 验收或任何外部资格。
 
 ## 背景
 
@@ -64,7 +64,7 @@ Standby 会话是 `client_kind = 'desktop'` 的普通 Desktop 会话，取得时
 登录与刷新的 Lease 步骤因此从“必须得到 Lease”改为“得到 Lease 或确定为 Standby”。**登录与刷新绝不在存在未结束切换
 工作流或 `pending` epoch 分配时分配 Lease**；这同时关闭背景所述的切换中分配缺口，且必须先于本 ADR 的其余实现交付。
 
-商业权益：Standby 只读、不执行，**不要求有效权益**（建议，见“待产品负责人决定”1）；Lease 的分配与续租仍按现有
+商业权益：Standby 只读、不执行，**不要求有效权益**（已决定，见“产品负责人决定”1）；Lease 的分配与续租仍按现有
 规则受 Licensing 截止时间约束。
 
 ### 2. Standby 可调用的路由与其余路由的拒绝方式
@@ -121,7 +121,7 @@ rebootstrap 计划重建——但长期不在线或权益已过期的 Standby �
 v3 请求与 v3 裸响应一并移除，不保留兼容路径（[ORCHESTRATION](../ORCHESTRATION.md)“没有兼容或过渡路径”）。
 
 **签名密钥**：Standby Grant 用独立用途的 OpenBao Transit 密钥签名，Desktop 的 build-pinned 公钥 allowlist 增加该用途
-（建议，见“待产品负责人决定”2）；Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
+（已决定，见“产品负责人决定”2）；Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 
 **存储**：Cloud 不新增会话列或 Grant 表。会话行不记录角色；Standby Grant 与现有 Grant 一样签发后不落库，签发事务对
 安全状态、会话与刷新族、默认工作区、设备绑定与签名密钥、`device_account_states` 加锁读取，签名返回后以
@@ -204,7 +204,7 @@ v3 请求与 v3 裸响应一并移除，不保留兼容路径（[ORCHESTRATION](
 - 新增一个签名用途（Standby Grant），Desktop allowlist 与 OpenBao 密钥随之增加；生产密钥仍属外部资格。
 - 每条新 Desktop 路由都必须声明角色，Standby 集合的扩大需要修订本 ADR。
 
-## 待产品负责人决定
+## 产品负责人决定（2026-11-18 接受，均按建议）
 
 1. **Standby 是否要求有效权益**。建议不要求：Standby 只读、不执行，权益过期的账户仍可在第二台设备上查看自己的副本。
    备选：要求有效权益或宽限期，过期时登录只得到锁定状态。无论哪种，Standby 的 reader cursor 都会钉住 Cloud
