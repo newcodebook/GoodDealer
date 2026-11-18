@@ -227,7 +227,12 @@ v3 请求与 v3 裸响应一并移除，不保留兼容路径（[ORCHESTRATION](
 - **T2 Cloud**（`apps/cloud/src/modules/devices`、`modules/identity`）：
   - T2a 登录与刷新：`ensureCurrentLease` 与 `requireCurrentLease` 改为返回 `active | standby | refused`，在未结束切换、
     `pending` 分配或封锁存在时绝不分配 Lease（先交付，含 PostgreSQL 负向测试）；`authorize`、`exchange` 与
-    `DesktopTokenRefreshService.rotate` 按结果签发会话；
+    `DesktopTokenRefreshService.rotate` 按结果签发会话。T2a1 已实现：Lease 步骤返回三种结果，已持有 Lease 的设备规则不变；
+    无人持有时，未结束切换、`pending` 分配或封锁使结果为 `standby` 而不分配，另一台设备持有时为 `standby`；工作流按工作区
+    行安全隔离，所以由迁移 `202611180002` 的所有者例程 `device_lease_allocation_reserved()` 只为调用者账户判断。三个调用方
+    暂把 `standby` 当作拒绝：Desktop 拿到会话却无法激活 Grant 时只会以凭据失败告终，所以签发 Standby 会话（T2a2）与 T2b
+    的 Standby Grant 一起交付。由此，进入 `bootstrapping` 后被放弃的切换留下 `pending` 分配且无人持有 Lease，两台设备都
+    只能得到 Standby（暂被拒绝），直到 ADR-0032 S1d 的引导过期与烧掉 epoch 交付；S1d 必须先于启用切换界面（S3）交付；
   - T2b Grant：`PostgresDesktopAuthorizationApplicationService` 按角色签发 v3 或 Standby Grant，签发后复核；Standby 用途的
     签名端口与 OpenBao 开发密钥；
   - T2c 路由准入：`RouteAdapter.deviceRole`、`resolveSessionDevice`、路由表的 Standby 清单测试；

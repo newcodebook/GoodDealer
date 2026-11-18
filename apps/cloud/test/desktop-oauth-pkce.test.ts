@@ -48,6 +48,42 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
     expect(inserts.flat()).toContain("device-a");
   });
 
+  it("issues no code while the device is only eligible for Standby (ADR-0033 T2a, until T2b)", async () => {
+    const service = serviceFor(async (text) => {
+      if (text.includes("SELECT account_security_epoch")) {
+        return rows([{ account_security_epoch: "4", status: "normal" }]);
+      }
+      if (text.includes("FROM identity_auth_sessions")) {
+        return rows([{ enrollment_authorized_until: new Date("2026-09-01T00:05:00Z") }]);
+      }
+      return rows([]);
+    }, undefined, { ensure: "standby", require: "standby" });
+    await expect(authorizeWithProof(service)).resolves.toEqual({ authorized: false });
+  });
+
+  it("creates no session when the exchange finds the device only eligible for Standby", async () => {
+    const issueInitial = vi.fn<InitialIssuer>(async () => "issued");
+    const service = serviceFor(async (text, values) => {
+      if (text.includes("SELECT account_security_epoch")) {
+        return rows([{ account_security_epoch: "4", status: "normal" }]);
+      }
+      if (text.includes("FROM identity_auth_sessions")) {
+        return rows([{ enrollment_authorized_until: new Date("2026-09-01T00:05:00Z") }]);
+      }
+      return values?.[2] === challenge ? rows([{ device_id: "device-a", account_security_epoch: "4" }]) : rows([]);
+    }, issueInitial, { ensure: "active", require: "standby" });
+    const authorized = await authorizeWithProof(service);
+    if (!authorized.authorized) throw new Error("authorization unexpectedly denied");
+    await expect(service.exchange({
+      code: authorized.code,
+      codeVerifier: verifier,
+      clientId: DESKTOP_OAUTH_CLIENT_ID,
+      redirectUri: LOOPBACK_REDIRECT_URI,
+      evaluatedAt: new Date("2026-09-01T00:01:00Z"),
+    })).resolves.toEqual({ exchanged: false });
+    expect(issueInitial).not.toHaveBeenCalled();
+  });
+
   it("exchanges the code only with the exact S256 verifier and stores token digests", async () => {
     let issuedCode = "";
     let storedCodeDigest = "";
@@ -160,7 +196,11 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
 function serviceFor(
   query: (text: string, values?: readonly unknown[]) => Promise<unknown>,
   issueInitial = vi.fn<InitialIssuer>(async () => "issued"),
+  outcomes: { readonly ensure: "active" | "standby"; readonly require: "active" | "standby" } = { ensure: "active", require: "active" },
 ) {
+  const leaseOutcome = (deviceId: string, outcome: "active" | "standby") => deviceId !== "device-a"
+    ? { outcome: "refused" as const }
+    : outcome === "active" ? { outcome: "active" as const, lease: {} as never } : { outcome: "standby" as const };
   return new PostgresDesktopOAuthAuthorizationService(
     {
       withAccount: async <Result>(accountId: unknown, operation: (transaction: AccountTransaction) => Promise<Result>) => {
@@ -185,12 +225,8 @@ function serviceFor(
       checkLoginEligibility: async ({ deviceId }) => ({ eligible: deviceId === "device-a" }),
     },
     {
-      ensureCurrentLease: async ({ deviceId }) => deviceId === "device-a"
-        ? { ensured: true as const, lease: {} as never }
-        : { ensured: false as const },
-      requireCurrentLease: async ({ deviceId }) => deviceId === "device-a"
-        ? { ensured: true as const, lease: {} as never }
-        : { ensured: false as const },
+      ensureCurrentLease: async ({ deviceId }) => leaseOutcome(deviceId, outcomes.ensure),
+      requireCurrentLease: async ({ deviceId }) => leaseOutcome(deviceId, outcomes.require),
     },
   );
 }

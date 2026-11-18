@@ -194,6 +194,12 @@ Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资�
 `device_account_states.binding_list_revision` 加一，只刷新最近在线不加。`/v1/devices/list` 只读本账户的设备（至多 8 台：已绑定
 在前、其余为最近移除），角色由当前未释放的 Lease 推出，签名密钥只给 id、版本与状态；两条路由都不要求持有 Lease。
 
+Desktop 登录与刷新的 Lease 步骤（ADR-0033 T2a，迁移 `202611180002`）在存在未结束的切换工作流（`requested`、`draining`、
+`waiting_expiry`、`bootstrapping`）、`pending` 的 epoch 分配或执行封锁时绝不分配 Lease，而是得出 Standby。切换工作流按工作区
+行安全隔离，登录只带账户选择器，因此由所有者例程 `device_lease_allocation_reserved()` 只为调用者自己的账户回答这一个问题；
+例程显式归 `gooddealer_cloud_owner` 所有并拒绝以其他身份运行（工作流的行安全按角色名豁免所有者，换了所有者会读不到工作流而
+放行），账户选择器未解析时以 `42501` 拒绝，应用角色只有 EXECUTE。
+
 ## 当前落地与运行链路边界
 
 集中 schema 已覆盖未来实体、约束、索引、同步状态和恢复元数据，但 schema coverage 不等于旅程已

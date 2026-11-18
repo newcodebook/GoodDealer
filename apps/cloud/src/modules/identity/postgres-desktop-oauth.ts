@@ -195,7 +195,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       accountSecurityEpoch: result.accountSecurityEpoch,
       transactionCredential,
     });
-    return leased.ensured
+    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0033 T2b): a session the
+    // Desktop cannot activate a Grant for would only fail later as a credential error.
+    return leased.outcome === "active"
       ? { authorized: true, code: result.code }
       : { authorized: false };
   }
@@ -245,7 +247,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       deviceId: reserved.device_id,
       accountSecurityEpoch: epoch,
     });
-    if (!leased.ensured) return { exchanged: false };
+    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0033 T2b): a session the
+    // Desktop cannot activate a Grant for would only fail later as a credential error.
+    if (leased.outcome !== "active") return { exchanged: false };
 
     const access = issueDesktopBearerToken("access", code.accountId);
     const refresh = issueDesktopBearerToken("refresh", code.accountId);
