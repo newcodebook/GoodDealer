@@ -26,6 +26,22 @@ const MAX_BINDING_BYTES: usize = 512;
 const WHEN_UNLOCKED_THIS_DEVICE_ONLY_PROTECTION_DOMAIN: &str = "aku";
 const MAX_STORED_IDENTITY_BYTES: usize = 1_024;
 pub const DESKTOP_DEVICE_PROOF_DOMAIN: &str = "GOODDEALER-DESKTOP-OAUTH-DEVICE-PROOF-V1";
+/// ADR-0032: the only domains under which the device key signs a drain proof, one per proof schema.
+/// Each entry: the signature domain, the schema version it signs, and that version's proof `typ`.
+const DRAIN_PROOF_SIGNATURE_DOMAINS: [(&[u8], &[u8], &[u8]); 2] = [
+    (
+        b"GOODDEALER-DRAIN-PROOF-SIGNATURE-V1",
+        b"1",
+        b"gd.drain-proof.v1",
+    ),
+    (
+        b"GOODDEALER-DRAIN-PROOF-SIGNATURE-V2",
+        b"2",
+        b"gd.drain-proof.v2",
+    ),
+];
+const DRAIN_PROOF_AUDIENCE: &[u8] = b"gooddealer-cloud/drain-verification";
+const MAX_DRAIN_PROOF_TRANSCRIPT_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopDeviceIdentityError {
@@ -115,6 +131,104 @@ impl DesktopDeviceIdentity {
             .map_err(|_| DesktopDeviceIdentityError::SigningRejected)?;
         Ok(URL_SAFE_NO_PAD.encode(pair.sign(&input.encode()).as_ref()))
     }
+}
+
+impl DesktopDeviceIdentity {
+    /// Signs one handoff drain-proof signature transcript (ADR-0032 decision 3). The key never
+    /// signs caller-chosen bytes: the transcript must decode, frame by frame, as a drain-proof
+    /// signature domain followed by exactly one canonical proof object whose schema version matches
+    /// that domain (schema version and `typ`), whose purpose is `handoff` and audience is drain
+    /// verification, which carries no signature yet, and which names this device and this key.
+    /// Anything else is refused. This proves the transcript's shape, not the truth of its stream
+    /// claims: callers must build it from Host-owned claims (the drain coordinator), never from
+    /// Renderer-supplied bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SigningRejected` for any other transcript, or if the seed no longer constructs a key.
+    pub fn sign_drain_proof_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<String, DesktopDeviceIdentityError> {
+        let fields = inspect_drain_proof_transcript(transcript)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if fields.source_device_id != self.device_id.as_bytes()
+            || fields.signing_key_id != self.key_id.as_bytes()
+        {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        let pair = Ed25519KeyPair::from_seed_unchecked(&*self.seed)
+            .map_err(|_| DesktopDeviceIdentityError::SigningRejected)?;
+        Ok(URL_SAFE_NO_PAD.encode(pair.sign(transcript).as_ref()))
+    }
+}
+
+struct DrainProofTranscriptFields<'a> {
+    source_device_id: &'a [u8],
+    signing_key_id: &'a [u8],
+}
+
+/// Splits one canonical frame `tag ‖ decimal length ‖ ':' ‖ payload` off `input`. The length has
+/// no sign, no leading zero, and at most seven digits (well above the transcript bound).
+fn read_canonical_frame(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, rest) = input.split_first()?;
+    let colon = rest.iter().position(|&byte| byte == b':')?;
+    let digits = &rest[..colon];
+    if digits.is_empty()
+        || digits.len() > 7
+        || !digits.iter().all(u8::is_ascii_digit)
+        || (digits.len() > 1 && digits[0] == b'0')
+    {
+        return None;
+    }
+    let length: usize = std::str::from_utf8(digits).ok()?.parse().ok()?;
+    let body = &rest[colon + 1..];
+    (body.len() >= length).then(|| (tag, &body[..length], &body[length..]))
+}
+
+fn read_exact_frame(input: &[u8], tag: u8) -> Option<&[u8]> {
+    let (found, payload, rest) = read_canonical_frame(input)?;
+    (found == tag && rest.is_empty()).then_some(payload)
+}
+
+fn inspect_drain_proof_transcript(transcript: &[u8]) -> Option<DrainProofTranscriptFields<'_>> {
+    if transcript.len() > MAX_DRAIN_PROOF_TRANSCRIPT_BYTES {
+        return None;
+    }
+    let (tag, domain, value) = read_canonical_frame(transcript)?;
+    let (_, schema_version, typ) = DRAIN_PROOF_SIGNATURE_DOMAINS
+        .iter()
+        .find(|(candidate, _, _)| tag == b'd' && *candidate == domain)?;
+    let mut entries = read_exact_frame(read_exact_frame(value, b'v')?, b'o')?;
+    let mut previous_key: Option<&[u8]> = None;
+    let (mut source_device_id, mut signing_key_id) = (None, None);
+    let (mut purpose_ok, mut audience_ok, mut version_ok, mut typ_ok) =
+        (false, false, false, false);
+    while !entries.is_empty() {
+        let (tag, entry, rest) = read_canonical_frame(entries)?;
+        entries = rest;
+        let (key_tag, key, value) = read_canonical_frame(entry)?;
+        let value = read_exact_frame(value, b'v')?;
+        // Canonical objects list each key once, in strictly ascending byte order.
+        if tag != b'e' || key_tag != b'k' || previous_key.is_some_and(|prior| prior >= key) {
+            return None;
+        }
+        previous_key = Some(key);
+        match key {
+            b"deviceSignature" => return None,
+            b"sourceDeviceId" => source_device_id = Some(read_exact_frame(value, b's')?),
+            b"signingKeyId" => signing_key_id = Some(read_exact_frame(value, b's')?),
+            b"purpose" => purpose_ok = read_exact_frame(value, b's')? == b"handoff",
+            b"aud" => audience_ok = read_exact_frame(value, b's')? == DRAIN_PROOF_AUDIENCE,
+            b"schemaVersion" => version_ok = read_exact_frame(value, b'n')? == *schema_version,
+            b"typ" => typ_ok = read_exact_frame(value, b's')? == *typ,
+            _ => {}
+        }
+    }
+    (purpose_ok && audience_ok && version_ok && typ_ok).then_some(DrainProofTranscriptFields {
+        source_device_id: source_device_id?,
+        signing_key_id: signing_key_id?,
+    })
 }
 
 impl Debug for DesktopDeviceIdentity {
@@ -555,6 +669,200 @@ mod tests {
             DesktopDeviceIdentityError::SigningRejected
         );
         assert!(format!("{identity:?}").contains("[REDACTED]"));
+    }
+
+    /// The canonical wire value encoding the protocol defines (`encodeDomainSeparatedWireValue`),
+    /// reproduced only to build test transcripts; the golden digest below pins it.
+    fn canonical(value: &serde_json::Value) -> Vec<u8> {
+        fn frame(output: &mut Vec<u8>, tag: u8, payload: &[u8]) {
+            output.push(tag);
+            output.extend_from_slice(payload.len().to_string().as_bytes());
+            output.push(b':');
+            output.extend_from_slice(payload);
+        }
+        let mut output = Vec::new();
+        match value {
+            serde_json::Value::Number(number) => {
+                frame(&mut output, b'n', number.to_string().as_bytes());
+            }
+            serde_json::Value::String(text) => frame(&mut output, b's', text.as_bytes()),
+            serde_json::Value::Array(values) => {
+                let mut entries = Vec::new();
+                for value in values {
+                    frame(&mut entries, b'e', &canonical(value));
+                }
+                frame(&mut output, b'a', &entries);
+            }
+            serde_json::Value::Object(values) => {
+                let mut keys = values.keys().collect::<Vec<_>>();
+                keys.sort_unstable();
+                let mut entries = Vec::new();
+                for key in keys {
+                    let mut entry = Vec::new();
+                    frame(&mut entry, b'k', key.as_bytes());
+                    frame(&mut entry, b'v', &canonical(&values[key]));
+                    frame(&mut entries, b'e', &entry);
+                }
+                frame(&mut output, b'o', &entries);
+            }
+            _ => unreachable!("drain proofs carry no null or boolean"),
+        }
+        output
+    }
+
+    fn drain_transcript(domain: &[u8], proof: &serde_json::Value) -> Vec<u8> {
+        let mut transcript = Vec::new();
+        transcript.push(b'd');
+        transcript.extend_from_slice(domain.len().to_string().as_bytes());
+        transcript.push(b':');
+        transcript.extend_from_slice(domain);
+        let value = canonical(proof);
+        transcript.push(b'v');
+        transcript.extend_from_slice(value.len().to_string().as_bytes());
+        transcript.push(b':');
+        transcript.extend_from_slice(&value);
+        transcript
+    }
+
+    fn v2_handoff_proof() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packages/protocol/test-vectors/drain/valid/proof-handoff-v2-three-streams.json"
+        );
+        let mut proof: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        proof.as_object_mut().unwrap().remove("deviceSignature");
+        proof
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "every refused transcript shape stays listed next to the one accepted transcript"
+    )]
+    fn signs_only_a_handoff_drain_proof_transcript_naming_this_device_and_key() {
+        const V2: &[u8] = b"GOODDEALER-DRAIN-PROOF-SIGNATURE-V2";
+        let identity = DesktopDeviceIdentity::from_material(
+            "device-a".to_owned(),
+            "device-key-1".to_owned(),
+            [0x61; 32],
+        )
+        .unwrap();
+        let proof = v2_handoff_proof();
+        let transcript = drain_transcript(V2, &proof);
+        // The same transcript the protocol and the Host claims pin.
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(Sha256::digest(&transcript)),
+            "XYqcVqbAtXfallw52YDJOmG_VSdcSesHZ13dAF1RY98"
+        );
+        let signature = URL_SAFE_NO_PAD
+            .decode(identity.sign_drain_proof_transcript(&transcript).unwrap())
+            .unwrap();
+        UnparsedPublicKey::new(
+            &ED25519,
+            URL_SAFE_NO_PAD
+                .decode(identity.public_key_base64url())
+                .unwrap(),
+        )
+        .verify(&transcript, &signature)
+        .unwrap();
+
+        let with = |key: &str, value: serde_json::Value| {
+            let mut changed = proof.clone();
+            changed[key] = value;
+            drain_transcript(V2, &changed)
+        };
+        let mut trailing = transcript.clone();
+        trailing.push(b'x');
+        let refused = [
+            with("sourceDeviceId", serde_json::json!("device-b")),
+            with("signingKeyId", serde_json::json!("device-key-2")),
+            with("purpose", serde_json::json!("audit")),
+            with("aud", serde_json::json!("gooddealer-cloud/other")),
+            with("schemaVersion", serde_json::json!(1)),
+            with("deviceSignature", serde_json::json!("already-signed")),
+            with("typ", serde_json::json!("gd.drain-proof.v1")),
+            with(
+                "aud",
+                serde_json::json!(["gooddealer-cloud/drain-verification"]),
+            ),
+            drain_transcript(V2, &serde_json::json!({"padding": "x".repeat(16 * 1024)})),
+            drain_transcript(b"GOODDEALER-DRAIN-PROOF-SIGNATURE-V1", &proof),
+            drain_transcript(b"GOODDEALER-DESKTOP-OAUTH-DEVICE-PROOF-V1", &proof),
+            drain_transcript(V2, &serde_json::json!([proof.clone()])),
+            trailing,
+            transcript[..transcript.len() - 1].to_vec(),
+            b"arbitrary bytes".to_vec(),
+            Vec::new(),
+        ];
+        for candidate in refused {
+            assert_eq!(
+                identity.sign_drain_proof_transcript(&candidate),
+                Err(DesktopDeviceIdentityError::SigningRejected)
+            );
+        }
+        // A key listed twice, or out of canonical order, is not a canonical proof object.
+        let duplicated = {
+            let entries = read_exact_frame(
+                read_exact_frame(read_canonical_frame(&transcript).unwrap().2, b'v').unwrap(),
+                b'o',
+            )
+            .unwrap();
+            let (_, first, _) = read_canonical_frame(entries).unwrap();
+            let mut first_entry = Vec::new();
+            first_entry.push(b'e');
+            first_entry.extend_from_slice(first.len().to_string().as_bytes());
+            first_entry.push(b':');
+            first_entry.extend_from_slice(first);
+            let mut doubled = first_entry.clone();
+            doubled.extend_from_slice(entries);
+            let mut object = Vec::new();
+            object.push(b'o');
+            object.extend_from_slice(doubled.len().to_string().as_bytes());
+            object.push(b':');
+            object.extend_from_slice(&doubled);
+            let mut transcript = Vec::new();
+            transcript.extend_from_slice(b"d35:GOODDEALER-DRAIN-PROOF-SIGNATURE-V2");
+            transcript.push(b'v');
+            transcript.extend_from_slice(object.len().to_string().as_bytes());
+            transcript.push(b':');
+            transcript.extend_from_slice(&object);
+            transcript
+        };
+        assert_eq!(
+            identity.sign_drain_proof_transcript(&duplicated),
+            Err(DesktopDeviceIdentityError::SigningRejected)
+        );
+        // Entries out of canonical order (the first two swapped) are refused as well.
+        let swapped = {
+            let object = read_exact_frame(
+                read_exact_frame(read_canonical_frame(&transcript).unwrap().2, b'v').unwrap(),
+                b'o',
+            )
+            .unwrap();
+            let (_, first, rest) = read_canonical_frame(object).unwrap();
+            let (_, second, rest) = read_canonical_frame(rest).unwrap();
+            let entry = |payload: &[u8]| {
+                let mut framed = format!("e{}:", payload.len()).into_bytes();
+                framed.extend_from_slice(payload);
+                framed
+            };
+            let mut entries = entry(second);
+            entries.extend_from_slice(&entry(first));
+            entries.extend_from_slice(rest);
+            let mut object = format!("o{}:", entries.len()).into_bytes();
+            object.extend_from_slice(&entries);
+            let mut swapped = b"d35:GOODDEALER-DRAIN-PROOF-SIGNATURE-V2".to_vec();
+            swapped.extend_from_slice(format!("v{}:", object.len()).as_bytes());
+            swapped.extend_from_slice(&object);
+            swapped
+        };
+        assert_eq!(
+            identity.sign_drain_proof_transcript(&swapped),
+            Err(DesktopDeviceIdentityError::SigningRejected)
+        );
+        // A frame length with a leading zero is not canonical.
+        assert!(read_canonical_frame(b"s01:a").is_none());
     }
 
     #[test]

@@ -160,6 +160,11 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
   - S2d 设备密钥签名与提交：ADR-0011 设备身份只对 drain proof transcript 签名（不暴露任意签名），可信时间给出
     600 秒内的窗口，经 `/v1/device-switch/requests/drain` 提交；协调生命周期（开启栅栏、推送 Outbox 直到
     每行有持久结果、折叠、签名、提交，取消、失败或交接完成后清除栅栏）与 Host 入口随本切片；栅栏须能识别出自更早
-    Lease epoch 的遗留行（例如记录开启时的 epoch），避免本设备日后重新取得 Lease 时被未清除的栅栏静默关闭写入；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    Lease epoch 的遗留行（例如记录开启时的 epoch），避免本设备日后重新取得 Lease 时被未清除的栅栏静默关闭写入；S2d1 已实现：
+    `secure-host-core` 的 `sign_drain_proof_transcript` 只签逐帧解码为 drain proof 签名域（V1/V2）加唯一规范 proof 对象、
+    schemaVersion 与 typ 与域一致、purpose 为 `handoff`、aud 为 drain 验证、尚无签名且 `sourceDeviceId`/`signingKeyId` 为本机的
+    transcript，其余（登录证明域、追加字节、重复或乱序键、他机或他钥）一律拒绝，测试钉住协议 v2 handoff transcript 金摘要。
+    生产中设备签名密钥只登记版本 1（`device_signing_keys` 无轮换路径），所以 Host 以本机 key id、版本 1 签名，版本不符
+    由 Cloud 验签拒绝；引入密钥轮换时 Host 须改为读取 Cloud 登记的版本；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

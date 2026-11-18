@@ -95,6 +95,8 @@ const expectedDesktopDeviceIdentityPublicItems = [
   "key_id",
   "load_or_create_desktop_device_identity",
   "public_key_base64url",
+  // ADR-0032 S2d1: signs only a handoff drain-proof transcript naming this device and key.
+  "sign_drain_proof_transcript",
   "sign_login_proof",
 ];
 const expectedDesktopOAuthExports = [
