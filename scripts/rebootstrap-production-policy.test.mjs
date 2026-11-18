@@ -8,7 +8,11 @@ import test from "node:test";
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const libraryPath = "crates/local-storage/src/lib.rs";
 const custodyPath = "crates/local-storage/src/desktop_custody.rs";
-const localHostPath = "crates/local-storage/src/backup/desktop_local_host.rs";
+const localHostPath = "crates/local-storage/src/desktop_local_host/mod.rs";
+const localHostCapabilityPaths = [
+  "authorization", "business", "provider", "sync", "recovery", "backup_workflow", "native_backup", "test_support",
+].map((name) => `crates/local-storage/src/desktop_local_host/${name}.rs`);
+const localHostTestsPath = "crates/local-storage/src/desktop_local_host/tests.rs";
 const runtimePath = "crates/local-storage/src/rebootstrap_runtime.rs";
 const desktopBusinessRuntimePath = "crates/local-storage/src/desktop_business_runtime.rs";
 const activeWorkspacePath = "crates/local-storage/src/active_workspace/mod.rs";
@@ -17,6 +21,8 @@ const sourcePaths = [
   libraryPath,
   custodyPath,
   localHostPath,
+  ...localHostCapabilityPaths,
+  localHostTestsPath,
   runtimePath,
   desktopBusinessRuntimePath,
   activeWorkspacePath,
@@ -28,13 +34,17 @@ export function rebootstrapProductionPolicyErrors({ root = repositoryRoot } = {}
   const sources = Object.fromEntries(sourcePaths.map((path) => [path, readSource(root, path, errors)]));
   if (Object.values(sources).some((source) => source === null)) return errors;
 
-  validateRuntimeModuleAndHostBoundary(sources[libraryPath], sources[localHostPath], errors);
+  // Inspect every capability file, with the test module last, so splitting the owner cannot
+  // hide a production parser/effect or misclassify later production functions as test code.
+  const localHost = [sources[localHostPath], ...localHostCapabilityPaths.map((path) => sources[path]),
+    `\n#[cfg(test)]\nmod tests {\n${sources[localHostTestsPath]}\n}`].join("\n");
+  validateRuntimeModuleAndHostBoundary(sources[libraryPath], localHost, errors);
   validateCreateOnlySlotBoundary(sources[custodyPath], errors);
   validatePristineProductionConstructor(sources[custodyPath], errors);
   validateCustodyProtocolIsTestOnly(sources[custodyPath], errors);
   validateDesktopBusinessProtocolIsTestOnly(sources[desktopBusinessRuntimePath], errors);
   validateActiveWorkspaceProtocolIsTestOnly(sources[activeWorkspacePath], sources[businessPath], errors);
-  validateOfficialDependencyAndSelectors(root, sources[custodyPath], sources[localHostPath], errors);
+  validateOfficialDependencyAndSelectors(root, sources[custodyPath], localHost, errors);
   return errors;
 }
 
@@ -385,9 +395,11 @@ function fixture(t) {
 }
 
 function mutate(root, path, from, to) {
-  const target = resolve(root, path);
+  const paths = path === localHostPath ? [localHostPath, ...localHostCapabilityPaths] : [path];
+  const matches = paths.filter((candidate) => readFileSync(resolve(root, candidate), "utf8").includes(from));
+  assert.equal(matches.length, 1, `fixture mutation must match one owner module: ${from}`);
+  const target = resolve(root, matches[0]);
   const source = readFileSync(target, "utf8");
-  assert.ok(source.includes(from), `fixture mutation source is absent: ${from}`);
   writeFileSync(target, source.replace(from, to));
 }
 
@@ -407,6 +419,15 @@ function removeDirectTestCfgFromFunction(root, path, name) {
 
 test("production rebootstrap is absent and fail-closed before every persistent effect", () => {
   assert.deepEqual(rebootstrapProductionPolicyErrors(), []);
+});
+
+test("moving a production parser into a Host capability module cannot hide it", (t) => {
+  for (const path of localHostCapabilityPaths.filter((path) => !path.endsWith("/test_support.rs"))) {
+    const root = fixture(t);
+    const target = resolve(root, path);
+    writeFileSync(target, `${readFileSync(target, "utf8")}\nfn illicit_rebootstrap_parse() { RebootstrapPlan::parse(b"", b""); }\n`);
+    assert.ok(rebootstrapProductionPolicyErrors({ root }).some((error) => error.includes("callers must be test-only")), path);
+  }
 });
 
 test("rejects a production runtime module, import, field, or initializer", (t) => {

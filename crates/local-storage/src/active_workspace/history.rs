@@ -24,7 +24,7 @@ use super::portfolio::{read_freshness, validate_workspace};
 /// Whether an outbox row's commit time is anything but canonical UTC seconds. `strftime` returns
 /// such a value unchanged, but it also keeps hour 24, hence the hour bound; the outbox integrity
 /// triggers apply the same rule, only on new writes.
-/// An Outbox row whose malformed commit time a storage repair marked (ADR-0031): history shows it
+/// An Outbox row whose malformed commit time a storage repair marked (ADR-0019): history shows it
 /// with no time instead of failing, and the time itself is never rewritten.
 const MARKED: &str = "EXISTS (SELECT 1 FROM sync_outbox_commit_time_marks k
      WHERE k.workspace_id = sync_outbox.workspace_id AND k.mutation_id = sync_outbox.mutation_id)";
@@ -81,7 +81,7 @@ pub struct HistoryRow {
     pub local_revision: u64,
     pub entity_id: String,
     pub operation: String,
-    /// The commit time; `null` when a storage repair marked the stored time invalid (ADR-0031).
+    /// The commit time; `null` when a storage repair marked the stored time invalid (ADR-0019).
     pub committed_at: Option<String>,
     pub state: String,
     pub server_revision: Option<u64>,
@@ -139,7 +139,7 @@ impl<'a> ActiveHistoryReader<'a> {
         // canonical bounds; the day is counted in the same pass as the totals. The outbox integrity
         // triggers enforce that form only on new writes, so an older malformed row anywhere in the
         // ledger fails the read rather than being silently miscounted on a page nobody reads. A
-        // marked row (ADR-0031) has no usable time, so it is never counted as today's either.
+        // marked row (ADR-0019) has no usable time, so it is never counted as today's either.
         let (total_rows, pending_rows, changes_today, malformed): (i64, i64, i64, i64) =
             transaction
                 .query_row(

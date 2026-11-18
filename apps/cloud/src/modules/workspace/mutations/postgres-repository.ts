@@ -50,7 +50,7 @@ export interface MutationReceipt {
   readonly submittedEnvelopeDigest: string;
 }
 
-/** ADR-0030 business rejections Cloud records durably; every other rejection leaves no receipt. */
+/** ADR-0019 business rejections Cloud records durably; every other rejection leaves no receipt. */
 export const RECORDED_MUTATION_REJECTION_CODES = [
   "MUTATION_FIELD_STALE",
   "MUTATION_ENTITY_UNKNOWN",
@@ -164,7 +164,7 @@ export class PostgresWorkspaceMutationRepository {
   }
 
   /**
-   * ADR-0032 decision 4: the receipts Cloud holds for one device's own mutations, with the wire
+   * ADR-0032 receipt verification: the receipts Cloud holds for one device's own mutations, with the wire
    * version and digest each was recorded under. Receipts are insert-only, so a plain read in the
    * tenant transaction is consistent; ids without a receipt are omitted, never invented.
    */
@@ -252,7 +252,7 @@ export class PostgresWorkspaceMutationRepository {
   }
 
   /**
-   * ADR-0030: durably end one device sequence with a business rejection. The caller has already
+   * ADR-0019: durably end one device sequence with a business rejection. The caller has already
    * validated identity, Lease, wire, schema and receipt identity, holds the global device head
    * lock, and commits this in the same tenant transaction as its rejection decision. Nothing is
    * materialized and no server revision is allocated.

@@ -156,7 +156,7 @@ export const MUTATION_DRAIN_OUTCOMES = ["accepted", "rejected"] as const;
 export type MutationDrainOutcome = (typeof MUTATION_DRAIN_OUTCOMES)[number];
 
 /**
- * ADR-0030 drain-only result envelope, chained by drain proof schema v2 for the mutation stream.
+ * ADR-0019 drain-only result envelope, chained by drain proof schema v2 for the mutation stream.
  *
  * It binds the SHA-256 of the frozen submitted envelope (`encodeDrainStreamEnvelope("mutation", …)`,
  * whose bytes and digest stay unchanged because mutation commit evidence also uses them) to the

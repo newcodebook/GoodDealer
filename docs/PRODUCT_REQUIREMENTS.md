@@ -11,9 +11,9 @@ GoodDealer 是本地优先的 Desktop 域名资产管理产品。用户登录 Go
 - 一个 GoodDealer 账号和由 Cloud 绑定的个人默认工作区。
 - 本地 SQLCipher 中可读写的域名资产资料、状态与历史。
 - 本地 Secure Host 使用用户本地保存的平台账号和按能力授予的最小权限管理域名资源。首发平台为
-  Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun；每个平台接入时一次
-  覆盖其全部域名相关能力（注册商生命周期、DNS/DNSSEC/Nameserver、交易市场 Listing 与所有权验证、
-  竞价/补抢/购买等获取能力和监控），每项能力仍逐项资格化（ADR-0024、ADR-0027）。
+  Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun、Sedo、易名、阿里云、22.cn；
+  每个平台使用统一连接与角色模型，完整覆盖其域名相关能力（注册商生命周期、DNS/DNSSEC/Nameserver、交易市场 Listing 与所有权验证、
+  竞价/补抢/购买等获取能力和监控），按用户工作流纵向交付，每项能力仍逐项资格化（ADR-0027）。
 - 本地结果立即可见；网络恢复后异步同步允许字段。
 - 商业计划、Entitlement、设备绑定和 Lease/Epoch 继续由 Cloud 授权。
 
@@ -47,9 +47,37 @@ GoodDealer 是本地优先的 Desktop 域名资产管理产品。用户登录 Go
 由用户逐笔确认，不提供代理出价或自动加价。转入/转出可以在 Provider 页面完成，回桌面后
 必须重新对账，不能把页面返回当作成功证据。
 
+具名平台的自研私有 HTTP 适配属于首发接入策略：允许 Native 保管必要会话并解析有界表单数据，
+不属于通用浏览器或任意网页抓取；边界见 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)。
+
 ## 交付判定
 
 本地业务纵向必须证明：Cloud transport 全失败时，在有效授权窗口内本地读写仍成功；业务写入
 和 Outbox 原子；Provider 账号与秘密不生成同步 Mutation；秘密 canary 失败关闭；Cloud 空副本
 不清空本地库；授权或 Lease 失效仍锁定入口。部署、Provider 真实执行、原生签名和发行另需各自
 外部证据。
+
+## 产品决策与基础设施演进（2026-11-18）
+
+开发者本人也是域名投资人，当前约有 300 个域名，分布在 22.cn、易名、阿里云、GoDaddy、
+Spaceship 和 Cloudflare；优先需求是统一域名管理、交易平台自动批量上下架及平台所有权验证。
+首发已扩展为十二个平台；市场优先级为 Afternic、Atom、Spaceship SellerHub、Sedo、易名、阿里云、22.cn。
+已确认官方支持的能力使用官方 API；当前未找到官方支持的能力缺口全部自研私有接口，社区代码仅作参考。
+不能因为缺少公开 API 或当前尚未实现
+而自动削减目标。详细事实与待决项见 [产品对谈](PRODUCT_DISCOVERY.md)和[接入核查](PROVIDER_API_REVIEW.md)。
+
+必须交付换机云恢复与独立业务备份两条能力。独立备份须在原电脑丢失且 GoodDealer 云不可用时，
+凭用户保管的恢复材料在新电脑恢复、查看和导出业务数据；Provider 外部操作仍需有效授权。
+现有安装绑定 GDBK v1 不足以单独满足该目标；新的恢复边界已由 [ADR-0023](adr/0023-business-backup-and-recovery.md)确定；具体格式、密钥保管与故障验收仍需实施，
+不能把测试组合当作生产完成。非资金批量上下架及所有权验证采用整批预览确认一次、按已批准
+计划自动完成各平台步骤的体验；任何资金操作仍独立确认。
+
+Windows 与 macOS 首发都必须完整支持平台连接、批量操作与恢复。后台任务在应用运行时继续，
+休眠或退出时暂停，重开后先查询平台实际结果再续作，不承诺关机执行。独立备份由用户手动选择
+本地保存位置，用于换机或恢复最近一次备份；不附加自动备份调度或固定数据丢失窗口要求。
+可从平台重建的上下架状态在重新授权后通过 API 扫描对齐；平台无法重建的用户业务数据以备份
+内容为准。换机云恢复只能恢复最近成功同步的云副本。
+
+现行价格、退款和计划是当前商业规则，允许后续随市场调整。基础设施应让 Cloud Licensing
+集中管理规则版本、Provider 映射和历史购买权益，支持受控运营变更，而不是把今天的价格固化成
+Desktop 或存储架构限制。营销和运营策略变化不能隐式改写既有付款事实或扩大客户端授权。

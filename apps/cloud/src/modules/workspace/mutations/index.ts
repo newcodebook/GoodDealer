@@ -148,7 +148,7 @@ export class InMemoryWorkspaceLeaseRegistry implements ActiveWorkspaceLeasePort 
  */
 export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort, DrainSealParticipantPort<"mutation"> {
   readonly #records = new Map<string, Map<number, Uint8Array>>();
-  /** ADR-0030 rejected results: sequence → digest of the frozen submitted envelope. */
+  /** ADR-0019 rejected results: sequence → digest of the frozen submitted envelope. */
   readonly #rejected = new Map<string, Map<number, Uint8Array>>();
   readonly #seals = new Map<string, number>();
   readonly #quarantined = new Map<string, {
@@ -292,7 +292,7 @@ export class InMemoryMutationDrainWatermarks implements DrainStreamWatermarkPort
     if (domain.proofSchemaVersion !== 2) {
       return projectWatermark(this.#records.get(key), this.#rejected.get(key), domain.proofSchemaVersion);
     }
-    // ADR-0030 decision 3: the v2 watermark is the device's global sequence, so it folds this
+    // ADR-0019 decision 3: the v2 watermark is the device's global sequence, so it folds this
     // device's results from every Lease epoch. A sequence held by two epochs is broken evidence.
     const prefix = deviceKeyPrefix(scope, domain);
     return projectWatermark(
@@ -354,7 +354,7 @@ export class InMemoryWorkspaceMutationIngest implements WorkspaceMutationQueryPo
   readonly #fault?: (point: MutationCommitFaultPoint) => void;
   readonly #recordsById = new Map<string, Map<string, SyncMutation>>();
   readonly #mutationIdBySequence = new Map<string, Map<string, string>>();
-  /** ADR-0030 recorded business rejections, keyed by mutation id; replay returns the stored code. */
+  /** ADR-0019 recorded business rejections, keyed by mutation id; replay returns the stored code. */
   readonly #rejectedById = new Map<string, Map<string, {
     readonly envelope: Uint8Array;
     readonly code: RecordedRejectionCode;
@@ -794,7 +794,7 @@ function recordEnvelope(
 /**
  * v1 chains the retained submitted envelopes as-is and cannot express a rejection, so a rejected
  * sequence stops the v1 chain while still raising the highest sequence (the seal then fails
- * closed). v2 chains ADR-0030 result envelopes over both outcomes: accepted(sha256(envelope)) or
+ * closed). v2 chains ADR-0019 result envelopes over both outcomes: accepted(sha256(envelope)) or
  * rejected(stored digest). The v1 evidence is never rewritten; an unknown version fails closed.
  * This mirrors the PostgreSQL mutation seal routine.
  */

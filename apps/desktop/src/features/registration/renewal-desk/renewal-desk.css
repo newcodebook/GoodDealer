@@ -10,7 +10,7 @@
 .renewal-warning { color: var(--gd-warning); }
 .renewal-success { color: var(--gd-success); }
 .renewal-gold { color: var(--gd-gold); }
-/* Payment amounts always show their currency symbol (ADR-0024 binds amount and currency). */
+/* Payment amounts always show their currency symbol (ADR-0027 binds amount and currency). */
 .renewal-amount { font-size: 15px; }
 /* Full-width flex host centres the content-sized BatchBar (brand LAYOUT ROBUSTNESS rule). */
 .renewal-batch { position: absolute; z-index: 5; right: 0; bottom: 14px; left: 0; display: flex; justify-content: center; pointer-events: none; }

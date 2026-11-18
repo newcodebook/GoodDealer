@@ -29,7 +29,7 @@ export const domainProviderCapabilityCatalog = deepFreeze([
   { id: "registrar.transfer.out", role: "registrar", resource: "registration", effect: "financial" },
   { id: "registrar.auth-code.request", role: "registrar", resource: "registration", effect: "write" },
   { id: "registrar.lock.manage", role: "registrar", resource: "registration", effect: "write" },
-  // Turning auto-renew on authorises future charges, and ADR-0024 lets no standing authorisation
+  // Turning auto-renew on authorises future charges, and ADR-0027 lets no standing authorisation
   // replace a confirmed charge, so changing it is confirmed like one.
   { id: "registrar.auto-renew.manage", role: "registrar", resource: "registration", effect: "financial" },
   { id: "registrar.contact.manage", role: "registrar", resource: "registration", effect: "write" },

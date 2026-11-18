@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../db/index";
 
 /**
- * ADR-0026 moves the Desktop OAuth callback from the custom scheme to an RFC 8252 loopback
+ * ADR-0011 moves the Desktop OAuth callback from the custom scheme to an RFC 8252 loopback
  * redirect whose port Desktop binds per attempt. Challenge rows written under the custom scheme
  * cannot satisfy the new form and are only short-lived history, so the replacement constraint is
  * NOT VALID: legacy rows stay readable until they expire, and every new write must be loopback.

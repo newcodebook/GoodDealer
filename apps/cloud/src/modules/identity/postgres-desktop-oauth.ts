@@ -23,7 +23,7 @@ import type { PostgresIdentityAuthenticationRepository } from "./postgres-authen
 
 export const DESKTOP_OAUTH_CLIENT_ID = "gooddealer-desktop" as const;
 /**
- * ADR-0026 / RFC 8252 §7.3 loopback redirect: the literal IPv4 loopback, the ephemeral port Desktop
+ * ADR-0011 / RFC 8252 §7.3 loopback redirect: the literal IPv4 loopback, the ephemeral port Desktop
  * bound for this attempt, and one fixed path. `localhost`, IPv6, https, userinfo, query, fragment,
  * and non-canonical ports are rejected so no resolver or other listener can receive the code.
  */
@@ -195,7 +195,7 @@ export class PostgresDesktopOAuthAuthorizationService {
       accountSecurityEpoch: result.accountSecurityEpoch,
       transactionCredential,
     });
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0033 T2b): a session the
+    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
     // Desktop cannot activate a Grant for would only fail later as a credential error.
     return leased.outcome === "active"
       ? { authorized: true, code: result.code }
@@ -247,7 +247,7 @@ export class PostgresDesktopOAuthAuthorizationService {
       deviceId: reserved.device_id,
       accountSecurityEpoch: epoch,
     });
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0033 T2b): a session the
+    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
     // Desktop cannot activate a Grant for would only fail later as a credential error.
     if (leased.outcome !== "active") return { exchanged: false };
 

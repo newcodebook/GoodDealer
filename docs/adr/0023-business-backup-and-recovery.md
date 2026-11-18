@@ -1,20 +1,57 @@
-# ADR-0023：GDBK v1 使用安装级 Backup KEK，并以新业务历史恢复到当前数据库
+# ADR-0023：独立业务备份、换机云恢复与数据库发布
 
-状态：Accepted；私有开发组合只证明协议，生产备份、continuity 与 rebootstrap 在原生资格验证前保持不可用。
+状态：Accepted
 
-## 背景
+## 恢复旅程
 
-GoodDealer 的本地 SQLCipher 数据库同时包含业务事实、Provider 本地身份与凭据引用、同步控制状态、
-授权状态和恢复目录。复制整个数据库会把不属于备份的数据带入工件，也会让旧数据库中的同步或授权
-水位看似成为当前权威。用户备份与 A/B rebootstrap 是不同的恢复机制；后者用于 Cloud rebootstrap，
-不能定义用户备份的最终恢复语义。Rust 的 crate 可见性也不能安全表达跨 sibling crate 的“朋友”边界，
-因此所有能够观察备份明文或决定备份权威的阶段必须位于同一个所有者中。
+### 独立业务备份
 
-## 决策
+用户手动选择本地保存位置；恢复到最近一次备份即可，不新增自动调度、固定数据丢失窗口或
+自建同步盘/NAS 集成。新备份必须在没有旧设备、旧 OS 密钥库或 GoodDealer 云的情况下解锁。
+采用明确的新版本工件和用户保管的恢复材料，不能改变 v1 的解析语义或把旧安装密钥带入备份。
+具体二进制格式、密钥派生参数与原生秘密输入合同须与对应实现一起定义和验证，不以本 ADR
+代替密码学或平台实现。
 
-### 适用范围与授权
+恢复所有者仍是 `local-storage`，在隔离、加密的数据集中完成认证、结构和业务不变量校验，
+随后开放查看与受控导出。这个离线数据入口不依赖付费、登录或在线授权，不装载活动工作区
+的运行授权，也不产生 Outbox 或调用 Provider。只接受业务投影，不接受备份中的 SQL、数据库文件
+或执行任务。恢复材料、明文解密缓冲和文件 handle 留在 Native，Renderer 仅获得受限数据视图。
 
-GDBK 是同一安装、同一 GoodDealer 账号、同一工作区内的本地业务备份，不是可携带的账号恢复机制。
+历史备份本来就是旧数据，因此“读取旧备份”不要求证明数据是最新的，也不依赖旧安装的
+non-rollbackable anchor。该选择不会放宽活动工作区的授权、防回滚或数据库完整性要求。
+持有有效备份与恢复材料意味着能够读出该备份；在线撤销不能追溯撤销已经交给用户的离线副本。
+
+重新登录并取得有效授权后，才可把恢复数据纳入当前工作区：预览差异、核对身份与冲突，生成
+新的业务 mutation，并走现有事务、同步和墓碑规则。备份缺失的实体不能未经明确预览就删除
+现有资产；备份里的 revision、cursor、Lease、设备绑定或未完成操作不获得当前权威。
+Provider 凭据需要重新连接；恢复出的任务历史不自动变成执行队列。
+
+### 换机云恢复
+
+新设备通过正常登录、设备绑定和授权取得当前工作区的最新可用同步副本，在新安装的秘密托管
+与 SQLCipher 中重建业务视图。仅恢复成功同步的允许字段，不承诺恢复从未同步的本地数据，
+也不下载平台凭据、旧设备授权或运行任务。原设备丢失时不要求它参与 drain handoff；需要遵循
+既有设备撤销/切换与单活动设备规则，不能跳过服务端设备权威。
+
+两条旅程恢复后都可在有效授权下重新扫描 Provider，按来源、时间和已确认的域名绑定核对
+上下架状态。平台状态与用户目标价分别保存；平台扫描不能覆盖用户备注、成本等无法重建的事实，
+也不能因为平台暂时返回空列表而清空资产。
+
+## 所有者与备份源
+
+`local-storage` 的 `DesktopLocalHost` 拥有备份与恢复全过程。活动库以固定 SQLCipher 配置打开并固定身份，
+备份源只来自同一已打开连接的私有不透明能力；调用方不能选择源数据库路径、descriptor、VFS、密钥、加密
+参数或内部临时目录。用户通过原生选择器选择备份保存或读取位置，该目的地选择不赋予数据库源权威。
+需要重开时只用 Host 私有配置与已验证身份；路径本身不是身份证据。自定义 VFS 不作为公开配置，新增内部
+VFS 需要具体设计和原生故障审查。
+
+## GDBK v1 协议与活动库恢复
+
+以下规则只定义安装绑定 v1 及活动库发布；独立换机备份使用前述新版本，不沿用 v1 的安装限制。
+
+### GDBK v1 的适用范围与授权
+
+GDBK v1 是同一安装、同一 GoodDealer 账号、同一工作区内的本地业务备份，不是可携带的账号恢复机制。
 它没有口令模式、跨设备恢复或 Cloud 托管/传输。`active` 与
 `verified_local_continuation` 可以导出并检查工件；只有 `active` 可以提交恢复。Host 在工件准入、密钥操作、
 文件发布和恢复提交前重新检查当前账号/工作区/安装 binding、可信时间、授权状态和 operation
@@ -24,7 +61,7 @@ generation。运行时 session、Lease 和 operation generation 是短期操作 
 
 ### 严格 GDBK v1 容器
 
-GDBK v1 是唯一接受的首发格式。解析器只接受精确的 `GDBK\0V1\0` prelude、固定顺序和宽度的
+GDBK v1 解析器只接受精确的 `GDBK\0V1\0` prelude、固定顺序和宽度的
 有界二进制 header、header digest、一个被包装的内容密钥、连续编号且种类闭合的 manifest/data/trailer
 AEAD frame，以及文件末尾。它不使用 JSON header，也不做宽松兼容。未知版本或 suite、未知或重复
 字段、序号跳跃、重排、重复/缺失 frame、非法长度、整数溢出、截断、篡改、final frame 后数据和尾随
@@ -54,7 +91,7 @@ rollback anchor 必须来自与 KEK registry blob 独立的持久机制；同源
 
 ### 备份数据与秘密生命周期
 
-`BackupSource` 只借用 ADR-0015 定义的、已经由 Host 按固定配置打开的 SQLCipher 连接。它先创建事务
+`BackupSource` 只借用本 ADR 定义的、已经由 Host 按固定配置打开的 SQLCipher 连接。它先创建事务
 一致的隔离 SQLCipher 快照，再从已验证快照生成确定性、完整集合的业务 root 投影。磁盘临时快照始终
 保持 SQLCipher 密文；明文 row、投影、规范序列化、frame、内容密钥、KEK、nonce 和临时数据库 key
 从首次分配起即由 zeroizing owner 持有，并在退出时清零；不得先产生普通 `String`/`Vec` 再复制到
@@ -87,7 +124,7 @@ epoch 或其他水位抬高成当前值。
 `RestoreTransaction` 在当前 active SQLCipher 数据库中运行一个 `IMMEDIATE` 事务，精确 CAS 当前业务
 revision、candidate set/version、artifact/dialog/operation identity 与 authority snapshot。它把选定的旧
 业务内容写成新的本地 mutation、field version、business history 和 secret-free outbox row；对于完整
-备份集合中缺失、但当前存在的实体创建显式 tombstone。它推进正常的本地/device mutation sequence，
+备份集合中缺失、但当前存在的实体，只有差异预览明确确认删除后才创建显式 tombstone。它推进正常的本地/device mutation sequence，
 并保留当前 workspace identity、server revision/cursor、Inbox、receipt、conflict、delivery ownership、
 backup catalog 和全部授权/控制水位。并发编辑或冲突在本版直接拒绝并回滚；提交 receipt 使崩溃后的
 operation replay 幂等。后续 Cloud push/pull 只处理这些普通新 mutation，并继续使用既有冲突和 tombstone
@@ -96,16 +133,14 @@ operation replay 幂等。后续 Cloud push/pull 只处理这些普通新 mutati
 ### Continuity 与 rebootstrap 资格
 
 备份 authority continuity、A/B rebootstrap 和 GDBK 工件是不同但同属 `DesktopLocalHost` 的私有协议。
-私有 `cfg(test)` 组合可以用 atomic create-only fake 验证 continuity receipt，以及
-`Prepared -> CandidateReserved -> Verified -> PublishIntent -> Published -> ReopenedVerified ->
-RetiredOld`、单次 exchange、cancel/recovery/quarantine 和 alias cache repair。该 fake 没有 Cargo feature、
-环境开关、公开 constructor 或生产 fallback，不能被描述为 native/macOS 证据。
+发布状态机为 `Prepared -> CandidateReserved -> Verified -> PublishIntent -> Published ->
+ReopenedVerified -> RetiredOld`，单次 exchange、取消、恢复、隔离与 alias 修复均服从以下规则。
+测试 fake 不得成为生产 fallback，也不证明原生资格。
 
-该私有协议继续使用 journal schema v3，但 old/candidate slot envelope origin 与
+该协议使用 journal schema v3，但 old/candidate slot envelope origin 与
 `old_slot_created_by_operation` 均为必填证据；解析和恢复禁止默认、推断、fallback 或自动升级。缺少这些
 字段的旧 v3 中间态严格解析失败并只读 quarantine。exchange 前的恢复只能取消，不能推进 exchange；
-`Prepared` 即使尚无 candidate 文件与 slot key，也必须能沿无越权清理路径取消。此处描述的是私有
-`TestRecovery` 合同，不会扩大生产启动行为。
+`Prepared` 即使尚无 candidate 文件与 slot key，也必须能沿无越权清理路径取消。这些恢复规则必须由生产原生实现及故障证据验证。
 
 启动必须有界读取并验证从首个 `publicationSequence == 1` 的 `Prepared` 开始的完整、非轮换 v3
 因果链，逐项验证阶段、operation/sequence、slot/origin 和单调 evidence；不得只解析最后一条记录。
@@ -153,42 +188,21 @@ sidecar 零修改。只有 exact post-EXCHANGE topology 和只读 proof 已生�
 拓扑投票，重新验证完整链与 file/slot evidence，再幂等执行同一 repair。不得 exchange-back、补偿 alias
 或在 `ReopenedVerified`/`RetiredOld` 前授予 runtime authority。
 
-当前官方 `security-framework` 3.7.0 没有一个 safe API 能同时提供 true create-only `SecItemAdd` 与要求的
-Data Protection Keychain、ThisDeviceOnly、non-sync 和 ACL 属性；preflight 后调用会 duplicate-to-update
-的 setter 仍是 upsert，不是 create-only。P0 不引入 fork。完整 rebootstrap runtime、journal parser、
-phase/action/evidence、custody/database executor 与 recovery classifier 全部只在 `cfg(test)` 编译；生产没有
-dormant shell。non-test plan facade 在读取输入、parser、operation/runtime/custody lock 或状态前直接返回
-`Unavailable`。生产 startup 在 root 验证、process lock 与 active-workspace directory identity 后、普通
-数据库/key 创建或打开前，只检查固定 journal、A/B candidate 及 sidecar、A/B slot account 是否全部
-不存在；任何 bytes、inode、slot、检查不确定性或 storage error 都终止 Host 构造，不解析、不追认、不
-删除、不修复、不发布 live quarantine Host。调用方必须把该构造失败视为本进程 terminal。
+生产发布必须具备 true create-only slot custody（含 Data Protection、ThisDeviceOnly、non-sync 与 ACL）、
+独立 rollback anchor、safe active-database move detection 或 custody-controlled VFS/open-by-handle，以及
+目标平台 crash/fsync/ENOSPC/short-write 故障证据。preflight 后 upsert 不等于 create-only；文件身份和 digest
+前后检查不能阻止 SQLite path-based writable open 的 swap-and-swap-back 副作用。
 
-此外，pinned `rusqlite` 没有 safe `SQLITE_FCNTL_HAS_MOVED` wrapper。retained descriptor、pre/post file
-identity 和 ciphertext digest 能阻止错误 inode 被发布，却不能阻止同 UID 进程在 SQLite 的 path-based
-writable open 周围 swap-and-swap-back 并造成副作用。只有 safe wrapper 或 custody-controlled
-VFS/open-by-handle 加目标平台 crash/fsync 测试可以解除该边界。普通激活和本地业务操作不依赖生产
-rebootstrap 可用性。
+尚未取得上述资格时，不发布 active-store 替换或恢复权威。未启用的生产启动路径在普通数据库与 key 打开前，
+只检查固定 journal、A/B candidate、sidecar 与 slot 均不存在；残留或不确定性使 Host 构造终止，不解析、追认、
+修复或清理。普通激活与本地业务不依赖 rebootstrap 可用性。离线历史备份查看采用前述隔离入口，
+不要求证明历史数据最新，也不继承旧安装 anchor。
 
-## 理由
 
-安装级 KEK 让备份在普通 session 或 Lease 更新后仍可读取，同时不引入口令保管和跨设备威胁面。严格
-二进制容器把兼容性、大小和完整性变成可枚举的拒绝合同。业务投影避免复制秘密和控制面状态；在当前
-数据库中创建新历史，则保持本地权威、同步因果和安全水位真实。handle-based 准入与两阶段日志覆盖了
-检查到使用、rename 到 catalog 之间的崩溃窗口。
+## 验收
 
-## 后果与资格边界
-
-新版本或 crypto suite 必须使用新 encoder/parser 并经过新的 ADR；v1 只在对应 KEK slot 仍受政策保留时
-继续解析，不提供宽松迁移。若 opened-connection 投影无法避免非受控明文持久化、目标 OS 无法提供要求
-的非同步 ThisDeviceOnly custody，或恢复产生的新 mutation 不能维持同步冲突语义，备份能力保持不可用，
-不得退回整库复制、口令容器、路径重开或 Cloud 上传。
-
-源码与测试已把 authority continuity protocol、容器/KEK/rollback-anchor capability、native
-handle/journal、投影、ephemeral candidate 和恢复事务收敛到 `gooddealer-local-storage` 私有实现；Desktop
-仅保留有界 raw IPC、单次 `spawn_blocking` 调用和脱敏映射，client-core 仅保留严格一次性/CAS 合同。
-私有开发组合覆盖真实 SQLCipher → GDBK AEAD → admitted file/journal → authenticated reread → current-DB
-restore，以及 test-only continuity/rebootstrap 状态机。该证据不包含生产 native picker/stable-handle
-TOCTOU、真实安装级 KEK custody、独立 non-rollbackable anchor、true create-only slot custody、safe
-active-database move detection、durable filesystem 或签名目标平台的 ENOSPC/short-write/fsync/crash
-资格。上述原生资格完成前，备份、continuity 与 rebootstrap 保持 `unavailable`；仓库测试不得被描述为
-生产备份、灾难恢复或发行 Gate 已通过。
+Windows 与 macOS 的新版本备份必须互相恢复；旧设备和旧密钥库移除、Cloud 阻断时仍可查看、导出。
+错误恢复材料、篡改、截断、未知格式与恶意长度均拒绝，恢复不产生执行授权或外部副作用。
+云恢复须在原设备不可用时完成，授权或副本校验失败不覆盖现有数据；恢复后重新连接平台并对账。
+新格式与 crypto suite 使用独立 encoder/parser，并随实现确定密码学参数、原生秘密输入及故障测试；
+v1 不提供宽松迁移、口令 fallback、整库复制或 Cloud 上传。

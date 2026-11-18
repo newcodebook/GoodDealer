@@ -15,6 +15,15 @@ Native Desktop Local Host aggregate for the authoritative encrypted workspace an
 - Coordinates credential custody with `../secure-host-core` without transferring secrets or backup authority.
 - Exchanges secret-free sync mutations and recovery inputs through protocol and Cloud-client boundaries.
 
+## Internal ownership
+
+`src/desktop_local_host/mod.rs` owns one database/runtime state, authorization publication and lock
+order. Private `authorization`, `business`, `sync`, `provider`, `backup_workflow`, `native_backup`
+and `recovery` modules implement capability-specific transitions against that same state. Crypto,
+source projection, restore and continuity remain in the same private owner tree. The crate-root
+public API is unchanged; dependents cannot name these modules or obtain a writer, key or file handle.
+Test composition lives in `test_support` and cross-capability regression tests in `tests`.
+
 ## Change Guide
 
 - Put local business, sync, schema, and backup invariants in this crate rather than Desktop adapters.
@@ -45,7 +54,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - Does NOT handle: exposing paths, keys, SQL, Provider accounts, or credentials to the Renderer. (see: `../../apps/desktop/src-tauri`)
 - Does NOT handle: using Cloud PostgreSQL as a Desktop Repository. (see: `../../docs/DATABASE_SCHEMA.md`)
 - Does NOT handle: granting a Provider capability merely because an operation table can represent it. (see: `../../packages/client-core/src/connections`)
-- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; passphrase, cross-device, Cloud-hosted backup, and old-database pointer replacement are intentionally absent. (see: `src/backup`)
+- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; passphrase, cross-device, Cloud-hosted backup, and old-database pointer replacement are intentionally absent. (see: `src/desktop_local_host`)
 
 ## Adversarial Surfaces
 
@@ -55,7 +64,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - **prewrite-custody-crash**: Ordinary `prepared` alone proves Keychain was never entered. Provision prewrite atomically sets `transition_pending`; mismatch cancellation discards staged evidence and sets `remediation_required` without ledger/head/root advance, while orphan recovery is always sticky remediation. Verified by: `src/active_workspace/business/cloudflare_credential.rs` tests.
 - **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/mod.rs` tests.
 - **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/mod.rs` tests.
-- **backup-secret-or-floor-import**: The owner verifies strict GDBK/KEK binding and projects only allowlisted business roots; Provider identity/credentials, OAuth/session/authority and sync-control rows are excluded. Guarded restore creates fresh mutations/outbox in the current database and preserves all current floors. Product availability still waits for qualified native picker/handle/KEK custody, an independent monotonic anchor, true create-only rebootstrap slot custody, safe active-database move detection, and target-platform fault evidence. Verified by: `src/backup` tests and `../../docs/VERIFICATION.md`.
+- **backup-secret-or-floor-import**: The owner verifies strict GDBK/KEK binding and projects only allowlisted business roots; Provider identity/credentials, OAuth/session/authority and sync-control rows are excluded. Guarded restore creates fresh mutations/outbox in the current database and preserves all current floors. Product availability still waits for qualified native picker/handle/KEK custody, an independent monotonic anchor, true create-only rebootstrap slot custody, safe active-database move detection, and target-platform fault evidence. Verified by: `src/desktop_local_host` tests and `../../docs/VERIFICATION.md`.
 
 ## Open Questions
 
@@ -174,7 +183,7 @@ date but sorts into the window as text fails the read the same way.
 `BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
 label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
 `marketplace`). Connection, credential and account identifiers stay in the Host. No capability is
-ADR-0024 qualified yet, so every role is reported `unavailable` with `qualification_pending`.
+ADR-0027 qualified yet, so every role is reported `unavailable` with `qualification_pending`.
 Connections on any of the eight ADR-0027 platforms are listed; unknown or duplicate roles,
 Provider kinds outside ADR-0027 and control-character labels fail the read.
 Pending outbox reads validate the recorded operation: edit/upsert payloads use the full asset
@@ -281,9 +290,9 @@ credential generation from committed verified Zone observations. Unavailable evi
 generations, tombstoned assets, inactive/remediation credentials, immutable conflicts, exhausted
 counters and a rejected Host fence roll back without binding, metadata or Outbox writes. First
 commit advances the Host generation once; exact replay advances neither counters nor generation and
-may report the current generation. Binding persists a local association only; asset creation,
-Provider API writes, full Grant/Lease capability gates, revocation and controlled native/Zone
-qualification remain pending.
+may report the current generation. Binding persists a local association only. Asset creation, Grant/Lease gates and credential
+revocation are implemented; Provider writes and controlled native/Zone qualification remain
+separate delivery work. Current composition is listed in `../../docs/CURRENT_IMPLEMENTATION.md`.
 
 The append-only storage-integrity migration adds write-time triggers: a binding must name its
 connection's platform, a bound connection's platform cannot change, and `domain_assets.expires_on`
@@ -326,4 +335,4 @@ safe active-database move detection or custody VFS, durable filesystem behavior,
 evidence exist. Ordinary Keychain storage is not monotonic evidence, and preflight followed by upsert is not
 create-only. Therefore product backup, continuity, and rebootstrap remain
 `unavailable`. See
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.

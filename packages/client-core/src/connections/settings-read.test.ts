@@ -70,7 +70,7 @@ describe("settings Host read", () => {
       read({ connections: [{ ...connection, roles: [{ role: "acquisition", availability: "available", unavailableReason: "qualification_pending" }] }] }),
       read({ connections: [{ ...connection, roles: [connection.roles[0], connection.roles[0]] }] }),
       read({ connections: [{ ...connection, connectionLabel: "Cloud\u0007flare" }] }),
-      read({ connections: [{ ...connection, providerKind: "sedo" }] }),
+      read({ connections: [{ ...connection, providerKind: "unsupported-platform" }] }),
       read({ schemaVersion: 1 }),
       read({ storageIntegrity: undefined }),
       read({ storageIntegrity: { ...integrity, unknownRows: 0 } }),

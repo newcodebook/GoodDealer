@@ -49,7 +49,7 @@ export const storageIntegrityChecks = [
   "malformedOutboxRows",
 ] as const satisfies readonly (keyof SettingsStorageIntegrity)[];
 
-/** What each repair does to the rows it covers (ADR-0031), shown before the user confirms it. */
+/** What each repair does to the rows it covers (ADR-0019), shown before the user confirms it. */
 export const storageRepairEffectCopyKey = {
   malformedExpiries: "repairEffectMalformedExpiries",
   invalidRegistrarObservations: "repairEffectInvalidRegistrarObservations",

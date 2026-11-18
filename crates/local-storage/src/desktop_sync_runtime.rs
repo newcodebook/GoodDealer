@@ -41,7 +41,7 @@ pub(crate) enum DesktopSyncError {
     StorageRejected,
     InvalidInput,
     AcknowledgementMismatch,
-    /// The capability has not passed ADR-0024 qualification, so the Host refuses to run it.
+    /// The capability has not passed ADR-0027 qualification, so the Host refuses to run it.
     CapabilityUnqualified,
     /// The activated Zone's name cannot become a domain asset: the create path rejects it, or
     /// the domain was deleted and keeps its tombstone. Nothing was written.
@@ -1304,7 +1304,7 @@ impl DesktopSyncRuntime {
     }
 }
 
-/// Refuses a capability the Host's ADR-0024 register has not qualified. Checked at every
+/// Refuses a capability the Host's ADR-0027 register has not qualified. Checked at every
 /// admission that would reach the Provider, so no caller can reach an unqualified capability.
 fn require_qualified(capability: &str) -> Result<(), DesktopSyncError> {
     if crate::active_workspace::capability_qualification::capability_qualified(capability) {

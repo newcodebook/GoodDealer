@@ -51,7 +51,7 @@ describe("batch operations read", () => {
   it("parses the Host window and rejects identifiers, unknown platforms and inconsistent rows", () => {
     expect(parseBatchOperationsRead(read())).toEqual(read());
     expect(() => parseBatchOperationsRead(read([{ ...planned, planId: "plan-1" } as BatchOperationRow]))).toThrow();
-    expect(() => parseBatchOperationsRead(read([{ ...planned, providerKinds: ["sedo"] } as unknown as BatchOperationRow]))).toThrow();
+    expect(() => parseBatchOperationsRead(read([{ ...planned, providerKinds: ["unsupported-platform"] } as unknown as BatchOperationRow]))).toThrow();
     expect(() => parseBatchOperationsRead(read([{ ...planned, results: running.results }]))).toThrow();
     expect(() => parseBatchOperationsRead(read([{ ...running, itemCount: 5 }]))).toThrow();
     expect(() => parseBatchOperationsRead(read([{ ...planned, completedAt: "2026-11-03T11:00:00Z" }]))).toThrow();

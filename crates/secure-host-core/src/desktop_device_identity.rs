@@ -134,7 +134,7 @@ impl DesktopDeviceIdentity {
 }
 
 impl DesktopDeviceIdentity {
-    /// Signs one handoff drain-proof signature transcript (ADR-0032 decision 3). The key never
+    /// Signs one handoff drain-proof signature transcript (ADR-0032 drain signing). The key never
     /// signs caller-chosen bytes: the transcript must decode, frame by frame, as a drain-proof
     /// signature domain followed by exactly one canonical proof object whose schema version matches
     /// that domain (schema version and `typ`), whose purpose is `handoff` and audience is drain

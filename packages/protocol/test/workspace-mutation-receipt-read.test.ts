@@ -15,7 +15,7 @@ const receipt = {
   outcome: "rejected",
 } as const;
 
-describe("own-device mutation receipt read (ADR-0032 decision 4)", () => {
+describe("own-device mutation receipt read (ADR-0032 receipt verification)", () => {
   it("names mutations only, never a device, and bounds the batch", () => {
     const ids = Array.from({ length: MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS }, (_, index) => `m-${index}`);
     expect(workspaceMutationReceiptReadRequestSchema.parse({ schemaVersion: 1, mutationIds: ids }).mutationIds).toHaveLength(256);

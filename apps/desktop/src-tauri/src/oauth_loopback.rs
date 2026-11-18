@@ -1,4 +1,4 @@
-//! ADR-0026 loopback transport for one browser authorization attempt (RFC 8252 §7.3).
+//! ADR-0011 loopback transport for one browser authorization attempt (RFC 8252 §7.3).
 //!
 //! This module only binds, reads, and answers HTTP on the literal IPv4 loopback. It never sees
 //! the attempt's state or verifier and never logs a request target; `oauth_runtime` decides what a

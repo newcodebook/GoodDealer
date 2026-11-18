@@ -110,8 +110,8 @@ valuation`），Provider 估值也必须绑定对应 run；run 汇总必须与�
 | `sync_domain_asset_re_adds` | 每个被重新添加取代的 generation 一行：删除 revision、重新添加 mutation 与 revision、来源（`replicated` 或 `local`）；不可改不可删（ADR-0029 C2b、C2c1）。 |
 | `sync_domain_asset_provisional_re_adds` | 本设备尚未被 Cloud 确认的重新添加：每实体至多一行，指向其 Outbox 行；只在 ACK 确认或拒绝撤回后删除（ADR-0029 C2c1）。 |
 | `sync_domain_asset_checkpoint_advances` | rebootstrap checkpoint 越过本地已确认 generation 时的前进记录：离开与到达的 generation、checkpoint revision；不可改不可删，插入时要求离开的是当前 generation 且本地状态已结束（ADR-0029 C3b2）。 |
-| `storage_repair_receipts` | 读取拒绝的存储坏行的修复回执（ADR-0031，迁移 `202611160002`）：类别、行键、原值 SHA-256（不存原值）与修复时间；不可改不可删，只能指名现存行。它同时是读取遵循的标记：到期日期已置为未知、注册商/Zone/挂牌观察或 Zone 绑定已隔离，读取把被隔离者视为没有可用观察或没有绑定。隔离挂牌递增 `sales_listing_generation`。 |
-| `sync_outbox_commit_time_marks` | Outbox 提交时间标记（ADR-0031 R2，迁移 `202611160003`）：工作区、mutation、原 `created_at` 的 SHA-256 与标记时间；不可改不可删，只能标记 `created_at` 非规范的现存 Outbox 行。`sync_outbox` 本身不改写；历史读取把已标记行的提交时间显示为“时间无效”，设置计数不再计入它。 |
+| `storage_repair_receipts` | 读取拒绝的存储坏行的修复回执（ADR-0019，迁移 `202611160002`）：类别、行键、原值 SHA-256（不存原值）与修复时间；不可改不可删，只能指名现存行。它同时是读取遵循的标记：到期日期已置为未知、注册商/Zone/挂牌观察或 Zone 绑定已隔离，读取把被隔离者视为没有可用观察或没有绑定。隔离挂牌递增 `sales_listing_generation`。 |
+| `sync_outbox_commit_time_marks` | Outbox 提交时间标记（ADR-0019 R2，迁移 `202611160003`）：工作区、mutation、原 `created_at` 的 SHA-256 与标记时间；不可改不可删，只能标记 `created_at` 非规范的现存 Outbox 行。`sync_outbox` 本身不改写；历史读取把已标记行的提交时间显示为“时间无效”，设置计数不再计入它。 |
 | `sync_outbox_cloud_wire_versions` | 版本 2 Outbox 行的 Cloud 记录版本（ADR-0032 S2c，迁移 `202611170002`）：工作区、mutation、Cloud 回执给出的 wire 版本（2 或 3）与该版本下的 wire 摘要（租户中立 mutation 的摘要，即 Cloud 账本 `wire_mutation_digest`）、记录时间；不可改不可删，只能指名已有持久 Cloud 结果的版本 2 行。写入前 Host 核对回执的 Lease epoch、设备序号、结果与摘要等于本行按该版本重建的 wire 摘要；drain 折叠按此版本在本地重建提交 envelope 并成链（链摘要不取自回执），`sync_outbox` 本身不改写。 |
 | `device_handoff_barriers` | 设备切换停写栅栏（ADR-0032 S2b，迁移 `202611170001`）：每工作区至多一行，记切换请求 id、开始时间与所排空的 Lease epoch（迁移 `202611170003`）；行不可改。存在时触发器拒绝推进 `next_device_mutation_sequence` 与插入 `sync_outbox`，所以编辑、冲突解决、平台导入与备份恢复都在数据库内失败关闭；Cloud 结果（ACK、拒绝）照常落盘，drain 得以完成。由切换协调在取消、失败或交接完成后删除；重启后仍保持关闭。本设备以更新的 epoch 重新持有 Lease 时，更早 epoch（或无 epoch）的栅栏属于已结束的切换，可识别为遗留并清除；当前 epoch 的栅栏是进行中的 drain，不清除。 |
 | `sync_reader_state` | 设备 cursor generation、checkpoint 和 rebootstrap 状态。 |
@@ -194,7 +194,7 @@ Cloud 业务副本由集中 M002 直接创建最终表；生产 PostgreSQL 资�
 `device_account_states.binding_list_revision` 加一，只刷新最近在线不加。`/v1/devices/list` 只读本账户的设备（至多 8 台：已绑定
 在前、其余为最近移除），角色由当前未释放的 Lease 推出，签名密钥只给 id、版本与状态；两条路由都不要求持有 Lease。
 
-Desktop 登录与刷新的 Lease 步骤（ADR-0033 T2a，迁移 `202611180002`）在存在未结束的切换工作流（`requested`、`draining`、
+Desktop 登录与刷新的 Lease 步骤（ADR-0032 Standby S1，迁移 `202611180002`）在存在未结束的切换工作流（`requested`、`draining`、
 `waiting_expiry`、`bootstrapping`）、`pending` 的 epoch 分配或执行封锁时绝不分配 Lease，而是得出 Standby。切换工作流按工作区
 行安全隔离，登录只带账户选择器，因此由所有者例程 `device_lease_allocation_reserved()` 只为调用者自己的账户回答这一个问题；
 例程显式归 `gooddealer_cloud_owner` 所有并拒绝以其他身份运行（工作流的行安全按角色名豁免所有者，换了所有者会读不到工作流而

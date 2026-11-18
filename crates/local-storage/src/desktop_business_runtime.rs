@@ -124,7 +124,7 @@ pub struct DesktopDomainAssetProviderBindingRequest {
     pub(crate) entity_id: String,
 }
 
-/// Repairs one category of stored rows that reads reject (ADR-0031). The category is the settings
+/// Repairs one category of stored rows that reads reject (ADR-0019). The category is the settings
 /// integrity count it clears; the Renderer sends no row identity or value.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -379,7 +379,7 @@ pub struct DesktopCloudflareConnectionRead {
     pub schema_version: u8,
     pub connection_ref: Option<String>,
     pub display_label: Option<String>,
-    /// Whether Cloudflare DNS observation has passed its ADR-0024 qualification; until it has,
+    /// Whether Cloudflare DNS observation has passed its ADR-0027 qualification; until it has,
     /// connecting, activating and observing are refused and surfaces show why.
     pub qualified: bool,
     pub read_generation: u64,

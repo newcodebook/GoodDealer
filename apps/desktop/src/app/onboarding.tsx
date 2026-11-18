@@ -50,7 +50,7 @@ export function onboardingOffer(publication: AuthoritativeWorkspacePublication):
  *
  * - The device step shows the lease the Host verified; the Host has no device name, so none shows.
  * - Cloudflare's card follows the Host status (`cloudflare` is null until it is read). It is
- *   unavailable unless the capability is qualified (ADR-0024), and admits connecting or
+ *   unavailable unless the capability is qualified (ADR-0027), and admits connecting or
  *   disconnecting only as `cloudflareAdmittedActions` decides; while one runs (`cloudflarePending`)
  *   it is connecting and admits nothing. Connecting imports the zone's domain in the Host, so the
  *   import step has nothing of its own to import from observations: with Cloudflare connected it
@@ -144,7 +144,7 @@ function cloudflareCardState(cloudflare: CloudflareRead | null): "disconnected" 
 /**
  * What the Cloudflare card may do, decided only from Host facts: the workspace must take writes
  * (Active with mutate, the same gate as every write entry), the Host must report the capability
- * qualified (ADR-0024), and its build must be able to capture a token (macOS only; elsewhere no
+ * qualified (ADR-0027), and its build must be able to capture a token (macOS only; elsewhere no
  * credential can exist, so there is nothing to revoke either). A running, recovering or blocked
  * operation, or an unreadable status, admits nothing. A ready credential admits disconnecting (revocation); no credential admits connecting.
  * The Host refuses either on its own if any of this changed since the read.

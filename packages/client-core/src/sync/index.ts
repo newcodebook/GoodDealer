@@ -126,7 +126,7 @@ export class DrainStreamLedger {
 export type MutationDrainOutcome = (typeof MUTATION_DRAIN_OUTCOMES)[number];
 
 /**
- * ADR-0030 proof schema v2 mutation stream state. The `chain` marker keeps a result chain from
+ * ADR-0019 proof schema v2 mutation stream state. The `chain` marker keeps a result chain from
  * being signed as a v1 submitted-envelope chain and the reverse; it never enters the proof.
  */
 export interface MutationResultDrainStreamState extends DrainStreamState {
@@ -135,7 +135,7 @@ export interface MutationResultDrainStreamState extends DrainStreamState {
 }
 
 /**
- * Folds Cloud-confirmed mutation results in device sequence order (ADR-0030). Unlike the v1
+ * Folds Cloud-confirmed mutation results in device sequence order (ADR-0019). Unlike the v1
  * ledger, a step exists only once Cloud's result is durable locally, so the folded prefix is
  * exactly the received watermark; an assigned sequence without a confirmed result stays pending.
  */
@@ -219,7 +219,7 @@ export interface PersistedMutationResult {
  * durable locally. Only an ACK (`acknowledged`) or a single-item `SYNC_MUTATION_CONFLICT`
  * (`conflicted` with `sync_mutation_conflict`) is backed by a Cloud receipt. Pending, sending,
  * input/schema rejections and idempotency conflicts are not, so their sequence stays a gap and
- * the drain fails closed (ADR-0030 decisions 4 and 5).
+ * the drain fails closed (ADR-0019 decisions 4 and 5).
  */
 export function classifyPersistedMutationResult(row: PersistedMutationResult): MutationDrainOutcome | null {
   if (row.outboxState === "acknowledged" && row.lastErrorCode === null) return "accepted";
@@ -229,7 +229,7 @@ export function classifyPersistedMutationResult(row: PersistedMutationResult): M
 
 /**
  * Builds the v2 mutation stream state from persisted Outbox rows. Device sequences are global per
- * device and workspace (ADR-0030 decision 3), so the rows span every Lease epoch and the chain
+ * device and workspace (ADR-0019 decision 3), so the rows span every Lease epoch and the chain
  * starts at sequence 1, as Cloud's v2 seal does. Rows must be in strictly increasing sequence
  * order; folding stops at the first sequence without a durable Cloud result, which leaves it and
  * everything after it pending, so proof claims refuse it.

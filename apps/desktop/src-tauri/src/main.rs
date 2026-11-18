@@ -121,7 +121,7 @@ fn run_app(app: tauri::App) {
 fn main() {
     let app = tauri::Builder::default()
         // Must be first: later plugin/setup work must never run in a competing refresh process.
-        // Browser sign-in returns over loopback (ADR-0026), so a second launch carries nothing.
+        // Browser sign-in returns over loopback (ADR-0011), so a second launch carries nothing.
         .plugin(tauri_plugin_single_instance::init(
             |_app, _arguments, _cwd| {},
         ))

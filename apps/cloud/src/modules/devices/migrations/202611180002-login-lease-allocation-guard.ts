@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../db/index";
 
 /**
- * ADR-0033 T2a: Desktop login and refresh must never allocate a Lease while a switch is unfinished
+ * ADR-0032 T2a: Desktop login and refresh must never allocate a Lease while a switch is unfinished
  * or an epoch allocation is pending, or they would bypass the drain handoff, bootstrap and
  * activation. Login runs with only the account selector, but switch workflows are workspace-scoped
  * under row security and would read as absent there, so the check would silently pass. This owner

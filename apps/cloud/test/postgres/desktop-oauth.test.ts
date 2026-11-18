@@ -633,7 +633,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     expect(after.rows[0]?.jti).not.toBe(before.rows[0]?.jti);
   });
 
-  it("never allocates a Lease during an unfinished switch, a pending allocation, or an execution block (ADR-0033 T2a)", async () => {
+  it("never allocates a Lease during an unfinished switch, a pending allocation, or an execution block (ADR-0032 Standby S1)", async () => {
     // device-a logs in and holds epoch 1; then the Lease is released as a drain handoff releases it.
     await authorize(new Date());
     await releaseHeldLease();

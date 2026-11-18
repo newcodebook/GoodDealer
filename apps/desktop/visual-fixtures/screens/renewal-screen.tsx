@@ -12,7 +12,7 @@ import {
 } from "../mock/renewal-fixtures";
 import type { DesignWindowPlatform } from "../screen-registry";
 
-/** Renewal desk with a mock plan and a one-by-one payment confirmation queue (ADR-0024). */
+/** Renewal desk with a mock plan and a one-by-one payment confirmation queue (ADR-0027). */
 export function RenewalScreen({ platform, onNavigateScreen }: {
   readonly platform: DesignWindowPlatform;
   readonly onNavigateScreen: (id: string) => void;

@@ -2,7 +2,7 @@
 //!
 //! The Host, not the Renderer, owns the Outbox and the device key, so it rebuilds in Rust what
 //! client-core's `foldPersistedMutationResults` and `buildDrainProofClaims` define for TypeScript:
-//! the ADR-0030 v2 mutation result chain, the v1 submitted-envelope chain, and the drain proof's
+//! the ADR-0019 v2 mutation result chain, the v1 submitted-envelope chain, and the drain proof's
 //! signature transcript and digest input. Every encoding here is pinned to the same golden
 //! digests the protocol tests pin, so a divergence fails both suites rather than a Cloud seal.
 //!
@@ -27,7 +27,7 @@ const DRAIN_PROOF_DIGEST_ALGORITHM: &str = "sha256-chain-v1";
 const DRAIN_PROOF_SIGNATURE_TRANSCRIPT_VERSION: i64 = 1;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
-/// The proof schema; v1 chains submitted envelopes, v2 chains Cloud-recorded results (ADR-0030).
+/// The proof schema; v1 chains submitted envelopes, v2 chains Cloud-recorded results (ADR-0019).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DrainProofSchemaVersion {
     /// The Host only produces v2 proofs; v1 stays to pin the protocol's v1 vectors byte for byte.
@@ -194,7 +194,7 @@ pub(crate) struct PersistedMutationResult<'a> {
 }
 
 /// Only an ACK or a single-item `SYNC_MUTATION_CONFLICT` is a durable Cloud result; pending,
-/// sending, input rejections and idempotency conflicts leave a gap (ADR-0030 decisions 4 and 5).
+/// sending, input rejections and idempotency conflicts leave a gap (ADR-0019 decisions 4 and 5).
 fn classify(row: &PersistedMutationResult<'_>) -> Option<&'static [u8]> {
     classify_parts(row.outbox_state, row.last_error_code)
 }

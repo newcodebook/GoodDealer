@@ -13,7 +13,7 @@ export const settingsConnectionRoles = domainProviderRoles;
 
 const settingsConnectionRoleSchema = z.object({
   role: connectionRoleSchema,
-  // No capability is qualified (ADR-0024) yet, so the Host can only report it as unavailable.
+  // No capability is qualified (ADR-0027) yet, so the Host can only report it as unavailable.
   availability: z.literal("unavailable"),
   unavailableReason: z.literal("qualification_pending"),
 }).strict();
@@ -66,7 +66,7 @@ export function parseSettingsRead(input: unknown): SettingsRead {
   return settingsReadSchema.parse(copyPlainData(input));
 }
 
-/** The integrity counts a storage repair clears, named as the settings read names them (ADR-0031). */
+/** The integrity counts a storage repair clears, named as the settings read names them (ADR-0019). */
 export const storageRepairKindSchema = z.enum([
   "malformedExpiries",
   "invalidRegistrarObservations",

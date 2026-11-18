@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../../db/index";
 
 /**
- * ADR-0030 B3: device mutation sequences are global per device and workspace, so the v2 drain
+ * ADR-0019 B3: device mutation sequences are global per device and workspace, so the v2 drain
  * chain must span every Lease epoch of the source device. The B2 seal folded a v2 chain inside
  * the proof's epoch only, so no v2 proof could seal once a device's sequences had continued
  * across a Lease rotation. Only the v2 selection changes; v1 keeps its per-epoch scope, and the

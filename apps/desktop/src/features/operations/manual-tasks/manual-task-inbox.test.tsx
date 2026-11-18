@@ -42,7 +42,7 @@ describe("Manual task inbox", () => {
     expect(html).not.toContain(">我已完成<");
   });
 
-  it("hands off to the platform and never offers software execution (ADR-0017)", () => {
+  it("hands off to the platform and never offers software execution (ADR-0027)", () => {
     const html = renderToStaticMarkup(<ManualTaskInbox locale="zh-CN" view={view("awaiting_user")} onAction={() => undefined} />);
 
     expect(html).toContain("打开平台并登录");

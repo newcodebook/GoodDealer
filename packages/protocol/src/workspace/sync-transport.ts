@@ -201,7 +201,7 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
 ]);
 
 /**
- * ADR-0032 decision 4: the calling device reads Cloud's own receipts for its mutations, to learn the
+ * ADR-0032 receipt verification: the calling device reads Cloud's own receipts for its mutations, to learn the
  * wire version and digest Cloud recorded for each. The device is derived from the authenticated
  * session, never named by the caller, and an id Cloud has no receipt for is simply absent.
  */

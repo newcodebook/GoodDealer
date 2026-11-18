@@ -2,7 +2,7 @@
 //! whether each role's capabilities are executable.
 //!
 //! Connection, credential and Provider account identifiers stay in the Host. No capability has an
-//! ADR-0024 qualification yet: each declared role is reported from the Host's qualification
+//! ADR-0027 qualification yet: each declared role is reported from the Host's qualification
 //! register, so today every role is unavailable with `qualification_pending`, instead of letting
 //! the Renderer infer availability from credential state.
 //!

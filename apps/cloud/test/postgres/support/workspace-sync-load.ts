@@ -343,7 +343,7 @@ export interface LifecycleState {
   /** Each accepted re-add as `generation@deletedRevision`, in revision order. */
   readonly reAdds: readonly string[];
   /**
-   * The device's ADR-0030 sequence head, which counts accepted and refused sequences alike (the
+   * The device's ADR-0019 sequence head, which counts accepted and refused sequences alike (the
    * Drain head counts accepted ones only, per lease epoch, so it cannot witness the refusals).
    */
   readonly sequenceContiguous: number;

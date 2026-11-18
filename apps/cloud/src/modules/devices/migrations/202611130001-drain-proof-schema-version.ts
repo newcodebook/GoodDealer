@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../db/index";
 
 /**
- * ADR-0030 B1: a drain proof declares which mutation chain its claim was computed over. Every
+ * ADR-0019 B1: a drain proof declares which mutation chain its claim was computed over. Every
  * existing proof is schema v1 and keeps its stored bytes and digests; the version is never
  * upgraded in place. Stream owners read it only through the just-consumed binding below.
  */

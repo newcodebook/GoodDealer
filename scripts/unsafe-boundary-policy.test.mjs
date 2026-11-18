@@ -70,7 +70,7 @@ test("does not confuse unrelated Rust and Clippy allows with unsafe_code", () =>
   );
 });
 
-test("the repository has no unsafe-code override outside the ADR-0012 file", () => {
+test("the repository has no unsafe-code override outside the ADR-0006 file", () => {
   const root = resolve(import.meta.dirname, "..");
   assert.deepEqual(repositoryUnsafeCodeBoundaryErrors(root), []);
 });

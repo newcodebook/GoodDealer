@@ -61,7 +61,7 @@ describe("sales Host read", () => {
   it("rejects identifiers, unknown marketplaces, unmerged rows and impossible metrics", () => {
     for (const bad of [
       read([{ ...row, listingObservationId: "obs-1" }]),
-      read([{ ...row, marketplaces: ["sedo"] }]),
+      read([{ ...row, marketplaces: ["unsupported-platform"] }]),
       read([{ ...row, marketplaces: [] }]),
       read([{ ...row, marketplaces: ["spaceship", "atom"] }]),
       read([{ ...row, marketplaces: ["atom", "atom"] }]),

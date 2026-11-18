@@ -44,7 +44,7 @@ Native non-storage security boundary for Desktop identity custody, authorization
 - Does NOT handle: Production-selectable test authority or real-provider qualification; controlled transport scripts exist only under private `cfg(test)` code. (see: src/cloudflare_provider.rs)
 - Does NOT handle: Reuse of OAuth session, credential, cookie-audience, or generic Host state as Cloudflare authority. Native capture and purpose-specific Keychain custody are the only credential sources. (see: src/cloudflare_capture.rs, src/cloudflare_keychain.rs)
 - Does NOT handle: Generic Provider execution or private request/response/transport types crossing the Host boundary. (see: src/cloudflare_provider.rs)
-- Does NOT handle: Any local backup authority, GDBK parsing/sealing, Backup KEK custody or rollback anchor, native backup handle/journal, backup projection/candidate, or current-database restore. These are private to `gooddealer-local-storage`; no backup dependency or bridge crosses between the sibling crates. (see: `../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`)
+- Does NOT handle: Any local backup authority, GDBK parsing/sealing, Backup KEK custody or rollback anchor, native backup handle/journal, backup projection/candidate, or current-database restore. These are private to `gooddealer-local-storage`; no backup dependency or bridge crosses between the sibling crates. (see: `../../docs/adr/0023-business-backup-and-recovery.md`)
 
 ## Adversarial Surfaces
 
@@ -84,4 +84,4 @@ This crate has no backup implementation or backup dependency. It neither exposes
 authority, containers, keys, rollback anchors, file handles, journals, projections, candidates, or restore
 operations. The complete backup boundary is documented by
 `../local-storage/README.md` and
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.

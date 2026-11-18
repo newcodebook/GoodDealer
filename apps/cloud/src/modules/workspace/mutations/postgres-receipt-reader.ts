@@ -4,7 +4,7 @@ import { TenantTransactionRunner } from "../../../db/index";
 import { parseWorkspaceTenantScope, type WorkspaceTenantScope } from "../tenant-scope";
 import type { PostgresWorkspaceMutationRepository } from "./postgres-repository";
 
-/** Reads one device's own mutation receipts in its tenant (ADR-0032 decision 4). */
+/** Reads one device's own mutation receipts in its tenant (ADR-0032 receipt verification). */
 export class PostgresWorkspaceMutationReceiptReader {
   constructor(private readonly dependencies: {
     readonly transactions: TenantTransactionRunner;

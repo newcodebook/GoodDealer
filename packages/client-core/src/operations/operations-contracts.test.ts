@@ -333,7 +333,7 @@ describe("manual task policy contracts", () => {
     }).success).toBe(false);
   });
 
-  it("is a hand-off-and-reconcile task with no browser automation path (ADR-0017, ADR-0027)", () => {
+  it("is a hand-off-and-reconcile task with no browser automation path (ADR-0027)", () => {
     const view = inbox({ policy: "allowed" });
     expect(view.tasks[0]?.availableActions).not.toContain("request_automation_grant");
     for (const smuggled of [{ browserGrant: null }, { browserTask: null }]) {

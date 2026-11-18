@@ -550,7 +550,7 @@ describe("P17 canonical byte layouts", () => {
   });
 });
 
-describe("ADR-0030 versioned mutation drain results", () => {
+describe("ADR-0019 versioned mutation drain results", () => {
   it("moves schema, typ, codec, and both proof domains together and never mixes versions", () => {
     const v1 = drainProofSchema.parse(vector("drain/valid/proof-handoff-three-streams.json"));
     const v2 = drainProofSchema.parse(vector("drain/valid/proof-handoff-v2-three-streams.json"));

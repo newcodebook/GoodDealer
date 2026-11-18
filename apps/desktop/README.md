@@ -6,59 +6,14 @@ Customer Desktop application that composes the Renderer and native Host around t
 
 ## Owns
 
-- The mock design host in `visual-fixtures/` (`pnpm --filter @gooddealer/desktop visual:dev`), which
-  renders every Desktop screen from typed mock data, including capabilities without a Host port. It
-  is a separate Vite root outside the production graph and grants no authority.
-- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
-  layer is rebuilt from `brand/`: `src/app.tsx` composes the startup, Host-unavailable, browser
-  sign-in, and locked pages; first-run onboarding (`src/app/onboarding.tsx`, the kit wizard), shown
-  once per session to an Active workspace with no domain, where the device step shows only the lease
-  `local_device_lease_read` verified (device id and epoch, no envelope or key; the Host has no device
-  name), the Cloudflare card admits connecting (`cloudflare_connection_create`, then
-  `cloudflare_connection_activate`, where the Host opens the native token capture and imports the
-  zone's domain) or disconnecting (`cloudflare_connection_revoke`) only while the workspace is
-  writable, the Host reports the capability qualified, and its build can capture a token
-  (`capturable`, macOS only; elsewhere the card says why it is unavailable), and nothing while an operation runs (so it
-  is unavailable until qualified); the import step says a connected zone was imported when it
-  connected, and domains are added by hand through `local_domain_asset_create`. Settings offers
-  "Run setup again" only while writable, which is how connecting and revoking are reached there; plus a workspace with the asset library (manual add through
-  `local_domain_asset_create`: the typed name is canonicalized to IDNA ASCII and the Host refuses a
-  domain the workspace already holds with `DESKTOP_LOCAL_ASSET_EXISTS`, so adding by hand and importing
-  cannot duplicate an asset, and a deleted one, which keeps its tombstone, with
-  `DESKTOP_LOCAL_ASSET_DELETED`, shown as "deleted and cannot be added again yet"; no path purges a
-  tombstone yet), domain detail (target-price edit), renewals, sales, DNS health, batch operations, conflict center, manual tasks, operation
-  history, and settings. Manual tasks reads `local_manual_tasks_read` (plan items waiting on the
-  person in a platform's own console, grouped per operation, platform connection and capability);
-  opening the platform, marking done, re-checking and accepting risk are unavailable until their
-  capabilities are qualified, and there is no browser session or authorized-execution control. Operation history reads the newest 500 local revisions from `local_history_read`,
-  with today's changes counted by the Host over the whole ledger within the person's local day
-  (one day for every window of a read, read again when that day ends or the window returns on a new day)
-  (asset, edit or delete, sync state, and field-level diffs against the asset's preceding local
-  revision when no remote change or conflict can lie in between; otherwise previous values show as
-  unknown); every Revision is read-only, with no
-  rollback or export until a reversal capability is qualified. Batch
-  operations lists Host operation plans from `local_batch_operations_read` (title, phase, targets,
-  platforms, planned counts and latest attempt outcomes, never plan or operation identifiers); rows
-  do not open, and creating, approving or running a batch is unavailable until an operation
-  capability is qualified. Renewals opens from the asset
-  library's expiring-within-60-days metric and lists those assets from `local_renewals_read` with
-  recorded expiry, auto-renew and the last observed registrar; renewal prices, budgets and plans have
-  no qualified registrar capability and render as unavailable, with no selection, term or renew
-  action. Sales shows one Host page of listed
-  domains from `local_sales_read`, each merging its markets' latest confirmed listings on the Host,
-  with workspace-wide active count and listed value; offers, deals, view counts and listing dates
-  have no qualified capability and render as unavailable, with no listing or offer action. DNS health shows only Host-observed Zone facts
-  from `local_dns_health_read`; ownership verification, delegation, and record-health verdicts render
-  as not connected or not observed. Settings reads redacted Provider connections and their declared
-  roles from `local_settings_read`; every role stays unavailable until its capabilities are
-  qualified, and no connect/reauthorize/manage action is offered. Its About section reports the same
-  read's counts of stored rows the other reads reject (rows written before the integrity triggers)
-  and which read each one makes unavailable; repair is not offered yet. Devices, license, pull cadence and
-  build facts have no Host source yet and render as unavailable. The other designed screens
-  (onboarding and the batch diff preview) exist only in `visual-fixtures/` until their Host
-  projections land; `src/app/production-build-graph.test.ts` builds the production entry in memory
-  and proves every composed page ships while no fixture or brand-kit module does.
-- Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
+- Renderer routing, shell, onboarding and business-page composition using Host projections.
+- Narrow Tauri IPC adapters and native composition for authorization, local business, sync,
+  projection, Provider coordination and device handoff.
+- A separate `visual-fixtures/` design host outside the production graph; it grants no authority.
+
+Current screen composition and remaining work are recorded in
+[current implementation](../../docs/CURRENT_IMPLEMENTATION.md). The production roots are
+`src/app.tsx`, `src/app/workspace-view.tsx` and `src-tauri/src/main.rs`.
 
 ## Touchpoints
 
@@ -104,124 +59,26 @@ replace this Repository.
 
 ## Native commands
 
-The `local-app` WebView capability admits only the reviewed local-business, sanitized authentication,
-and Host-owned Cloudflare command names listed below. The Cloudflare handlers accept only bounded raw
-JSON connection/entity lookup hints, reject duplicate and unknown fields before enqueue, and submit to
-the isolated user-triggered Provider lane. Native composition captures the credential, observes the fixed
-Zone/DNS endpoint set, asks `DesktopLocalHost` to derive the complete durable operation, publishes the
-Secure Host envelope under exact-base Keychain CAS, and commits observations locally before waking the
-projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
-observation enqueue, and committed local observation reads; it is not composed into the production
-root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
-composition is not a customer-availability claim. `cloudflare_connection_revoke` queues a Host-owned
-revocation on the same serial lane, never rate limited: the commit that prepares it also denies credential
-use, so the connection is deactivated before custody changes; Secure Host then replaces the exact Active
-envelope with a tokenless tombstone at the next generation under the same prewrite, marker and read-back
-fences as activation, and contradicting custody remediates while the credential stays denied. Use is
-denied at once; the token leaves custody only once the tombstone is confirmed. Revocation withdraws
-GoodDealer's custody and use only; it does not revoke the API token at Cloudflare. Onboarding's
-Cloudflare card offers revocation only once the capability is qualified (ADR-0024), and the
-status then keeps asking the person to delete or roll the token at Cloudflare.
-The Host's qualification register (`crates/local-storage/src/active_workspace/capability_qualification.rs`)
-is empty, so activation, credential preparation and observation are refused in the Host with
-`DESKTOP_CAPABILITY_UNQUALIFIED` even when a valid credential exists; revocation and recovery are not gated.
-`cloudflare_connection_create` creates the credential-less connection activation provisions into (a fresh
-install has none). It takes only a display label, is refused the same way while unqualified, returns a
-never-activated connection instead of adding another, and answers with only the opaque `connectionRef`.
-Activation imports the observed Zone as a domain asset when the workspace does not hold it yet, under the
-activation's own admission and through the same Host create path as `local_domain_asset_create`
-(`DesktopBusinessRuntime::create_domain_asset_guarded`); an authority change during the Provider call
-writes nothing, and a domain already held is left as it is.
+The production command inventory is owned by `src-tauri/src/main.rs`, `src-tauri/build.rs` and
+`src-tauri/capabilities/local-app.json`. Command-policy tests require them to agree; this README
+keeps no parallel list. Commands cover local business and repair, sync/conflicts, device switch,
+backup workflow, authentication and Cloudflare connection/observation/retirement.
 
-- `cloudflare_connection_activate`
-- `cloudflare_connection_create`
-- `cloudflare_connection_revoke`
-- `cloudflare_connection_status`
-- `cloudflare_observation_read`
-- `cloudflare_zone_observe`
-- `local_business_status`
-- `local_device_lease_read`
-- `local_asset_library_read`
-- `local_domain_detail_read`
-- `local_dns_health_read`
-- `local_settings_read`
-- `local_sales_read`
-- `local_renewals_read`
-- `local_batch_operations_read`
-- `local_history_read`
-- `local_manual_tasks_read`
-- `local_domain_asset_edit`
-- `local_domain_asset_create`
-- `local_domain_asset_delete`
-- `local_domain_asset_provider_bind`
-- `local_storage_repair`
-- `local_sync_status`
-- `device_switch_request`
-- `device_switch_advance`
-- `device_switch_status`
-- `device_switch_cancel`
-- `local_conflict_center_read`
-- `local_conflict_resolve`
-- `local_backup_restore_status`
-- `local_backup_export`
-- `local_backup_artifact_select`
-- `local_backup_restore_begin`
-- `desktop_authentication_status`
-- `desktop_authentication_begin`
-- `desktop_authentication_refresh`
+Renderer intents are bounded and strictly parsed. Commands expose no database path, database key,
+SQL, account/workspace selector, Provider account, credential, OAuth URL, bearer token or Cloud
+Repository. Native derives authority and resource identity before execution and publishes local
+results only after the owning transaction commits.
 
-No command accepts or returns a database path, database key, SQL, account/workspace selector,
-Provider account, credential, OAuth URL, bearer token, or Cloud Repository. Authentication IPC exposes
-only `unavailable`, `signed_out`, `pending`, `authorization_failed`, `authorization_retryable`, or
-`authenticated`; the last state means the signed Grant has been verified and the local runtime activated.
-`authorization_failed` blocks refresh and clears refresh custody before a new sign-in, while
-`authorization_retryable` means Native retained the newest rotated refresh credential plus its still-valid
-memory-only access token and may retry without exposing either. Its durable binding state remains distinct
-from security revocation, so restart resumes the safe refresh path while local data stays locked. `DesktopLocalHost` starts
-activation-required unless the
-Host loads an OS-protected, previously verified workspace binding. That binding can reopen only the
-same local database for read-only use; only trusted native authorization composition can restore
-mutation authority.
+Cloudflare activation and observation remain subject to the Host qualification register. Onboarding
+composes connection creation/activation; settings composes rejected-custody retirement and stored-row
+repair. Revocation and retirement reduce custody and do not require Provider execution qualification.
+They do not revoke a token at Cloudflare; the user must delete or rotate that token at the Provider.
+The separate Provider lane serializes these workflows and retains the durable prewrite/marker fences.
 
-The device-switch commands (ADR-0032) drive this device's side of a normal switch through the
-native coordinator: `device_switch_request` takes only the target device id, and every command
-answers a closed step (`idle`, `rejected` with Cloud's code, `waiting_for_sync` with the count of
-unconfirmed rows, `blocked`, `receipts_missing`, `switch` with Cloud's status, `writes_reopened`).
-The switch id comes only from Cloud and stays native with the Lease, receipts, drain proof and its
-signature; writes reopen only when Cloud reports the switch cancelled or failed. No screen calls
-them yet (ADR-0032 S3).
-
-DomainAsset edit/delete commits the local business row, field versions, tombstone (for delete), and a secret-free Sync Outbox entry in one
-SQLCipher transaction. Asset Library and Domain Detail reads return bounded projections from the
-Host-bound local database. The legacy whole-snapshot command is test-only and absent from the
-production invoke closure. Cloud transport is absent from these local-business command implementations and the
-regression suite proves local read/write without it.
-Renderer mutation completions are independently fenced by mounted state, route/entity identity,
-and a fresh Active Host status before any generation acceptance, refresh, or navigation effect.
-
-Conflict Center responses contain bounded display text, hashes, revisions, and manual choices only.
-The Host derives workspace, device, lease, current time, and the deterministic resolution identity;
-the Renderer supplies no authority selector. Delete conflicts expose `accept_remote` only. The current production
-composition always reports rebootstrap as `recovery_unavailable`; no platform is qualified yet.
-Conflict resolution is always one explicit candidate and one explicit choice; no bulk or automatic
-"low-risk" resolution API exists. Hostile display values are bounded before they reach React and
-are rendered only as text children.
-
-`sync.conflicts` is an independent workspace route. Active may receive a resolution admission for one
-candidate; commercial read-only and Standby may read the Conflict Center projection but receive no resolution
-admission. Locked, retryable, security, and recovery surfaces are route-free, so they cannot reach this route
-through navigation or fallback routing.
-
-The customer sync command returns a durable `SyncSnapshot` with pending, open-conflict, and rejected mutation
-counts, `recoveryRequired`, the applied server revision, last replication activity, and Native transport
-observation. Native transport is exactly `checking`, `reachable`, `offline`, or `blocked`; startup and restart
-begin at `checking` and never reuse the previous successful observation. Sync is mandatory asynchronous
-replication with no manual-sync action and no `navigator.onLine` authority. A conflict resolution receipt only
-fences the local commit (and any Outbox enqueue or idempotent replay); it is not a Cloud ACK. First-time conflict
-resolution requires the exact current Host `readGeneration` and returns exactly `expectedReadGeneration + 1`;
-only an identical replay may reuse that receipt. After success, Renderer reads business status, Asset Library,
-Conflict Center, and `SyncSnapshot` between matching Host status generations and publishes the complete bundle
-in one state update; a torn read is retried and never partially published.
+Device-switch commands drive the native side of ADR-0032. The switch identity comes from Cloud;
+Lease, receipts, proof and signature stay Native. The device-management screen remains to be composed.
+Backup commands do not make production recovery available while their native dependencies are absent;
+replacement recovery requirements are being established in the product discovery record.
 
 ## WebView content security policy
 
@@ -244,7 +101,7 @@ The traffic-light position and undecorated resizing still need checking on each 
 ## Local storage repair
 
 `local_storage_repair` repairs one category of the stored rows that the Settings integrity counts
-report (ADR-0031). The Renderer sends only `{schemaVersion, expectedReadGeneration, repairKind}`, never
+report (ADR-0019). The Renderer sends only `{schemaVersion, expectedReadGeneration, repairKind}`, never
 a row identity or value; the Host reselects the rows with the read's own predicate in one immediate
 transaction, refuses a stale read generation, and answers with the category and a row count. It
 quarantines observations and bindings, sets an unreplicated expiry to unknown, or marks an Outbox
@@ -282,7 +139,7 @@ owner.
 Before reading any Keychain item or opening SQLCipher, the first process acquires an OS-level exclusive
 application-data lock. A second process cannot become a refresh or database authority; the
 single-instance plugin hands a second launch to the established process. Browser sign-in no longer
-arrives through process launches at all (ADR-0026), so there is no startup callback window to buffer.
+arrives through process launches at all (ADR-0011), so there is no startup callback window to buffer.
 
 On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
 the operating system CSPRNG only when no database exists. If an existing database loses its
@@ -298,7 +155,7 @@ boundary. They never enter Renderer state, IPC requests, sync mutations, Cloud, 
 ordinary audit payloads.
 
 GoodDealer Desktop login uses the system browser with Authorization Code + PKCE S256. PKCE verifier
-and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0026), each attempt binds a
+and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0011), each attempt binds a
 short-lived HTTP listener on `127.0.0.1` with an OS-chosen port and sends
 `http://127.0.0.1:{port}/oauth/callback` as the redirect URI; the browser returns over a plain HTTP
 redirect, so no OS URL scheme or browser external-protocol prompt is involved. The listener accepts
@@ -406,7 +263,7 @@ platform filesystem behavior, and target-platform fault evidence are qualified. 
 `security-framework` 3.7.0 dependency and has no production fake, feature, environment selector, fork, or
 preflight-plus-upsert fallback. There is no passphrase, cross-device,
 or Cloud-hosted fallback. See
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.
 
 For an authorization-code exchange, access and refresh credentials remain transient until Grant
 verification, binding persistence, and runtime activation succeed; only then does Native persist the

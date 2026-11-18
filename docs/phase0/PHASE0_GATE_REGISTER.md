@@ -12,7 +12,7 @@
 
 | 资格 ID / 范围 | 必须取得的外部证据 | 授权的主张 | 未来责任人 | 不是本地实现阻塞项？ | 当前 closure 状态 |
 | --- | --- | --- | --- | --- | --- |
-| **Q-AUDIT：生产 OpenBao custody** | 最终环境的自托管 OpenBao 集群、不可导出 Transit key、workload identity、目的隔离、公钥批准、seal 策略、轮换演练和独立审查。 | 生产审计签名 custody 已存在且按 ADR-0014/0021 运行。 | Security Custodian 与 Platform Operations Owner。 | 是；不阻止本地业务、账号控制面或同步恢复工作。 | 未记录 closure。 |
+| **Q-AUDIT：生产 OpenBao custody** | 最终环境的自托管 OpenBao 集群、不可导出 Transit key、workload identity、目的隔离、公钥批准、seal 策略、轮换演练和独立审查。 | 生产审计签名 custody 已存在且按 ADR-0021/0021 运行。 | Security Custodian 与 Platform Operations Owner。 | 是；不阻止本地业务、账号控制面或同步恢复工作。 | 未记录 closure。 |
 | **Q-CF：Cloudflare 逐项 Provider 资格** | 对每项域名能力完成条款、最小权限、受控资源、限流/错误、撤销/未知结果对账、资金确认和独立安全审查。 | 仅已取得对应证据的 Cloudflare 域名能力可声明真实可用；只读 Zone/DNS 证据不能授权写入或 Registrar。 | Cloudflare 能力所有者与 Security Custodian。 | 是；不阻止 C1/D1/V1 的本地合同实现与汇合。 | 未记录 closure。 |
 | **Q-PROV：其余首发平台逐项 Provider 资格** | 对 Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun 的每项域名能力完成条款、平台 API 准入、最小权限、受控资源或沙箱、限流/错误、未知结果对账、资金确认和独立安全审查。 | 仅已取得对应证据的平台能力可声明真实可用；一个平台或一项能力的证据不能授权另一项。 | 各平台能力所有者与 Security Custodian。 | 是；不阻止 C1/D1/V1 的本地合同实现与汇合。 | 未记录 closure。 |
 | **Q-OPS：受管生产运行与部署** | 获批区域中的受管 PostgreSQL、部署、监控、环境隔离和相关运行证据。 | 已部署 Cloud 控制面与同步副本在指定环境可用。 | Data Governance Owner 与 Platform Operations Owner。 | 是；不阻止本地业务库或 Cloud 控制面/同步实现。 | 未记录 closure。 |

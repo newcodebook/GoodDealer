@@ -12,7 +12,7 @@ use zeroize::{Zeroize as _, Zeroizing};
 use crate::desktop_device_identity::{DesktopDeviceIdentity, DesktopDeviceProofTranscript};
 
 const CLIENT_ID: &str = "gooddealer-desktop";
-/// ADR-0026: RFC 8252 loopback callback. Native binds the literal IPv4 loopback on an ephemeral
+/// ADR-0011: RFC 8252 loopback callback. Native binds the literal IPv4 loopback on an ephemeral
 /// port per attempt; Cloud repeats this exact URI in the challenge, transcript, and code exchange.
 const LOOPBACK_HOST: &str = "127.0.0.1";
 const LOOPBACK_CALLBACK_PATH: &str = "/oauth/callback";

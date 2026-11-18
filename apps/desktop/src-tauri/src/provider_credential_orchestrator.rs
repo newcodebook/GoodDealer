@@ -658,7 +658,7 @@ const fn map_host_to_keychain(error: DesktopLocalHostError) -> CloudflareKeychai
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ProviderCredentialError {
     Host,
-    /// The capability has not passed ADR-0024 qualification; the Host attempted nothing.
+    /// The capability has not passed ADR-0027 qualification; the Host attempted nothing.
     Unqualified,
     /// The observed Zone's name cannot become a domain asset; nothing was imported or prepared.
     ZoneUnimportable,

@@ -368,7 +368,7 @@ describe("buildDrainProofClaims", () => {
   });
 });
 
-describe("ADR-0030 mutation result chain", () => {
+describe("ADR-0019 mutation result chain", () => {
   type ResultVector = {
     readonly steps: readonly {
       readonly sequence: number;

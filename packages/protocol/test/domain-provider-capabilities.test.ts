@@ -37,11 +37,11 @@ describe("domain Provider coverage and financial confirmation", () => {
       // Identifiers name their role; the three older v1 identifiers keep their names.
       if (role !== null && !["nameservers.manage", "zone.observe", "dnssec.manage"].includes(id)) expect(id.startsWith(`${role}.`)).toBe(true);
     }
-    // Every role has a monitoring capability (ADR-0027 section 2).
+    // Every role has a monitoring capability (ADR-0027 capability catalog).
     for (const role of domainProviderRoles) {
       expect(ids).toContain(`${role}.monitor`);
     }
-    // Every charge is financial: each needs its own confirmation (ADR-0024, ADR-0027 section 7).
+    // Every charge is financial: each needs its own confirmation (ADR-0027 financial confirmation).
     expect(domainProviderCapabilityCatalog.filter(({ effect }) => effect === "financial").map(({ id }) => id).sort()).toEqual([
       "acquisition.backorder", "acquisition.bid", "acquisition.purchase",
       "registrar.auto-renew.manage", "registrar.register", "registrar.renew", "registrar.restore", "registrar.transfer.in", "registrar.transfer.out",
@@ -51,7 +51,7 @@ describe("domain Provider coverage and financial confirmation", () => {
     for (const id of ["acquisition.search", "acquisition.offer.observe", "acquisition.arrival.reconcile"]) {
       expect(domainProviderCapabilityCatalog.find((capability) => capability.id === id)?.effect).toBe("read");
     }
-    // Proxy or automatic bidding is not a capability (ADR-0027 section 7).
+    // Proxy or automatic bidding is not a capability (ADR-0027 financial confirmation).
     expect(ids.some((id) => /proxy|auto-bid|max-bid/u.test(id))).toBe(false);
   });
 
@@ -77,7 +77,7 @@ describe("domain Provider coverage and financial confirmation", () => {
     for (const forged of [
       { platform: "cloudflare", capabilityId: "zone.observe", execution: "executable", reason: "qualification_pending" },
       { platform: "cloudflare", capabilityId: "zone.observe", execution: "not_executable", reason: "qualified" },
-      { platform: "sedo", capabilityId: "zone.observe", execution: "not_executable", reason: "platform_facts_pending" },
+      { platform: "unsupported-platform", capabilityId: "zone.observe", execution: "not_executable", reason: "platform_facts_pending" },
       { platform: "cloudflare", capabilityId: "acquisition.proxy-bid", execution: "not_executable", reason: "platform_facts_pending" },
       { platform: "cloudflare", capabilityId: "zone.observe", execution: "not_executable", reason: "qualification_pending", scope: "Zone:Read" },
     ]) expect(domainProviderManifestEntrySchema.safeParse(forged).success).toBe(false);

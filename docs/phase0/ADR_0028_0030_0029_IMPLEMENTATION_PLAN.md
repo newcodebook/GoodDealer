@@ -5,7 +5,7 @@
 
 ## 目标与依赖
 
-先补齐 ADR-0028 的本机凭据清理，再交付 ADR-0030 的原子结果回执与版本化 drain，
+先补齐 ADR-0028 的本机凭据清理，再交付 ADR-0019 的原子结果回执与版本化 drain，
 最后交付 ADR-0029 的端到端删除、generation 与重新添加。墓碑物理清除不在本计划内。
 每一批修改同时更新合同、迁移、实现、测试与当前状态文档；底层实现通过不等于产品入口已完成。
 
@@ -17,7 +17,7 @@
 | A3 | Desktop 编排、设置与恢复：首次确认、清理/重试入口、每次可写打开每 incarnation 一次；备份恢复单调合并。 | 两段式每个崩溃点可恢复；不与凭据写入交错；recovery_required 不阻止清理自身；退役行隐藏；旧备份不回退请求/完成；本地清理与 Cloudflare 吊销文案准确。 | 清理通道、首次确认/手动重试、可写打开单次重试及备份保留已实现；情况 1、2 的专用撤销重试入口已由 Host 动作 `retry_revoke` 驱动；仅 macOS 实机资格待完成。 |
 | B1 | protocol、Cloud devices：独立结果 envelope 与 drain proof/manifest 版本、保留旧证据及 accepted 链重建。 | 冻结 mutation wire/digest 不变；新旧版本不混算；缺失证据失败关闭；execution_fact/device_audit 合同不变。 | 已实现：结果 envelope、proof v2、按版本验证与 PostgreSQL v2 seal 重建；PostgreSQL 18.6 资格以 PR CI 为准。 |
 | B2 | Cloud mutations/PostgreSQL：accepted/rejected 联合 ledger、权限与前向迁移；单项业务拒绝和序号/drain 同事务提交。 | 先查回执；全局设备序号唯一；接受/拒绝竞争只占用一次；多项失败全回滚；存储失败可重试；响应丢失精确重放；跨租户/epoch/lease/seal 负向测试。 | 已实现：结果联合 ledger 迁移、单项业务拒绝同事务记账、先查回执与精确重放、v2 seal 合并拒绝；PostgreSQL 18.6 资格以 PR CI 为准。 |
-| B3 | Desktop/local-storage：持久化 Cloud 终止结果，生成同版本 drain 证据，串通设备切换验证。 | 响应落盘前崩溃不自行终结序号；拒绝后后续同步及 drain 成功；无持久回执的输入/schema 拒绝保留缺口。 | 客户端合同已实现（含跨 Lease epoch 的全局 v2 链，迁移 `202611130004`）：Outbox 已原子持久化 ACK 与单项 `SYNC_MUTATION_CONFLICT`，client-core 只从这两种结果折叠 v2 结果链并生成 v2 声明。设备切换端到端串通待 Desktop 设备切换流程交付（Host 读取、签名、Cloud proof 写入须保存 `proof.schemaVersion`）。PostgreSQL 资格通过后关闭 ADR-0030。 |
+| B3 | Desktop/local-storage：持久化 Cloud 终止结果，生成同版本 drain 证据，串通设备切换验证。 | 响应落盘前崩溃不自行终结序号；拒绝后后续同步及 drain 成功；无持久回执的输入/schema 拒绝保留缺口。 | 客户端合同已实现（含跨 Lease epoch 的全局 v2 链，迁移 `202611130004`）：Outbox 已原子持久化 ACK 与单项 `SYNC_MUTATION_CONFLICT`，client-core 只从这两种结果折叠 v2 结果链并生成 v2 声明。设备切换端到端串通待 Desktop 设备切换流程交付（Host 读取、签名、Cloud proof 写入须保存 `proof.schemaVersion`）。PostgreSQL 资格通过后关闭 ADR-0019。 |
 | C1 | protocol、Cloud、本地存储：generation 迁移与 wire 版本；首次添加 generation 1；删除 ingest、墓碑物化及重建。 | 普通 upsert/delete generation 精确匹配；删除可 ACK/拉取；checkpoint、rebootstrap、连续性恢复保留墓碑与 generation。 | C1a、C1b1、C1b2a、C1b2b、C1c1、C1c2a、C1c2b 已实现；可先于 B3 开发，重新添加入口须等 B3 完成。 |
 | C2 | local-storage/Host 与 Cloud：已确认墓碑上重新添加、暂定指针、实体冻结、ACK 确认与拒绝撤回。 | ACK/pending 与 replicated/replicated 墓碑可用；contested、未 ACK、未结束 Outbox/冲突拒绝；冻结涵盖冲突裁决；撤回保留 Outbox/字段/创建标记；同一 g+1 可再次尝试。 | C2a（Cloud 接受重新添加）、C2b（Desktop Inbox 应用其他设备的重新添加）与 C2c1（本地重新添加的数据库语义）已实现；C2c2（Host 创建路径、Renderer 合同与界面）已实现，生产入口按 ADR-0029 完成条件由 `LOCAL_RE_ADD_ENTRY_QUALIFIED` 关闭。依赖 B3（客户端持久结果已实现，设备切换端到端暂停于台账第 191 行）、C1。 |
 | C3 | 备份、Inbox、快照、连续性恢复与 Desktop 界面：按已确认 generation 拒绝旧数据，解释可重加条件。 | 旧格式按 generation 1；旧备份/旧设备 mutation 不复活前代；暂定期间旧墓碑不覆盖新行；跨设备删除后重新添加成功；并发只接受一次。 | 待实施，依赖 C2；PostgreSQL 资格通过后关闭 ADR-0029。 |
@@ -59,5 +59,5 @@
 
 上位执行计划：[Phase 0 执行计划](PHASE0_EXECUTION_PLAN.md)。
 架构依据：[ADR-0028](../adr/0028-refused-cloudflare-custody-purge.md)、
-[ADR-0030](../adr/0030-closing-deterministically-rejected-mutation-sequences.md)、
+[ADR-0019](../adr/0019-complete-local-business-schema-and-cloud-replica-model.md)、
 [ADR-0029](../adr/0029-domain-tombstone-purge-and-re-adding.md)。

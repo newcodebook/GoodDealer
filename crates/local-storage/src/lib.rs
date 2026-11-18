@@ -184,17 +184,8 @@ pub use portfolio_projection::{
 
 pub use application_root::{DesktopApplicationRoot, DesktopApplicationRootError};
 
-mod backup;
+mod desktop_local_host;
 
-pub use backup::{
-    DesktopAuthorityIdentity, DesktopDeviceLease, DesktopLocalBusinessState,
-    DesktopLocalBusinessStatus,
-};
-pub use backup::{
-    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
-    DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
-    DesktopVerifiedBackupArtifact,
-};
 pub use desktop_business_runtime::{
     DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
     DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated,
@@ -213,6 +204,15 @@ pub use desktop_device_switch::{
     DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchRequestExchange,
     DesktopDeviceSwitchStart, DesktopDeviceSwitchStatus, DesktopDrainProgress,
     DesktopDrainProofDraft, DesktopDrainReceiptQuery,
+};
+pub use desktop_local_host::{
+    DesktopAuthorityIdentity, DesktopDeviceLease, DesktopLocalBusinessState,
+    DesktopLocalBusinessStatus,
+};
+pub use desktop_local_host::{
+    DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
+    DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
+    DesktopVerifiedBackupArtifact,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

@@ -221,7 +221,7 @@ export class PostgresWorkspaceMutationIngest {
   }
 
   /**
-   * ADR-0030 decision 1. Only a single-item push records its business rejection: the receipt,
+   * ADR-0019 decision 1. Only a single-item push records its business rejection: the receipt,
    * the global sequence head and the decision commit in this tenant transaction, and the caller
    * sees the terminal rejection only after that commit. A multi-item batch still rolls back with
    * no receipt; the client's batch isolation retries the item alone. A storage failure propagates

@@ -51,7 +51,7 @@ const DELETED_ASSETS: &str = "SELECT entity_id FROM domain_assets
 /// Calls `visit` with the latest confirmed listing of every (asset, marketplace) whose state is not
 /// `unlisted`, in domain then marketplace order, with that observation's ID. Older rows of a group
 /// are skipped unread, as the window function this replaces never selected them. A latest
-/// observation a storage repair quarantined (ADR-0031) leaves its group unlisted: an older
+/// observation a storage repair quarantined (ADR-0019) leaves its group unlisted: an older
 /// observation does not stand in for it.
 fn for_each_latest(
     connection: &Connection,
@@ -248,16 +248,20 @@ struct MarketListing {
 }
 
 /// One merged domain as the desk keeps it. The desk holds every listed domain for as long as its
-/// generation lasts, so a row stays small: markets are a bit set over the eight launch platforms
+/// generation lasts, so a row stays small: markets are a bit set over the launch platforms
 /// and the state is one byte, making a row roughly a hundred bytes however many markets list it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DeskRow {
     entity_id: Box<str>,
     /// Bit `i` set when `LAUNCH_PLATFORMS[i]` lists the domain.
-    markets: u8,
+    markets: u16,
     status: ListingStatus,
     price: Option<Price>,
 }
+
+// The compact desk is transient, so platform positions never become persisted identities.
+// Growing the platform registry must not silently overflow its membership representation.
+const _: () = assert!(LAUNCH_PLATFORMS.len() <= u16::BITS as usize);
 
 impl DeskRow {
     fn row(&self) -> SalesListingRow {
@@ -497,7 +501,7 @@ pub(super) fn rejected_listings(
 }
 
 /// The latest listing observations `rejected_listings` counts, with their stored columns serialized
-/// for the repair receipt's digest (ADR-0031).
+/// for the repair receipt's digest (ADR-0019).
 pub(super) fn rejected_listing_ids(
     connection: &Connection,
     workspace_id: &str,
@@ -709,6 +713,17 @@ mod tests {
             )
             .unwrap(),
         }
+    }
+
+    #[test]
+    fn merged_market_membership_keeps_platforms_beyond_the_eighth_bit() {
+        let listings: Vec<_> = LAUNCH_PLATFORMS
+            .iter()
+            .map(|kind| market(kind, "active", None))
+            .collect();
+        let row = merge("a.test".into(), &listings).row();
+        assert_eq!(row.marketplaces, LAUNCH_PLATFORMS);
+        assert_eq!(row.listing_status, "active");
     }
 
     #[test]

@@ -48,7 +48,7 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
     expect(inserts.flat()).toContain("device-a");
   });
 
-  it("issues no code while the device is only eligible for Standby (ADR-0033 T2a, until T2b)", async () => {
+  it("issues no code while the device is only eligible for Standby (ADR-0032 Standby S1/S3)", async () => {
     const service = serviceFor(async (text) => {
       if (text.includes("SELECT account_security_epoch")) {
         return rows([{ account_security_epoch: "4", status: "normal" }]);

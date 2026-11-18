@@ -117,7 +117,7 @@ const PREFIX: &str = "(?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
 /// only for an unbound or detached asset or a Cloudflare-bound one. The Renderer applies the same
 /// rule per row; joining here keeps the workspace-wide counts consistent with it.
 ///
-/// A binding or observation a storage repair quarantined (ADR-0031) joins as absent: the asset reads
+/// A binding or observation a storage repair quarantined (ADR-0019) joins as absent: the asset reads
 /// as unbound or unobserved instead of failing the page.
 const ZONE_JOINS: &str = "
      LEFT JOIN domain_asset_provider_bindings b
@@ -325,7 +325,7 @@ pub(super) fn rejected_rows(
 }
 
 /// A row `rejected_rows` counts, split into the part that fails: its Zone binding (keyed by the
-/// asset) and its Zone observation. ADR-0031's repair quarantines exactly the failing parts. The
+/// asset) and its Zone observation. ADR-0019's repair quarantines exactly the failing parts. The
 /// two parts validate independently in `project_row`, so each is checked with the other absent.
 pub(super) struct RejectedDnsRow {
     pub(super) entity_id: String,

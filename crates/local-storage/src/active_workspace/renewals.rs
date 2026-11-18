@@ -263,7 +263,7 @@ pub(super) fn invalid_registrar_observations(
 }
 
 /// The available registrar observations `invalid_registrar_observations` counts, with the stored
-/// name serialized for the repair receipt's digest (ADR-0031).
+/// name serialized for the repair receipt's digest (ADR-0019).
 pub(super) fn invalid_registrar_observation_ids(
     connection: &Connection,
     workspace_id: &str,
@@ -326,7 +326,7 @@ fn registrar_names_valid(
 }
 
 /// The latest confirmed, available registrar observation's registrar name for each `alias` row. A
-/// latest observation a storage repair quarantined (ADR-0031) shows no name; an older observation
+/// latest observation a storage repair quarantined (ADR-0019) shows no name; an older observation
 /// does not stand in for it.
 pub(super) fn registrar_name(alias: &str) -> String {
     format!(

@@ -406,8 +406,8 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
       errors.push(`Desktop local-host internals must not expose ${forbidden}`);
     }
   }
-  if (/gooddealer_local_storage::backup::/u.test(rustSource)) {
-    errors.push("Desktop must not deep-import the local-storage backup implementation");
+  if (/gooddealer_local_storage::(?:backup|desktop_local_host)::/u.test(rustSource)) {
+    errors.push("Desktop must not deep-import the local-storage Host implementation");
   }
   if (desktopManifest.includes("backup-test-adapter")) {
     errors.push("Desktop must not activate a backup test adapter feature");

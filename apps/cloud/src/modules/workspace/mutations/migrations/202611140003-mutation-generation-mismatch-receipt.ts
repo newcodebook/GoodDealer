@@ -2,7 +2,7 @@ import type { CloudMigration } from "../../../../db/index";
 
 /**
  * ADR-0029 decision 3: a mutation naming a generation other than the replica's is a business
- * conflict, recorded like the other single-item business rejections (ADR-0030). Only the code
+ * conflict, recorded like the other single-item business rejections (ADR-0019). Only the code
  * whitelist widens; no existing row changes. The constraint keeps the name PostgreSQL derived
  * when the column CHECK was first declared.
  */

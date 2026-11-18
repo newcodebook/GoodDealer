@@ -8,9 +8,9 @@ import {
 import { launchPlatformKindSchema, type LaunchPlatformKind } from "./launch-platforms";
 
 /**
- * ADR-0024/ADR-0027 per-platform capability manifest. It states, for every launch platform and
+ * ADR-0027 per-platform capability manifest. It states, for every launch platform and
  * every catalog capability that has a role, why that capability cannot run there. It has no
- * executable state: the ADR-0024 fields an executable entry needs (minimal permission, risk,
+ * executable state: the ADR-0027 fields an executable entry needs (minimal permission, risk,
  * idempotency, asynchronous result, unknown-outcome reconciliation, compensation, qualification
  * evidence) come only from that platform's phase, checked against the official documentation of
  * that day, and the first qualified entry must extend this schema rather than reuse it. The Host
@@ -21,7 +21,7 @@ export const DOMAIN_PROVIDER_CAPABILITY_MANIFEST_VERSION = 1 as const;
 /**
  * - `platform_facts_pending`: the platform's facts for this capability are not yet checked in its
  *   ADR-0027 phase, so it is not known whether the platform offers it.
- * - `qualification_pending`: implemented locally; awaiting its ADR-0024 qualification.
+ * - `qualification_pending`: implemented locally; awaiting its ADR-0027 qualification.
  */
 export const domainProviderUnavailableReasonSchema = z.enum(["platform_facts_pending", "qualification_pending"]);
 

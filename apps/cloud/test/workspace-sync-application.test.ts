@@ -89,7 +89,7 @@ describe("workspace sync authenticated application", () => {
   });
 });
 
-describe("workspace sync own-receipt lookup (ADR-0032 decision 4)", () => {
+describe("workspace sync own-receipt lookup (ADR-0032 receipt verification)", () => {
   const receipt = {
     mutationId: "mutation-sync", activeLeaseEpoch: 1, deviceMutationSequence: 1,
     wireSchemaVersion: 2, wireMutationDigest: "D".repeat(43), outcome: "accepted",

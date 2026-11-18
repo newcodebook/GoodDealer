@@ -24,7 +24,7 @@ Session，退出立即撤销精确 family。密码恢复使用独立 challenge�
 完整边界见 [ADR-0022](adr/0022-account-identity-and-email-delivery.md)。
 
 Account Web 继续使用 `gd_session` Cookie。Desktop 不复用该 Cookie：Native Host 通过系统浏览器
-发起固定客户端的 Authorization Code + PKCE S256 流程。回调按 RFC 8252 §7.3 使用 loopback（ADR-0026）：每次登录 Native 在 `127.0.0.1` 绑定系统分配端口，`redirect_uri` 精确为 `http://127.0.0.1:{port}/oauth/callback`；Cloud 只接受该形式（端口 1024–65535），并在 challenge、签名 transcript 与 token 兑换中要求同一字符串，浏览器经普通 HTTP 重定向回到 Native，不经过系统 URL scheme 或外部协议提示。授权页固定在 Account Web 源（`https://account.gooddealer.com/v1/desktop-oauth/authorize`，经同源 `/v1/*` 代理到 Cloud），使浏览器的 host-only `gd_session` 能到达授权路由；token、Grant 与同步仍只走 API 源。没有会话时 Cloud 以相对 302 跳转到同源登录页并携带 `continue`，Account Web 只接受恰好一个同源、带查询、无片段的 Desktop 授权路径，登录或发现已有会话后以 `location.replace` 返回，其他目标一律忽略。Cloud 只保存授权码、
+发起固定客户端的 Authorization Code + PKCE S256 流程。回调按 RFC 8252 §7.3 使用 loopback（ADR-0011）：每次登录 Native 在 `127.0.0.1` 绑定系统分配端口，`redirect_uri` 精确为 `http://127.0.0.1:{port}/oauth/callback`；Cloud 只接受该形式（端口 1024–65535），并在 challenge、签名 transcript 与 token 兑换中要求同一字符串，浏览器经普通 HTTP 重定向回到 Native，不经过系统 URL scheme 或外部协议提示。授权页固定在 Account Web 源（`https://account.gooddealer.com/v1/desktop-oauth/authorize`，经同源 `/v1/*` 代理到 Cloud），使浏览器的 host-only `gd_session` 能到达授权路由；token、Grant 与同步仍只走 API 源。没有会话时 Cloud 以相对 302 跳转到同源登录页并携带 `continue`，Account Web 只接受恰好一个同源、带查询、无片段的 Desktop 授权路径，登录或发现已有会话后以 `location.replace` 返回，其他目标一律忽略。Cloud 只保存授权码、
 access token 和 refresh token 的 SHA-256 摘要；授权码五分钟内有效且只能消费一次。access token
 短期有效并只驻留 Native 内存，refresh token 每次使用后轮换并只存系统凭据项（macOS Keychain；Linux 按 ADR-0025 使用 Secret Service）；重放已轮换
 refresh token 会撤销整个 token family。每次 refresh 前，Native 先持久化一个 pending request ID；
@@ -93,9 +93,9 @@ base 不大于本次 base。Host 在提交每次编辑时冻结 wire 并以已�
 `MUTATION_WORKSPACE_MISMATCH` 保持可重试，以保住本地编辑。单项推送的字段过期或墓碑实体由 Cloud 在同一事务内
 写入拒绝回执并结束该设备序号（不分配 server revision），回执提交后才返回 `SYNC_MUTATION_CONFLICT`；同一冻结
 请求的重放得到同一拒绝，多项批次不写回执。其余拒绝（输入、schema、权限、ID/序号冲突）不占用序号，缺口仍使
-设备切换的 drain 验证失败关闭。见 [ADR-0030](adr/0030-closing-deterministically-rejected-mutation-sequences.md)
+设备切换的 drain 验证失败关闭。见 [ADR-0019](adr/0019-complete-local-business-schema-and-cloud-replica-model.md)
 （Accepted，实现中：结果回执与 drain proof v2 已交付；client-core 只从持久化的 ACK 与单项业务拒绝折叠 v2
-结果链并生成 v2 声明，Desktop 设备切换按 [ADR-0032](adr/0032-desktop-device-switch-and-drain-handoff.md) 实施中：Cloud 已提供本设备回执查询（供 Host 判别跨 C1a 升级的版本 2 行）、Active 设备发起普通切换与提交已签名 drain proof 的路由，以及只需已绑定设备会话的设备列表与自报告路由；Host 已能停写、读取回执、以设备密钥签署并提交 drain proof，Tauri 以封闭步骤码向 Renderer 暴露普通切换；设置“设备”界面、无 Lease 的 Standby 会话（[ADR-0033](adr/0033-lease-less-standby-desktop-session.md)，2026-11-18 接受，未实施）、强制接管与新设备引导尚未交付）。
+结果链并生成 v2 声明，Desktop 设备切换按 [ADR-0032](adr/0032-desktop-device-switch-and-drain-handoff.md) 实施中：Cloud 已提供本设备回执查询（供 Host 判别跨 C1a 升级的版本 2 行）、Active 设备发起普通切换与提交已签名 drain proof 的路由，以及只需已绑定设备会话的设备列表与自报告路由；Host 已能停写、读取回执、以设备密钥签署并提交 drain proof，Tauri 以封闭步骤码向 Renderer 暴露普通切换；设置“设备”界面、无 Lease 的 Standby 会话（[ADR-0032](adr/0032-desktop-device-switch-and-drain-handoff.md)，2026-11-18 接受，未实施）、强制接管与新设备引导尚未交付）。
 
 ### Cloudflare 本机凭据清理
 

@@ -25,7 +25,7 @@ export interface DesktopLoginLeaseEntitlementPort {
 }
 
 /**
- * The Lease step of Desktop login and refresh (ADR-0033 decision 1). `active` carries this
+ * The Lease step of Desktop login and refresh (ADR-0032 Standby S1). `active` carries this
  * device's current Lease; `standby` means the device is eligible but must not hold the Lease now
  * (another device holds it, a switch is unfinished, an epoch allocation is pending, or execution
  * is blocked); `refused` means the device is not eligible at all.
@@ -61,7 +61,7 @@ type AccountTransactions = Pick<AccountTransactionRunner, "withAccount">;
  * Establishes or renews only the authenticated device's account-wide execution Lease. It never
  * allocates a Lease while a switch is unfinished, an epoch allocation is pending, or execution is
  * blocked: allocating then would let a login or refresh bypass the drain handoff, bootstrap and
- * activation (ADR-0033 decision 1). A device that already holds the Lease keeps its prior rules.
+ * activation (ADR-0032 Standby S1). A device that already holds the Lease keeps its prior rules.
  */
 export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
   constructor(private readonly dependencies: {
@@ -78,7 +78,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
     readonly transactionCredential: Uint8Array;
   }): Promise<DesktopLoginLeaseOutcome> {
     try {
-      // Standby needs no entitlement (ADR-0033 product decision 1); holding or allocating does.
+      // Standby needs no entitlement (ADR-0032 Standby S1); holding or allocating does.
       const entitlement = await this.dependencies.entitlement.readCurrent({
         transactionCredential: input.transactionCredential,
         expectedAccountId: input.accountId,

@@ -2910,7 +2910,7 @@ mod tests {
         fn spawn_child(root: &std::path::Path, role: &str) -> Child {
             Command::new(std::env::current_exe().expect("test executable"))
                 .arg("--exact")
-                .arg("backup::container::tests::backup_kek_custody_child_process")
+                .arg("desktop_local_host::container::tests::backup_kek_custody_child_process")
                 .arg("--nocapture")
                 .env("GOODDEALER_BACKUP_KEK_TEST_ROOT", root)
                 .env("GOODDEALER_BACKUP_KEK_TEST_ROLE", role)

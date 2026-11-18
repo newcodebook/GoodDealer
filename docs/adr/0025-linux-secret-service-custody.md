@@ -1,15 +1,8 @@
-# ADR-0025：Linux Desktop 使用 Secret Service 托管启动与登录秘密
+# ADR-0025：Linux Secret Service 的秘密托管边界
 
 状态：Accepted
 
-## 背景
-
-Desktop Host 的原生秘密托管此前只实现 macOS 数据保护 Keychain；其他平台的 `load/store`
-统一返回不可用，Host 在创建本地数据库前失败关闭。结果是 Linux 构件可以编译，但无法启动，
-也无法完成浏览器登录。ADR-0012 要求任何新平台的原生秘密存储先有具体设计决定，本 ADR
-即为 Linux 的该决定。
-
-## 决策
+## 托管范围
 
 Linux 构件通过 freedesktop Secret Service（GNOME Keyring、KWallet Secret Service 等会话总线
 实现）保存以下且仅以下条目：
@@ -29,7 +22,7 @@ Cloudflare 凭据（`cloudflare.dns.v1`）、备份 KEK 与 rebootstrap 写入�
 ### 适配器约束
 
 - 每个 crate 保留私有、目的绑定的适配器，不在 `secure-host-core` 公开面增加通用秘密或密钥链
-  API（ADR-0010）。适配器只接受代码中的固定 service/account 常量。
+  API（ADR-0006）。适配器只接受代码中的固定 service/account 常量。
 - 连接只走会话总线并强制 Diffie-Hellman 加密会话；不提供明文传输回退。
 - 条目以精确属性 `{application, service, account}` 标识，`application` 固定为
   `app.gooddealer.desktop`，内容类型固定为 `application/octet-stream`。
@@ -53,8 +46,5 @@ Cloudflare 凭据（`cloudflare.dns.v1`）、备份 KEK 与 rebootstrap 写入�
 - 本地 Linux 测试与运行只证明适配器行为，不构成发行资格；Linux 发行仍受 Q-NATIVE 原生资格和
   独立审查约束。
 
-## 后果
-
-Linux 构件可以启动、创建加密本地数据库并完成浏览器登录；Provider 凭据、备份与 rebootstrap
-在 Linux 上仍不可用。任何把 Cloudflare 凭据或备份 KEK 纳入 Secret Service 的扩展，必须先更新
-本 ADR 的条目表并说明对应的威胁接受。
+将 Provider 凭据、备份 KEK 或 rebootstrap 写入纳入 Secret Service 前，必须更新条目表并明确威胁接受。
+Windows/macOS 的完整首发目标按 ADR-0027，本决策不把 Linux 的边界扩展到这两个系统。

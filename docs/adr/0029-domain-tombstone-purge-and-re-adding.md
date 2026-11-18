@@ -1,32 +1,8 @@
-# ADR-0029：已删除域名的重新添加与实体 generation
+# ADR-0029：域名添加、删除与 generation
 
-状态：Accepted — 产品负责人于 2026-11-13 确认业务语义、generation、暂定期间冻结及阶段 3 范围，于 2026-11-14 确认 Cloud 删除采用软删除（决策 2）；实现中（C1a wire 版本 3、C1b1 删除物化、C1b2a Cloud generation 列与 C1b2b checkpoint/rebootstrap 版本 3 与 C1c1 本地 generation 列、C1c2a rebootstrap 安装墓碑与 C1c2b 本地 wire 版本 3 记录已实现；C2a Cloud 接受重新添加、C2b Desktop Inbox 应用其他设备的重新添加与 C2c1 本地重新添加的数据库语义及确定拒绝后的本地删除撤回已实现，C2c2 Host/Renderer/界面已实现但生产入口按完成条件关闭，C3 仍待完成），生产构建中已删除的域名目前仍不能重新添加。扩展
-[ADR-0004](0004-cloud-business-data-sync.md) 与 [ADR-0019](0019-complete-local-business-schema-and-cloud-replica-model.md)。
+状态：Accepted
 
-## 背景
-
-DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），删除是带删除时间的显式 mutation，
-本地写入 `deleted_at` 与 `sync_tombstones`。当前代码中：
-
-- **Cloud 已有的部分**：`workspace_mutations.operation_kind` 允许 `delete` 且要求 `deleted_at`，仓储能
-  持久化与读出 delete mutation，`workspace_replica_tombstones` 表已建（每实体一行，记录
-  `deleted_server_revision`）。
-- **Cloud 缺失的部分**：
-  - ingest 的 wire 解析遇到任何 `operationKind === "delete"` 即拒绝整个请求（`mutations/index.ts`）；
-  - 没有把 delete 物化到 `workspace_replica_tombstones` 的路径；
-  - checkpoint 重建遇到 delete 时直接移除该行而不留墓碑（`checkpoints/postgres-service.ts`）。
-- **首次添加**已交付：副本中既无活跃行也无墓碑的实体，其首个 upsert 创建默认活跃行；当前状态为墓碑的
-  实体仍以 `MUTATION_ENTITY_UNKNOWN` 拒绝。
-- **本地**：Inbox 收到 delete 时已写入同一 entity/revision 的墓碑（`state='replicated'`；有待发送字段时
-  `barrier_state='contested'`）；没有路径把墓碑置为 `purge_eligible` 或删除墓碑；创建对带 `deleted_at` 的行一律拒绝；
-  `sync_outbox_local_creations` 的触发器只允许标记实体的首个本地 upsert，且检查不含 `entity_kind`；
-  备份恢复的 `reject_candidate_tombstone_conflicts` 只依赖墓碑或 `deleted_at` 行。
-- [DATABASE_SCHEMA](../DATABASE_SCHEMA.md) 规定：端到端墓碑 materializer 上线前，Cloud ingest 对 delete
-  失败关闭；墓碑在所有保留设备与恢复窗口越过删除 revision 前不得清理。
-
-“删除后再添加”改变 Cloud 同步合同与 wire 格式，因此需要本 ADR。
-
-## 决策
+## 生命周期决策
 
 ### 1. 实体 generation
 
@@ -42,23 +18,23 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   checkpoint、rebootstrap 快照与 Inbox 下行都携带 generation 与墓碑。
 - 迁移：现有行与墓碑的 generation 为 1。
 
-### 2. 前置：端到端添加与删除
+### 2. 添加与删除
 
-在任何重新添加路径之前，先交付（可作为独立任务）：
+添加、删除与重新添加遵循同一实体生命周期：
 
-- **首次添加 ingest**（已交付，见背景）：引入 generation 后，其 `entityGeneration` 必须为 1。
+- **首次添加 ingest**：引入 generation 后，其 `entityGeneration` 必须为 1。
 - **删除 ingest 与物化（软删除）**：`entityGeneration` 等于活跃行 generation 的 delete，在 ingest 事务内把
   资产行改为软删除——`deleted_at` 取 mutation 的删除时间，`lifecycle_status='archived'`，业务字段清空为默认值，
   字段 revision 置为本次 revision——并写入同一 generation 的墓碑行。资产行不移除：Cloudflare DNS 观察回执
   不可变，并以 `ON DELETE RESTRICT` 外键引用资产行，移除活跃行会被拒绝；保留行让不可变证据与数据库层的
   引用完整性都不变，与本地 `deleted_at` 模型一致。数据库保证两者同进同出：软删除必须在同一事务内有墓碑，
-  墓碑必须指向已软删除的行，已删除行在重新添加（决策 3）实现前不可再修改。所有读取——投影、快照、
+  墓碑必须指向已软删除的行，已删除行仅可通过决策 3 的重新添加协议变为活跃。所有读取——投影、快照、
   checkpoint 与引导、恢复候选、观察准入——都排除已删除行。对副本中没有活跃行的实体（不存在或已删除）
-  的 delete，以及对已删除实体的 upsert，以 `MUTATION_ENTITY_UNKNOWN` 拒绝；同一批次内按顺序判断，先
+  的 delete，以及不满足决策 3 的已删除实体 upsert，以 `MUTATION_ENTITY_UNKNOWN` 拒绝；同一批次内按顺序判断，先
   upsert 新建再 delete 可以接受。delete 不做字段过期判定：它只要求实体当前活跃（generation 落地后另要求 generation 相等），所以其他设备在其 base 之后的字段编辑不阻止删除，删除胜出；那些设备经 Inbox 收到删除，有待发送字段时按冲突处理。checkpoint 重建同样把 delete 物化为删除：被删除的行不进入结果，范围内
-  再次 upsert 已删除实体视为链损坏；本地 Inbox 已写入的墓碑补上 generation（C1c）。
+  不满足决策 3 的重新添加视为链损坏；本地 Inbox 墓碑同样携带 generation。
 
-- **被 Cloud 确定拒绝的本地删除**（产品负责人 2026-11-16 采用撤回，与决策 4 一致）：若 Cloud 为该 mutation 返回确定性输入/协议拒绝或实体冲突，且本地仍有与该 Outbox 行同 generation、同 local commit sequence 的 `pending` 墓碑，则在同一事务中保留终态 Outbox 证据、移除该墓碑、恢复被软删除行原有业务投影与本地版本，并移除本次 delete 创建的 `lifecycleStatus` 待同步版本。该删除没有成为共享状态，界面应说明删除未生效（Renderer 提示尚未实现，属待办），用户可以再次删除；随后的 Cloud mutation 可按正常 revision 顺序应用。mutation id/设备序号幂等冲突不能证明此前是否已有同 id 操作生效，不自动撤回，保持删除状态并失败关闭。未经确认的网络错误不进入终态处置，也保留墓碑与 Outbox。
+- **被 Cloud 确定拒绝的本地删除**：若 Cloud 为该 mutation 返回确定性输入/协议拒绝或实体冲突，且本地仍有与该 Outbox 行同 generation、同 local commit sequence 的 `pending` 墓碑，则在同一事务中保留终态 Outbox 证据、移除该墓碑、恢复被软删除行原有业务投影与本地版本，并移除本次 delete 创建的 `lifecycleStatus` 待同步版本。该删除没有成为共享状态，界面应说明删除未生效，用户可以再次删除；随后的 Cloud mutation 可按正常 revision 顺序应用。mutation id/设备序号幂等冲突不能证明此前是否已有同 id 操作生效，不自动撤回，保持删除状态并失败关闭。未经确认的网络错误不进入终态处置，也保留墓碑与 Outbox。
 
 ### 3. 经同步的重新添加
 
@@ -78,7 +54,7 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   被拒绝，不会出现 ABA。`reAddsDeletedRevision` 让 Cloud 精确比对设备引用的是哪一块墓碑。
 - **普通 upsert 与 delete** 也必须 `entityGeneration` 等于活跃行 generation，否则拒绝。因此任何属于更早
   一代的 mutation（包括前任 Active 设备未同步的写入）都会被拒绝，这独立于 Lease epoch 栅栏。
-- **单活跃设备**（[ADR-0005](0005-single-active-device-and-continuity.md)）只减少合法写入者，不是安全依据；
+- **单活跃设备**（[ADR-0032](0032-desktop-device-switch-and-drain-handoff.md)）只减少合法写入者，不是安全依据；
   安全来自上述事务内条件与 generation 比较。
 
 ### 4. 本地前提与本地写入
@@ -112,17 +88,14 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
     解除冻结——本地回到 Cloud 的墓碑状态。无法撤回时按 rebootstrap 处理，以 Cloud 状态为准。
   - **Outbox 证据**：Outbox 行与其字段、创建标记都不删除（`sync_outbox_fields_v2_immutable_delete`
     禁止删除已认领行的字段），而是经现有的 `reject_sync_batch_v2` 路径终止：`MUTATION_GENERATION_MISMATCH` 映射为
-    `SYNC_MUTATION_CONFLICT`，行为 `conflicted` 且 `last_error_code='sync_mutation_conflict'`（与 ADR-0030
+    `SYNC_MUTATION_CONFLICT`，行为 `conflicted` 且 `last_error_code='sync_mutation_conflict'`（与 ADR-0019
     计入 drain 的行一致）；输入或 schema 拒绝为 `rejected`。作为操作历史与审计证据；创建标记仍指向这条已终止的行，界面把它显示为“重新添加被拒绝”。
-  - **序列**：被拒绝的行占用了一个 `device_mutation_sequence`，Cloud 从未收到它，而 drain 验证要求
-    Cloud 的连续接收水位等于租约的最后分配序列且没有缺口，否则 `DRAIN_STREAM_GAP`。这不是重新添加
-    特有的问题：任何确定性拒绝都会留下同样的缺口。被拒绝序列如何结束由
-    [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md) 提议（Cloud 拒绝回执计入 drain
-    水位），重新添加以它为前置，不另造跳过协议。
+  - **序列**：接受与确定性业务拒绝按 [ADR-0019](0019-complete-local-business-schema-and-cloud-replica-model.md)
+    的持久回执计入 drain；输入/协议拒绝等没有 Cloud 回执的序号继续失败关闭，不能自报跳过。
   暂定期间 Inbox 或快照带来的 generation g 墓碑与本地已确认状态一致，只确认该墓碑行，不被第 5 条
   拒绝，也不覆盖暂定的 g + 1 行与其 Outbox 项——后者仍由 ACK 或拒绝决定。
-- **上一代被拒绝写入留下的字段标记**（产品负责人 2026-11-16 选择回退 C2b 的字段携带，不修订决策 3）：
-  Cloud 确定性拒绝本地编辑后，该编辑的字段保持 `pending`（ADR-0030 的处置不改字段状态，对方写入到达时
+- **上一代被拒绝写入留下的字段标记**：
+  Cloud 确定性拒绝本地编辑后，该编辑的字段保持 `pending`（ADR-0019 的处置不改字段状态，对方写入到达时
   因此进入冲突中心而不覆盖本地值）。实体其后被删除时，这些标记属于已结束的 generation g：拒绝已把
   Outbox 行终止，没有任何内容要发送。进入 g + 1 的三个入口——Inbox 应用其他设备的重新添加、本设备的
   重新添加、rebootstrap 的 checkpoint generation 前进——都按决策 3 删除 g 的全部字段版本，这些标记随之
@@ -134,7 +107,7 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
   Inbox 收到墓碑，随后才晋升为 Active）。标记的 upsert 必须满足以下之一：
   - 首次添加：在本 mutation 的 `local_commit_sequence` 之前没有已提交的活跃行或墓碑（创建路径在同一
     事务中先写入资产行、后写入标记，所以不能以“当前没有活跃行”判断），没有更早的 Outbox 行，且
-    `entityGeneration = 1`（实现时须核对经 Inbox 应用的行如何写入可比较的 `local_commit_sequence`）；
+    `entityGeneration = 1`（经 Inbox 应用的行同样必须提供可比较的 `local_commit_sequence`）；
   - 重新添加：该实体本地**已确认**状态是 generation g、删除 revision R 的墓碑（来源是本设备删除的
     ACK 或 Inbox 应用，二者等价），该 Outbox 行带 `entityGeneration = g + 1` 与
     `reAddsDeletedRevision = R`，且该实体没有其他未结束（`pending`/`sending`）的 Outbox 行。
@@ -151,87 +124,16 @@ DomainAsset 以规范小写 IDNA ASCII 域名作为 `entity_id`（ADR-0019），
 活跃行或墓碑，不含第 4 条的暂定 g + 1）：候选数据的 generation 小于它，或等于已确认墓碑的
 generation 且不是该墓碑本身，一律拒绝：
 
-- 隔离备份候选与完整恢复（取代 `reject_candidate_tombstone_conflicts` 仅凭墓碑/`deleted_at` 的判断；
-  不含 generation 的旧格式备份按 generation 1 处理）；
+- 纳入活动工作区的备份候选与完整恢复（不含 generation 的旧格式备份按 generation 1 处理）；
 - rebootstrap 与 checkpoint 快照应用；
 - Inbox mutation 应用；
 - 客户端与 Cloud 的 checkpoint 重建；
 - Standby 晋升为 Active 时的连续性恢复。
 
-### 6. 墓碑清除推迟
+离线历史备份的隔离查看/导出按 ADR-0023 执行，不把活动工作区的 generation 门禁用于拒绝历史数据读取。
+
+### 6. 墓碑回收边界
 
 墓碑清除（存储回收）不是重新添加的前提。只有 Cloud 能给出每台保留设备与恢复窗口都越过删除
 revision 的水位后才能定义，另立 ADR；该 ADR 必须在删除墓碑行后仍保留该实体的 generation 下限，否则
 第 5 条的防护会出现缺口。
-
-## 备选方案
-
-- **先清除墓碑再允许重新创建**：需要 Cloud 侧的保留设备水位与恢复窗口判定，而目前两者都不存在；
-  且清除后若不保留 generation，旧备份可复活旧字段。不采用。
-- **不引入 generation，只凭墓碑判断**：重新添加后墓碑消失，删除前的备份与旧 mutation 无从识别。不采用。
-- **用 Cloud revision 充当 generation**：设备在 ACK 前不知道分配的 revision，本地重新添加与恢复防护无法
-  在离线时确定。不采用。
-- **删除时移除资产行，证据只按 `entity_id` 关联**：须先去掉不可变观察回执与投影对资产行的外键，失去数据库
-  层的引用完整性，并改动已冻结的证据约束。不采用（产品负责人 2026-11-14 选择软删除）。
-- **给重新添加的域名分配新身份**：与 ADR-0019“域名即 `entity_id`、不保留第二身份列”冲突。不采用。
-
-## 产品确认
-
-产品负责人于 2026-11-13 确认本 ADR 的业务语义、generation 与 wire 变更、暂定期间冻结、失败撤回与再次尝试，并将端到端删除及重新添加纳入阶段 3。墓碑物理清除继续推迟。ADR-0030 独立审查后的修订方案也已于同日接受；重新添加仍须等待该前置实现。交付状态以执行台账与测试证据为准。
-
-## 后果与验收
-
-接受后，执行台账中的对应项拆为：
-
-1. 首次添加 ingest 补上 generation 1；
-2. 删除 ingest、Cloud 墓碑物化、重建与 Inbox 的删除物化；
-3. generation 的 Cloud/本地迁移与 wire 版本；
-4. 经同步的重新添加（Cloud 合同、本地写入、暂定期间冻结、触发器、Host 创建路径），前置为 ADR-0030；
-5. 第 5 条所有入口的 generation 防护；
-6. 界面把“目前不能重新添加”改为说明何时可以重新添加。
-
-测试至少覆盖：
-
-- 另一台设备删除、本设备只经 Inbox 收到墓碑并晋升为 Active 后重新添加：创建标记成立、Cloud 接受；
-- 重新添加后立即编辑或删除被拒绝；随后收到 Cloud 拒绝：业务撤回到 generation g 墓碑，Outbox 行为
-  `conflicted`（`sync_mutation_conflict`）且字段与创建标记保留，冻结解除；
-- 本设备删除经 ACK（墓碑 `acknowledged`/`pending`）后重新添加被接受；
-- 重新添加被拒绝 → 撤回 → 修正 → 以同一 generation g + 1 再次添加并被 Cloud 接受；旧尝试的行与标记
-  保留；
-- 远端删除与本地待发送编辑冲突（墓碑 `barrier_state='contested'`，有开放冲突候选）后尝试重新添加：
-  被拒绝且不写入任何数据，冲突处理完成后才可重新添加；
-- 重新添加被拒绝后，该设备后续 mutation 仍能同步，设备切换的 drain 不因该序列被阻塞（依赖
-  ADR-0030）；
-
-负向测试至少覆盖：本地删除未经 Cloud 确认；`reAddsDeletedRevision` 或 `entityGeneration` 不符；
-`baseServerRevision < R`；实体当前不是墓碑；同一重新添加并发提交两次只分配一个 generation；Standby
-写入；跨租户；重新添加后恢复删除前的备份；前任 Active 设备的旧 mutation；旧 generation 的 Inbox 与
-checkpoint 数据；重新添加被 Cloud 拒绝后撤回暂定 generation，随后应用 Cloud 快照与墓碑。墓碑清除另立任务。
-
-完成条件：上述测试全部通过，且 PostgreSQL 资格证据覆盖新增的 ingest 路径；在此之前生产入口不存在
-重新添加的可执行路径。
-
-## 实施状态
-
-C3b 已实现（rebootstrap/checkpoint 安装，安装入口仍只在测试中编译）：版本 3 rebootstrap parser 接受 1 至 2^53−1 的 checkpoint 活跃资产与墓碑 generation，generation 受 checkpoint 摘要约束（改写后重签的计划被拒绝），replay 页接受符合 Inbox 约束的高代 mutation 与 re-add 字段。安装按决策 5 以本地**已确认** generation（墓碑的，否则资产行的）为基准：checkpoint 数据更旧（generation 更小，或同代但不是本地已确认的那条墓碑/删除 revision）时以 `InvalidInput` 整体拒绝、不写入；同代时活跃资产合并进同代活跃行，墓碑与本地同代、已确认（`acknowledged`/`replicated`）且删除 revision 相同的墓碑重合时保持不变。本地仍在变化的状态以 `MutationConflict` 整体等待、不写入：本设备未结束的删除（墓碑 `pending`）、`contested` 墓碑 barrier、暂定重新添加遇到同代或更新的 checkpoint 活跃资产，以及更新 generation 遇到未结束 Outbox 行、`conflicted` 字段或开放冲突（被拒绝写入留下、已无未结束 Outbox 行的 `pending` 字段标记不等待，随重置退役，见决策 4）。暂定期间 checkpoint 带来的 generation g 墓碑只确认该墓碑，不覆盖暂定 g + 1 行与其 Outbox 项（决策 4）。C3b2：checkpoint generation 更新时（Cloud 在已被压缩的历史中删除并重新添加过该实体），本地迁移 `202611160001`（active-workspace/checkpoint-generation-advance）新增不可变的 `sync_domain_asset_checkpoint_advances`（离开的 generation、到达的 generation、checkpoint revision），插入时由触发器要求离开的是本地当前 generation 且状态已结束；墓碑删除与资产 generation 改变的触发器各增加这一条转换。安装先写记录、删除被取代的墓碑、按 Inbox 重新添加相同的方式把行重置为新 generation 的干净活跃行（Provider 绑定与观察保留），再像其他同代实体一样安装 checkpoint 的值或墓碑；同一 checkpoint 重放不再产生记录。Rust 测试覆盖：同代/高代活跃资产与墓碑安装及幂等重放、更旧数据零写入拒绝、本设备未结束删除与 contested barrier 等待、暂定重新添加只确认墓碑与遇到更新 generation 时等待、从墓碑或第 1 代活跃行前进到第 2、3 代、前进前的未同步编辑等待、重新添加被拒绝撤回后应用 Cloud 快照与墓碑、记录与触发器的直接写入负向测试，以及 parser 对 generation 改写重签与越界值的拒绝。生产 rebootstrap 不属于 V1 主路径（ROADMAP），安装入口接入生产时须另行取得资格，被 Cloud 拒绝的本地编辑留下的 `pending` 字段标记按决策 4 的退出路径处理：generation 前进不因它们等待，并随重置退役（`rebootstrap_advances_over_the_field_marks_a_refused_edit_left`）；同代墓碑安装本就不检查字段。C3c 已核对（无新增写入口）：Standby 晋升为 Active 时的连续性恢复（ADR-0023 backup authority continuity）只判定 `ActivationRequired`/`SecurityLocked`/`RetryableLocked`/`VerifiedLocalContinuation`，不写任何业务数据；晋升后的设备只经 Inbox（C1c1 不同代整页拒绝、C2b 重新添加条件）、备份恢复（C3a1/C3a2）与 rebootstrap（C3b）取得数据，三者都已按 generation 防护，Standby 写入由 Cloud 拒绝（`A8 rejects Standby ingest`）。
-
-完成条件核对（2026-11-16）：上文测试清单逐条对应——Inbox 墓碑后重新添加 `local_re_add_is_provisional_frozen_and_confirmed_by_its_acknowledgement`（晋升本身不写业务数据，由上述 C3c 核对覆盖；Cloud 接受由 Cloud ingest 用例与本地 ACK 分别覆盖，不是单一端到端测试）；暂定期间冻结、拒绝撤回与证据保留 `a_rejected_local_re_add_is_withdrawn_and_may_be_attempted_again`；本设备删除 ACK 后重新添加 `local_re_add_follows_an_acknowledged_local_delete`；contested 与开放冲突 `local_re_add_is_refused_without_writing_until_its_preconditions_hold`；R/generation/base 不符、实体非墓碑与批次顺序 `workspace-mutation-ingest.test.ts`（ADR-0029 用例）；并发同一重新添加只分配一个 generation 与跨租户 `workspace-mutation-persistence.test.ts` 与 PostgreSQL 资格套件 `re-adds a deleted asset exactly once per generation…`；前任 Active 设备的旧 mutation `ADR-0029 refuses a former Active device's old-generation mutation after a re-add and a handover`（交接后 `MUTATION_DEVICE_NOT_ACTIVE`，再晋升后旧 epoch `MUTATION_EPOCH_STALE`，以当前租约重发为 `MUTATION_GENERATION_MISMATCH`，均不写入）；重新添加后恢复删除前的备份 C3a1/C3a2；旧 generation 的 Inbox 与 checkpoint `sync_page_refuses_a_later_generation_a_re_add_or_another_wire_version` 与 C3b；撤回后应用 Cloud 快照与墓碑 `a_withdrawn_re_add_then_takes_the_cloud_snapshot_and_tombstone`。PostgreSQL 资格已满足（https://github.com/newcodebook/GoodDealer/actions/runs/43818308872）。尚未满足：重新添加被拒绝后设备切换 drain 不被阻塞的端到端测试依赖设备切换项（台账第 195 行，产品负责人 2026-11-16 纳入 v1）。C2b 字段携带已于 2026-11-16 回退（见决策 4）。该项满足前 `LOCAL_RE_ADD_ENTRY_QUALIFIED` 保持关闭。
-
-C1a 已实现：协议新增 `WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION = 3`，Push/Pull 请求、响应、MutationPage 与
-每条 Mutation 使用版本 3，`entityGeneration` 必填，`reAddsDeletedRevision` 只允许出现在 generation ≥ 2 的
-upsert 上且不大于 `baseServerRevision`；checkpoint 与 rebootstrap 仍为版本 2。版本 2 历史不可变：协议提供从
-generation 1 的版本 3 Mutation 重新导出版本 2 摘要输入与 drain envelope 的 legacy 编码器，Cloud 按回执记录的
-`wire_schema_version` 比较重放，读取已保留的提交 envelope 时接受版本 3 或该 legacy 编码，其余视为损坏。前向
-迁移 `202611130005`（workspace/mutations）只把设备序号 ledger 的版本白名单扩为 1、2、3。generation 列落地前
-Cloud 对 generation ≠ 1 或带 `reAddsDeletedRevision` 的 Mutation 以 `MUTATION_SCHEMA_VERSION_UNSUPPORTED`
-拒绝，先于租户事务，不写结果回执、不占用设备序号（C2a 已移除这一事务前检查，见下）。Desktop 发送版本 3（generation 1），严格解析只接受
-generation 1、拒绝 re-add 字段；本地 SQLite 的 `wire_schema_version` 列仍固定为 2，记录同一 generation 1
-Mutation 的版本 2 编码摘要（内容等价、升级前已认领的行继续匹配）。这一临时例外已由 C1c2b 移除（见下）。rebootstrap 计划信封仍为版本 2，其中的 replay 页是版本 3 MutationPage，Desktop 按同样
-规则解析。已知缺口：升级后 Cloud drain 记录对升级前接受的 Mutation 保留 v2 提交 envelope、对之后的保存 v3；
-升级前认领、升级后 ACK 的本地行无法区分 Cloud 接受的是 v2 发送还是 v3 重发，Host 因而不能总是提供 ADR-0030 B3
-要求的“Cloud 记录的 envelope”。C1c2b 之后新记录的行可判别；此前记录为版本 2 的行须由设备切换端到端项给出判别方法，
-在此之前不得生成 v2 drain proof（Desktop 目前不生成）。重新添加在生产入口仍不可执行。
-
-C1b1 已实现（决策 2，软删除）：Cloud ingest——PostgreSQL 与内存实现共用同一条按批次顺序的实体状态规则——接受活跃资产的 delete，在 ingest 事务内软删除资产行并写墓碑行；对已删除资产的 upsert 或 delete、对副本从未持有的资产的 delete 以 `MUTATION_ENTITY_UNKNOWN` 拒绝。迁移 `202611140001` 只授予删除所写的列，触发器保证软删除行与墓碑成对、已删除行不可再修改。迁移同时修复此前已被 PostgreSQL ingest 接受、却按 upsert 路径留成活跃行的 delete：对最新保留 mutation 为 delete 的活跃行补做软删除与墓碑（压缩只删前缀，且尚无部署组合执行过压缩，所以没有被隐藏的删除；重复执行无变化）。所有读取排除已删除行，新设备从快照引导不再看到已删除域名；Cloud 重建把 delete 物化为移除，范围内再次 upsert 视为链损坏。generation 列与精确匹配、checkpoint 携带墓碑与 generation 属于 C1b2。
-
-C1b2a 已实现：迁移 `202611140002` 给 Cloud 副本资产行与墓碑各加 `entity_generation`（现有行为 1，application role 不可写，插入取默认值），触发器要求墓碑与其软删除行 generation 相同。ingest 的实体规则在“未知实体”之后比较 generation：到达活跃行的 upsert/delete 必须等于该行 generation，新建必须为 1，否则以 `MUTATION_GENERATION_MISMATCH` 拒绝；单项拒绝按 ADR-0030 记回执（迁移 `202611140003` 扩展回执代码白名单），推送响应映射为 `SYNC_MUTATION_CONFLICT`，wire 不变。C1a 的事务前检查当时仍只放行 generation 1，所以 C2a 之前这条比较只防御被改写的行。C1b2b 已实现：checkpoint 与 rebootstrap wire 升到版本 3（版本 1、2 不含删除，一律拒绝）。checkpoint 状态是全部活跃资产（各带 `entityGeneration`）加全部墓碑（`entityGeneration`、删除 revision ≤ checkpoint revision、删除时间），两者按 UTF-8 严格升序且互不重叠；活跃资产按 512 行分区为 `p0000…`/`empty`，墓碑分区为 `t0000…`，各用独立域分隔摘要后聚合为 checkpoint 摘要。原有 v1 投影摘要保留给设备引导的目标投影。迁移 `202611140004`（workspace/checkpoints）在存在任何版本 1/2 checkpoint 时拒绝执行（构建与压缩从未接入任何入口，部署中不应有此类行），随后只允许版本 3，checkpoint 资产行加 `entity_generation`，新增 `workspace_checkpoint_domain_asset_tombstones`（RLS、按分区引用摘要行）。portfolio 的 `captureCheckpointState` 只在每条墓碑都指向同代软删除行、软删除行与墓碑数量一致时返回，否则失败关闭。Cloud 构建、校验、重建与 rebootstrap 计划都使用完整状态；重建把范围内 delete 物化为同代墓碑，对墓碑的任何后续条目、新建非 1 代、或与活跃行 generation 不符的条目视为链损坏，并与实时副本状态的 checkpoint 摘要比较。client-core 引导累加器的 checkpoint 快照升到版本 2 并携带状态，重放 delete 为墓碑并拒绝复活；最终目标投影摘要不变。Desktop 原生 checkpoint 请求/响应/描述符与拉取拒绝中的描述符升到版本 3，本地已存的版本 2 描述符不会被读回，下一次 checkpoint 到期时被覆盖（有 Rust 测试）；仅测试编译的 rebootstrap 解析器校验版本 3 摘要，但在 C1c 之前对含墓碑或 generation ≠ 1 的计划失败关闭。重建中的 generation 检查目前只防御：变更流水尚未存 generation（读出固定为 1），C2 加该列后才具区分力。部署到 staging 前先只读执行 `SELECT count(*) FROM workspace_checkpoints` 并记录结果，避免迁移在部署中意外拒绝。C1b1 之前接受的历史若对同一资产先 delete 再 upsert，重建会以“复活已删除实体”拒绝；生产尚无入口运行重建，staging 迁移前与上述计数一并检查。C1c 拆为 C1c1 与 C1c2。C1c1 已实现：本地迁移 `202611140001`（active-workspace/entity-generation）给 `domain_assets`、`sync_tombstones` 与 `sync_outbox` 追加 `entity_generation`（现有行为 1，只允许 1 至 2^53−1）。触发器保证 generation 写入后不变（C2 的重新添加替换这些触发器），墓碑与 Outbox mutation 必须与所指资产行同代，先于资产行到达的复制墓碑约束之后写入的资产行。Outbox 重新导出 wire 时使用行上冻结的 generation；Inbox 对与本地行不同代的 mutation 拒绝整页、不写任何行，复制删除写入的墓碑与资产行带 mutation 的 generation。本地删除、删除 ACK、拉取删除与备份恢复写入的本地删除沿用既有路径，由触发器保证同代；备份以 `sqlcipher_export` 整库搬运，新列随之保留。C1c2 拆为 C1c2a 与 C1c2b。C1c2a 已实现：本地迁移 `202611140002`（active-workspace/checkpoint-tombstone-provenance）给 `sync_tombstones` 加 `order_provenance`（`mutation`，或 `checkpoint`）。复制 mutation 写入的墓碑仍以 revision、来源设备与 mutation id 作排序证据；checkpoint 只给出删除 revision 与 generation，而 Cloud 为每条接受的 mutation 分配独立 revision，revision 本身足以排序，设备与 mutation id 只在同一 revision 内打破平局，所以 checkpoint 来源的墓碑必须为 `replicated`、排序 revision 等于删除 revision、不带也不得补上 mutation id，来源不可改。rebootstrap 计划把 checkpoint 墓碑（仍只接受 generation 1，删除 revision 在 1 与 checkpoint revision 之间，与活跃资产不重叠、严格排序）交给安装：本地没有的实体写入软删除行与墓碑，干净的活跃行被软删除，已有同代墓碑保持不变；对已删除实体有未同步本地编辑时整个安装以冲突拒绝、不写任何行（rebootstrap 尚不把它们呈现为冲突，也不得静默丢弃）。rebootstrap 安装仍只在测试中编译。C1c2b 已实现：本地迁移 `202611140003`（active-workspace/sync-wire-v3）按 SQLite 文档的表重建流程重建 `sync_outbox` 与 `sync_inbox`（列、键、索引与触发器不变，仅 Inbox 摘要唯一索引改名为 `sync_inbox_wire_digest` 并覆盖所有已记录版本），`wire_schema_version` 允许 2 或 3，版本 2 只允许 generation 1；迁移执行器只对这一重建在其事务外关闭外键（避免删除旧表时的级联删除），提交前要求 `foreign_key_check` 为空并恢复原设置。新认领与新收到的 mutation 记录版本 3 与按发送字节计算的摘要；重建前记录为版本 2 的行保留原版本与摘要（wire 身份不可变），再次认领与 ACK 按记录版本匹配。C1a 的 v2 记录例外由此移除。记录版本 3 的行，Cloud 接受的就是版本 3；记录版本 2 的行仍无法区分升级前 v2 发送与 C1a 之后的 v3 发送，留给设备切换端到端项（台账第 191 行）给出判别，在此之前不得生成 v2 drain proof。C2 拆为 C2a（Cloud 接受重新添加）、C2b（Desktop Inbox 应用其他设备的重新添加）与 C2c（Desktop 本地重新添加、暂定、冻结与撤回）。C2a 已实现：移除 C1a 的事务前 generation 检查；PostgreSQL 与内存 ingest 共用的实体规则在工作区 revision 锁之后按决策 3 判断重新添加——实体当前是 generation g、删除 revision R 的墓碑，mutation 带 `reAddsDeletedRevision = R`、`entityGeneration = g + 1`、`R <= base <= head`——否则以 `MUTATION_GENERATION_MISMATCH` 拒绝（单项记回执；对活跃或从未持有的资产的重新添加也属此类，因为设备指名的墓碑不是 Cloud 的）；其他条目到达墓碑仍为 `MUTATION_ENTITY_UNKNOWN`。批次内先前的 delete 尚无 revision，同批不能重新添加它；重新添加之后的同批编辑或删除按新 generation 判断。接受时在同一事务中按 generation 与删除 revision 删除墓碑，把软删除行重置为 g + 1 的活跃行（业务字段取默认值、`lifecycle_status='active'`、所有字段 revision 为本次 revision），再应用本次字段；重复提交为精确重复，并发的同一重新添加只分配一个 generation（revision 锁串行化）。迁移 `202611140005`（workspace/mutations）给变更流水加 `entity_generation`（既有行为 1）与 `re_adds_deleted_revision`（仅 upsert、generation ≥ 2、1 ≤ R ≤ base），`parseStoredMutation` 读出存储值，拉取页、重放与 drain envelope 报告接受的 generation。迁移 `202611140006`（workspace/state/portfolio）替换“已删除行最终”触发器，只放行上述重置（墓碑已删除、generation 恰为 +1、业务字段为默认、字段 revision 一致且晚于删除）；活跃行 generation 不可变；DomainAsset 墓碑的删除由延迟约束触发器要求提交时资产行 generation 已超过该墓碑（或资产行随工作区级联删除）；application role 获得资产 `entity_generation` 更新、墓碑 `entity_generation` 插入与墓碑删除权限。删除物化把行的 generation 写入墓碑，第 2 代及以后的删除不再触发同代触发器失败。Cloud 与 client-core 的 checkpoint 重建按同一条件把重新添加物化为 g + 1 的活跃行，其余墓碑上的条目仍视为链损坏；变更流水存 generation 后，重建的 generation 检查具有区分力（PostgreSQL 测试比较重新添加后的重建与实时副本 checkpoint 摘要）。C2b 已实现：Desktop 原生拉取边界与 Inbox 页解析接受 generation 1 至 2^53−1 与可选的 `reAddsDeletedRevision`（只允许 upsert、generation ≥ 2、1 ≤ R ≤ base，缺省时不序列化，摘要仍按发送字节）。Inbox 只在本地已确认状态正是该 mutation 指名的墓碑（generation g、删除 revision R，资产行为同代软删除行或不存在）时应用重新添加；墓碑不是这一条、不存在或资产仍活跃时以 `InvalidInput` 拒绝整页（本地与 Cloud 已分叉，与 C1c1 不同代拒绝一致）。本设备删除未确认（墓碑 `pending`）、墓碑 barrier `contested`、该实体存在 `sending` Outbox 行（结果未知）、开放冲突或 `conflicted` 字段，或存在本设备暂定的重新添加时，以 `MutationConflict` 拒绝整页、不写入，同步运行映射为 ACK 不符并在下一周期重试。提交 37d002b 曾另含一项未经独立评估的改动：把该实体的 `pending` 字段写回 g + 1 并生成冲突候选，与决策 3“旧字段不复活”不符；产品负责人 2026-11-16 选择回退。现在该实体有 `pending`/`sending` Outbox 行时整页等待，只剩被拒绝写入留下的 `pending` 字段标记时照常应用，标记随 g 的字段版本退役（决策 4“上一代被拒绝写入留下的字段标记”；测试 `a_re_add_waits_for_a_queued_edit_then_retires_the_marks_of_its_rejection`）。已确认的本地删除（`acknowledged`，barrier 仍为 `pending`）视为已收敛。应用时在拉取页事务内依次写入不可变的重新添加记录、删除墓碑、把资产行重置为 g + 1 的活跃行（同步字段、标签与本地期望状态取默认值，四个同步字段 revision 为本次 revision，取得、到期、续费与锁定等本地生命周期字段清空，旧代字段版本删除），再应用本次字段；Provider 绑定与观察证据描述真实域名而非该实体，保持不变。本地迁移 `202611140004`（active-workspace/inbox-re-add）新增 `sync_domain_asset_re_adds`（每个被取代的 generation 一行：删除 revision、重新添加 mutation id 与 revision、来源 `replicated`，不可改不可删，写入时必须指名现存墓碑），墓碑只能在存在对应记录时删除，资产 generation 只能在已软删除、墓碑已删除且存在记录时恰好 +1 并恢复为活跃（替换 C1c1 的不变触发器），墓碑存在时软删除行不能复活。本地编辑、删除、冲突裁决与备份恢复写入的 Outbox 行与本地删除墓碑显式携带资产当前 generation，重新添加后的资产可继续编辑与删除。C2c 拆为 C2c1（数据库语义）与 C2c2（Host 创建路径、Renderer 合同与界面）。C2c1 已实现：本地迁移 `202611140005`（active-workspace/local-re-add）重建 `sync_domain_asset_re_adds` 使来源可为 `local`，`sync_outbox` 加不可变 `re_adds_deleted_revision`，新增 `sync_domain_asset_provisional_re_adds`（每实体至多一个暂定重新添加，写入时由触发器复核决策 4 的前提，延迟外键指向其 Outbox 行，只能在 ACK 确认或拒绝撤回后删除）。本地重新添加在一个事务中写入暂定指针、把软删除行重置为 g + 1（只含本次字段）、写 Outbox 行（`entityGeneration = g + 1`、`reAddsDeletedRevision = R`）与创建标记，g 的墓碑保留；前提不满足时以 `LOCAL_ASSET_RE_ADD_BLOCKED` 拒绝、不写入。暂定期间该实体的编辑、删除与再次重新添加以 `LOCAL_ASSET_RE_ADD_PENDING` 拒绝，数据库同时拒绝该实体的其他 Outbox 插入。ACK 在同一事务中写入来源 `local` 的记录（revision 为 ACK revision）、删除墓碑与指针；Cloud 拒绝时 Outbox 行照常终止（字段与创建标记保留），同一事务把行撤回为 g 的已删除行、清除本次字段与字段版本并删除指针，修正后可再以 g + 1 尝试。资产 generation 触发器只放行三种转换：Inbox 已确认的重新添加、暂定的本地重新添加（墓碑仍在）与被拒绝后的撤回。Cloud 回声：已确认的本设备重新添加按普通 upsert 应用，暂定期间则等待。本设备已 ACK 的 mutation 的回声（mutation id、ACK revision 与按 Outbox 行记录版本计算的 wire 摘要都一致）到达时，若实体已因本设备之后的写入前进（有该回声未描述的墓碑，或资产行为别的 generation），记为已应用而不重放；这修正了自 C1b1 起本设备新增后删除、两者都已 ACK 时拉取永久停滞的问题，不改 wire 与 schema。未前进时回声照常投影，但某字段若由本设备之后的写入持有——仍在发送，或已被 Cloud 以更晚的 revision 接受而其回声尚未拉取——该字段保留本地值、不生成冲突（与 Cloud 的 `isOwnEarlierWrite` 一致），分页拉取不会把投影暂时倒退到较早的值；被拒绝写入留下的 `pending` 字段仍生成冲突。C2c2 已将本地重新添加接入 Host/Renderer：Host 创建命令在已确认墓碑满足前置条件时写入暂定 g + 1 并返回 `re_add` 回执，前置不满足为 `DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED`、已暂定为 `DESKTOP_LOCAL_ASSET_RE_ADD_PENDING`，界面显示“正在同步重新添加”。按完成条件，生产构建中这条路径由 `LOCAL_RE_ADD_ENTRY_QUALIFIED`（local-storage business 模块，当前为 `false`）关闭，已删除域名仍以 `DESKTOP_LOCAL_ASSET_DELETED` 拒绝、不写入，只有单元测试走完整路径；关闭完成条件的变更把它改为开启并删除该常量。PostgreSQL 资格套件（`wp2-workspace-sync-durability`）已加入并发删除、竞争重新添加、旧代写入与下一代编辑的多租户生命周期测试，该工作流在 b161364 上的运行（https://github.com/newcodebook/GoodDealer/actions/runs/43818308872，2026-11-16）报告 `qualified: true`、PostgreSQL 18.6、5/5 通过，构成新增 ingest 路径的 PostgreSQL 资格证据。备份恢复候选、rebootstrap/checkpoint 安装与连续性恢复的 generation 防护属 C3（rebootstrap 安装仍只接受 generation 1 且只在测试中编译）。C3 按入口拆分。C3a1 已实现（备份恢复）：备份投影格式不含 generation，按本决策其资产一律视为 generation 1；恢复在写入前对每个候选资产比较本地已确认状态，存在墓碑、软删除行或 generation 不为 1 的活跃行时以冲突拒绝、不写入（此前只看墓碑与 `deleted_at`，另一设备删除后重新添加的域名没有墓碑，删除前的备份会把第 1 代字段写回第 2 代）。工作区存在暂定的本地重新添加时，完整集合恢复必然写到被冻结的实体，所以整次恢复以 `LOCAL_ASSET_RE_ADD_PENDING` 拒绝、不写入，Host 映射为 `BACKUP_CONFLICT_REJECTED`。C3a2 已实现：备份投影 body 升到版本 2，新增与资产同序的 `assetGenerations`（每项 1 至 2^53−1，长度与资产一致）；版本 1 body 必须不含该字段，其资产按 generation 1 读取，其余组合以 `ProjectionRejected` 拒绝，规范化重序列化校验不变。恢复只把候选资产写到同一 generation：本地同代活跃行，或本地从未持有且候选为第 1 代（恢复新建的就是第 1 代）；墓碑、软删除行或其他 generation 一律冲突拒绝。重新添加之后的备份因此可以恢复到同一第 2 代，删除前的备份（无论版本 1 还是 2）仍被拒绝。墓碑清除另立 ADR 时须保留 generation 下限，否则旧备份可在墓碑行删除后越过此检查。rebootstrap/checkpoint 安装与连续性恢复的防护属 C3b、C3c。

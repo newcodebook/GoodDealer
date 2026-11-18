@@ -327,7 +327,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
         ...overrides,
       });
 
-    // Each refusal records only its sequence-ledger receipt (ADR-0030) and changes no replica row.
+    // Each refusal records only its sequence-ledger receipt (ADR-0019) and changes no replica row.
     const before = await replicaCounts(scopeA);
     const refusals = [
       [reAdd("wrong-revision", 4, 3, { reAddsDeletedRevision: 2 }), "MUTATION_GENERATION_MISMATCH"],
@@ -1665,7 +1665,7 @@ describe("PostgreSQL workspace Mutation persistence", () => {
     const before = await replicaCounts(scopeA);
     expect(before).toEqual({ revision: "2", assets: "1", tombstones: "1", replay: "2", receipts: "2", ledger: "2" });
 
-    // Each single-item business rejection records only its sequence-ledger receipt (ADR-0030).
+    // Each single-item business rejection records only its sequence-ledger receipt (ADR-0019).
     for (const [index, mutation] of [
       submitted("revive", 3, 2),
       deletion("delete-again", 4, 2),

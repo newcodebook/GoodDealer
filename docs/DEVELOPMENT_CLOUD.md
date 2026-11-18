@@ -52,8 +52,8 @@ greenfield catalog 当前有 40 项：M001–M017、M019 后接 M020，再依次
 `202609140001-sync-v2-ledger`、`202609150001-workspace-checkpoint-v2` 和
 `202609150002-cloudflare-dns-observation`、`202609210001-account-recovery`、
 `202609220001-commercial-entitlement-snapshot` 和
-`202609220002-account-default-workspace-capability-policy`，最后是 ADR-0026 的
-`202611020001-desktop-login-loopback-redirect` 与 `202611020002-desktop-code-loopback-redirect`，最后是 ADR-0030
+`202609220002-account-default-workspace-capability-policy`，最后是 ADR-0011 的
+`202611020001-desktop-login-loopback-redirect` 与 `202611020002-desktop-code-loopback-redirect`，最后是 ADR-0019
 B1 的 `202611130001-drain-proof-schema-version`、`202611130002-mutation-drain-result-chain`、B2 的
 `202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain` 与 ADR-0029 C1a 的
 `202611130005-mutation-wire-v3`，ADR-0029 C1b–C2 的 `202611140001-replica-domain-asset-deletion`、
@@ -139,7 +139,7 @@ capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 S
 `refund_request`。当前源码 catalog 应有 40 个条目：M001–M017、M019、M020、上述三个同步/观察
 migration、`202609210001-account-recovery`、`202609220001-commercial-entitlement-snapshot` 和
 `202609220002-account-default-workspace-capability-policy`、`202611020001-desktop-login-loopback-redirect` 和
-`202611020002-desktop-code-loopback-redirect`，以及 ADR-0030 B1 的 `202611130001-drain-proof-schema-version` 和
+`202611020002-desktop-code-loopback-redirect`，以及 ADR-0019 B1 的 `202611130001-drain-proof-schema-version` 和
 `202611130002-mutation-drain-result-chain`、B2 的 `202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain`、ADR-0029 C1a 的 `202611130005-mutation-wire-v3`、ADR-0029 C1b–C2 的 `202611140001`–`202611140006` 六项与
 ADR-0032 S1c 的 `202611170001-drain-handoff-target-key` 与 `202611170002-drain-proof-admission`；最后十五项需要新的 staging 应用证据。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
 roles/memberships、同步 v2 ledger/checkpoint/Cloudflare observation schema 与五个 runtime 登录身份

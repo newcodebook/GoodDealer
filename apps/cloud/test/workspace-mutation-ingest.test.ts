@@ -423,7 +423,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     expect(subject.portfolio.readDomainAssetEntry(scopeA, "again.test")).toEqual({ state: "active", generation: 3 });
   });
 
-  it("ADR-0030 ends a single-item business rejection's sequence and replays it exactly", async () => {
+  it("ADR-0019 ends a single-item business rejection's sequence and replays it exactly", async () => {
     const subject = harness();
     subject.bind(scopeA);
     const domain = { sourceDeviceId: "shared-device", activeLeaseEpoch: 7, stream: "mutation" } as const;
@@ -479,7 +479,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
     });
   });
 
-  it("ADR-0030 folds a v2 chain over the device's global sequence across Lease epochs", async () => {
+  it("ADR-0019 folds a v2 chain over the device's global sequence across Lease epochs", async () => {
     const subject = harness();
     subject.bind(scopeA);
     await subject.ingest.ingest(scopeA, request([mutation({ sequence: 1, baseServerRevision: 0 })]));
@@ -517,7 +517,7 @@ describe("workspace SubmittedSyncMutation ingest", () => {
       .resolves.toMatchObject({ contiguousReceivedThrough: 0 });
   });
 
-  it("ADR-0030 leaves no rejection evidence on a storage fault and refuses to extend a sealed domain", async () => {
+  it("ADR-0019 leaves no rejection evidence on a storage fault and refuses to extend a sealed domain", async () => {
     let failing = true;
     const subject = harness((point) => { if (failing && point === "after_rejection_record") throw new Error("rejection-fault"); });
     subject.bind(scopeA);

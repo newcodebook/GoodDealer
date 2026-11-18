@@ -1,5 +1,9 @@
 # GoodDealer 数据生命周期与恢复
 
+产品恢复目标与新边界以 [ADR-0023](adr/0023-business-backup-and-recovery.md)为准：
+独立备份由用户保存并跨机离线恢复，云恢复取得最近成功同步的副本；Windows/macOS 均需完整支持。
+下文 GDBK v1 描述既有安装绑定协议，不是新备份的产品限制，也不表示生产恢复已可用。
+
 ## 数据分类
 
 | 类别 | 权威位置 | 生命周期规则 |
@@ -63,6 +67,6 @@ journal/key/candidate/sidecar 或检查不确定性都终止 Host 构造，不�
 quarantine Host 与恢复执行只在 `cfg(test)`。retained-fd 证据
 不覆盖同 UID swap-and-swap-back SQLite 副作用。因此 GDBK、continuity 与 rebootstrap 均不可用。
 
-详细源能力约束见 [ADR-0015](adr/0015-host-owned-sqlite-backup-source.md)，完整权威边界见
+详细源能力约束见 [ADR-0023](adr/0023-business-backup-and-recovery.md)，完整权威边界见
 [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md)，GDBK 与恢复语义见
-[ADR-0023](adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md)。
+[ADR-0023](adr/0023-business-backup-and-recovery.md)。

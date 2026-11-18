@@ -108,7 +108,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
   }
 
   /**
-   * ADR-0032 decision 4. The device is the session's active device, so a device can read only its
+   * ADR-0032 receipt verification. The device is the session's active device, so a device can read only its
    * own receipts; a request naming another device's mutation ids simply finds none of them.
    */
   async receipts(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationReceiptReadResponse | null> {

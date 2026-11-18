@@ -19,24 +19,13 @@
 
 ## 当前源码状态和范围控制
 
-以下是本次源码快照，而不是能力可用性声明：
+源码组合、开发缺口及注册表统一见 [当前实现](CURRENT_IMPLEMENTATION.md)。本文件维护验收要求，
+不再复制另一份页面、命令、路由或迁移数量。历史 staging 与局部复审记录只证明当时观察的构件，
+不能自动适用于当前源码。
 
-| 区域 | Current source state | 声明限制 |
-| --- | --- | --- |
-| Desktop Host | Tauri 精确注册当前具名本地业务、备份、认证和 Cloudflare 命令；Runtime 分离读写门禁，过期后可通过 OS-protected verified binding 只读重开；`secure-host-core` 持有 device/refresh custody、PKCE/device PoP、build-pinned 公钥 registry 与 Grant/Lease Ed25519 验签，`gooddealer-local-storage` 的 `DesktopLocalHost` 持有 SQLCipher key、本地业务与全部备份 authority。Native Bearer Grant transport 验签后激活 runtime。 | 不证明生产 Cloud/OpenBao 已部署、build-pinned registry 已用真实 key 构建、原生备份 picker/handle/KEK/anchor 资格或客户发行已完成。 |
-| Desktop production graph | `apps/desktop/src/app.tsx` 只通过具名 authentication、local-business、portfolio、renewals、batch operations、manual tasks、history、sales、DNS health、settings、sync/conflict adapters 打开工作区并跟随认证状态；`app/workspace-view.tsx` 为资产库、域名详情、续费、销售、DNS 健康、批量任务、冲突中心、人工任务、操作历史与设置提供生产渲染；人工任务只读取 `local_manual_tasks_read` 中等待用户在平台控制台完成的计划项，读取合同拒绝浏览器会话、自动化、授权与凭据字段，任务不提供任何动作；操作历史只读取 `local_history_read` 的最新 500 条本地 Revision 与字段差异，今日变更由 Host 按请求中的本地日界对全账本计数（同一次读取只用一个本地日，本地日结束时重新读取），不暴露 mutation、设备或租约标识，生产图不组合撤销命令端口，回滚与导出不可用；续费只读取 `local_renewals_read` 中 60 天内到期的资产、自动续费与最近确认的注册商，每次只读一页，指标来自 Host 全量计数，续费价格、预算与计划显示为不可用，不提供选择、年限、自动续费切换或续费操作；批量任务只读取 `local_batch_operations_read` 的操作计划列表，不暴露计划、操作或 Provider 请求标识，新建、审批、执行与重试显示为不可用且生产图不组合任何批量命令端口；销售只读取 `local_sales_read` 中由 Host 按域名合并各市场最新挂牌观察的一页，指标来自 Host 全量计数，未确认证据显示为“未确认”，报价、成交、浏览量与上架日期显示为不可用，不提供挂牌、改价、报价或转移操作；DNS 健康只读取 `local_dns_health_read` 的 Host 观察事实，搜索交给 Host，每次只读一页，指标来自 Host 全量计数，所有权验证、委派与记录健康判断显示为未接入/未观察。设置只读取 `local_settings_read` 的脱敏平台连接与角色，每项能力在资格认证前显示不可用、不提供连接/重新授权/管理操作；设备、许可、拉取频率与构建信息尚无 Host 来源，显示为不可用。其余设计页面（接入向导、批量差异预览）只存在于 `visual-fixtures`；`app/production-build-graph.test.ts` 在内存中构建生产入口，证明构件包含每个已组合页面的 feature 模块且不含 `visual-fixtures` 或 brand 模块。不导入 `cloud-client`、Provider transport 或数据库实现。Workspace route 由授权 surface 与同步状态共同筛选，冲突解决后只发布 generation-stable 的完整权威重读。 | 本地纵向与局部独立复审不等于真实登录、Provider、全系统 V1 或发行可用。 |
-| Cloud public and jobs composition | `publicBusinessRoutes` 精确注册当前公共业务 route；Desktop OAuth 独立入口组合 Account Web session、PKCE、设备 challenge/PoP、首次绑定的五分钟密码/Passkey 重新认证与同 Web 会话约束、access/refresh token，Grant route 只接受绑定设备的 Desktop Bearer 主体。OpenBao Transit adapter 实现分钥、固定版本、有界 wire 和本地公钥复验。`adminBusinessRoutes` 仍为空；`periodicJobs` 精确注册 Licensing provider inbox/reconciliation，并只经窄应用端口调度。 | 本地 adapter/route/job 测试不等于已部署客户 API、生产 self-hosted scheduler/worker、live provider 或已配置生产 OpenBao；PostgreSQL composition 测试需要 `GOODDEALER_POSTGRES_*` 环境。 |
-| Identity account-access source | 独立 Identity ingress 和 Account Web 源码组合注册、验证/重发、密码登录/恢复、session discovery、登录轮换和服务端退出；后续 recovery migration 增加用途隔离 reset challenge、challenge-bound outbox、bounded dead-letter 与旧会话撤销。成功验证在一个 PostgreSQL 事务内激活账户并创建个人默认工作区，随后要求显式登录。 | 真实 staging Resend 投递、完整浏览器旅程和当时目录的 25 条 migration 已取得部署证据（当前目录 27 条，后两项 loopback redirect migration 需要新的应用证据）；生产邮件域名/资格、live payment、生产 OpenBao/worker 与容量仍不在本行声明范围。 |
-| Staging authorization deployment | [`api.gooddealer.com`](DEVELOPMENT_CLOUD.md) 与 `account.gooddealer.com` 已通过 Cloudflare 和独立 Nginx/Let's Encrypt 站点接入 loopback Cloud；当前 release 使用同源代理、Resend 事务邮件、注册/邮箱验证/密码登录、真实 Cookie session、当时目录的 25 条 migration、Stripe test-mode 商业链路与 systemd worker。无数据库或开发工具权限的临时邮箱用户已完成注册、验证、登录、刷新恢复和退出，退出后的旧 session 返回 401。 | PostgreSQL 18.4 低于仓库锁定的 18.6，仍不构成生产 PostgreSQL 资格、live payment、生产 OpenBao/worker、HA、灾难恢复或生产客户可用性。 |
-| 首切片共享合同 | `@gooddealer/protocol` 与 `@gooddealer/cloud-client` 已公开 tenant-neutral 激活、整体签名授权 Grant v3、Mutation ACK、Pull Cursor、Checkpoint 与恢复输入合同。 | 合同、fail-closed Grant route、OpenBao adapter 与本地验签不证明生产 OpenBao custody 或发行资格。 |
-| Cloudflare Secure Host | `secure-host-core` 已实现私有 Zone/DNS 只读 Service、固定 `api.cloudflare.com` 的加固 HTTPS Transport、v3 完整公开元组信封与 exact-base/explicit-target Keychain 发布；Tauri 已组合独立 ProviderLane、原生秘密录入和 stored observation，Renderer 已组合 activation/status/recovery/read-only observation。Activation 只把 Host durable prewrite handle 交给 Secure Host；prewrite COMMIT 原子 deny use，之后取消不再中断。Exact B 才能 marker/write，mismatch/malformed/unreadable 与 orphan 都在不推进 ledger/head 的前提下 sticky remediation。其 crate 不包含备份实现或依赖。 | Renderer 组合与本地测试不证明真实 Cloudflare、目标平台签名/Keychain 构件或提供商资格；完成这些外部证据前不能声明客户可用。 |
-| GDBK backup/restore | `gooddealer-local-storage` 的 `DesktopLocalHost` 独占 authority continuity、strict GDBK v1、allowlisted projection、isolated candidate、guarded current-DB honest replay；client-core 合同、Desktop raw-wire adapter 和仅在 `cfg(test)` 编译的 continuity/rebootstrap runtime/custody/database 状态机已在私有开发组合中验证。 | true-create-only fake 只证明私有协议；生产不保留 recovery shell，只保留 fixed-resource residue absence gate，且缺少 picker/handle、真实 KEK、独立 non-rollbackable anchor、true create-only slot custody、safe `SQLITE_FCNTL_HAS_MOVED`/custody VFS、durable filesystem 与签名目标平台故障资格。备份、continuity、rebootstrap 均为 `unavailable`，不能声明恢复或灾难恢复可用。 |
-| 金额显示 | `@gooddealer/i18n` 的 `formatMoney`/`formatNumber` 先用 BigInt 把十进制字符串精确舍入到显示位数（半数远离零，与 Intl 默认一致），再交给 Intl；运行时探测一次 ECMA-402 NumberFormat v3 的字符串输入。MDN browser-compat-data `javascript.builtins.Intl.NumberFormat.format.number_parameter-string_decimal`（2026-11-06 查询）：Chrome/Edge 106、Safari 15.4、Firefox 116。WebView2 为 Chromium，WKWebView 随系统 Safari 的 WebKit，WebKitGTK 版本没有对应数据，只靠运行时探测。 | 不支持 v3 的 WebView 上，舍入后不超过 15 位有效数字的金额仍精确显示，超过的显示为“—”而不显示近似值；会以其他方式舍入的选项（有效数字、非标准记数、舍入模式或增量）对十进制字符串一律拒绝；各 WebView 的实际表现仍须在打包构件上逐屏确认（随打包构件验收）。 |
-| 已接受目标 | ADR-0013、ADR-0024、连接器规范和 ADR-0017 固定个人默认工作区、域名 Provider capability manifest、资金单项确认和无嵌入式/自动化浏览器。 | 决定约束不等于实际资产或 Provider 能力已执行。 |
-
-Desktop production 图的范围控制由源码测试持续验证；后续组合任何 feature、Host 或 connector 时必须
-更新当前态并重新执行 production-entrypoint reachability 检查，不得恢复已删除的 connector 注册、
-兼容或过渡路径。
+每次组合变更须核对生产依赖图、Tauri 命令/manifest/capability、Cloud 条件路由与应用端口、
+迁移目录和能力准入。测试要同时覆盖成功路径、未知 wire、错误主体/租户、过期代次与中途撤销，
+不能以 fixture、静态营销页面或一个可见按钮代替真实执行结果。
 
 ## 既有局部独立复审（历史证据）
 
@@ -68,10 +57,10 @@ publication；同时运行 client-core 357 tests、Desktop 99 tests 与 producti
 账户、授权和同步实现必须采用[首切片共享合同](FIRST_SLICE_SHARED_CONTRACT.md)的 operation id、schema、
 ACK 关联和恢复语义；不得在 Cloud 或 Desktop 内复制或放宽这些 wire 定义。
 
-Cloud boundary 门禁 fail closed 地要求当前精确 allowlist：两条 boundary path，以及账号激活、Desktop
-Grant、billing checkout/status/cancel/fixed-term confirm 六条业务 path。两条 boundary route 使用各自的
-boundary schema 和认证语义；六条业务 route 使用 protocol public schema、从认证主体派生范围，并覆盖
-租户选择字段、未认证主体和错误客户端类型的负向观察。Repository topology 以
+Cloud boundary 门禁要求对应 composition 的精确路由集合，来源是应用入口与注册表，
+不是文档中的固定数量。账号、billing、设备、同步与观察副本路由都要使用各自的严格协议 schema，
+从认证主体派生范围，并覆盖租户选择字段、未认证主体、错误客户端类型和缺失依赖的负向观察。
+Repository topology 以
 `gooddealer-local-storage` 的私有 SQLCipher key capability 为唯一存储标记：
 `getrandom`、`security-framework` 与 `zeroize` 由该 crate 直接声明，Desktop Tauri 不重复持有这些
 数据库 key 依赖；`secure-host-core` 不得重新导出 database-key type、slot 或 lifecycle primitive。
@@ -114,18 +103,22 @@ PASS 只覆盖该阶段，后续改动会使旧证据失效。
 | **2. Desktop 设计页面生产组合** | 每个设计页面在真实构件中可达，并与 `brand/ui_kits/desktop` 对照无明显偏差；数据只来自 Host 投影，不依赖 `visual-fixtures`；人工任务没有浏览器执行或授权字段（合同负向测试覆盖）；没有接线的控件不存在死按钮。 |
 | **3. Cloudflare 路径稳定** | 引导流程端到端可走通，跳过连接后可手动添加；导入与手动添加不产生重复资产；断网、Token 失效、权限不足和撤销后均失败关闭并给出可恢复提示；撤销是原子的，并在 Host 中即时生效。 |
 | **4. 当前范围全系统 V1 汇合验收** | 本文件上方 v1 详细垂直验收表的每一行都在同一冻结候选上取得新鲜证据并通过独立复审；10 万资产每次分页读取在 release 构建下不超过 1 s（用户 2026-11-06 确认的预算，见 [DATABASE_SCHEMA](DATABASE_SCHEMA.md)；100 万资产只记录）。 |
-| **5. 多平台共用框架与 Cloudflare 全能力** | 合同从 `unknown` 严格校验，未知字段与未知状态拒绝；负向测试覆盖越权、跨租户、伪造 grant/bid、角色串用凭据和批量部分失败；Cloudflare 每项写能力都有报价/预览 → 单项确认 → 执行 → 未知结果对账链路，重试幂等；框架中没有任何平台专有逻辑。 |
-| **6–10. 各平台** | 平台事实快照为当次核对并附官方链接；能力清单覆盖四种角色，每项能力要么有资格证据，要么带原因标记为不可执行；每次出价与资金操作单独确认，不存在代理或自动出价；平台专有安全约束（HMAC、IP 白名单、query-string token、最小 scope）都有负向测试；阶段 6 证明框架未改动核心模型，否则回到阶段 5 修框架并补 ADR。 |
+| **5. 多平台共用框架与 Cloudflare 全能力** | 合同从 `unknown` 严格校验，未知字段与未知状态拒绝；负向测试覆盖越权、跨租户、伪造 grant/bid、角色串用凭据和批量部分失败；Cloudflare 每项写能力都有报价/预览 → 非资金整批确认或资金单项确认 → 执行 → 未知结果对账链路，重试幂等；框架中没有任何平台专有逻辑。 |
+| **6–10. 各平台（按 ADR-0027 顺序）** | 平台事实快照为当次核对并附官方链接；能力清单覆盖四种角色，每项能力要么有资格证据，要么带原因标记为不可执行；每次出价与资金操作单独确认，不存在代理或自动出价；平台专有安全约束（HMAC、IP 白名单、query-string token、最小 scope）都有负向测试；新增平台不得绕过核心模型；如发现模型缺口，修复其所属模块并在架构边界变化时补 ADR。 |
 | **11. 1.0 资格与发行** | 所有外部资格在 [Phase 0 外部资格台账](phase0/PHASE0_GATE_REGISTER.md) 中关闭；`pnpm gate:validate` 对 attestation 通过；最终构件签名/公证与 `1.0.0` / `stable` 批准完成。 |
 
-## 非 V1 主路径：GDBK 与 rebootstrap
+## 可恢复性交付：业务备份与 Cloud 恢复
 
-安装绑定的 GDBK v1 备份、隔离恢复、continuity 和 rebootstrap 不属于当前 V1 acceptance 主路径。
+产品负责人已要求换机云恢复和独立业务备份。两条用户旅程都需要明确恢复数据、密钥保管、
+原设备丢失、云不可用、冲突与未同步数据的行为，并以真实故障演练验收；已确认的 Windows/macOS
+互相恢复、用户自选本地备份位置与最近一次备份目标见
+[ADR-0023](adr/0023-business-backup-and-recovery.md)。下列门槛描述既有安装绑定 GDBK v1 和 rebootstrap 协议，
+不预先限制新恢复方案必须继续使用同一安装绑定，也不把当前缺口排除出交付目标。
 `gooddealer-local-storage` 已有 strict format、allowlisted projection、isolated candidate、guarded
 current-DB replay 和私有测试协议，但生产 capability 统一保持 `unavailable`。它们不能被用于弥补
 账号、授权、本地业务、同步或 Connector 的 V1 验收缺口，也不能被描述为灾难恢复。
 
-### GDBK 本地实现证据门槛
+### 既有 GDBK v1 本地实现证据门槛
 
 只有以下证据全部绑定到同一次完整组合，GDBK 才能从 `unavailable` 变为本地可用：
 
@@ -165,8 +158,20 @@ current-DB replay 和私有测试协议，但生产 capability 统一保持 `una
 | 秘密与外部效果 | 秘密不进入普通应用状态、Cloud、日志、错误、审计或夹具；外部动作没有明确最小权限合同时不得发生。 |
 | v1 排除项 | 嵌入式/自动化浏览器、非域名 Provider 产品、首发清单外平台、代理出价、团队/多工作区、凭据迁移和 CSV import 没有可达产品路径；未资格化的域名外部 mutation（含交易市场与获取）同样不可达。 |
 | 视觉与夹具 | `brand/`、视觉 fixture/gallery、样例数据和 disabled 控件只能用于展示 QA，不能证明状态、授权或外部结果。生产 UI 只消费 `@gooddealer/ui` public exports、声明的 tokens/assets 与 `@gooddealer/i18n` public exports。 |
-| 过渡面 | 不存在旧路由、双 data/session 路径、兼容 API、别名、临时 adapter、迁移桥或浏览器/提供商 fallback。 |
+| 过渡面 | 不存在旧路由、双 data/session 路径、兼容 API、别名、临时 adapter、迁移桥或未经声明的浏览器/提供商 fallback；ADR-0027 的具名私有协议实现不是隐式重试路径。 |
 | 当前 Desktop 图 | production 入口只允许具名本地业务、认证、同步与 Cloudflare adapter；任何新增命令需同步 manifest、handler、capability、adapter 与策略测试。 |
+
+## 官方、社区与私有 Provider 接口
+
+[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)明确已确认官方能力走官方 API，当前其余能力缺口全部自研私有 API；社区代码仅作参考。实现时必须验证：
+
+- 固定 HTTPS 目标与重定向边界、当前账户绑定、会话过期/撤销、CSRF、登录页/未知 wire 拒绝；
+  Cookie、Token、操作密码不进入普通持久化、Renderer、备份、Cloud、日志或错误。
+- HTTP GET 仍可能有写入副作用；预取、探活、缓存和通用重试不得触发 Atom 等平台的写操作。
+- 批量部分失败、超时未知结果、重开续作、价格单位、交易锁定和实现版本变化；写入失败不自动
+  切换另一条接口执行。公开市场在售、请求受理和页面回跳不构成账户归属或验证成功。
+- 社区源码引用须确认许可证与当前协议；不得复制 Cookie 明文文件、HTTP 秘密请求、费用或锁定默认值。
+  Windows/macOS 分别完成 Native 会话输入/custody 验证；未取得外部资格前不宣称真实平台可用。
 
 ## 外部资格不是本地完成门槛
 

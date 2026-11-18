@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../../db/index";
 
 /**
- * ADR-0030 B2: the global device sequence ledger becomes an immutable accepted/rejected result
+ * ADR-0019 B2: the global device sequence ledger becomes an immutable accepted/rejected result
  * union. Existing rows are accepted and keep every byte. Only accepted rows carry a server revision
  * and remain bound by the receipt foreign key (which a NULL revision leaves unenforced), so a
  * rejected row can never stand in for an accepted receipt. Rejected rows bind the digest of the

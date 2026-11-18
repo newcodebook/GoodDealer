@@ -459,7 +459,7 @@ fn map_desktop_backup_error(error: DesktopBackupError) -> String {
 }
 
 /// Creates the Cloudflare connection activation provisions into. The Host refuses it with
-/// `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified (ADR-0024).
+/// `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified (ADR-0027).
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn cloudflare_connection_create(

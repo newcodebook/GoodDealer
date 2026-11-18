@@ -315,7 +315,7 @@ describe("DrainVerifier frozen guard order", () => {
   });
 });
 
-describe("ADR-0030 versioned mutation chains", () => {
+describe("ADR-0019 versioned mutation chains", () => {
   const scope = { accountId: "account-a", workspaceId: "workspace-a" } as const;
   const envelopes = [new TextEncoder().encode("submitted-one"), new TextEncoder().encode("submitted-two")];
   const sha256 = (value: Uint8Array) => createHash("sha256").update(value).digest();

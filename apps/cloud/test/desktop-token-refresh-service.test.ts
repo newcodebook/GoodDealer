@@ -200,7 +200,7 @@ describe("Desktop refresh token rotation", () => {
       commitRefresh,
       recoverRefresh: async () => null,
     }, {
-      // Standby is refused until a Standby Grant exists (ADR-0033 T2b).
+      // Standby is refused until a Standby Grant exists (ADR-0032 Standby S3).
       ensureCurrentLease: async () => ({ outcome }),
     });
     await expect(service.rotate({

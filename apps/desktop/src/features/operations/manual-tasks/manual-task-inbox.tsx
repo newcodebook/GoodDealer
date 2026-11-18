@@ -39,7 +39,7 @@ const terminal = new Set<ManualTask["status"]>(["confirmed_completed", "cancelle
 
 /**
  * Manual task inbox: steps a platform offers only in its own console. The person completes them in
- * their own browser; returning only asks the Host to re-observe the platform (ADR-0017, ADR-0027).
+ * their own browser; returning only asks the Host to re-observe the platform (ADR-0027).
  */
 export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk, now }: ManualTaskInboxProps) {
   const copy = getPresentationCopy(locale, "manualTaskInbox");

@@ -1,4 +1,4 @@
-//! The Host's ADR-0024 qualification register: the Provider capabilities that have passed their
+//! The Host's ADR-0027 qualification register: the Provider capabilities that have passed their
 //! qualification review and may execute.
 //!
 //! It is empty because no capability is qualified yet. Every path that would reach a Provider for
@@ -21,7 +21,7 @@ struct Qualification {
     evidence: &'static str,
 }
 
-/// Capabilities that passed ADR-0024 qualification. Empty: none has yet.
+/// Capabilities that passed ADR-0027 qualification. Empty: none has yet.
 const QUALIFIED_CAPABILITIES: &[Qualification] = &[];
 
 /// Cloudflare Zone/DNS read-only observation, including the credential activation it needs.

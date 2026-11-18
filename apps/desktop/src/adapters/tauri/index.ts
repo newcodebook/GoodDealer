@@ -187,7 +187,7 @@ export interface CloudflareConnectionStatus {
   readonly state: CloudflareConnectionStatusState;
   readonly connectionRef: string | null;
   readonly displayLabel: string | null;
-  /** False until Cloudflare DNS observation passes ADR-0024 qualification; nothing can run before then. */
+  /** False until Cloudflare DNS observation passes ADR-0027 qualification; nothing can run before then. */
   readonly qualified: boolean;
   /** Whether this Host build can capture a token at all (macOS only); connecting needs it. */
   readonly capturable: boolean;

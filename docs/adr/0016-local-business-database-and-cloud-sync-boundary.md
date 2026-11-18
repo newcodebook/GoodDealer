@@ -1,13 +1,16 @@
-# ADR-0016：本地业务数据库与 Cloud 同步边界
+# ADR-0016：本地优先业务权威与 Cloud 同步边界
 
 状态：Accepted
 
-## 背景
+## 运行模型
 
-GoodDealer 从项目建立之初就是 Desktop 本地执行业务的产品。账号与商业授权需要 Cloud，但
-业务运行不能依赖 Cloud 业务数据库。授权控制面和业务数据面必须明确分开。
+Desktop 使用 Tauri、TypeScript 与 Rust；本地 SQLCipher 活动工作区是正常业务读写的唯一运行权威。
+正常查询和本地事务不以 Cloud 可达、Cloud PostgreSQL 或同步完成为前提。Cloud 控制面事实决定能力准入，
+授权门禁不转移数据所有权。在已签发授权允许的离线窗口内，本地业务继续工作，不承诺无限离线使用。
+商业只读与安全锁定按 [ADR-0020](0020-commercial-entitlement-and-local-access.md)，Active/Standby 与切换按
+[ADR-0032](0032-desktop-device-switch-and-drain-handoff.md)。
 
-## 决策
+## 数据流
 
 ```text
 登录与授权：Desktop <-> Cloud control plane -> 本地缓存的已签名授权

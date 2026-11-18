@@ -31,7 +31,7 @@ export type CloudflareConnectionPort = CloudflareStatusPort & Pick<CloudflarePor
  * - `busy` wins over `lastOperation`, which still names the previous operation while one runs;
  * - a confirmed revocation keeps asking the user to delete or roll the token at Cloudflare,
  *   because revoking only removes this device's custody, never the token itself;
- * - an unqualified capability (ADR-0024) outranks earlier operation outcomes, which can only
+ * - an unqualified capability (ADR-0027) outranks earlier operation outcomes, which can only
  *   have been attempted before qualification was withdrawn or never ran at all;
  * - a Host that cannot capture a token (any platform but macOS) can never have connected, so it
  *   says that instead of any outcome.

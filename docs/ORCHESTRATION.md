@@ -1,5 +1,11 @@
 # GoodDealer 多代理执行与收敛流程
 
+平台范围、实施优先级与批量确认按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)，
+恢复按 [ADR-0023](adr/0023-business-backup-and-recovery.md)
+及 [路线图](ROADMAP.md)执行。旧阶段顺序不是阻止高优先级市场旅程实施的前置条件。
+Provider 接入方式按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)执行，当前未找到官方支持的能力缺口全部通过
+具名平台自研私有 HTTP 适配开发解决，社区代码仅作参考，不能把下文对临时 fallback 的禁止扩张为只准官方 API。
+
 ## 目的与权威顺序
 
 本文件规定如何交付已接受范围内的变更，而不重新决定产品范围、运行策略或 Gate。它的目标是让
@@ -8,7 +14,7 @@
 
 按以下顺序读取事实和规则：
 
-1. `docs/adr/0013-…0018-…` 与 [决策登记](OPEN_DECISIONS.md) 是已接受的决定约束；它们不证明
+1. [ADR 主题索引](adr/README.md) 中的最终决策 是已接受的决定约束；它们不证明
    某能力已经组合、部署或可用。
 2. 当前源码和拥有模块的 README 是当前组合事实；若普通文档与源码冲突，更新普通文档，不能以
    旧说明、夹具或设计稿覆盖源码事实。
@@ -28,7 +34,7 @@
 | 字段 | 必须写明的内容 |
 | --- | --- |
 | 目标与允许声明 | 要实现的 [路线图](ROADMAP.md) 能力、可由本地证据支持的精确声明，以及不允许的可用性/发行声明。 |
-| 固定范围与非目标 | 域名 Provider 能力以 ADR-0024 的 capability manifest 为准；当前生产只读观察已组合，DNS/DNSSEC/Registrar/监控写入需逐项接线和资格化；非域名产品、浏览器和多工作区排除。 |
+| 固定范围与非目标 | 域名 Provider 能力以 ADR-0027 的 capability manifest 为准；当前生产只读观察已组合，DNS/DNSSEC/Registrar/监控写入需逐项接线和资格化；非域名产品、浏览器和多工作区排除。 |
 | 拥有 runtime 与信任域 | Desktop 展示、最小 Host/秘密保管、Cloud 身份/授权/API、持久化或连接器中的唯一负责人。 |
 | 合同与输入 | 已冻结的公开合同、声明导出、从 `unknown` 验证的位置、服务器端范围来源和错误/脱敏规则。 |
 | 源码现状 | 被检查的入口、当前未组合状态或已知范围缺陷；不得用目标设计替换该快照。 |
@@ -93,8 +99,8 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 ## 不可协商的最终状态规则
 
 - **没有兼容或过渡路径。** 不创建或描述旧路由、双 session/data 路径、兼容 API、别名包、临时
-  adapter、迁移桥、提供商 fallback 或浏览器 fallback。它们不能作为到 v1 的“临时”路线；凭据
-  迁移同样不属于 v1。
+  adapter、迁移桥、未经声明的提供商 fallback 或浏览器 fallback。ADR-0027 允许同一平台 Service 内
+  按能力选择已核实的官方/私有协议实现，但不允许写入失败后隐式切换路径重放；凭据迁移不属于 v1。
 - **运行时夹具和视觉资料没有权威。** 夹具、gallery、样例数据、disabled 控件、视觉 callback 和
   `brand/` 只能作为展示/QA 参考，绝不进入生产 Desktop/UI 依赖图，不能授予授权、Host/Cloud 状态、
   提供商结果或验收证据。

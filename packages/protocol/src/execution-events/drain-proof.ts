@@ -19,7 +19,7 @@ const encoder = new TextEncoder();
 
 /**
  * Schema v1 chains every mutation stream step over the frozen submitted envelope. Schema v2
- * (ADR-0030) chains the mutation stream over `encodeMutationDrainResultEnvelope` so Cloud-recorded
+ * (ADR-0019) chains the mutation stream over `encodeMutationDrainResultEnvelope` so Cloud-recorded
  * rejections can close a sequence; execution_fact and device_audit envelopes are identical in both.
  * The two versions never mix: version, `typ`, codec version, and signature/digest domains move
  * together, and a v1 proof is never upgraded or re-signed as v2.

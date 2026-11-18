@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../../db/index";
 
 /**
- * ADR-0030 B1: the mutation seal follows the chain its consumed proof declares (devices migration
+ * ADR-0019 B1: the mutation seal follows the chain its consumed proof declares (devices migration
  * 202611130001). History is preserved: every existing seal is schema v1 and keeps its digest. v2
  * seals rebuild the accepted result chain from the retained submitted envelopes; rejected results
  * join that chain only once the B2 result ledger exists. Execution-fact and device-audit seals are

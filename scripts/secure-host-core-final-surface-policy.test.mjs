@@ -187,11 +187,11 @@ const expectedLocalStorageExportModules = [
   "active_workspace::storage_repair",
   "portfolio_projection",
   "application_root",
-  "backup",
-  "backup",
   "desktop_business_runtime",
   // ADR-0032 S2d: the source device's drain codecs for a device switch.
   "desktop_device_switch",
+  "desktop_local_host",
+  "desktop_local_host",
   "desktop_native_cloud",
   "desktop_sync_runtime",
 ];

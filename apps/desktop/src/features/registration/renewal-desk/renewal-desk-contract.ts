@@ -4,7 +4,7 @@ export type RenewalListView = Extract<RenewalDeskViewModel, { readonly state: "l
 export type RenewalPlanView = Extract<RenewalDeskViewModel, { readonly state: "confirm" }>;
 
 /**
- * One renewal quote awaiting its own payment confirmation (ADR-0024: every paid operation is
+ * One renewal quote awaiting its own payment confirmation (ADR-0027: every paid operation is
  * confirmed singly, bound to asset, registrar, term, amount, and quote validity). The Host quote
  * flow is not composed yet, so this shape is Desktop-local and supplied by the mock design host.
  */

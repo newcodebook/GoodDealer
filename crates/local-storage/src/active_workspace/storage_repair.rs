@@ -1,4 +1,4 @@
-//! ADR-0031: repairs of stored rows that reads reject. Each repair reselects its rows with the
+//! ADR-0019: repairs of stored rows that reads reject. Each repair reselects its rows with the
 //! predicate the affected read and the settings report use, so it touches exactly what the user saw
 //! counted, and writes one immutable receipt per row. Nothing replicated and no Outbox history is
 //! rewritten: Provider observations and Zone bindings are only quarantined, and the one rewrite is

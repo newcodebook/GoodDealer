@@ -2,7 +2,7 @@
 //!
 //! This file is kept byte-identical in `gooddealer-local-storage` and
 //! `gooddealer-secure-host-core`: the crates are independent trust domains and neither may expose
-//! a general secret API to the other (ADR-0010). Callers pass only their own fixed service and
+//! a general secret API to the other (ADR-0006). Callers pass only their own fixed service and
 //! account constants and map [`SecretServiceError`] into their module error.
 
 use std::collections::HashMap;

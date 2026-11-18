@@ -195,7 +195,7 @@ const providerSchema = z.object({
   displayName: displayText,
   metadata: displayText,
   category: domainProviderRoleSchema,
-  // `unavailable`: the capability is not qualified (ADR-0024), so no connection path exists.
+  // `unavailable`: the capability is not qualified (ADR-0027), so no connection path exists.
   connectionState: z.enum(["disconnected", "connecting", "connected", "failed", "unavailable"]),
   /**
    * What this platform admits now. Each platform is qualified on its own, so one platform's

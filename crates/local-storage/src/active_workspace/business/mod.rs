@@ -1295,7 +1295,7 @@ pub(crate) fn latest_bindable_zone(
 }
 
 impl BusinessDatabase {
-    /// Repairs every stored row of `kind` that a read rejects (ADR-0031) in one immediate
+    /// Repairs every stored row of `kind` that a read rejects (ADR-0019) in one immediate
     /// transaction and returns how many repair receipts it wrote; zero when nothing is left. The
     /// repair is local: it quarantines Provider observations and Zone bindings, or clears an
     /// asset's local expiry, and writes no Outbox row. `commit_fence` runs last, inside the
@@ -10019,11 +10019,11 @@ mod tests {
             .unwrap();
         assert_eq!(tied.read_sales(0, 10).unwrap().total_rows, 0);
 
-        // Marketplaces outside ADR-0027 and malformed prices fail the whole read.
+        // Marketplaces outside the launch registry and malformed prices fail the whole read.
         for listing in [
             (
                 "charlie.test",
-                "sedo",
+                "unsupported-platform",
                 "active",
                 Some("USD"),
                 Some("10"),
@@ -10884,7 +10884,7 @@ mod tests {
             .store
             .fixture_connection()
             .execute(
-                "UPDATE local_provider_connections SET provider_kind = 'sedo'",
+                "UPDATE local_provider_connections SET provider_kind = 'unsupported-platform'",
                 [],
             )
             .unwrap();
@@ -11862,7 +11862,7 @@ mod tests {
     #[test]
     #[expect(
         clippy::too_many_lines,
-        reason = "each count is seeded, read, repaired and read again as one ADR-0031 scenario"
+        reason = "each count is seeded, read, repaired and read again as one ADR-0019 scenario"
     )]
     fn settings_counts_stored_rows_the_other_reads_reject_without_failing() {
         let mut database = sales_database(&[
@@ -11961,7 +11961,7 @@ mod tests {
             Err(BusinessDatabaseError::ProjectionRejected)
         ));
 
-        // ADR-0031: a repair the Host fence refuses writes nothing.
+        // ADR-0019: a repair the Host fence refuses writes nothing.
         assert_eq!(
             database.repair_stored_rows_guarded(
                 crate::StorageRepairKind::MalformedExpiries,
@@ -12148,7 +12148,7 @@ mod tests {
 
     #[test]
     fn a_quarantined_latest_listing_is_not_replaced_by_an_older_one() {
-        // ADR-0031: a quarantined observation reads as no usable observation. The older, valid
+        // ADR-0019: a quarantined observation reads as no usable observation. The older, valid
         // listing on the same marketplace would show a state the platform has since left.
         let mut database = sales_database(&[
             (
@@ -12528,7 +12528,7 @@ mod tests {
         reason = "the observation fixture is written out in full beside the repair it exercises"
     )]
     fn a_rejected_zone_observation_is_quarantined_alone_and_counts_follow() {
-        // ADR-0031: only the failing part of a DNS row is quarantined. This asset has no binding,
+        // ADR-0019: only the failing part of a DNS row is quarantined. This asset has no binding,
         // so its observation alone is set aside and the asset reads as unobserved, with the
         // workspace counts derived from the same joins.
         let mut database = database();

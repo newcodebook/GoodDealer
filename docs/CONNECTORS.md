@@ -9,18 +9,21 @@
 
 ### 首发范围：多平台域名资产生命周期
 
-首发连接器覆盖 8 个平台：Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun
+首发连接器目标覆盖十二个平台：Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun、
+Sedo、易名、阿里云、22.cn（[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)）
 （[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)）。一个平台连接可同时承担
-`registrar`、`dns`、`marketplace`、`acquisition` 角色；接入一个平台时一次实现它全部域名相关能力：
+`registrar`、`dns`、`marketplace`、`acquisition` 角色；按用户工作流纵向交付，完整能力目录覆盖：
 注册商生命周期（注册、续费、恢复、转入/转出与授权码、转移锁、联系人/WHOIS 隐私、Nameserver/glue）、
 DNS/DNSSEC、交易市场（Listing、价格、成交、所有权验证）、获取（搜索、竞价、补抢、购买）与监控。
 每项能力使用具名 manifest 和最小权限；平台不支持、准入未获批或尚未资格化的能力显式标记为不可执行。
 Token、Provider 身份和原始响应始终由本地受限 Host 保有。
 
-没有 API 的操作只能交接到用户自己的浏览器，回桌面只触发对账，不构成成功回执。所有资金操作
-（含每一次出价）必须逐笔单独确认；难以撤销的操作也需逐项明确确认。用户 CSV 导入、网页抓取、
-嵌入式浏览器和非域名产品能力不在范围内。每项能力的条款审查、受控资源、速率/错误观察和独立审查
-都是其发布资格。
+按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)，已确认官方支持的能力使用官方 API；当前未找到
+官方支持的缺口全部进入自研私有 HTTP 适配开发，社区代码仅作参考；缺口不转为永久人工流程。私有适配可在 Native 内保管必要会话并
+有界解析平台表单，仍由同一平台 Service 拥有，不执行远程脚本或开放任意网页抓取。尚未实现或需要
+登录挑战的步骤可交接用户浏览器，回桌面后重新对账，回跳不构成成功回执。所有资金操作（含每次出价）
+逐笔确认；难以撤销的操作也需逐项明确确认。用户 CSV 导入、嵌入式浏览器和非域名产品能力不在范围内。
+每项能力的条款、受控资源、速率/错误观察和独立审查都是其发布资格，核查记录见 [接入核查](PROVIDER_API_REVIEW.md)。
 
 ### 每平台私有 Service 与协议所有权
 
@@ -28,7 +31,8 @@ Token、Provider 身份和原始响应始终由本地受限 Host 保有。
 和领域映射均由它自主维护，Provider wire 在 Service 内有界解析并重建为 GoodDealer 领域合同，不得跨 IPC、
 Cloud 或 TypeScript 边界；每个平台只有一条运行时路径。各 Service 共用凭据 custody、固定 authority、加固
 Transport、按平台速率限制、闭合错误、能力准入与未知结果对账框架；该框架不对外暴露通用 Provider 代理。
-跨平台流程（例如在另一平台的 DNS 上发布交易市场的所有权验证记录）由本地 operations 编排为独立计划，
+跨平台流程（例如在另一平台的 DNS 上发布交易市场的所有权验证记录）由本地 operations 编排为父计划中的独立步骤，
+非资金操作整批预览确认一次；按 ADR-0027 限定 DNS 修改范围，重开先对账再续作，
 Service 之间不直接调用、不共享凭据。
 
 ### 连接器所有权
@@ -53,11 +57,11 @@ HTTPS Transport，以及自主维护的私有 endpoint、查询参数和 Provide
 Repository 已移除，M002 仅存允许字段的脱敏副本，`cloud-client` 也不再公开 Cloudflare Observation submit/read。
 Desktop 已组合用户触发的原生 Token 激活、状态、观察、本地读取，以及从已提交且已验证的 Zone 观察派生的现有资产本地绑定。绑定仅持久化本地关联，不创建资产、不执行 Provider API 写入；绑定 UI、完整 Grant/Lease 能力门禁和原子撤销仍待完成。缺少真实受控 Provider
 资格，因此不能声称客户环境中的读取、写入或 Registrar 能力可用。协议覆盖目录（版本 2：每项能力带
-registrar/dns/marketplace/acquisition 角色，覆盖 ADR-0027 第 2 节的全部能力）、每平台 capability manifest 骨架
-（8 个平台 × 全部目录能力，逐项写明不可执行原因：`platform_facts_pending` 或 Cloudflare 只读观察的
+registrar/dns/marketplace/acquisition 角色，覆盖 ADR-0027“完整域名能力目录”的全部能力）、每平台 capability manifest 骨架
+（十二个平台 × 全部目录能力，逐项写明不可执行原因：`platform_facts_pending` 或 Cloudflare 只读观察的
 `qualification_pending`，没有可执行状态）与单项资金确认引用已定义，仍不可执行；Provider-specific 最小权限及未知结果
 对账资格尚需逐项确证。
-Cloudflare 以外的 7 个首发平台尚无 Service、合同或 Desktop 组合。
+Cloudflare 以外的 11 个首发平台尚无实际 Service 或平台执行的 Desktop 组合；共享目录和读取合同不代表已接入。
 
 ## 证据边界
 

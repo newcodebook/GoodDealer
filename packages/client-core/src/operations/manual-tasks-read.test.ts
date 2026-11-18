@@ -47,7 +47,7 @@ describe("manual tasks read", () => {
     for (const extra of ["planId", "operationId", "connectionId", "remoteBrowserSession", "automation", "authorizationUrl", "credential"]) {
       expect(() => parseManualTasksRead(read([{ ...waiting, [extra]: "canary" } as ManualTaskRow])), extra).toThrow();
     }
-    expect(() => parseManualTasksRead(read([{ ...waiting, providerKind: "sedo" } as unknown as ManualTaskRow]))).toThrow();
+    expect(() => parseManualTasksRead(read([{ ...waiting, providerKind: "unsupported-platform" } as unknown as ManualTaskRow]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, connectionLabel: null }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, connectionLabel: "Bad\nlabel" }]))).toThrow();
     expect(() => parseManualTasksRead(read([{ ...waiting, domainCount: 3 }]))).toThrow();

@@ -19,11 +19,11 @@ function sources(root: string, extension: string): { readonly path: string; read
 }
 
 describe("ADR-0027 launch platforms", () => {
-  it("are the same eight on the Host and in every Renderer read contract", () => {
+  it("are the same twelve on the Host and in every Renderer read contract", () => {
     const host = readFileSync(`${hostReads}launch_platforms.rs`, "utf8");
-    const list = /pub\(crate\) const LAUNCH_PLATFORMS: \[&str; 8\] = \[([^\]]*)\];/u.exec(host)?.[1];
+    const list = /pub\(crate\) const LAUNCH_PLATFORMS: \[&str; 12\] = \[([^\]]*)\];/u.exec(host)?.[1];
     expect(list).toBeDefined();
-    const hostKinds = [...(list ?? "").matchAll(/"([a-z]+)"/gu)].map((match) => match[1]);
+    const hostKinds = [...(list ?? "").matchAll(/"([a-z0-9]+)"/gu)].map((match) => match[1]);
     expect(hostKinds).toEqual(launchPlatformKindSchema.options);
     expect(Object.keys(launchPlatformNames).sort()).toEqual([...launchPlatformKindSchema.options].sort());
   });
@@ -44,6 +44,6 @@ describe("ADR-0027 launch platforms", () => {
     const settings = readFileSync(`${hostReads}settings.rs`, "utf8");
     const list = /const ROLES: \[&str; 4\] = \[([^\]]*)\];/u.exec(settings)?.[1];
     expect(list).toBeDefined();
-    expect([...(list ?? "").matchAll(/"([a-z]+)"/gu)].map((match) => match[1])).toEqual([...settingsConnectionRoles]);
+    expect([...(list ?? "").matchAll(/"([a-z0-9]+)"/gu)].map((match) => match[1])).toEqual([...settingsConnectionRoles]);
   });
 });

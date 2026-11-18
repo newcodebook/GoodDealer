@@ -102,7 +102,7 @@ export class DesktopTokenRefreshService {
     } finally {
       transactionCredential.fill(0);
     }
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0033 T2b): a session the
+    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
     // Desktop cannot activate a Grant for would only fail later as a credential error.
     if (leased.outcome !== "active") return { rotated: false, reason: "authorization_unavailable" };
     const generation = prepared.preparation.expectedGeneration + 1;
