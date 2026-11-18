@@ -165,6 +165,9 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     schemaVersion 与 typ 与域一致、purpose 为 `handoff`、aud 为 drain 验证、尚无签名且 `sourceDeviceId`/`signingKeyId` 为本机的
     transcript，其余（登录证明域、追加字节、重复或乱序键、他机或他钥）一律拒绝，测试钉住协议 v2 handoff transcript 金摘要。
     生产中设备签名密钥只登记版本 1（`device_signing_keys` 无轮换路径），所以 Host 以本机 key id、版本 1 签名，版本不符
-    由 Cloud 验签拒绝；引入密钥轮换时 Host 须改为读取 Cloud 登记的版本；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    由 Cloud 验签拒绝；引入密钥轮换时 Host 须改为读取 Cloud 登记的版本；S2d2a 已实现：本地迁移
+    `202611170003` 为栅栏记录开启时排空的 Lease epoch（同一切换与 epoch 重复开启幂等，其余冲突），
+    `clear_left_over_device_handoff_barrier` 在本设备以更新 epoch 持有 Lease 时清除更早或无 epoch 的遗留栅栏，当前
+    epoch 的栅栏保持；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

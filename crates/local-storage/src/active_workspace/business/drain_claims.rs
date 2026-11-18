@@ -252,6 +252,13 @@ pub(crate) enum DrainMutationProgress {
     Blocked,
 }
 
+/// The stop-write barrier of one device switch and the Lease epoch it drains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeviceHandoffBarrier {
+    pub(crate) device_switch_request_id: String,
+    pub(crate) active_lease_epoch: Option<u64>,
+}
+
 /// One version-2 row whose Cloud-recorded version is still unknown, with the two wire digests
 /// Cloud's ledger could hold for it (index 0: wire version 2, index 1: version 3). These are the
 /// digests of the tenant-neutral mutation (`local_wire_digest`), which the receipt reports; the
@@ -372,14 +379,21 @@ fn drain_envelope(
 }
 
 impl BusinessDatabase {
-    /// Closes local mutation admission for one device switch (ADR-0032 S2b). Idempotent for the
-    /// same switch; a barrier left by another switch must be cleared first. Writers that try to
-    /// assign a device sequence or add an Outbox row afterwards fail inside SQLite.
+    /// Closes local mutation admission for one device switch under the Lease epoch it drains
+    /// (ADR-0032 S2b, S2d). Idempotent for the same switch and epoch; a barrier left by another
+    /// switch must be cleared first. Writers that try to assign a device sequence or add an Outbox
+    /// row afterwards fail inside SQLite.
     pub(crate) fn begin_device_handoff_barrier(
         &mut self,
         device_switch_request_id: &str,
+        active_lease_epoch: u64,
         began_at: &str,
     ) -> Result<(), BusinessDatabaseError> {
+        if !(1..=MAX_SAFE_INTEGER).contains(&active_lease_epoch) {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        let epoch =
+            i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let workspace_id = self.workspace_id.clone();
         let transaction = self
             .store
@@ -388,19 +402,21 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         transaction
             .execute(
-                "INSERT INTO device_handoff_barriers (workspace_id, device_switch_request_id, began_at)
-                 VALUES (?1, ?2, ?3) ON CONFLICT (workspace_id) DO NOTHING",
-                params![workspace_id, device_switch_request_id, began_at],
+                "INSERT INTO device_handoff_barriers
+                 (workspace_id, device_switch_request_id, began_at, active_lease_epoch)
+                 VALUES (?1, ?2, ?3, ?4) ON CONFLICT (workspace_id) DO NOTHING",
+                params![workspace_id, device_switch_request_id, began_at, epoch],
             )
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let held: String = transaction
+        let held: (String, Option<i64>) = transaction
             .query_row(
-                "SELECT device_switch_request_id FROM device_handoff_barriers WHERE workspace_id = ?1",
+                "SELECT device_switch_request_id, active_lease_epoch FROM device_handoff_barriers
+                 WHERE workspace_id = ?1",
                 params![workspace_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if held != device_switch_request_id {
+        if held != (device_switch_request_id.to_owned(), Some(epoch)) {
             return Err(BusinessDatabaseError::MutationConflict);
         }
         transaction
@@ -408,17 +424,30 @@ impl BusinessDatabase {
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
-    /// The switch whose barrier currently closes local mutation admission, if any.
-    pub(crate) fn device_handoff_barrier(&self) -> Result<Option<String>, BusinessDatabaseError> {
+    /// The barrier currently closing local mutation admission, if any.
+    pub(crate) fn device_handoff_barrier(
+        &self,
+    ) -> Result<Option<DeviceHandoffBarrier>, BusinessDatabaseError> {
         self.store
             .raw_connection()
             .query_row(
-                "SELECT device_switch_request_id FROM device_handoff_barriers WHERE workspace_id = ?1",
+                "SELECT device_switch_request_id, active_lease_epoch FROM device_handoff_barriers
+                 WHERE workspace_id = ?1",
                 params![self.workspace_id],
-                |row| row.get(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
             )
             .optional()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            .map(|(device_switch_request_id, epoch)| {
+                Ok(DeviceHandoffBarrier {
+                    device_switch_request_id,
+                    active_lease_epoch: epoch
+                        .map(u64::try_from)
+                        .transpose()
+                        .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+                })
+            })
+            .transpose()
     }
 
     /// Reopens local mutation admission after the named switch was cancelled, failed, or completed.
@@ -429,20 +458,47 @@ impl BusinessDatabase {
     ) -> Result<(), BusinessDatabaseError> {
         match self.device_handoff_barrier()? {
             None => Ok(()),
-            Some(held) if held != device_switch_request_id => {
+            Some(held) if held.device_switch_request_id != device_switch_request_id => {
                 Err(BusinessDatabaseError::MutationConflict)
             }
-            Some(_) => self
-                .store
-                .fixture_connection()
-                .execute(
-                    "DELETE FROM device_handoff_barriers
-                     WHERE workspace_id = ?1 AND device_switch_request_id = ?2",
-                    params![self.workspace_id, device_switch_request_id],
-                )
-                .map(|_| ())
-                .map_err(|_| BusinessDatabaseError::StorageRejected),
+            Some(_) => self.delete_device_handoff_barrier(device_switch_request_id),
         }
+    }
+
+    /// Clears a barrier left over from an ended switch, given that this device now holds the Lease
+    /// under `current_lease_epoch`. A barrier opened under an older epoch (or recorded without one)
+    /// belongs to a switch whose handoff already released that Lease; a barrier under the current
+    /// epoch is a drain still in progress and stays. Returns whether a barrier was cleared.
+    pub(crate) fn clear_left_over_device_handoff_barrier(
+        &mut self,
+        current_lease_epoch: u64,
+    ) -> Result<bool, BusinessDatabaseError> {
+        match self.device_handoff_barrier()? {
+            Some(held)
+                if held
+                    .active_lease_epoch
+                    .is_none_or(|epoch| epoch < current_lease_epoch) =>
+            {
+                self.delete_device_handoff_barrier(&held.device_switch_request_id)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn delete_device_handoff_barrier(
+        &mut self,
+        device_switch_request_id: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        self.store
+            .fixture_connection()
+            .execute(
+                "DELETE FROM device_handoff_barriers
+                 WHERE workspace_id = ?1 AND device_switch_request_id = ?2",
+                params![self.workspace_id, device_switch_request_id],
+            )
+            .map(|_| ())
+            .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
     /// Reads, in one snapshot, the last sequence this device assigned and every Outbox row, and

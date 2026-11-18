@@ -14125,6 +14125,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the barrier's open, refuse, admit-results, clear and left-over steps stay together"
+    )]
     fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
         use super::drain_claims::DrainMutationProgress;
         let mut database = database();
@@ -14139,24 +14143,36 @@ mod tests {
             .unwrap();
         assert_eq!(database.device_handoff_barrier().unwrap(), None);
         database
-            .begin_device_handoff_barrier("switch-1", "2026-08-28T00:02:10Z")
+            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:10Z")
             .unwrap();
-        // Idempotent for the same switch; another switch must wait for this one to clear.
+        // Idempotent for the same switch and epoch; another switch or epoch must wait for a clear.
         database
-            .begin_device_handoff_barrier("switch-1", "2026-08-28T00:02:11Z")
+            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:11Z")
             .unwrap();
+        for (switch, epoch) in [("switch-2", 7), ("switch-1", 8)] {
+            assert!(matches!(
+                database.begin_device_handoff_barrier(switch, epoch, "2026-08-28T00:02:12Z"),
+                Err(BusinessDatabaseError::MutationConflict)
+            ));
+        }
         assert!(matches!(
-            database.begin_device_handoff_barrier("switch-2", "2026-08-28T00:02:12Z"),
-            Err(BusinessDatabaseError::MutationConflict)
+            database.begin_device_handoff_barrier("switch-1", 0, "2026-08-28T00:02:12Z"),
+            Err(BusinessDatabaseError::InvalidInput)
         ));
         assert!(matches!(
             database.clear_device_handoff_barrier("switch-2"),
             Err(BusinessDatabaseError::MutationConflict)
         ));
         assert_eq!(
-            database.device_handoff_barrier().unwrap().as_deref(),
-            Some("switch-1")
+            database.device_handoff_barrier().unwrap(),
+            Some(super::drain_claims::DeviceHandoffBarrier {
+                device_switch_request_id: "switch-1".to_owned(),
+                active_lease_epoch: Some(7),
+            })
         );
+        // Under the epoch it drains, the barrier is a drain in progress and is never cleared as
+        // left over.
+        assert!(!database.clear_left_over_device_handoff_barrier(7).unwrap());
 
         // Every local writer is closed at the database: the guarded create path, a raw sequence
         // allocation, and a raw Outbox insert all fail, and the failed create leaves nothing.
@@ -14227,6 +14243,24 @@ mod tests {
         database.clear_device_handoff_barrier("switch-1").unwrap();
         assert_eq!(database.device_handoff_barrier().unwrap(), None);
         create_for_drain(&mut database, "two");
+        // A barrier from an epoch this device no longer holds (or with no epoch) is left over.
+        database
+            .begin_device_handoff_barrier("switch-3", 7, "2026-08-28T00:07:00Z")
+            .unwrap();
+        assert!(database.clear_left_over_device_handoff_barrier(8).unwrap());
+        assert_eq!(database.device_handoff_barrier().unwrap(), None);
+        database
+            .store
+            .raw_connection()
+            .execute(
+                "INSERT INTO device_handoff_barriers (workspace_id, device_switch_request_id, began_at)
+                 VALUES ('workspace-local', 'switch-4', '2026-08-28T00:08:00Z')",
+                [],
+            )
+            .unwrap();
+        assert!(database.clear_left_over_device_handoff_barrier(1).unwrap());
+        assert!(!database.clear_left_over_device_handoff_barrier(1).unwrap());
+        create_for_drain(&mut database, "three");
     }
 
     #[test]

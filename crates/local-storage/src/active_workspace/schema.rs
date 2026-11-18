@@ -841,7 +841,12 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     ),
     (
         "device_handoff_barriers",
-        &["workspace_id", "device_switch_request_id", "began_at"],
+        &[
+            "workspace_id",
+            "device_switch_request_id",
+            "began_at",
+            "active_lease_epoch",
+        ],
     ),
     (
         "sync_outbox_cloud_wire_versions",
@@ -928,3 +933,9 @@ pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_OWNER: &str =
     "active-workspace/outbox-cloud-wire-versions";
 pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_SQL: &str =
     include_str!("outbox_cloud_wire_versions.sql");
+
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_ID: i64 = 202_611_170_003;
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_OWNER: &str =
+    "active-workspace/device-handoff-barrier-epoch";
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_SQL: &str =
+    include_str!("device_handoff_barrier_epoch.sql");
