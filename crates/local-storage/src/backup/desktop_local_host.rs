@@ -3995,7 +3995,7 @@ impl DesktopLocalHost {
         })
     }
 
-    fn with_sync_business_write<T>(
+    pub(crate) fn with_sync_business_write<T>(
         &self,
         admission: &DesktopSyncRunAdmission,
         operation: impl FnOnce(

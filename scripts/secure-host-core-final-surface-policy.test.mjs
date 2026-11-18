@@ -190,6 +190,8 @@ const expectedLocalStorageExportModules = [
   "backup",
   "backup",
   "desktop_business_runtime",
+  // ADR-0032 S2d: the source device's drain codecs for a device switch.
+  "desktop_device_switch",
   "desktop_native_cloud",
   "desktop_sync_runtime",
 ];
@@ -236,6 +238,12 @@ const expectedLocalStoragePublicExports = [
   "DesktopConflictResolutionReceipt",
   "DesktopConflictResolveRequest",
   "DesktopDeviceLease",
+  "DesktopDeviceSwitchOutcome",
+  "DesktopDeviceSwitchRejection",
+  "DesktopDeviceSwitchStatus",
+  "DesktopDrainProgress",
+  "DesktopDrainProofDraft",
+  "DesktopDrainReceiptQuery",
   "DesktopDnsHealthReadRequest",
   "DesktopDomainAssetCreateRequest",
   "DesktopDomainAssetDeleteRequest",

@@ -1529,7 +1529,7 @@ fn is_format_character(character: char) -> bool {
     )
 }
 
-fn strict_json<T: DeserializeOwned>(wire: &[u8]) -> Result<T, DesktopLocalHostError> {
+pub(crate) fn strict_json<T: DeserializeOwned>(wire: &[u8]) -> Result<T, DesktopLocalHostError> {
     if wire.is_empty() || std::str::from_utf8(wire).is_err() {
         return Err(DesktopLocalHostError::CloudProtocolRejected);
     }
@@ -1617,7 +1617,10 @@ impl<'de> Visitor<'de> for NoDuplicateVisitor {
     }
 }
 
-fn validate_identifier(value: &str, maximum: usize) -> Result<(), DesktopLocalHostError> {
+pub(crate) fn validate_identifier(
+    value: &str,
+    maximum: usize,
+) -> Result<(), DesktopLocalHostError> {
     if value.is_empty()
         || value.len() > maximum
         || value.bytes().any(|byte| !(0x21..=0x7e).contains(&byte))
@@ -1639,7 +1642,7 @@ fn validate_cursor(value: &str) -> Result<(), DesktopLocalHostError> {
     Ok(())
 }
 
-fn validate_digest43(value: &str) -> Result<(), DesktopLocalHostError> {
+pub(crate) fn validate_digest43(value: &str) -> Result<(), DesktopLocalHostError> {
     if value.len() != 43
         || !value
             .bytes()
@@ -1650,7 +1653,7 @@ fn validate_digest43(value: &str) -> Result<(), DesktopLocalHostError> {
     Ok(())
 }
 
-fn validate_timestamp(value: &str) -> Result<(), DesktopLocalHostError> {
+pub(crate) fn validate_timestamp(value: &str) -> Result<(), DesktopLocalHostError> {
     let bytes = value.as_bytes();
     if bytes.len() != 20
         || !bytes.iter().enumerate().all(|(index, byte)| {

@@ -16,8 +16,6 @@ use crate::portfolio_projection::{
 
 mod cloudflare_credential;
 mod cloudflare_retirement;
-#[allow(dead_code)]
-// ADR-0032 S2a/S2b: consumed by the S2d drain coordinator; remove with that slice.
 mod drain_claims;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -27,6 +25,10 @@ pub(crate) use cloudflare_credential::{
     CloudflarePrewriteFailureReason, staged_observation_digest,
 };
 pub(crate) use cloudflare_retirement::CloudflareRetirementSeed;
+pub(crate) use drain_claims::{
+    CloudMutationReceipt, DrainMutationProgress, DrainProofSchemaVersion, DrainStreamClaim,
+    HandoffDrainProofClaims,
+};
 
 /// Temporary gate on the Host create path's local re-add (ADR-0029 C2c2).
 ///
@@ -14029,6 +14031,7 @@ mod tests {
                     "device-1",
                     &[receipts[1].clone(), disagreement],
                     "2026-08-28T00:04:00Z",
+                    || Ok(())
                 ),
                 Err(BusinessDatabaseError::MutationConflict)
             );
@@ -14038,6 +14041,7 @@ mod tests {
                 "device-1",
                 &[receipts[0].clone(), receipts[0].clone()],
                 "2026-08-28T00:04:00Z",
+                || Ok(())
             ),
             Err(BusinessDatabaseError::MutationConflict)
         );
@@ -14049,6 +14053,7 @@ mod tests {
                     ..receipts[0].clone()
                 }],
                 "2026-08-28T00:04:00Z",
+                || Ok(())
             ),
             Err(BusinessDatabaseError::InvalidInput)
         );
@@ -14058,7 +14063,9 @@ mod tests {
         );
 
         database
-            .record_cloud_wire_versions("device-1", &receipts[..1], "2026-08-28T00:04:00Z")
+            .record_cloud_wire_versions("device-1", &receipts[..1], "2026-08-28T00:04:00Z", || {
+                Ok(())
+            })
             .unwrap();
         assert_eq!(
             database.read_drain_mutation_progress("device-1").unwrap(),
@@ -14068,11 +14075,18 @@ mod tests {
         );
         // A recorded row is no longer a candidate, so a second receipt for it is refused.
         assert_eq!(
-            database.record_cloud_wire_versions("device-1", &receipts, "2026-08-28T00:04:30Z"),
+            database.record_cloud_wire_versions(
+                "device-1",
+                &receipts,
+                "2026-08-28T00:04:30Z",
+                || Ok(())
+            ),
             Err(BusinessDatabaseError::MutationConflict)
         );
         database
-            .record_cloud_wire_versions("device-1", &receipts[1..], "2026-08-28T00:05:00Z")
+            .record_cloud_wire_versions("device-1", &receipts[1..], "2026-08-28T00:05:00Z", || {
+                Ok(())
+            })
             .unwrap();
         let DrainMutationProgress::Ready(claim) =
             database.read_drain_mutation_progress("device-1").unwrap()
@@ -14143,20 +14157,25 @@ mod tests {
             .unwrap();
         assert_eq!(database.device_handoff_barrier().unwrap(), None);
         database
-            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:10Z")
+            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:10Z", || Ok(()))
             .unwrap();
         // Idempotent for the same switch and epoch; another switch or epoch must wait for a clear.
         database
-            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:11Z")
+            .begin_device_handoff_barrier("switch-1", 7, "2026-08-28T00:02:11Z", || Ok(()))
             .unwrap();
         for (switch, epoch) in [("switch-2", 7), ("switch-1", 8)] {
             assert!(matches!(
-                database.begin_device_handoff_barrier(switch, epoch, "2026-08-28T00:02:12Z"),
+                database.begin_device_handoff_barrier(
+                    switch,
+                    epoch,
+                    "2026-08-28T00:02:12Z",
+                    || Ok(())
+                ),
                 Err(BusinessDatabaseError::MutationConflict)
             ));
         }
         assert!(matches!(
-            database.begin_device_handoff_barrier("switch-1", 0, "2026-08-28T00:02:12Z"),
+            database.begin_device_handoff_barrier("switch-1", 0, "2026-08-28T00:02:12Z", || Ok(())),
             Err(BusinessDatabaseError::InvalidInput)
         ));
         assert!(matches!(
@@ -14245,7 +14264,7 @@ mod tests {
         create_for_drain(&mut database, "two");
         // A barrier from an epoch this device no longer holds (or with no epoch) is left over.
         database
-            .begin_device_handoff_barrier("switch-3", 7, "2026-08-28T00:07:00Z")
+            .begin_device_handoff_barrier("switch-3", 7, "2026-08-28T00:07:00Z", || Ok(()))
             .unwrap();
         assert!(database.clear_left_over_device_handoff_barrier(8).unwrap());
         assert_eq!(database.device_handoff_barrier().unwrap(), None);

@@ -30,6 +30,14 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 /// The proof schema; v1 chains submitted envelopes, v2 chains Cloud-recorded results (ADR-0030).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DrainProofSchemaVersion {
+    /// The Host only produces v2 proofs; v1 stays to pin the protocol's v1 vectors byte for byte.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "v1 is reproduced only to pin the protocol vectors"
+        )
+    )]
     V1,
     V2,
 }
@@ -56,6 +64,13 @@ impl DrainProofSchemaVersion {
         }
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Cloud computes the proof digest; the Host pins it in tests"
+        )
+    )]
     fn digest_domain(self) -> &'static [u8] {
         match self {
             Self::V1 => b"GOODDEALER-DRAIN-PROOF-V1",
@@ -388,6 +403,7 @@ impl BusinessDatabase {
         device_switch_request_id: &str,
         active_lease_epoch: u64,
         began_at: &str,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
         if !(1..=MAX_SAFE_INTEGER).contains(&active_lease_epoch) {
             return Err(BusinessDatabaseError::InvalidInput);
@@ -419,6 +435,7 @@ impl BusinessDatabase {
         if held != (device_switch_request_id.to_owned(), Some(epoch)) {
             return Err(BusinessDatabaseError::MutationConflict);
         }
+        pre_commit_guard()?;
         transaction
             .commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)
@@ -466,7 +483,7 @@ impl BusinessDatabase {
     }
 
     /// Clears a barrier left over from an ended switch, given that this device now holds the Lease
-    /// under `current_lease_epoch`. A barrier opened under an older epoch (or recorded without one)
+    /// under `current_lease_epoch`, which must come from this device's own verified Lease. A barrier opened under an older epoch (or recorded without one)
     /// belongs to a switch whose handoff already released that Lease; a barrier under the current
     /// epoch is a drain still in progress and stays. Returns whether a barrier was cleared.
     pub(crate) fn clear_left_over_device_handoff_barrier(
@@ -615,6 +632,7 @@ impl BusinessDatabase {
         source_device_id: &str,
         receipts: &[CloudMutationReceipt],
         recorded_at: &str,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
         let workspace_id = self.workspace_id.clone();
         let transaction = self
@@ -657,6 +675,7 @@ impl BusinessDatabase {
                 )
                 .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         }
+        pre_commit_guard()?;
         transaction
             .commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)
@@ -782,6 +801,13 @@ impl HandoffDrainProofClaims {
     }
 
     /// The digest input Cloud binds the proof id to: domain ‖ u32be(len) ‖ (transcript ‖ u32be(len) ‖ signature).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Cloud computes the proof digest; the Host pins it in tests"
+        )
+    )]
     pub(crate) fn digest_input(
         &self,
         device_signature: &str,

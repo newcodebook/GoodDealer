@@ -14,7 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::active_workspace::business::{
-    CloudflareRetirementSeed, SyncProjectionEffect, SyncRejectionKind,
+    CloudMutationReceipt, CloudflareRetirementSeed, DrainMutationProgress, DrainProofSchemaVersion,
+    DrainStreamClaim, HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
 };
 use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
@@ -138,6 +139,13 @@ pub struct DesktopNativeCloudAdmission {
 impl DesktopNativeCloudAdmission {
     pub(crate) fn workspace_id(&self) -> &str {
         &self.inner.workspace_id
+    }
+}
+
+impl DesktopSyncRunAdmission {
+    /// The device this run acts for; derived from its verified Lease, never from a caller.
+    pub(crate) fn device_id(&self) -> &str {
+        &self.device_id
     }
 }
 
@@ -799,6 +807,143 @@ impl DesktopSyncRuntime {
             .map_err(map_database_error)
     }
 
+    /// ADR-0032 S2d: closes local mutation admission for one switch under this run's Lease epoch.
+    pub(crate) fn drain_begin_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let now = timestamp(trusted_now()?)?;
+        database
+            .begin_device_handoff_barrier(
+                device_switch_request_id,
+                admission.lease_epoch,
+                &now,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: this run's device-and-epoch view of the drain, read under a rechecked run.
+    pub(crate) fn drain_progress(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<DrainMutationProgress, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .read_drain_mutation_progress(&admission.device_id)
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2c: the version-2 rows that still need Cloud's receipt.
+    pub(crate) fn drain_receipt_mutation_ids(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Vec<String>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        Ok(database
+            .drain_receipt_candidates(&admission.device_id)
+            .map_err(map_database_error)?
+            .into_iter()
+            .map(|candidate| candidate.mutation_id)
+            .collect())
+    }
+
+    /// ADR-0032 S2c: records Cloud's receipts, all or nothing, under a rechecked run.
+    pub(crate) fn drain_record_receipts(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        receipts: &[CloudMutationReceipt],
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let now = timestamp(trusted_now()?)?;
+        database
+            .record_cloud_wire_versions(&admission.device_id, receipts, &now, || {
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: the unsigned handoff proof for `device_switch_request_id`. It exists only while
+    /// this switch's barrier holds writes closed under this run's Lease epoch and the mutation
+    /// stream is fully confirmed; the other two streams are claimed empty (ADR-0032 decision 2).
+    /// The device key version is 1, the only version production registers.
+    pub(crate) fn drain_prepare_proof(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+        signing_key_id: &str,
+    ) -> Result<HandoffDrainProofClaims, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let barrier = database
+            .device_handoff_barrier()
+            .map_err(map_database_error)?
+            .ok_or(DesktopSyncError::Blocked)?;
+        if barrier.device_switch_request_id != device_switch_request_id
+            || barrier.active_lease_epoch != Some(admission.lease_epoch)
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
+        let DrainMutationProgress::Ready(mutation) = database
+            .read_drain_mutation_progress(&admission.device_id)
+            .map_err(map_database_error)?
+        else {
+            return Err(DesktopSyncError::Blocked);
+        };
+        let now = trusted_now()?;
+        Ok(HandoffDrainProofClaims {
+            schema_version: DrainProofSchemaVersion::V2,
+            proof_id: random_uuid_v4()?,
+            workspace_id: admission.workspace_id.clone(),
+            source_device_id: admission.device_id.clone(),
+            active_lease_epoch: admission.lease_epoch,
+            device_switch_request_id: device_switch_request_id.to_owned(),
+            streams: [
+                mutation,
+                DrainStreamClaim::empty(),
+                DrainStreamClaim::empty(),
+            ],
+            issued_at: timestamp(now)?,
+            // Cloud admits a window of at most 600 seconds; five minutes leaves room for clock skew.
+            expires_at: checked_timestamp(now, 300)?,
+            signing_key_id: signing_key_id.to_owned(),
+            signing_key_version: 1,
+        })
+    }
+
+    /// ADR-0032 S2d: reopens local writes after this switch was cancelled, failed or completed.
+    pub(crate) fn drain_clear_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .clear_device_handoff_barrier(device_switch_request_id)
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: clears a barrier left by a switch whose Lease this device no longer holds.
+    pub(crate) fn drain_clear_left_over_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<bool, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .clear_left_over_device_handoff_barrier(admission.lease_epoch)
+            .map_err(map_database_error)
+    }
+
     pub(crate) fn sync_defer_retryable_with_deadline(
         &self,
         database: &mut BusinessDatabase,
@@ -1206,7 +1351,7 @@ fn recheck_snapshot(
     Ok(())
 }
 
-fn trusted_now() -> Result<i64, DesktopSyncError> {
+pub(crate) fn trusted_now() -> Result<i64, DesktopSyncError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| DesktopSyncError::Blocked)
@@ -1215,7 +1360,7 @@ fn trusted_now() -> Result<i64, DesktopSyncError> {
         })
 }
 
-fn timestamp(seconds: i64) -> Result<String, DesktopSyncError> {
+pub(crate) fn timestamp(seconds: i64) -> Result<String, DesktopSyncError> {
     if seconds < 0 {
         return Err(DesktopSyncError::Blocked);
     }

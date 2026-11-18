@@ -168,6 +168,10 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     由 Cloud 验签拒绝；引入密钥轮换时 Host 须改为读取 Cloud 登记的版本；S2d2a 已实现：本地迁移
     `202611170003` 为栅栏记录开启时排空的 Lease epoch（同一切换与 epoch 重复开启幂等，其余冲突），
     `clear_left_over_device_handoff_barrier` 在本设备以更新 epoch 持有 Lease 时清除更早或无 epoch 的遗留栅栏，当前
-    epoch 的栅栏保持；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    epoch 的栅栏保持；S2d2b 已实现：`crates/local-storage/src/desktop_device_switch.rs` 的
+    Host 入口——在运行准入（设备、Lease epoch 取自已验证 Lease）下开启或清除栅栏、读取 drain 进度、生成至多 256 个 id
+    的回执查询并严格解码回执（只接受所问 id、不重复、封闭字段），在本切换栅栏以当前 epoch 关闭写入且 mutation 流完全
+    确认时构建 v2 handoff 声明（另两条流为空流、有效期 300 秒、密钥版本 1）与签名 transcript，组装
+    `/v1/device-switch/requests/drain` 请求体，并严格解码切换响应（须为本切换、来源为本设备、满足协议细化规则）；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

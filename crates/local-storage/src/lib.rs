@@ -118,6 +118,7 @@ mod desktop_custody;
 #[cfg(windows)]
 #[path = "desktop_custody_windows.rs"]
 mod desktop_custody;
+mod desktop_device_switch;
 mod desktop_native_cloud;
 // Production custody only: under `cfg(test)` custody uses in-memory stores instead.
 mod desktop_sync_runtime;
@@ -207,6 +208,10 @@ pub use desktop_business_runtime::{
     DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
     DesktopStorageRepairReceipt, DesktopStorageRepairRequest, DesktopSyncSnapshotView,
     DesktopSyncTransportState,
+};
+pub use desktop_device_switch::{
+    DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchStatus,
+    DesktopDrainProgress, DesktopDrainProofDraft, DesktopDrainReceiptQuery,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{
