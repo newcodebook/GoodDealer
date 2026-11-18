@@ -143,6 +143,13 @@ export class PostgresDeviceDrainTransition {
       [transaction.scope.accountId, snapshot.source_device_id, snapshot.signing_key_id, snapshot.signing_key_version],
     );
     if (key.rows[0]?.status !== "active") refuse("SIGNING_KEY_CONFLICT");
+    // The workflow binds the target's key (bootstrap steps and activation verify the target with
+    // it); the proof's own key, locked above, must be the source's active key.
+    const targetKey = await transaction.query<{ key_id: string; key_version: string }>(
+      `SELECT key_id, key_version FROM device_signing_keys
+       WHERE account_id = $1 AND device_id = $2 AND status = 'active' FOR UPDATE`,
+      [transaction.scope.accountId, input.targetDeviceId],
+    );
 
     const workflow = await transaction.query<{
       status: string; workflow_revision: string; from_device_id: string | null; to_device_id: string;
@@ -157,10 +164,13 @@ export class PostgresDeviceDrainTransition {
     );
     const workflowRow = workflow.rows[0];
     if (workflowRow === undefined ||
-      workflowRow.from_device_id !== snapshot.source_device_id || workflowRow.to_device_id !== input.targetDeviceId ||
-      workflowRow.bound_key_id !== snapshot.signing_key_id ||
-      parseStoredInteger(workflowRow.bound_key_version) !== parseStoredInteger(snapshot.signing_key_version)) {
+      workflowRow.from_device_id !== snapshot.source_device_id || workflowRow.to_device_id !== input.targetDeviceId) {
       refuse("WORKFLOW_CONFLICT");
+    }
+    const target = targetKey.rows[0];
+    if (target === undefined || workflowRow.bound_key_id !== target.key_id ||
+      parseStoredInteger(workflowRow.bound_key_version) !== parseStoredInteger(target.key_version)) {
+      refuse("SIGNING_KEY_CONFLICT");
     }
     if (parseStoredInteger(workflowRow.bound_account_security_epoch) !== security.accountSecurityEpoch) {
       refuse("ACCOUNT_SECURITY_CONFLICT");

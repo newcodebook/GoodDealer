@@ -40,7 +40,7 @@ sync delivery ownership、cursor、Inbox、conflict、receipt、rebootstrap jour
 `active` 与 `verified_local_continuation` 可以导出和检查工件；只有 `active` 可以恢复。
 外部文件每次都通过原生 picker 取得的新 handle 重新准入；路径和 catalog metadata 不构成打开权威。
 导出按 `reserved -> writing -> fsynced -> renamed -> catalog_available` 两阶段日志发布，失败或身份不匹配
-进入 `invalid`/`quarantined`。临时快照始终为 SQLCipher 密文，临时 key、内容 key 和明文缓冲从首次
+进入 `invalid`/`quarantined`。临时快照始终为 SQLCipher 密文，所在临时目录在 Unix 上以 `0700` 创建并校验属主与权限（不随进程 umask），不符即失败关闭；临时 key、内容 key 和明文缓冲从首次
 分配起即由 owner-private zeroizing 容器持有；清理失败阻止工件变为可用。
 
 导入先在隔离 candidate 中完成容器认证、binding、schema、完整集合和数据分类验证。最终恢复在当前

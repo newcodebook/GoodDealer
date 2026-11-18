@@ -69,7 +69,7 @@ export function TaskScreen({ variant, platform, onNavigateScreen }: ScreenProps)
   const shellCopy = getPresentationCopy(locale, "shell");
   const standby = variant === "standby";
   const [tasks, setTasks] = useState<readonly MockTask[]>(initialMockTasks);
-  const [selected, setSelected] = useState<string | null>("task-afternic-csv");
+  const [selected, setSelected] = useState<string | null>("task-atom-transfer-out");
   const update = (id: string, patch: Partial<MockTask>) => setTasks((current) => current.map((task) => task.id === id ? { ...task, ...patch } : task));
 
   return (
@@ -88,11 +88,9 @@ export function TaskScreen({ variant, platform, onNavigateScreen }: ScreenProps)
         onSelect={setSelected}
         onAction={(task, action) => {
           if (action === "mark_user_operation_done") update(task.id, { status: "verification_pending" });
-          if (action === "cancel") update(task.id, { status: "cancelled", browser: null });
-          if (action === "request_automation_grant") update(task.id, { browser: "running" });
+          if (action === "cancel") update(task.id, { status: "cancelled" });
         }}
-        onAcceptRisk={(task) => update(task.id, { status: "risk_accepted", browser: null })}
-        onBrowserControl={(task, control) => update(task.id, control === "terminate" ? { browser: null } : { browser: control === "continue" ? "running" : "paused" })}
+        onAcceptRisk={(task) => update(task.id, { status: "risk_accepted" })}
       />
     </MockShell>
   );

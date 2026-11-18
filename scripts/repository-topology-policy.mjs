@@ -108,6 +108,7 @@ export const repositoryTopology = Object.freeze([
       publicEntrypoint("check-workspace", "scripts/check-workspace.mjs"),
       publicEntrypoint("check-boundaries", "scripts/check-boundaries.mjs"),
       publicEntrypoint("validate-gate-closure", "scripts/validate-gate-closure-attestation.mjs"),
+      publicEntrypoint("record-candidate", "scripts/record-candidate.mjs"),
       publicEntrypoint("collect-wp0", "scripts/collect-wp0-evidence.mjs"),
       publicEntrypoint("collect-auth-persistence", "scripts/collect-auth-persistence-report.mjs"),
       publicEntrypoint("collect-devices-persistence", "scripts/collect-devices-persistence-report.mjs"),
@@ -119,6 +120,7 @@ export const repositoryTopology = Object.freeze([
         "collect-workspace-sync-persistence",
         "scripts/collect-workspace-sync-persistence-report.mjs",
       ),
+      publicEntrypoint("collect-sync-durability", "scripts/collect-sync-durability-report.mjs"),
       publicEntrypoint("collect-cloud-persistence", "scripts/collect-cloud-persistence-report.mjs"),
       publicEntrypoint("collect-jobs-persistence", "scripts/collect-jobs-persistence-report.mjs"),
       publicEntrypoint("collect-recovery-persistence", "scripts/collect-recovery-persistence-report.mjs"),
@@ -282,6 +284,7 @@ export const repositoryTopology = Object.freeze([
       "@tauri-apps/cli",
       "@types/react",
       "@types/react-dom",
+      "happy-dom",
       "react",
       "react-dom",
       "vite",
@@ -337,12 +340,13 @@ export const repositoryTopology = Object.freeze([
       workspaceImport("@gooddealer/protocol", "Client-domain protocol contracts.", [
         "./account",
         "./devices",
+        "./domain-providers",
         "./execution-events",
         "./wire",
         "./workspace",
       ]),
     ],
-    protocolSubpaths: ["./account", "./devices", "./execution-events", "./wire", "./workspace"],
+    protocolSubpaths: ["./account", "./devices", "./domain-providers", "./execution-events", "./wire", "./workspace"],
     externalDependencies: ["zod"],
   }),
   topologyUnit({
@@ -407,6 +411,7 @@ export const repositoryTopology = Object.freeze([
       publicEntrypoint("./admin", "src/admin/index.ts", true),
       publicEntrypoint("./connectors", "src/connectors/index.ts", true),
       publicEntrypoint("./devices", "src/devices/index.ts", true),
+      publicEntrypoint("./domain-providers", "src/domain-providers/index.ts", true),
       publicEntrypoint("./execution-events", "src/execution-events/index.ts", true),
       publicEntrypoint("./jobs", "src/jobs/index.ts", true),
       publicEntrypoint("./recovery", "src/recovery/index.ts", true),
@@ -869,9 +874,14 @@ function pnpmWorkspaceRoots(root, errors) {
     errors.push("pnpm-workspace.yaml is missing");
     return [];
   }
-  const patterns = [...readFileSync(workspacePath, "utf8").matchAll(/^\s*-\s+["']?([^"'\s]+)["']?\s*$/gmu)].map(
-    (match) => match[1],
-  );
+  // Only the top-level `packages:` block lists workspace roots; other top-level keys (for example
+  // `auditConfig.ignoreGhsas`) also hold YAML lists and must not be read as package patterns.
+  const block = /^packages:[ \t]*\n((?:[ \t]+.*\n?|[ \t]*\n)*)/mu.exec(readFileSync(workspacePath, "utf8"));
+  if (block === null) {
+    errors.push("pnpm-workspace.yaml has no top-level packages block");
+    return [];
+  }
+  const patterns = [...block[1].matchAll(/^\s*-\s+["']?([^"'\s]+)["']?\s*$/gmu)].map((match) => match[1]);
   const roots = [];
   for (const pattern of patterns) {
     if (!pattern.endsWith("/*") || pattern.slice(0, -2).includes("*")) {

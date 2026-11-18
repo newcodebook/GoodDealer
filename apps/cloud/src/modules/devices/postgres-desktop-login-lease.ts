@@ -24,14 +24,24 @@ export interface DesktopLoginLeaseEntitlementPort {
   } | null>;
 }
 
+/**
+ * The Lease step of Desktop login and refresh (ADR-0033 decision 1). `active` carries this
+ * device's current Lease; `standby` means the device is eligible but must not hold the Lease now
+ * (another device holds it, a switch is unfinished, an epoch allocation is pending, or execution
+ * is blocked); `refused` means the device is not eligible at all.
+ */
+export type DesktopLoginLeaseOutcome =
+  | { readonly outcome: "active"; readonly lease: ActiveDeviceLeaseEnvelope }
+  | { readonly outcome: "standby" }
+  | { readonly outcome: "refused" };
+
 export interface DesktopLoginLeasePort {
   ensureCurrentLease(input: {
     readonly accountId: string;
     readonly deviceId: string;
     readonly accountSecurityEpoch: number;
     readonly transactionCredential: Uint8Array;
-  }): Promise<{ readonly ensured: true; readonly lease: ActiveDeviceLeaseEnvelope }
-    | { readonly ensured: false }>;
+  }): Promise<DesktopLoginLeaseOutcome>;
 }
 
 export interface DesktopOAuthLeasePort extends DesktopLoginLeasePort {
@@ -39,13 +49,20 @@ export interface DesktopOAuthLeasePort extends DesktopLoginLeasePort {
     readonly accountId: string;
     readonly deviceId: string;
     readonly accountSecurityEpoch: number;
-  }): Promise<{ readonly ensured: true; readonly lease: ActiveDeviceLeaseEnvelope }
-    | { readonly ensured: false }>;
+  }): Promise<DesktopLoginLeaseOutcome>;
 }
+
+const STANDBY = { outcome: "standby" } as const;
+const REFUSED = { outcome: "refused" } as const;
 
 type AccountTransactions = Pick<AccountTransactionRunner, "withAccount">;
 
-/** Establishes or renews only the authenticated device's account-wide execution Lease. */
+/**
+ * Establishes or renews only the authenticated device's account-wide execution Lease. It never
+ * allocates a Lease while a switch is unfinished, an epoch allocation is pending, or execution is
+ * blocked: allocating then would let a login or refresh bypass the drain handoff, bootstrap and
+ * activation (ADR-0033 decision 1). A device that already holds the Lease keeps its prior rules.
+ */
 export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
   constructor(private readonly dependencies: {
     readonly transactions: AccountTransactions;
@@ -59,14 +76,13 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
     readonly deviceId: string;
     readonly accountSecurityEpoch: number;
     readonly transactionCredential: Uint8Array;
-  }): Promise<{ readonly ensured: true; readonly lease: ActiveDeviceLeaseEnvelope }
-    | { readonly ensured: false }> {
+  }): Promise<DesktopLoginLeaseOutcome> {
     try {
+      // Standby needs no entitlement (ADR-0033 product decision 1); holding or allocating does.
       const entitlement = await this.dependencies.entitlement.readCurrent({
         transactionCredential: input.transactionCredential,
         expectedAccountId: input.accountId,
       });
-      if (entitlement === null) refuse();
       return await this.dependencies.transactions.withAccount(input.accountId, async (transaction) => {
         await transaction.query("SET LOCAL lock_timeout = '2s'");
         await transaction.query("SET LOCAL statement_timeout = '10s'");
@@ -91,7 +107,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           [input.accountId],
         );
         const accountRow = account.rows[0];
-        if (account.rows.length !== 1 || accountRow === undefined || !accountRow.unblocked) refuse();
+        if (account.rows.length !== 1 || accountRow === undefined) refuse();
         const subject = await transaction.query<{ active: boolean }>(
           `SELECT b.status = 'bound' AND EXISTS (
                     SELECT 1 FROM device_signing_keys k
@@ -104,6 +120,8 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           [input.accountId, input.deviceId],
         );
         if (subject.rows.length !== 1 || subject.rows[0]?.active !== true) refuse();
+        // Switch writers lock security first, so under that lock this answer cannot go stale.
+        const reserved = await allocationReserved(transaction);
         const held = await transaction.query<{
           lease_epoch: string;
           device_id: string;
@@ -128,9 +146,13 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         const existing = held.rows[0];
         const currentEpoch = parseUnsigned(accountRow.current_lease_epoch);
         let leaseEpoch: number;
+        if (existing !== undefined && existing.device_id !== input.deviceId) return STANDBY;
+        if (existing === undefined && (!accountRow.unblocked || reserved)) return STANDBY;
+        if (entitlement === null) return existing === undefined ? STANDBY : REFUSED;
         if (existing !== undefined) {
+          if (!accountRow.unblocked) refuse();
           leaseEpoch = parsePositive(existing.lease_epoch);
-          if (existing.device_id !== input.deviceId || leaseEpoch !== currentEpoch) refuse();
+          if (leaseEpoch !== currentEpoch) refuse();
           const parsed = this.dependencies.verifier.verify(existing.wire_envelope);
           if (
             parsed === null || parsed.accountId !== input.accountId
@@ -138,7 +160,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
             || parsed.accountSecurityEpoch !== input.accountSecurityEpoch
             || !persistedLeaseMatches(existing, parsed)
           ) refuse();
-          if (!existing.renewal_due && existing.online) return { ensured: true, lease: parsed } as const;
+          if (!existing.renewal_due && existing.online) return { outcome: "active", lease: parsed } as const;
         } else {
           const highest = parseUnsigned(accountRow.highest_allocated_lease_epoch);
           if (currentEpoch > highest || highest >= Number.MAX_SAFE_INTEGER) refuse();
@@ -235,20 +257,20 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           );
           if (updated.rowCount !== 1) refuse();
         }
-        return { ensured: true, lease: envelope } as const;
+        return { outcome: "active", lease: envelope } as const;
       });
     } catch (error) {
-      if (error instanceof DesktopLoginLeaseRefusal) return { ensured: false };
+      if (error instanceof DesktopLoginLeaseRefusal) return REFUSED;
       throw error;
     }
   }
 
+  /** The code exchange: it allocates nothing, so it only reads which outcome login reached. */
   async requireCurrentLease(input: {
     readonly accountId: string;
     readonly deviceId: string;
     readonly accountSecurityEpoch: number;
-  }): Promise<{ readonly ensured: true; readonly lease: ActiveDeviceLeaseEnvelope }
-    | { readonly ensured: false }> {
+  }): Promise<DesktopLoginLeaseOutcome> {
     try {
       return await this.dependencies.transactions.withAccount(input.accountId, async (transaction) => {
         const security = await transaction.query<{ account_security_epoch: string; status: string }>(
@@ -271,6 +293,14 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           [input.accountId, input.deviceId],
         );
         if (subject.rows.length !== 1 || subject.rows[0]?.active !== true) refuse();
+        const account = await transaction.query<{ unblocked: boolean }>(
+          `SELECT exclusive_execution_block_until IS NULL
+                    OR exclusive_execution_block_until <= transaction_timestamp() AS unblocked
+             FROM device_account_states WHERE account_id = $1`,
+          [input.accountId],
+        );
+        if (account.rows.length !== 1) refuse();
+        const reserved = await allocationReserved(transaction);
         const held = await transaction.query<{
           lease_epoch: string;
           device_id: string;
@@ -289,8 +319,15 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
             WHERE account_id = $1 AND released_at IS NULL`,
           [input.accountId],
         );
-        const existing = held.rows.length === 1 ? held.rows[0] : undefined;
-        if (existing === undefined || existing.device_id !== input.deviceId || !existing.online) refuse();
+        if (held.rows.length > 1) refuse();
+        const existing = held.rows[0];
+        if (existing !== undefined && existing.device_id !== input.deviceId) return STANDBY;
+        if (existing === undefined) {
+          // Login allocates before it issues a code; no holder now is Standby only if something
+          // still reserves the Lease, otherwise the login lapsed and must start again.
+          return account.rows[0]?.unblocked === false || reserved ? STANDBY : REFUSED;
+        }
+        if (!existing.online) refuse();
         const parsed = this.dependencies.verifier.verify(existing.wire_envelope);
         if (
           parsed === null || parsed.accountId !== input.accountId
@@ -298,13 +335,24 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           || parsed.accountSecurityEpoch !== input.accountSecurityEpoch
           || !persistedLeaseMatches(existing, parsed)
         ) refuse();
-        return { ensured: true, lease: parsed } as const;
+        return { outcome: "active", lease: parsed } as const;
       });
     } catch (error) {
-      if (error instanceof DesktopLoginLeaseRefusal) return { ensured: false };
+      if (error instanceof DesktopLoginLeaseRefusal) return REFUSED;
       throw error;
     }
   }
+}
+
+/** Whether an unfinished switch or a pending epoch allocation reserves the Lease (migration 202611180002). */
+async function allocationReserved(
+  transaction: Parameters<Parameters<AccountTransactions["withAccount"]>[1]>[0],
+): Promise<boolean> {
+  const result = await transaction.query<{ reserved: boolean }>(
+    "SELECT public.device_lease_allocation_reserved() AS reserved",
+  );
+  if (result.rows.length !== 1 || typeof result.rows[0]?.reserved !== "boolean") refuse();
+  return result.rows[0].reserved;
 }
 
 class DesktopLoginLeaseRefusal extends Error {}

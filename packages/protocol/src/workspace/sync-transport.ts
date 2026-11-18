@@ -3,6 +3,7 @@ import { z } from "zod";
 import { canonicalUtcTimestamp, encodeDomainSeparatedWireValue, identifier, safePositiveInteger } from "../wire/index";
 import {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
   mutationCursorSchema,
@@ -11,7 +12,7 @@ import {
   serverRevisionSchema,
   tenantNeutralSubmittedSyncMutationSchema,
 } from "./sync-mutation";
-import { domainAssetProjectionSchema } from "./domain-asset-projection";
+import { workspaceCheckpointStateSchema } from "./checkpoint-state";
 
 export const WORKSPACE_SYNC_PUSH_OPERATION_ID = "workspace.sync.mutations.push" as const;
 export const WORKSPACE_SYNC_PULL_OPERATION_ID = "workspace.sync.mutations.pull" as const;
@@ -28,7 +29,7 @@ export const workspaceSyncOperationSchema = z.enum([
 
 export const workspaceMutationPushRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     mutations: z
       .array(tenantNeutralSubmittedSyncMutationSchema)
       .min(1)
@@ -77,13 +78,17 @@ export const workspaceMutationPushRejectionCodeSchema = z.enum([
   "SYNC_AUTHORIZATION_REJECTED",
   "SYNC_TENANT_UNRESOLVED",
   "SYNC_IDEMPOTENCY_CONFLICT",
+  // A deterministic conflict with Cloud state (a field written by another writer after the
+  // mutation's base, or an entity Cloud holds as a tombstone). Retrying cannot succeed, so the
+  // client ends that one mutation and resolves the field through the next Pull.
+  "SYNC_MUTATION_CONFLICT",
   "SYNC_STORAGE_REJECTED",
 ]);
 
 export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       acknowledgements: z.array(workspaceMutationAcknowledgementSchema).max(MAX_MUTATIONS_PER_PAGE),
       headServerRevision: serverRevisionSchema,
@@ -115,7 +120,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
     }),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPushRejectionCodeSchema,
       correlationId: identifier,
@@ -125,7 +130,7 @@ export const workspaceMutationPushResponseSchema = z.discriminatedUnion("accepte
 
 export const workspaceMutationPullRequestSchema = z
   .object({
-    schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+    schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
     afterServerRevision: serverRevisionSchema,
     cursor: mutationCursorSchema.nullable(),
     confirm: mutationCursorSchema.nullable(),
@@ -176,7 +181,7 @@ export const pendingDeliverySchema = z
 export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepted", [
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(true),
       page: mutationPageSchema,
       confirmedThrough: serverRevisionSchema,
@@ -186,7 +191,7 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
     .strict(),
   z
     .object({
-      schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
+      schemaVersion: z.literal(WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION),
       accepted: z.literal(false),
       code: workspaceMutationPullRejectionCodeSchema,
       checkpoint: checkpointDescriptorSchema.nullable(),
@@ -194,6 +199,49 @@ export const workspaceMutationPullResponseSchema = z.discriminatedUnion("accepte
     })
     .strict(),
 ]);
+
+/**
+ * ADR-0032 decision 4: the calling device reads Cloud's own receipts for its mutations, to learn the
+ * wire version and digest Cloud recorded for each. The device is derived from the authenticated
+ * session, never named by the caller, and an id Cloud has no receipt for is simply absent.
+ */
+export const WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION = 1 as const;
+export const MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS = 256 as const;
+
+export const workspaceMutationReceiptReadRequestSchema = z
+  .object({
+    schemaVersion: z.literal(WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION),
+    mutationIds: z.array(identifier).min(1).max(MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS).readonly(),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    if (new Set(request.mutationIds).size !== request.mutationIds.length) {
+      context.addIssue({ code: "custom", path: ["mutationIds"], message: "mutation ids must be unique" });
+    }
+  });
+
+export const workspaceMutationReceiptSchema = z
+  .object({
+    mutationId: identifier,
+    activeLeaseEpoch: safePositiveInteger,
+    deviceMutationSequence: safePositiveInteger,
+    wireSchemaVersion: z.union([z.literal(2), z.literal(3)]),
+    wireMutationDigest: sha256DigestSchema,
+    outcome: z.enum(["accepted", "rejected"]),
+  })
+  .strict();
+
+export const workspaceMutationReceiptReadResponseSchema = z
+  .object({
+    schemaVersion: z.literal(WORKSPACE_MUTATION_RECEIPT_READ_SCHEMA_VERSION),
+    receipts: z.array(workspaceMutationReceiptSchema).max(MAX_WORKSPACE_MUTATION_RECEIPT_READ_IDS).readonly(),
+  })
+  .strict()
+  .superRefine((response, context) => {
+    if (new Set(response.receipts.map((receipt) => receipt.mutationId)).size !== response.receipts.length) {
+      context.addIssue({ code: "custom", path: ["receipts"], message: "receipt mutation ids must be unique" });
+    }
+  });
 
 /** The authenticated server binding selects the workspace whose checkpoint is returned. */
 export const workspaceCheckpointReadRequestSchema = z
@@ -214,7 +262,7 @@ export const rebootstrapPlanSchema = z
   .object({
     schemaVersion: z.literal(WORKSPACE_SYNC_SCHEMA_VERSION),
     checkpoint: checkpointDescriptorSchema,
-    snapshot: domainAssetProjectionSchema,
+    snapshot: workspaceCheckpointStateSchema,
     requiredMutationRange: z.object({
       fromServerRevisionExclusive: serverRevisionSchema,
       throughServerRevisionInclusive: serverRevisionSchema,
@@ -231,6 +279,13 @@ export const rebootstrapPlanSchema = z
     }
     if (plan.checkpoint.throughServerRevision !== range.fromServerRevisionExclusive) {
       context.addIssue({ code: "custom", path: ["checkpoint", "throughServerRevision"], message: "checkpoint does not anchor the required range" });
+    }
+    // A checkpoint cannot record a deletion it has not reached.
+    const late = plan.snapshot.tombstones.findIndex(
+      (tombstone) => tombstone.deletedServerRevision > plan.checkpoint.throughServerRevision,
+    );
+    if (late !== -1) {
+      context.addIssue({ code: "custom", path: ["snapshot", "tombstones", late, "deletedServerRevision"], message: "tombstone postdates its checkpoint" });
     }
     if (plan.pinnedHeadRevision < range.throughServerRevisionInclusive) {
       context.addIssue({ code: "custom", path: ["pinnedHeadRevision"], message: "pinned head precedes required range" });
@@ -251,7 +306,7 @@ export const rebootstrapPlanSchema = z
 export function encodeRebootstrapPlanDigestInput(value: unknown): Uint8Array {
   const parsed = rebootstrapPlanSchema.parse(value);
   const { pinnedHeadDigest: _digest, ...input } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V2", input);
+  return encodeDomainSeparatedWireValue("GOODDEALER-WORKSPACE-REBOOTSTRAP-PLAN-V3", input);
 }
 
 export type WorkspaceSyncOperation = z.infer<typeof workspaceSyncOperationSchema>;
@@ -269,6 +324,9 @@ export type WorkspaceMutationPullRejectionCode = z.infer<
 >;
 export type WorkspaceMutationPullResponse = z.infer<typeof workspaceMutationPullResponseSchema>;
 export type PendingDelivery = z.infer<typeof pendingDeliverySchema>;
+export type WorkspaceMutationReceiptReadRequest = z.infer<typeof workspaceMutationReceiptReadRequestSchema>;
+export type WorkspaceMutationReceipt = z.infer<typeof workspaceMutationReceiptSchema>;
+export type WorkspaceMutationReceiptReadResponse = z.infer<typeof workspaceMutationReceiptReadResponseSchema>;
 export type WorkspaceCheckpointReadRequest = z.infer<typeof workspaceCheckpointReadRequestSchema>;
 export type WorkspaceCheckpointReadResponse = z.infer<typeof workspaceCheckpointReadResponseSchema>;
 export type WorkspaceRebootstrapRequest = z.infer<typeof workspaceRebootstrapRequestSchema>;

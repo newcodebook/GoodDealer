@@ -25,6 +25,12 @@ describe("desktop component system root API", () => {
     expect(html).toContain('type="button"');
   });
 
+  it("shows the in-flight cue on a busy pager only", () => {
+    expect(renderToStaticMarkup(<Pagination page={1} total={80} busy />)).toContain("gd-pager-busy");
+    expect(renderToStaticMarkup(<Pagination page={1} total={80} />)).not.toContain("gd-pager-busy");
+    expect(renderToStaticMarkup(<Pagination page={1} total={80} busy note="Note" />)).toMatch(/gd-pager-busy.*Note/su);
+  });
+
   it("renders the demonstrated generic primitives through the package root", () => {
     const html = renderToStaticMarkup(<AppShell navigation={<NavigationRail sections={[{ key: "main", items: [{ key: "one", label: "One", textLabel: "One", icon: <AlertTriangleIcon/> }] }]} />}>
       <EditableCell value="10" onCommit={vi.fn()}/><MetricStrip metrics={[{ label: "Total", value: "10" }]}/>

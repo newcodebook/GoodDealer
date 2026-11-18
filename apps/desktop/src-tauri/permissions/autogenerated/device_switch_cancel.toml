@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-device-switch-cancel"
+description = "Enables the device_switch_cancel command without any pre-configured scope."
+commands.allow = ["device_switch_cancel"]
+
+[[permission]]
+identifier = "deny-device-switch-cancel"
+description = "Denies the device_switch_cancel command without any pre-configured scope."
+commands.deny = ["device_switch_cancel"]

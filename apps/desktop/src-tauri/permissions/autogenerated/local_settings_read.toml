@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-settings-read"
+description = "Enables the local_settings_read command without any pre-configured scope."
+commands.allow = ["local_settings_read"]
+
+[[permission]]
+identifier = "deny-local-settings-read"
+description = "Denies the local_settings_read command without any pre-configured scope."
+commands.deny = ["local_settings_read"]

@@ -1,0 +1,30 @@
+{
+  "kind": "gooddealer-v1-candidate",
+  "claim": "local-implementation-evidence",
+  "closesGate": false,
+  "commit": "93379067cc97259966396b78733d0f843ee753fa",
+  "recordedAt": "2026-11-03T15:35:20.003Z",
+  "command": "pnpm check",
+  "toolchain": {
+    "node": "v26.12.1",
+    "pnpm": "12.16.1",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "platform": "linux-x64"
+  },
+  "runs": [
+    {
+      "umask": "002",
+      "exitCode": 0,
+      "durationSeconds": 105,
+      "outputSha256": "f5606795205e9fe3d3a5c1ce82cfad313d072e6366b3daf35cc267be1ee26ad3"
+    },
+    {
+      "umask": "022",
+      "exitCode": 0,
+      "durationSeconds": 106,
+      "outputSha256": "8e608fd53819d060f913891720d8196abef290408118175ecef8ac2a4a2bd204"
+    }
+  ],
+  "passed": true
+}

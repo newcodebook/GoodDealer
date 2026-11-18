@@ -46,6 +46,13 @@ jobs:
         run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+      # The topology policy reads `cargo metadata`; install the pinned toolchain explicitly, like the
+      # other gates, instead of relying on rustup to fetch it on first use.
+      - name: Remove partial pinned Rust toolchain from runner image
+        continue-on-error: true
+        run: rustup toolchain uninstall 1.99.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --force
       - name: Run account gate Fixture evidence
         env:
           EVIDENCE_GITHUB_TOKEN: ${{ github.token }}

@@ -108,6 +108,7 @@ GDBK 导出/恢复与 continuity/rebootstrap 状态机已在私有开发工作�
 UID active-path swap-and-swap-back 所造成的 SQLite 副作用。
 当前 `domain_asset` Repository、Desktop Host 授权门禁、同步 Push/Pull、Renderer Conflict Center
 和 Cloudflare 激活/只读观察旅程均已进入生产源码组合；D1+S1 的 generation、精确 CAS、原子重读和
-transport 聚合已通过有界独立复审。该局部结论不等于跨模块 V1 验收，也不证明真实 Provider、目标
+transport 聚合曾通过有界独立复审，但该复审针对的是已被 `brand/` 重建替换的旧界面组合，对当前界面只是
+历史仓库证据，必须在冻结候选上重新取得。它不等于跨模块 V1 验收，也不证明真实 Provider、目标
 平台原生构件或未来实体；这些工作仍按[路线图](ROADMAP.md)推进。
 Cloud PostgreSQL 最终业务表使用 `workspace_replica_*`，只构成同步/恢复副本。

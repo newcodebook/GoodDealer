@@ -1,4 +1,4 @@
-import type { RenewalDeskItem, RenewalTermYears } from "@gooddealer/client-core";
+import { amountSign, multiplyAmount, subtractAmounts, type RenewalDeskItem, type RenewalTermYears } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   AlertTriangleIcon,
@@ -9,16 +9,17 @@ import {
   Dialog,
   MetricStrip,
   Money,
+  Pagination,
   Select,
   Switch,
   Table,
   Toolbar,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
-import { formatAssetMoney } from "../../portfolio";
+import { formatAssetAmount, formatAssetMoney } from "../../portfolio";
 import {
   isRenewalTerm,
   renewalTerms,
@@ -33,6 +34,10 @@ export interface RenewalDeskProps {
   readonly locale: Locale;
   readonly view: RenewalListView;
   readonly onBack?: () => void;
+  /** Requests another Host page; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page. */
+  readonly busy?: boolean;
   readonly onSelectionChange?: (ids: readonly string[]) => void;
   readonly onTermChange?: (ids: readonly string[], years: RenewalTermYears) => void;
   readonly onAutoRenewChange?: (id: string, enabled: boolean) => void;
@@ -53,15 +58,14 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
   return template.replace(/\{(\w+)\}/gu, (match, key: string) => values[key] ?? match);
 }
 
-function moneyValue(amount: string): number {
-  return Number(amount);
-}
 
 /** Renewal desk: due list with per-row term and auto-renew, a budgeted plan, then one-by-one confirmation. */
 export function RenewalDesk({
   locale,
   view,
   onBack,
+  onPageChange,
+  busy = false,
   onSelectionChange,
   onTermChange,
   onAutoRenewChange,
@@ -77,13 +81,24 @@ export function RenewalDesk({
   const copy = getPresentationCopy(locale, "renewalDesk");
   const libraryCopy = getPresentationCopy(locale, "assetLibrary");
   const [uniformTerm, setUniformTerm] = useState<RenewalTermYears>(1);
-  const canEdit = view.freshness.canEdit;
+  // Planning needs both an editable surface and a qualified renewal capability.
+  const canEdit = view.freshness.canEdit && view.planAvailability === "available";
   const money = (value: { readonly amount: string; readonly currency: string }) => formatAssetMoney(locale, value.amount, value.currency);
   const due = view.items.filter((item) => item.status === "due");
   const selectedIds = due.filter((item) => item.selected).map((item) => item.id);
-  const remaining = moneyValue(view.budget.amount) - moneyValue(view.selectedTotal.amount);
-  const overBudget = remaining < 0;
-  const autoCovered = due.filter((item) => item.autoRenewEnabled).length;
+  const { budget, selectedTotal } = view;
+  const remaining = budget === null || selectedTotal === null ? null : amountSign(subtractAmounts(budget.amount, selectedTotal.amount));
+  const overBudget = remaining !== null && remaining.sign < 0;
+  // A paged view shows one Host page, so its metrics come from the Host's whole-desk counts.
+  const { page } = view;
+  const dueCount = page?.totalItems ?? due.length;
+  const autoCovered = page?.autoRenewEnabledCount ?? due.filter((item) => item.autoRenewEnabled === true).length;
+  // An unrecorded setting is neither on nor off, so it is counted apart from the switched-off ones.
+  const autoOff = page?.autoRenewDisabledCount ?? due.filter((item) => item.autoRenewEnabled === false).length;
+  const autoUnrecorded = dueCount - autoCovered - autoOff;
+  // Unrecorded or unquoted values render as a dash so they never read as a zero or a definite fact.
+  const dash = <span className="renewal-faint">—</span>;
+  const unavailable = { value: copy.notAvailable, tone: "muted" as const };
   const termOptions = renewalTerms.map((years) => ({ value: String(years), label: `${years} ${copy.yearsUnit}` }));
   const parseTerm = (value: string): RenewalTermYears | null => { const years = Number(value); return isRenewalTerm(years) ? years : null; };
 
@@ -100,20 +115,20 @@ export function RenewalDesk({
       },
     },
     { key: "daysRemaining", label: copy.remaining, numeric: true, width: 64, render: (item) => <span className="renewal-mono renewal-muted">{item.daysRemaining}{copy.daysUnit}</span> },
-    { key: "registrar", label: copy.registrar, muted: true, width: 104, priority: "secondary" },
+    { key: "registrar", label: copy.registrar, muted: true, width: 104, priority: "secondary", render: (item) => item.registrar ?? dash },
     {
       key: "autoRenewEnabled",
       label: copy.autoRenew,
       width: 88,
-      render: (item) => item.status === "planned" ? <span className="renewal-faint">—</span> : (
-        <Switch checked={item.autoRenewEnabled} disabled={!canEdit || onAutoRenewChange === undefined} onChange={() => onAutoRenewChange?.(item.id, !item.autoRenewEnabled)} />
+      render: (item) => item.status === "planned" || item.autoRenewEnabled === null ? dash : (
+        <Switch checked={item.autoRenewEnabled} disabled={!canEdit || onAutoRenewChange === undefined} onChange={() => onAutoRenewChange?.(item.id, item.autoRenewEnabled !== true)} />
       ),
     },
     {
       key: "termYears",
       label: copy.renewalYears,
       width: 112,
-      render: (item) => item.status === "planned" ? <span className="renewal-faint">—</span> : (
+      render: (item) => item.status === "planned" || item.termYears === null ? dash : (
         <Select
           size="sm"
           aria-label={`${copy.renewalYears} · ${item.domain}`}
@@ -124,7 +139,7 @@ export function RenewalDesk({
         />
       ),
     },
-    { key: "annualPrice", label: copy.unitPricePerYear, numeric: true, width: 90, render: (item) => <Money amount={moneyValue(item.annualPrice.amount)} tone="body" /> },
+    { key: "annualPrice", label: copy.unitPricePerYear, numeric: true, width: 90, render: (item) => item.annualPrice === null ? dash : <Money amount={formatAssetAmount(locale, item.annualPrice.amount)} tone="body" /> },
     {
       key: "subtotal",
       label: copy.subtotal,
@@ -132,7 +147,7 @@ export function RenewalDesk({
       width: 104,
       render: (item) => item.status === "planned"
         ? <Badge tone="sync" mono={false}>{copy.planned}</Badge>
-        : <Money amount={moneyValue(item.annualPrice.amount) * item.termYears} />,
+        : item.annualPrice === null || item.termYears === null ? dash : <Money amount={formatAssetAmount(locale, multiplyAmount(item.annualPrice.amount, item.termYears))} />,
     },
   ];
 
@@ -142,15 +157,15 @@ export function RenewalDesk({
   const skippedCount = quotes?.filter((quote) => quote.state === "skipped").length ?? 0;
 
   return (
-    <section className="renewal-desk" aria-label={copy.title}>
+    <section className="renewal-desk" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
         metrics={[
-          { key: "due", label: copy.expiringDomains, value: formatNumber(locale, due.length) },
-          { key: "budget", label: copy.renewalBudget, value: money(view.budget), tone: "gold" },
-          { key: "selected", label: copy.selectedRenewalAmount, value: money(view.selectedTotal), tone: overBudget ? "danger" : "gold" },
-          { key: "remaining", label: copy.budgetRemaining, value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, Math.abs(remaining).toFixed(2), view.budget.currency)}`, tone: overBudget ? "danger" : "body" },
-          { key: "auto", label: copy.autoRenewOverride, value: `${autoCovered} / ${due.length}`, tone: "blue" },
+          { key: "due", label: copy.expiringDomains, value: formatNumber(locale, dueCount) },
+          { key: "budget", label: copy.renewalBudget, ...(budget === null ? unavailable : { value: money(budget), tone: "gold" as const }) },
+          { key: "selected", label: copy.selectedRenewalAmount, ...(selectedTotal === null ? unavailable : { value: money(selectedTotal), tone: overBudget ? "danger" as const : "gold" as const }) },
+          { key: "remaining", label: copy.budgetRemaining, ...(remaining === null || budget === null ? unavailable : { value: `${overBudget ? "−" : ""}${formatAssetMoney(locale, remaining.magnitude, budget.currency)}`, tone: overBudget ? "danger" as const : "body" as const }) },
+          { key: "auto", label: copy.autoRenewCoverage, value: `${formatNumber(locale, autoCovered)} / ${formatNumber(locale, dueCount)}`, tone: "blue", meta: `${copy.autoRenewOff} ${formatNumber(locale, autoOff)} · ${copy.autoRenewUnrecorded} ${formatNumber(locale, autoUnrecorded)}` },
         ]}
       />
       <Toolbar
@@ -162,13 +177,14 @@ export function RenewalDesk({
             <span className="gd-t-body-2 renewal-nowrap">{copy.scopeHint}</span>
           </>
         )}
-        right={onReviewPlan === undefined ? null : (
+        right={onReviewPlan === undefined || view.planAvailability === "unavailable" ? null : (
           <Button size="sm" variant="primary" disabled={!canEdit || selectedIds.length === 0} onClick={onReviewPlan}>
             {copy.renewSelected}{selectedIds.length > 0 ? ` · ${selectedIds.length}` : ""}
           </Button>
         )}
       />
-      {!canEdit ? <p className="renewal-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
+      {view.planAvailability === "unavailable" ? <p className="renewal-readonly gd-t-meta">{copy.planUnavailable}</p>
+        : !canEdit ? <p className="renewal-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
       <div className="renewal-body">
         <Table<RenewalDeskItem>
           {...shellTableLabels(locale)}
@@ -183,6 +199,21 @@ export function RenewalDesk({
             onSelectionChange: (keys: Key[]) => onSelectionChange(keys.map(String).filter((id) => due.some((item) => item.id === id))),
           })}
           maxHeight="100%"
+          {...(page === undefined ? {} : {
+            footer: (
+              <Pagination
+                page={Math.floor(page.startIndex / page.size) + 1}
+                pageSize={page.size}
+                total={page.totalItems}
+                busy={busy}
+                labels={shellPaginationLabels(locale)}
+                {...(onPageChange === undefined ? {} : {
+                  onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                  onPageSizeChange: (size: number) => onPageChange(0, size),
+                })}
+              />
+            ),
+          })}
         />
         {selectedIds.length > 0 && canEdit ? (
           <div className="renewal-batch">
@@ -199,7 +230,7 @@ export function RenewalDesk({
               </span>
               {onTermChange === undefined ? null : <Button size="sm" onClick={() => onTermChange(selectedIds, uniformTerm)}>{copy.applyToSelected}</Button>}
               <span className="gd-batchbar-sep" />
-              <span className="renewal-nowrap">{copy.total} <b className={`renewal-mono ${overBudget ? "renewal-danger" : "renewal-gold"}`}>{money(view.selectedTotal)}</b></span>
+              {selectedTotal === null ? null : <span className="renewal-nowrap">{copy.total} <b className={`renewal-mono ${overBudget ? "renewal-danger" : "renewal-gold"}`}>{money(selectedTotal)}</b></span>}
               {onReviewPlan === undefined ? null : <Button size="sm" variant="primary" onClick={onReviewPlan}>{copy.renew}</Button>}
             </BatchBar>
           </div>

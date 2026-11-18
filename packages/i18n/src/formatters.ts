@@ -1,4 +1,5 @@
 import { parseLocale, type Locale } from "./copy-types";
+import { formatDecimalExactly } from "./exact-decimal";
 
 export type DateValue = Date | number;
 export type NumericValue = number | bigint;
@@ -34,7 +35,21 @@ const defaultMoneyOptions = {
   maximumFractionDigits: 2,
 } as const satisfies MoneyFormatOptions;
 
-function assertNumericValue(value: NumericValue): void {
+/**
+ * A plain decimal string, such as a money contract amount. It is formatted exactly, so amounts
+ * beyond a double's 15–17 significant digits are not rounded on the way to the screen; the shown
+ * fraction digits still follow the format options (two for money by default). On a WebView that
+ * cannot format it exactly the formatters show it as unavailable (`—`) rather than rounded
+ * (`exact-decimal.ts`).
+ */
+export type DecimalString = string;
+
+const decimalStringPattern = /^-?(0|[1-9]\d*)(\.\d+)?$/u;
+
+function assertNumericValue(value: NumericValue | DecimalString): void {
+  if (typeof value === "string" && !decimalStringPattern.test(value)) {
+    throw new RangeError("Decimal string must be a plain decimal");
+  }
   if (typeof value === "number" && !Number.isFinite(value)) {
     throw new RangeError("Numeric value must be finite");
   }
@@ -75,28 +90,27 @@ export function formatDate(
 
 export function formatNumber(
   locale: Locale,
-  value: NumericValue,
+  value: NumericValue | DecimalString,
   options: NumberFormatOptions = defaultNumberOptions,
 ): string {
   assertNumericValue(value);
-  return new Intl.NumberFormat(parseLocale(locale), {
-    ...defaultNumberOptions,
-    ...options,
-  }).format(value);
+  const format = new Intl.NumberFormat(parseLocale(locale), { ...defaultNumberOptions, ...options });
+  return typeof value === "string" ? formatDecimalExactly(format, value) : format.format(value);
 }
 
 export function formatMoney(
   locale: Locale,
-  value: NumericValue,
+  value: NumericValue | DecimalString,
   currency: string,
   options: MoneyFormatOptions = defaultMoneyOptions,
 ): string {
   assertNumericValue(value);
   assertCurrency(currency);
-  return new Intl.NumberFormat(parseLocale(locale), {
+  const format = new Intl.NumberFormat(parseLocale(locale), {
     ...defaultMoneyOptions,
     ...options,
     style: "currency",
     currency,
-  }).format(value);
+  });
+  return typeof value === "string" ? formatDecimalExactly(format, value) : format.format(value);
 }

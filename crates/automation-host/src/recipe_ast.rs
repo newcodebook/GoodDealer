@@ -1,4 +1,4 @@
-//! Recipe AST for browser automation (P0-29).
+//! Recipe AST for the fail-closed browser-automation contract (ADR-0002; excluded from v1 by ADR-0017).
 //!
 //! The [`RecipeStep`] enum is **closed**: `serde(deny_unknown_fields)` on every
 //! variant rejects any JSON that does not match a known step type.

@@ -1,12 +1,43 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
+  connectionLabelSchema,
   copyPlainData,
+  batchOperationsWindowRequestSchema,
+  parseBatchOperationsRead,
+  type BatchOperationsRead,
+  type BatchOperationsReadPort,
+  historyWindowRequestSchema,
+  parseHistoryRead,
+  type HistoryRead,
+  type HistoryReadPort,
+  manualTasksWindowRequestSchema,
+  parseManualTasksRead,
+  type ManualTasksRead,
+  type ManualTasksReadPort,
   assetLibraryWindowRequestSchema,
   canonicalDomainNameSchema,
   parseAssetLibraryQuery,
   parseAssetLibraryViewModel,
   parseDomainDetailViewModel,
+  parseDnsHealthRead,
+  parseRenewalsRead,
+  parseSalesRead,
+  parseSettingsRead,
+  parseStorageRepairReceipt,
+  storageRepairRequestSchema,
+  renewalsWindowRequestSchema,
+  salesWindowRequestSchema,
+  dnsHealthWindowRequestSchema,
+  type DnsHealthPort,
+  type DnsHealthRead,
+  type RenewalsRead,
+  type RenewalsReadPort,
+  type SalesRead,
+  type SalesReadPort,
+  type SettingsRead,
+  type SettingsReadPort,
+  localDomainAssetCreateRequestSchema,
   localDomainAssetEditRequestSchema,
   localDomainAssetDeleteRequestSchema,
   localDomainAssetMutationReceiptSchema,
@@ -20,6 +51,7 @@ import {
   type ConflictResolutionIntent,
   type ConflictResolutionReceipt,
   type SyncSnapshotViewModel,
+  type LocalDomainAssetCreateRequest,
   type LocalDomainAssetEditRequest,
   type LocalDomainAssetDeleteRequest,
   type LocalDomainAssetMutationReceipt,
@@ -43,11 +75,29 @@ export interface LocalBusinessStatus {
   readonly readGeneration: number;
 }
 
+/** The Host refusals of an add the person can act on; every other refusal stays opaque. */
+const localWriteErrorCodes = ["DESKTOP_LOCAL_ASSET_EXISTS", "DESKTOP_LOCAL_ASSET_DELETED", "DESKTOP_LOCAL_ASSET_RE_ADD_BLOCKED", "DESKTOP_LOCAL_ASSET_RE_ADD_PENDING"] as const;
+export type LocalWriteErrorCode = (typeof localWriteErrorCodes)[number];
+
+/**
+ * A write the Host refused for a reason the person can act on: the domain is already held, or it
+ * was deleted but its re-add preconditions are unmet, or its re-add is already waiting for Cloud.
+ * Every other refusal stays an opaque failure, as for edits.
+ */
+export class LocalWriteError extends Error {
+  constructor(readonly code: LocalWriteErrorCode) {
+    super(code);
+    this.name = "LocalWriteError";
+  }
+}
+
 export interface LocalBusinessPort {
   status(): Promise<LocalBusinessStatus>;
+  /** Adds a domain the workspace does not hold; a held or still-tombstoned one rejects with `LocalWriteError`. */
+  createDomainAsset(request: LocalDomainAssetCreateRequest): Promise<LocalDomainAssetMutationReceipt>;
   editDomainAsset(request: LocalDomainAssetEditRequest): Promise<LocalDomainAssetMutationReceipt>;
   deleteDomainAsset(request: LocalDomainAssetDeleteRequest): Promise<LocalDomainAssetMutationReceipt>;
-  /** Optional until the asset-detail UI exposes the explicit bind action. */
+  /** Optional so read-only adapters need not supply it; the DNS page binds through it only when writable. */
   bindDomainAssetProvider?(request: LocalDomainAssetProviderBindingRequest): Promise<LocalDomainAssetProviderBindingReceipt>;
 }
 
@@ -56,8 +106,79 @@ export interface LocalConflictPort {
   resolveConflict(request: ConflictResolutionIntent): Promise<ConflictResolutionReceipt>;
 }
 
+/** The Active device and its lease epoch, for display. No envelope, key or capability crosses here. */
+export interface LocalDeviceLease {
+  readonly schemaVersion: 1;
+  readonly deviceId: string;
+  readonly leaseEpoch: number;
+}
+
+export interface LocalDeviceLeasePort {
+  /** Rejects whenever this device does not hold a current Active lease. */
+  read(): Promise<LocalDeviceLease>;
+}
+
 export interface LocalSyncStatusPort {
   status(): Promise<SyncSnapshotViewModel>;
+}
+
+const deviceSwitchStatuses = ["requested", "draining", "waiting_expiry", "bootstrapping", "completed", "cancelled", "failed"] as const;
+export type DeviceSwitchStatus = (typeof deviceSwitchStatuses)[number];
+
+const deviceSwitchRejections = [
+  "SWITCH_IN_PROGRESS",
+  "SWITCH_NOT_FOUND",
+  "SWITCH_NOT_CANCELLABLE",
+  "IDEMPOTENCY_CONFLICT",
+  "TARGET_IS_SOURCE",
+  "TARGET_NOT_BOUND",
+  "TARGET_REMOVED",
+  "ACCOUNT_RECOVERY_PENDING",
+  "FORCED_SWITCH_UNAVAILABLE",
+  "DRAIN_PROOF_INVALID",
+  "DRAIN_PROOF_EXPIRED",
+  "DRAIN_STREAMS_INCOMPLETE",
+] as const;
+export type DeviceSwitchRejection = (typeof deviceSwitchRejections)[number];
+
+/**
+ * Where this device's switch stands (ADR-0032). Only closed codes cross IPC: the switch id, Lease,
+ * receipts, proof and signature stay in the Host.
+ */
+export type DeviceSwitchStep =
+  | { readonly kind: "idle" }
+  | { readonly kind: "rejected"; readonly rejection: DeviceSwitchRejection }
+  | { readonly kind: "waiting_for_sync"; readonly unconfirmed: number }
+  | { readonly kind: "blocked" }
+  | { readonly kind: "receipts_missing" }
+  | { readonly kind: "switch"; readonly status: DeviceSwitchStatus }
+  | { readonly kind: "writes_reopened" };
+
+const deviceSwitchErrorCodes = [
+  "DEVICE_SWITCH_RETRY_LATER",
+  "DEVICE_SWITCH_AUTHORIZATION_REQUIRED",
+  "DEVICE_SWITCH_BLOCKED",
+  "DEVICE_SWITCH_UNAVAILABLE",
+  "DEVICE_SWITCH_INVALID_REQUEST",
+] as const;
+export type DeviceSwitchErrorCode = (typeof deviceSwitchErrorCodes)[number];
+
+/** A switch call the Host could not finish; any unnamed refusal stays an opaque failure. */
+export class DeviceSwitchError extends Error {
+  constructor(readonly code: DeviceSwitchErrorCode) {
+    super(code);
+    this.name = "DeviceSwitchError";
+  }
+}
+
+export interface DeviceSwitchPort {
+  /** Asks Cloud for a normal switch to a bound device; an open switch is resumed instead. */
+  request(toDeviceId: string): Promise<DeviceSwitchStep>;
+  /** Moves the open switch forward: sync, receipts, then the signed drain proof. */
+  advance(): Promise<DeviceSwitchStep>;
+  status(): Promise<DeviceSwitchStep>;
+  /** Writes reopen only once Cloud confirms the cancellation. */
+  cancel(): Promise<DeviceSwitchStep>;
 }
 
 export type CloudflareConnectionStatusState = "not-configured" | "recovering" | "ready" | "busy" | "blocked";
@@ -66,7 +187,26 @@ export interface CloudflareConnectionStatus {
   readonly state: CloudflareConnectionStatusState;
   readonly connectionRef: string | null;
   readonly displayLabel: string | null;
+  /** False until Cloudflare DNS observation passes ADR-0024 qualification; nothing can run before then. */
+  readonly qualified: boolean;
+  /** Whether this Host build can capture a token at all (macOS only); connecting needs it. */
+  readonly capturable: boolean;
+  /** The latest Provider operation's closed outcome, or null when none ran this session. */
+  readonly lastOperation: CloudflareProviderOperation | null;
   readonly readGeneration: number;
+}
+
+export interface CloudflareProviderOperation {
+  readonly kind: "activate" | "revoke" | "observe" | "purge";
+  readonly outcome: "confirmed" | "unconfirmed" | "nothing_to_revoke" | "unqualified" | "zone_unimportable" | "unreachable" | "retry_later" | "credential_rejected" | "failed";
+}
+
+/** The only maintenance the Host admits for a refused credential (ADR-0028). */
+export type CloudflareMaintenanceAction = "retire" | "retry_retirement" | "retry_revoke";
+export interface CloudflareRetirementCandidate {
+  readonly connectionRef: string;
+  readonly displayLabel: string;
+  readonly action: CloudflareMaintenanceAction;
 }
 
 export type CloudflareRecordType = "A" | "AAAA" | "CAA" | "CNAME" | "MX" | "NS" | "SRV" | "TXT";
@@ -92,10 +232,26 @@ export interface CloudflareObservation {
   }[];
 }
 
+/** The Cloudflare connection activation provisions into; it holds no credential yet. */
+export interface CloudflareConnectionCreated {
+  readonly schemaVersion: 1;
+  readonly connectionRef: string;
+  readonly displayLabel: string;
+  /** False when a connection that was never activated is returned instead of adding another. */
+  readonly created: boolean;
+  readonly readGeneration: number;
+}
+
 export interface CloudflarePort {
   status(): Promise<CloudflareConnectionStatus>;
+  /** Refused by the Host with `DESKTOP_CAPABILITY_UNQUALIFIED` until the capability is qualified. */
+  create(displayLabel: string): Promise<CloudflareConnectionCreated>;
   /** Native opens the bounded credential capture; the token never enters this argument. */
   activate(connectionRef: string): Promise<void>;
+  /** Queues revocation; the Host denies the credential at once and tombstones it in custody. */
+  revoke(connectionRef: string): Promise<void>;
+  retirementCandidates(): Promise<readonly CloudflareRetirementCandidate[]>;
+  purge(connectionRef: string, action: "confirm_retirement" | "retry_pending"): Promise<void>;
   observe(connectionRef: string, entityId: string): Promise<void>;
   readObservation(entityId: string): Promise<CloudflareObservation>;
 }
@@ -104,14 +260,32 @@ const commands = {
   status: "local_business_status",
   readAssetLibrary: "local_asset_library_read",
   readDomainDetail: "local_domain_detail_read",
+  readDnsHealth: "local_dns_health_read",
+  readSettings: "local_settings_read",
+  repairStoredRows: "local_storage_repair",
+  readRenewals: "local_renewals_read",
+  readBatchOperations: "local_batch_operations_read",
+  readHistory: "local_history_read",
+  readManualTasks: "local_manual_tasks_read",
+  readSales: "local_sales_read",
+  createDomainAsset: "local_domain_asset_create",
   editDomainAsset: "local_domain_asset_edit",
   deleteDomainAsset: "local_domain_asset_delete",
   bindDomainAssetProvider: "local_domain_asset_provider_bind",
   conflictCenter: "local_conflict_center_read",
   resolveConflict: "local_conflict_resolve",
   localSyncStatus: "local_sync_status",
+  readDeviceLease: "local_device_lease_read",
+  deviceSwitchRequest: "device_switch_request",
+  deviceSwitchAdvance: "device_switch_advance",
+  deviceSwitchStatus: "device_switch_status",
+  deviceSwitchCancel: "device_switch_cancel",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
+  cloudflareCreate: "cloudflare_connection_create",
+  cloudflareRevoke: "cloudflare_connection_revoke",
+  cloudflarePurge: "cloudflare_connection_purge",
+  cloudflareRetirementCandidates: "cloudflare_retirement_candidates",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
 } as const;
@@ -121,8 +295,23 @@ export function createCloudflarePort(): CloudflarePort {
     async status() {
       return parseCloudflareStatus(await invoke(commands.cloudflareStatus));
     },
+    async create(displayLabel) {
+      // The Host applies the same label rule; refusing here keeps an invalid label off the wire.
+      if (!connectionLabelSchema.safeParse(displayLabel).success) throw new TypeError("invalid Cloudflare connection label");
+      return parseCloudflareConnectionCreated(await invoke(commands.cloudflareCreate, { request: { schemaVersion: 1, displayLabel } }));
+    },
     async activate(connectionRef) {
       await invoke(commands.cloudflareActivate, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+    },
+    async revoke(connectionRef) {
+      await invoke(commands.cloudflareRevoke, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+    },
+    async retirementCandidates() {
+      return parseCloudflareRetirementCandidates(await invoke(commands.cloudflareRetirementCandidates));
+    },
+    async purge(connectionRef, action) {
+      if (action !== "confirm_retirement" && action !== "retry_pending") throw new TypeError("invalid retirement action");
+      await invoke(commands.cloudflarePurge, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef), action } });
     },
     async observe(connectionRef, entityId) {
       await invoke(commands.cloudflareObserve, {
@@ -161,6 +350,130 @@ export type LocalReadErrorCode =
 
 export class LocalReadError extends Error {
   constructor(readonly code: LocalReadErrorCode) { super(code); this.name = "LocalReadError"; }
+}
+
+/** DNS health windows from the Host; a response from any other provenance is rejected. */
+export function createLocalDnsHealthPort(): DnsHealthPort {
+  return {
+    async loadDnsHealth(request): Promise<DnsHealthRead> {
+      let validatedRequest;
+      try { validatedRequest = dnsHealthWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Operation plan windows from the Host; any other provenance is rejected. */
+export function createLocalBatchOperationsPort(): BatchOperationsReadPort {
+  return {
+    async loadBatchOperations(request): Promise<BatchOperationsRead> {
+      let validatedRequest;
+      try { validatedRequest = batchOperationsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseBatchOperationsRead(await invoke(commands.readBatchOperations, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Revision ledger windows from the Host; any other provenance is rejected. */
+export function createLocalHistoryPort(): HistoryReadPort {
+  return {
+    async loadHistory(request): Promise<HistoryRead> {
+      let validatedRequest;
+      try { validatedRequest = historyWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseHistoryRead(await invoke(commands.readHistory, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Manual task windows from the Host; any other provenance is rejected. */
+export function createLocalManualTasksPort(): ManualTasksReadPort {
+  return {
+    async loadManualTasks(request): Promise<ManualTasksRead> {
+      let validatedRequest;
+      try { validatedRequest = manualTasksWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseManualTasksRead(await invoke(commands.readManualTasks, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Expiring-asset windows from the Host; any other provenance is rejected. */
+export function createLocalRenewalsPort(): RenewalsReadPort {
+  return {
+    async loadRenewals(request): Promise<RenewalsRead> {
+      let validatedRequest;
+      try { validatedRequest = renewalsWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseRenewalsRead(await invoke(commands.readRenewals, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Observed marketplace listing windows from the Host; any other provenance is rejected. */
+export function createLocalSalesPort(): SalesReadPort {
+  return {
+    async loadSales(request): Promise<SalesRead> {
+      let validatedRequest;
+      try { validatedRequest = salesWindowRequestSchema.parse(request); }
+      catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
+      try {
+        const value = parseSalesRead(await invoke(commands.readSales, { request: validatedRequest }));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+  };
+}
+
+/** Redacted Provider connections and role availability; any other provenance is rejected. */
+export function createLocalSettingsPort(): SettingsReadPort {
+  return {
+    async loadSettings(): Promise<SettingsRead> {
+      try {
+        const value = parseSettingsRead(await invoke(commands.readSettings));
+        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        return value;
+      }
+      catch (error) { throw mapLocalReadError(error); }
+    },
+    async repairStoredRows(request) {
+      // Only a closed category and a read generation reach the Host; no row identity or value.
+      const validatedRequest = storageRepairRequestSchema.parse(request);
+      return parseStorageRepairReceipt(
+        await invoke(commands.repairStoredRows, { request: validatedRequest }),
+        validatedRequest.repairKind,
+      );
+    },
+  };
 }
 
 export function createLocalPortfolioPresentationPort(): ValidatedPortfolioPresentationPort {
@@ -236,6 +549,23 @@ export function createLocalBusinessPort(): LocalBusinessPort & PortfolioProvider
     async status() {
       return parseStatus(await invoke(commands.status));
     },
+    async createDomainAsset(request) {
+      const parsed = localDomainAssetCreateRequestSchema.parse(request);
+      let receipt: unknown;
+      try {
+        receipt = await invoke(commands.createDomainAsset, { request: parsed });
+      } catch (error) {
+        const named = localWriteErrorCodes.find((code) => code === error);
+        if (named !== undefined) throw new LocalWriteError(named);
+        throw error;
+      }
+      const parsedReceipt = localDomainAssetMutationReceiptSchema.parse(receipt);
+      // The Host answers for the request it was given; anything else is not this write's receipt.
+      if (!(parsedReceipt.operation === "create" || parsedReceipt.operation === "re_add") || parsedReceipt.entityId !== parsed.asset.entityId || parsedReceipt.mutationId !== parsed.mutationId) {
+        throw new TypeError("create receipt does not match the request");
+      }
+      return parsedReceipt;
+    },
     async editDomainAsset(request) {
       const parsed = localDomainAssetEditRequestSchema.parse(request);
       return localDomainAssetMutationReceiptSchema.parse(await invoke(commands.editDomainAsset, { request: parsed }));
@@ -262,6 +592,78 @@ export function createLocalConflictPort(): LocalConflictPort {
 
 export function createLocalSyncStatusPort(): LocalSyncStatusPort {
   return { async status() { return parseSyncSnapshotViewModel(await invoke(commands.localSyncStatus)); } };
+}
+
+export function createLocalDeviceLeasePort(): LocalDeviceLeasePort {
+  return { async read() { return parseDeviceLease(await invoke(commands.readDeviceLease)); } };
+}
+
+export function createDeviceSwitchPort(): DeviceSwitchPort {
+  const call = async (command: string, args?: Record<string, unknown>) => {
+    let view: unknown;
+    try {
+      view = await invoke(command, args);
+    } catch (error) {
+      const named = deviceSwitchErrorCodes.find((code) => code === error);
+      if (named !== undefined) throw new DeviceSwitchError(named);
+      throw error;
+    }
+    return parseDeviceSwitchStep(view);
+  };
+  return {
+    async request(toDeviceId) {
+      // The Host applies the same identifier rule; refusing here keeps an invalid id off the wire.
+      if (!isPrintableIdentifier(toDeviceId, 160)) throw new TypeError("invalid target device");
+      return call(commands.deviceSwitchRequest, { request: { schemaVersion: 1, toDeviceId } });
+    },
+    async advance() { return call(commands.deviceSwitchAdvance); },
+    async status() { return call(commands.deviceSwitchStatus); },
+    async cancel() { return call(commands.deviceSwitchCancel); },
+  };
+}
+
+function isPrintableIdentifier(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum
+    && [...value].every((char) => { const code = char.codePointAt(0) ?? 0; return code >= 0x21 && code <= 0x7e; });
+}
+
+function parseDeviceSwitchStep(value: unknown): DeviceSwitchStep {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "step", "unconfirmed", "status", "rejection"]);
+  const { step, unconfirmed, status, rejection } = record;
+  const empty = (...fields: unknown[]) => fields.every((field) => field === null);
+  if (record["schemaVersion"] === 1) {
+    if (step === "idle" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "idle" });
+    if (step === "blocked" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "blocked" });
+    if (step === "receipts_missing" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "receipts_missing" });
+    if (step === "writes_reopened" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "writes_reopened" });
+    if (step === "waiting_for_sync" && empty(status, rejection) && Number.isSafeInteger(unconfirmed) && (unconfirmed as number) >= 0) {
+      return Object.freeze({ kind: "waiting_for_sync", unconfirmed: unconfirmed as number });
+    }
+    const knownStatus = deviceSwitchStatuses.find((candidate) => candidate === status);
+    if (step === "switch" && empty(unconfirmed, rejection) && knownStatus !== undefined) {
+      return Object.freeze({ kind: "switch", status: knownStatus });
+    }
+    const knownRejection = deviceSwitchRejections.find((candidate) => candidate === rejection);
+    if (step === "rejected" && empty(unconfirmed, status) && knownRejection !== undefined) {
+      return Object.freeze({ kind: "rejected", rejection: knownRejection });
+    }
+  }
+  throw new TypeError("invalid device switch step");
+}
+
+function parseDeviceLease(value: unknown): LocalDeviceLease {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "deviceId", "leaseEpoch"]);
+  const deviceId = record["deviceId"];
+  if (
+    record["schemaVersion"] !== 1
+    || typeof deviceId !== "string" || deviceId.length === 0 || deviceId.length > 128
+    // The Host admits only printable ASCII device identifiers; anything else is not its value.
+    || [...deviceId].some((char) => { const code = char.codePointAt(0) ?? 0; return code < 0x21 || code > 0x7e; })
+    || !Number.isSafeInteger(record["leaseEpoch"]) || (record["leaseEpoch"] as number) < 1
+  ) {
+    throw new TypeError("invalid device lease");
+  }
+  return Object.freeze({ schemaVersion: 1, deviceId, leaseEpoch: record["leaseEpoch"] as number });
 }
 
 function parseStatus(value: unknown): LocalBusinessStatus {
@@ -314,6 +716,26 @@ function exactRecord(value: unknown, keys: readonly string[]): Record<string, un
   return record;
 }
 
+function parseCloudflareConnectionCreated(value: unknown): CloudflareConnectionCreated {
+  const keys = ["connectionRef", "created", "displayLabel", "readGeneration", "schemaVersion"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("invalid Cloudflare connection");
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join() !== keys.join()) throw new TypeError("invalid Cloudflare connection");
+  const { schemaVersion, connectionRef, displayLabel, created, readGeneration } = record;
+  if (schemaVersion !== 1 || typeof connectionRef !== "string" || !connectionLabelSchema.safeParse(displayLabel).success
+    || typeof created !== "boolean" || typeof readGeneration !== "number"
+    || !Number.isSafeInteger(readGeneration) || readGeneration < 0) throw new TypeError("invalid Cloudflare connection");
+  return { schemaVersion, connectionRef: boundedOpaqueRef(connectionRef), displayLabel: displayLabel as string, created, readGeneration };
+}
+
+/** A connection label under the one label rule every Host read applies, or none. */
+function connectionLabel(value: unknown): string | null {
+  if (value === null) return null;
+  const parsed = connectionLabelSchema.safeParse(value);
+  if (!parsed.success) throw new TypeError("invalid Cloudflare connection label");
+  return parsed.data;
+}
+
 function boundedOpaqueRef(value: string): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 || [...value].some((char) => {
     const code = char.codePointAt(0) ?? 0;
@@ -330,8 +752,50 @@ function boundedEntityId(value: string): string {
   return value;
 }
 
+function parseCloudflareRetirementCandidates(value: unknown): readonly CloudflareRetirementCandidate[] {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "candidates"]);
+  if (record.schemaVersion !== 1 || !Array.isArray(record.candidates) || record.candidates.length > 64) {
+    throw new TypeError("invalid retirement candidates");
+  }
+  const seen = new Set<string>();
+  return Object.freeze(record.candidates.map((value: unknown) => {
+    const candidate = exactRecord(value, ["connectionRef", "displayLabel", "action"]);
+    const actions: readonly CloudflareMaintenanceAction[] = ["retire", "retry_retirement", "retry_revoke"];
+    const action = actions.find((item) => item === candidate.action);
+    if (typeof candidate.connectionRef !== "string" || action === undefined
+      || !connectionLabelSchema.safeParse(candidate.displayLabel).success || typeof candidate.displayLabel !== "string") {
+      throw new TypeError("invalid retirement candidate");
+    }
+    const connectionRef = boundedOpaqueRef(candidate.connectionRef);
+    if (seen.has(connectionRef)) throw new TypeError("duplicate retirement candidate");
+    seen.add(connectionRef);
+    return Object.freeze({ connectionRef, displayLabel: candidate.displayLabel, action });
+  }));
+}
+
+function parseProviderOperation(value: unknown): CloudflareProviderOperation | null {
+  if (value === null) return null;
+  const record = exactRecord(value, ["kind", "outcome"]);
+  const kinds: readonly CloudflareProviderOperation["kind"][] = ["activate", "revoke", "observe", "purge"];
+  const outcomes: readonly CloudflareProviderOperation["outcome"][] = ["confirmed", "unconfirmed", "nothing_to_revoke", "unqualified", "zone_unimportable", "unreachable", "retry_later", "credential_rejected", "failed"];
+  // Only a Provider call can be unreachable, asked to retry, or refuse the credential; a
+  // revocation makes none, it only withdraws this device's custody.
+  const providerOutcomes: readonly CloudflareProviderOperation["outcome"][] = ["unreachable", "retry_later", "credential_rejected"];
+  const kind = kinds.find((candidate) => candidate === record.kind);
+  const outcome = outcomes.find((candidate) => candidate === record.outcome);
+  // Only a revocation can find nothing to revoke.
+  if (kind === undefined || outcome === undefined || (outcome === "nothing_to_revoke" && kind !== "revoke")
+    || (providerOutcomes.includes(outcome) && (kind === "revoke" || kind === "purge"))
+    || (kind === "purge" && !["confirmed", "unconfirmed", "failed"].includes(outcome))
+    // Only an activation imports a Zone.
+    || (outcome === "zone_unimportable" && kind !== "activate")) {
+    throw new TypeError("invalid Cloudflare operation outcome");
+  }
+  return Object.freeze({ kind, outcome });
+}
+
 function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
-  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "readGeneration"]);
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "capturable", "lastOperation", "readGeneration"]);
   const states: readonly CloudflareConnectionStatusState[] = ["not-configured", "recovering", "ready", "busy", "blocked"];
   const bounded = (field: unknown): string | null => field === null ? null
     : typeof field === "string" && field.length > 0 && field.length <= 256 && [...field].every((char) => {
@@ -339,6 +803,7 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
       return code >= 0x20 && code !== 0x7f;
     }) ? field : (() => { throw new TypeError("invalid Cloudflare status text"); })();
   if (record.schemaVersion !== 1 || !states.includes(record.state as CloudflareConnectionStatusState)
+    || typeof record.qualified !== "boolean" || typeof record.capturable !== "boolean"
     || !Number.isSafeInteger(record.readGeneration) || (record.readGeneration as number) < 0) {
     throw new TypeError("invalid Cloudflare status");
   }
@@ -346,7 +811,10 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
     schemaVersion: 1,
     state: record.state as CloudflareConnectionStatusState,
     connectionRef: bounded(record.connectionRef),
-    displayLabel: bounded(record.displayLabel),
+    displayLabel: connectionLabel(record.displayLabel),
+    qualified: record.qualified,
+    capturable: record.capturable,
+    lastOperation: parseProviderOperation(record.lastOperation),
     readGeneration: record.readGeneration as number,
   });
 }

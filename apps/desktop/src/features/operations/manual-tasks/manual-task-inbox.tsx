@@ -1,5 +1,5 @@
 import type { ManualTaskInboxViewModel } from "@gooddealer/client-core";
-import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   Badge,
   Button,
@@ -8,20 +8,17 @@ import {
   Dialog,
   ExternalLinkIcon,
   FileTextIcon,
-  MonitorIcon,
   Panel,
-  PauseIcon,
-  PlayIcon,
   RefreshCwIcon,
-  StatusDot,
 } from "@gooddealer/ui";
 import { useState } from "react";
+
+import { relativeTime } from "../relative-time";
 
 import "./manual-task-inbox.css";
 
 type ManualTask = ManualTaskInboxViewModel["tasks"][number];
-type TaskAction = "open_platform" | "request_automation_grant" | "mark_user_operation_done" | "request_recheck" | "cancel";
-type BrowserControl = "pause_and_take_over" | "continue" | "terminate";
+type TaskAction = "open_platform" | "mark_user_operation_done" | "request_recheck" | "cancel";
 
 export interface ManualTaskInboxProps {
   readonly locale: Locale;
@@ -30,8 +27,8 @@ export interface ManualTaskInboxProps {
   /** Ordinary task actions; "mark done" only asks the Host to verify, it never marks success itself. */
   readonly onAction?: (task: ManualTask, action: TaskAction) => void;
   readonly onAcceptRisk?: (task: ManualTask, reason: string) => void;
-  /** Browser handoff controls; the panel appears only when the Host supplies a browser task. */
-  readonly onBrowserControl?: (task: ManualTask, control: BrowserControl) => void;
+  /** The local clock relative times are measured from; defaults to now. */
+  readonly now?: Date;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -40,8 +37,11 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
 
 const terminal = new Set<ManualTask["status"]>(["confirmed_completed", "cancelled", "risk_accepted"]);
 
-/** Manual task inbox: tasks that need a person, each with its reason, checklist, and verified completion. */
-export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk, onBrowserControl }: ManualTaskInboxProps) {
+/**
+ * Manual task inbox: steps a platform offers only in its own console. The person completes them in
+ * their own browser; returning only asks the Host to re-observe the platform (ADR-0017, ADR-0027).
+ */
+export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk, now }: ManualTaskInboxProps) {
   const copy = getPresentationCopy(locale, "manualTaskInbox");
   const [riskTask, setRiskTask] = useState<ManualTask | null>(null);
   const [reason, setReason] = useState("");
@@ -49,8 +49,7 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
   const readOnly = view.source === "standby_cloud" || view.commandAdmission !== "proven";
   const selected = view.tasks.find((task) => task.id === view.selectedTaskId) ?? view.tasks[0] ?? null;
   const open = view.tasks.filter((task) => !terminal.has(task.status)).length;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const when = (value: string | null) => value === null ? "—" : formatDate(locale, Date.parse(value), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  const when = (value: string | null) => value === null ? "—" : relativeTime(value, copy, now);
 
   const statusBadge = (task: ManualTask) => {
     switch (task.status) {
@@ -80,36 +79,38 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
               onClick={() => onSelect?.(task.id)}
             >
               <span className="tasks-item-title">{task.status === "confirmed_completed" ? <CheckIcon size={13} className="tasks-success" /> : null}{task.title}</span>
-              <span className="tasks-item-meta">{statusBadge(task)}<span className="gd-t-meta">{task.account} · {formatNumber(locale, task.affectedDomains.length)} {copy.domainsUnit}</span></span>
+              <span className="tasks-item-meta">{statusBadge(task)}<span className="gd-t-meta">{task.account} · {formatNumber(locale, task.affectedDomainCount)} {copy.domainsUnit}</span></span>
             </button>
           ))}
           <span className="gd-t-meta">{copy.duplicatePrevention}</span>
         </aside>
         {selected === null ? null : (
           <div className="tasks-detail">
-            {readOnly ? <p className="tasks-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
+            {view.source === "standby_cloud" ? <p className="tasks-readonly gd-t-meta">{copy.readOnlyNotice}</p>
+              : readOnly ? <p className="tasks-readonly gd-t-meta">{copy.actionsUnavailable}</p> : null}
             <Panel title={selected.title} actions={statusBadge(selected)}>
               <div className="tasks-stack">
                 <dl className="tasks-facts">
                   <dt>{copy.whyManual}</dt><dd>{selected.reason}</dd>
                   <dt>{copy.target}</dt><dd>{selected.platform} · {selected.account}</dd>
-                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomains.slice(0, 3).join(" · ")}{selected.affectedDomains.length > 3 ? ` +${selected.affectedDomains.length - 3}` : ""}</dd>
+                  <dt>{copy.affectedDomains}</dt><dd className="tasks-mono">{selected.affectedDomainCount === 0 ? "—" : selected.affectedDomains.join(" · ")}{selected.affectedDomainCount > selected.affectedDomains.length ? ` +${formatNumber(locale, selected.affectedDomainCount - selected.affectedDomains.length)}` : ""}</dd>
                   <dt>{copy.prepared}</dt><dd>{selected.preparedArtifactLabel === null ? "—" : <span className="tasks-artifact"><FileTextIcon size={13} />{selected.preparedArtifactLabel}</span>}</dd>
                   <dt>{copy.completionCondition}</dt><dd>{selected.completionCondition}</dd>
                   <dt>{copy.lastChecked}</dt><dd className="tasks-mono">{when(selected.lastCheckedAt)}</dd>
                 </dl>
-                <div className="tasks-checklist">
-                  <span className="gd-t-label">{copy.checklist}</span>
-                  {selected.checklist.map((item) => (
-                    <span key={item.id} className={`tasks-check tasks-check--${item.state}`}>
-                      <i>{item.state === "completed" ? <CheckIcon size={11} /> : null}</i>{item.label}
-                    </span>
-                  ))}
-                </div>
+                {selected.checklist.length === 0 ? null : (
+                  <div className="tasks-checklist">
+                    <span className="gd-t-label">{copy.checklist}</span>
+                    {selected.checklist.map((item) => (
+                      <span key={item.id} className={`tasks-check tasks-check--${item.state}`}>
+                        <i>{item.state === "completed" ? <CheckIcon size={11} /> : null}</i>{item.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {onAction === undefined ? null : (
                   <div className="tasks-actions">
                     {can(selected, "open_platform") ? <Button icon={<ExternalLinkIcon size={13} />} onClick={() => onAction(selected, "open_platform")}>{copy.openPlatformAndSignIn}</Button> : null}
-                    {can(selected, "request_automation_grant") ? <Button variant="primary" onClick={() => onAction(selected, "request_automation_grant")}>{copy.authorizeExecution}</Button> : null}
                     {can(selected, "mark_user_operation_done") ? <Button variant="ghost" onClick={() => onAction(selected, "mark_user_operation_done")}>{copy.markComplete}</Button> : null}
                     {can(selected, "request_recheck") ? <Button variant="ghost" icon={<RefreshCwIcon size={13} />} onClick={() => onAction(selected, "request_recheck")}>{copy.requestRecheck}</Button> : null}
                     <span className="tasks-spacer" />
@@ -118,21 +119,9 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
                     {can(selected, "cancel") ? <Button size="sm" variant="ghost" onClick={() => onAction(selected, "cancel")}>{copy.cancelTask}</Button> : null}
                   </div>
                 )}
-                <span className="gd-t-meta">{copy.completionRequiresVerification}</span>
+                {onAction !== undefined && can(selected, "mark_user_operation_done") ? <span className="gd-t-meta">{copy.completionRequiresVerification}</span> : null}
               </div>
             </Panel>
-            {selected.browserGrant === null ? null : (
-              <Panel title={copy.grantTitle} actions={<Badge tone="gold" mono={false}>{selected.browserGrant.planActionLabel}</Badge>}>
-                <dl className="tasks-facts">
-                  <dt>{copy.grantScope}</dt><dd>{selected.browserGrant.provider} · {selected.browserGrant.accountAlias} · {formatNumber(locale, selected.browserGrant.planItemCount)}</dd>
-                  <dt>{copy.allowedHost}</dt><dd className="tasks-mono">{selected.browserGrant.allowedHosts.join(" · ")}</dd>
-                  <dt>{copy.grantExpires}</dt><dd className="tasks-mono">{when(selected.browserGrant.expiresAt)}</dd>
-                </dl>
-              </Panel>
-            )}
-            {selected.browserTask === null ? null : (
-              <BrowserHandoff locale={locale} task={selected} {...(onBrowserControl === undefined || readOnly ? {} : { onControl: (control: BrowserControl) => onBrowserControl(selected, control) })} />
-            )}
           </div>
         )}
       </div>
@@ -162,42 +151,5 @@ export function ManualTaskInbox({ locale, view, onSelect, onAction, onAcceptRisk
         )}
       </Dialog>
     </section>
-  );
-}
-
-function BrowserHandoff({ locale, task, onControl }: { readonly locale: Locale; readonly task: ManualTask; readonly onControl?: (control: BrowserControl) => void }) {
-  const copy = getPresentationCopy(locale, "manualTaskInbox");
-  const browser = task.browserTask;
-  if (browser === null) return null;
-  const controls = browser.controlAdmission.status === "proven" ? browser.controlAdmission.controls : [];
-  const status = browser.state === "running"
-    ? <StatusDot kind="sync" pulse label={fill(copy.softwareRunningRemaining, { count: formatNumber(locale, browser.remainingItems) })} />
-    : browser.state === "paused" ? <StatusDot kind="warning" label={copy.pausedForHandoff} />
-      : browser.state === "outcome_unknown" ? <StatusDot kind="danger" label={copy.outcomeUnknown} />
-        : browser.state === "awaiting_user" ? <StatusDot kind="neutral" label={copy.userOperation} />
-          : <StatusDot kind="success" label={copy.finished} />;
-  return (
-    <Panel title={copy.remoteBrowserStatus} actions={<Badge tone="sync">{browser.operator === "software" ? "SOFTWARE" : "USER"}</Badge>}>
-      <div className="tasks-stack">
-        <div className="tasks-browser-row">
-          <span className="tasks-browser-target"><MonitorIcon size={14} />{browser.provider} · {browser.accountAlias}</span>
-          <span className="tasks-mono tasks-muted">{copy.allowedHost}: {browser.allowedHosts.join(" · ")}</span>
-          <span className="tasks-browser-status">{status}</span>
-        </div>
-        <div className="tasks-browser-next">
-          <span>{copy.nextStep}：{browser.nextStepLabel}</span>
-          <span>{copy.queue} {formatNumber(locale, browser.remainingItems)}</span>
-        </div>
-        {onControl === undefined ? null : (
-          <div className="tasks-actions">
-            <Button size="sm" icon={<PauseIcon size={12} />} disabled={!controls.includes("pause_and_take_over")} onClick={() => onControl("pause_and_take_over")}>{copy.pauseAndTakeOver}</Button>
-            <Button size="sm" icon={<PlayIcon size={12} />} disabled={!controls.includes("continue")} onClick={() => onControl("continue")}>{copy.continue}</Button>
-            <Button size="sm" variant="danger" disabled={!controls.includes("terminate")} onClick={() => onControl("terminate")}>{copy.terminate}</Button>
-            <span className="tasks-spacer" />
-            <span className="gd-t-meta">{copy.secretPageHandoff}</span>
-          </div>
-        )}
-      </div>
-    </Panel>
   );
 }

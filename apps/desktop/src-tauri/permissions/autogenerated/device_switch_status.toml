@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-device-switch-status"
+description = "Enables the device_switch_status command without any pre-configured scope."
+commands.allow = ["device_switch_status"]
+
+[[permission]]
+identifier = "deny-device-switch-status"
+description = "Denies the device_switch_status command without any pre-configured scope."
+commands.deny = ["device_switch_status"]

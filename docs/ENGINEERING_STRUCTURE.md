@@ -81,8 +81,8 @@ API-only Zone/DNS 只读观察，其余 DNS/DNSSEC/Registrar/监控能力必须�
    别名、深层 import 或临时共享 UI 路径。
 5. 没有兼容/过渡接口、双 data/session 路径、旧路由、迁移桥、通用 adapter、提供商 fallback 或
    浏览器 fallback。夹具、gallery、样例数据和视觉 callback 不得进入生产依赖图，也不授予权威。
-6. v1 不组合浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移或 CSV import；域名 Provider
-   写入、Registrar 和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
+6. v1 不组合浏览器、非域名 Provider 产品、首发清单外平台、团队/多工作区、凭据迁移或 CSV import；域名 Provider
+   写入、Registrar、交易市场、获取和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
 
 ## Current source state：Desktop 与 Cloudflare 组合边界
 
@@ -99,7 +99,7 @@ exact-resource reconciliation。`apps/desktop` 通过三个具名 Tauri 命令�
 Host-owned 本地业务库；未授权时保持锁定，数据库身份和 OS keychain/CSPRNG/零化 SQLCipher key
 material 由 `gooddealer-local-storage` 的 `DesktopLocalHost` 持有，OAuth/device/Cloudflare 等非存储
 capability 由 `secure-host-core` 持有。Cloud 中央目录按字面
-顺序注册 25 项 Cloud migration（M001–M017、M019、M020、Sync/Observation、recovery 及后续 account capability migrations）：M002 建立 `workspace_replica_*` 脱敏读取与恢复副本 schema，M015
+顺序注册 27 项 Cloud migration（M001–M017、M019、M020、Sync/Observation、recovery、后续 account capability migrations 与两项 Desktop 登录 loopback redirect migrations）：M002 建立 `workspace_replica_*` 脱敏读取与恢复副本 schema，M015
 是规范化商业领域的 greenfield baseline，M016 增加 Identity refresh recovery，M017 增加 Devices
 登录授权加固，M019 建立 PID/XID/nonce/purpose/session 绑定的一次性 Identity transaction capability，
 M020 建立 Account access challenge 和加密邮件 outbox，M023 建立密码恢复、challenge-bound dead-letter

@@ -1,4 +1,4 @@
-import { commerceMoneySchema, type CommerceMoney, type OfferView, type TransferConfirmation, type DealView } from "@gooddealer/client-core";
+import { commerceMoneySchema, isZeroAmount, relativeWholePercent, type CommerceMoney, type OfferView, type TransferConfirmation, type DealView } from "@gooddealer/client-core";
 
 /**
  * Parses a typed counteroffer into commerce money in the offer's own currency. Money in one offer
@@ -9,16 +9,14 @@ export function parseCounterInput(text: string, currency: string): CommerceMoney
   const normalized = text.trim().replace(/[,\s]/gu, "");
   if (!/^\d+(\.\d{1,2})?$/u.test(normalized)) return null;
   const amount = normalized.replace(/^0+(?=\d)/u, "");
-  if (Number(amount) <= 0) return null;
+  if (isZeroAmount(amount)) return null;
   const parsed = commerceMoneySchema.safeParse({ currency, amount });
   return parsed.success ? parsed.data : null;
 }
 
 /** Offer relative to BIN as a signed whole percent; null when the BIN is zero. */
 export function offerBinDelta(offer: Pick<OfferView, "offer" | "bin">): number | null {
-  const bin = Number(offer.bin.amount);
-  if (bin === 0) return null;
-  return Math.round((Number(offer.offer.amount) / bin - 1) * 100);
+  return relativeWholePercent(offer.offer.amount, offer.bin.amount);
 }
 
 /** Commission rate in basis points as a display percent, keeping a single decimal only when needed. */

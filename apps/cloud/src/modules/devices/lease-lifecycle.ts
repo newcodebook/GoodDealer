@@ -94,7 +94,10 @@ export type LeaseAttemptResult = {
   readonly claims: ActiveDeviceLeaseClaims;
 };
 
-/** In-memory lifecycle model. P0-16 can allocate/burn epochs but cannot persist an issued lease. */
+/**
+ * In-memory lifecycle model: it can allocate/burn epochs but cannot persist an issued lease.
+ * Authenticated Desktop Leases are issued only through `postgres-desktop-login-lease.ts`.
+ */
 export class ActiveDeviceLeaseLifecycle {
   readonly #signer: LeaseSignerPort;
   readonly #trustedTime: TrustedTimePort;

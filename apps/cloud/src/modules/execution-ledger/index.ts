@@ -8,6 +8,7 @@ import {
   encodeDrainStreamEnvelope,
   executionFactSchema,
   type ExecutionFact,
+  type DrainProofSchemaVersion,
 } from "@gooddealer/protocol/execution-events";
 
 import type { DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
@@ -57,7 +58,10 @@ export interface ExecutionFactIngestVerificationPort {
   }): Promise<ExecutionFactIngestVerification>;
 }
 
-/** P0-17 Fallback: fact ingestion cannot succeed without the deferred R0-06 verifier. */
+/**
+ * Fact ingestion cannot succeed until a device-signature verifier is composed; see R0-06 in
+ * docs/reviews/PHASE0_READINESS_REVIEW_2026-08-01.md.
+ */
 export class RefusingExecutionFactIngestVerification implements ExecutionFactIngestVerificationPort {
   async verifyExecutionFact(): Promise<{
     readonly verified: false;
@@ -195,7 +199,8 @@ export class InMemoryExecutionLedger implements DrainStreamWatermarkPort, DrainS
 
   async readWatermark(
     scope: WorkspaceTenantScope,
-    domain: ExecutionDomain & { readonly stream: "execution_fact" },
+    // ExecutionFact envelopes are identical in every drain proof version.
+    domain: ExecutionDomain & { readonly stream: "execution_fact"; readonly proofSchemaVersion: DrainProofSchemaVersion },
   ) {
     if (domain.stream !== "execution_fact") throw new TypeError("execution ledger serves only execution facts");
     const records = this.#records.get(domainKey(scope, domain));

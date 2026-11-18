@@ -17,9 +17,21 @@ import {
 
 const encoder = new TextEncoder();
 
+/**
+ * Schema v1 chains every mutation stream step over the frozen submitted envelope. Schema v2
+ * (ADR-0030) chains the mutation stream over `encodeMutationDrainResultEnvelope` so Cloud-recorded
+ * rejections can close a sequence; execution_fact and device_audit envelopes are identical in both.
+ * The two versions never mix: version, `typ`, codec version, and signature/digest domains move
+ * together, and a v1 proof is never upgraded or re-signed as v2.
+ */
 export const DRAIN_PROOF_SCHEMA_VERSION = 1 as const;
+export const DRAIN_PROOF_SCHEMA_VERSION_V2 = 2 as const;
+export const DRAIN_PROOF_SCHEMA_VERSIONS = [DRAIN_PROOF_SCHEMA_VERSION, DRAIN_PROOF_SCHEMA_VERSION_V2] as const;
+export type DrainProofSchemaVersion = (typeof DRAIN_PROOF_SCHEMA_VERSIONS)[number];
 export const DRAIN_PROOF_SIGNATURE_DOMAIN = "GOODDEALER-DRAIN-PROOF-SIGNATURE-V1" as const;
 export const DRAIN_PROOF_DIGEST_DOMAIN = "GOODDEALER-DRAIN-PROOF-V1" as const;
+export const DRAIN_PROOF_SIGNATURE_DOMAIN_V2 = "GOODDEALER-DRAIN-PROOF-SIGNATURE-V2" as const;
+export const DRAIN_PROOF_DIGEST_DOMAIN_V2 = "GOODDEALER-DRAIN-PROOF-V2" as const;
 
 const drainStreamClaimFields = {
   lastAssignedSequence: safeUnsignedInteger,
@@ -72,16 +84,26 @@ export const drainStreamsSchema = z.tuple([
   drainStreamClaimSchema("device_audit"),
 ]);
 
+const drainProofVersionFields = {
+  1: {
+    schemaVersion: z.literal(DRAIN_PROOF_SCHEMA_VERSION),
+    typ: z.literal("gd.drain-proof.v1"),
+    canonicalCodecVersion: z.literal(1),
+  },
+  2: {
+    schemaVersion: z.literal(DRAIN_PROOF_SCHEMA_VERSION_V2),
+    typ: z.literal("gd.drain-proof.v2"),
+    canonicalCodecVersion: z.literal(2),
+  },
+} as const;
+
 const drainProofCommonFields = {
-  schemaVersion: z.literal(DRAIN_PROOF_SCHEMA_VERSION),
-  typ: z.literal("gd.drain-proof.v1"),
   aud: z.literal("gooddealer-cloud/drain-verification"),
   proofId: identifier,
   workspaceId: identifier,
   sourceDeviceId: identifier,
   activeLeaseEpoch: safePositiveInteger,
   streams: drainStreamsSchema,
-  canonicalCodecVersion: z.literal(1),
   digestAlgorithm: z.literal("sha256-chain-v1"),
   issuedAt: canonicalUtcTimestamp,
   expiresAt: canonicalUtcTimestamp,
@@ -104,38 +126,54 @@ function enforceProofWindow(
   }
 }
 
-export const drainManifestSchema = z
-  .object({
-    ...drainProofCommonFields,
-    purpose: z.literal("handoff"),
-    deviceSwitchRequestId: identifier,
-  })
-  .strict()
-  .superRefine(enforceProofWindow);
+function drainManifestSchemaFor(version: DrainProofSchemaVersion) {
+  return z
+    .object({
+      ...drainProofVersionFields[version],
+      ...drainProofCommonFields,
+      purpose: z.literal("handoff"),
+      deviceSwitchRequestId: identifier,
+    })
+    .strict()
+    .superRefine(enforceProofWindow);
+}
 
-export const synchronizedBackupDrainProofSchema = z
-  .object({
-    ...drainProofCommonFields,
-    purpose: z.literal("synchronized_backup"),
-    synchronizedSnapshotBinding: z
-      .object({
-        localCommitSequence: safeUnsignedInteger,
-        serverRevision: safeUnsignedInteger,
-      })
-      .strict(),
-  })
-  .strict()
-  .superRefine(enforceProofWindow);
+function synchronizedBackupDrainProofSchemaFor(version: DrainProofSchemaVersion) {
+  return z
+    .object({
+      ...drainProofVersionFields[version],
+      ...drainProofCommonFields,
+      purpose: z.literal("synchronized_backup"),
+      synchronizedSnapshotBinding: z
+        .object({
+          localCommitSequence: safeUnsignedInteger,
+          serverRevision: safeUnsignedInteger,
+        })
+        .strict(),
+    })
+    .strict()
+    .superRefine(enforceProofWindow);
+}
 
-export const drainProofSchema = z.discriminatedUnion("purpose", [
-  drainManifestSchema,
-  synchronizedBackupDrainProofSchema,
+export const drainManifestSchema = z.union([drainManifestSchemaFor(1), drainManifestSchemaFor(2)]);
+
+export const synchronizedBackupDrainProofSchema = z.union([
+  synchronizedBackupDrainProofSchemaFor(1),
+  synchronizedBackupDrainProofSchemaFor(2),
 ]);
+
+export const drainProofSchema = z.union([drainManifestSchema, synchronizedBackupDrainProofSchema]);
+
+function proofDomains(version: DrainProofSchemaVersion) {
+  return version === DRAIN_PROOF_SCHEMA_VERSION
+    ? { signature: DRAIN_PROOF_SIGNATURE_DOMAIN, digest: DRAIN_PROOF_DIGEST_DOMAIN }
+    : { signature: DRAIN_PROOF_SIGNATURE_DOMAIN_V2, digest: DRAIN_PROOF_DIGEST_DOMAIN_V2 };
+}
 
 export function encodeDrainProofSignatureTranscript(proof: unknown): Uint8Array {
   const parsed = drainProofSchema.parse(proof);
   const { deviceSignature: _deviceSignature, ...proofWithoutDeviceSignature } = parsed;
-  return encodeDomainSeparatedWireValue(DRAIN_PROOF_SIGNATURE_DOMAIN, proofWithoutDeviceSignature);
+  return encodeDomainSeparatedWireValue(proofDomains(parsed.schemaVersion).signature, proofWithoutDeviceSignature);
 }
 
 export function encodeDrainProofDigestInput(signedProof: unknown): Uint8Array {
@@ -146,7 +184,7 @@ export function encodeDrainProofDigestInput(signedProof: unknown): Uint8Array {
     encodeLengthPrefixedDrainBytes(encoder.encode(parsed.deviceSignature)),
   ]);
   return concatenateDrainBytes([
-    encoder.encode(DRAIN_PROOF_DIGEST_DOMAIN),
+    encoder.encode(proofDomains(parsed.schemaVersion).digest),
     encodeLengthPrefixedDrainBytes(canonicalSignedProof),
   ]);
 }

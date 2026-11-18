@@ -38,11 +38,17 @@ export {
   deviceAuthorityProjectionSchema,
   deviceBindingListSchema,
   deviceBindingSummarySchema,
+  deviceListRequestSchema,
   devicePlatformSchema,
   deviceRemovalRequestSchema,
   deviceRoleSchema,
+  deviceSelfReportSchema,
+  deviceSwitchDrainRequestSchema,
+  deviceSwitchLookupRequestSchema,
+  deviceSwitchRejectionCodeSchema,
   deviceSwitchRequestSchema,
   deviceSwitchRequestViewSchema,
+  deviceSwitchResponseSchema,
 } from "./device-management";
 export type {
   ActiveDeviceLeaseStatus,
@@ -50,11 +56,17 @@ export type {
   DeviceAuthorityProjection,
   DeviceBindingList,
   DeviceBindingSummary,
+  DeviceListRequest,
   DevicePlatform,
   DeviceRemovalRequest,
   DeviceRole,
+  DeviceSelfReport,
+  DeviceSwitchDrainRequest,
+  DeviceSwitchLookupRequest,
+  DeviceSwitchRejectionCode,
   DeviceSwitchRequest,
   DeviceSwitchRequestView,
+  DeviceSwitchResponse,
 } from "./device-management";
 
 export { deviceOperationSchema } from "./operations";

@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createCloudflareJourney } from "./cloudflare-coordinator";
 import type { CloudflareConnectionStatus, CloudflarePort } from "../../adapters/tauri";
 
-const status = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare", readGeneration: 1 };
+const status = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare", qualified: true, capturable: true, lastOperation: null, readGeneration: 1 };
 const observation = {
   schemaVersion: 1 as const, readGeneration: 1, entityId: "example.com", observedAt: "2026-01-01T00:00:00Z", version: 1,
   availability: "available" as const, uncertainty: "confirmed" as const, zoneLabel: "example.com", zoneStatus: "active" as const, records: [],
 };
 
 function port(overrides: Partial<CloudflarePort> = {}): CloudflarePort {
-  return { status: vi.fn(async () => status), activate: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
+  return { retirementCandidates: vi.fn(async () => []), purge: vi.fn(async () => undefined), status: vi.fn(async () => status), create: vi.fn(async () => ({ schemaVersion: 1 as const, connectionRef: "opaque", displayLabel: "Cloudflare", created: true, readGeneration: 1 })), activate: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), observe: vi.fn(async () => undefined), readObservation: vi.fn(async () => observation), ...overrides };
 }
 
 describe("CloudflareJourney", () => {

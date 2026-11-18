@@ -233,7 +233,7 @@ pub(super) fn restore<G>(
     if open_conflicts != 0 {
         return Err(BusinessDatabaseError::MutationConflict);
     }
-    reject_candidate_tombstone_conflicts(&transaction, &workspace_id, candidate)?;
+    reject_candidate_generation_conflicts(&transaction, &workspace_id, candidate)?;
     reject_missing_portfolios(&transaction, &workspace_id, candidate)?;
     let current = read_current_assets(&transaction, &workspace_id)?;
     let candidate_ids: BTreeSet<&str> = candidate
@@ -425,12 +425,35 @@ fn receipt_from_history(payload: &RestoreHistoryPayload, disposition: &str) -> R
     }
 }
 
-fn reject_candidate_tombstone_conflicts(
+/// ADR-0029 decision 5 for backup restore. Each candidate asset carries its generation (1 for a
+/// version 1 projection, which recorded none). It restores only onto the same generation: the
+/// replica's live row of that generation, or an entity the replica never held when the candidate
+/// is generation 1, the generation a restore creates. A tombstone or soft-deleted row (which a
+/// live candidate asset can never be), or a live row of any other generation, refuses it:
+/// restoring would bring a predecessor generation's fields back over the entity this workspace
+/// deleted or re-added, or write a successor's fields into an older one. A provisional local
+/// re-add freezes its entity
+/// (decision 4), and a complete-set restore writes every entity it does not carry as a delete, so
+/// any provisional re-add refuses the whole restore before anything is written.
+fn reject_candidate_generation_conflicts(
     transaction: &Transaction<'_>,
     workspace_id: &str,
     candidate: &IsolatedBackupCandidate,
 ) -> Result<(), BusinessDatabaseError> {
-    for asset in &candidate.body.assets {
+    let provisional: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+              WHERE workspace_id=?1)",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if provisional {
+        return Err(BusinessDatabaseError::AssetReAddPending);
+    }
+    for (index, asset) in candidate.body.assets.iter().enumerate() {
+        let candidate_generation = i64::try_from(candidate.body.asset_generation(index))
+            .map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
         let conflict: bool = transaction
             .query_row(
                 "SELECT EXISTS(
@@ -438,9 +461,11 @@ fn reject_candidate_tombstone_conflicts(
                     WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2
                    UNION ALL
                    SELECT 1 FROM domain_assets
-                    WHERE workspace_id=?1 AND entity_id=?2 AND deleted_at IS NOT NULL
-                 )",
-                params![workspace_id, asset.entity_id],
+                    WHERE workspace_id=?1 AND entity_id=?2
+                      AND (deleted_at IS NOT NULL OR entity_generation != ?3)
+                 ) OR (?3 != 1 AND NOT EXISTS(
+                   SELECT 1 FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2))",
+                params![workspace_id, asset.entity_id, candidate_generation],
                 |row| row.get(0),
             )
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -710,8 +735,9 @@ fn write_tombstone(
         .execute(
             "INSERT INTO sync_tombstones
          (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_server_revision,
-          deleted_at,purge_after,state,barrier_state)
-         VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending')",
+          deleted_at,purge_after,state,barrier_state,entity_generation)
+         VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending',
+          (SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2))",
             params![workspace_id, entity_id, local, authority.committed_at],
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -761,10 +787,12 @@ fn insert_outbox(
          (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,
           workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,
           source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,
-          mutation_payload_sha256,state)
+          mutation_payload_sha256,state,entity_generation)
          VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,
           (SELECT applied_through_server_revision FROM active_workspace_metadata WHERE singleton=1),
-          ?7,?8,?9,?10,1,?11,'pending')",
+          ?7,?8,?9,?10,1,?11,'pending',
+          COALESCE((SELECT entity_generation FROM domain_assets
+                    WHERE workspace_id=?1 AND entity_id=?3),1))",
             params![
                 workspace_id,
                 mutation_id,
@@ -870,11 +898,12 @@ fn derived_id(domain: &str, operation_id: &str, entity_id: &str) -> String {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
     use crate::active_workspace::business::DomainAssetReplicaMutation;
     use crate::{BusinessDatabase, DomainAssetWrite, LocalDatabaseKey, Money};
+    use sha2::Digest as _;
 
     const TIME: &str = "2026-09-15T09:00:00Z";
 
@@ -963,6 +992,99 @@ mod tests {
                 BusinessDatabaseError::MutationConflict
             ),
             "MutationConflict:LOCAL_MUTATION_IDEMPOTENCY_CONFLICT"
+        );
+    }
+
+    #[test]
+    fn restoring_business_data_preserves_pending_and_completed_custody_retirement() {
+        let directory = tempdir().unwrap();
+        let key = LocalDatabaseKey::from_bytes([0x57; 32]);
+        let mut database =
+            BusinessDatabase::open(&directory.path().join("active.db"), &key, "workspace-local")
+                .unwrap();
+        database
+            .upsert_domain_asset("seed-old", TIME, &asset("one.example", "old"))
+            .unwrap();
+        // Backup bodies contain business data only. Restore merges that whitelist into the
+        // current database rather than replacing custody with the artifact's older database.
+        let old = candidate(&mut database, "artifact-before-retirement", 7);
+        database
+            .upsert_domain_asset("seed-new", TIME, &asset("one.example", "new"))
+            .unwrap();
+        database.backup_connection_mut().execute(
+            "UPDATE active_workspace_metadata SET applied_through_server_revision=7 WHERE singleton=1", [],
+        ).unwrap();
+        for connection in ["pending-control", "retired-control"] {
+            database.backup_connection_mut().execute(
+                "INSERT INTO local_provider_connections
+                   (workspace_id,connection_id,connection_incarnation_id,provider_kind,display_label,
+                    active_credential_changed_at,capabilities_json,credential_use_state,lifecycle_status)
+                 VALUES ('workspace-local',?1,?1,'cloudflare','Refused custody',?2,'[]','remediation_required','invalid')",
+                params![connection, TIME],
+            ).unwrap();
+            database
+                .backup_connection_mut()
+                .execute(
+                    "INSERT INTO cloudflare_credential_roots
+                   (workspace_id,connection_incarnation_id,logical_connection_id,updated_at)
+                 VALUES ('workspace-local',?1,?1,?2)",
+                    params![connection, TIME],
+                )
+                .unwrap();
+            let seed = database
+                .request_cloudflare_retirement_guarded(connection, TIME, || Ok(()))
+                .unwrap();
+            if connection == "retired-control" {
+                assert!(
+                    database
+                        .resolve_cloudflare_retirement_guarded(&seed, true, TIME, || Ok(()))
+                        .unwrap()
+                );
+            }
+        }
+        let before = database.recovery_proof().unwrap().local_commit_sequence;
+        let digest = "c".repeat(64);
+        database
+            .restore_backup_candidate_guarded(
+                &old,
+                &request("restore-before-retirement", before, 7, &digest),
+                &mut (),
+                &authority(&digest),
+                |(), _| Ok(()),
+            )
+            .unwrap();
+        for (connection, completed, state) in [
+            ("pending-control", false, "remediation_required"),
+            ("retired-control", true, "retired"),
+        ] {
+            let stored: (String, Option<String>, String) = database
+                .backup_connection_mut()
+                .query_row(
+                    "SELECT r.retirement_requested_at,r.retired_at,c.credential_use_state
+                   FROM cloudflare_credential_roots r JOIN local_provider_connections c
+                     ON c.workspace_id=r.workspace_id AND c.connection_id=r.logical_connection_id
+                  WHERE r.connection_incarnation_id=?1",
+                    [connection],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                stored,
+                (
+                    TIME.to_owned(),
+                    completed.then(|| TIME.to_owned()),
+                    state.to_owned()
+                )
+            );
+        }
+        assert_eq!(
+            database
+                .read_domain_detail("one.example")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("old")
         );
     }
 
@@ -1383,6 +1505,278 @@ mod tests {
             )
             .unwrap();
         assert_eq!(counts_after, counts_before);
+    }
+
+    /// Applies another device's mutations as one signed pull page numbered from `from + 1`.
+    fn pull(database: &mut BusinessDatabase, from: u64, mutations: Vec<serde_json::Value>) {
+        let through = from + mutations.len() as u64;
+        let mutations = mutations
+            .into_iter()
+            .zip(from + 1..)
+            .map(|(mut mutation, revision)| {
+                mutation["serverRevision"] = serde_json::json!(revision);
+                mutation
+            })
+            .collect::<Vec<_>>();
+        let mut page = serde_json::json!({
+            "schemaVersion": 3, "workspaceId": "workspace-local",
+            "fromServerRevisionExclusive": from, "throughServerRevisionInclusive": through,
+            "mutations": mutations, "returnedThroughServerRevision": through,
+            "nextCursor": null, "pageDigest": "A".repeat(43),
+        });
+        page["pageDigest"] = serde_json::Value::String(
+            crate::active_workspace::business::canonical_page_digest(&page).unwrap(),
+        );
+        database
+            .apply_sync_page_v2(
+                "reader-restore",
+                &page.to_string(),
+                &format!("confirm-{through}"),
+            )
+            .unwrap();
+    }
+
+    fn remote(
+        mutation_id: &str,
+        generation: u64,
+        base: u64,
+        note: Option<&str>,
+    ) -> serde_json::Value {
+        let mut mutation = serde_json::json!({
+            "schemaVersion": 3, "mutationId": mutation_id, "workspaceId": "workspace-local",
+            "workspaceSchemaVersion": 1, "entityType": "domain_asset", "entityId": "one.example",
+            "entityGeneration": generation, "operationKind": "upsert",
+            "baseServerRevision": base,
+            "changedFields": [{"fieldPath": "note", "value": note}],
+            "sourceDeviceId": "device-other", "activeLeaseEpoch": 1,
+            "deviceMutationSequence": 1, "serverRevision": 0,
+        });
+        if note.is_none() {
+            mutation["operationKind"] = serde_json::json!("delete");
+            mutation["changedFields"] = serde_json::json!([]);
+            mutation["deletedAt"] = serde_json::json!(TIME);
+        }
+        mutation
+    }
+
+    fn open_database(directory: &std::path::Path) -> BusinessDatabase {
+        let key = LocalDatabaseKey::from_bytes([0x57; 32]);
+        BusinessDatabase::open(&directory.join("active.db"), &key, "workspace-local").unwrap()
+    }
+
+    fn write_footprint(database: &mut BusinessDatabase) -> (i64, i64, i64) {
+        database
+            .backup_connection_mut()
+            .query_row(
+                "SELECT (SELECT count(*) FROM sync_outbox),
+                        (SELECT count(*) FROM business_history_events),
+                        (SELECT local_commit_sequence FROM active_workspace_metadata)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+    }
+
+    fn attempt_restore(
+        database: &mut BusinessDatabase,
+        candidate: &IsolatedBackupCandidate,
+        version: u64,
+    ) -> Result<RestoreReceipt, BusinessDatabaseError> {
+        let before = database.recovery_proof().unwrap().local_commit_sequence;
+        let digest = "8".repeat(64);
+        database.restore_backup_candidate_guarded(
+            candidate,
+            &request("restore-generation", before, version, &digest),
+            &mut (),
+            &authority(&digest),
+            |(), _| Ok(()),
+        )
+    }
+
+    #[test]
+    fn backup_from_before_a_re_add_cannot_restore_the_earlier_generation() {
+        // ADR-0029 decision 5: another device deleted and re-added the domain, so the replica
+        // holds generation 2 live with no tombstone left to refuse the old backup.
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        pull(
+            &mut database,
+            0,
+            vec![remote("create", 1, 0, Some("first life"))],
+        );
+        let old = candidate(&mut database, "artifact-first-life", 5);
+        let mut re_add = remote("re-add", 2, 2, Some("second life"));
+        re_add["reAddsDeletedRevision"] = serde_json::json!(2);
+        pull(&mut database, 1, vec![remote("delete", 1, 1, None), re_add]);
+        let before = write_footprint(&mut database);
+        assert_eq!(
+            attempt_restore(&mut database, &old, 5),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(write_footprint(&mut database), before);
+        let detail = database.read_domain_detail("one.example").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("second life"));
+
+        // The same backup in the version 1 format, which records no generation, reads as
+        // generation 1 and is refused the same way.
+        let legacy = reframed(&mut database, "artifact-legacy", 6, as_legacy_body);
+        assert_eq!(
+            attempt_restore(&mut database, &legacy, 6),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(write_footprint(&mut database), before);
+
+        // A backup of generation 2 restores onto generation 2 (ADR-0029 C3a2).
+        let current = candidate(&mut database, "artifact-second-life", 7);
+        assert_eq!(current.body.asset_generation(0), 2);
+        database
+            .upsert_domain_asset("edit-after-backup", TIME, &asset("one.example", "later"))
+            .unwrap();
+        attempt_restore(&mut database, &current, 7).unwrap();
+        let detail = database.read_domain_detail("one.example").unwrap();
+        assert_eq!(detail.asset.note.as_deref(), Some("second life"));
+    }
+
+    /// Rewrites the JSON body of `database`'s current projection with `rewrite`, keeping its
+    /// framing canonical, and returns the candidate built from it.
+    fn reframed(
+        database: &mut BusinessDatabase,
+        artifact_id: &str,
+        version: u64,
+        rewrite: fn(&str) -> String,
+    ) -> IsolatedBackupCandidate {
+        let bytes = rewritten_projection(database, rewrite);
+        let digest: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+        IsolatedBackupCandidate::from_authenticated_frames(
+            artifact_id,
+            version,
+            &digest,
+            &[bytes.as_slice()],
+        )
+        .unwrap()
+    }
+
+    fn rewritten_projection(
+        database: &mut BusinessDatabase,
+        rewrite: fn(&str) -> String,
+    ) -> Vec<u8> {
+        let projection = database.backup_source().snapshot().unwrap();
+        let bytes = projection.data_frames().concat();
+        let body = std::str::from_utf8(&bytes[12..]).unwrap();
+        let body = rewrite(body);
+        let mut out = bytes[..8].to_vec();
+        out.extend_from_slice(&u32::try_from(body.len()).unwrap().to_be_bytes());
+        out.extend_from_slice(body.as_bytes());
+        out
+    }
+
+    /// The version 1 encoding of a body: no `assetGenerations`.
+    fn as_legacy_body(body: &str) -> String {
+        let start = body.find(",\"assetGenerations\":").unwrap();
+        format!("{}}}", &body[..start]).replace("\"schemaVersion\":2", "\"schemaVersion\":1")
+    }
+
+    #[test]
+    fn projection_generations_are_strictly_versioned() {
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        database
+            .upsert_domain_asset("seed", TIME, &asset("one.example", "one"))
+            .unwrap();
+        // A version 1 body without generations is still accepted, as generation 1.
+        let legacy = reframed(&mut database, "artifact-legacy", 3, as_legacy_body);
+        assert_eq!(legacy.body.asset_generation(0), 1);
+        let malformed: [fn(&str) -> String; 5] = [
+            |body| body.replace(",\"assetGenerations\":[1]", ""),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[]"),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[0]"),
+            |body| body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[1,1]"),
+            |body| body.replace("\"schemaVersion\":2", "\"schemaVersion\":1"),
+        ];
+        for rewrite in malformed {
+            let bytes = rewritten_projection(&mut database, rewrite);
+            let digest: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+            assert_eq!(
+                IsolatedBackupCandidate::from_authenticated_frames(
+                    "artifact-malformed",
+                    3,
+                    &digest,
+                    &[bytes.as_slice()],
+                )
+                .unwrap_err(),
+                BusinessDatabaseError::ProjectionRejected
+            );
+        }
+    }
+
+    #[test]
+    fn candidate_generation_must_match_the_replicas_entity() {
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        database
+            .upsert_domain_asset("seed", TIME, &asset("one.example", "one"))
+            .unwrap();
+        let before = write_footprint(&mut database);
+        // A generation 2 asset the replica holds as generation 1, or does not hold at all.
+        let newer = reframed(&mut database, "artifact-newer", 3, |body| {
+            body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[2]")
+        });
+        assert_eq!(
+            attempt_restore(&mut database, &newer, 3),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        let unheld = reframed(&mut database, "artifact-unheld", 4, |body| {
+            body.replace("one.example", "two.example")
+                .replace("\"assetGenerations\":[1]", "\"assetGenerations\":[2]")
+        });
+        assert_eq!(
+            attempt_restore(&mut database, &unheld, 4),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(write_footprint(&mut database), before);
+    }
+
+    #[test]
+    fn a_provisional_re_add_refuses_any_restore_without_writing() {
+        let directory = tempdir().unwrap();
+        let mut database = open_database(directory.path());
+        database
+            .upsert_domain_asset("seed", TIME, &asset("two.example", "kept"))
+            .unwrap();
+        pull(
+            &mut database,
+            0,
+            vec![
+                remote("create", 1, 0, Some("first life")),
+                remote("delete", 1, 1, None),
+            ],
+        );
+        let unrelated = candidate(&mut database, "artifact-unrelated", 4);
+        database
+            .re_add_domain_asset(
+                "re-add-local",
+                "device-restore",
+                1,
+                TIME,
+                &asset("one.example", "again"),
+            )
+            .unwrap();
+        let before = write_footprint(&mut database);
+        // The complete-set restore would delete the frozen generation 2; nothing is written.
+        assert_eq!(
+            attempt_restore(&mut database, &unrelated, 4),
+            Err(BusinessDatabaseError::AssetReAddPending)
+        );
+        assert_eq!(write_footprint(&mut database), before);
+        assert_eq!(
+            database
+                .read_domain_detail("one.example")
+                .unwrap()
+                .asset
+                .note
+                .as_deref(),
+            Some("again")
+        );
     }
 
     #[test]

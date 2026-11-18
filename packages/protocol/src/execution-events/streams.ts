@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { SubmittedSyncMutation, SyncMutation } from "../workspace/index";
-import { submittedSyncMutationSchema, syncMutationSchema } from "../workspace/index";
+import { submittedSyncMutationSchema, syncMutationSchema, toLegacyV2SubmittedSyncMutation } from "../workspace/index";
 import {
   encodeDomainSeparatedWireValue,
   identifier,
@@ -121,6 +121,17 @@ export function encodeDrainChainStepInput(
   return concatenateDrainBytes([previousDigest, encodeLengthPrefixedDrainBytes(envelope)]);
 }
 
+/**
+ * ADR-0029: the canonical drain envelope a generation-1 mutation had under wire v2. Records and
+ * receipts accepted before wire v3 keep these bytes; see `toLegacyV2SubmittedSyncMutation`.
+ */
+export function encodeLegacyV2MutationDrainEnvelope(record: SubmittedSyncMutation | SyncMutation): Uint8Array {
+  return encodeDomainSeparatedWireValue(
+    "GOODDEALER-SYNC-MUTATION-SUBMITTED-V1",
+    toLegacyV2SubmittedSyncMutation(submittedMutation(record)),
+  );
+}
+
 function submittedMutation(record: SubmittedSyncMutation | SyncMutation): SubmittedSyncMutation {
   const submitted = submittedSyncMutationSchema.safeParse(record);
   if (submitted.success) return submitted.data;
@@ -138,6 +149,37 @@ function executionFactWithoutServerEnrichment(record: ExecutionFact): ExecutionF
   delete copy.classification;
   delete copy.quarantineState;
   return executionFactSchema.parse(copy);
+}
+
+export const MUTATION_DRAIN_RESULT_DOMAIN = "GOODDEALER-MUTATION-DRAIN-RESULT-V1" as const;
+export const MUTATION_DRAIN_OUTCOMES = ["accepted", "rejected"] as const;
+export type MutationDrainOutcome = (typeof MUTATION_DRAIN_OUTCOMES)[number];
+
+/**
+ * ADR-0030 drain-only result envelope, chained by drain proof schema v2 for the mutation stream.
+ *
+ * It binds the SHA-256 of the frozen submitted envelope (`encodeDrainStreamEnvelope("mutation", …)`,
+ * whose bytes and digest stay unchanged because mutation commit evidence also uses them) to the
+ * outcome Cloud durably recorded. The rejection code stays in the receipt and never enters this
+ * envelope. The layout is binary so PostgreSQL can rebuild it byte-exactly from retained records:
+ * `u32be(len) ‖ domain ‖ u32be(len) ‖ outcome ‖ u32be(32) ‖ submittedEnvelopeDigest`.
+ * Protocol code never hashes, so callers pass the digest they computed or stored.
+ */
+export function encodeMutationDrainResultEnvelope(input: {
+  readonly outcome: MutationDrainOutcome;
+  readonly submittedEnvelopeDigest: Uint8Array;
+}): Uint8Array {
+  if (!MUTATION_DRAIN_OUTCOMES.includes(input.outcome)) {
+    throw new TypeError("mutation drain outcome is not recognized");
+  }
+  if (!(input.submittedEnvelopeDigest instanceof Uint8Array) || input.submittedEnvelopeDigest.byteLength !== 32) {
+    throw new TypeError("submitted envelope digest must contain exactly 32 bytes");
+  }
+  return concatenateDrainBytes([
+    encodeLengthPrefixedDrainBytes(encoder.encode(MUTATION_DRAIN_RESULT_DOMAIN)),
+    encodeLengthPrefixedDrainBytes(encoder.encode(input.outcome)),
+    encodeLengthPrefixedDrainBytes(input.submittedEnvelopeDigest),
+  ]);
 }
 
 export function encodeDrainStreamEnvelope(

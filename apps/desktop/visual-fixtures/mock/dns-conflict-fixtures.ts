@@ -1,5 +1,7 @@
 import {
   parseConflictCenterViewModel,
+  parseDnsHealthRead,
+  projectDnsHealthViewModel,
   projectDnsVerificationViewModel,
   type ConflictCenterViewModel,
   type DnsVerificationViewModel,
@@ -12,7 +14,7 @@ export interface MockDnsRow {
   readonly nameservers: readonly string[];
   readonly delegation: "healthy" | "mismatch" | "unresolved";
   readonly records: "healthy" | "warning" | "missing";
-  readonly provider: { readonly kind: "cloudflare" | "registrar_dns"; readonly name: string } | null;
+  readonly provider: { readonly kind: "cloudflare" | "dynadot" | "spaceship"; readonly name: string } | null;
   readonly propagation: "current" | "propagating" | "warning";
   readonly checkedAt: string;
 }
@@ -25,9 +27,9 @@ export function initialMockDnsRows(): readonly MockDnsRow[] {
     { domain: "kanban.ai", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T06:01:00Z" },
     { domain: "goldrail.com", ownership: "pending", nameservers: cloudflare, delegation: "healthy", records: "warning", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "propagating", checkedAt: "2026-08-20T05:40:00Z" },
     { domain: "quanta.trade", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T04:20:00Z" },
-    { domain: "helio.systems", ownership: "failed", nameservers: ["ns1.dynadot.com"], delegation: "mismatch", records: "missing", provider: { kind: "registrar_dns", name: "Dynadot" }, propagation: "warning", checkedAt: "2026-07-30T01:11:00Z" },
+    { domain: "helio.systems", ownership: "failed", nameservers: ["ns1.dynadot.com"], delegation: "mismatch", records: "missing", provider: { kind: "dynadot", name: "Dynadot" }, propagation: "warning", checkedAt: "2026-07-30T01:11:00Z" },
     { domain: "crest.capital", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "warning", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "warning", checkedAt: "2026-08-20T03:05:00Z" },
-    { domain: "north.capital", ownership: "pending", nameservers: ["ns1.spaceship.com"], delegation: "mismatch", records: "healthy", provider: { kind: "registrar_dns", name: "Spaceship" }, propagation: "warning", checkedAt: "2026-08-19T09:12:00Z" },
+    { domain: "north.capital", ownership: "pending", nameservers: ["ns1.spaceship.com"], delegation: "mismatch", records: "healthy", provider: { kind: "spaceship", name: "Spaceship" }, propagation: "warning", checkedAt: "2026-08-19T09:12:00Z" },
     { domain: "mint.money", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T06:00:00Z" },
     { domain: "forge.dev", ownership: "pending", nameservers: [], delegation: "unresolved", records: "missing", provider: null, propagation: "warning", checkedAt: "2026-08-18T10:00:00Z" },
     { domain: "spark.trade", ownership: "verified", nameservers: cloudflare, delegation: "healthy", records: "healthy", provider: { kind: "cloudflare", name: "Cloudflare" }, propagation: "current", checkedAt: "2026-08-20T05:58:00Z" },
@@ -157,4 +159,49 @@ export function mockConflictCenter(conflicts: readonly MockConflict[], canResolv
       } : { state: "unavailable" },
     })),
   });
+}
+
+/** The production DNS page state: Host Zone observations projected without ownership or delegation. */
+export function mockDnsHealthView(): DnsVerificationViewModel {
+  const observation = (zoneLabel: string, nameservers: readonly string[], dnssecStatus: "active" | "inactive" | "unknown", zoneStatus: "active" | "pending") => ({
+    providerKind: "cloudflare" as const,
+    observedAt: "2026-08-20T05:48:00Z",
+    availability: "available" as const,
+    evidenceStatus: "confirmed" as const,
+    zoneLabel,
+    zoneStatus,
+    authoritativeNameservers: [...nameservers],
+    dnssecStatus,
+    recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 2, other: 1 },
+  });
+  return projectDnsHealthViewModel([parseDnsHealthRead({
+    schemaVersion: 1,
+    kind: "dns_health",
+    readGeneration: 1,
+    freshness: {
+      source: "active_local",
+      readOnlyReason: null,
+      serverRevision: 8241,
+      lastReplicationActivityAt: "2026-08-20T06:02:00Z",
+      lastSuccessfulProviderObservationAt: "2026-08-20T05:48:00Z",
+      canEdit: true,
+    },
+    totalRows: 3,
+    assetCount: 3,
+    observedCount: 2,
+    warningCount: 1,
+    window: {
+      startIndex: 0,
+      size: 50,
+      rows: [
+        {
+          entityId: "goldrail.com",
+          bindable: false, zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
+          observation: observation("goldrail.com", ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"], "active", "active"),
+        },
+        { entityId: "helio.systems", bindable: false, zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
+        { entityId: "north.capital", bindable: false, zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
+      ],
+    },
+  })], 50);
 }

@@ -18,16 +18,28 @@ import {
 } from "../modules/licensing/index";
 import {
   AccountActivationApplicationService,
+  PostgresIdentityAccountSecurityStatePort,
   type AccountActivationSubjectReaderPort,
 } from "../modules/identity/index";
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/index";
 import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
 import { PostgresMutationAuthority } from "../modules/devices/postgres-mutation-authority";
 import { PostgresDesktopSyncAuthority } from "../modules/devices/postgres-sync-authority";
+import {
+  PostgresDeviceDrainTransition,
+  PostgresDeviceDirectory,
+  PostgresDeviceSwitchApplication,
+  PostgresDeviceSwitchDrain,
+  PostgresDeviceSwitchRequests,
+} from "../modules/devices/index";
+import { PostgresWorkspaceDeviceAuditDrainLedger } from "../modules/audit/index";
+import { PostgresExecutionFactDrainLedger } from "../modules/execution-ledger/index";
 import { PostgresWorkspaceCheckpointReader } from "../modules/workspace/checkpoints/postgres-reader";
 import { PostgresReaderCursorRepository } from "../modules/workspace/cursors/postgres-reader-cursor-repository";
 import { PostgresReaderCursorService } from "../modules/workspace/cursors/postgres-reader-cursor-service";
 import { PostgresWorkspaceMutationIngest } from "../modules/workspace/mutations/postgres-ingest-service";
+import { PostgresWorkspaceMutationReceiptReader } from "../modules/workspace/mutations/postgres-receipt-reader";
+import { PostgresMutationDrainLedger } from "../modules/workspace/mutations/index";
 import { PostgresReaderMutationPage } from "../modules/workspace/mutations/postgres-reader-page";
 import { PostgresWorkspaceMutationRepository } from "../modules/workspace/mutations/postgres-repository";
 import { PostgresWorkspaceRevisionRepository } from "../modules/workspace/revisions/postgres-repository";
@@ -212,6 +224,7 @@ export function createPostgresCloudPublicHttp(
       }),
       readers,
       checkpoints: new PostgresWorkspaceCheckpointReader(tenantTransactions),
+      receipts: new PostgresWorkspaceMutationReceiptReader({ transactions: tenantTransactions, repository: mutations }),
     });
   })();
   return createCloudPublicHttp({
@@ -225,6 +238,34 @@ export function createPostgresCloudPublicHttp(
       desktopAuthorization,
       commercialCheckout,
       ...(workspaceSync === undefined ? {} : { workspaceSync }),
+      ...(workspaceSync === undefined || identityTransactions === undefined ? {} : {
+        // Composed with the sync data plane: the switch caller is resolved exactly as a sync
+        // caller is, from a Desktop session holding the workspace's current Lease.
+        deviceSwitch: (() => {
+          const tenantTransactions = new TenantTransactionRunner(pool);
+          const accountSecurity = new PostgresIdentityAccountSecurityStatePort();
+          const requests = new PostgresDeviceSwitchRequests({ transactions: tenantTransactions, accountSecurity });
+          return new PostgresDeviceSwitchApplication({
+            workspaces,
+            authority: new PostgresDesktopSyncAuthority(accountTransactions),
+            requests,
+            drains: new PostgresDeviceSwitchDrain({
+              transactions: tenantTransactions,
+              requests,
+              transition: new PostgresDeviceDrainTransition(
+                tenantTransactions,
+                accountSecurity,
+                new PostgresMutationDrainLedger(),
+                new PostgresExecutionFactDrainLedger(),
+                new PostgresWorkspaceDeviceAuditDrainLedger(),
+              ),
+            }),
+          });
+        })(),
+      }),
+      // The device list and self-report need only a bound Desktop session, not the Lease, so a
+      // Standby device can read them too.
+      ...(identityTransactions === undefined ? {} : { deviceDirectory: new PostgresDeviceDirectory(accountTransactions) }),
       ...(identityTransactions === undefined ? {} : {
         cloudflareDnsObservation: new PostgresCloudflareDnsObservationIngress({
           transactions: identityTransactions,

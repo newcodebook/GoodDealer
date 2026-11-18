@@ -5,24 +5,42 @@ const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
   "cloudflare_connection_activate",
+  "cloudflare_connection_create",
+  "cloudflare_connection_purge",
+  "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
+  "cloudflare_retirement_candidates",
   "cloudflare_zone_observe",
   "desktop_authentication_begin",
   "desktop_authentication_refresh",
   "desktop_authentication_status",
+  "device_switch_advance",
+  "device_switch_cancel",
+  "device_switch_request",
+  "device_switch_status",
   "local_asset_library_read",
   "local_backup_artifact_select",
   "local_backup_export",
   "local_backup_restore_begin",
   "local_backup_restore_status",
+  "local_batch_operations_read",
   "local_business_status",
   "local_conflict_center_read",
   "local_conflict_resolve",
+  "local_device_lease_read",
+  "local_dns_health_read",
+  "local_domain_asset_create",
   "local_domain_asset_delete",
   "local_domain_asset_edit",
   "local_domain_asset_provider_bind",
   "local_domain_detail_read",
+  "local_history_read",
+  "local_manual_tasks_read",
+  "local_renewals_read",
+  "local_sales_read",
+  "local_settings_read",
+  "local_storage_repair",
   "local_sync_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(
@@ -226,7 +244,8 @@ export function adapterCommands(source) {
     .map((match) => match[1])
     .filter((command) => command.startsWith("local_")
       || command.startsWith("desktop_authentication_")
-      || command.startsWith("cloudflare_")));
+      || command.startsWith("cloudflare_")
+      || command.startsWith("device_switch_")));
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {

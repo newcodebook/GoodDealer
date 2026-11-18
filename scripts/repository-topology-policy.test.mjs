@@ -433,6 +433,17 @@ test("accepts the positive fixture inventory and literal dynamic import", (t) =>
   assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
 });
 
+test("reads workspace roots only from the top-level packages block", (t) => {
+  const { root, topology } = useFixture(t);
+  writeFile(root, "pnpm-workspace.yaml",
+    "packages:\n  - apps/*\n  - packages/*\n\nauditConfig:\n  ignoreGhsas:\n    - GHSA-xxxx-xxxx-xxxx\n");
+  assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
+  writeFile(root, "pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/**\n");
+  assert.match(policyErrorText(root, topology), /pnpm workspace pattern is unsupported by strict topology policy: packages\/\*\*/u);
+  writeFile(root, "pnpm-workspace.yaml", "auditConfig:\n  ignoreGhsas:\n    - apps/*\n");
+  assert.match(policyErrorText(root, topology), /pnpm-workspace\.yaml has no top-level packages block/u);
+});
+
 test("rejects an undeclared workspace unit", (t) => {
   const { root, topology } = useFixture(t);
   writeJson(root, "packages/rogue/package.json", { name: "@gooddealer/rogue", private: true });

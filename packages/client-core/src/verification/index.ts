@@ -214,19 +214,31 @@ export class ValidatingVerificationPlanClient implements VerificationPlanPort {
 
 export type DnsVerificationScreenState = "normal" | "propagating" | "warning";
 
+/**
+ * One DNS page row. The `unavailable`, `unknown`, `observed` and `unobserved` states exist so a
+ * Host projection without ownership verification or registrar delegation can say so instead of
+ * being rendered as healthy.
+ */
 export interface DnsVerificationRowViewModel {
   readonly domainAssetId: string;
   readonly domain: string;
-  readonly ownershipStatus: OwnershipStatus;
-  readonly verificationAttemptId: string;
-  readonly verificationStatus: VerificationAttemptStatus;
+  readonly ownershipStatus: OwnershipStatus | "unavailable";
+  readonly verificationAttemptId: string | null;
+  readonly verificationStatus: VerificationAttemptStatus | null;
   readonly challenge: VerificationChallengeSummary | null;
+  /** Nameservers the registrar delegates the domain to; empty while delegation is unobserved. */
   readonly delegatedNameservers: readonly string[];
-  readonly delegationStatus: "healthy" | "mismatch" | "unresolved";
-  readonly recordHealth: "healthy" | "warning" | "missing";
+  readonly delegationStatus: "healthy" | "mismatch" | "unresolved" | "unknown";
+  /** Nameservers the DNS platform assigned to the Zone; they say nothing about delegation. */
+  readonly zoneNameservers: readonly string[];
+  /** The Zone's observed DNSSEC state, or `null` when no Zone was observed. */
+  readonly dnssecStatus: "active" | "inactive" | "unknown" | "unsupported" | null;
+  readonly recordHealth: "healthy" | "warning" | "missing" | "observed" | "unobserved";
+  /** Observed record count when the Host reports counts instead of a health verdict. */
+  readonly recordCount: number | null;
   readonly providerDisplayName: string;
   readonly providerResolved: boolean;
-  readonly propagationStatus: "current" | "propagating" | "warning";
+  readonly propagationStatus: "current" | "propagating" | "warning" | "unobserved";
   readonly lastCheckedAt: string | null;
   readonly records: readonly DnsRecordSummary[];
   readonly availableActions: readonly DnsExecutionAction[];
@@ -235,6 +247,8 @@ export interface DnsVerificationRowViewModel {
 export interface DnsVerificationViewModel {
   readonly state: DnsVerificationScreenState;
   readonly readSource: DnsQuerySource;
+  /** Ownership verification is a separate capability; until it is composed every row is `unavailable`. */
+  readonly ownershipAvailability: "available" | "unavailable";
   readonly serverRevision: number;
   readonly lastReplicationActivityAt: string | null;
   readonly lastSuccessfulProviderObservationAt: string | null;
@@ -244,8 +258,15 @@ export interface DnsVerificationViewModel {
     readonly nameserverIssues: number;
     readonly recordIssues: number;
     readonly propagating: number;
+    readonly observed: number;
+    readonly unobserved: number;
   };
   readonly rows: readonly DnsVerificationRowViewModel[];
+  /**
+   * The Host page these rows are, when the Host searches and pages; absent when the rows are the
+   * whole list and the page searches them itself.
+   */
+  readonly page?: { readonly startIndex: number; readonly size: number; readonly totalItems: number };
 }
 
 function projectOwnershipStatus(status: VerificationAttemptStatus): OwnershipStatus {
@@ -348,7 +369,10 @@ export function projectDnsVerificationViewModel(
       challenge: attempt.challenge === null ? null : { ...attempt.challenge },
       delegatedNameservers: [...dnsDomain.delegatedNameservers],
       delegationStatus: dnsDomain.delegationStatus,
+      zoneNameservers: [],
+      dnssecStatus: null,
       recordHealth: dnsDomain.recordHealth,
+      recordCount: null,
       providerDisplayName: dnsDomain.provider.displayName,
       providerResolved: dnsDomain.provider.kind === "connected",
       propagationStatus: dnsDomain.propagationStatus,
@@ -370,6 +394,8 @@ export function projectDnsVerificationViewModel(
     nameserverIssues: rows.filter((row) => row.delegationStatus !== "healthy").length,
     recordIssues: rows.filter((row) => row.recordHealth !== "healthy").length,
     propagating: rows.filter((row) => row.propagationStatus === "propagating").length,
+    observed: rows.filter((row) => row.lastCheckedAt !== null).length,
+    unobserved: rows.filter((row) => row.lastCheckedAt === null).length,
   };
   const state: DnsVerificationScreenState = rows.some(
     (row) =>
@@ -387,6 +413,7 @@ export function projectDnsVerificationViewModel(
   return {
     state,
     readSource: dns.freshness.source,
+    ownershipAvailability: "available",
     serverRevision: dns.freshness.serverRevision,
     lastReplicationActivityAt: dns.freshness.lastReplicationActivityAt,
     lastSuccessfulProviderObservationAt: dns.freshness.lastSuccessfulProviderObservationAt,

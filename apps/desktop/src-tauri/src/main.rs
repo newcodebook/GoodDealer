@@ -2,6 +2,7 @@
 
 mod backup_ipc;
 mod command_handlers;
+mod device_switch_drain;
 mod native_cloud_runtime;
 mod native_cloud_session;
 mod oauth_loopback;
@@ -145,6 +146,13 @@ fn main() {
             app.manage(Arc::clone(&session));
             app.manage(Arc::clone(&oauth));
             let cloud = native_cloud_runtime::NativeCloudCoordinator::start(&local_host, &session);
+            app.manage(Arc::new(device_switch_drain::DesktopDeviceSwitch::new(
+                Arc::clone(&local_host),
+                Arc::clone(&session),
+                Arc::clone(&oauth),
+                cloud.cancel_fence(),
+                cloud.sync_waker(),
+            )));
             app.manage(cloud);
             let maintenance = Arc::clone(&oauth);
             let maintenance_app = app.handle().clone();
@@ -155,14 +163,28 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             command_handlers::local_business_status,
+            command_handlers::local_device_lease_read,
             command_handlers::local_asset_library_read,
             command_handlers::local_domain_detail_read,
+            command_handlers::local_dns_health_read,
+            command_handlers::local_settings_read,
+            command_handlers::local_sales_read,
+            command_handlers::local_renewals_read,
+            command_handlers::local_batch_operations_read,
+            command_handlers::local_history_read,
+            command_handlers::local_manual_tasks_read,
             command_handlers::local_domain_asset_edit,
+            command_handlers::local_domain_asset_create,
             command_handlers::local_domain_asset_delete,
             command_handlers::local_domain_asset_provider_bind,
+            command_handlers::local_storage_repair,
             command_handlers::local_conflict_center_read,
             command_handlers::local_conflict_resolve,
             command_handlers::local_sync_status,
+            command_handlers::device_switch_request,
+            command_handlers::device_switch_advance,
+            command_handlers::device_switch_status,
+            command_handlers::device_switch_cancel,
             command_handlers::local_backup_restore_status,
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,
@@ -171,6 +193,10 @@ fn main() {
             oauth_runtime::desktop_authentication_begin,
             oauth_runtime::desktop_authentication_refresh,
             command_handlers::cloudflare_connection_activate,
+            command_handlers::cloudflare_connection_create,
+            command_handlers::cloudflare_connection_revoke,
+            command_handlers::cloudflare_connection_purge,
+            command_handlers::cloudflare_retirement_candidates,
             command_handlers::cloudflare_zone_observe,
             command_handlers::cloudflare_connection_status,
             command_handlers::cloudflare_observation_read,

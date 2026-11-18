@@ -427,7 +427,7 @@ describe("DevicesFixtureService control-plane guards", () => {
     expect(securityCascade.getSwitchStatus(securityView.requestId)?.status).toBe("failed");
   });
 
-  it("keeps a normal switch draining when the P0-17 drain verifier refuses", async () => {
+  it("keeps a normal switch draining when the drain-proof signature verifier refuses", async () => {
     const service = new DevicesFixtureService({
       seedBindings: [binding("device-a", "active"), binding("device-b", "standby")],
     });

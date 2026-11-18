@@ -118,6 +118,7 @@ mod desktop_custody;
 #[cfg(windows)]
 #[path = "desktop_custody_windows.rs"]
 mod desktop_custody;
+mod desktop_device_switch;
 mod desktop_native_cloud;
 // Production custody only: under `cfg(test)` custody uses in-memory stores instead.
 mod desktop_sync_runtime;
@@ -133,6 +134,10 @@ mod portfolio_projection;
 mod sqlcipher_key_sql;
 mod sqlcipher_process_policy;
 
+pub use active_workspace::batch_operations::{
+    BatchOperationRow, BatchOperationsReadSnapshot, BatchOperationsWindow, BatchPlannedCounts,
+    BatchResultCounts,
+};
 pub use active_workspace::business::CloudflareDnsRecordWrite;
 pub use active_workspace::business::DomainAssetMutationReceipt;
 pub(crate) use active_workspace::business::{
@@ -144,15 +149,32 @@ pub(crate) use active_workspace::business::{
     CloudflareDnsObservationWrite, CloudflareDnsProjectionAcknowledgement,
     CloudflarePrewriteFailureReason, DatabaseRecoveryProof, DomainAssetWrite, DurableSyncSnapshot,
     LocalDatabaseKey, NativeCheckpointDescriptor, PendingCloudflareDnsProjection,
-    SyncConflictCandidate, SyncMutationAcknowledgement, SyncPullRequestV2, SyncResolutionReceipt,
-    serialize_sync_push_request,
+    SYNC_MUTATION_WIRE_SCHEMA_VERSION, SyncConflictCandidate, SyncMutationAcknowledgement,
+    SyncPullRequestV2, SyncResolutionReceipt, serialize_sync_push_request,
 };
 #[cfg(test)]
 pub(crate) use active_workspace::business::{
-    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, validate_rebootstrap_asset,
-    validate_rebootstrap_timestamp, verify_rebootstrap_checkpoint_digest,
-    verify_rebootstrap_page_digest, verify_rebootstrap_plan_digest,
+    RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
+    validate_rebootstrap_asset, validate_rebootstrap_timestamp,
+    verify_rebootstrap_checkpoint_digest, verify_rebootstrap_page_digest,
+    verify_rebootstrap_plan_digest,
 };
+pub use active_workspace::dns_health::{
+    DnsHealthReadSnapshot, DnsHealthRow, DnsHealthWindow, DnsRecordCounts, DnsZoneBinding,
+    DnsZoneObservationSummary,
+};
+pub use active_workspace::history::{
+    HistoryFieldChange, HistoryReadSnapshot, HistoryRow, HistoryWindow,
+};
+pub use active_workspace::manual_tasks::{
+    ManualTaskRow, ManualTasksReadSnapshot, ManualTasksWindow,
+};
+pub use active_workspace::renewals::{RenewalRow, RenewalsReadSnapshot, RenewalsWindow};
+pub use active_workspace::sales::{SalesListingRow, SalesMoney, SalesReadSnapshot, SalesWindow};
+pub use active_workspace::settings::{
+    SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
+};
+pub use active_workspace::storage_repair::StorageRepairKind;
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
@@ -165,35 +187,52 @@ pub use application_root::{DesktopApplicationRoot, DesktopApplicationRootError};
 mod backup;
 
 pub use backup::{
+    DesktopAuthorityIdentity, DesktopDeviceLease, DesktopLocalBusinessState,
+    DesktopLocalBusinessStatus,
+};
+pub use backup::{
     DesktopBackupError, DesktopBackupExportStatus, DesktopBackupRestoreStatus,
     DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
     DesktopVerifiedBackupArtifact,
 };
-pub use backup::{DesktopLocalBusinessState, DesktopLocalBusinessStatus};
 pub use desktop_business_runtime::{
-    DesktopAssetLibraryReadRequest, DesktopCloudflareConnectionRead,
-    DesktopCloudflareObservationRead, DesktopCloudflareObservationReadRequest,
-    DesktopCloudflareObservationRecord, DesktopConflict, DesktopConflictCenterView,
-    DesktopConflictFreshness, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
+    DesktopAssetLibraryReadRequest, DesktopBatchOperationsReadRequest,
+    DesktopCloudflareConnectionCreateRequest, DesktopCloudflareConnectionCreated,
+    DesktopCloudflareConnectionRead, DesktopCloudflareObservationRead,
+    DesktopCloudflareObservationReadRequest, DesktopCloudflareObservationRecord, DesktopConflict,
+    DesktopConflictCenterView, DesktopConflictFreshness, DesktopConflictResolutionReceipt,
+    DesktopConflictResolveRequest, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
     DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
     DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopSyncSnapshotView,
+    DesktopDomainAssetWrite, DesktopDomainDetailReadRequest, DesktopHistoryReadRequest,
+    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopStorageRepairReceipt, DesktopStorageRepairRequest, DesktopSyncSnapshotView,
     DesktopSyncTransportState,
+};
+pub use desktop_device_switch::{
+    DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchRequestExchange,
+    DesktopDeviceSwitchStart, DesktopDeviceSwitchStatus, DesktopDrainProgress,
+    DesktopDrainProofDraft, DesktopDrainReceiptQuery,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{
     DesktopCheckpointExchange, DesktopCloudflareActivationAdmission,
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
-    DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
+    DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan,
+    DesktopCloudflareMaintenanceAction, DesktopCloudflarePrewriteFailure,
     DesktopCloudflareProjectionClaim, DesktopCloudflareProjectionDisposition,
-    DesktopCloudflareProjectionWork, DesktopCloudflareRecoveryHandle,
-    DesktopCloudflareRecoveryPlan, DesktopCloudflareRecoveryScan, DesktopCloudflareResolution,
-    DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition, DesktopSyncPullExchange,
-    DesktopSyncPushClaim, DesktopSyncPushDisposition, DesktopSyncPushWork,
-    InspectingCloudflareProvision, MarkedCloudflareProvision, PreparedCloudflareObservation,
-    PreparedCloudflareProvision,
+    DesktopCloudflareProjectionWork, DesktopCloudflarePurgeOutcome,
+    DesktopCloudflareRecoveryHandle, DesktopCloudflareRecoveryPlan, DesktopCloudflareRecoveryScan,
+    DesktopCloudflareResolution, DesktopCloudflareRetirement, DesktopCloudflareRetirementCandidate,
+    DesktopCloudflareRetirementPlan, DesktopSyncCheckpointDisposition, DesktopSyncPullDisposition,
+    DesktopSyncPullExchange, DesktopSyncPushClaim, DesktopSyncPushDisposition, DesktopSyncPushWork,
+    InspectingCloudflareProvision, InspectingCloudflareRevocation, MarkedCloudflareProvision,
+    MarkedCloudflareRevocation, PreparedCloudflareObservation, PreparedCloudflareProvision,
+    PreparedCloudflareRevocation,
 };
 pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 
 #[cfg(test)]
 mod sqlcipher_fixture;
+#[cfg(test)]
+mod test_tempdir;

@@ -86,7 +86,7 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
 - Provider 凭据与账号/连接身份、数据库 key、OAuth/token/cookie/session、Lease/Grant/Ticket/
   ApprovedOperation、authority/entitlement 和 sync control/delivery 状态全部排除；
   `includePlatformCredentials=true` 始终返回 `BACKUP_CREDENTIALS_NOT_ALLOWED`。明文与临时/内容 key
-  只留在 Host/local-storage 有界借用和 zeroizing buffer；磁盘临时快照始终为 SQLCipher 密文。
+  只留在 Host/local-storage 有界借用和 zeroizing buffer；磁盘临时快照始终为 SQLCipher 密文，所在临时目录仅属主可访问（Unix 上 `0700` 并校验属主与权限，不符即失败关闭）。
 - Desktop Local Host 的目标 native composition 必须产生稳定 handle；所有者通过同一个 handle 拒绝 symlink/hard-link 异常、reparse、特殊
   文件、owner/mode/file-id/size 变化。导出协议使用 create-new、fsync、atomic no-clobber rename、目录 fsync
   和 `reserved -> writing -> fsynced -> renamed -> catalog_available` 两阶段日志。路径与 catalog

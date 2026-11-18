@@ -476,14 +476,16 @@ async function seedDrainAuthority(): Promise<void> {
     [scope.accountId, sourceDeviceId, targetDeviceId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, $2, 1, 'immutable-ledger-key', $3, $4, 'active')`,
-    [scope.accountId, sourceDeviceId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, $2, 1, 'immutable-ledger-key', $3, $4, 'active'),
+        ($1, $5, 1, 'immutable-ledger-target-key', $6, $7, 'active')`,
+    [scope.accountId, sourceDeviceId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), targetDeviceId,
+      Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, $3, 'device_switch', 'normal', $4, 'immutable-ledger-idempotency', 'draining',
-        1, $5, $6, 'immutable-ledger-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
+        1, $5, $6, 'immutable-ledger-target-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
     [scope.accountId, scope.workspaceId, workflowId, Buffer.alloc(32, 5), sourceDeviceId, targetDeviceId]);
     await transaction.query(`INSERT INTO device_lease_epoch_allocations
       (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)

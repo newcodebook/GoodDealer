@@ -24,7 +24,8 @@ zeroize = "=1.9.0"
 
 [dev-dependencies]
 chacha20poly1305.workspace = true
-rusqlite.workspace = true
+# `trace` lets the ignored query-plan test record the statements each paged read runs.
+rusqlite = { workspace = true, features = ["trace"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "=0.11.0"

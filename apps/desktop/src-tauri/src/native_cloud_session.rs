@@ -35,6 +35,12 @@ const SYNC_PUSH_PATH: &str = "/v1/workspace-sync/mutations/push";
 const SYNC_PULL_PATH: &str = "/v1/workspace-sync/mutations/pull";
 const SYNC_CHECKPOINT_PATH: &str = "/v1/workspace-sync/checkpoint";
 const CLOUDFLARE_PROJECTION_PATH: &str = "/v1/workspace-observations/cloudflare-dns";
+// ADR-0032: the source device's side of a normal device switch.
+const SYNC_RECEIPTS_PATH: &str = "/v1/workspace-sync/mutations/receipts";
+const DEVICE_SWITCH_REQUEST_PATH: &str = "/v1/device-switch/requests";
+const DEVICE_SWITCH_STATUS_PATH: &str = "/v1/device-switch/requests/status";
+const DEVICE_SWITCH_CANCEL_PATH: &str = "/v1/device-switch/requests/cancel";
+const DEVICE_SWITCH_DRAIN_PATH: &str = "/v1/device-switch/requests/drain";
 pub(crate) const PRODUCTION_CLOUD_ORIGIN: &str = "https://api.gooddealer.com/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,12 +87,26 @@ impl NativeCloudJsonResponse {
     }
 }
 
+/// The device-switch routes a source Desktop calls (ADR-0032).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeviceSwitchExchange {
+    Request,
+    Status,
+    Cancel,
+    Drain,
+}
+
 #[derive(Clone, Copy)]
 enum DataPlaneRoute {
     SyncPush,
     SyncPull,
     SyncCheckpoint,
     CloudflareProjection,
+    SyncReceipts,
+    DeviceSwitchRequest,
+    DeviceSwitchStatus,
+    DeviceSwitchCancel,
+    DeviceSwitchDrain,
 }
 
 impl DataPlaneRoute {
@@ -96,6 +116,11 @@ impl DataPlaneRoute {
             Self::SyncPull => SYNC_PULL_PATH,
             Self::SyncCheckpoint => SYNC_CHECKPOINT_PATH,
             Self::CloudflareProjection => CLOUDFLARE_PROJECTION_PATH,
+            Self::SyncReceipts => SYNC_RECEIPTS_PATH,
+            Self::DeviceSwitchRequest => DEVICE_SWITCH_REQUEST_PATH,
+            Self::DeviceSwitchStatus => DEVICE_SWITCH_STATUS_PATH,
+            Self::DeviceSwitchCancel => DEVICE_SWITCH_CANCEL_PATH,
+            Self::DeviceSwitchDrain => DEVICE_SWITCH_DRAIN_PATH,
         }
     }
 }
@@ -770,6 +795,42 @@ impl NativeCloudSession {
         .await
     }
 
+    /// ADR-0032 S2c: Cloud's receipts for at most 256 of this device's own mutations. A receipt is
+    /// roughly 250 bytes, so 128 KiB bounds the largest valid response.
+    pub(crate) async fn send_sync_receipts(
+        self: &Arc<Self>,
+        admission: DesktopNativeCloudAdmission,
+        request_body: Vec<u8>,
+    ) -> Result<NativeCloudJsonResponse, NativeCloudRequestError> {
+        self.send_data_plane(
+            admission,
+            request_body,
+            DataPlaneRoute::SyncReceipts,
+            96 * 1024,
+            128 * 1024,
+        )
+        .await
+    }
+
+    /// ADR-0032: one device-switch exchange (request, status, cancel or drain). Requests mirror
+    /// Cloud's body limits (2 KiB, 16 KiB for a signed drain proof); a switch response is a small
+    /// closed view.
+    pub(crate) async fn send_device_switch(
+        self: &Arc<Self>,
+        admission: DesktopNativeCloudAdmission,
+        exchange: DeviceSwitchExchange,
+        request_body: Vec<u8>,
+    ) -> Result<NativeCloudJsonResponse, NativeCloudRequestError> {
+        let (route, request_limit) = match exchange {
+            DeviceSwitchExchange::Request => (DataPlaneRoute::DeviceSwitchRequest, 2 * 1024),
+            DeviceSwitchExchange::Status => (DataPlaneRoute::DeviceSwitchStatus, 2 * 1024),
+            DeviceSwitchExchange::Cancel => (DataPlaneRoute::DeviceSwitchCancel, 2 * 1024),
+            DeviceSwitchExchange::Drain => (DataPlaneRoute::DeviceSwitchDrain, 16 * 1024),
+        };
+        self.send_data_plane(admission, request_body, route, request_limit, 4 * 1024)
+            .await
+    }
+
     async fn send_data_plane(
         self: &Arc<Self>,
         admission: DesktopNativeCloudAdmission,
@@ -1013,7 +1074,13 @@ impl NativeCloudSession {
             Err(
                 DesktopLocalHostError::ApplicationRootRejected
                 | DesktopLocalHostError::StorageRejected
-                | DesktopLocalHostError::Unavailable,
+                | DesktopLocalHostError::Unavailable
+                | DesktopLocalHostError::AssetExists
+                | DesktopLocalHostError::AssetDeleted
+                | DesktopLocalHostError::AssetReAddBlocked
+                | DesktopLocalHostError::AssetReAddPending
+                | DesktopLocalHostError::CapabilityUnqualified
+                | DesktopLocalHostError::ZoneUnimportable,
             ) => Err(NativeCloudRequestError::Unavailable),
         }
     }
@@ -1978,7 +2045,7 @@ mod tests {
 
         assert!(matches!(
             session.prepare_data_plane_request(
-                br#"{"schemaVersion":2}"#,
+                br#"{"schemaVersion":3}"#,
                 DataPlaneRoute::SyncPush,
                 Some(refreshed),
             ),

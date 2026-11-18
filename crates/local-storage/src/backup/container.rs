@@ -2745,7 +2745,7 @@ mod tests {
     fn custody_transaction_serializes_threaded_first_use_and_rotation() {
         use std::sync::{Arc, Barrier};
 
-        let directory = tempfile::tempdir().expect("temporary custody directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary custody directory");
         let port = Arc::new(FileCustodyPort::new(directory.path().to_path_buf()));
         let lock_directory = directory.path().join("lock");
         let barrier = Arc::new(Barrier::new(8));
@@ -2827,7 +2827,7 @@ mod tests {
     fn custody_transaction_serializes_concurrent_retire_without_lost_updates() {
         use std::sync::{Arc, Barrier};
 
-        let directory = tempfile::tempdir().expect("temporary custody directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary custody directory");
         let port = Arc::new(FileCustodyPort::new(directory.path().to_path_buf()));
         let lock_directory = directory.path().join("lock");
         let references = {
@@ -2928,7 +2928,7 @@ mod tests {
             panic!("timed out waiting for {}", path.display());
         }
 
-        let directory = tempfile::tempdir().expect("temporary custody directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary custody directory");
         let first_acquired = directory.path().join("first.acquired");
         let second_acquired = directory.path().join("second.acquired");
         let first_executed = directory.path().join("first.executed");

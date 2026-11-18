@@ -10,7 +10,7 @@ import {
   type BootstrapStepResult,
 } from "@gooddealer/protocol/devices";
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   encodeWorkspaceEntityDigestsInput,
   checkpointDescriptorSchema,
@@ -232,7 +232,7 @@ export class BootstrapFixtureService {
       mutations.length === 0 ? this.#returnedThroughServerRevision : mutations[mutations.length - 1]!.serverRevision;
     const nextCursor = returnedThroughServerRevision < targetServerRevision ? `bootstrap-after-${returnedThroughServerRevision}` : null;
     const pageWithoutDigest = {
-      schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+      schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
       workspaceId: this.#checkpoint.workspaceId,
       fromServerRevisionExclusive: this.#returnedThroughServerRevision,
       throughServerRevisionInclusive: targetServerRevision,

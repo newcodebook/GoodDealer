@@ -88,7 +88,7 @@ export function projectMockSales(sales: MockSales, standby: boolean): SalesDeskV
   const active = sales.listings.filter((listing) => listing.status === "active");
   return salesDeskViewModelSchema.parse({
     schemaVersion: 1,
-    workspaceId: "ws-mock",
+    offerDealAvailability: "available",
     freshness: {
       source: standby ? "standby_cloud" : "active_local",
       serverRevision: 8241,

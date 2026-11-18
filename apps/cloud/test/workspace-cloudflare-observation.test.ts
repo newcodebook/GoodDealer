@@ -30,6 +30,8 @@ function transaction(options: {
   readonly device?: Record<string, unknown>;
   readonly lease?: Record<string, unknown>;
   readonly authority?: Record<string, unknown>;
+  /** The replica holds the asset only as a soft-deleted row (ADR-0029 decision 2). */
+  readonly assetDeleted?: boolean;
 } = {}) {
   const digest = createHash("sha256").update("unused").digest();
   const queries: string[] = [];
@@ -53,7 +55,11 @@ function transaction(options: {
       }] };
       if (text.includes("device_active_leases")) return { rows: [options.lease ?? { lease_epoch: 1, device_id: "device-a" }] };
       if (text.includes("clock_timestamp() AS now")) return { rows: [{ now: new Date("2026-09-15T00:00:00Z") }] };
-      if (text.includes("workspace_replica_domain_assets")) return { rowCount: 1, rows: [{}] };
+      if (text.includes("workspace_replica_domain_assets")) {
+        // Only a live row admits an observation; the soft-deleted row is still there for receipts.
+        const live = options.assetDeleted !== true || !text.includes("deleted_at IS NULL");
+        return live ? { rowCount: 1, rows: [{}] } : { rowCount: 0, rows: [] };
+      }
       if (text.includes("cloudflare_dns_observation_projections") && text.includes("SELECT")) {
         return { rows: options.latest === undefined ? [] : [options.latest] };
       }
@@ -105,6 +111,17 @@ describe("Cloudflare observation ingress", () => {
     expect(tx.queries.some((query) => query.includes("pg_advisory_xact_lock"))).toBe(true);
     expect(tx.queries.some((query) => query.includes("INSERT INTO cloudflare_dns_observation_receipts"))).toBe(true);
     expect(tx.queries.some((query) => query.includes("INSERT INTO cloudflare_dns_observation_projections"))).toBe(true);
+  });
+
+  it("admits no observation of a deleted domain asset", async () => {
+    const tx = transaction({ assetDeleted: true });
+    const service = new PostgresCloudflareDnsObservationIngress({
+      transactions: { withAccountCredential: async (_credential, _purpose, operation) => operation(tx as any) },
+      workspaces: { resolveLocked: async () => ({ accountId: "account-a", workspaceId: "workspace-a" }) },
+    });
+    await expect(service.submit(request, principal)).resolves.toBeNull();
+    expect(tx.queries.some((query) => query.includes("INSERT INTO cloudflare_dns_observation_receipts"))).toBe(false);
+    expect(tx.queries.some((query) => query.includes("INSERT INTO cloudflare_dns_observation_projections"))).toBe(false);
   });
 
   it("returns a frozen old-epoch receipt before skew, current-Lease, or latest-head checks", async () => {

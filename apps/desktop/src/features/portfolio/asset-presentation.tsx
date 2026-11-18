@@ -1,11 +1,20 @@
-import { formatMoney, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatMoney, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge } from "@gooddealer/ui";
 
 import type { AssetRowStatus } from "./asset-library/asset-library-contract";
 
 /** Narrow symbols keep the kit's "$284,120.00" instead of zh-CN's default "US$". */
 export function formatAssetMoney(locale: Locale, amount: string, currency: string): string {
-  return formatMoney(locale, Number(amount), currency, { currencyDisplay: "narrowSymbol" });
+  // The amount string goes to Intl unchanged: a Number would round contract amounts past 15 digits.
+  return formatMoney(locale, amount, currency, { currencyDisplay: "narrowSymbol" });
+}
+
+/**
+ * An amount without its currency, as the kit's `Money` shows it ("3,500.00"). The decimal text goes
+ * to Intl unchanged, so it is never rounded through a double; it shows two fraction digits.
+ */
+export function formatAssetAmount(locale: Locale, amount: string): string {
+  return formatNumber(locale, amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** One status vocabulary for library rows and the detail header. */
@@ -19,12 +28,4 @@ export function AssetStatusBadge({ locale, status }: { readonly locale: Locale; 
     case "sold": return <Badge tone="gold">SOLD</Badge>;
     case "local": return <Badge mono={false}>{getPresentationCopy(locale, "shell").unsynced}</Badge>;
   }
-}
-
-export function daysUntil(date: string, reference: string): number {
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${reference}T00:00:00Z`)) / 86_400_000);
-}
-
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }

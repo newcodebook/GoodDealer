@@ -13,7 +13,10 @@ use crate::active_workspace::business::{BusinessDatabase, BusinessDatabaseError}
 use crate::portfolio_projection::{DomainAssetProjectionRow, Money, validate_projection};
 
 const PROJECTION_MAGIC: &[u8; 8] = b"GDBP\0V1\0";
-const PROJECTION_VERSION: u8 = 1;
+/// Version 2 adds `assetGenerations` (ADR-0029 C3a2). Version 1 bodies, written before it, carry
+/// no generation and remain readable; decision 5 treats each of their assets as generation 1.
+const PROJECTION_VERSION: u8 = 2;
+const LEGACY_PROJECTION_VERSION: u8 = 1;
 pub(super) const ALLOWLIST_VERSION: u16 = 1;
 const DATA_FRAME_LIMIT: usize = 1024 * 1024;
 const MAX_PROJECTION_BYTES: usize = 64 * 1024 * 1024;
@@ -47,6 +50,20 @@ pub(super) struct ProjectionBody {
     pub(super) allowlist_version: u16,
     pub(super) complete_domain_asset_set: bool,
     pub(super) assets: Vec<SensitiveAsset>,
+    /// Each asset's entity generation, in `assets` order. Present exactly in version 2; a
+    /// generation is an ordinary counter, not business plaintext, so it needs no zeroizing owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) asset_generations: Option<Vec<u64>>,
+}
+
+impl ProjectionBody {
+    /// The generation of the asset at `index`: recorded in version 2, and 1 for a version 1 body.
+    pub(super) fn asset_generation(&self, index: usize) -> u64 {
+        self.asset_generations
+            .as_ref()
+            .and_then(|generations| generations.get(index).copied())
+            .unwrap_or(1)
+    }
 }
 
 #[derive(Serialize, PartialEq, Eq)]
@@ -415,7 +432,7 @@ impl<'a> BackupSource<'a> {
         after_snapshot_pinned: impl FnOnce(),
     ) -> Result<BackupProjection, BusinessDatabaseError> {
         let workspace_id = Zeroizing::new(self.database.workspace_id().to_owned());
-        let temporary = TempDir::new().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let temporary = private_snapshot_directory()?;
         let snapshot_path = temporary.path().join("active-workspace.snapshot.db");
         let mut key = Zeroizing::new([0_u8; 32]);
         fill_random(key.as_mut()).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -440,6 +457,54 @@ impl<'a> BackupSource<'a> {
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         Ok(projection)
     }
+}
+
+/// A fresh temporary directory only this user can enter, for the encrypted snapshot and the
+/// journal SQLite writes beside it.
+///
+/// `TempDir::new()` creates the directory with the process umask, so a desktop session's usual
+/// umask 002 left it group-readable and -writable in the shared temporary directory, and SQLite's
+/// `0644` files inside it readable by every local user. The directory is created `0700` and then
+/// checked: the umask can only remove bits, but an owner or mode that is not this user's alone
+/// (another user's directory raced into place, an unusual filesystem) fails the snapshot closed.
+/// Outside Unix (Windows) the system temporary directory sits under the user's profile, which is
+/// that user's alone by default; no further ACL check is made there.
+fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder
+        .tempdir()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    require_private_directory(directory.path())?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if !metadata.is_dir()
+        || metadata.uid() != rustix::process::geteuid().as_raw()
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err(BusinessDatabaseError::StorageRejected);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .filter(std::fs::Metadata::is_dir)
+        .map(|_| ())
+        .ok_or(BusinessDatabaseError::StorageRejected)
 }
 
 fn export_snapshot(
@@ -544,6 +609,7 @@ fn project_snapshot(
             allowlist_version: ALLOWLIST_VERSION,
             complete_domain_asset_set: true,
             assets: Vec::new(),
+            asset_generations: Some(Vec::new()),
         };
         read_assets(connection, workspace_id, &mut body)?;
         validate_sensitive_projection(&body.assets)?;
@@ -601,7 +667,8 @@ fn read_assets(
 ) -> Result<(), BusinessDatabaseError> {
     let mut statement = connection
         .prepare(
-            "SELECT a.entity_id,d.note,d.portfolio_id,d.target_price_currency,d.target_price_amount
+            "SELECT a.entity_id,d.note,d.portfolio_id,d.target_price_currency,d.target_price_amount,
+                    a.entity_generation
                FROM domain_assets a JOIN domain_asset_desired_state d
                  ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
               WHERE a.workspace_id=?1 AND a.deleted_at IS NULL
@@ -609,15 +676,24 @@ fn read_assets(
         )
         .map_err(|_| BusinessDatabaseError::SchemaRejected)?;
     let rows = statement
-        .query_map([workspace_id], SensitiveDatabaseRow::read)
+        .query_map([workspace_id], |row| {
+            Ok((SensitiveDatabaseRow::read(row)?, row.get::<_, i64>(5)?))
+        })
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     for row in rows {
         if body.assets.len() == MAX_ASSETS {
             return Err(BusinessDatabaseError::ProjectionRejected);
         }
-        let mut asset = row
-            .map_err(|_| BusinessDatabaseError::ProjectionRejected)?
-            .into_sensitive_asset()?;
+        let (row, generation) = row.map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
+        let generation = u64::try_from(generation)
+            .ok()
+            .filter(|generation| (1..=MAX_SAFE_INTEGER).contains(generation))
+            .ok_or(BusinessDatabaseError::ProjectionRejected)?;
+        body.asset_generations
+            .as_mut()
+            .ok_or(BusinessDatabaseError::ProjectionRejected)?
+            .push(generation);
+        let mut asset = row.into_sensitive_asset()?;
         let SensitiveAsset(inner) = &mut asset;
         read_tags_into(
             connection,
@@ -784,7 +860,17 @@ fn parse_canonical_projection(bytes: &[u8]) -> Result<ProjectionBody, BusinessDa
     // failed sequence parse; the authenticated input itself remains in `SensitiveBytes`.
     let body: ProjectionBody = serde_json::from_slice(body_bytes)
         .map_err(|_| BusinessDatabaseError::ProjectionRejected)?;
-    if body.schema_version != PROJECTION_VERSION
+    let generations_well_formed = match (body.schema_version, &body.asset_generations) {
+        (PROJECTION_VERSION, Some(generations)) => {
+            generations.len() == body.assets.len()
+                && generations
+                    .iter()
+                    .all(|generation| (1..=MAX_SAFE_INTEGER).contains(generation))
+        }
+        (LEGACY_PROJECTION_VERSION, None) => true,
+        _ => false,
+    };
+    if !generations_well_formed
         || body.allowlist_version != ALLOWLIST_VERSION
         || !body.complete_domain_asset_set
         || body.assets.len() > MAX_ASSETS
@@ -815,7 +901,7 @@ pub(super) fn hex_digest(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
     use crate::{BusinessDatabase, DomainAssetWrite, LocalDatabaseKey};
@@ -900,6 +986,41 @@ mod tests {
         .unwrap();
         assert_eq!(candidate.body.assets[0].entity_id, "a.example");
         assert_eq!(candidate.body.assets[1].entity_id, "z.example");
+    }
+
+    /// The snapshot slot is the user's alone whatever the process umask: a desktop session's
+    /// umask 002 must not leave the encrypted snapshot or its journal reachable by other users.
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_directory_is_owner_only_and_anything_else_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = super::private_snapshot_directory().unwrap();
+        let mode = std::fs::metadata(directory.path())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        for exposed in [0o750, 0o705, 0o770, 0o777] {
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(exposed))
+                .unwrap();
+            assert_eq!(
+                super::require_private_directory(directory.path()),
+                Err(BusinessDatabaseError::StorageRejected),
+                "{exposed:o}"
+            );
+        }
+        // A symlink to a private directory is not the directory itself.
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let parent = tempdir().unwrap();
+        let link = parent.path().join("link");
+        std::os::unix::fs::symlink(directory.path(), &link).unwrap();
+        assert_eq!(
+            super::require_private_directory(&link),
+            Err(BusinessDatabaseError::StorageRejected)
+        );
+        assert_eq!(super::require_private_directory(directory.path()), Ok(()));
     }
 
     #[test]

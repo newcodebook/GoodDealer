@@ -32,7 +32,7 @@ const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const checkpoint: CheckpointDescriptor = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
@@ -42,12 +42,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-1",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
@@ -143,7 +144,7 @@ function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain =
     ? `bootstrap-after-${returnedThroughServerRevision}`
     : null;
   const draft = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     workspaceId: "workspace-1",
     fromServerRevisionExclusive: request.fromServerRevisionExclusive,
     throughServerRevisionInclusive: request.throughServerRevisionInclusive,
@@ -479,7 +480,7 @@ describe("BootstrapWorkflow", () => {
     await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
     vi.spyOn(harness.lifecycle, "attemptIssue").mockResolvedValue({ issued: true } as never);
 
-    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in P0-16");
+    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in the in-memory bootstrap workflow");
     expect(harness.retireCursor).toHaveBeenCalledOnce();
     expect(harness.retireCursor).toHaveBeenCalledWith(
       { accountId: "account-1", workspaceId: "workspace-1" },

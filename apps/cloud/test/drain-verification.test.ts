@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { drainProofSchema, type DrainManifest, type DrainStream } from "@gooddealer/protocol/execution-events";
+import {
+  DRAIN_STREAM_GENESIS_DIGEST,
+  drainProofSchema,
+  encodeDrainChainStepInput,
+  encodeMutationDrainResultEnvelope,
+  type DrainManifest,
+  type DrainStream,
+} from "@gooddealer/protocol/execution-events";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -14,6 +22,7 @@ import {
   type DrainLeaseStatePort,
   type DrainStreamWatermarkPort,
 } from "../src/modules/devices/index";
+import { InMemoryMutationDrainWatermarks } from "../src/modules/workspace/mutations/index";
 
 const validProof = drainProofSchema.parse(JSON.parse(readFileSync(
   new URL("../../../packages/protocol/test-vectors/drain/valid/proof-handoff-three-streams.json", import.meta.url),
@@ -297,11 +306,75 @@ describe("DrainVerifier frozen guard order", () => {
       { accountId: "account-a", workspaceId: "workspace-a" },
     ]);
     expect(harness.watermarks.domains).toEqual([
-      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "mutation" },
-      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "execution_fact" },
-      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "device_audit" },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "mutation", proofSchemaVersion: 1 },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "execution_fact", proofSchemaVersion: 1 },
+      { sourceDeviceId: "device-a", activeLeaseEpoch: 2, stream: "device_audit", proofSchemaVersion: 1 },
     ]);
     expect(harness.audit.readChainRegistration).toHaveBeenCalledOnce();
     expect(harness.check).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ADR-0030 versioned mutation chains", () => {
+  const scope = { accountId: "account-a", workspaceId: "workspace-a" } as const;
+  const envelopes = [new TextEncoder().encode("submitted-one"), new TextEncoder().encode("submitted-two")];
+  const sha256 = (value: Uint8Array) => createHash("sha256").update(value).digest();
+  function chain(steps: readonly Uint8Array[]): string {
+    let digest: Uint8Array = Buffer.from(DRAIN_STREAM_GENESIS_DIGEST, "base64url");
+    for (const step of steps) digest = sha256(encodeDrainChainStepInput(digest, step));
+    return Buffer.from(digest).toString("base64url");
+  }
+  const v1Digest = chain(envelopes);
+  const v2Digest = chain(envelopes.map((envelope) =>
+    encodeMutationDrainResultEnvelope({ outcome: "accepted", submittedEnvelopeDigest: sha256(envelope) })));
+
+  function harness(version: 1 | 2, rollingDigest: string) {
+    const mutation = new InMemoryMutationDrainWatermarks();
+    envelopes.forEach((envelope, index) => {
+      mutation.recordLandedEnvelope(scope, { sourceDeviceId: "device-a", activeLeaseEpoch: 2 }, index + 1, envelope);
+    });
+    const others = cleanWatermarks();
+    const signature = new RefusingDrainProofSignature();
+    const subject = new DrainVerifier({
+      drainSignature: signature,
+      mutationWatermarks: mutation,
+      executionFactWatermarks: others.port,
+      deviceAuditWatermarks: others.port,
+      auditChainRegistry: cleanAudit().port,
+      leaseState: heldLease(),
+      proofRegistry: new InMemoryDrainProofRegistry(),
+    });
+    const [, executionFact, deviceAudit] = validProof.streams;
+    const manifest = {
+      ...structuredClone(validProof),
+      ...(version === 2 ? { schemaVersion: 2, typ: "gd.drain-proof.v2", canonicalCodecVersion: 2 } : {}),
+      streams: [
+        { stream: "mutation", lastAssignedSequence: 2, contiguousReceivedThrough: 2, pendingCount: 0, rollingDigest },
+        executionFact,
+        deviceAudit,
+      ],
+    };
+    return subject.verifyHandoff({ ...expected, manifest });
+  }
+
+  it("rebuilds the v2 accepted chain from retained v1 evidence without changing the v1 digest", async () => {
+    expect(v1Digest).not.toBe(v2Digest);
+    await expect(harness(1, v1Digest)).resolves.toEqual({ accepted: false, reason: "DRAIN_SIGNATURE_UNVERIFIED", streams: [] });
+    await expect(harness(2, v2Digest)).resolves.toEqual({ accepted: false, reason: "DRAIN_SIGNATURE_UNVERIFIED", streams: [] });
+  });
+
+  it("never verifies a claim against the other version's chain", async () => {
+    await expect(harness(2, v1Digest)).resolves.toMatchObject({ accepted: false, reason: "DRAIN_STREAM_DIGEST_MISMATCH" });
+    await expect(harness(1, v2Digest)).resolves.toMatchObject({ accepted: false, reason: "DRAIN_STREAM_DIGEST_MISMATCH" });
+  });
+
+  it("fails closed when a ledger is asked for an unknown chain version", async () => {
+    const mutation = new InMemoryMutationDrainWatermarks();
+    await expect(mutation.readWatermark(scope, {
+      sourceDeviceId: "device-a",
+      activeLeaseEpoch: 2,
+      stream: "mutation",
+      proofSchemaVersion: 3 as 2,
+    })).rejects.toThrow(TypeError);
   });
 });

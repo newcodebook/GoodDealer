@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   MAX_MUTATIONS_PER_PAGE,
+  WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   WORKSPACE_SYNC_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
   encodeRebootstrapPlanDigestInput,
@@ -43,7 +44,7 @@ export class PostgresWorkspaceCheckpointReader implements WorkspaceCheckpointRea
       if (checkpoint === null || head === null) return null;
       const from = checkpoint.descriptor.throughServerRevision;
       const through = head.serverRevision;
-      const snapshot = await this.checkpoints.readSnapshot(transaction, checkpoint.descriptor.checkpointId);
+      const snapshot = await this.checkpoints.readState(transaction, checkpoint.descriptor.checkpointId);
       const mutations = await this.mutations.readRange(transaction, from, through);
       if (mutations.length !== through - from) throw new TypeError("rebootstrap mutation range is incomplete");
       const pages = [];
@@ -52,7 +53,7 @@ export class PostgresWorkspaceCheckpointReader implements WorkspaceCheckpointRea
         const pageFrom = from + offset;
         const returnedThrough = pageFrom + pageMutations.length;
         const draft = {
-          schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
+          schemaVersion: WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
           workspaceId: scope.workspaceId,
           fromServerRevisionExclusive: pageFrom,
           throughServerRevisionInclusive: through,

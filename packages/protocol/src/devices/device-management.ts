@@ -1,18 +1,20 @@
 import { z } from "zod";
 
 import { canonicalUtcTimestamp, displayLabel, identifier, safePositiveInteger } from "../wire/index";
+import { drainManifestSchema } from "../execution-events/drain-proof";
 
 export const DEVICE_MANAGEMENT_SCHEMA_VERSION = 1 as const;
 
-export const devicePlatformSchema = z.enum(["windows", "macos", "ios", "android"]);
+export const devicePlatformSchema = z.enum(["windows", "macos", "linux", "ios", "android"]);
 export const deviceRoleSchema = z.enum(["active", "standby", "none"]);
 
 export const deviceBindingSummarySchema = z
   .object({
     schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
     deviceId: identifier,
-    platform: devicePlatformSchema,
-    displayName: displayLabel,
+    /** `null` until the device reports itself (ADR-0032 S3a); Cloud never guesses either. */
+    platform: devicePlatformSchema.nullable(),
+    displayName: displayLabel.nullable(),
     status: z.enum(["bound", "removed"]),
     role: deviceRoleSchema,
     credentialEpoch: safePositiveInteger,
@@ -20,7 +22,8 @@ export const deviceBindingSummarySchema = z
     signingKeyVersion: safePositiveInteger,
     signingKeyStatus: z.enum(["active", "rotated", "revoked"]),
     boundAt: canonicalUtcTimestamp,
-    lastSeenAt: canonicalUtcTimestamp,
+    /** Whole hours only, so the list does not reveal finer activity; `null` before any report. */
+    lastSeenAt: canonicalUtcTimestamp.nullable(),
     removedAt: canonicalUtcTimestamp.nullable(),
     currentDevice: z.boolean(),
   })
@@ -35,7 +38,14 @@ export const deviceBindingSummarySchema = z
     if (value.role !== "none" && value.status !== "bound") {
       context.addIssue({ code: "custom", path: ["role"], message: "a role requires a bound device" });
     }
-    if (value.boundAt > value.lastSeenAt || (value.removedAt !== null && value.boundAt > value.removedAt)) {
+    if (value.lastSeenAt !== null && value.lastSeenAt.slice(14) !== "00:00Z") {
+      context.addIssue({ code: "custom", path: ["lastSeenAt"], message: "last seen is reported in whole hours" });
+    }
+    // Last seen is floored to the hour, so it may precede the bind time within that hour only.
+    if (
+      (value.lastSeenAt !== null && value.lastSeenAt < `${value.boundAt.slice(0, 13)}:00:00Z`)
+      || (value.removedAt !== null && value.boundAt > value.removedAt)
+    ) {
       context.addIssue({ code: "custom", path: ["boundAt"], message: "device timestamps are out of order" });
     }
     if (value.signingKeyStatus === "revoked" && value.role !== "none") {
@@ -65,6 +75,23 @@ export const deviceBindingListSchema = z
       context.addIssue({ code: "custom", path: ["devices"], message: "at most one device may be current" });
     }
   });
+
+/** Lists the caller's account devices; account and current device come only from the session. */
+export const deviceListRequestSchema = z
+  .object({ schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION) })
+  .strict();
+
+/**
+ * A Desktop reports its own platform and display name (ADR-0032 S3a). The device is the session's;
+ * the body names nothing else. Reporting also records last seen, in whole hours.
+ */
+export const deviceSelfReportSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    platform: devicePlatformSchema,
+    displayName: displayLabel,
+  })
+  .strict();
 
 export const activeDeviceLeaseStatusSchema = z
   .object({
@@ -211,9 +238,64 @@ export const deviceSwitchRequestViewSchema = z
     }
   });
 
+/** Names one switch request; the caller's device and account come from its session, never the body. */
+export const deviceSwitchLookupRequestSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    requestId: identifier,
+  })
+  .strict();
+
+/**
+ * Closed outcomes a Desktop can act on (ADR-0032). `FORCED_SWITCH_UNAVAILABLE` stays until a
+ * target device can hold a session without the Lease; Cloud then has no forced-takeover path.
+ */
+export const deviceSwitchRejectionCodeSchema = z.enum([
+  "SWITCH_IN_PROGRESS",
+  "SWITCH_NOT_FOUND",
+  "SWITCH_NOT_CANCELLABLE",
+  "IDEMPOTENCY_CONFLICT",
+  "TARGET_IS_SOURCE",
+  "TARGET_NOT_BOUND",
+  "TARGET_REMOVED",
+  "ACCOUNT_RECOVERY_PENDING",
+  "FORCED_SWITCH_UNAVAILABLE",
+  "DRAIN_PROOF_INVALID",
+  "DRAIN_PROOF_EXPIRED",
+  "DRAIN_STREAMS_INCOMPLETE",
+]);
+
+/**
+ * The source device's signed drain proof for its own switch (ADR-0032 S1c2). Only a handoff
+ * manifest is accepted; Cloud verifies its signature, bindings and every stream before handing
+ * the switch to bootstrap.
+ */
+export const deviceSwitchDrainRequestSchema = z
+  .object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    requestId: identifier,
+    proof: drainManifestSchema,
+  })
+  .strict();
+
+export const deviceSwitchResponseSchema = z.discriminatedUnion("accepted", [
+  z.object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    accepted: z.literal(true),
+    request: deviceSwitchRequestViewSchema,
+  }).strict(),
+  z.object({
+    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    accepted: z.literal(false),
+    code: deviceSwitchRejectionCodeSchema,
+  }).strict(),
+]);
+
 export type DevicePlatform = z.infer<typeof devicePlatformSchema>;
 export type DeviceRole = z.infer<typeof deviceRoleSchema>;
 export type DeviceBindingSummary = z.infer<typeof deviceBindingSummarySchema>;
+export type DeviceListRequest = z.infer<typeof deviceListRequestSchema>;
+export type DeviceSelfReport = z.infer<typeof deviceSelfReportSchema>;
 export type DeviceBindingList = z.infer<typeof deviceBindingListSchema>;
 export type ActiveDeviceLeaseStatus = z.infer<typeof activeDeviceLeaseStatusSchema>;
 export type CloudScope = z.infer<typeof cloudScopeSchema>;
@@ -221,3 +303,7 @@ export type DeviceAuthorityProjection = z.infer<typeof deviceAuthorityProjection
 export type DeviceRemovalRequest = z.infer<typeof deviceRemovalRequestSchema>;
 export type DeviceSwitchRequest = z.infer<typeof deviceSwitchRequestSchema>;
 export type DeviceSwitchRequestView = z.infer<typeof deviceSwitchRequestViewSchema>;
+export type DeviceSwitchLookupRequest = z.infer<typeof deviceSwitchLookupRequestSchema>;
+export type DeviceSwitchRejectionCode = z.infer<typeof deviceSwitchRejectionCodeSchema>;
+export type DeviceSwitchResponse = z.infer<typeof deviceSwitchResponseSchema>;
+export type DeviceSwitchDrainRequest = z.infer<typeof deviceSwitchDrainRequestSchema>;

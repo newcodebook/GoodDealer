@@ -19,6 +19,7 @@
 | 域名 Provider 能力范围 | 首发目标覆盖项目所需的域名资产生命周期能力，包括 DNS、DNSSEC、Nameserver、注册商操作和监控；非域名产品不在范围。每项能力独立资格化，资金操作逐笔用户确认。当前生产组合仍只有 Cloudflare Zone/DNS 只读观察，新执行路径保持不可用。 | [ADR-0024](adr/0024-domain-provider-capability-coverage-and-financial-confirmation.md) |
 | Linux 原生秘密托管 | 启动与登录所需的数据库 key、设备身份、安装绑定、OAuth refresh 与工作区绑定使用 Secret Service；无按应用访问控制，边界等同当前用户会话。Cloudflare 凭据、备份 KEK 与 rebootstrap 写入在 Linux 保持不可用。 | [ADR-0025](adr/0025-linux-secret-service-custody.md) |
 | Desktop 浏览器登录回调 | 按 RFC 8252 §7.3 使用 `http://127.0.0.1:{port}/oauth/callback` loopback 回调，端口每次由系统分配；Cloud 只接受该精确形式并在 challenge、transcript 与兑换中要求同一字符串。自定义 scheme 与 deep-link 不再用于登录；新登录取代等待中的登录，单次登录 10 分钟超时。 | [ADR-0026](adr/0026-desktop-oauth-loopback-redirect.md) |
+| 多平台域名 Provider 与交易市场 | 首发接入 Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun；每个平台接入时一次实现其全部域名相关能力（注册商、DNS、交易市场、获取、监控），逐项资格化。每平台一个 `secure-host-core` 私有 Service，共用 custody/Transport/准入/对账框架，不暴露通用代理；跨平台流程由本地 operations 编排。每次出价单独确认，无代理出价；没有 API 的操作只交接用户浏览器并对账。 | [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md) |
 | 浏览器产品范围 | 首发产品不包含嵌入式浏览器、DOM 自动化、Cookie/Profile custody、自动登录、下载或上传。需要网页操作时由用户在自己的浏览器中完成；未来引入任何受控浏览器能力必须有新的 ADR。 | [ADR-0017](adr/0017-v1-excludes-browser-automation.md) |
 | 运营与首发 Release | 生产采用单区域、受管服务的运行模型，生产、预发布和开发环境严格隔离。首个公开客户发行目标为 `1.0.0` 的 `stable` 渠道，且只在完整首发范围、外部资格和独立批准均具备时发出。 | [ADR-0018](adr/0018-production-operations-and-stable-release.md) |
 | 商业计划与支付 | 同一功能档位提供 USD 9.80 月付、USD 98 年付和 USD 498 的 10 年固定期限预付授权；无免费试用；每账号终身唯一的首次 settled acquisition 有 336 小时全额退款窗口，续费不重置，接受即只读；首发只开放 Stripe，PayPal 是不参与首发资格的可选扩展能力；每账号最多一个有效 Provider；优惠不可叠加并由服务端统一映射；价格未含税且只开放合规销售地区。 | [ADR-0020](adr/0020-commercial-entitlement-and-local-access.md) |
@@ -35,10 +36,11 @@
 | 托管商与数据区域 | 由 Data Governance Owner 与 Platform Operations Owner 按 ADR-0018 选择一个生产区域，并在不可变环境记录中声明。 | 尚未选择或部署。 |
 | 具体构件、签名、公证、归档与发行批准 | 只为完成首发范围的干净构件建立 `1.0.0` / `stable` 发行记录；所有证据均绑定该构件。 | `release/release-request.json` 仍为 `unissued`。 |
 | Cloudflare 条款审查、受控测试 Zone 和生产观察 | 按连接器规范在发布前完成并归档。 | 尚未资格化，连接器不可执行。 |
+| 其余 7 个平台的条款审查、API 准入、受控资产/沙箱和生产观察 | 按 ADR-0027 与连接器规范逐项完成并归档；Atom/AtomRegistrar/Namecheap 的账户门槛需要满足条件的资格测试账户。 | 尚无实现，全部不可执行。 |
 
 ## 当前仓库基础
 
-- Cloud 的唯一中央目录按字面顺序注册 25 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery 及后续 account capability migrations）；M002 拥有不含 Provider 连接身份的
+- Cloud 的唯一中央目录按字面顺序注册 27 项 migration（M001–M017、M019、M020、三项 Sync/Observation、Account recovery、后续 account capability migrations 与两项 Desktop 登录 loopback redirect migrations）；M002 拥有不含 Provider 连接身份的
   `workspace_replica_*` 完整副本 schema，M015 是规范化商业领域 greenfield baseline，M016 增加
   Identity refresh recovery，M017 增加 Devices 登录授权加固，M019 建立 Identity transaction
   capability，M020 建立注册 challenge、加密邮件 outbox 和 Identity worker claim；M023 增加密码恢复、

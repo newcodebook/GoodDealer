@@ -15,6 +15,7 @@ import {
   encodeDrainChainStepInput,
   encodeDrainStreamEnvelope,
   type DeviceAuditEvent,
+  type DrainProofSchemaVersion,
 } from "@gooddealer/protocol/execution-events";
 
 import type { AuditChainRegistryPort, DrainSealParticipantPort, DrainStreamWatermarkPort } from "../devices/ports";
@@ -137,7 +138,8 @@ export class InMemoryDeviceAuditLedger implements
 
   async readWatermark(
     scope: WorkspaceTenantScope,
-    domain: WorkspaceAuditDomain & { readonly stream: "device_audit" },
+    // Device-audit envelopes are identical in every drain proof version.
+    domain: WorkspaceAuditDomain & { readonly stream: "device_audit"; readonly proofSchemaVersion: DrainProofSchemaVersion },
   ) {
     if (domain.stream !== "device_audit") throw new TypeError("audit ledger serves only device audit");
     return projectWatermark(this.#workspaceRecords.get(domainKey(scope, domain)));

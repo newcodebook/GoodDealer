@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloudflare-retirement-candidates"
+description = "Enables the cloudflare_retirement_candidates command without any pre-configured scope."
+commands.allow = ["cloudflare_retirement_candidates"]
+
+[[permission]]
+identifier = "deny-cloudflare-retirement-candidates"
+description = "Denies the cloudflare_retirement_candidates command without any pre-configured scope."
+commands.deny = ["cloudflare_retirement_candidates"]

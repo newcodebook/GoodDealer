@@ -26,12 +26,33 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
         entity_id: String,
     },
+    /// Revokes the connection's credential. It shares the single in-flight slot so it never races
+    /// a provision of the same custody, but it is never rate limited: withdrawing access must
+    /// always be possible.
+    Revoke {
+        connection_id: String,
+    },
+    /// May queue behind recovery, including a failed scan, but never overlaps custody work.
+    Purge {
+        connection_id: String,
+        action: RetirementAction,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RetirementAction {
+    ConfirmRetirement,
+    RetryPending,
 }
 
 impl ProviderOperation {
     fn connection_id(&self) -> &str {
         match self {
-            Self::Activate { connection_id } | Self::Observe { connection_id, .. } => connection_id,
+            Self::Activate { connection_id }
+            | Self::Revoke { connection_id }
+            | Self::Purge { connection_id, .. }
+            | Self::Observe { connection_id, .. } => connection_id,
         }
     }
 }
@@ -86,7 +107,11 @@ enum ProviderAdmission {
 
 impl ProviderAdmissionState {
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
-        if self.recovering {
+        // Serial execution still drains any queued/running recovery first. Only permanent
+        // retirement may pass a failed recovery gate; the Host rejects possible live writers.
+        if self.recovery_generation.is_none()
+            || (self.recovering && !matches!(operation, ProviderOperation::Purge { .. }))
+        {
             return ProviderAdmission::Busy;
         }
         if let Some(in_flight) = self.in_flight.as_ref() {
@@ -130,6 +155,7 @@ impl ProviderAdmissionState {
                 }
                 rate.observations.push_back(now);
             }
+            ProviderOperation::Revoke { .. } | ProviderOperation::Purge { .. } => {}
         }
         self.in_flight = Some(operation.clone());
         ProviderAdmission::Enqueue
@@ -174,10 +200,10 @@ impl ProviderLaneHandle {
         };
         if admission.recovery_generation.is_none() {
             ProviderStatus::Blocked
-        } else if admission.recovering {
-            ProviderStatus::Recovering
         } else if admission.in_flight.is_some() {
             ProviderStatus::Busy
+        } else if admission.recovering {
+            ProviderStatus::Recovering
         } else {
             ProviderStatus::Ready
         }
@@ -425,6 +451,108 @@ mod tests {
             ProviderSubmission::Accepted
         );
         assert_eq!(handle.submit_at(&activation, now), ProviderSubmission::Busy);
+    }
+
+    #[test]
+    fn revocation_is_serial_with_provision_but_never_rate_limited() {
+        let (handle, mut lane) = ProviderLane::new();
+        let revoke = ProviderOperation::Revoke {
+            connection_id: "connection-a".to_owned(),
+        };
+        // Recovery must finish first: a revocation never overlaps an unresolved credential write.
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Busy);
+        lane.finish_recovery(Some(0), true);
+        let now = Instant::now();
+        let activation = ProviderOperation::Activate {
+            connection_id: "connection-a".to_owned(),
+        };
+        assert_eq!(
+            handle.submit_at(&activation, now),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+        let operation = lane.commands.try_recv().unwrap();
+        lane.complete(&operation);
+        for _ in 0..3 {
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Accepted);
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+            let operation = lane.commands.try_recv().unwrap();
+            lane.complete(&operation);
+        }
+    }
+
+    #[test]
+    fn retirement_passes_failed_recovery_but_never_a_live_operation_or_overflow() {
+        let (handle, mut lane) = ProviderLane::new();
+        let purge = ProviderOperation::Purge {
+            connection_id: "connection-a".to_owned(),
+            action: RetirementAction::RetryPending,
+        };
+        lane.finish_recovery(Some(0), false);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Accepted);
+        assert_eq!(handle.status(), ProviderStatus::Busy);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Busy);
+        assert_eq!(
+            handle.submit(&observe("other", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(lane.commands.try_recv(), Ok(purge.clone()));
+        lane.complete(&purge);
+        assert_eq!(handle.status(), ProviderStatus::Recovering);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Accepted);
+        assert_eq!(lane.commands.try_recv(), Ok(purge.clone()));
+        lane.complete(&purge);
+        handle.admission.lock().unwrap().recovery_generation = None;
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Busy);
+        assert_eq!(handle.status(), ProviderStatus::Blocked);
+    }
+
+    #[tokio::test]
+    async fn retirement_waits_for_running_recovery_and_runs_even_when_that_scan_fails() {
+        let (handle, lane) = ProviderLane::new();
+        let scanning = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let purged = Arc::new(Notify::new());
+        let scan_started = Arc::clone(&scanning);
+        let scan_release = Arc::clone(&release);
+        let purge_done = Arc::clone(&purged);
+        handle.recover();
+        let task = tokio::spawn(lane.run(
+            move || {
+                let started = Arc::clone(&scan_started);
+                let release = Arc::clone(&scan_release);
+                async move {
+                    started.notify_one();
+                    release.notified().await;
+                    false
+                }
+            },
+            move |_| {
+                let done = Arc::clone(&purge_done);
+                async move {
+                    done.notify_one();
+                }
+            },
+        ));
+        scanning.notified().await;
+        assert_eq!(
+            handle.submit(&ProviderOperation::Purge {
+                connection_id: "connection-a".to_owned(),
+                action: RetirementAction::ConfirmRetirement,
+            }),
+            ProviderSubmission::Accepted
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), purged.notified())
+                .await
+                .is_err()
+        );
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), purged.notified())
+            .await
+            .unwrap();
+        handle.cancel();
+        task.await.unwrap();
     }
 
     #[test]

@@ -167,6 +167,38 @@ mod tests {
     }
 
     #[test]
+    fn retirement_requires_a_closed_action_and_rejects_duplicate_confirmation() {
+        use crate::command_handlers::CloudflareConnectionPurgeRequest;
+        for action in ["confirm_retirement", "retry_pending"] {
+            let wire = format!(
+                r#"{{"schemaVersion":1,"connectionId":"connection-1","action":"{action}"}}"#
+            );
+            assert!(
+                decode_provider_body::<CloudflareConnectionPurgeRequest>(
+                    &InvokeBody::Raw(wire.into_bytes()),
+                    512
+                )
+                .is_ok()
+            );
+        }
+        for wire in [
+            r#"{"schemaVersion":1,"connectionId":"a"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":true}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"force"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"retry_pending","action":"confirm_retirement"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"confirm_retirement","digest":"caller-slot"}"#,
+        ] {
+            assert!(
+                decode_provider_body::<CloudflareConnectionPurgeRequest>(
+                    &InvokeBody::Raw(wire.as_bytes().to_vec()),
+                    512
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn observation_read_rejects_duplicate_unknown_oversize_and_json_body() {
         let valid = br#"{"schemaVersion":1,"entityId":"example.com"}"#.to_vec();
         assert!(

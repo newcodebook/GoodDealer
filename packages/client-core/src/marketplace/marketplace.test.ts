@@ -16,7 +16,7 @@ import {
 function createView(source: "active_local" | "standby_cloud" = "active_local"): SalesDeskViewModel {
   return salesDeskViewModelSchema.parse({
     schemaVersion: 1,
-    workspaceId: "workspace-1",
+    offerDealAvailability: "available",
     freshness: {
       source,
       serverRevision: 42,

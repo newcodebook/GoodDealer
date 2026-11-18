@@ -1,3 +1,4 @@
+import { amountSign, subtractAmounts, sumAmounts } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   AlertTriangleIcon,
@@ -41,8 +42,8 @@ interface DialogBaseProps {
   readonly onClose: () => void;
 }
 
-function sumAmounts(amounts: readonly (string | null)[]): number {
-  return amounts.reduce((sum, amount) => sum + (amount === null ? 0 : Number(amount)), 0);
+function sumPrices(amounts: readonly (string | null)[]): string {
+  return sumAmounts(amounts.filter((amount) => amount !== null));
 }
 
 /** Batch reprice: uniform / percent / per-domain rules that produce a batch plan, never a direct write. */
@@ -56,7 +57,7 @@ export function BatchPriceDialog({ locale, open, targets, onClose, onSubmit }: D
   const [each, setEach] = useState<Readonly<Record<string, string>>>(() => Object.fromEntries(targets.map((target) => [target.id, target.targetPrice?.amount ?? ""])));
   if (!open) return null;
 
-  const money = (value: number) => formatAssetMoney(locale, value.toFixed(2), "USD");
+  const money = (amount: string) => formatAssetMoney(locale, amount, "USD");
   const rule: BatchPriceRule | null = mode === "uniform"
     ? (() => { const amount = parseTargetPriceInput(uniform); return amount === null ? null : { mode, amount }; })()
     : mode === "percent"
@@ -72,9 +73,9 @@ export function BatchPriceDialog({ locale, open, targets, onClose, onSubmit }: D
         }
         return { mode, amounts };
       })();
-  const before = sumAmounts(targets.map((target) => target.targetPrice?.amount ?? null));
-  const after = rule === null ? before : sumAmounts(targets.map((target) => applyPriceRule(target, rule)));
-  const delta = after - before;
+  const before = sumPrices(targets.map((target) => target.targetPrice?.amount ?? null));
+  const after = rule === null ? before : sumPrices(targets.map((target) => applyPriceRule(target, rule)));
+  const { sign: deltaDirection, magnitude: deltaMagnitude } = amountSign(subtractAmounts(after, before));
   const sample = targets[0];
 
   return (
@@ -111,7 +112,7 @@ export function BatchPriceDialog({ locale, open, targets, onClose, onSubmit }: D
             <Input mono suffix="%" aria-label={copy.percentAdjust} value={percent} onChange={(event) => setPercent(event.currentTarget.value)} {...(rule === null ? { error: copy.invalidAmount } : {})} />
             {sample === undefined || sample.targetPrice === null || rule === null ? null : (
               <span className="gd-t-body-2">
-                {copy.example} {money(Number(sample.targetPrice.amount))} → <span className="batch-edit-gold">{money(Number(applyPriceRule(sample, rule) ?? 0))}</span>
+                {copy.example} {money(sample.targetPrice.amount)} → <span className="batch-edit-gold">{money(applyPriceRule(sample, rule) ?? "0")}</span>
               </span>
             )}
           </div>
@@ -132,7 +133,7 @@ export function BatchPriceDialog({ locale, open, targets, onClose, onSubmit }: D
               {targets.map((target) => (
                 <div key={target.id} className="batch-edit-table-row" role="row">
                   <span className="batch-edit-mono">{target.domain}</span>
-                  <span className="batch-edit-mono batch-edit-faint">{target.targetPrice === null ? "—" : money(Number(target.targetPrice.amount))}</span>
+                  <span className="batch-edit-mono batch-edit-faint">{target.targetPrice === null ? "—" : money(target.targetPrice.amount)}</span>
                   <Input
                     size="sm"
                     mono
@@ -151,8 +152,8 @@ export function BatchPriceDialog({ locale, open, targets, onClose, onSubmit }: D
           <span className="batch-edit-mono batch-edit-faint">{money(before)}</span>
           <span className="batch-edit-faint">→</span>
           <span className="batch-edit-mono batch-edit-gold">{money(after)}</span>
-          <span className={`batch-edit-mono batch-edit-delta${delta < 0 ? " batch-edit-delta--down" : delta > 0 ? " batch-edit-delta--up" : ""}`}>
-            {delta === 0 ? "±0" : `${delta < 0 ? "−" : "+"}${money(Math.abs(delta))}`}
+          <span className={`batch-edit-mono batch-edit-delta${deltaDirection < 0 ? " batch-edit-delta--down" : deltaDirection > 0 ? " batch-edit-delta--up" : ""}`}>
+            {deltaDirection === 0 ? "±0" : `${deltaDirection < 0 ? "−" : "+"}${money(deltaMagnitude)}`}
           </span>
         </div>
         <span className="gd-t-meta">{copy.planHint}</span>

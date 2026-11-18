@@ -51,7 +51,7 @@ describe("PostgreSQL ReaderCursor persistence", () => {
   it("keeps v2 delivery pending until confirm and byte-replays both lost responses", async () => {
     await service.open(scope, { deviceId: "reader-v2", atRevision: 0 });
     const initialRequest = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       afterServerRevision: 0,
       cursor: null,
       confirm: null,
@@ -71,7 +71,7 @@ describe("PostgreSQL ReaderCursor persistence", () => {
     expect(JSON.stringify(replay)).toBe(JSON.stringify(first));
 
     const confirmRequest = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       afterServerRevision: first.page.returnedThroughServerRevision,
       cursor: first.page.nextCursor,
       confirm: first.confirmToken,
@@ -94,12 +94,12 @@ describe("PostgreSQL ReaderCursor persistence", () => {
   it("maps v2 token tamper, expiry, wrong device, and range/predecessor mismatch uniformly", async () => {
     await service.open(scope, { deviceId: "reader-v2-negative", atRevision: 0 });
     await service.open(scope, { deviceId: "reader-v2-other", atRevision: 0 });
-    const request = { schemaVersion: 2 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 1 };
+    const request = { schemaVersion: 3 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 1 };
     const first = await service.pullV2(scope, "reader-v2-negative", request);
     if (!first.accepted) throw new Error("negative fixture page failed");
     const conflict = { accepted: false, code: "READER_CURSOR_STALE_PRESENTATION" } as const;
     const validConfirm = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       afterServerRevision: 1,
       cursor: first.page.nextCursor,
       confirm: first.confirmToken,
@@ -398,12 +398,13 @@ class DenseTestPages implements ReaderMutationPageQueryPort {
     const nextRevision = input.fromServerRevisionExclusive + 1;
     const terminal = nextRevision >= input.throughServerRevisionInclusive;
     const mutations = input.fromServerRevisionExclusive === input.throughServerRevisionInclusive ? [] : [{
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       mutationId: `mutation-${nextRevision}`,
       workspaceId: transaction.scope.workspaceId,
       workspaceSchemaVersion: 1,
       entityType: "domain_asset" as const,
       entityId: "asset-one.test",
+      entityGeneration: 1,
       operationKind: "upsert" as const,
       baseServerRevision: 0,
       changedFields: [{ fieldPath: "note" as const, value: `revision-${nextRevision}` }],
@@ -414,7 +415,7 @@ class DenseTestPages implements ReaderMutationPageQueryPort {
     }];
     const returnedThroughServerRevision = mutations[0]?.serverRevision ?? input.fromServerRevisionExclusive;
     const unsigned: MutationPage = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       workspaceId: transaction.scope.workspaceId,
       fromServerRevisionExclusive: input.fromServerRevisionExclusive,
       throughServerRevisionInclusive: input.throughServerRevisionInclusive,

@@ -1,6 +1,13 @@
 import {
   desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantSchema,
+  deviceBindingListSchema,
+  deviceListRequestSchema,
+  deviceSelfReportSchema,
+  deviceSwitchDrainRequestSchema,
+  deviceSwitchLookupRequestSchema,
+  deviceSwitchRequestSchema,
+  deviceSwitchResponseSchema,
   type DesktopAuthorizationGrant,
   type DesktopAuthorizationGrantRequest,
 } from "@gooddealer/protocol/devices";
@@ -47,6 +54,8 @@ import {
   workspaceCheckpointReadRequestSchema,
   workspaceCheckpointReadResponseSchema,
   workspaceRebootstrapRequestSchema,
+  workspaceMutationReceiptReadRequestSchema,
+  workspaceMutationReceiptReadResponseSchema,
   rebootstrapPlanSchema,
   workspaceMutationPullRequestSchema,
   workspaceMutationPullResponseSchema,
@@ -55,6 +64,7 @@ import {
   type WorkspaceCheckpointReadRequest,
   type WorkspaceCheckpointReadResponse,
   type WorkspaceRebootstrapRequest,
+  type WorkspaceMutationReceiptReadRequest,
   type WorkspaceMutationPullRequest,
   type WorkspaceMutationPullResponse,
   type WorkspaceMutationPushRequest,
@@ -75,6 +85,7 @@ import {
 import type { AccountActivationApplicationPort } from "../../ports/account-activation";
 import type { DesktopAuthorizationApplicationPort } from "../../ports/desktop-authorization";
 import type { PublicPrincipal } from "../../ports/public-session";
+import type { DeviceDirectoryApplicationPort, DeviceSwitchApplicationPort } from "../../../modules/devices/index";
 import type { CommercialCheckoutApplicationPort } from "../../../modules/licensing/index";
 import type {
   CloudflareDnsObservationIngressPort,
@@ -122,7 +133,14 @@ export const WORKSPACE_SYNC_PUSH_ROUTE = "/v1/workspace-sync/mutations/push" as 
 export const WORKSPACE_SYNC_PULL_ROUTE = "/v1/workspace-sync/mutations/pull" as const;
 export const WORKSPACE_SYNC_CHECKPOINT_ROUTE = "/v1/workspace-sync/checkpoint" as const;
 export const WORKSPACE_REBOOTSTRAP_ROUTE = "/v1/workspace-sync/rebootstrap" as const;
+export const WORKSPACE_SYNC_RECEIPTS_ROUTE = "/v1/workspace-sync/mutations/receipts" as const;
 export const CLOUDFLARE_DNS_OBSERVATION_ROUTE = "/v1/workspace-observations/cloudflare-dns" as const;
+export const DEVICE_SWITCH_REQUEST_ROUTE = "/v1/device-switch/requests" as const;
+export const DEVICE_SWITCH_STATUS_ROUTE = "/v1/device-switch/requests/status" as const;
+export const DEVICE_SWITCH_CANCEL_ROUTE = "/v1/device-switch/requests/cancel" as const;
+export const DEVICE_SWITCH_DRAIN_ROUTE = "/v1/device-switch/requests/drain" as const;
+export const DEVICE_LIST_ROUTE = "/v1/devices/list" as const;
+export const DEVICE_SELF_REPORT_ROUTE = "/v1/devices/self" as const;
 
 export class PublicRouteAuthorizationError extends Error {}
 
@@ -132,6 +150,8 @@ export interface PublicBusinessRoutePorts {
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
   readonly workspaceSync?: WorkspaceSyncApplicationPort;
   readonly cloudflareDnsObservation?: CloudflareDnsObservationIngressPort;
+  readonly deviceSwitch?: DeviceSwitchApplicationPort;
+  readonly deviceDirectory?: DeviceDirectoryApplicationPort;
 }
 
 export function createPublicBusinessRoutes(
@@ -313,6 +333,24 @@ export function createPublicBusinessRoutes(
         ports.workspaceSync!.rebootstrap?.(request, principal) ?? Promise.resolve(null),
       bodyLimit: 256,
     },
+    ...(ports.workspaceSync.receipts === undefined ? [] : [{
+      surface: PUBLIC_SURFACE,
+      method: "POST",
+      path: WORKSPACE_SYNC_RECEIPTS_ROUTE,
+      request: workspaceMutationReceiptReadRequestSchema,
+      response: workspaceMutationReceiptReadResponseSchema,
+      requiredScope: null,
+      authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+      invoke: async (request: WorkspaceMutationReceiptReadRequest, principal: PublicPrincipal) => {
+        const response = await ports.workspaceSync!.receipts!(request, principal);
+        if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+        return response;
+      },
+      // Worst schema-valid body: 256 identifiers of 160 printable ASCII characters, each of which
+      // may be `"` or `\` and JSON-escape to two bytes, plus quotes and separators (256 * 323 bytes
+      // = 82,688) and the envelope. 96 KiB admits that and nothing near an order of magnitude more.
+      bodyLimit: 96 * 1024,
+    } as PublicRoute<any, any>]),
   ];
   const cloudflareObservationRoutes: readonly PublicRoute<any, any>[] = ports.cloudflareDnsObservation === undefined ? [] : [
     {
@@ -331,6 +369,70 @@ export function createPublicBusinessRoutes(
       bodyLimit: 64 * 1024,
     },
   ];
+  const deviceSwitch = ports.deviceSwitch;
+  const deviceSwitchRoute = (
+    path: string,
+    request: typeof deviceSwitchRequestSchema | typeof deviceSwitchLookupRequestSchema | typeof deviceSwitchDrainRequestSchema,
+    invoke: (port: DeviceSwitchApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceSwitchApplicationPort["request"]>,
+    // Request, status and cancel carry at most three identifiers of 160 printable characters,
+    // each JSON-escaped at worst to two bytes: under 1.1 KiB.
+    bodyLimit = 2 * 1024,
+  ): PublicRoute<any, any> => ({
+    surface: PUBLIC_SURFACE,
+    method: "POST",
+    path,
+    request,
+    response: deviceSwitchResponseSchema,
+    requiredScope: null,
+    authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+    invoke: async (value: unknown, principal: PublicPrincipal) => {
+      const response = await invoke(deviceSwitch!, value, principal);
+      if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+      return response;
+    },
+    bodyLimit,
+  });
+  const deviceSwitchRoutes: readonly PublicRoute<any, any>[] = deviceSwitch === undefined ? [] : [
+    deviceSwitchRoute(DEVICE_SWITCH_REQUEST_ROUTE, deviceSwitchRequestSchema, (port, value, principal) => port.request(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_STATUS_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.status(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_CANCEL_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.cancel(value, principal)),
+    ...(deviceSwitch.drain === undefined ? [] : [deviceSwitchRoute(
+      DEVICE_SWITCH_DRAIN_ROUTE,
+      deviceSwitchDrainRequestSchema,
+      (port, value, principal) => port.drain!(value, principal),
+      // A handoff manifest: about twenty fields of at most 200 printable characters, three stream
+      // claims with 43-character digests and a signature of at most 1024 characters. Escaping
+      // every character still stays under 16 KiB.
+      16 * 1024,
+    )]),
+  ];
+  const deviceDirectory = ports.deviceDirectory;
+  const deviceDirectoryRoute = (
+    path: string,
+    request: typeof deviceListRequestSchema | typeof deviceSelfReportSchema,
+    invoke: (port: DeviceDirectoryApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceDirectoryApplicationPort["list"]>,
+  ): PublicRoute<any, any> => ({
+    surface: PUBLIC_SURFACE,
+    method: "POST",
+    path,
+    request,
+    response: deviceBindingListSchema,
+    requiredScope: null,
+    authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
+    invoke: async (value: unknown, principal: PublicPrincipal) => {
+      const response = await invoke(deviceDirectory!, value, principal);
+      if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+      return response;
+    },
+    // A self-report is a platform word and a display name of at most 64 characters (at most four
+    // UTF-8 bytes each, as JSON permits them unescaped): well under 512 bytes. The list request is
+    // a version field alone.
+    bodyLimit: 1024,
+  });
+  const deviceDirectoryRoutes: readonly PublicRoute<any, any>[] = deviceDirectory === undefined ? [] : [
+    deviceDirectoryRoute(DEVICE_LIST_ROUTE, deviceListRequestSchema, (port, value, principal) => port.list(value, principal)),
+    deviceDirectoryRoute(DEVICE_SELF_REPORT_ROUTE, deviceSelfReportSchema, (port, value, principal) => port.reportSelf(value, principal)),
+  ];
   return [
     accountActivationRoute,
     desktopAuthorizationRoute,
@@ -342,5 +444,7 @@ export function createPublicBusinessRoutes(
     billingFirstPurchaseRefundStatusRoute,
     ...workspaceSyncRoutes,
     ...cloudflareObservationRoutes,
+    ...deviceSwitchRoutes,
+    ...deviceDirectoryRoutes,
   ];
 }

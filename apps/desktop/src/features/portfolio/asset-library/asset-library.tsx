@@ -1,4 +1,4 @@
-import type { AssetLibraryRow } from "@gooddealer/client-core";
+import { sumAmounts, type AssetLibraryRow, type CanonicalDomainName } from "@gooddealer/client-core";
 import { formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import {
   BatchBar,
@@ -14,13 +14,13 @@ import {
   Table,
   Tag,
   Toolbar,
-  UploadIcon,
   type TableColumn,
 } from "@gooddealer/ui";
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { useState, type Key } from "react";
 
-import { AssetStatusBadge, daysUntil, formatAssetMoney, todayIso } from "../asset-presentation";
+import { AssetStatusBadge, formatAssetAmount, formatAssetMoney } from "../asset-presentation";
+import { AddDomainDialog, type AddDomainOutcome } from "./add-domain-dialog";
 
 import {
   assetRowStatus,
@@ -49,13 +49,15 @@ export interface AssetLibraryProps {
   readonly onWindowChange?: (startIndex: number, size: number) => void;
   readonly onOpenAsset?: (id: string) => void;
   readonly onRenew?: () => void;
-  readonly onImportCsv?: () => void;
   readonly onCreatePlan?: (ids: readonly string[]) => void;
+  /**
+   * Adds one domain by hand; omitted where the workspace is not writable. An empty workspace has no
+   * freshness to consult, so writability is the caller's to decide.
+   */
+  readonly onAddDomain?: (domain: CanonicalDomainName) => Promise<AddDomainOutcome>;
   readonly onBatchAction?: (action: AssetBatchAction, ids: readonly string[]) => void;
   /** Called after the user confirms "save and sync" for an inline BIN edit. */
   readonly onTargetPriceCommit?: (row: AssetLibraryRow, amount: string) => void;
-  /** ISO date that "expiring within 60 days" is measured from; defaults to today. */
-  readonly referenceDate?: string;
 }
 
 const statusFilters: readonly AssetStatusFilter[] = ["all", "synced", "pending", "conflict", "unlisted", "sold"];
@@ -67,6 +69,17 @@ function isSortKey(value: string): value is AssetSortKey {
 
 function isStatusFilter(value: string): value is AssetStatusFilter {
   return (statusFilters as readonly string[]).includes(value);
+}
+
+/** The expiring metric's meta line: its notes, then the renewals link, joined as the kit joins them. */
+function expiringMeta(
+  notes: readonly string[],
+  renew: { readonly label: string; readonly onClick: () => void } | null,
+  label: string,
+): { readonly meta?: string; readonly onClick?: () => void; readonly ariaLabel?: string } {
+  const parts = renew === null ? notes : [...notes, renew.label];
+  const meta = parts.length === 0 ? {} : { meta: parts.join(" · ") };
+  return renew === null ? meta : { ...meta, onClick: renew.onClick, ariaLabel: [label, ...parts].join(" · ") };
 }
 
 /** Asset Library: KPI ribbon, filter region, windowed asset table, and the floating batch action layer. */
@@ -85,13 +98,13 @@ export function AssetLibrary({
   onWindowChange,
   onOpenAsset,
   onRenew,
-  onImportCsv,
   onCreatePlan,
+  onAddDomain,
   onBatchAction,
   onTargetPriceCommit,
-  referenceDate = todayIso(),
 }: AssetLibraryProps) {
   const copy = getPresentationCopy(locale, "assetLibrary");
+  const [adding, setAdding] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<{ readonly row: AssetLibraryRow; readonly amount: string } | null>(null);
   const data = presentation.state === "ready" ? presentation.data : presentation.state === "invalid-query" ? presentation.data : null;
   const canEdit = data?.freshness.canEdit ?? false;
@@ -141,7 +154,7 @@ export function AssetLibrary({
       sortable: true,
       priority: "essential",
       render: (row) => {
-        const display = <Money amount={row.targetPrice === null ? null : Number(row.targetPrice.amount)} />;
+        const display = <Money amount={row.targetPrice === null ? null : formatAssetAmount(locale, row.targetPrice.amount)} />;
         if (!canEdit || onTargetPriceCommit === undefined) return display;
         return (
           <EditableCell
@@ -166,12 +179,12 @@ export function AssetLibrary({
       priority: "secondary",
       render: (row) => {
         if (row.expiresOn === null) return "—";
-        const soon = daysUntil(row.expiresOn, referenceDate) <= 60;
-        return <span className={soon ? "asset-library-expiring" : undefined}>{row.expiresOn}</span>;
+        return <span className={row.expiring ? "asset-library-expiring" : undefined}>{row.expiresOn}</span>;
       },
     },
   ];
 
+  const searching = query.trim() !== "";
   const ribbon = data === null ? null : (
     <MetricStrip
       label={copy.title}
@@ -188,7 +201,9 @@ export function AssetLibrary({
           label: copy.expiringSoon,
           tone: data.expiringWithin60Days > 0 ? "warning" : "body",
           value: formatNumber(locale, data.expiringWithin60Days),
-          ...(onRenew === undefined ? {} : { meta: copy.goRenew, onClick: onRenew, ariaLabel: `${copy.expiringSoon} · ${copy.goRenew}` }),
+          // Unlike the other metrics this one ignores the search: it is the number of rows the
+          // renewals desk lists, so a search says so instead of implying it was filtered too.
+          ...expiringMeta(searching ? [copy.wholeWorkspace] : [], onRenew === undefined ? null : { label: copy.goRenew, onClick: onRenew }, copy.expiringSoon),
         },
         { key: "listings", label: copy.activeListings, value: formatNumber(locale, data.listingCount) },
         {
@@ -204,8 +219,11 @@ export function AssetLibrary({
 
   const pageSize = data?.window.size ?? 25;
   const page = data === null ? 1 : Math.floor(data.window.startIndex / pageSize) + 1;
-  const pageValue = data?.window.rows.reduce((sum, row) => sum + (row.targetPrice === null ? 0 : Number(row.targetPrice.amount)), 0) ?? 0;
   const currency = data?.totalValue?.currency ?? "USD";
+  // Summed exactly, and only in one currency: a page that mixes currencies has no single value, as
+  // the Host's portfolio value has none for a workspace that mixes them.
+  const pagePrices = data?.window.rows.flatMap((row) => row.targetPrice === null ? [] : [row.targetPrice]) ?? [];
+  const pageValue = pagePrices.every((price) => price.currency === currency) ? sumAmounts(pagePrices.map((price) => price.amount)) : null;
   const selectedCount = selectedIds.length;
 
   const stateMessage = presentation.state === "loading"
@@ -255,7 +273,9 @@ export function AssetLibrary({
         )}
         right={(
           <>
-            {onImportCsv === undefined ? null : <Button size="sm" icon={<UploadIcon size={14} />} disabled={!canEdit} onClick={onImportCsv}>{copy.importCsv}</Button>}
+            {onAddDomain === undefined ? null : (
+              <Button size="sm" disabled={data !== null && !canEdit} onClick={() => setAdding(true)}>{copy.addDomain}</Button>
+            )}
             {onCreatePlan === undefined ? null : (
               <Button size="sm" variant="primary" disabled={!canEdit || selectedCount === 0} onClick={() => onCreatePlan(selectedIds)}>
                 {copy.createBatchPlan}{selectedCount > 0 ? ` · ${selectedCount}` : ""}
@@ -297,8 +317,8 @@ export function AssetLibrary({
                   page={page}
                   pageSize={pageSize}
                   total={data.totalRows}
-                  labels={{ previous: copy.previousPage, next: copy.nextPage, perPage: copy.perPage }}
-                  note={<>{copy.viewValue} <span className="asset-library-gold">{money(String(pageValue), currency)}</span></>}
+                  labels={shellPaginationLabels(locale)}
+                  note={<>{copy.viewValue} <span className="asset-library-gold">{pageValue === null ? "—" : money(pageValue, currency)}</span></>}
                   {...(onWindowChange === undefined ? {} : {
                     onPageChange: (next: number) => onWindowChange((next - 1) * pageSize, pageSize),
                     onPageSizeChange: (size: number) => onWindowChange(0, size),
@@ -328,6 +348,9 @@ export function AssetLibrary({
           </div>
         ) : null}
       </div>
+      {onAddDomain === undefined ? null : (
+        <AddDomainDialog locale={locale} open={adding} onClose={() => setAdding(false)} onSubmit={onAddDomain} />
+      )}
       <Dialog
         open={pendingEdit !== null}
         onClose={() => setPendingEdit(null)}

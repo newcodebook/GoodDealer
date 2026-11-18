@@ -81,7 +81,7 @@ describe("StandbyCloudPortfolioAdapter contract", () => {
   });
 });
 
-describe("P0-23 adapter equivalence", () => {
+describe("portfolio query adapter equivalence", () => {
   it("exposes one read-only port shape", () => {
     expectTypeOf<keyof PortfolioQueryPort>().toEqualTypeOf<"listDomains">();
     expectTypeOf<PortfolioQueryPort["listDomains"]>().returns.resolves.toEqualTypeOf<PortfolioQueryResult>();

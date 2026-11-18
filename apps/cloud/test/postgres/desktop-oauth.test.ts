@@ -355,7 +355,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
-    })).resolves.toMatchObject({ ensured: true });
+    })).resolves.toMatchObject({ outcome: "active" });
     await ownerPool.query(`UPDATE device_active_leases
          SET wire_envelope = jsonb_set(wire_envelope, '{signature}', to_jsonb($1::text))
        WHERE account_id = 'oauth-account'`, [Buffer.alloc(64).toString("base64url")]);
@@ -363,7 +363,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
-    })).resolves.toEqual({ ensured: false });
+    })).resolves.toEqual({ outcome: "refused" });
   });
 
   it("refuses a Grant when the Desktop session expires while the signer is blocked", async () => {
@@ -528,11 +528,11 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
-    })).resolves.toMatchObject({ ensured: true });
+    })).resolves.toMatchObject({ outcome: "active" });
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-b", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
-    })).resolves.toEqual({ ensured: false });
+    })).resolves.toEqual({ outcome: "standby" });
   });
 
   it("burns a reserved code and creates no session when the device is removed before exchange", async () => {
@@ -632,7 +632,100 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     expect(after.rows[0]).toMatchObject({ lease_epoch: "1", allocations: "1" });
     expect(after.rows[0]?.jti).not.toBe(before.rows[0]?.jti);
   });
+
+  it("never allocates a Lease during an unfinished switch, a pending allocation, or an execution block (ADR-0033 T2a)", async () => {
+    // device-a logs in and holds epoch 1; then the Lease is released as a drain handoff releases it.
+    await authorize(new Date());
+    await releaseHeldLease();
+    const ensure = async () => leaseManager.ensureCurrentLease({
+      accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
+      transactionCredential: principal.transactionCredential,
+    });
+    const require = async () => leaseManager.requireCurrentLease({
+      accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
+    });
+    for (const status of ["requested", "draining", "waiting_expiry"] as const) {
+      await ownerPool.query("DELETE FROM device_switch_workflows WHERE account_id = 'oauth-account'");
+      await insertSwitchWorkflow(status);
+      await expect(ensure()).resolves.toEqual({ outcome: "standby" });
+      await expect(require()).resolves.toEqual({ outcome: "standby" });
+      // A Standby login is refused end to end until a Standby Grant exists (T2b), and writes no Lease.
+      const { base, challenged, transcript } = await beginAuthorization(new Date());
+      await expect(completeAuthorization(base, challenged, transcript)).resolves.toEqual({ authorized: false });
+    }
+    // A bootstrapping switch reserves its pending epoch; a login must not take the next one.
+    await ownerPool.query("DELETE FROM device_switch_workflows WHERE account_id = 'oauth-account'");
+    await insertSwitchWorkflow("bootstrapping", 2);
+    await ownerPool.query(`INSERT INTO device_lease_epoch_allocations
+        (account_id, workspace_id, workflow_id, lease_epoch, status)
+      VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 2, 'pending');
+      UPDATE device_account_states SET highest_allocated_lease_epoch = 2 WHERE account_id = 'oauth-account'`);
+    await expect(ensure()).resolves.toEqual({ outcome: "standby" });
+    // A pending allocation alone still reserves the Lease after its workflow ended.
+    await ownerPool.query(`UPDATE device_switch_workflows SET status = 'failed', pending_lease_epoch = NULL
+      WHERE account_id = 'oauth-account'`);
+    await expect(ensure()).resolves.toEqual({ outcome: "standby" });
+    await ownerPool.query(`UPDATE device_lease_epoch_allocations SET status = 'burned', terminal_at = transaction_timestamp()
+      WHERE account_id = 'oauth-account' AND lease_epoch = 2`);
+    await ownerPool.query(`UPDATE device_account_states
+      SET exclusive_execution_block_until = transaction_timestamp() + interval '1 hour' WHERE account_id = 'oauth-account'`);
+    await expect(ensure()).resolves.toEqual({ outcome: "standby" });
+    await expect(require()).resolves.toEqual({ outcome: "standby" });
+    expect((await ownerPool.query<{ allocations: string; held: string; highest: string }>(`SELECT
+        (SELECT count(*) FROM device_lease_epoch_allocations WHERE account_id = 'oauth-account')::text AS allocations,
+        (SELECT count(*) FROM device_active_leases WHERE account_id = 'oauth-account' AND released_at IS NULL)::text AS held,
+        (SELECT highest_allocated_lease_epoch FROM device_account_states WHERE account_id = 'oauth-account')::text AS highest`)).rows)
+      .toEqual([{ allocations: "2", held: "0", highest: "2" }]);
+    // With nothing reserving it, the next login allocates above every earlier epoch.
+    await ownerPool.query(`UPDATE device_account_states SET exclusive_execution_block_until = NULL
+      WHERE account_id = 'oauth-account'`);
+    await expect(require()).resolves.toEqual({ outcome: "refused" });
+    const allocated = await ensure();
+    expect(allocated).toMatchObject({ outcome: "active", lease: { payload: { leaseEpoch: 3 } } });
+  });
+
+  it("keeps the allocation guard to the caller's own resolved account", async () => {
+    await ownerPool.query(`INSERT INTO identity_accounts
+        (account_id, email_normalized, email_verified_at, password_policy_id, password_hash_phc)
+      VALUES ('oauth-other', 'other@example.com', transaction_timestamp(), 'argon2id-v1', $1)`,
+    ["$argon2id$v=19$m=19456,t=2,p=1$".padEnd(96, "A")]);
+    await insertSwitchWorkflow("draining");
+    const reserved = async (accountId: string) => transactions.withAccount(accountId, async (transaction) =>
+      (await transaction.query<{ reserved: boolean }>("SELECT public.device_lease_allocation_reserved() AS reserved")).rows);
+    await expect(reserved("oauth-account")).resolves.toEqual([{ reserved: true }]);
+    await expect(reserved("oauth-other")).resolves.toEqual([{ reserved: false }]);
+    await expect(appPool.query("SELECT public.device_lease_allocation_reserved()")).rejects.toMatchObject({ code: "42501" });
+    const privileges = await ownerPool.query<{ owner: string; app: boolean; public: boolean; definer: boolean; configuration: string[] }>(`SELECT
+        pg_get_userbyid(p.proowner) AS owner,
+        has_function_privilege('gooddealer_cloud_app', 'public.device_lease_allocation_reserved()', 'EXECUTE') AS app,
+        has_function_privilege('public', 'public.device_lease_allocation_reserved()', 'EXECUTE') AS public,
+        p.prosecdef AS definer, p.proconfig AS configuration
+      FROM pg_proc p WHERE p.oid = 'public.device_lease_allocation_reserved()'::regprocedure`);
+    // The workflow policy exempts the owner by role name, so any other owner would fail open.
+    expect(privileges.rows).toEqual([{
+      owner: "gooddealer_cloud_owner", app: true, public: false, definer: true, configuration: ["search_path=pg_catalog, public"],
+    }]);
+  });
 });
+
+async function releaseHeldLease(): Promise<void> {
+  await ownerPool.query(`UPDATE device_active_leases
+       SET released_at = transaction_timestamp(), release_reason = 'device_switch'
+     WHERE account_id = 'oauth-account' AND released_at IS NULL`);
+}
+
+async function insertSwitchWorkflow(
+  status: "requested" | "draining" | "waiting_expiry" | "bootstrapping",
+  pendingLeaseEpoch: number | null = null,
+): Promise<void> {
+  await ownerPool.query(`INSERT INTO device_switch_workflows
+      (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
+       workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
+       bound_account_security_epoch, pending_lease_epoch, state_deadline)
+    VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 'device_switch', 'normal', $1, 'switch-guard-key', $2,
+      1, 'device-a', 'device-b', 'device-key-b', 1, 1, $3, transaction_timestamp() + interval '1 day')`,
+  [Buffer.alloc(32, 7), status, pendingLeaseEpoch]);
+}
 
 async function authorize(evaluatedAt: Date): Promise<string> {
   const { base, challenged, transcript } = await beginAuthorization(evaluatedAt);
