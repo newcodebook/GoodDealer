@@ -2,6 +2,7 @@
 
 mod backup_ipc;
 mod command_handlers;
+mod device_switch_drain;
 mod native_cloud_runtime;
 mod native_cloud_session;
 mod oauth_loopback;

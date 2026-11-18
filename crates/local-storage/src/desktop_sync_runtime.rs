@@ -911,9 +911,11 @@ impl DesktopSyncRuntime {
                 DrainStreamClaim::empty(),
                 DrainStreamClaim::empty(),
             ],
-            issued_at: timestamp(now)?,
-            // Cloud admits a window of at most 600 seconds; five minutes leaves room for clock skew.
-            expires_at: checked_timestamp(now, 300)?,
+            // Cloud refuses a proof issued after its own clock and admits a window of at most 600
+            // seconds. Issuing 30 seconds back keeps a Desktop clock slightly ahead of Cloud from
+            // failing the first submission; the window stays five minutes.
+            issued_at: checked_timestamp(now, -30)?,
+            expires_at: checked_timestamp(now, 270)?,
             signing_key_id: signing_key_id.to_owned(),
             signing_key_version: 1,
         })
@@ -930,6 +932,21 @@ impl DesktopSyncRuntime {
         database
             .clear_device_handoff_barrier(device_switch_request_id)
             .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d3: the switch whose barrier holds writes closed under this run's Lease epoch, so
+    /// a restarted Desktop resumes its own drain. A barrier from another epoch is not this run's.
+    pub(crate) fn drain_current_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Option<String>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        Ok(database
+            .device_handoff_barrier()
+            .map_err(map_database_error)?
+            .filter(|barrier| barrier.active_lease_epoch == Some(admission.lease_epoch))
+            .map(|barrier| barrier.device_switch_request_id))
     }
 
     /// ADR-0032 S2d: clears a barrier left by a switch whose Lease this device no longer holds.

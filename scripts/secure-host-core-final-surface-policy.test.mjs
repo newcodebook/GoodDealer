@@ -240,6 +240,8 @@ const expectedLocalStoragePublicExports = [
   "DesktopDeviceLease",
   "DesktopDeviceSwitchOutcome",
   "DesktopDeviceSwitchRejection",
+  "DesktopDeviceSwitchRequestExchange",
+  "DesktopDeviceSwitchStart",
   "DesktopDeviceSwitchStatus",
   "DesktopDrainProgress",
   "DesktopDrainProofDraft",

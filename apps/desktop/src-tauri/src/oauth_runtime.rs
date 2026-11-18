@@ -60,6 +60,21 @@ pub(crate) struct DesktopOAuthRuntime {
     session: Arc<NativeCloudSession>,
 }
 
+/// ADR-0032 S2d3: the device key signs only a drain proof transcript that names this device and
+/// key; any other transcript is refused inside `secure-host-core`, and no refusal text escapes.
+impl crate::device_switch_drain::DrainProofSigner for DesktopOAuthRuntime {
+    fn signing_key_id(&self) -> Option<&str> {
+        self.identity.as_ref().map(DesktopDeviceIdentity::key_id)
+    }
+
+    fn sign_drain_proof(&self, transcript: &[u8]) -> Option<String> {
+        self.identity
+            .as_ref()?
+            .sign_drain_proof_transcript(transcript)
+            .ok()
+    }
+}
+
 impl DesktopOAuthRuntime {
     pub(crate) fn new(
         cloud_origin: Option<&str>,

@@ -24,7 +24,7 @@ pub(crate) struct NativeCloudCancelFence {
 }
 
 impl NativeCloudCancelFence {
-    fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         if let Ok(mut cancelled) = self.cancelled.lock() {
             *cancelled = true;
         }
@@ -510,6 +510,10 @@ async fn run_push(
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
         let admission = prepared_host.begin_native_cloud_run()?;
+        // ADR-0032 S2d: a switch barrier from an earlier Lease epoch (a switch this device handed
+        // off, or one whose Lease it lost) would keep writes closed under the Lease it holds now.
+        // Every push first clears such a barrier; one under the current epoch stays.
+        prepared_host.clear_left_over_device_switch_barrier(&admission)?;
         let claim = prepared_host.claim_native_sync_push(&admission)?;
         Ok::<_, gooddealer_local_storage::DesktopLocalHostError>((admission, claim))
     })

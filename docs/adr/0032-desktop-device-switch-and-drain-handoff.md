@@ -172,6 +172,13 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     Host 入口——在运行准入（设备、Lease epoch 取自已验证 Lease）下开启或清除栅栏、读取 drain 进度、生成至多 256 个 id
     的回执查询并严格解码回执（只接受所问 id、不重复、封闭字段），在本切换栅栏以当前 epoch 关闭写入且 mutation 流完全
     确认时构建 v2 handoff 声明（另两条流为空流、有效期 300 秒、密钥版本 1）与签名 transcript，组装
-    `/v1/device-switch/requests/drain` 请求体，并严格解码切换响应（须为本切换、来源为本设备、满足协议细化规则）；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    `/v1/device-switch/requests/drain` 请求体，并严格解码切换响应（须为本切换、来源为本设备、满足协议细化规则）；S2d3a 已实现：
+    Host 生成普通切换请求体（幂等键由 Host 生成），切换 id 只取自 Cloud 接受视图且该视图须是本设备发往所请求目标的普通切换，
+    并能读取以当前 Lease epoch 关闭写入的切换以便重启后续行；`apps/desktop/src-tauri/src/device_switch_drain.rs` 的协调器
+    串行化本设备的切换调用：Cloud 接受后在提交其答复的同一 Host 提交内关闭写入，已有栅栏时续行而不发起新切换；mutation 流未
+    确认时唤醒同步并报告等待，回执读取重复同一批行（Cloud 未返回某行）时失败关闭，只有进度为 Ready 时才以设备密钥签署 Host
+    构建的 transcript 并提交；Cloud 报告取消或失败时在同一提交内清除栅栏，交接后栅栏保持（本设备不再持有 Lease），由每次推送前的
+    遗留栅栏清除在本设备以更新 epoch 取得 Lease 后清除；发起前先清除更早 epoch 的遗留栅栏；未获答复的请求以同一幂等键与原目标重试，在其获答复前不为任何目标准备新请求（Cloud 可能已开启该切换），已答复的请求不再复用；会话关闭后不提交
+    任何答复。切换 Tauri 命令、权限清单、适配器与 Renderer 端口随 S2d3b；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

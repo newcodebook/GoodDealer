@@ -210,8 +210,9 @@ pub use desktop_business_runtime::{
     DesktopSyncTransportState,
 };
 pub use desktop_device_switch::{
-    DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchStatus,
-    DesktopDrainProgress, DesktopDrainProofDraft, DesktopDrainReceiptQuery,
+    DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchRequestExchange,
+    DesktopDeviceSwitchStart, DesktopDeviceSwitchStatus, DesktopDrainProgress,
+    DesktopDrainProofDraft, DesktopDrainReceiptQuery,
 };
 pub(crate) use desktop_native_cloud::DesktopCloudflareKeychainPlanData;
 pub use desktop_native_cloud::{

@@ -14,6 +14,7 @@ use crate::active_workspace::business::{
 use crate::desktop_native_cloud::{
     strict_json, validate_digest43, validate_identifier, validate_timestamp,
 };
+use crate::desktop_sync_runtime::random_uuid_v4;
 use crate::{DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission};
 
 const DEVICE_MANAGEMENT_SCHEMA_VERSION: u64 = 1;
@@ -74,6 +75,37 @@ impl std::fmt::Debug for DesktopDrainProofDraft {
     }
 }
 
+/// One normal switch request from this device to `target_device_id` (ADR-0032 decision 1). The
+/// idempotency key is the Host's own, so a retry of this exchange returns Cloud's first outcome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesktopDeviceSwitchRequestExchange {
+    body: Vec<u8>,
+    target_device_id: String,
+}
+
+impl DesktopDeviceSwitchRequestExchange {
+    #[must_use]
+    pub fn request_body(&self) -> &[u8] {
+        &self.body
+    }
+
+    #[must_use]
+    pub fn target_device_id(&self) -> &str {
+        &self.target_device_id
+    }
+}
+
+/// Cloud's answer to a normal switch request. The switch id comes only from Cloud's view of a
+/// switch from this device to the requested target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DesktopDeviceSwitchStart {
+    Accepted {
+        device_switch_request_id: String,
+        status: DesktopDeviceSwitchStatus,
+    },
+    Rejected(DesktopDeviceSwitchRejection),
+}
+
 /// The switch's status as Cloud reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopDeviceSwitchStatus {
@@ -110,6 +142,80 @@ pub enum DesktopDeviceSwitchOutcome {
 }
 
 impl DesktopLocalHost {
+    /// The `/v1/device-switch/requests` body for a normal switch to `target_device_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CloudProtocolRejected` for a malformed target, or a storage error if no idempotency key
+    /// could be drawn.
+    pub fn prepare_native_device_switch_request(
+        target_device_id: &str,
+    ) -> Result<DesktopDeviceSwitchRequestExchange, DesktopLocalHostError> {
+        validate_identifier(target_device_id, MAX_IDENTIFIER_BYTES)?;
+        let idempotency_key =
+            random_uuid_v4().map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let body = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": DEVICE_MANAGEMENT_SCHEMA_VERSION,
+            "mode": "normal",
+            "toDeviceId": target_device_id,
+            "idempotencyKey": idempotency_key,
+        }))
+        .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        Ok(DesktopDeviceSwitchRequestExchange {
+            body,
+            target_device_id: target_device_id.to_owned(),
+        })
+    }
+
+    /// Decodes Cloud's answer to `exchange`. An accepted view must be a normal switch from this
+    /// device to the requested target; only then is its id used.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CloudProtocolRejected` for a malformed response or one about another switch.
+    pub fn complete_native_device_switch_request(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        exchange: &DesktopDeviceSwitchRequestExchange,
+        response_wire: &[u8],
+    ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
+        decode_switch_start(
+            response_wire,
+            &exchange.target_device_id,
+            admission.inner.device_id(),
+        )
+    }
+
+    /// The `/status` or `/cancel` body naming `device_switch_request_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CloudProtocolRejected` for a malformed id.
+    pub fn native_device_switch_lookup(
+        device_switch_request_id: &str,
+    ) -> Result<Vec<u8>, DesktopLocalHostError> {
+        validate_identifier(device_switch_request_id, MAX_IDENTIFIER_BYTES)?;
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": DEVICE_MANAGEMENT_SCHEMA_VERSION,
+            "requestId": device_switch_request_id,
+        }))
+        .map_err(|_| DesktopLocalHostError::StorageRejected)
+    }
+
+    /// The switch whose barrier holds this device's writes closed under this run's Lease epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an authority or storage error.
+    pub fn native_device_switch_in_progress(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<Option<String>, DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, admission, _| {
+            sync.drain_current_barrier(business.database_for_backup_mut(), admission)
+        })
+    }
+
     /// Closes local mutation admission for `device_switch_request_id` under this run's Lease
     /// epoch. Idempotent for the same switch.
     ///
@@ -430,12 +536,61 @@ fn decode_receipt_response(
     Ok(receipts)
 }
 
-/// `deviceSwitchResponseSchema`, plus: an accepted view must be this switch, from this device.
+/// A response to a new normal switch: a switch from this device to the requested target.
+fn decode_switch_start(
+    wire: &[u8],
+    target_device_id: &str,
+    source_device_id: &str,
+) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
+    Ok(match decode_switch_view(wire, source_device_id)? {
+        SwitchResponse::Rejected(code) => DesktopDeviceSwitchStart::Rejected(code),
+        SwitchResponse::Accepted(view) => {
+            if view.forced || view.to_device_id != target_device_id {
+                return Err(DesktopLocalHostError::CloudProtocolRejected);
+            }
+            DesktopDeviceSwitchStart::Accepted {
+                device_switch_request_id: view.request_id,
+                status: view.status,
+            }
+        }
+    })
+}
+
+/// A response about this device's existing switch `device_switch_request_id`.
 fn decode_switch_response(
     wire: &[u8],
     device_switch_request_id: &str,
     source_device_id: &str,
 ) -> Result<DesktopDeviceSwitchOutcome, DesktopLocalHostError> {
+    Ok(match decode_switch_view(wire, source_device_id)? {
+        SwitchResponse::Rejected(code) => DesktopDeviceSwitchOutcome::Rejected(code),
+        SwitchResponse::Accepted(view) => {
+            if view.request_id != device_switch_request_id {
+                return Err(DesktopLocalHostError::CloudProtocolRejected);
+            }
+            DesktopDeviceSwitchOutcome::Accepted(view.status)
+        }
+    })
+}
+
+struct SwitchView {
+    request_id: String,
+    forced: bool,
+    status: DesktopDeviceSwitchStatus,
+    to_device_id: String,
+}
+
+enum SwitchResponse {
+    Accepted(SwitchView),
+    Rejected(DesktopDeviceSwitchRejection),
+}
+
+/// `deviceSwitchResponseSchema`, plus: an accepted view must be a switch from this device. The
+/// caller binds the switch id or target.
+fn decode_switch_view(
+    wire: &[u8],
+    source_device_id: &str,
+) -> Result<SwitchResponse, DesktopLocalHostError> {
     let value: Value = strict_json(wire)?;
     let accepted = value
         .get("accepted")
@@ -450,7 +605,7 @@ fn decode_switch_response(
         return Err(DesktopLocalHostError::CloudProtocolRejected);
     }
     if !accepted {
-        return rejection(text(&response["code"])?).map(DesktopDeviceSwitchOutcome::Rejected);
+        return rejection(text(&response["code"])?).map(SwitchResponse::Rejected);
     }
     let view = exact_object(
         &response["request"],
@@ -496,13 +651,16 @@ fn decode_switch_response(
         || ((status == DesktopDeviceSwitchStatus::Bootstrapping) != bootstrap_expires_at.is_some())
         || (terminal && bootstrap_expires_at.is_some())
         || earliest_takeover_at.is_some_and(|earliest| requested_at > earliest)
-        || identifier(&view["requestId"])? != device_switch_request_id
         || nullable(&view["fromDeviceId"], identifier)? != Some(source_device_id)
     {
         return Err(DesktopLocalHostError::CloudProtocolRejected);
     }
-    identifier(&view["toDeviceId"])?;
-    Ok(DesktopDeviceSwitchOutcome::Accepted(status))
+    Ok(SwitchResponse::Accepted(SwitchView {
+        request_id: identifier(&view["requestId"])?.to_owned(),
+        forced,
+        status,
+        to_device_id: identifier(&view["toDeviceId"])?.to_owned(),
+    }))
 }
 
 fn rejection(code: &str) -> Result<DesktopDeviceSwitchRejection, DesktopLocalHostError> {
@@ -613,8 +771,13 @@ mod tests {
             host.prepare_native_drain_proof(&admission, "switch-1", "device-key-1")
                 .is_err()
         );
+        assert_eq!(host.native_device_switch_in_progress(&admission), Ok(None));
         host.begin_native_device_switch_drain(&admission, "switch-1")
             .expect("open barrier");
+        assert_eq!(
+            host.native_device_switch_in_progress(&admission),
+            Ok(Some("switch-1".to_owned()))
+        );
         host.begin_native_device_switch_drain(&admission, "switch-1")
             .expect("reopen the same barrier");
         assert!(
@@ -736,6 +899,7 @@ mod tests {
         );
         host.clear_native_device_switch_barrier(&admission, "switch-1")
             .expect("clear barrier");
+        assert_eq!(host.native_device_switch_in_progress(&admission), Ok(None));
         assert_eq!(
             host.clear_left_over_device_switch_barrier(&admission),
             Ok(false)
@@ -791,6 +955,91 @@ mod tests {
                 String::from_utf8_lossy(&wire)
             );
         }
+    }
+
+    #[test]
+    fn a_new_switch_takes_its_id_only_from_a_normal_switch_from_this_device_to_the_target() {
+        let draining = |overrides: &[(&str, Value)]| {
+            let mut fields = vec![
+                ("status", serde_json::json!("draining")),
+                ("bootstrapExpiresAt", Value::Null),
+                ("requestId", serde_json::json!("switch-cloud")),
+            ];
+            fields.extend(overrides.iter().cloned());
+            accepted(&view(&fields))
+        };
+        let decode = |wire: &[u8]| decode_switch_start(wire, "device-target", "device-local");
+        assert_eq!(
+            decode(&draining(&[])),
+            Ok(DesktopDeviceSwitchStart::Accepted {
+                device_switch_request_id: "switch-cloud".to_owned(),
+                status: DesktopDeviceSwitchStatus::Draining,
+            })
+        );
+        assert_eq!(
+            decode(br#"{"schemaVersion":1,"accepted":false,"code":"TARGET_REMOVED"}"#),
+            Ok(DesktopDeviceSwitchStart::Rejected(
+                DesktopDeviceSwitchRejection::TargetRemoved
+            ))
+        );
+        for wire in [
+            draining(&[("toDeviceId", serde_json::json!("device-other"))]),
+            draining(&[("fromDeviceId", serde_json::json!("device-other"))]),
+            draining(&[("fromDeviceId", Value::Null)]),
+            draining(&[
+                ("mode", serde_json::json!("forced")),
+                (
+                    "earliestTakeoverAt",
+                    serde_json::json!("2026-09-16T00:10:00Z"),
+                ),
+            ]),
+            draining(&[("requestId", serde_json::json!(""))]),
+            draining(&[("requestId", serde_json::json!(7))]),
+        ] {
+            assert_eq!(
+                decode(&wire),
+                Err(DesktopLocalHostError::CloudProtocolRejected),
+                "{}",
+                String::from_utf8_lossy(&wire)
+            );
+        }
+    }
+
+    #[test]
+    fn switch_request_and_lookup_bodies_are_the_closed_protocol_shapes() {
+        let first = DesktopLocalHost::prepare_native_device_switch_request("device-target")
+            .expect("request");
+        let second = DesktopLocalHost::prepare_native_device_switch_request("device-target")
+            .expect("request");
+        assert_eq!(first.target_device_id(), "device-target");
+        let body: Value = serde_json::from_slice(first.request_body()).expect("request json");
+        let keys: Vec<&str> = body
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            ["idempotencyKey", "mode", "schemaVersion", "toDeviceId"]
+        );
+        assert_eq!(body["schemaVersion"], 1);
+        assert_eq!(body["mode"], "normal");
+        assert_eq!(body["toDeviceId"], "device-target");
+        // Each prepared request is a new switch; only a retry of the same exchange reuses its key.
+        assert_ne!(first.request_body(), second.request_body());
+        assert_eq!(
+            DesktopLocalHost::prepare_native_device_switch_request(""),
+            Err(DesktopLocalHostError::CloudProtocolRejected)
+        );
+        assert_eq!(
+            DesktopLocalHost::native_device_switch_lookup("switch-1").expect("lookup"),
+            br#"{"requestId":"switch-1","schemaVersion":1}"#.to_vec()
+        );
+        assert_eq!(
+            DesktopLocalHost::native_device_switch_lookup("switch 1"),
+            Err(DesktopLocalHostError::CloudProtocolRejected)
+        );
     }
 
     #[test]
