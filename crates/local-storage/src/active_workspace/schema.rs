@@ -843,6 +843,16 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         "device_handoff_barriers",
         &["workspace_id", "device_switch_request_id", "began_at"],
     ),
+    (
+        "sync_outbox_cloud_wire_versions",
+        &[
+            "workspace_id",
+            "mutation_id",
+            "wire_schema_version",
+            "wire_mutation_digest",
+            "recorded_at",
+        ],
+    ),
 ];
 
 pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID: i64 = 202_611_130_001;
@@ -912,3 +922,9 @@ pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_OWNER: &str =
     "active-workspace/device-handoff-barrier";
 pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_SQL: &str =
     include_str!("device_handoff_barrier.sql");
+
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_ID: i64 = 202_611_170_002;
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-cloud-wire-versions";
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_SQL: &str =
+    include_str!("outbox_cloud_wire_versions.sql");

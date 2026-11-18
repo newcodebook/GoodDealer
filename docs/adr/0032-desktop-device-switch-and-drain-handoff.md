@@ -1,7 +1,7 @@
 # ADR-0032：Desktop 设备切换与 drain 交接
 
 状态：Accepted — 产品负责人于 2026-11-17 按建议接受第 1–5 节与“待产品负责人决定”的全部五项建议（2026-11-16 已决定
-把设备切换纳入 v1，台账第 195 行）。实现中：S1a、S1b 普通部分、S1c、S2a、S2b 已实现，S1b 强制部分、S1d、S2c、S2d、S3、S4 待完成。实施 [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md)
+把设备切换纳入 v1，台账第 195 行）。实现中：S1a、S1b 普通部分、S1c、S2a、S2b、S2c 本地部分已实现，S1b 强制部分、S1d、S2d、S3、S4 待完成。实施 [ADR-0030](0030-closing-deterministically-rejected-mutation-sequences.md)
 的 v2 drain 串通，并是 [ADR-0029](0029-domain-tombstone-purge-and-re-adding.md) 生产重新添加入口的剩余前置。
 
 ## 背景
@@ -150,9 +150,16 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     且连续，得出 `Ready`（可签名的声明）、`Waiting`（仍有 pending/sending）或 `Blocked`（本地终止拒绝、幂等冲突或缺行，
     永远无法与 Cloud 链一致，失败关闭）；
   - S2c 版本 2 行判别：经 `/v1/workspace-sync/mutations/receipts` 核对 Cloud 记录的版本与摘要属于本地两个候选之一，
-    结果作为该行不可变的版本记录落盘，在提交 proof（释放 Lease）之前完成；
+    结果作为该行不可变的版本记录落盘，在提交 proof（释放 Lease）之前完成。已实现本地部分：本地迁移 `202611170002` 的
+    `sync_outbox_cloud_wire_versions`（不可变，只能指名有持久结果的版本 2 行）；`drain_receipt_candidates` 列出尚无记录
+    的版本 2 行及其 v2、v3 wire 摘要（租户中立 mutation 的摘要，即回执报告的 Cloud 账本 `wire_mutation_digest`；两种
+    语言以同一金摘要钉住），`record_cloud_wire_versions` 要求每个回执的 Lease epoch、序号、结果与
+    所报版本下的摘要都与候选一致，任一不符整批不写；drain 进度在这些行有记录前报告 `ReceiptsRequired`，有记录后按
+    Cloud 版本重建、复核 wire 摘要，再在本地重建该版本的提交 envelope 成链（链摘要不取自回执）。发送回执查询与严格解析响应随 S2d 的协调与 Host 入口；Cloud 未返回的行保持
+    `ReceiptsRequired`，协调须失败关闭；
   - S2d 设备密钥签名与提交：ADR-0011 设备身份只对 drain proof transcript 签名（不暴露任意签名），可信时间给出
     600 秒内的窗口，经 `/v1/device-switch/requests/drain` 提交；协调生命周期（开启栅栏、推送 Outbox 直到
-    每行有持久结果、折叠、签名、提交，取消、失败或交接完成后清除栅栏）与 Host 入口随本切片；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    每行有持久结果、折叠、签名、提交，取消、失败或交接完成后清除栅栏）与 Host 入口随本切片；栅栏须能识别出自更早
+    Lease epoch 的遗留行（例如记录开启时的 epoch），避免本设备日后重新取得 Lease 时被未清除的栅栏静默关闭写入；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

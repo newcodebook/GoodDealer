@@ -13877,6 +13877,254 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the candidate, refusal, record and fold steps of one receipt check stay together"
+    )]
+    fn drain_records_cloud_wire_versions_for_version_2_rows_before_folding() {
+        use super::drain_claims::{
+            CloudMutationReceipt, DrainMutationProgress, PersistedMutationResult,
+            fold_persisted_mutation_results, submitted_mutation_drain_envelope,
+        };
+        let mut database = database();
+        create_for_drain(&mut database, "one");
+        create_for_drain(&mut database, "two");
+        let mut claimed = database
+            .claim_sync_mutations_v2(
+                "drain-owner",
+                "2026-08-28T00:02:00Z",
+                "2026-08-28T00:03:00Z",
+                256,
+            )
+            .unwrap();
+        // Reproduce rows claimed before ADR-0029 C1c2b: only a test can rewrite a claimed identity.
+        let connection = database.store.raw_connection();
+        connection
+            .execute_batch("DROP TRIGGER sync_outbox_v2_wire_identity_immutable")
+            .unwrap();
+        let claimed_v3_digests = claimed
+            .iter()
+            .map(|mutation| mutation.wire_mutation_digest.clone())
+            .collect::<Vec<_>>();
+        for mutation in &mut claimed {
+            let wire: serde_json::Value =
+                serde_json::from_str(&mutation.wire_mutation_json).unwrap();
+            mutation.wire_mutation_digest = local_wire_digest(&wire, 2).unwrap();
+            connection
+                .execute(
+                    "UPDATE sync_outbox SET wire_schema_version=2, wire_mutation_digest=?1
+                     WHERE mutation_id=?2",
+                    rusqlite::params![mutation.wire_mutation_digest, mutation.mutation_id],
+                )
+                .unwrap();
+        }
+        database
+            .acknowledge_sync_batch_v2_guarded(
+                "drain-owner",
+                &acknowledgements_for(&claimed[..1], 1),
+                "2026-08-28T00:02:30Z",
+                |_| Ok(()),
+            )
+            .unwrap();
+        database
+            .reject_sync_batch_v2(
+                "drain-owner",
+                &claimed[1..],
+                SyncRejectionKind::MutationConflict,
+            )
+            .unwrap();
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::ReceiptsRequired {
+                mutation_ids: vec!["create-one".to_owned(), "create-two".to_owned()]
+            }
+        );
+
+        // Independently: each row's chain envelope (tenant-stamped) under each wire version.
+        let digest = |envelope: &[u8]| {
+            use base64::Engine as _;
+            use sha2::Digest as _;
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(envelope))
+        };
+        let envelopes = claimed
+            .iter()
+            .map(|mutation| {
+                let mut wire: serde_json::Value =
+                    serde_json::from_str(&mutation.wire_mutation_json).unwrap();
+                wire["workspaceId"] = serde_json::json!("workspace-local");
+                [
+                    submitted_mutation_drain_envelope(&wire, 2).unwrap(),
+                    submitted_mutation_drain_envelope(&wire, 3).unwrap(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        // The receipt candidates are the wire digests the claim path itself recorded: the v2 digest
+        // the rows now hold, and the v3 digest they were first claimed with. Neither is the chain
+        // envelope digest.
+        let candidates = database.drain_receipt_candidates("device-1").unwrap();
+        assert_eq!(candidates.len(), 2);
+        for ((candidate, mutation), v3_digest) in
+            candidates.iter().zip(&claimed).zip(&claimed_v3_digests)
+        {
+            assert_eq!(
+                candidate.candidate_digests,
+                [mutation.wire_mutation_digest.clone(), v3_digest.clone()]
+            );
+            assert_eq!(
+                (candidate.active_lease_epoch, candidate.accepted),
+                (7, candidate.mutation_id == "create-one")
+            );
+        }
+        // Cloud recorded row one as v3 and row two (a single-item conflict) as v2.
+        let receipts = [
+            CloudMutationReceipt {
+                mutation_id: "create-one".to_owned(),
+                active_lease_epoch: 7,
+                device_mutation_sequence: 1,
+                wire_schema_version: 3,
+                wire_mutation_digest: candidates[0].candidate_digests[1].clone(),
+                accepted: true,
+            },
+            CloudMutationReceipt {
+                mutation_id: "create-two".to_owned(),
+                active_lease_epoch: 7,
+                device_mutation_sequence: 2,
+                wire_schema_version: 2,
+                wire_mutation_digest: candidates[1].candidate_digests[0].clone(),
+                accepted: false,
+            },
+        ];
+
+        // A receipt that disagrees with this device in any way records nothing.
+        let disagreements = [
+            // The v2 digest reported as v3, and the chain envelope digest in place of the wire digest.
+            CloudMutationReceipt {
+                wire_mutation_digest: candidates[0].candidate_digests[0].clone(),
+                ..receipts[0].clone()
+            },
+            CloudMutationReceipt {
+                wire_mutation_digest: digest(&envelopes[0][1]),
+                ..receipts[0].clone()
+            },
+            CloudMutationReceipt {
+                accepted: false,
+                ..receipts[0].clone()
+            },
+            CloudMutationReceipt {
+                device_mutation_sequence: 2,
+                ..receipts[0].clone()
+            },
+            CloudMutationReceipt {
+                active_lease_epoch: 8,
+                ..receipts[0].clone()
+            },
+            CloudMutationReceipt {
+                mutation_id: "create-unknown".to_owned(),
+                ..receipts[0].clone()
+            },
+        ];
+        for disagreement in disagreements {
+            assert_eq!(
+                database.record_cloud_wire_versions(
+                    "device-1",
+                    &[receipts[1].clone(), disagreement],
+                    "2026-08-28T00:04:00Z",
+                ),
+                Err(BusinessDatabaseError::MutationConflict)
+            );
+        }
+        assert_eq!(
+            database.record_cloud_wire_versions(
+                "device-1",
+                &[receipts[0].clone(), receipts[0].clone()],
+                "2026-08-28T00:04:00Z",
+            ),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(
+            database.record_cloud_wire_versions(
+                "device-1",
+                &[CloudMutationReceipt {
+                    wire_schema_version: 4,
+                    ..receipts[0].clone()
+                }],
+                "2026-08-28T00:04:00Z",
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(
+            database.drain_receipt_candidates("device-1").unwrap().len(),
+            2
+        );
+
+        database
+            .record_cloud_wire_versions("device-1", &receipts[..1], "2026-08-28T00:04:00Z")
+            .unwrap();
+        assert_eq!(
+            database.read_drain_mutation_progress("device-1").unwrap(),
+            DrainMutationProgress::ReceiptsRequired {
+                mutation_ids: vec!["create-two".to_owned()]
+            }
+        );
+        // A recorded row is no longer a candidate, so a second receipt for it is refused.
+        assert_eq!(
+            database.record_cloud_wire_versions("device-1", &receipts, "2026-08-28T00:04:30Z"),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        database
+            .record_cloud_wire_versions("device-1", &receipts[1..], "2026-08-28T00:05:00Z")
+            .unwrap();
+        let DrainMutationProgress::Ready(claim) =
+            database.read_drain_mutation_progress("device-1").unwrap()
+        else {
+            panic!("every version is known");
+        };
+        let rows = [
+            PersistedMutationResult {
+                device_mutation_sequence: 1,
+                outbox_state: "acknowledged",
+                last_error_code: None,
+                submitted_envelope: &envelopes[0][1],
+            },
+            PersistedMutationResult {
+                device_mutation_sequence: 2,
+                outbox_state: "conflicted",
+                last_error_code: Some("sync_mutation_conflict"),
+                submitted_envelope: &envelopes[1][0],
+            },
+        ];
+        assert_eq!(claim, fold_persisted_mutation_results(2, &rows).unwrap());
+
+        // The record is immutable and only names a resulted version-2 row.
+        let connection = database.store.raw_connection();
+        assert!(
+            connection
+                .execute(
+                    "UPDATE sync_outbox_cloud_wire_versions SET wire_schema_version = 2",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM sync_outbox_cloud_wire_versions", [])
+                .is_err()
+        );
+        create_for_drain(&mut database, "three");
+        assert!(
+            database
+                .store
+                .raw_connection()
+                .execute(
+                    "INSERT INTO sync_outbox_cloud_wire_versions VALUES
+                     ('workspace-local','create-three',3,?1,'2026-08-28T00:06:00Z')",
+                    [digest(b"x")],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
     fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
         use super::drain_claims::DrainMutationProgress;
         let mut database = database();

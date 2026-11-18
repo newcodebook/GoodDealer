@@ -34,6 +34,8 @@ import {
 } from "../src/execution-events/index";
 import {
   checkpointDescriptorSchema,
+  encodeLegacyV2SubmittedSyncMutationDigestInput,
+  encodeSubmittedSyncMutationDigestInput,
   mutationPageSchema,
   submittedSyncMutationSchema,
   syncMutationSchema,
@@ -432,6 +434,16 @@ describe("P17 canonical byte layouts", () => {
     expect(workspace).not.toEqual(account);
     expect(decoder.decode(workspace)).toContain("workspace");
     expect(decoder.decode(account)).toContain("account");
+  });
+
+  it("ADR-0032 S2c pins the receipt wire digests a Host checks per recorded version", () => {
+    // Cloud's receipt reports the ledger's wire digest: the tenant-neutral mutation under the
+    // recorded version, not the drain envelope. The Rust Host pins the same two values.
+    const { workspaceId: _workspaceId, ...tenantNeutral } = submittedSyncMutationSchema.parse(
+      vector("execution-events/valid/mutation-submitted.json"),
+    );
+    expect(digest(encodeSubmittedSyncMutationDigestInput(tenantNeutral))).toBe("YWRjj4bGVnNB_L2T2DX-zAZ5DhUluceTstJSk_xMjtU");
+    expect(digest(encodeLegacyV2SubmittedSyncMutationDigestInput(tenantNeutral))).toBe("dSKwJ1szITooN2lzB1G6I7eLwlbQd8XRJqslpxphdi0");
   });
 
   it("ADR-0029 re-derives the retained wire v2 envelope of a generation-1 mutation byte for byte", () => {

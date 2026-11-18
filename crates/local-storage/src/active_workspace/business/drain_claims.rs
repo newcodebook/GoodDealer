@@ -14,7 +14,7 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
 use super::{
-    BusinessDatabase, BusinessDatabaseError, append_frame, canonical_wire_value,
+    BusinessDatabase, BusinessDatabaseError, append_frame, canonical_wire_value, local_wire_digest,
     reconstruct_sync_mutation_v2,
 };
 
@@ -244,9 +244,37 @@ pub(crate) enum DrainMutationProgress {
     Ready(DrainStreamClaim),
     /// Rows are still pending or sending; pushing continues and the user may cancel.
     Waiting { unconfirmed: u64 },
+    /// Every row has a result, but these rows were recorded locally under wire version 2 and
+    /// Cloud's own receipt must say which envelope it recorded before the fold (ADR-0032 S2c).
+    ReceiptsRequired { mutation_ids: Vec<String> },
     /// A sequence can never gain a Cloud result (a terminal local rejection, an idempotency
     /// conflict, or a missing row), so no proof can match Cloud's ledger; the drain fails closed.
     Blocked,
+}
+
+/// One version-2 row whose Cloud-recorded version is still unknown, with the two wire digests
+/// Cloud's ledger could hold for it (index 0: wire version 2, index 1: version 3). These are the
+/// digests of the tenant-neutral mutation (`local_wire_digest`), which the receipt reports; the
+/// drain chain links a different value, the SHA-256 of the submitted envelope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DrainReceiptCandidate {
+    pub(crate) mutation_id: String,
+    pub(crate) active_lease_epoch: u64,
+    pub(crate) device_mutation_sequence: u64,
+    pub(crate) accepted: bool,
+    pub(crate) candidate_digests: [String; 2],
+}
+
+/// Cloud's receipt for one of this device's mutations, already validated against the protocol's
+/// `workspaceMutationReceiptSchema` by the caller.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CloudMutationReceipt {
+    pub(crate) mutation_id: String,
+    pub(crate) active_lease_epoch: u64,
+    pub(crate) device_mutation_sequence: u64,
+    pub(crate) wire_schema_version: i64,
+    pub(crate) wire_mutation_digest: String,
+    pub(crate) accepted: bool,
 }
 
 struct DrainOutboxRow {
@@ -262,6 +290,85 @@ struct DrainOutboxRow {
     state: String,
     last_error_code: Option<String>,
     wire_schema_version: Option<i64>,
+    cloud_wire_schema_version: Option<i64>,
+    cloud_wire_mutation_digest: Option<String>,
+}
+
+impl DrainOutboxRow {
+    /// The validated device fields: this device's id, its Lease epoch and its sequence.
+    fn device_fields(&self, source_device_id: &str) -> Result<(i64, u64), BusinessDatabaseError> {
+        let (Some(row_device_id), Some(active_lease_epoch), Some(sequence)) = (
+            self.source_device_id.as_deref(),
+            self.active_lease_epoch,
+            self.device_mutation_sequence,
+        ) else {
+            return Err(BusinessDatabaseError::StorageRejected);
+        };
+        if row_device_id != source_device_id || active_lease_epoch < 1 {
+            return Err(BusinessDatabaseError::StorageRejected);
+        }
+        let sequence =
+            u64::try_from(sequence).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok((active_lease_epoch, sequence))
+    }
+
+    fn has_result(&self) -> bool {
+        classify_parts(&self.state, self.last_error_code.as_deref()).is_some()
+    }
+
+    /// The tenant-neutral wire mutation of this row, rebuilt from its immutable claimed fields.
+    fn tenant_neutral_wire(
+        &self,
+        connection: &rusqlite::Transaction<'_>,
+        workspace_id: &str,
+    ) -> Result<serde_json::Value, BusinessDatabaseError> {
+        let (Some(source_device_id), Some(active_lease_epoch), Some(sequence)) = (
+            self.source_device_id.as_deref(),
+            self.active_lease_epoch,
+            self.device_mutation_sequence,
+        ) else {
+            return Err(BusinessDatabaseError::StorageRejected);
+        };
+        reconstruct_sync_mutation_v2(
+            connection,
+            workspace_id,
+            &self.mutation_id,
+            &self.entity_id,
+            &self.operation_kind,
+            self.base_server_revision,
+            self.workspace_schema_version,
+            source_device_id,
+            active_lease_epoch,
+            sequence,
+            &self.created_at,
+        )
+    }
+
+    /// The wire version Cloud recorded this resulted row under, when this device knows it: a
+    /// version-3 row was only ever sent as version 3; a version-2 row needs Cloud's receipt.
+    fn known_cloud_wire_version(&self) -> Result<Option<i64>, BusinessDatabaseError> {
+        match (self.wire_schema_version, self.cloud_wire_schema_version) {
+            (Some(3), None) => Ok(Some(3)),
+            (Some(2), recorded) => Ok(recorded),
+            _ => Err(BusinessDatabaseError::StorageRejected),
+        }
+    }
+}
+
+/// The drain chain's submitted envelope of `wire` under `wire_version`, stamped with the workspace
+/// id as Cloud received it. Its SHA-256 is what the v2 result chain links.
+fn drain_envelope(
+    wire: &serde_json::Value,
+    workspace_id: &str,
+    wire_version: i64,
+) -> Result<Vec<u8>, BusinessDatabaseError> {
+    let mut stamped = wire.clone();
+    stamped
+        .as_object_mut()
+        .ok_or(BusinessDatabaseError::StorageRejected)?
+        .insert("workspaceId".to_owned(), serde_json::json!(workspace_id));
+    submitted_mutation_drain_envelope(&stamped, wire_version)
+        .map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
 impl BusinessDatabase {
@@ -366,45 +473,26 @@ impl BusinessDatabase {
         let rows = load_drain_outbox_rows(&transaction, &workspace_id)?;
         let mut sequences = Vec::with_capacity(rows.len());
         let mut envelopes = Vec::with_capacity(rows.len());
+        let mut receipts_required = Vec::new();
         let mut blocked = false;
         for row in &rows {
-            let (Some(row_device_id), Some(active_lease_epoch), Some(sequence)) = (
-                row.source_device_id.as_deref(),
-                row.active_lease_epoch,
-                row.device_mutation_sequence,
-            ) else {
-                return Err(BusinessDatabaseError::StorageRejected);
-            };
-            if row_device_id != source_device_id {
-                return Err(BusinessDatabaseError::StorageRejected);
-            }
-            sequences
-                .push(u64::try_from(sequence).map_err(|_| BusinessDatabaseError::StorageRejected)?);
-            let has_result = classify_parts(&row.state, row.last_error_code.as_deref()).is_some();
+            let (_, sequence) = row.device_fields(source_device_id)?;
+            sequences.push(sequence);
+            let has_result = row.has_result();
             blocked |= !has_result && !matches!(row.state.as_str(), "pending" | "sending");
-            let envelope = if has_result {
-                let mut wire = reconstruct_sync_mutation_v2(
-                    &transaction,
-                    &workspace_id,
-                    &row.mutation_id,
-                    &row.entity_id,
-                    &row.operation_kind,
-                    row.base_server_revision,
-                    row.workspace_schema_version,
-                    row_device_id,
-                    active_lease_epoch,
-                    sequence,
-                    &row.created_at,
-                )?;
-                wire.as_object_mut()
-                    .ok_or(BusinessDatabaseError::StorageRejected)?
-                    .insert("workspaceId".to_owned(), serde_json::json!(workspace_id));
-                let version = row
-                    .wire_schema_version
-                    .ok_or(BusinessDatabaseError::StorageRejected)?;
-                submitted_mutation_drain_envelope(&wire, version)
-                    .map_err(|_| BusinessDatabaseError::StorageRejected)?
+            let envelope = if !has_result {
+                Vec::new()
+            } else if let Some(version) = row.known_cloud_wire_version()? {
+                let wire = row.tenant_neutral_wire(&transaction, &workspace_id)?;
+                // A recorded version carries Cloud's wire digest; the rebuilt row must still match.
+                if let Some(recorded) = row.cloud_wire_mutation_digest.as_deref()
+                    && recorded != local_wire_digest(&wire, version)?
+                {
+                    return Err(BusinessDatabaseError::StorageRejected);
+                }
+                drain_envelope(&wire, &workspace_id, version)?
             } else {
+                receipts_required.push(row.mutation_id.clone());
                 Vec::new()
             };
             envelopes.push(envelope);
@@ -412,8 +500,20 @@ impl BusinessDatabase {
         drop(transaction);
         // Sequences are assigned densely from 1 when a row is created; anything else means a row
         // Cloud may hold is missing here, and no local fold could match Cloud's chain.
-        if sequences.iter().copied().ne(1..=last_assigned) {
+        if blocked || sequences.iter().copied().ne(1..=last_assigned) {
             return Ok(DrainMutationProgress::Blocked);
+        }
+        // As in the fold, a stream is confirmed only through its first row without a result.
+        let confirmed = rows.iter().take_while(|row| row.has_result()).count() as u64;
+        if confirmed < last_assigned {
+            return Ok(DrainMutationProgress::Waiting {
+                unconfirmed: last_assigned - confirmed,
+            });
+        }
+        if !receipts_required.is_empty() {
+            return Ok(DrainMutationProgress::ReceiptsRequired {
+                mutation_ids: receipts_required,
+            });
         }
         let persisted = rows
             .iter()
@@ -427,16 +527,110 @@ impl BusinessDatabase {
             })
             .collect::<Vec<_>>();
         let claim = fold_persisted_mutation_results(last_assigned, &persisted)?;
-        Ok(if blocked {
-            DrainMutationProgress::Blocked
-        } else if claim.pending_count() == 0 {
-            DrainMutationProgress::Ready(claim)
-        } else {
-            DrainMutationProgress::Waiting {
-                unconfirmed: claim.pending_count(),
-            }
-        })
+        if claim.pending_count() != 0 {
+            return Err(BusinessDatabaseError::StorageRejected);
+        }
+        Ok(DrainMutationProgress::Ready(claim))
     }
+
+    /// The version-2 rows with a durable result whose Cloud-recorded version is not yet known, each
+    /// with its v2 and v3 wire digests, for a receipt read (ADR-0032 S2c).
+    pub(crate) fn drain_receipt_candidates(
+        &mut self,
+        source_device_id: &str,
+    ) -> Result<Vec<DrainReceiptCandidate>, BusinessDatabaseError> {
+        let workspace_id = self.workspace_id.clone();
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let candidates = receipt_candidates(&transaction, &workspace_id, source_device_id)?;
+        drop(transaction);
+        Ok(candidates)
+    }
+
+    /// Records Cloud's receipts for version-2 rows, all or nothing. Each receipt must name a current
+    /// candidate with the same Lease epoch, sequence and outcome, and its digest must equal the
+    /// candidate's digest under the version Cloud names; any other receipt means Cloud and this
+    /// device disagree about what was sent, so nothing is recorded and no proof can be signed.
+    pub(crate) fn record_cloud_wire_versions(
+        &mut self,
+        source_device_id: &str,
+        receipts: &[CloudMutationReceipt],
+        recorded_at: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        let workspace_id = self.workspace_id.clone();
+        let transaction = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let candidates = receipt_candidates(&transaction, &workspace_id, source_device_id)?;
+        let mut seen = std::collections::BTreeSet::new();
+        for receipt in receipts {
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.mutation_id == receipt.mutation_id)
+                .ok_or(BusinessDatabaseError::MutationConflict)?;
+            let expected_digest = match receipt.wire_schema_version {
+                2 => &candidate.candidate_digests[0],
+                3 => &candidate.candidate_digests[1],
+                _ => return Err(BusinessDatabaseError::InvalidInput),
+            };
+            if !seen.insert(receipt.mutation_id.as_str())
+                || receipt.active_lease_epoch != candidate.active_lease_epoch
+                || receipt.device_mutation_sequence != candidate.device_mutation_sequence
+                || receipt.accepted != candidate.accepted
+                || &receipt.wire_mutation_digest != expected_digest
+            {
+                return Err(BusinessDatabaseError::MutationConflict);
+            }
+            transaction
+                .execute(
+                    "INSERT INTO sync_outbox_cloud_wire_versions
+                     (workspace_id, mutation_id, wire_schema_version, wire_mutation_digest, recorded_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        workspace_id,
+                        receipt.mutation_id,
+                        receipt.wire_schema_version,
+                        receipt.wire_mutation_digest,
+                        recorded_at
+                    ],
+                )
+                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        }
+        transaction
+            .commit()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)
+    }
+}
+
+fn receipt_candidates(
+    connection: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    source_device_id: &str,
+) -> Result<Vec<DrainReceiptCandidate>, BusinessDatabaseError> {
+    let mut candidates = Vec::new();
+    for row in load_drain_outbox_rows(connection, workspace_id)? {
+        let (active_lease_epoch, sequence) = row.device_fields(source_device_id)?;
+        if !row.has_result() || row.known_cloud_wire_version()?.is_some() {
+            continue;
+        }
+        candidates.push(DrainReceiptCandidate {
+            mutation_id: row.mutation_id.clone(),
+            active_lease_epoch: u64::try_from(active_lease_epoch)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+            device_mutation_sequence: sequence,
+            accepted: row.state == "acknowledged",
+            candidate_digests: {
+                let wire = row.tenant_neutral_wire(connection, workspace_id)?;
+                [local_wire_digest(&wire, 2)?, local_wire_digest(&wire, 3)?]
+            },
+        });
+    }
+    Ok(candidates)
 }
 
 /// A handoff drain proof before its signature. Host-owned fields (proof id, key binding, trusted
@@ -551,12 +745,15 @@ fn load_drain_outbox_rows(
 ) -> Result<Vec<DrainOutboxRow>, BusinessDatabaseError> {
     let mut statement = transaction
         .prepare(
-            "SELECT mutation_id, entity_id, operation_kind, base_server_revision,
-                        workspace_schema_version, source_device_id, active_lease_epoch,
-                        device_mutation_sequence, created_at, state, last_error_code,
-                        wire_schema_version
-                 FROM sync_outbox WHERE workspace_id = ?1
-                 ORDER BY device_mutation_sequence, created_at, mutation_id",
+            "SELECT o.mutation_id, o.entity_id, o.operation_kind, o.base_server_revision,
+                    o.workspace_schema_version, o.source_device_id, o.active_lease_epoch,
+                    o.device_mutation_sequence, o.created_at, o.state, o.last_error_code,
+                    o.wire_schema_version, v.wire_schema_version, v.wire_mutation_digest
+             FROM sync_outbox AS o
+             LEFT JOIN sync_outbox_cloud_wire_versions AS v
+               ON v.workspace_id = o.workspace_id AND v.mutation_id = o.mutation_id
+             WHERE o.workspace_id = ?1
+             ORDER BY o.device_mutation_sequence, o.created_at, o.mutation_id",
         )
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     statement
@@ -574,6 +771,8 @@ fn load_drain_outbox_rows(
                 state: row.get(9)?,
                 last_error_code: row.get(10)?,
                 wire_schema_version: row.get(11)?,
+                cloud_wire_schema_version: row.get(12)?,
+                cloud_wire_mutation_digest: row.get(13)?,
             })
         })
         .map_err(|_| BusinessDatabaseError::StorageRejected)?
@@ -633,6 +832,22 @@ mod tests {
         assert_eq!(
             URL_SAFE_NO_PAD.encode(genesis_digest()),
             "58It6o62GZGmXgy6-ER1rezwYX-LCZVJzlZuZOGcWUs"
+        );
+    }
+
+    #[test]
+    fn receipt_wire_digests_match_the_protocol_golden_digests_for_wire_v3_and_v2() {
+        // Cloud's receipt reports the ledger's wire digest of the tenant-neutral mutation, which
+        // differs from the drain envelope digest; the protocol test pins the same two values.
+        let mut mutation = vector("execution-events/valid/mutation-submitted.json");
+        mutation.as_object_mut().unwrap().remove("workspaceId");
+        assert_eq!(
+            super::local_wire_digest(&mutation, 3).unwrap(),
+            "YWRjj4bGVnNB_L2T2DX-zAZ5DhUluceTstJSk_xMjtU"
+        );
+        assert_eq!(
+            super::local_wire_digest(&mutation, 2).unwrap(),
+            "dSKwJ1szITooN2lzB1G6I7eLwlbQd8XRJqslpxphdi0"
         );
     }
 

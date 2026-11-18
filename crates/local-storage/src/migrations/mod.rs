@@ -36,8 +36,10 @@ use crate::active_workspace::schema::{
 };
 use crate::active_workspace::schema::{
     DEVICE_HANDOFF_BARRIER_MIGRATION_ID, DEVICE_HANDOFF_BARRIER_MIGRATION_OWNER,
-    DEVICE_HANDOFF_BARRIER_MIGRATION_SQL, OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID,
-    OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER, OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL,
+    DEVICE_HANDOFF_BARRIER_MIGRATION_SQL, OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_ID,
+    OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_OWNER, OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_SQL,
+    OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID, OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER,
+    OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +180,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: DEVICE_HANDOFF_BARRIER_MIGRATION_ID,
         owner: DEVICE_HANDOFF_BARRIER_MIGRATION_OWNER,
         sql: DEVICE_HANDOFF_BARRIER_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_ID,
+        owner: OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_OWNER,
+        sql: OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_SQL,
     },
 ];
 
@@ -513,7 +520,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 25);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 26);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -538,7 +545,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 52);
+        assert_eq!(table_count, 53);
         assert!(business_index_count >= 24);
 
         connection
