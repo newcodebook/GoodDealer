@@ -74,9 +74,10 @@ Standby 可调用的路由是封闭清单：
 | 路由 | Standby 条件 |
 | --- | --- |
 | `POST /v1/devices/authorization-grant` | 返回 Standby Grant（第 3 节） |
-| `POST /v1/workspace-sync/mutations/pull` | 只读；reader cursor 按会话设备打开与推进 |
+| `POST /v1/workspace-sync/mutations/pull` | 不读写业务数据，但按会话设备打开并推进 reader cursor（Cloud 状态写入，见下文） |
 | `POST /v1/workspace-sync/checkpoint` | 只读 |
 | `POST /v1/workspace-sync/rebootstrap` | 只读，返回重建计划 |
+| ADR-0032 S3a 的设备列表与本设备读取（`/v1/devices/list`、`/v1/devices/self`，交付后） | 只读；只要求已绑定的 Desktop 会话 |
 | `POST /v1/device-switch/requests/status` | 只对本设备为来源或目标的切换可见（现有规则） |
 | `POST /v1/device-switch/requests` | 只接受 `mode: "forced"`，且 `toDeviceId` 必须等于会话设备；须满足第 5 节的重新认证 |
 | `POST /v1/device-switch/requests/cancel` | 只接受取消本设备为目标、仍处于 `waiting_expiry` 的强制接管（见“待产品负责人决定”4） |
@@ -91,6 +92,9 @@ Standby 可调用的路由是封闭清单：
 2. **应用层解析**：Active 路由继续只经 `resolveActiveDevice`；Standby 可调用的路由改经新的
    `resolveSessionDevice(principal, workspaceId) → { deviceId, role } | null`，它在同一事务中复核第 1 节全部资格条件，
    再由各服务按上表细化（例如强制接管要求 `role = standby` 且目标为本设备，Active 设备不能对自己发起强制接管）。
+
+“只读”指业务数据：Standby 的 pull 会为该设备打开 reader cursor，而活动 cursor 会钉住 Cloud 的 mutation 历史保留。这不新增机制——cursor 沿用现有退役规则（`ttl_expired`、`compaction_race`、`device_removed`），退役后该设备只能经
+rebootstrap 计划重建——但长期不在线或权益已过期的 Standby 设备会影响保留量，见“待产品负责人决定”1。
 
 拒绝沿用各路由现有的封闭结果（同步路由 `SYNC_AUTHORIZATION_REJECTED`，其余为不带细节的授权拒绝），不新增
 “你是 Standby”的错误码；设备的角色只经 Grant 告知 Host。
@@ -203,7 +207,8 @@ v3 请求与 v3 裸响应一并移除，不保留兼容路径（[ORCHESTRATION](
 ## 待产品负责人决定
 
 1. **Standby 是否要求有效权益**。建议不要求：Standby 只读、不执行，权益过期的账户仍可在第二台设备上查看自己的副本。
-   备选：要求有效权益或宽限期，过期时登录只得到锁定状态。
+   备选：要求有效权益或宽限期，过期时登录只得到锁定状态。无论哪种，Standby 的 reader cursor 都会钉住 Cloud
+   历史保留；若不要求权益，须同时确认现有 cursor TTL 退役足以限制权益过期账户的保留量。
 2. **Standby Grant 的签名密钥**。建议独立用途密钥（与 Devices 模块“密钥按用途分离”的规则一致），代价是多一个 OpenBao
    密钥与外部资格项。备选：沿用 Grant v3 密钥，只以独立签名域与 typ/aud 区分。
 3. **强制接管的重新认证**。建议用新登录在会话上记录单次可用的五分钟窗口，移除协议中的 `reauthProofId`。备选：保留
