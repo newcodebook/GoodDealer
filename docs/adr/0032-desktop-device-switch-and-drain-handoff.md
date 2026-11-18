@@ -179,6 +179,9 @@ push、drain 与续租仍要求 Lease。方案 B：修订本 ADR，目标设备�
     确认时唤醒同步并报告等待，回执读取重复同一批行（Cloud 未返回某行）时失败关闭，只有进度为 Ready 时才以设备密钥签署 Host
     构建的 transcript 并提交；Cloud 报告取消或失败时在同一提交内清除栅栏，交接后栅栏保持（本设备不再持有 Lease），由每次推送前的
     遗留栅栏清除在本设备以更新 epoch 取得 Lease 后清除；发起前先清除更早 epoch 的遗留栅栏；未获答复的请求以同一幂等键与原目标重试，在其获答复前不为任何目标准备新请求（Cloud 可能已开启该切换），已答复的请求不再复用；会话关闭后不提交
-    任何答复。切换 Tauri 命令、权限清单、适配器与 Renderer 端口随 S2d3b；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
+    任何答复。S2d3b 已实现：Tauri 命令 `device_switch_request`（只接收目标设备 id）、`device_switch_advance`、
+    `device_switch_status`、`device_switch_cancel` 调用协调器，只返回封闭步骤码与 Cloud 的状态或拒绝码，错误为封闭码；
+    适配器 `createDeviceSwitchPort` 从 `unknown` 严格解析，切换 id、Lease、回执、proof 与签名不进入 Renderer；
+    设置“设备”界面随 S3；rebootstrap 安装进入生产组合随 S1d（待 Standby 决定）。
 - S3 Desktop：设置“设备”Host 读取、移交确认、目标设备引导与强制接管界面。
 - S4 端到端：拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功、强制接管后旧设备转为 Standby。

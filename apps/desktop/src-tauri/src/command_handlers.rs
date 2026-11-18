@@ -8,20 +8,22 @@ use gooddealer_local_storage::{
     DesktopBatchOperationsReadRequest, DesktopCloudflareConnectionCreateRequest,
     DesktopCloudflareConnectionCreated, DesktopCloudflareObservationReadRequest,
     DesktopConflictCenterView, DesktopConflictResolutionReceipt, DesktopConflictResolveRequest,
-    DesktopDeviceLease, DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest,
-    DesktopDomainAssetDeleteRequest, DesktopDomainAssetEditRequest,
-    DesktopDomainAssetProviderBindingReceipt, DesktopDomainAssetProviderBindingRequest,
-    DesktopDomainDetailReadRequest, DesktopHistoryReadRequest, DesktopLocalBusinessStatus,
-    DesktopLocalHost, DesktopManualTasksReadRequest, DesktopRenewalsReadRequest,
-    DesktopSalesReadRequest, DesktopStorageRepairReceipt, DesktopStorageRepairRequest,
-    DesktopSyncSnapshotView, DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot,
-    DomainAssetMutationReceipt, DomainDetailReadSnapshot, HistoryReadSnapshot,
-    ManualTasksReadSnapshot, RenewalsReadSnapshot, SalesReadSnapshot, SettingsReadSnapshot,
+    DesktopDeviceLease, DesktopDeviceSwitchRejection, DesktopDeviceSwitchStatus,
+    DesktopDnsHealthReadRequest, DesktopDomainAssetCreateRequest, DesktopDomainAssetDeleteRequest,
+    DesktopDomainAssetEditRequest, DesktopDomainAssetProviderBindingReceipt,
+    DesktopDomainAssetProviderBindingRequest, DesktopDomainDetailReadRequest,
+    DesktopHistoryReadRequest, DesktopLocalBusinessStatus, DesktopLocalHost,
+    DesktopManualTasksReadRequest, DesktopRenewalsReadRequest, DesktopSalesReadRequest,
+    DesktopStorageRepairReceipt, DesktopStorageRepairRequest, DesktopSyncSnapshotView,
+    DesktopVerifiedBackupArtifact, DnsHealthReadSnapshot, DomainAssetMutationReceipt,
+    DomainDetailReadSnapshot, HistoryReadSnapshot, ManualTasksReadSnapshot, RenewalsReadSnapshot,
+    SalesReadSnapshot, SettingsReadSnapshot,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::backup_ipc::bounded_request_wire;
+use crate::device_switch_drain::{DesktopDeviceSwitch, DeviceSwitchError, DeviceSwitchStep};
 use crate::native_cloud_runtime::NativeCloudCoordinator;
 use crate::provider_ipc::decode_provider_request;
 use crate::provider_lane::{
@@ -263,6 +265,142 @@ pub(crate) fn local_sync_status(
     Ok(snapshot)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DeviceSwitchRequest {
+    schema_version: u8,
+    to_device_id: String,
+}
+
+/// Where this device's switch stands, as closed codes only: no switch id, Lease, receipt, proof
+/// or signature crosses IPC (ADR-0032 S2d3b).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeviceSwitchView {
+    schema_version: u8,
+    step: &'static str,
+    unconfirmed: Option<u64>,
+    status: Option<&'static str>,
+    rejection: Option<&'static str>,
+}
+
+impl From<DeviceSwitchStep> for DeviceSwitchView {
+    fn from(step: DeviceSwitchStep) -> Self {
+        let (step, unconfirmed, status, rejection) = match step {
+            DeviceSwitchStep::Idle => ("idle", None, None, None),
+            DeviceSwitchStep::Rejected(code) => (
+                "rejected",
+                None,
+                None,
+                Some(device_switch_rejection_code(code)),
+            ),
+            DeviceSwitchStep::WaitingForSync { unconfirmed } => {
+                ("waiting_for_sync", Some(unconfirmed), None, None)
+            }
+            DeviceSwitchStep::Blocked => ("blocked", None, None, None),
+            DeviceSwitchStep::ReceiptsMissing => ("receipts_missing", None, None, None),
+            DeviceSwitchStep::Switch(status) => (
+                "switch",
+                None,
+                Some(device_switch_status_code(status)),
+                None,
+            ),
+            DeviceSwitchStep::WritesReopened => ("writes_reopened", None, None, None),
+        };
+        Self {
+            schema_version: 1,
+            step,
+            unconfirmed,
+            status,
+            rejection,
+        }
+    }
+}
+
+const fn device_switch_status_code(status: DesktopDeviceSwitchStatus) -> &'static str {
+    match status {
+        DesktopDeviceSwitchStatus::Requested => "requested",
+        DesktopDeviceSwitchStatus::Draining => "draining",
+        DesktopDeviceSwitchStatus::WaitingExpiry => "waiting_expiry",
+        DesktopDeviceSwitchStatus::Bootstrapping => "bootstrapping",
+        DesktopDeviceSwitchStatus::Completed => "completed",
+        DesktopDeviceSwitchStatus::Cancelled => "cancelled",
+        DesktopDeviceSwitchStatus::Failed => "failed",
+    }
+}
+
+const fn device_switch_rejection_code(code: DesktopDeviceSwitchRejection) -> &'static str {
+    match code {
+        DesktopDeviceSwitchRejection::SwitchInProgress => "SWITCH_IN_PROGRESS",
+        DesktopDeviceSwitchRejection::SwitchNotFound => "SWITCH_NOT_FOUND",
+        DesktopDeviceSwitchRejection::SwitchNotCancellable => "SWITCH_NOT_CANCELLABLE",
+        DesktopDeviceSwitchRejection::IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
+        DesktopDeviceSwitchRejection::TargetIsSource => "TARGET_IS_SOURCE",
+        DesktopDeviceSwitchRejection::TargetNotBound => "TARGET_NOT_BOUND",
+        DesktopDeviceSwitchRejection::TargetRemoved => "TARGET_REMOVED",
+        DesktopDeviceSwitchRejection::AccountRecoveryPending => "ACCOUNT_RECOVERY_PENDING",
+        DesktopDeviceSwitchRejection::ForcedSwitchUnavailable => "FORCED_SWITCH_UNAVAILABLE",
+        DesktopDeviceSwitchRejection::DrainProofInvalid => "DRAIN_PROOF_INVALID",
+        DesktopDeviceSwitchRejection::DrainProofExpired => "DRAIN_PROOF_EXPIRED",
+        DesktopDeviceSwitchRejection::DrainStreamsIncomplete => "DRAIN_STREAMS_INCOMPLETE",
+    }
+}
+
+fn device_switch_result(
+    result: Result<DeviceSwitchStep, DeviceSwitchError>,
+) -> Result<DeviceSwitchView, String> {
+    result.map(DeviceSwitchView::from).map_err(|error| {
+        match error {
+            DeviceSwitchError::Retryable => "DEVICE_SWITCH_RETRY_LATER",
+            DeviceSwitchError::AuthorizationRequired => "DEVICE_SWITCH_AUTHORIZATION_REQUIRED",
+            DeviceSwitchError::Blocked => "DEVICE_SWITCH_BLOCKED",
+            DeviceSwitchError::Cancelled => "DEVICE_SWITCH_UNAVAILABLE",
+        }
+        .to_owned()
+    })
+}
+
+/// Asks Cloud for a normal switch to a bound device and starts this device's drain. The switch
+/// id comes only from Cloud's answer; the Renderer names only the target.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn device_switch_request(
+    request: DeviceSwitchRequest,
+    switch: State<'_, Arc<DesktopDeviceSwitch>>,
+) -> Result<DeviceSwitchView, String> {
+    if request.schema_version != 1 {
+        return Err("DEVICE_SWITCH_INVALID_REQUEST".to_owned());
+    }
+    device_switch_result(switch.request(&request.to_device_id).await)
+}
+
+/// Moves this device's open switch forward: sync, receipts, then the signed drain proof.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn device_switch_advance(
+    switch: State<'_, Arc<DesktopDeviceSwitch>>,
+) -> Result<DeviceSwitchView, String> {
+    device_switch_result(switch.advance().await)
+}
+
+/// Cloud's state of this device's open switch; writes reopen if Cloud ended it.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn device_switch_status(
+    switch: State<'_, Arc<DesktopDeviceSwitch>>,
+) -> Result<DeviceSwitchView, String> {
+    device_switch_result(switch.status().await)
+}
+
+/// Cancels this device's open switch; writes reopen once Cloud confirms.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn device_switch_cancel(
+    switch: State<'_, Arc<DesktopDeviceSwitch>>,
+) -> Result<DeviceSwitchView, String> {
+    device_switch_result(switch.cancel().await)
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) async fn local_backup_restore_status(
@@ -493,6 +631,31 @@ fn validate_cloudflare_entity_id(value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_switch_views_carry_only_closed_codes() {
+        let json = |step| serde_json::to_value(DeviceSwitchView::from(step)).expect("view json");
+        assert_eq!(
+            json(DeviceSwitchStep::WaitingForSync { unconfirmed: 3 }),
+            serde_json::json!({ "schemaVersion": 1, "step": "waiting_for_sync", "unconfirmed": 3, "status": null, "rejection": null })
+        );
+        assert_eq!(
+            json(DeviceSwitchStep::Switch(
+                DesktopDeviceSwitchStatus::WaitingExpiry
+            )),
+            serde_json::json!({ "schemaVersion": 1, "step": "switch", "unconfirmed": null, "status": "waiting_expiry", "rejection": null })
+        );
+        assert_eq!(
+            json(DeviceSwitchStep::Rejected(
+                DesktopDeviceSwitchRejection::DrainStreamsIncomplete
+            )),
+            serde_json::json!({ "schemaVersion": 1, "step": "rejected", "unconfirmed": null, "status": null, "rejection": "DRAIN_STREAMS_INCOMPLETE" })
+        );
+        assert_eq!(
+            device_switch_result(Err(DeviceSwitchError::Cancelled)),
+            Err("DEVICE_SWITCH_UNAVAILABLE".to_owned())
+        );
+    }
 
     #[test]
     fn cloudflare_identifiers_are_bounded_before_closed_unavailability() {

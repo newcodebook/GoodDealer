@@ -7,16 +7,6 @@
 //! switch cancelled or failed. Every Cloud answer is decoded by the Host; this module holds no
 //! wire format, credential or private key, and signs only the transcript the Host built.
 
-// Temporary: the device-switch Tauri commands (ADR-0032 S2d3b) are this coordinator's only
-// caller. Remove when S2d3b registers them.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR-0032 S2d3b registers the device-switch commands that construct this coordinator"
-    )
-)]
-
 use std::future::Future;
 use std::sync::Arc;
 
@@ -164,6 +154,13 @@ pub(crate) trait DrainProofSigner: Send + Sync + 'static {
     fn signing_key_id(&self) -> Option<&str>;
     fn sign_drain_proof(&self, transcript: &[u8]) -> Option<String>;
 }
+
+/// The production coordinator: the Desktop Host, the native Cloud session and the device key.
+pub(crate) type DesktopDeviceSwitch = DeviceSwitchCoordinator<
+    DesktopLocalHost,
+    NativeCloudSession,
+    crate::oauth_runtime::DesktopOAuthRuntime,
+>;
 
 pub(crate) struct DeviceSwitchCoordinator<H: SwitchHost, C, S> {
     host: Arc<H>,

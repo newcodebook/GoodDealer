@@ -122,6 +122,65 @@ export interface LocalSyncStatusPort {
   status(): Promise<SyncSnapshotViewModel>;
 }
 
+const deviceSwitchStatuses = ["requested", "draining", "waiting_expiry", "bootstrapping", "completed", "cancelled", "failed"] as const;
+export type DeviceSwitchStatus = (typeof deviceSwitchStatuses)[number];
+
+const deviceSwitchRejections = [
+  "SWITCH_IN_PROGRESS",
+  "SWITCH_NOT_FOUND",
+  "SWITCH_NOT_CANCELLABLE",
+  "IDEMPOTENCY_CONFLICT",
+  "TARGET_IS_SOURCE",
+  "TARGET_NOT_BOUND",
+  "TARGET_REMOVED",
+  "ACCOUNT_RECOVERY_PENDING",
+  "FORCED_SWITCH_UNAVAILABLE",
+  "DRAIN_PROOF_INVALID",
+  "DRAIN_PROOF_EXPIRED",
+  "DRAIN_STREAMS_INCOMPLETE",
+] as const;
+export type DeviceSwitchRejection = (typeof deviceSwitchRejections)[number];
+
+/**
+ * Where this device's switch stands (ADR-0032). Only closed codes cross IPC: the switch id, Lease,
+ * receipts, proof and signature stay in the Host.
+ */
+export type DeviceSwitchStep =
+  | { readonly kind: "idle" }
+  | { readonly kind: "rejected"; readonly rejection: DeviceSwitchRejection }
+  | { readonly kind: "waiting_for_sync"; readonly unconfirmed: number }
+  | { readonly kind: "blocked" }
+  | { readonly kind: "receipts_missing" }
+  | { readonly kind: "switch"; readonly status: DeviceSwitchStatus }
+  | { readonly kind: "writes_reopened" };
+
+const deviceSwitchErrorCodes = [
+  "DEVICE_SWITCH_RETRY_LATER",
+  "DEVICE_SWITCH_AUTHORIZATION_REQUIRED",
+  "DEVICE_SWITCH_BLOCKED",
+  "DEVICE_SWITCH_UNAVAILABLE",
+  "DEVICE_SWITCH_INVALID_REQUEST",
+] as const;
+export type DeviceSwitchErrorCode = (typeof deviceSwitchErrorCodes)[number];
+
+/** A switch call the Host could not finish; any unnamed refusal stays an opaque failure. */
+export class DeviceSwitchError extends Error {
+  constructor(readonly code: DeviceSwitchErrorCode) {
+    super(code);
+    this.name = "DeviceSwitchError";
+  }
+}
+
+export interface DeviceSwitchPort {
+  /** Asks Cloud for a normal switch to a bound device; an open switch is resumed instead. */
+  request(toDeviceId: string): Promise<DeviceSwitchStep>;
+  /** Moves the open switch forward: sync, receipts, then the signed drain proof. */
+  advance(): Promise<DeviceSwitchStep>;
+  status(): Promise<DeviceSwitchStep>;
+  /** Writes reopen only once Cloud confirms the cancellation. */
+  cancel(): Promise<DeviceSwitchStep>;
+}
+
 export type CloudflareConnectionStatusState = "not-configured" | "recovering" | "ready" | "busy" | "blocked";
 export interface CloudflareConnectionStatus {
   readonly schemaVersion: 1;
@@ -217,6 +276,10 @@ const commands = {
   resolveConflict: "local_conflict_resolve",
   localSyncStatus: "local_sync_status",
   readDeviceLease: "local_device_lease_read",
+  deviceSwitchRequest: "device_switch_request",
+  deviceSwitchAdvance: "device_switch_advance",
+  deviceSwitchStatus: "device_switch_status",
+  deviceSwitchCancel: "device_switch_cancel",
   cloudflareStatus: "cloudflare_connection_status",
   cloudflareActivate: "cloudflare_connection_activate",
   cloudflareCreate: "cloudflare_connection_create",
@@ -533,6 +596,59 @@ export function createLocalSyncStatusPort(): LocalSyncStatusPort {
 
 export function createLocalDeviceLeasePort(): LocalDeviceLeasePort {
   return { async read() { return parseDeviceLease(await invoke(commands.readDeviceLease)); } };
+}
+
+export function createDeviceSwitchPort(): DeviceSwitchPort {
+  const call = async (command: string, args?: Record<string, unknown>) => {
+    let view: unknown;
+    try {
+      view = await invoke(command, args);
+    } catch (error) {
+      const named = deviceSwitchErrorCodes.find((code) => code === error);
+      if (named !== undefined) throw new DeviceSwitchError(named);
+      throw error;
+    }
+    return parseDeviceSwitchStep(view);
+  };
+  return {
+    async request(toDeviceId) {
+      // The Host applies the same identifier rule; refusing here keeps an invalid id off the wire.
+      if (!isPrintableIdentifier(toDeviceId, 160)) throw new TypeError("invalid target device");
+      return call(commands.deviceSwitchRequest, { request: { schemaVersion: 1, toDeviceId } });
+    },
+    async advance() { return call(commands.deviceSwitchAdvance); },
+    async status() { return call(commands.deviceSwitchStatus); },
+    async cancel() { return call(commands.deviceSwitchCancel); },
+  };
+}
+
+function isPrintableIdentifier(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum
+    && [...value].every((char) => { const code = char.codePointAt(0) ?? 0; return code >= 0x21 && code <= 0x7e; });
+}
+
+function parseDeviceSwitchStep(value: unknown): DeviceSwitchStep {
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "step", "unconfirmed", "status", "rejection"]);
+  const { step, unconfirmed, status, rejection } = record;
+  const empty = (...fields: unknown[]) => fields.every((field) => field === null);
+  if (record["schemaVersion"] === 1) {
+    if (step === "idle" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "idle" });
+    if (step === "blocked" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "blocked" });
+    if (step === "receipts_missing" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "receipts_missing" });
+    if (step === "writes_reopened" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "writes_reopened" });
+    if (step === "waiting_for_sync" && empty(status, rejection) && Number.isSafeInteger(unconfirmed) && (unconfirmed as number) >= 0) {
+      return Object.freeze({ kind: "waiting_for_sync", unconfirmed: unconfirmed as number });
+    }
+    const knownStatus = deviceSwitchStatuses.find((candidate) => candidate === status);
+    if (step === "switch" && empty(unconfirmed, rejection) && knownStatus !== undefined) {
+      return Object.freeze({ kind: "switch", status: knownStatus });
+    }
+    const knownRejection = deviceSwitchRejections.find((candidate) => candidate === rejection);
+    if (step === "rejected" && empty(unconfirmed, status) && knownRejection !== undefined) {
+      return Object.freeze({ kind: "rejected", rejection: knownRejection });
+    }
+  }
+  throw new TypeError("invalid device switch step");
 }
 
 function parseDeviceLease(value: unknown): LocalDeviceLease {

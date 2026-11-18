@@ -259,6 +259,18 @@ impl NativeCloudCoordinator {
         self.sync.wake();
     }
 
+    /// The commit fence a device switch shares with the native lanes: after shutdown no switch
+    /// answer is committed either.
+    pub(crate) fn cancel_fence(&self) -> Arc<NativeCloudCancelFence> {
+        Arc::clone(&self.cancel_fence)
+    }
+
+    /// Wakes the sync lane, which pushes the Outbox a device switch is draining.
+    pub(crate) fn sync_waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let sync = self.sync.clone();
+        Arc::new(move || sync.wake())
+    }
+
     pub(crate) fn cancel(&self) {
         self.session.close_mutation_admission();
         self.cancel_fence.cancel();

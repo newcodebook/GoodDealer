@@ -40,6 +40,10 @@
     "allow-local-conflict-center-read",
     "allow-local-conflict-resolve",
     "allow-local-sync-status",
+    "allow-device-switch-request",
+    "allow-device-switch-advance",
+    "allow-device-switch-status",
+    "allow-device-switch-cancel",
     "allow-desktop-authentication-status",
     "allow-desktop-authentication-begin",
     "allow-desktop-authentication-refresh"

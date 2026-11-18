@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createCloudflarePort, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
+import { createCloudflarePort, createDeviceSwitchPort, DeviceSwitchError, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -399,6 +399,58 @@ describe("Desktop Tauri local-business adapter", () => {
     }
     invokeMock.mockRejectedValueOnce("LOCAL_REVISION_REJECTED");
     await expect(port.repairStoredRows?.(request)).rejects.toBe("LOCAL_REVISION_REJECTED");
+  });
+
+  it("drives the device switch through closed steps and never sends or reads a switch id", async () => {
+    const view = (step: string, fields: Record<string, unknown> = {}) => ({ schemaVersion: 1, step, unconfirmed: null, status: null, rejection: null, ...fields });
+    const port = createDeviceSwitchPort();
+    invokeMock.mockResolvedValueOnce(view("waiting_for_sync", { unconfirmed: 3 }));
+    await expect(port.request("device-target")).resolves.toEqual({ kind: "waiting_for_sync", unconfirmed: 3 });
+    expect(invokeMock).toHaveBeenLastCalledWith("device_switch_request", { request: { schemaVersion: 1, toDeviceId: "device-target" } });
+    for (const [method, command] of [["advance", "device_switch_advance"], ["status", "device_switch_status"], ["cancel", "device_switch_cancel"]] as const) {
+      invokeMock.mockResolvedValueOnce(view("switch", { status: "bootstrapping" }));
+      await expect(port[method]()).resolves.toEqual({ kind: "switch", status: "bootstrapping" });
+      expect(invokeMock).toHaveBeenLastCalledWith(command, undefined);
+    }
+    for (const [response, step] of [
+      [view("idle"), { kind: "idle" }],
+      [view("blocked"), { kind: "blocked" }],
+      [view("receipts_missing"), { kind: "receipts_missing" }],
+      [view("writes_reopened"), { kind: "writes_reopened" }],
+      [view("rejected", { rejection: "TARGET_REMOVED" }), { kind: "rejected", rejection: "TARGET_REMOVED" }],
+    ] as const) {
+      invokeMock.mockResolvedValueOnce(response);
+      await expect(port.status()).resolves.toEqual(step);
+    }
+
+    for (const hostile of [
+      view("switch", { status: "paused" }),
+      view("switch", { status: "draining", rejection: "TARGET_REMOVED" }),
+      view("rejected", { rejection: "SOMETHING_ELSE" }),
+      view("waiting_for_sync", { unconfirmed: -1 }),
+      view("waiting_for_sync", { unconfirmed: 2 ** 53 }),
+      view("waiting_for_sync"),
+      view("idle", { unconfirmed: 0 }),
+      view("handed_off"),
+      { ...view("idle"), requestId: "switch-1" },
+      { ...view("idle"), schemaVersion: 2 },
+      null,
+    ]) {
+      invokeMock.mockResolvedValueOnce(hostile);
+      await expect(port.status()).rejects.toThrow(TypeError);
+    }
+
+    // The target is checked before any IPC, with the Host's identifier rule.
+    for (const target of ["", "device target", "d".repeat(161), "device\u0000"]) {
+      invokeMock.mockClear();
+      await expect(port.request(target)).rejects.toThrow(TypeError);
+      expect(invokeMock).not.toHaveBeenCalled();
+    }
+
+    invokeMock.mockRejectedValueOnce("DEVICE_SWITCH_RETRY_LATER");
+    await expect(port.advance()).rejects.toEqual(expect.objectContaining({ name: "DeviceSwitchError", code: "DEVICE_SWITCH_RETRY_LATER" }));
+    invokeMock.mockRejectedValueOnce("SOMETHING_ELSE");
+    await expect(port.advance()).rejects.not.toBeInstanceOf(DeviceSwitchError);
   });
 
   it("reads the Active lease for display and rejects anything beyond the identifiers", async () => {

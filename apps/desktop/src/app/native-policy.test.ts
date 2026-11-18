@@ -30,6 +30,10 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
     expect(handlers).toMatch(/fn local_storage_repair/u);
+    expect(handlers).toMatch(/fn device_switch_request/u);
+    expect(handlers).toMatch(/fn device_switch_advance/u);
+    expect(handlers).toMatch(/fn device_switch_status/u);
+    expect(handlers).toMatch(/fn device_switch_cancel/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
     expect(handlers).toMatch(/fn cloudflare_connection_create/u);
     expect(handlers).toMatch(/fn cloudflare_connection_revoke/u);
@@ -99,6 +103,10 @@ describe("Desktop native policy", () => {
       "allow-local-conflict-center-read",
       "allow-local-conflict-resolve",
       "allow-local-sync-status",
+      "allow-device-switch-request",
+      "allow-device-switch-advance",
+      "allow-device-switch-status",
+      "allow-device-switch-cancel",
       "allow-desktop-authentication-status",
       "allow-desktop-authentication-begin",
       "allow-desktop-authentication-refresh",

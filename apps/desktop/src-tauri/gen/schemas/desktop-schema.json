@@ -411,6 +411,30 @@
           "markdownDescription": "Enables the desktop_authentication_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the device_switch_advance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-advance",
+          "markdownDescription": "Enables the device_switch_advance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-cancel",
+          "markdownDescription": "Enables the device_switch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-request",
+          "markdownDescription": "Enables the device_switch_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-status",
+          "markdownDescription": "Enables the device_switch_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_asset_library_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-asset-library-read",
@@ -613,6 +637,30 @@
           "type": "string",
           "const": "deny-desktop-authentication-status",
           "markdownDescription": "Denies the desktop_authentication_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_advance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-advance",
+          "markdownDescription": "Denies the device_switch_advance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-cancel",
+          "markdownDescription": "Denies the device_switch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-request",
+          "markdownDescription": "Denies the device_switch_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-status",
+          "markdownDescription": "Denies the device_switch_status command without any pre-configured scope."
         },
         {
           "description": "Denies the local_asset_library_read command without any pre-configured scope.",

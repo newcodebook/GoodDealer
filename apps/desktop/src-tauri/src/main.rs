@@ -146,6 +146,13 @@ fn main() {
             app.manage(Arc::clone(&session));
             app.manage(Arc::clone(&oauth));
             let cloud = native_cloud_runtime::NativeCloudCoordinator::start(&local_host, &session);
+            app.manage(Arc::new(device_switch_drain::DesktopDeviceSwitch::new(
+                Arc::clone(&local_host),
+                Arc::clone(&session),
+                Arc::clone(&oauth),
+                cloud.cancel_fence(),
+                cloud.sync_waker(),
+            )));
             app.manage(cloud);
             let maintenance = Arc::clone(&oauth);
             let maintenance_app = app.handle().clone();
@@ -174,6 +181,10 @@ fn main() {
             command_handlers::local_conflict_center_read,
             command_handlers::local_conflict_resolve,
             command_handlers::local_sync_status,
+            command_handlers::device_switch_request,
+            command_handlers::device_switch_advance,
+            command_handlers::device_switch_status,
+            command_handlers::device_switch_cancel,
             command_handlers::local_backup_restore_status,
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,

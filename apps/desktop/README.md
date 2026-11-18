@@ -156,6 +156,10 @@ writes nothing, and a domain already held is left as it is.
 - `local_domain_asset_provider_bind`
 - `local_storage_repair`
 - `local_sync_status`
+- `device_switch_request`
+- `device_switch_advance`
+- `device_switch_status`
+- `device_switch_cancel`
 - `local_conflict_center_read`
 - `local_conflict_resolve`
 - `local_backup_restore_status`
@@ -178,6 +182,14 @@ activation-required unless the
 Host loads an OS-protected, previously verified workspace binding. That binding can reopen only the
 same local database for read-only use; only trusted native authorization composition can restore
 mutation authority.
+
+The device-switch commands (ADR-0032) drive this device's side of a normal switch through the
+native coordinator: `device_switch_request` takes only the target device id, and every command
+answers a closed step (`idle`, `rejected` with Cloud's code, `waiting_for_sync` with the count of
+unconfirmed rows, `blocked`, `receipts_missing`, `switch` with Cloud's status, `writes_reopened`).
+The switch id comes only from Cloud and stays native with the Lease, receipts, drain proof and its
+signature; writes reopen only when Cloud reports the switch cancelled or failed. No screen calls
+them yet (ADR-0032 S3).
 
 DomainAsset edit/delete commits the local business row, field versions, tombstone (for delete), and a secret-free Sync Outbox entry in one
 SQLCipher transaction. Asset Library and Domain Detail reads return bounded projections from the
