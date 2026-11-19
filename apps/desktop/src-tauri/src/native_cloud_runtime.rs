@@ -555,20 +555,27 @@ async fn run_provider_operation(
     let authority = host.authority_identity();
     let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
-        ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep => {
-            return;
-        }
+        ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep => None,
         ProviderOperation::AfternicConnect { display_label } => {
             let result = afternic::connect(host, display_label, cancel_fence).await;
-            ProviderOperationRecord::of("afternic_connect", result.as_ref().map(|()| "confirmed"))
+            Some(ProviderOperationRecord::of(
+                "afternic_connect",
+                result.as_ref().map(|()| "confirmed"),
+            ))
         }
         ProviderOperation::AfternicRefresh { connection_id } => {
             let result = afternic::refresh(host, connection_id, cancel_fence).await;
-            ProviderOperationRecord::of("afternic_refresh", result.as_ref().map(|()| "confirmed"))
+            Some(ProviderOperationRecord::of(
+                "afternic_refresh",
+                result.as_ref().map(|()| "confirmed"),
+            ))
         }
         ProviderOperation::AfternicRevoke { connection_id } => {
             let result = afternic::revoke(host, connection_id, cancel_fence).await;
-            ProviderOperationRecord::of("afternic_revoke", result.as_ref().map(|()| "confirmed"))
+            Some(ProviderOperationRecord::of(
+                "afternic_revoke",
+                result.as_ref().map(|()| "confirmed"),
+            ))
         }
         ProviderOperation::Activate { connection_id } => {
             let result = crate::provider_credential_orchestrator::activate(
@@ -577,13 +584,16 @@ async fn run_provider_operation(
                 cancel_fence,
             )
             .await;
-            ProviderOperationRecord::of("activate", result.as_ref().map(|done| confirmed(*done)))
+            Some(ProviderOperationRecord::of(
+                "activate",
+                result.as_ref().map(|done| confirmed(*done)),
+            ))
         }
         ProviderOperation::Revoke { connection_id } => {
             let result =
                 crate::provider_credential_orchestrator::revoke(host, connection_id, cancel_fence)
                     .await;
-            ProviderOperationRecord::of(
+            Some(ProviderOperationRecord::of(
                 "revoke",
                 result.as_ref().map(|outcome| match outcome {
                     RevocationOutcome::Revoked => "confirmed",
@@ -593,7 +603,7 @@ async fn run_provider_operation(
                     | RevocationOutcome::AuthorityStaleBurned
                     | RevocationOutcome::RecoveryRequired => "unconfirmed",
                 }),
-            )
+            ))
         }
         ProviderOperation::Purge {
             connection_id,
@@ -606,7 +616,10 @@ async fn run_provider_operation(
                 cancel_fence,
             )
             .await;
-            ProviderOperationRecord::of("purge", result.as_ref().map(|done| confirmed(*done)))
+            Some(ProviderOperationRecord::of(
+                "purge",
+                result.as_ref().map(|done| confirmed(*done)),
+            ))
         }
         ProviderOperation::Observe {
             connection_id,
@@ -619,10 +632,13 @@ async fn run_provider_operation(
                 cancel_fence,
             )
             .await;
-            ProviderOperationRecord::of("observe", result.as_ref().map(|done| confirmed(*done)))
+            Some(ProviderOperationRecord::of(
+                "observe",
+                result.as_ref().map(|done| confirmed(*done)),
+            ))
         }
     };
-    if let Ok(mut current) = record.lock() {
+    if let (Some(outcome), Ok(mut current)) = (outcome, record.lock()) {
         *current = Some(StampedProviderOperation {
             record: outcome,
             authority,
