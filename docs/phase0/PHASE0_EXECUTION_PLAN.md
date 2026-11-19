@@ -384,3 +384,15 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 独立审查：[下架审查](../reviews/2026-11-19-afternic-delist-review.md)。Storage/Host 最终独立 Afternic 39、manifest 3、既有 drain 1；client-core 7、Desktop 49；Native helper 3/lane 11/IPC 1；实际 Core power 源码独立 4；root 策略独立 13、拓扑 20 均通过。Desktop build、全仓 typecheck 和 format 通过；新鲜根 `pnpm check` exit 0（`/tmp/gooddealer-delist-final-passing-check.log`）：结构 207、Protocol 488、Cloud 798、Desktop 350、client-core 425、local-storage 485/6 项既有 ignored、Native 94、Core 60。首轮拓扑目录缺四个 macOS 依赖的失败已修，独立复验后完整重跑；失败日志不计通过。最终三个 Native crate 全 targets Clippy `-D warnings` 通过（`/tmp/gooddealer-delist-final-clippy.log`）。
 - 目标证据仅为 Windows GNU/macOS arm64 电源模块原样源码编译；完整应用目标构建、真实 OS 通知/凭据和 Afternic 接口未验收，Host 资格继续关闭。旧连接/刷新流程未统一接入新 power guard，Windows custody/Linux 与 Windows capture 未完成。
 - 后续保持：执行事实/设备审计真实来源及 drain、Afternic 创建/改价/私有验证/DNS、其余平台按既定优先级、目标引导/强制接管/云恢复、独立离线恢复和双系统完整支持。下一实施不能伪造 trusted time、批准 envelope 或 device credentialEpoch 来满足旧协议字段。
+
+
+## 2026-11-19 Fresh Standby 强制接管与首次云恢复
+
+- Task Frame：[强制接管](FORCED_TAKEOVER_TASK_FRAME.md)；基线 `825878d`；独立评估见[审查记录](../reviews/2026-11-19-forced-takeover-review.md)。完整产品目标见[实施目标](../IMPLEMENTATION_GOAL.md)，本切片只包含可信 Fresh 或精确终止且未写库目标，不扩入已有副本替换与无 held 来源恢复。
+- 已组合客户路径：设置/无副本 Standby 专用浏览器重新认证 → 来源 epoch 预览 → 一次确认 → Native 原意图持久保存 → Cloud 单次消费原五分钟认证窗口 → 可重开等待/取消 → 领取前持久安装准入 → 原 checkpoint/mutation 下载、安装和激活 → Active 及新鲜执行上下文后显示非空资产。Provider 凭据仍须重新连接，云只恢复最后成功同步的允许字段。
+- Identity、Devices 与 Native 贯通绝对重新认证期限、source CAS、幂等重放、未知初始请求取消墓碑、等待续租冻结和历史离线期限 high-water；Cloud 025–029 追加迁移，旧 SQL 未改写。Host journal v3 沿原 publication mutex/安装提交栅栏；重开依赖新鲜 Cloud 状态，不用缓存 claimable 或本地时钟自动释放来源。
+- 最终根 `pnpm check` exit 0，日志 `target/root-forced-takeover-check.log`：结构 215、i18n 19、UI 58、Protocol 529、connectors 7、cloud-client 8、client-core 426、Account Web 124、Desktop 394、Cloud 848；Rust automation 53、Desktop Native 166、local-storage 591＋2（6 项既有规模基准 ignored）、secure-host-core 85＋public 3。负向 SQLCipher 错钥测试的拒绝日志不属于检查失败。
+- 独立真实 PostgreSQL 18.6 UTF8：root 完整 OAuth/devices 121/121，随后新增 execution-context/historical block 7/7；构建者完整 114/114 加最终 forced/历史升级 22/22。Host forced 最终 19/19 由 Native 与 Cloud 各自独立复跑，涵盖真实 SQLCipher 非空恢复与激活、取消及崩溃状态。Linux/Windows GNU 三 crate 全 targets 严格 Clippy、格式、Desktop production build、生成物、文档链接与差异检查通过。源码、数据库、目标编译分别记录，不声明实机发行资格。
+- 经验已落实为实现和回归：跨运行时使用真实 raw IPC 解码；资格变化丢弃迟到预览；未知 initial POST 的 not_found 不代表取消；历史已签 Lease 上限不能只看最新行；取消领取后的 bootstrap 必须沿原取消 lane 收敛。失败的中间根检查已修复后完整重跑，不计通过。
+- 未完成：已有副本恢复、写库后恢复、无来源 Lease、独立跨机备份及 Windows/macOS 实机；真实部署的第三/第四/第五签名用途与两设备验收仍需取得。迁移 026 保守 cutover＋24h 不可被本机测试免除。
+- Provider 继续作为主线：在隔离 `afternic-listing` worktree 开发上架/改价持久父计划、真实执行证据、客户表单，Linux 原生凭据录入与真实电源通知分别验收。用户已授权 `wecin.com` 做受控上架/改价/下架，先在 Linux 跑真实业务，Windows/macOS 仍保留完整最终目标。当前仅 Cloudflare/Afternic 有适配代码；六来源完整账户归集、市场自动所有权/DNS与其余十平台仍未交付，不能从此设备切片推导完成。

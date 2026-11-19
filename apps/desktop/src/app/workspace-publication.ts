@@ -21,6 +21,7 @@ import type {
   DeviceSwitchPort,
   TargetBootstrapPort,
   TargetInstallationPort,
+  ForcedTakeoverPort,
   LocalBusinessPort,
   LocalBusinessStatus,
   LocalConflictPort,
@@ -42,6 +43,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly deviceSwitch?: DeviceSwitchPort;
   readonly targetBootstrap?: TargetBootstrapPort;
   readonly targetInstallation?: TargetInstallationPort;
+  readonly forcedTakeover?: ForcedTakeoverPort;
   readonly business: LocalBusinessPort;
   /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
   readonly dns: DnsHealthPort;

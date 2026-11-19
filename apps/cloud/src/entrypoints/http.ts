@@ -1,5 +1,7 @@
 import { registerTargetInstallationJsonBoundary } from "./adapter/target-installation-json";
 import { createTargetBootstrapInstallationRoutes } from "./routes/public/target-installation";
+import { createForcedTakeoverRoutes } from "./routes/public/forced-takeover";
+import type { ForcedTakeoverQueryPort } from "./ports/forced-takeover";
 import type { TargetBootstrapInstallationPort } from "./ports/target-installation";
 import { DesktopExecutionContextIssuer, PostgresDesktopExecutionContextService, type DesktopExecutionContextSigner } from "../modules/devices/index";
 import type { DesktopExecutionContextApplicationPort } from "./ports/execution-context";
@@ -39,6 +41,7 @@ import {
   PostgresDeviceSwitchRequestResolution,
   PostgresTargetBootstrapControl,
   PostgresTargetBootstrapInstallation,
+  PostgresForcedTakeover,
   type BootstrapCapabilitySigner,
   type BootstrapVerificationKeySource,
   type ActiveDeviceLeaseSigner,
@@ -115,10 +118,13 @@ import {
 } from "./ports/public-session";
 import {
   createPublicBusinessRoutes,
+  DEVICE_SWITCH_REQUEST_ROUTE,
+  DEVICE_SWITCH_CANCEL_ROUTE,
   publicBoundaryRoutes,
 } from "./routes/public/boundary";
 
 export interface PublicApplicationPorts {
+  readonly forcedTakeover?: ForcedTakeoverQueryPort;
   readonly targetBootstrapInstallation?: TargetBootstrapInstallationPort;
   readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
@@ -217,6 +223,8 @@ export function createPostgresCloudPublicHttp(
     : new IdentityCapabilityTransactionRunner(accountApiPool, identityCapabilityIssuerPool);
   const authenticatedTransactions = identityTransactions ?? accountTransactions;
   const workspaces = new PostgresDefaultWorkspaceTenantResolver(authenticatedTransactions);
+  const forcedTakeover = identityTransactions === undefined ? undefined
+    : new PostgresForcedTakeover({ transactions: identityTransactions, workspaces });
   const executionEvidence = identityTransactions === undefined ? undefined : (() => {
     const authority = new PostgresExecutionEvidenceAuthority(identityTransactions, workspaces);
     const contexts = new PostgresHistoricalExecutionContext();
@@ -292,6 +300,7 @@ export function createPostgresCloudPublicHttp(
         workspaces,
       ),
       desktopAuthorization,
+      ...(forcedTakeover === undefined ? {} : { forcedTakeover }),
       ...executionEvidence,
       ...(identityTransactions === undefined ? {} : { targetBootstrapInstallation: new PostgresTargetBootstrapInstallation({
         transactions: identityTransactions, workspaces, capabilitySigner: bootstrapCapabilitySigner,
@@ -310,6 +319,7 @@ export function createPostgresCloudPublicHttp(
           const accountSecurity = new PostgresIdentityAccountSecurityStatePort();
           const requests = new PostgresDeviceSwitchRequests({ transactions: tenantTransactions, accountSecurity });
           return new PostgresDeviceSwitchApplication({
+            ...(forcedTakeover === undefined ? {} : { forced: forcedTakeover }),
             workspaces,
             authority: new PostgresDesktopSyncAuthority(accountTransactions),
             requests,
@@ -359,11 +369,15 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
   const installationRoutes = createTargetBootstrapInstallationRoutes(
     deps.ports.targetBootstrapInstallation, deps.ports.desktopRouteAuthority,
   );
-  registerTargetInstallationJsonBoundary(app, installationRoutes.map(route => route.path));
+  const forcedRoutes = createForcedTakeoverRoutes(deps.ports.forcedTakeover, deps.ports.desktopRouteAuthority);
+  registerTargetInstallationJsonBoundary(app, [
+    ...installationRoutes.map(route => route.path), ...forcedRoutes.map(route => route.path),
+    DEVICE_SWITCH_REQUEST_ROUTE, DEVICE_SWITCH_CANCEL_ROUTE,
+  ]);
   const preAuthLimiter = new InMemoryFixedWindowRateLimiter(deps.preAuthRateLimit);
   const sessionLimiter = new InMemoryFixedWindowRateLimiter(deps.sessionRateLimit);
   const desktopAccessTokens = deps.desktopAccessTokens ?? new DenyingDesktopAccessTokenVerifier();
-  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports), ...installationRoutes] as const;
+  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports), ...installationRoutes, ...forcedRoutes] as const;
 
   app.addHook("onRequest", async (request, reply) => {
     assignCorrelationId(request, reply, deps.correlationIds);

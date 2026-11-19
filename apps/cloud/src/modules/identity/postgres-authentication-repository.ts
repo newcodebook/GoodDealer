@@ -127,6 +127,7 @@ export class PostgresIdentityAuthenticationRepository {
     readonly clientKind?: "desktop" | "account_web";
     readonly deviceId: string | null;
     readonly authMethod: "password" | "passkey" | "oauth_pkce";
+    readonly forcedReauthenticationUntil?: Date | null;
     readonly rememberDevice: boolean;
     readonly accessExpiresAt: Date;
     readonly refreshExpiresAt: Date;
@@ -137,13 +138,19 @@ export class PostgresIdentityAuthenticationRepository {
         if (state === null || state.epoch !== input.expectedEpoch || state.status !== "normal") {
           return "epoch_conflict";
         }
+        const reauth = input.forcedReauthenticationUntil ?? null;
+        if (reauth !== null) {
+          if (input.authMethod !== "oauth_pkce" || input.clientKind === "account_web" || !Number.isFinite(reauth.getTime())) return "epoch_conflict";
+          const clock = await transaction.query<{live:boolean}>("SELECT clock_timestamp() < $1 AS live", [reauth]);
+          if (clock.rows[0]?.live !== true) return "epoch_conflict";
+        }
         await transaction.query(
           `INSERT INTO identity_auth_sessions
-             (account_id, session_id, client_kind, device_id, auth_method, remember_device, epoch_at_issue, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+             (account_id, session_id, client_kind, device_id, auth_method, remember_device, epoch_at_issue, expires_at, forced_reauth_until)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [input.accountId, input.sessionId, input.clientKind ?? "desktop", input.deviceId,
             input.authMethod, input.rememberDevice, input.expectedEpoch,
-            (input.clientKind ?? "desktop") === "account_web" ? input.refreshExpiresAt : null],
+            (input.clientKind ?? "desktop") === "account_web" ? input.refreshExpiresAt : null, reauth],
         );
         await transaction.query(
           `INSERT INTO identity_refresh_families
@@ -159,9 +166,14 @@ export class PostgresIdentityAuthenticationRepository {
            WHERE account_id = $1`,
           [input.accountId],
         );
+        if (reauth !== null) {
+          const final = await transaction.query<{live:boolean}>("SELECT clock_timestamp()<$1 AS live",[reauth]);
+          if (final.rows[0]?.live !== true) throw new ForcedReauthenticationExpired();
+        }
         return "issued";
       });
     } catch (error) {
+      if (error instanceof ForcedReauthenticationExpired) return "epoch_conflict";
       if (isUniqueViolation(error)) return "credential_jti_conflict";
       throw error;
     }
@@ -454,3 +466,5 @@ function parsePositiveInteger(value: string): number {
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
+
+class ForcedReauthenticationExpired extends Error {}

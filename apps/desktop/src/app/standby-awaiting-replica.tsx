@@ -1,4 +1,4 @@
-import type { TargetBootstrapPort, TargetInstallationPort } from "../adapters/tauri";
+import type { TargetBootstrapPort, TargetInstallationPort, ForcedTakeoverPort } from "../adapters/tauri";
 import type { DeviceDirectorySettingsPort } from "@gooddealer/client-core";
 import { getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Button } from "@gooddealer/ui";
@@ -12,6 +12,7 @@ interface AwaitingReplicaProps {
   readonly port: DeviceDirectorySettingsPort;
   readonly bootstrapPort?: TargetBootstrapPort;
   readonly installationPort?: TargetInstallationPort;
+  readonly forcedTakeoverPort?: ForcedTakeoverPort;
   readonly onRefreshAuthorization: () => void;
 }
 
@@ -23,7 +24,7 @@ export function StandbyAwaitingReplica(props: AwaitingReplicaProps) {
 export function TargetInstallationPending(props: AwaitingReplicaProps) {
   return <AwaitingReplica {...props} installationPending />;
 }
-function AwaitingReplica({ locale, windowFrame, port, bootstrapPort, installationPort, onRefreshAuthorization, installationPending }: AwaitingReplicaProps & { readonly installationPending: boolean }) {
+function AwaitingReplica({ locale, windowFrame, port, bootstrapPort, installationPort, forcedTakeoverPort, onRefreshAuthorization, installationPending }: AwaitingReplicaProps & { readonly installationPending: boolean }) {
   const copy = getPresentationCopy(locale, "shell");
   const title = installationPending ? copy.installationPendingTitle : copy.standbyAwaitingTitle;
   const description = installationPending ? copy.installationPendingDescription : copy.standbyAwaitingDescription;
@@ -34,7 +35,7 @@ function AwaitingReplica({ locale, windowFrame, port, bootstrapPort, installatio
           <h1 className="runtime-status-title">{title}</h1>
           <p className="gd-t-body-2">{description}</p>
           <Button onClick={onRefreshAuthorization}>{copy.refreshAuthorization}</Button>
-          <DeviceDirectoryPanel locale={locale} port={port} {...(bootstrapPort === undefined ? {} : { bootstrapPort })} {...(installationPort === undefined ? {} : { installationPort })} readOnly />
+          <DeviceDirectoryPanel locale={locale} port={port} {...(bootstrapPort === undefined ? {} : { bootstrapPort })} {...(installationPort === undefined ? {} : { installationPort })} {...(forcedTakeoverPort === undefined ? {} : { forcedTakeoverPort })} readOnly />
         </div>
       </main>
     </NativeWindow>

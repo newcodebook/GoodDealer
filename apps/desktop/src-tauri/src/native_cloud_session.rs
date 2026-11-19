@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use gooddealer_local_storage::{
     DesktopExecutionContextError, DesktopExecutionContextRequest, DesktopExecutionEvidenceStream,
-    DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
-    DesktopNativeCloudAdmission,
+    DesktopForcedTakeoverExchangeKind, DesktopHostAuthorizationStatus, DesktopLocalHost,
+    DesktopLocalHostError, DesktopNativeCloudAdmission,
 };
 use gooddealer_secure_host_core::{
     DesktopAccessToken, DesktopAuthorizationCodeExchange, DesktopRefreshRequestId,
@@ -203,6 +203,12 @@ enum DataPlaneRoute {
     BootstrapCheckpoint,
     BootstrapActivate,
     BootstrapReceipt,
+    ForcedPreview,
+    ForcedRequest,
+    ForcedResolve,
+    ForcedStatus,
+    ForcedCancel,
+    ForcedCancelIntent,
 }
 
 impl DataPlaneRoute {
@@ -224,6 +230,12 @@ impl DataPlaneRoute {
                 | Self::BootstrapCheckpoint
                 | Self::BootstrapActivate
                 | Self::BootstrapReceipt
+                | Self::ForcedPreview
+                | Self::ForcedRequest
+                | Self::ForcedResolve
+                | Self::ForcedStatus
+                | Self::ForcedCancel
+                | Self::ForcedCancelIntent
         )
     }
 
@@ -248,12 +260,21 @@ impl DataPlaneRoute {
             // receipt survived locally. This admission cannot download, activate or sync.
             return if matches!(
                 self,
-                Self::BootstrapReceipt | Self::BootstrapStatus | Self::BootstrapCancel
+                Self::BootstrapReceipt
+                    | Self::BootstrapStatus
+                    | Self::BootstrapCancel
+                    | Self::ForcedStatus
+                    | Self::ForcedResolve
+                    | Self::ForcedCancel
+                    | Self::ForcedCancelIntent
             ) {
                 Ok(())
             } else {
                 Err(NativeCloudRequestError::AuthorityStale)
             };
+        }
+        if active && matches!(self, Self::ForcedPreview | Self::ForcedRequest) {
+            return Err(NativeCloudRequestError::AuthorityStale);
         }
         if active || self.allows_standby() {
             Ok(())
@@ -273,10 +294,10 @@ impl DataPlaneRoute {
             Self::SyncReceipts => SYNC_RECEIPTS_PATH,
             Self::DeviceList => "/v1/devices/list",
             Self::DeviceSelfReport => "/v1/devices/self",
-            Self::DeviceSwitchRequest => DEVICE_SWITCH_REQUEST_PATH,
+            Self::DeviceSwitchRequest | Self::ForcedRequest => DEVICE_SWITCH_REQUEST_PATH,
             Self::DeviceSwitchResolve => DEVICE_SWITCH_RESOLVE_PATH,
             Self::DeviceSwitchStatus => DEVICE_SWITCH_STATUS_PATH,
-            Self::DeviceSwitchCancel => DEVICE_SWITCH_CANCEL_PATH,
+            Self::DeviceSwitchCancel | Self::ForcedCancel => DEVICE_SWITCH_CANCEL_PATH,
             Self::DeviceSwitchDrain => DEVICE_SWITCH_DRAIN_PATH,
             Self::BootstrapStatus => BOOTSTRAP_STATUS_PATH,
             Self::BootstrapCancel => BOOTSTRAP_CANCEL_PATH,
@@ -285,6 +306,10 @@ impl DataPlaneRoute {
             Self::BootstrapCheckpoint => BOOTSTRAP_CHECKPOINT_PATH,
             Self::BootstrapActivate => BOOTSTRAP_ACTIVATE_PATH,
             Self::BootstrapReceipt => BOOTSTRAP_RECEIPT_PATH,
+            Self::ForcedPreview => "/v1/device-switch/forced/preview",
+            Self::ForcedResolve => "/v1/device-switch/forced/resolve",
+            Self::ForcedStatus => "/v1/device-switch/forced/status",
+            Self::ForcedCancelIntent => "/v1/device-switch/forced/cancel-intent",
         }
     }
 }
@@ -634,7 +659,7 @@ impl NativeCloudSession {
     pub(crate) async fn exchange_authorization_code(
         &self,
         exchange: DesktopAuthorizationCodeExchange,
-    ) -> Result<(), NativeOAuthError> {
+    ) -> Result<u64, NativeOAuthError> {
         let expected_instance = self
             .state
             .lock()
@@ -669,8 +694,8 @@ impl NativeCloudSession {
         credentials: PreparedCredentials,
         authorization_result: Result<(), NativeOAuthError>,
         expected_instance: u64,
-    ) -> Result<(), NativeOAuthError> {
-        self.with_authorization_session(expected_instance, |state| {
+    ) -> Result<u64, NativeOAuthError> {
+        let published_instance = self.with_authorization_session(expected_instance, |state| {
             if let Err(error) = authorization_result {
                 self.mark_authorization_failed_locked(
                     state,
@@ -693,10 +718,11 @@ impl NativeCloudSession {
                 )?;
                 return Err(NativeOAuthError::CredentialRejected);
             }
-            install_access(state, credentials.access, false)
+            install_access(state, credentials.access, false)?;
+            Ok(state.credential_instance)
         })?;
         self.notify_successful_publication();
-        Ok(())
+        Ok(published_instance)
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>) -> Result<(), NativeOAuthError> {
@@ -1121,6 +1147,49 @@ impl NativeCloudSession {
             response_limit,
         )
         .await
+    }
+
+    /// One fixed forced-control exchange. Mutation errors never refresh or replay here: the
+    /// Host first resolves the exact persisted intent on the next background pass.
+    pub(crate) async fn send_forced_takeover(
+        &self,
+        admission: DesktopNativeCloudAdmission,
+        kind: DesktopForcedTakeoverExchangeKind,
+        request_body: Zeroizing<Vec<u8>>,
+        expected_credential_instance: u64,
+    ) -> Result<(DesktopNativeCloudAdmission, Zeroizing<Vec<u8>>, u64), NativeCloudRequestError>
+    {
+        if request_body.is_empty() || request_body.len() > 2 * 1024 {
+            return Err(NativeCloudRequestError::ConfigurationBlocked);
+        }
+        let route = match kind {
+            DesktopForcedTakeoverExchangeKind::Preview => DataPlaneRoute::ForcedPreview,
+            DesktopForcedTakeoverExchangeKind::Request => DataPlaneRoute::ForcedRequest,
+            DesktopForcedTakeoverExchangeKind::Resolve => DataPlaneRoute::ForcedResolve,
+            DesktopForcedTakeoverExchangeKind::Status => DataPlaneRoute::ForcedStatus,
+            DesktopForcedTakeoverExchangeKind::Cancel => DataPlaneRoute::ForcedCancel,
+            DesktopForcedTakeoverExchangeKind::CancelIntent => DataPlaneRoute::ForcedCancelIntent,
+        };
+        match self
+            .send_data_plane_attempt(
+                admission,
+                &request_body,
+                route,
+                16 * 1024,
+                Some(expected_credential_instance),
+            )
+            .await
+        {
+            Ok(response) => Ok((
+                response.admission,
+                response.body,
+                response.credential_instance,
+            )),
+            Err(DataPlaneAttemptError::Request(error)) => Err(error),
+            Err(DataPlaneAttemptError::AuthorizationRejected(credential)) => {
+                Err(self.invalidate_for_authorization(credential.credential_instance))
+            }
+        }
     }
 
     /// A target may terminate its bootstrap without a business replica or Active authority.
@@ -2483,11 +2552,88 @@ mod tests {
             events: Arc::clone(&events),
             reject_store: false,
         });
-        session
+        let published = session
             .complete_authorization_code_exchange(prepared_credentials(), Ok(()), 0)
             .unwrap();
         assert_eq!(*events.lock().unwrap(), vec!["store"]);
         assert!(session.state.lock().unwrap().access.is_some());
+        assert_eq!(published, session.state.lock().unwrap().credential_instance);
+        assert_ne!(published, 0);
+        assert!(
+            session
+                .with_target_bootstrap_session(Some(published), || Ok(()))
+                .is_ok()
+        );
+        session.invalidate_for_authorization(published);
+        assert!(
+            session
+                .with_target_bootstrap_session(Some(published), || Ok(()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn forced_target_routes_do_not_open_normal_source_mutations() {
+        for route in [DataPlaneRoute::ForcedPreview, DataPlaneRoute::ForcedRequest] {
+            assert!(route.require_role(false, false).is_ok());
+            assert!(route.require_role(true, false).is_err());
+            assert!(route.require_role(false, true).is_err());
+            assert!(route.require_role(true, true).is_err());
+        }
+        for route in [
+            DataPlaneRoute::ForcedStatus,
+            DataPlaneRoute::ForcedResolve,
+            DataPlaneRoute::ForcedCancel,
+            DataPlaneRoute::ForcedCancelIntent,
+        ] {
+            assert!(route.require_role(false, false).is_ok());
+            assert!(route.require_role(true, true).is_ok());
+        }
+        for route in [
+            DataPlaneRoute::DeviceSwitchRequest,
+            DataPlaneRoute::DeviceSwitchCancel,
+            DataPlaneRoute::DeviceSwitchDrain,
+        ] {
+            assert!(route.require_role(false, false).is_err());
+            assert!(route.require_role(true, true).is_err());
+        }
+        assert_eq!(
+            DataPlaneRoute::ForcedPreview.path(),
+            "/v1/device-switch/forced/preview"
+        );
+        assert_eq!(
+            DataPlaneRoute::ForcedResolve.path(),
+            "/v1/device-switch/forced/resolve"
+        );
+        assert_eq!(
+            DataPlaneRoute::ForcedStatus.path(),
+            "/v1/device-switch/forced/status"
+        );
+        assert_eq!(
+            DataPlaneRoute::ForcedRequest.path(),
+            DEVICE_SWITCH_REQUEST_PATH
+        );
+        assert_eq!(
+            DataPlaneRoute::ForcedCancel.path(),
+            DEVICE_SWITCH_CANCEL_PATH
+        );
+        assert_eq!(
+            DataPlaneRoute::ForcedCancelIntent.path(),
+            "/v1/device-switch/forced/cancel-intent"
+        );
+        let source = include_str!("native_cloud_session.rs");
+        let start = source
+            .find("    pub(crate) async fn send_forced_takeover(")
+            .unwrap();
+        let end = start
+            + source[start..]
+                .find("    pub(crate) async fn send_bootstrap_termination(")
+                .unwrap();
+        let method = &source[start..end];
+        assert_eq!(method.matches(".send_data_plane_attempt(").count(), 1);
+        assert!(!method.contains("refresh_for_source("));
+        assert!(!method.contains(".send_data_plane("));
+        assert!(method.contains("Some(expected_credential_instance)"));
     }
 
     #[test]

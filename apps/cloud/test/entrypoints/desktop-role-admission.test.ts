@@ -4,6 +4,7 @@ import { boundaryEmptyRequestSchema, publicBoundaryIdentityResponseSchema } from
 import { PUBLIC_SURFACE, registerPublicRoutes, setRoutePrincipal } from "../../src/entrypoints/adapter/surface";
 import { assignCorrelationId } from "../../src/entrypoints/adapter/correlation";
 import { createPublicBusinessRoutes } from "../../src/entrypoints/routes/public/boundary";
+import { createForcedTakeoverRoutes } from "../../src/entrypoints/routes/public/forced-takeover";
 import { createTargetBootstrapInstallationRoutes } from "../../src/entrypoints/routes/public/target-installation";
 import { denyingPublicApplicationPorts } from "../support/public-session";
 
@@ -23,7 +24,7 @@ describe("Desktop route roles", () => {
     }), ...createTargetBootstrapInstallationRoutes(
       { claim: unused, step: unused, checkpoint: unused, activate: unused, receipt: unused },
       denyingPublicApplicationPorts.desktopRouteAuthority,
-    )].filter((route) => route.authorize(principal));
+    ), ...createForcedTakeoverRoutes({ preview: unused, status: unused, resolve: unused, cancelIntent: unused }, denyingPublicApplicationPorts.desktopRouteAuthority)].filter((route) => route.authorize(principal));
     expect(routes.map(({ path, deviceRole }) => [path, deviceRole]).sort()).toEqual([
       ["/v1/devices/authorization-grant", "active_or_standby"],
       ["/v1/workspace-sync/mutations/push", "active"],
@@ -32,6 +33,7 @@ describe("Desktop route roles", () => {
       ["/v1/workspace-sync/rebootstrap", "active_or_standby"],
       ["/v1/workspace-sync/mutations/receipts", "active"],
       ["/v1/workspace-observations/cloudflare-dns", "active"],
+      ...["preview", "status", "resolve", "cancel-intent"].map(method => [`/v1/device-switch/forced/${method}`, "active_or_standby"]),
       ["/v1/device-switch/requests", "active_or_standby"],
       ["/v1/device-switch/bootstrap/status", "bound_device"],
       ["/v1/device-switch/bootstrap/claim", "active_or_standby"],

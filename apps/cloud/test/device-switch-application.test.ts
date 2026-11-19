@@ -41,10 +41,10 @@ describe("device switch application (ADR-0032 S1b)", () => {
     expect(requests.cancel).toHaveBeenCalledWith(subject, "switch-1");
   });
 
-  it("refuses forced takeover as unavailable while no target device can hold a session", async () => {
+  it("refuses forced takeover when its target-owned service is not composed", async () => {
     const { application, requests } = fixture();
     await expect(application.request({
-      schemaVersion: 2, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1", reauthProofId: "reauth-1",
+      schemaVersion: 2, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1", expectedSourceLeaseEpoch: 1,
     }, principal)).resolves.toEqual({ schemaVersion: 1, accepted: false, code: "FORCED_SWITCH_UNAVAILABLE" });
     expect(requests.requestNormal).not.toHaveBeenCalled();
   });

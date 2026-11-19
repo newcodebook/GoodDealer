@@ -89,7 +89,7 @@ const invalidCases = [
   ["switch-completed-with-bootstrap-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-earliest-takeover-before-request.json", deviceSwitchRequestViewSchema],
   ["switch-normal-with-reauth-proof.json", deviceSwitchRequestSchema],
-  ["switch-forced-without-reauth-proof.json", deviceSwitchRequestSchema],
+  ["switch-forced-without-source-epoch.json", deviceSwitchRequestSchema],
 ] as const;
 
 describe("device management contracts", () => {

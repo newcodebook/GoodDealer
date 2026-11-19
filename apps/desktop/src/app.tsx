@@ -9,6 +9,7 @@ import {
   createDeviceSwitchPort,
   createTargetBootstrapPort,
   createTargetInstallationPort,
+  createForcedTakeoverPort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
   createLocalBatchOperationsPort,
@@ -48,10 +49,12 @@ import "./app.css";
 const deviceDirectory = createDeviceDirectoryPort();
 const targetBootstrap = createTargetBootstrapPort();
 const targetInstallation = createTargetInstallationPort();
+const forcedTakeover = createForcedTakeoverPort();
 const workspacePorts: AuthoritativeWorkspacePorts = {
   devices: deviceDirectory,
   targetBootstrap,
   targetInstallation,
+  forcedTakeover,
   deviceSwitch: createDeviceSwitchPort(),
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
@@ -249,9 +252,9 @@ export function App() {
           />
         );
       case "target_installation_pending":
-        return <TargetInstallationPending locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} onRefreshAuthorization={refreshAuthorization} />;
+        return <TargetInstallationPending locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} forcedTakeoverPort={forcedTakeover} onRefreshAuthorization={refreshAuthorization} />;
       case "standby_awaiting_replica":
-        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} onRefreshAuthorization={refreshAuthorization} />;
+        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} forcedTakeoverPort={forcedTakeover} onRefreshAuthorization={refreshAuthorization} />;
       case "workspace":
         if (onboarding.state === "offered" && workspace !== null) {
           return (

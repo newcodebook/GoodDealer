@@ -290,3 +290,9 @@ pub use desktop_local_host::target_bootstrap::{
     DesktopTargetBootstrapStatusOutcome, DesktopTargetBootstrapTerminalStatus,
     DesktopTargetBootstrapView,
 };
+
+pub use desktop_local_host::forced_takeover::{
+    DesktopForcedTakeoverExchange, DesktopForcedTakeoverExchangeKind, DesktopForcedTakeoverPreview,
+    DesktopForcedTakeoverPreviewReason, DesktopForcedTakeoverStoppedReason,
+    DesktopForcedTakeoverView, DesktopForcedTakeoverWork,
+};

@@ -48,6 +48,13 @@ pub(super) fn decode_journal(bytes: &[u8]) -> Result<Journal, Error> {
             value.set("view", view)?;
         }
     }
+    if value.get("schemaVersion")?.number()? == 2 {
+        if value.get("origin").is_ok() {
+            return Err(rejected());
+        }
+        value.set("origin", Value::Null)?;
+        value.set("schemaVersion", Value::Number(3))?;
+    }
     let journal: Journal = serde_json::from_slice(&value.bytes()?).map_err(|_| rejected())?;
     journal.validate()?;
     Ok(journal)
@@ -88,6 +95,16 @@ fn terminal(journal: &Journal) -> Result<Option<DesktopTargetBootstrapTerminalSt
     let Some(evidence) = &journal.terminal_evidence else {
         return Ok(None);
     };
+    if evidence.get("kind")?.equals_text("forced_control") {
+        evidence.shape(&["kind", "record"], &[])?;
+        let origin = journal.origin.as_ref().ok_or_else(rejected)?;
+        return super::super::forced_takeover::validate_terminal_record(
+            &evidence.get("record")?.bytes()?,
+            origin,
+            journal.security_epoch,
+        )
+        .map(Some);
+    }
     let view = if evidence.get("kind")?.equals_text("target_control") {
         evidence.shape(&["kind", "record"], &[])?;
         let record = evidence.get("record")?;
@@ -121,6 +138,15 @@ fn control_evidence(
     custody: &DesktopProductionCustody,
     journal: &Journal,
 ) -> Result<Option<Value>, Error> {
+    if let Some(origin) = &journal.origin
+        && let Some(bytes) =
+            super::super::forced_takeover::terminal_record(custody, origin, journal.security_epoch)?
+    {
+        return Ok(Some(Value::object([
+            ("kind", Value::string("forced_control")),
+            ("record", wire::parse(&bytes, 65_536)?),
+        ])));
+    }
     super::super::target_bootstrap::installation_terminal_record(custody, &journal.request_id)?
         .map(|bytes| {
             Ok(Value::object([
@@ -202,6 +228,7 @@ pub(super) fn view(
 pub(super) fn validate_history(state: &InitialReplicaState) -> Result<(), Error> {
     for history in &state.history {
         let journal = decode_journal(&history.bytes)?;
+        validate_terminal_scope(&journal, &history.scope)?;
         if journal.request_id != history.scope.workflow
             || journal.write_state != WriteState::NotStarted
             || !matches!(journal.view, DesktopTargetInstallationView::Stopped { .. })
@@ -220,7 +247,7 @@ pub(super) fn validate_history(state: &InitialReplicaState) -> Result<(), Error>
 }
 
 impl DesktopLocalHost {
-    pub(super) fn reconcile_installation_terminal(
+    pub(in crate::desktop_local_host) fn reconcile_installation_terminal(
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<(), Error> {
@@ -268,10 +295,7 @@ impl DesktopLocalHost {
                     &journal.request_id,
                 )?
                 .is_some()
-                || super::super::target_bootstrap::installation_cancel_pending(
-                    custody,
-                    &journal.request_id,
-                )?
+                || super::installation_cancel_pending(custody, &journal)?
             {
                 return Err(rejected());
             }
@@ -305,5 +329,23 @@ pub(super) fn reconciliation_request(
     if control_evidence(custody, &journal)?.is_some() {
         return Ok(None);
     }
+    if journal.origin.is_some() && journal.claim.is_none() {
+        return Ok(None);
+    }
     Ok(Some(journal.request_id))
+}
+
+pub(super) fn validate_terminal_scope(
+    journal: &Journal,
+    scope: &crate::desktop_custody::InitialReplicaScope,
+) -> Result<(), Error> {
+    if let Some(evidence) = &journal.terminal_evidence
+        && evidence.get("kind")?.equals_text("forced_control")
+    {
+        super::super::forced_takeover::validate_terminal_scope(
+            &evidence.get("record")?.bytes()?,
+            scope,
+        )?;
+    }
+    Ok(())
 }

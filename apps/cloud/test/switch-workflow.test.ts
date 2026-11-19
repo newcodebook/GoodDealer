@@ -256,7 +256,7 @@ describe("DevicesFixtureService control-plane guards", () => {
   });
 
   it("preserves forced reauthentication order and blocks a normal request with no Active during isolation", () => {
-    const forced = { schemaVersion: 2 as const, mode: "forced" as const, toDeviceId: "device-b", idempotencyKey: "forced-key", reauthProofId: "proof" };
+    const forced = { schemaVersion: 2 as const, mode: "forced" as const, toDeviceId: "device-b", idempotencyKey: "forced-key", expectedSourceLeaseEpoch: 1 };
     rejection(new DevicesFixtureService({ seedBindings: [binding("device-b", "standby")] }).requestSwitch(forced), "REAUTHENTICATION_REQUIRED");
     rejection(new DevicesFixtureService({
       seedBindings: [binding("device-b", "standby")],
@@ -319,7 +319,7 @@ describe("DevicesFixtureService control-plane guards", () => {
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-key",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     }));
     expect(waiting.status).toBe("waiting_expiry");
     rejection(service.claimTakeover(waiting.requestId), "EXCLUSIVE_EXECUTION_BLOCKED");
@@ -355,7 +355,7 @@ describe("DevicesFixtureService control-plane guards", () => {
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-key",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     }));
     now = new Date("2026-01-02T01:00:00Z");
     expect(service.expireSwitch(waiting.requestId)?.status).toBe("failed");
@@ -364,7 +364,7 @@ describe("DevicesFixtureService control-plane guards", () => {
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-after-expiry",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     })).status).toBe("waiting_expiry");
   });
 

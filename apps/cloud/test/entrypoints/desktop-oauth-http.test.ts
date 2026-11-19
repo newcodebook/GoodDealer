@@ -17,6 +17,38 @@ const now = new Date("2026-09-01T00:00:00Z");
 const rateLimit = { windowMs: 60_000, burst: 100, identityHeaderNames: [] } as const;
 
 describe("Desktop OAuth HTTP boundary", () => {
+  it("requests fresh authentication on both authorize legs and returns only the validated continuation", async () => {
+    const authorize = vi.fn(async () => ({ authorized: false as const, reauthRequired: true as const }));
+    const app = createApp({ authorize });
+    const query = new URLSearchParams({
+      response_type: "code", client_id: DESKTOP_OAUTH_CLIENT_ID, redirect_uri: LOOPBACK_REDIRECT_URI,
+      code_challenge: "A".repeat(43), code_challenge_method: "S256", device_id: "device-a",
+      key_id: "device-key-a", public_key: "P".repeat(43), state: "S".repeat(32), require_reauth: "true",
+    });
+    for (const proof of [false, true]) {
+      if (proof) { query.set("challenge_id", "challenge-a"); query.set("device_signature", "signature"); }
+      const url = `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?${query}`;
+      const response = await app.inject({ method: "GET", url, headers: { cookie: "gd_session=web-session" } });
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe(`/?continue=${encodeURIComponent(url)}&reauth=required`);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ requireReauthentication: true }));
+    }
+    authorize.mockClear();
+    for (const suffix of ["&require_reauth=false", "&require_reauth=true", "&unknown=1"]) {
+      const response = await app.inject({
+        method: "GET", url: `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?${query}${suffix}`,
+        headers: { cookie: "gd_session=web-session" },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.headers.location).toBeUndefined();
+    }
+    query.set("require_reauth", "false");
+    expect((await app.inject({ method: "GET", url: `${DESKTOP_OAUTH_AUTHORIZE_ROUTE}?${query}` })).statusCode).toBe(400);
+    expect(authorize).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it("authenticates authorization with the Account Web cookie and preserves state", async () => {
     const authorize = vi.fn(async () => ({ authorized: true as const, code: "gd_ac1.account.code" }));
     const app = createApp({ authorize });

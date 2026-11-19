@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-forced-takeover-vectors.ts",
+  "fixtureOnly": true,
+  "request": {
+    "schemaVersion": 2,
+    "mode": "forced",
+    "toDeviceId": "installation-target",
+    "idempotencyKey": "forced-original-intent",
+    "expectedSourceLeaseEpoch": 1
+  },
+  "cancelIntentRequest": {
+    "schemaVersion": 1,
+    "originalRequest": {
+      "schemaVersion": 2,
+      "mode": "forced",
+      "toDeviceId": "installation-target",
+      "idempotencyKey": "forced-original-intent",
+      "expectedSourceLeaseEpoch": 1
+    }
+  },
+  "cancelledBeforeRequest": {
+    "schemaVersion": 1,
+    "outcome": "cancelled_before_request",
+    "originalRequest": {
+      "schemaVersion": 2,
+      "mode": "forced",
+      "toDeviceId": "installation-target",
+      "idempotencyKey": "forced-original-intent",
+      "expectedSourceLeaseEpoch": 1
+    }
+  },
+  "cancelledWorkflow": {
+    "schemaVersion": 1,
+    "outcome": "workflow",
+    "originalRequest": {
+      "schemaVersion": 2,
+      "mode": "forced",
+      "toDeviceId": "installation-target",
+      "idempotencyKey": "forced-original-intent",
+      "expectedSourceLeaseEpoch": 1
+    },
+    "workflow": {
+      "request": {
+        "schemaVersion": 2,
+        "requestId": "installation-workflow",
+        "mode": "forced",
+        "status": "cancelled",
+        "fromDeviceId": "installation-source",
+        "toDeviceId": "installation-target",
+        "requestedAt": "2029-12-31T00:00:00Z",
+        "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+        "bootstrapExpiresAt": null,
+        "normalHandoffReceipt": null
+      },
+      "workflowRevision": 1,
+      "sourceLeaseEpoch": 1,
+      "evaluatedAt": "2029-12-31T12:00:00Z",
+      "claimable": false
+    }
+  },
+  "previewRequest": {
+    "schemaVersion": 1
+  },
+  "previewResponse": {
+    "schemaVersion": 1,
+    "available": true,
+    "sourceDeviceId": "installation-source",
+    "sourceLeaseEpoch": 1,
+    "toDeviceId": "installation-target",
+    "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+    "evaluatedAt": "2029-12-31T00:00:00Z"
+  },
+  "requestResponse": {
+    "schemaVersion": 1,
+    "accepted": true,
+    "request": {
+      "schemaVersion": 2,
+      "requestId": "installation-workflow",
+      "mode": "forced",
+      "status": "waiting_expiry",
+      "fromDeviceId": "installation-source",
+      "toDeviceId": "installation-target",
+      "requestedAt": "2029-12-31T00:00:00Z",
+      "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+      "bootstrapExpiresAt": null,
+      "normalHandoffReceipt": null
+    }
+  },
+  "statusRequest": {
+    "schemaVersion": 1,
+    "requestId": "installation-workflow"
+  },
+  "statusResponse": {
+    "schemaVersion": 1,
+    "found": true,
+    "workflow": {
+      "request": {
+        "schemaVersion": 2,
+        "requestId": "installation-workflow",
+        "mode": "forced",
+        "status": "waiting_expiry",
+        "fromDeviceId": "installation-source",
+        "toDeviceId": "installation-target",
+        "requestedAt": "2029-12-31T00:00:00Z",
+        "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+        "bootstrapExpiresAt": null,
+        "normalHandoffReceipt": null
+      },
+      "workflowRevision": 1,
+      "sourceLeaseEpoch": 1,
+      "evaluatedAt": "2029-12-31T12:00:00Z",
+      "claimable": false
+    }
+  },
+  "claimableResponse": {
+    "schemaVersion": 1,
+    "found": true,
+    "workflow": {
+      "request": {
+        "schemaVersion": 2,
+        "requestId": "installation-workflow",
+        "mode": "forced",
+        "status": "waiting_expiry",
+        "fromDeviceId": "installation-source",
+        "toDeviceId": "installation-target",
+        "requestedAt": "2029-12-31T00:00:00Z",
+        "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+        "bootstrapExpiresAt": null,
+        "normalHandoffReceipt": null
+      },
+      "workflowRevision": 1,
+      "sourceLeaseEpoch": 1,
+      "evaluatedAt": "2030-01-01T00:00:00Z",
+      "claimable": true
+    }
+  },
+  "resolveRequest": {
+    "schemaVersion": 1,
+    "idempotencyKey": "forced-original-intent"
+  },
+  "resolveResponse": {
+    "schemaVersion": 1,
+    "found": true,
+    "idempotencyKey": "forced-original-intent",
+    "originalRequest": {
+      "schemaVersion": 2,
+      "mode": "forced",
+      "toDeviceId": "installation-target",
+      "idempotencyKey": "forced-original-intent",
+      "expectedSourceLeaseEpoch": 1
+    },
+    "workflow": {
+      "request": {
+        "schemaVersion": 2,
+        "requestId": "installation-workflow",
+        "mode": "forced",
+        "status": "waiting_expiry",
+        "fromDeviceId": "installation-source",
+        "toDeviceId": "installation-target",
+        "requestedAt": "2029-12-31T00:00:00Z",
+        "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+        "bootstrapExpiresAt": null,
+        "normalHandoffReceipt": null
+      },
+      "workflowRevision": 1,
+      "sourceLeaseEpoch": 1,
+      "evaluatedAt": "2029-12-31T12:00:00Z",
+      "claimable": false
+    }
+  },
+  "cancelRequest": {
+    "schemaVersion": 1,
+    "requestId": "installation-workflow"
+  },
+  "cancelResponse": {
+    "schemaVersion": 1,
+    "accepted": true,
+    "request": {
+      "schemaVersion": 2,
+      "requestId": "installation-workflow",
+      "mode": "forced",
+      "status": "cancelled",
+      "fromDeviceId": "installation-source",
+      "toDeviceId": "installation-target",
+      "requestedAt": "2029-12-31T00:00:00Z",
+      "earliestTakeoverAt": "2030-01-01T00:00:00Z",
+      "bootstrapExpiresAt": null,
+      "normalHandoffReceipt": null
+    }
+  },
+  "claimNotReady": {
+    "schemaVersion": 1,
+    "accepted": false,
+    "code": "TAKEOVER_NOT_READY"
+  },
+  "waitingClaimReceipt": {
+    "schemaVersion": 1,
+    "outcome": "uncommitted",
+    "workflow": {
+      "requestId": "installation-workflow",
+      "workflowRevision": 1,
+      "status": "waiting_expiry"
+    },
+    "operation": {
+      "kind": "claim"
+    },
+    "nextStep": null
+  },
+  "cancelledClaimReceipt": {
+    "schemaVersion": 1,
+    "outcome": "terminal",
+    "workflow": {
+      "requestId": "installation-workflow",
+      "workflowRevision": 2,
+      "status": "cancelled"
+    },
+    "operation": {
+      "kind": "claim"
+    }
+  }
+}

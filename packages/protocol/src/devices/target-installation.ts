@@ -16,6 +16,10 @@ export const deviceBootstrapRejectionSchema = z.object({
   schemaVersion: z.literal(1), accepted: z.literal(false),
   code: z.enum(["CAPABILITY_INVALID", "BOOTSTRAP_CONFLICT", "BOOTSTRAP_EXPIRED", "CHECKPOINT_UNAVAILABLE", "ENTITLEMENT_INACTIVE", "SIGNING_UNAVAILABLE"]),
 }).strict();
+// Waiting takeover has no bootstrap capability yet; only claim can observe this state.
+const deviceBootstrapClaimRejectionSchema = deviceBootstrapRejectionSchema.extend({
+  code: z.enum([...deviceBootstrapRejectionSchema.shape.code.options, "TAKEOVER_NOT_READY"]),
+});
 const lookup = { schemaVersion: z.literal(1), requestId: identifier };
 const stepKindSchema = z.enum(["pin_checkpoint", "fetch_mutations", "submit_rebuild_digest"]);
 export const deviceBootstrapClaimRequestSchema = z.object(lookup).strict();
@@ -27,7 +31,7 @@ export const deviceBootstrapClaimSchema = z.object({
   if (claim.requestId !== claim.capability.payload.deviceSwitchRequestId) context.addIssue({code:"custom",message:"claim capability must name the same workflow"});
 });
 export const deviceBootstrapClaimResponseSchema = z.discriminatedUnion("accepted", [
-  z.object({schemaVersion:z.literal(1),accepted:z.literal(true),claim:deviceBootstrapClaimSchema}).strict(), deviceBootstrapRejectionSchema,
+  z.object({schemaVersion:z.literal(1),accepted:z.literal(true),claim:deviceBootstrapClaimSchema}).strict(), deviceBootstrapClaimRejectionSchema,
 ]);
 export const deviceBootstrapStepRequestSchema = z.object({schemaVersion:z.literal(1),capability:bootstrapCapabilityEnvelopeSchema,step:bootstrapStepRequestSchema}).strict().superRefine((value,context)=>{
   if(value.capability.jti!==value.step.capabilityJti||value.capability.payload.deviceSwitchRequestId!==value.step.deviceSwitchRequestId)context.addIssue({code:"custom",message:"step capability binding is inconsistent"});
@@ -105,9 +109,13 @@ export const deviceBootstrapReceiptResponseSchema=z.discriminatedUnion("outcome"
   z.object({schemaVersion:z.literal(1),outcome:z.literal("not_found")}).strict(),
   z.object({schemaVersion:z.literal(1),outcome:z.literal("conflict")}).strict(),
   z.object({schemaVersion:z.literal(1),outcome:z.literal("committed"),workflow:workflowSchema,operation:committedOperationSchema}).strict(),
-  z.object({schemaVersion:z.literal(1),outcome:z.literal("uncommitted"),workflow:z.object({...workflowFields,status:z.literal("bootstrapping")}).strict(),operation:deviceBootstrapReceiptOperationSchema,nextStep:z.object({stepNumber:safePositiveInteger,stepKind:stepKindSchema}).strict().nullable()}).strict(),
+  z.object({schemaVersion:z.literal(1),outcome:z.literal("uncommitted"),workflow:z.object({...workflowFields,status:z.enum(["bootstrapping","waiting_expiry"])}).strict(),operation:deviceBootstrapReceiptOperationSchema,nextStep:z.object({stepNumber:safePositiveInteger,stepKind:stepKindSchema}).strict().nullable()}).strict(),
   z.object({schemaVersion:z.literal(1),outcome:z.literal("terminal"),workflow:z.object({...workflowFields,status:z.enum(["completed","cancelled","failed"])}).strict(),operation:deviceBootstrapReceiptOperationSchema}).strict(),
 ]).superRefine((value,context)=>{
+  if(value.outcome === "uncommitted" && value.workflow.status === "waiting_expiry"
+    && (value.operation.kind !== "claim" || value.nextStep !== null)) {
+    context.addIssue({code:"custom",message:"waiting receipt permits only an uncommitted claim"});
+  }
   if(value.outcome!=="committed")return;
   const operation=value.operation;
   const consistent=operation.kind==="claim" ? operation.claim.requestId===value.workflow.requestId && operation.claim.workflowRevision<=value.workflow.workflowRevision :

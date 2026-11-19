@@ -8,6 +8,7 @@ import {
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
 import type { AccountTransactionRunner } from "../../db/index";
+import { expireForcedWaitingLocked, forcedRenewalAllowedLocked, advanceForcedWaitingLocked } from "./forced-takeover-persistence";
 import type { ExpiredDeviceBootstrapPort } from "./postgres-expired-device-bootstrap";
 import type { ActiveDeviceLeaseVerifier } from "./active-device-lease-verifier";
 import {
@@ -104,7 +105,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         }>(
           `SELECT highest_allocated_lease_epoch, current_lease_epoch,
                   exclusive_execution_block_until IS NULL
-                    OR exclusive_execution_block_until <= transaction_timestamp() AS unblocked
+                    OR exclusive_execution_block_until <= clock_timestamp() AS unblocked
              FROM device_account_states WHERE account_id = $1 FOR UPDATE`,
           [input.accountId],
         );
@@ -125,6 +126,8 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         // Reconcile expired bootstrap authority atomically with the next Lease allocation.
         if (!await this.dependencies.bootstrapExpiry.expireLocked(transaction)) refuse();
         // Switch writers lock security first, so under that lock this answer cannot go stale.
+        await expireForcedWaitingLocked(transaction,input.accountId);
+        const forcedRenewalAllowed = await forcedRenewalAllowedLocked(transaction,parseUnsigned(accountRow.current_lease_epoch));
         const reserved = await allocationReserved(transaction);
         const held = await transaction.query<{
           lease_epoch: string;
@@ -140,8 +143,8 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         }>(
           `SELECT lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
                   offline_execute_until, wire_envelope,
-                  transaction_timestamp() >= renew_after AS renewal_due,
-                  transaction_timestamp() < online_expires_at AS online
+                  clock_timestamp() >= renew_after AS renewal_due,
+                  clock_timestamp() < online_expires_at AS online
              FROM device_active_leases
             WHERE account_id = $1 AND released_at IS NULL FOR UPDATE`,
           [input.accountId],
@@ -154,7 +157,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         if (existing === undefined && (!accountRow.unblocked || reserved)) return STANDBY;
         if (entitlement === null) return existing === undefined ? STANDBY : REFUSED;
         if (existing !== undefined) {
-          if (!accountRow.unblocked) refuse();
+          if (!accountRow.unblocked || !forcedRenewalAllowed) refuse();
           leaseEpoch = parsePositive(existing.lease_epoch);
           if (leaseEpoch !== currentEpoch) refuse();
           const parsed = this.dependencies.verifier.verify(existing.wire_envelope);
@@ -170,7 +173,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           if (currentEpoch > highest || highest >= Number.MAX_SAFE_INTEGER) refuse();
           leaseEpoch = highest + 1;
         }
-        const clock = await transaction.query<{ now: Date }>("SELECT transaction_timestamp() AS now");
+        const clock = await transaction.query<{ now: Date }>("SELECT clock_timestamp() AS now");
         const now = clock.rows[0]?.now;
         if (!(now instanceof Date) || !Number.isFinite(now.getTime())) refuse();
         const issuedAt = canonicalSecond(now);
@@ -220,6 +223,9 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
             Buffer.from(envelope.signature, "base64url"))
           || this.dependencies.verifier.verify(envelope) === null
         ) refuse();
+        if (existing !== undefined && !await forcedRenewalAllowedLocked(transaction,leaseEpoch)) refuse();
+        const finalClock = await transaction.query<{live:boolean}>("SELECT clock_timestamp()<$1 AS live",[envelope.payload.onlineExpiresAt]);
+        if (finalClock.rows[0]?.live !== true) refuse();
         const canonicalEnvelope = Buffer.from(encodeDomainSeparatedWireValue(
           "GOODDEALER-ACTIVE-DEVICE-LEASE-ENVELOPE-V1", envelope,
         ));
@@ -228,7 +234,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           await transaction.query(
             `INSERT INTO device_lease_epoch_allocations
                (account_id, lease_epoch, allocation_source, status, terminal_at)
-             VALUES ($1,$2,'desktop_login','activated',transaction_timestamp())`,
+             VALUES ($1,$2,'desktop_login','activated',clock_timestamp())`,
             [input.accountId, leaseEpoch],
           );
           const accountUpdated = await transaction.query(
@@ -243,7 +249,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           await transaction.query(
             `UPDATE device_account_states
                 SET highest_allocated_lease_epoch = $2, current_lease_epoch = $2,
-                    updated_at = transaction_timestamp()
+                    updated_at = clock_timestamp()
               WHERE account_id = $1 AND highest_allocated_lease_epoch < $2`,
             [input.accountId, leaseEpoch],
           );
@@ -260,6 +266,10 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
               JSON.stringify(envelope), receiptDigest, input.deviceId],
           );
           if (updated.rowCount !== 1) refuse();
+          await advanceForcedWaitingLocked(transaction,leaseEpoch);
+          // If wall time crossed the frozen boundary between the pre-write check and
+          // extension, roll back the newly signed row as well as its high-water mark.
+          if (!await forcedRenewalAllowedLocked(transaction,leaseEpoch)) refuse();
         }
         return { outcome: "active", lease: envelope } as const;
       });
@@ -299,7 +309,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         if (subject.rows.length !== 1 || subject.rows[0]?.active !== true) refuse();
         const account = await transaction.query<{ unblocked: boolean }>(
           `SELECT exclusive_execution_block_until IS NULL
-                    OR exclusive_execution_block_until <= transaction_timestamp() AS unblocked
+                    OR exclusive_execution_block_until <= clock_timestamp() AS unblocked
              FROM device_account_states WHERE account_id = $1`,
           [input.accountId],
         );
@@ -317,7 +327,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         }>(
           `SELECT lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
                   offline_execute_until, wire_envelope,
-                  transaction_timestamp() < online_expires_at AS online
+                  clock_timestamp() < online_expires_at AS online
              FROM device_active_leases
             WHERE account_id = $1 AND released_at IS NULL`,
           [input.accountId],
@@ -329,7 +339,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           // Eligible devices without a Lease may read even when no commercial entitlement permits allocation.
           return STANDBY;
         }
-        if (!existing.online) refuse();
+        if (!existing.online || account.rows[0]?.unblocked !== true) refuse();
         const parsed = this.dependencies.verifier.verify(existing.wire_envelope);
         if (
           parsed === null || parsed.accountId !== input.accountId

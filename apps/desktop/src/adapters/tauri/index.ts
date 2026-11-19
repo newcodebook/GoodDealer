@@ -993,3 +993,5 @@ export function createDeviceDirectoryPort(): DeviceDirectorySettingsPort {
 }
 export { createAfternicPort } from "./afternic";
 export { createAfternicDelistPort } from "./afternic-delist";
+export { createForcedTakeoverPort, type ForcedTakeoverPort, type ForcedTakeoverPreview,
+  type ForcedTakeoverView, type ForcedTakeoverPreviewReason, type ForcedTakeoverStoppedReason } from "./forced-takeover";

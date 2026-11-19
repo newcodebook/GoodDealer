@@ -65,6 +65,7 @@ export const zhCNAccount = {
     resetCompleted: "密码已更新，所有旧会话均已失效。请重新登录。",
     signedOut: "已安全退出。",
     backToSignIn: "返回登录",
+    desktopReauthenticationRequired: "请重新登录，验证本机接管所需的身份。返回 Desktop 后还需预览并确认接管。",
     desktopHandoffTitle: "授权 GoodDealer Desktop",
     desktopHandoffNotice: "登录后将返回 GoodDealer Desktop 完成授权。",
     desktopReturningTitle: "正在返回 GoodDealer Desktop",

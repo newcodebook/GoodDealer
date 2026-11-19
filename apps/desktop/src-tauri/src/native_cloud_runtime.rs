@@ -53,6 +53,7 @@ pub(crate) struct NativeCloudCoordinator {
     device_switch: Arc<crate::device_switch_drain::DesktopDeviceSwitch>,
     target_bootstrap: Arc<crate::target_bootstrap_termination::DesktopTargetBootstrapTermination>,
     target_installation: Arc<crate::target_installation::DesktopTargetInstallation>,
+    forced_takeover: Arc<crate::forced_takeover::DesktopForcedTakeover>,
     projection: ProjectionLaneHandle,
     provider: ProviderLaneHandle,
     power: gooddealer_secure_host_core::NativePowerGate,
@@ -196,8 +197,20 @@ impl NativeCloudCoordinator {
                 Arc::clone(&cancel_fence),
                 Arc::new(power.clone()),
                 Arc::new(move || installation_sync.wake_installation()),
-                target_serialized,
+                Arc::clone(&target_serialized),
             ));
+        let forced_sync = sync_handle.clone();
+        let forced_installation_sync = sync_handle.clone();
+        let forced_takeover = Arc::new(crate::forced_takeover::DesktopForcedTakeover::new(
+            Arc::clone(host),
+            Arc::clone(session),
+            Arc::clone(&cancel_fence),
+            Arc::new(power.clone()),
+            Arc::new(move || forced_sync.wake_forced()),
+            Arc::new(move || forced_installation_sync.wake_installation()),
+            target_serialized,
+        ));
+        let sync_forced = Arc::clone(&forced_takeover);
         let sync_installation = Arc::clone(&target_installation);
         let sync_bootstrap = Arc::clone(&target_bootstrap);
         let sync_switch = Arc::clone(&device_switch);
@@ -216,6 +229,7 @@ impl NativeCloudCoordinator {
                     let switch = Arc::clone(&sync_switch);
                     let bootstrap = Arc::clone(&sync_bootstrap);
                     let installation = Arc::clone(&sync_installation);
+                    let forced = Arc::clone(&sync_forced);
                     async move {
                         if let Ok(mut current) = observation.lock() {
                             current.syncing = true;
@@ -230,6 +244,11 @@ impl NativeCloudCoordinator {
                         if plan.bootstrap_due && !fence.is_cancelled() {
                             result.bootstrap =
                                 bootstrap_stage(&bootstrap.advance_background().await);
+                        }
+                        if plan.forced_due && !fence.is_cancelled() {
+                            let advance = forced.advance_background().await;
+                            result.forced = forced_stage(&advance);
+                            result.forced_more = advance.as_ref().is_ok_and(|value| value.more);
                         }
                         if plan.installation_due && !fence.is_cancelled() {
                             let advance = installation.advance_background().await;
@@ -332,6 +351,7 @@ impl NativeCloudCoordinator {
             device_switch,
             target_bootstrap,
             target_installation,
+            forced_takeover,
             sync: sync_handle,
             projection: projection_handle,
             provider: provider_handle,
@@ -365,6 +385,10 @@ impl NativeCloudCoordinator {
         &self,
     ) -> Arc<crate::target_bootstrap_termination::DesktopTargetBootstrapTermination> {
         Arc::clone(&self.target_bootstrap)
+    }
+
+    pub(crate) fn forced_takeover(&self) -> Arc<crate::forced_takeover::DesktopForcedTakeover> {
+        Arc::clone(&self.forced_takeover)
     }
 
     pub(crate) fn target_installation(
@@ -497,6 +521,7 @@ fn publish_sync_cycle_observation(
             result.handoff,
             result.bootstrap,
             result.installation,
+            result.forced,
         ]) {
             current.state = state;
             current.observed_at_unix_seconds = observed_at_unix_seconds;
@@ -632,6 +657,24 @@ fn installation_stage(
     }
 }
 
+fn forced_stage(
+    result: &Result<
+        crate::forced_takeover::ForcedTakeoverAdvance,
+        crate::target_bootstrap_termination::TargetBootstrapError,
+    >,
+) -> SyncStageOutcome {
+    use crate::target_bootstrap_termination::TargetBootstrapError;
+    match result {
+        Ok(_) => SyncStageOutcome::Valid,
+        Err(TargetBootstrapError::Paused | TargetBootstrapError::Cancelled) => {
+            SyncStageOutcome::NotAttempted
+        }
+        Err(TargetBootstrapError::Retryable) => SyncStageOutcome::Retryable,
+        Err(TargetBootstrapError::AuthorizationRequired) => SyncStageOutcome::AuthorizationBlocked,
+        Err(TargetBootstrapError::Blocked) => SyncStageOutcome::SecurityBlocked,
+    }
+}
+
 fn handoff_stage(
     result: Result<
         crate::device_switch_drain::DeviceSwitchStep,
@@ -694,6 +737,8 @@ async fn run_sync_cycle(
     SyncCycleResult {
         handoff: SyncStageOutcome::NotAttempted,
         bootstrap: SyncStageOutcome::NotAttempted,
+        forced: SyncStageOutcome::NotAttempted,
+        forced_more: false,
         installation: SyncStageOutcome::NotAttempted,
         installation_more: false,
         evidence: evidence.outcome,
@@ -1496,6 +1541,8 @@ mod tests {
         let result = |push, pull, checkpoint| SyncCycleResult {
             handoff: SyncStageOutcome::NotAttempted,
             bootstrap: SyncStageOutcome::NotAttempted,
+            forced: SyncStageOutcome::NotAttempted,
+            forced_more: false,
             installation: SyncStageOutcome::NotAttempted,
             installation_more: false,
             evidence: SyncStageOutcome::NotAttempted,
@@ -1570,6 +1617,8 @@ mod tests {
             SyncCycleResult {
                 handoff: SyncStageOutcome::NotAttempted,
                 bootstrap: SyncStageOutcome::NotAttempted,
+                forced: SyncStageOutcome::NotAttempted,
+                forced_more: false,
                 installation: SyncStageOutcome::NotAttempted,
                 installation_more: false,
                 evidence: SyncStageOutcome::NotAttempted,
@@ -1603,6 +1652,8 @@ mod tests {
             SyncCycleResult {
                 handoff: SyncStageOutcome::NotAttempted,
                 bootstrap: SyncStageOutcome::NotAttempted,
+                forced: SyncStageOutcome::NotAttempted,
+                forced_more: false,
                 installation: SyncStageOutcome::NotAttempted,
                 installation_more: false,
                 evidence: SyncStageOutcome::NotAttempted,
@@ -1819,6 +1870,8 @@ mod tests {
                 SyncCycleResult {
                     handoff: SyncStageOutcome::NotAttempted,
                     bootstrap: SyncStageOutcome::NotAttempted,
+                    forced: SyncStageOutcome::NotAttempted,
+                    forced_more: false,
                     installation: SyncStageOutcome::NotAttempted,
                     installation_more: false,
                     evidence: SyncStageOutcome::NotAttempted,

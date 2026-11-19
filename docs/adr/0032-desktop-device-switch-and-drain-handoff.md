@@ -7,7 +7,10 @@
 最多绑定两台设备，同一时刻只有一台 Active；Cloud 是设备、Lease/Epoch 的授权源，外部执行窗口最长 24 小时。
 无效 Lease、撤销设备或本地自报状态不能取得执行权，授权失效不删除或覆盖本地数据库。
 普通切换 drain 期限为 24 小时；drain proof 绑定三条流、来源设备及用途，签名有效期至多 600 秒。
-强制接管最早时间取请求时间、独占执行封锁与旧 Lease `offlineExecuteUntil` 的最大值，其后 24 小时内接管。
+强制接管最早时间取请求时间、独占执行封锁与来源 Lease 历次已签发 `offlineExecuteUntil` 上界的最大值，其后 24 小时内接管。
+同一 epoch 的续租不能缩小该历史上界。最早时间之前的合法续租可单调推进最早时间及其后的 24 小时领取期限；
+到达最早时间后冻结领取窗口，迟到续租不得推迟或复活已过期工作流。旧设备持续在线续租可能持续延后接管，界面须明确显示最新时间，
+不能把 24 小时解释为从发起到完成的总时限。领取、续租、取消和到期在同一锁序下以锁后服务器时间及慢签名后的最终栅栏裁决。
 引导能力至多 1 小时，绑定目标设备当前有效密钥和工作流；引导完成并核对摘要后才能激活预分配 epoch。
 `bootstrapping` 的取消或过期必须烧掉 pending epoch 与能力；切换界面启用前须交付该终结路径。
 
@@ -108,9 +111,12 @@ Standby 可调用的路由是封闭清单：
 | `POST /v1/device-switch/requests/status` | 只对本设备为来源或目标的切换可见（现有规则） |
 | `POST /v1/device-switch/requests` | 只接受 `mode: "forced"`，且 `toDeviceId` 必须等于会话设备；须满足 S5 节的重新认证 |
 | `POST /v1/device-switch/requests/cancel` | 只接受取消本设备为目标、仍处于 `waiting_expiry` 的强制接管 |
+| `POST /v1/device-switch/forced/preview` | 只读当前 Standby 会话的来源 Lease 与目标预览，来源 epoch 来自 Cloud，不能由 Standby floor 推断；重新认证窗口不下发 |
+| `POST /v1/device-switch/forced/status`、`resolve` | 仅本会话设备为目标的精确强制工作流或原幂等请求；服务器返回当前可领取事实，历史或缓存事实不能单独启动新批准 |
+| `POST /v1/device-switch/forced/cancel-intent` | 仅本设备原批准的完整强制请求；同账户锁内取消既有工作流或持久化阻止迟到请求的幂等墓碑，不授予执行权 |
 | `POST /v1/device-switch/bootstrap/status` | 仅发现本会话设备作为目标的唯一 `bootstrapping` 工作流，或按精确 id 读取本目标历史；账户和默认工作区由服务器派生 |
 | `POST /v1/device-switch/bootstrap/cancel` | 仅终止本会话设备作为目标的精确 `bootstrapping` 工作流；未领取能力也可取消；原子烧 pending epoch、消费能力与 nonce、释放 pin，保留来源交接回执，不授予执行权限 |
-| `POST /v1/device-switch/bootstrap/receipt` | 当前绑定的精确目标会话可核对原 claim、step 或 activation；不要求历史能力仍有效，终态回执不能恢复旧 nonce 或执行权 |
+| `POST /v1/device-switch/bootstrap/receipt` | 当前绑定的精确目标会话可核对原 claim、step 或 activation；不要求历史能力仍有效；强制 waiting 或尚无 capability 的终态只接受 claim 对账，终态回执不能恢复旧 nonce 或执行权 |
 | `POST /v1/device-switch/bootstrap/claim`、`step`、`checkpoint`、`activate` | Active/Standby 会话设备必须是工作流目标；后三者同时出示绑定该设备与工作流的独立用途引导能力 |
 
 目标停止引导的确认绑定精确工作流 id，Native 先持久化意图再发送；未知响应与重开先查同一工作流，再决定重发原取消。新工作流必须重新预览确认，历史取消不得套用到它。取消与激活、过期、步骤提交在账户/工作流锁序下串行；终结不回退最高分配 epoch，不恢复来源 Lease，也不删除既有云副本或原机数据。
@@ -219,9 +225,17 @@ Active Grant、Lease 与 Standby Grant 三个用途的公钥互不通用。
      登录，Account Web 只在会话由五分钟内的密码或 Passkey 认证创建时继续（与首次绑定同一检查）；Cloud 把
      该窗口作为单次可用的重新认证窗口记在新会话上（只存截止时间与消费时间），强制接管请求在同一事务中消费它。
      协议中强制请求的 `reauthProofId` 因此移除。
+     新登录本身不发起接管；目标在新会话确认后读取来源预览，再一次确认持久原请求。强制请求的 `expectedSourceLeaseEpoch`
+     绑定预览来源，Cloud 从当前 Lease 派生来源设备；来源改变须重新预览，不消费重新认证窗口。精确幂等重放读取原结果，
+     不再次消费窗口或新建工作流。重新认证截止由原密码/Passkey 会话创建时间派生，refresh 不延长或重置。
+     初始 POST 结果未知时，resolve 未找到不证明迟到请求不会执行；取消必须带原完整请求在同账户锁内持久化墓碑或取消精确工作流。
+     晚到的同幂等请求命中墓碑即拒绝，不消费认证窗口。原取消回复未知时只对账同一意图；无工作流的终态不虚构 requestId。
   2. 工作流进入 `waiting_expiry`；最早接管时间之前旧设备若在线，照常同步与续租。
   3. 最早接管时间之后，目标经引导路由取得引导能力：Cloud 在同一事务中以 `release_reason = 'forced_takeover'` 释放
      旧 Lease、预分配 `pending` epoch、签发能力；其后的引导与激活与普通切换相同。
+     目标须在发送领取前持久确认安装资格；不能先释放来源再检查是否可安装。未知领取先按原工作流查询精确回执；
+     waiting 的未提交回执仅表示原 claim 未提交，须重新读取服务器状态再等待或继续，不能盲重发。
+     等待取消与领取竞争后，原持久取消意图继续终止已进入的引导，无须重新批准；已激活则只收敛真实结果。
   4. 旧设备再联系 Cloud 时只能得到 Standby Grant 并降级；离线的旧设备，其本地 Lease 的 `offlineExecuteUntil` 不晚于
      最早接管时间（ADR-0032 的计算规则），所以在接管完成时已不能执行。旧设备上未推送的 Outbox 行不进入 Cloud
      （ADR-0032 决策 1），Host 保留它们与本地库，不推送、不删除；Host 停止向该快照应用 Inbox，保留原库只读。用户可另建按 Cloud 当前状态重建的 Standby 副本，

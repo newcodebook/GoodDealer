@@ -143,7 +143,7 @@ export const ACCOUNT_GATE_VECTOR_INPUTS = Object.freeze([
       "switch-completed-with-bootstrap-expiry.json",
       "switch-earliest-takeover-before-request.json",
       "switch-forced-without-earliest-takeover.json",
-      "switch-forced-without-reauth-proof.json",
+      "switch-forced-without-source-epoch.json",
       "switch-normal-with-reauth-proof.json",
     ],
   ),

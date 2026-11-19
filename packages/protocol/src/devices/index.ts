@@ -165,3 +165,12 @@ export type {
   DeviceBootstrapReceiptRequest,
   DeviceBootstrapReceiptResponse
 } from "./target-installation";
+
+export {
+  forcedTakeoverRequestSchema, forcedTakeoverPreviewRequestSchema, forcedTakeoverPreviewResponseSchema,
+  forcedTakeoverWorkflowSchema, forcedTakeoverStatusRequestSchema, forcedTakeoverStatusResponseSchema,
+  forcedTakeoverResolveRequestSchema, forcedTakeoverResolveResponseSchema,
+  forcedTakeoverCancelIntentRequestSchema, forcedTakeoverCancelIntentResponseSchema,
+} from "./forced-takeover";
+export type { ForcedTakeoverRequest, ForcedTakeoverPreviewResponse, ForcedTakeoverWorkflow,
+  ForcedTakeoverStatusResponse, ForcedTakeoverResolveResponse, ForcedTakeoverCancelIntentResponse } from "./forced-takeover";

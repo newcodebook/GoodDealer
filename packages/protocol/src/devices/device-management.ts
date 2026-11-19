@@ -267,7 +267,7 @@ export const deviceSwitchRequestSchema = z.discriminatedUnion("mode", [
       mode: z.literal("forced"),
       toDeviceId: identifier,
       idempotencyKey: identifier,
-      reauthProofId: identifier,
+      expectedSourceLeaseEpoch: safePositiveInteger,
     })
     .strict(),
 ]);
@@ -363,6 +363,8 @@ export const deviceSwitchLookupRequestSchema = z
 export const deviceSwitchRejectionCodeSchema = z.enum([
   "SWITCH_IN_PROGRESS",
   "SOURCE_LEASE_CHANGED",
+  "REAUTH_REQUIRED",
+  "FORCED_INTENT_CANCELLED",
   "SWITCH_NOT_FOUND",
   "SWITCH_NOT_CANCELLABLE",
   "IDEMPOTENCY_CONFLICT",

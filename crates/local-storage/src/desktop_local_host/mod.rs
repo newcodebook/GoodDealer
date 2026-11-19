@@ -14,6 +14,7 @@ mod container;
 pub(crate) mod continuity;
 pub(crate) mod execution_context;
 pub(crate) mod execution_evidence_delivery;
+pub(crate) mod forced_takeover;
 mod native_backup;
 mod normal_handoff;
 mod provider;
@@ -723,6 +724,7 @@ pub struct DesktopLocalHost {
     execution_context_state: Mutex<execution_context::ExecutionContextState>,
     installation_context_gate: std::sync::atomic::AtomicBool,
     target_installation_stage: Mutex<Option<target_installation::PreparedInstallationPublication>>,
+    forced_takeover_runtime: Mutex<forced_takeover::Runtime>,
     /// Published before any authority transition waits for the operation lock.
     transition_requested_epoch: AtomicU64,
     /// Advances on both sides of every Cloudflare connection create and backup restore, the only
@@ -784,6 +786,7 @@ impl DesktopLocalHost {
             execution_context_state: Mutex::new(execution_context::ExecutionContextState::default()),
             installation_context_gate: std::sync::atomic::AtomicBool::new(false),
             target_installation_stage: Mutex::new(None),
+            forced_takeover_runtime: Mutex::default(),
             transition_requested_epoch: AtomicU64::new(0),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),

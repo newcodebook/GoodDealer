@@ -29,14 +29,14 @@ import { BootstrapRefusal, PostgresBootstrapStepService } from "./postgres-boots
 import { ActivationRefusal, PostgresBootstrapActivation, type ActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
 import { canonicalSecond, isPostgresAuthorizationFailure, readCurrentIdentity } from "./desktop-authorization-readers";
 import { bootstrapDeadlineIsLive } from "./bootstrap-deadline";
+import { beginForcedBootstrapLocked, expireForcedWaitingLocked, type ForcedWorkflowRow } from "./forced-takeover-persistence";
 import { terminateDeviceBootstrap } from "./terminate-device-bootstrap";
 
 type RejectionCode = "CAPABILITY_INVALID" | "BOOTSTRAP_CONFLICT" | "BOOTSTRAP_EXPIRED" | "CHECKPOINT_UNAVAILABLE" | "ENTITLEMENT_INACTIVE" | "SIGNING_UNAVAILABLE";
 class InstallationRefusal extends Error { constructor(readonly code: RejectionCode) { super(code); } }
 class InstallationSessionExpired extends Error {}
-interface TargetContext { readonly transaction: TenantTransaction; readonly workflow: WorkflowRow; readonly securityEpoch: number; }
-interface WorkflowRow { workflow_id: string; status: string; workflow_revision: string; to_device_id: string;
-  bound_key_id: string; bound_key_version: string; bound_account_security_epoch: string; pending_lease_epoch: string | null; }
+interface TargetContext { readonly transaction: TenantTransaction; readonly workflow: WorkflowRow; readonly securityEpoch: number; forcedClaimDeadline?: Date; }
+interface WorkflowRow extends ForcedWorkflowRow {}
 interface CapabilityRow { jti: string; target_device_id: string; issued_at: Date; expires_at: Date; consumed_at: Date | null;
   canonical_signed_envelope: Buffer | null; signed_envelope_digest: Buffer | null; ready_at: Date | null;
   claim_response: Buffer | null; claim_response_digest: Buffer | null; live: boolean; now: Date; }
@@ -80,7 +80,15 @@ export class PostgresTargetBootstrapInstallation {
 
   async claim(value: unknown, principal: PublicPrincipal): Promise<DeviceBootstrapClaimResponse | null> {
     const request = deviceBootstrapClaimRequestSchema.parse(value);
-    return this.execute(principal, request.requestId, async ({transaction, workflow, securityEpoch}) => {
+    return this.execute(principal, request.requestId, async (context) => {
+      const {transaction, workflow, securityEpoch} = context;
+      if (workflow.mode === "forced" && workflow.status === "waiting_expiry") {
+        const deadline = await beginForcedBootstrapLocked(transaction, workflow);
+        if (deadline === null) return rejection("TAKEOVER_NOT_READY");
+        context.forcedClaimDeadline = deadline;
+      }
+      if (workflow.mode === "forced" && (workflow.status === "failed" || workflow.status === "cancelled"))
+        return rejection(workflow.status === "failed" ? "BOOTSTRAP_EXPIRED" : "BOOTSTRAP_CONFLICT");
       const row = await this.capability(transaction, workflow.workflow_id);
       this.assertLive(workflow, row);
       await this.assertReservedEpoch(transaction,workflow);
@@ -124,7 +132,7 @@ export class PostgresTargetBootstrapInstallation {
       this.dependencies.fault?.("after_claim_persisted");
       if (!await bootstrapDeadlineIsLive(transaction,request.requestId)) refuse("BOOTSTRAP_EXPIRED");
       return response;
-    });
+    }, true);
   }
 
   async step(value: unknown, principal: PublicPrincipal): Promise<DeviceBootstrapStepResponse | null> {
@@ -213,8 +221,10 @@ export class PostgresTargetBootstrapInstallation {
       const operation = request.operation;
       let committed: unknown = null;
       if (operation.kind === "claim") {
-        const row = await this.capability(transaction,request.requestId);
-        if (row.claim_response !== null) {
+        const found = await transaction.query<CapabilityRow>(`SELECT * FROM device_bootstrap_capabilities
+          WHERE account_id=$1 AND workspace_id=$2 AND workflow_id=$3`, scope(transaction,request.requestId));
+        const row = found.rows[0];
+        if (row !== undefined && row.claim_response !== null) {
           if (row.claim_response_digest === null || !hash(row.claim_response).equals(row.claim_response_digest)) throw new TypeError("claim receipt corrupted");
           const response = deviceBootstrapClaimResponseSchema.parse(json(row.claim_response));
           if (!response.accepted) throw new TypeError("claim receipt is a rejection");
@@ -243,13 +253,14 @@ export class PostgresTargetBootstrapInstallation {
         }
       }
       if (committed !== null) return deviceBootstrapReceiptResponseSchema.parse({schemaVersion:1,outcome:"committed",workflow:view,operation:committed});
+      if (workflow.status === "waiting_expiry") return deviceBootstrapReceiptResponseSchema.parse({schemaVersion:1,outcome:"uncommitted",workflow:view,operation,nextStep:null});
       if (workflow.status !== "bootstrapping") return deviceBootstrapReceiptResponseSchema.parse({schemaVersion:1,outcome:"terminal",workflow:view,operation});
       const authority = await transaction.query<{next_step_number:string;next_step_kind:string|null}>(`SELECT next_step_number,next_step_kind FROM device_bootstrap_authorities
         WHERE account_id=$1 AND workspace_id=$2 AND workflow_id=$3`,scope(transaction,request.requestId));
       const next = authority.rows[0];
       return deviceBootstrapReceiptResponseSchema.parse({schemaVersion:1,outcome:"uncommitted",workflow:view,operation,
         nextStep:next === undefined || next.next_step_kind === null ? null : {stepNumber:integer(next.next_step_number),stepKind:next.next_step_kind}});
-    },{schemaVersion:1,outcome:"not_found"});
+    },{schemaVersion:1,outcome:"not_found"},false,request.operation.kind === "claim");
   }
 
   private async capability(transaction: TenantTransaction, requestId: string): Promise<CapabilityRow> {
@@ -283,15 +294,15 @@ export class PostgresTargetBootstrapInstallation {
     return result.presentation;
   }
 
-  private async execute<T>(principal:PublicPrincipal,requestId:string,work:(context:TargetContext)=>Promise<T>) {
-    try { return await this.withTarget(principal,requestId,work,rejection("BOOTSTRAP_CONFLICT"),true); }
+  private async execute<T>(principal:PublicPrincipal,requestId:string,work:(context:TargetContext)=>Promise<T>,allowForcedWaiting=false) {
+    try { return await this.withTarget(principal,requestId,work,rejection("BOOTSTRAP_CONFLICT"),true,allowForcedWaiting); }
     catch(error) {
       if (error instanceof InstallationRefusal) return rejection(error.code);
       if (error instanceof BootstrapRefusal || error instanceof ActivationRefusal) return rejection("BOOTSTRAP_CONFLICT");
       throw error;
     }
   }
-  private async withTarget<T, Missing>(principal:PublicPrincipal,requestId:string,work:(context:TargetContext)=>Promise<T>,missing:Missing,enforceDeadline=false):Promise<T|Missing|null> {
+  private async withTarget<T, Missing>(principal:PublicPrincipal,requestId:string,work:(context:TargetContext)=>Promise<T>,missing:Missing,enforceDeadline=false,allowForcedWaiting=false):Promise<T|Missing|null> {
     if (principal.clientKind !== "desktop" || principal.transactionCredential === undefined) return null;
     try {
       return await this.dependencies.transactions.withAccountCredential(principal.transactionCredential,"devices_account",async(accountTransaction:AccountTransaction) => {
@@ -307,18 +318,26 @@ export class PostgresTargetBootstrapInstallation {
         const binding = await transaction.query<{key_id:string;key_version:string}>(`SELECT k.key_id,k.key_version FROM device_bindings b JOIN device_signing_keys k USING(account_id,device_id)
           WHERE b.account_id=$1 AND b.device_id=$2 AND b.status='bound' AND k.status='active' FOR UPDATE OF b,k`,[principal.accountId,identity.deviceId]);
         if (binding.rows.length !== 1) return null;
+        await expireForcedWaitingLocked(accountTransaction,principal.accountId);
         const found = await transaction.query<WorkflowRow>(`SELECT * FROM device_switch_workflows
           WHERE account_id=$1 AND workspace_id=$2 AND workflow_id=$3 AND to_device_id=$4
-            AND status IN ('bootstrapping','completed','cancelled','failed')
+            AND ((status IN ('bootstrapping','completed','cancelled','failed')
             AND EXISTS (SELECT 1 FROM device_bootstrap_capabilities c WHERE c.account_id=device_switch_workflows.account_id
-              AND c.workspace_id=device_switch_workflows.workspace_id AND c.workflow_id=device_switch_workflows.workflow_id) FOR UPDATE`,[...scope(transaction,requestId),identity.deviceId]);
+              AND c.workspace_id=device_switch_workflows.workspace_id AND c.workflow_id=device_switch_workflows.workflow_id))
+              OR ($5 AND mode='forced' AND source_lease_epoch IS NOT NULL AND earliest_takeover_at IS NOT NULL
+                AND status IN ('waiting_expiry','cancelled','failed'))) FOR UPDATE`,[...scope(transaction,requestId),identity.deviceId,allowForcedWaiting]);
         const workflow = found.rows[0];
         if (workflow === undefined) return missing;
         if (workflow.bound_key_id !== binding.rows[0]?.key_id || workflow.bound_key_version !== binding.rows[0]?.key_version ||
           integer(workflow.bound_account_security_epoch) !== identity.accountSecurityEpoch) return null;
-        const result = await work({transaction,workflow,securityEpoch:identity.accountSecurityEpoch});
+        const context: TargetContext = {transaction,workflow,securityEpoch:identity.accountSecurityEpoch};
+        const result = await work(context);
         this.dependencies.fault?.("before_installation_commit");
         if(enforceDeadline && workflow.status === "bootstrapping" && !await bootstrapDeadlineIsLive(transaction,requestId)) refuse("BOOTSTRAP_EXPIRED");
+        if (context.forcedClaimDeadline !== undefined) {
+          const final = await transaction.query<{live:boolean}>("SELECT clock_timestamp()<$1 AS live",[context.forcedClaimDeadline]);
+          if (final.rows[0]?.live !== true) refuse("BOOTSTRAP_EXPIRED");
+        }
         const after = await readCurrentIdentity(accountTransaction,principal);
         const live = await transaction.query<{device:string|null}>("SELECT identity_private.current_execution_context_device() AS device");
         if (after === null || after.deviceId !== identity.deviceId || after.accountSecurityEpoch !== identity.accountSecurityEpoch ||
@@ -329,7 +348,7 @@ export class PostgresTargetBootstrapInstallation {
   }
 }
 function refuse(code:RejectionCode):never { throw new InstallationRefusal(code); }
-function rejection(code:RejectionCode) { return {schemaVersion:1 as const,accepted:false as const,code}; }
+function rejection<T extends RejectionCode | "TAKEOVER_NOT_READY">(code:T) { return {schemaVersion:1 as const,accepted:false as const,code}; }
 function scope(transaction:TenantTransaction,requestId:string) { return [transaction.scope.accountId,transaction.scope.workspaceId,requestId]; }
 function hash(value:Uint8Array):Buffer { return createHash("sha256").update(value).digest(); }
 function bytes(value:unknown):Buffer { return Buffer.from(JSON.stringify(value),"utf8"); }

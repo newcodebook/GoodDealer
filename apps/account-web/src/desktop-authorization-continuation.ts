@@ -23,6 +23,9 @@ export function parseDesktopAuthorizationContinuation(search: unknown, origin: u
   }
   const values = params.getAll("continue");
   if (values.length !== 1) return null;
+  const reauthentication = params.getAll("reauth");
+  if (reauthentication.length > 0
+    && (reauthentication.length !== 1 || reauthentication[0] !== "required")) return null;
   const [value] = values;
   if (value === undefined || value.length === 0 || value.length > MAX_CONTINUATION_LENGTH) return null;
   // Require a plain absolute path so scheme-relative (`//host`) or backslash forms cannot be
@@ -36,8 +39,19 @@ export function parseDesktopAuthorizationContinuation(search: unknown, origin: u
   } catch {
     return null;
   }
-  if (target.origin !== base.origin || target.pathname !== DESKTOP_AUTHORIZATION_PATH || target.search.length <= 1) {
+  if (base.origin === "null" || target.origin !== base.origin
+    || target.pathname !== DESKTOP_AUTHORIZATION_PATH || target.search.length <= 1) {
     return null;
   }
+  if (reauthentication.length === 1) {
+    const intent = target.searchParams.getAll("require_reauth");
+    if (intent.length !== 1 || intent[0] !== "true") return null;
+  }
   return `${target.pathname}${target.search}`;
+}
+
+/** A browser-flow hint only: Cloud independently enforces the original authentication deadline. */
+export function requiresDesktopReauthentication(search: unknown, origin: unknown): boolean {
+  return parseDesktopAuthorizationContinuation(search, origin) !== null
+    && typeof search === "string" && new URLSearchParams(search).get("reauth") === "required";
 }

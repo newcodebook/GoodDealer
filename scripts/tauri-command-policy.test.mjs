@@ -39,6 +39,11 @@ function createFixture() {
     "device_switch_cancel",
     "device_switch_request",
     "device_switch_status",
+    "forced_takeover_cancel",
+    "forced_takeover_confirm",
+    "forced_takeover_preview",
+    "forced_takeover_reauthenticate",
+    "forced_takeover_status",
     "local_business_status",
     "local_backup_artifact_select",
     "local_backup_export",
@@ -135,10 +140,12 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_"))
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_"))
       .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
+  writeFile(root, "apps/desktop/src/adapters/tauri/forced-takeover.ts",
+    commands.filter(command => command.startsWith("forced_takeover_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/afternic.ts",
@@ -562,4 +569,13 @@ test("distinguishes installation state data from literal command invocations", (
     ["target_installation_pending", "target_installation_unreviewed"]);
   assert.deepEqual(adapterCommands("invoke<unknown>('target_installation_unreviewed');"),
     ["target_installation_unreviewed"]);
+});
+
+test("forced takeover data strings do not expand executable commands", () => {
+  const data = 'const kind = "forced_takeover_pending"; const reason = "local_recovery_required";';
+  const options = { literalInvocationsOnly: true };
+  assert.deepEqual(adapterCommands(data, options), []);
+  assert.deepEqual(adapterCommands(data + 'invoke<unknown>("forced_takeover_status");', options), ["forced_takeover_status"]);
+  assert.deepEqual(adapterCommands("invoke('forced_takeover_unreviewed');", options), ["forced_takeover_unreviewed"]);
+  assert.deepEqual(adapterCommands('invoke("local_unreviewed");', options), ["local_unreviewed"]);
 });

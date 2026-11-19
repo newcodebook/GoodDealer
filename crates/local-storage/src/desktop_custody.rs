@@ -13,6 +13,7 @@ mod native_keys;
 use native_keys::{delete_native, load_device_binding_native, load_native, store_native};
 
 mod authorization_floor;
+mod forced_takeover_control;
 mod initial_replica;
 mod normal_handoff_submission;
 mod target_bootstrap_control;
@@ -209,6 +210,10 @@ pub(crate) struct TestRebootstrapKeyStore {
     normal_handoff_submission: Arc<Mutex<Option<Vec<u8>>>>,
     initial_replica_head: Arc<Mutex<Option<Vec<u8>>>>,
     initial_replica_marker: Arc<Mutex<Option<Vec<u8>>>>,
+    forced_takeover_control: Arc<Mutex<Option<Vec<u8>>>>,
+    forced_takeover_marker: Arc<Mutex<Option<Vec<u8>>>>,
+    forced_takeover_write_probe:
+        Arc<Mutex<Option<Arc<forced_takeover_control::ForcedTakeoverWriteProbe>>>>,
     target_bootstrap_control: Arc<Mutex<Option<Vec<u8>>>>,
     target_bootstrap_marker: Arc<Mutex<Option<Vec<u8>>>>,
     target_bootstrap_write_probe:
@@ -242,6 +247,9 @@ impl Default for TestRebootstrapKeyStore {
             normal_handoff_submission: Arc::default(),
             initial_replica_head: Arc::default(),
             initial_replica_marker: Arc::default(),
+            forced_takeover_control: Arc::default(),
+            forced_takeover_marker: Arc::default(),
+            forced_takeover_write_probe: Arc::default(),
             target_bootstrap_control: Arc::default(),
             target_bootstrap_marker: Arc::default(),
             target_bootstrap_write_probe: Arc::default(),

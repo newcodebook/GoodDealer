@@ -251,3 +251,13 @@ SQLCipher 与 Native 验收必须覆盖 journal 每个持久前缀、请求发�
 终止后接收新工作流须验证原 Cloud 精确终态、同租户/安装/设备、可信未写库事实及新预览确认。覆盖原状态/receipt 丢 ACK、旧请求仍存于认证历史、v1 保守升级、完整/部分/缺失 Reserved 写入的重开、历史缺失/篡改/跨 scope/容量耗尽，以及 write-started 后取消、SQL 已提交但 journal 未确认、数据库截断等拒绝路径。记录 started 与实际 SQL 阶段分别重验终态和取消；Native 串行锁不能代替 Host 边界。轮询 allowed 不得启动；新工作流出现不能隐藏旧阻塞，资格变化须撤回预览。
 
 最终仍需根 `pnpm check`、独立审查、Windows/macOS 分别编译与实机证据。源码测试、本机 PostgreSQL、目标编译均不等于部署的 OpenBao 第五用途、真实双设备或发行资格。
+
+### 强制接管至首次云恢复验收
+
+目标从专用浏览器重新认证开始，经新来源预览、一次批准、持久 waiting、期限后领取、非空 checkpoint/mutation 安装和 Active＋新鲜 execution context 后开放资产；登录本身、轮询和缓存 claimable 都不能创建或批准新意图。必须分别验证 Fresh、可信未写库终态可接收、已有副本拒绝且不释放来源。已有副本和无 held 来源云恢复仍在总交付范围。
+
+真实 PostgreSQL 以生产角色验证原密码/Passkey 会话五分钟期限、code 绝对期限、refresh 不延长、单次消费与回滚、来源 CAS、精确幂等、未知请求 cancel-intent 墓碑阻止迟到 POST；跨租户/设备/密钥/用途、撤销和并发均拒绝。Lease 历史上限覆盖同 epoch 较短续租、released 旧记录、伪 normal 标签及完整 consumed proof 例外；历史 block 同时阻止 Grant、Lease 与 execution-context。慢签名跨 waiting 边界/期限回滚，claim/cancel/renew 竞争保持单 Active。
+
+Host/SQLCipher 验证 claim 前持久安装资格、v3 forced origin、原请求/receipt 丢 ACK 和重启、取消与领取竞争后沿原 bootstrap lane 终止、未知激活先对账、终态证据跨 scope/代次拒绝。Native 复用目标 mutex 并在唤醒安装前释放；独立等待/退避不随 evidence 热唤醒转为循环。Renderer 和 IPC 必须使用相同真实 raw wire，严格拒绝 JSON 包装、重复键及未知选择器，资格变化丢弃迟到预览。
+
+部署迁移 026 前核对历史 Lease；保守回填以锁后切换时刻加 24 小时为最低上限，可能导致额外等待。它不能撤销已经发出的离线权威或修复历史重叠。源码、真实本机 PG/SQLCipher、Linux/Windows 目标严格检查与独立审查记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md)；实际部署、双设备、macOS/Windows 实机和发行资格仍单独验收。

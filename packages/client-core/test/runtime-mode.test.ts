@@ -188,7 +188,7 @@ describe("runtime-mode read-only ports", () => {
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "switch-attempt-1",
-      reauthProofId: "reauth-proof-1",
+      expectedSourceLeaseEpoch: 1,
     })).resolves.toEqual(rejection);
     await expect(port.getSwitchStatus(adjudicatedView.requestId)).resolves.toMatchObject({
       earliestTakeoverAt: "2026-08-14T12:00:00Z",

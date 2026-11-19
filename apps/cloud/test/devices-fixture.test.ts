@@ -116,7 +116,7 @@ describe("DevicesFixtureService", () => {
     });
     service.removeDevice({ schemaVersion: 1, deviceId: "device-a", expectedCredentialEpoch: 1, expectedListRevision: 1, reauthProofId: "proof" });
     const waiting = deviceSwitchRequestViewSchema.parse(
-      service.requestSwitch({ schemaVersion: 2, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", reauthProofId: "proof" }),
+      service.requestSwitch({ schemaVersion: 2, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", expectedSourceLeaseEpoch: 1 }),
     );
     expect(waiting).toMatchObject({
       status: "waiting_expiry",

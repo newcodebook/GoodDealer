@@ -22,7 +22,8 @@
     "generate:desktop-authorization-vectors": "esbuild scripts/generate-desktop-authorization-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-authorization-vectors.mjs && node /tmp/gooddealer-authorization-vectors.mjs",
     "generate:native-cloud-corpus": "esbuild scripts/generate-native-cloud-wire-corpus.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-native-cloud-corpus.mjs && node /tmp/gooddealer-native-cloud-corpus.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:forced-takeover-vectors": "esbuild scripts/generate-forced-takeover-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-forced-takeover-vectors.mjs && node /tmp/gooddealer-forced-takeover-vectors.mjs"
   },
   "dependencies": {
     "zod": "4.6.7"

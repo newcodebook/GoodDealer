@@ -6,13 +6,42 @@
 营销和设计材料不构成技术指令。未实现、未组合、未取得真实环境证据是不同的交付工作，
 不能互相替代，也不能自动成为永久限制。最新需求对谈见 [产品对谈](PRODUCT_DISCOVERY.md)。
 
+## 平台客户进度
+
+| 平台 | 适配源码 | 当前生产客户流程 | 真实账号验收 |
+| --- | --- | --- | --- |
+| Cloudflare | Zone/DNS 只读 Service | 单 Zone 连接/导入及维护已组合；资格尚未取得 | 未取得 |
+| Afternic | 官方库存/GET/Create/Update/Remove | 连接、完整市场库存归集、持久整批下架和重开对账已组合；上架/改价客户编排及自动验证未完成 | 未取得 |
+| Spaceship | 未实现实际 Service | 账户归集及 SellerHub 旅程未实现 | 未取得 |
+| Atom | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
+| Namecheap | 未实现实际 Service | 未实现 | 未取得 |
+| Dynadot | 未实现实际 Service | 未实现 | 未取得 |
+| GoDaddy | 未实现实际 Service；Afternic 不替代它 | 账户归集未实现 | 未取得 |
+| Porkbun | 未实现实际 Service | 未实现 | 未取得 |
+| Sedo | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
+| 易名 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
+| 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
+| 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
+
+六资产来源目前均未完成可验收的账户级归集；Cloudflare 单 Zone 不计为账户级，Afternic 完整市场库存不计为 GoDaddy 资产归集。市场下架已有 Afternic 源码客户流程，上架/改价只有底层请求；所有市场自动所有权验证仍待实现。真实接口、Windows/macOS 实机和发行资格分别取证，目录或测试数量不改变这些事实。
+
+## 丢机强制接管与首次云恢复
+
+[强制接管工作包](phase0/FORCED_TAKEOVER_TASK_FRAME.md)已组合设置与无副本 Standby 入口：专用浏览器重新认证 → 当前来源 epoch 预览 → 一次确认 → 持久等待及取消 → 合法期限后自动安装和激活最后成功同步的非空资产。新登录本身不创建接管。五分钟窗口来自原密码/Passkey 会话，Cloud 原子单次消费，刷新不延长。当前目标仅接受可信 Fresh 或精确终止且未写库的安装；已有副本和无 held 来源的云恢复仍待实现。
+
+Cloud 追加 025–029，记录原认证期限、Lease 已签发离线历史上限、forced 工作流和未知请求取消墓碑；迟到 POST 不能越过原取消。迁移包含 released 历史，只有完整普通交接证据可免保守 block；部署可能增加最多 24 小时等待，不能撤销已发离线签名。等待内合法续租会延后最早时间，期限到达后冻结领取窗口；领取、释放来源、pending epoch 和原能力回执同事务提交。
+
+Native 在发领取前通过原 publication 锁持久化安装资格与 journal v3 forced origin；重启必须读取当前 Cloud 状态，不能靠缓存 claimable 或本地时钟领取。未知请求/领取/激活先查询原身份；取消与领取竞争转现有 bootstrap 取消 lane。forced-control 先保存精确终态，再复制安装证据，未知或可能写入的库仍保留并阻止新安装。目标 mutex、调度退避、电源和最终授权栅栏继续复用。Renderer 仅传预览/意图引用，资格变化撤去迟到预览，轮询不批准。
+
+源码与真实本机 PostgreSQL/SQLCipher 测试已覆盖这些路径；最终根检查、独立审查和具体证据记录在执行台账。实际双设备、部署的签名服务及 Windows/macOS 实机仍未验收，不能宣称完整设备恢复或发行资格。
+
 ## 目标设备首次安装
 
 [当前工作包](phase0/TARGET_INSTALLATION_TASK_FRAME.md)接续 `a95dcdb` 的来源交接与目标终止。Cloud 已接 claim/step/checkpoint/activate/receipt 五条固定路由、独立第五签名用途、原请求及精确回执、真实 checkpoint 构建与完整 generation/墓碑摘要；目标历史 status/cancel/receipt 使用窄 bound_device 准入。追加迁移 022–024，未改旧 SQL。
 
 设置与无副本 Standby 页面已接“在本机接收”的一次确认、同步字段限制说明、Provider 重连说明和 Native 状态轮询。开始回复丢失后仅读原进度；工作流或 port 变化使旧确认失效。local-storage 使用本机固定加密库、持久加密 journal 和不可变安装回执完成首次安装；追加迁移 `202611190005`。每个未知 mutation 先查询精确回执，取消意图先落盘，不能盲目重发激活。已初始化副本一律拒绝该入口。
 
-激活成功但回复丢失后，重开先收到 Active Grant 也只能进入 `target_installation_pending`：专用准入仅允许 receipt/status/cancel；原激活回执、匹配 Active Grant 与新鲜 execution context 全部通过后才开放资产库和正常后台。Host/SQLCipher 覆盖非空资产、代次及墓碑、网络回复丢失和关闭重开；最终整合检查与独立复审记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md) 和 [审查记录](reviews/2026-11-19-target-installation-review.md)。已有副本替换、强制接管、丢机云恢复和独立跨机备份仍须继续交付；本节不宣称真实双设备或发行资格。
+激活成功但回复丢失后，重开先收到 Active Grant 也只能进入 `target_installation_pending`：专用准入仅允许 receipt/status/cancel；原激活回执、匹配 Active Grant 与新鲜 execution context 全部通过后才开放资产库和正常后台。Host/SQLCipher 覆盖非空资产、代次及墓碑、网络回复丢失和关闭重开；最终整合检查与独立复审记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md) 和 [审查记录](reviews/2026-11-19-target-installation-review.md)。已有副本替换、无来源 Lease 云恢复和独立跨机备份仍须继续交付；强制接管已接上述受限目标路径；本节不宣称真实双设备或发行资格。
 
 取消或过期后，Cloud 精确确认原工作流 cancelled/failed、Native 证明从未打开安装数据库且授权仍匹配时，现可对新工作流重新预览确认。首次 SQL open 前先持久化 started；可能写入、旧版未知证据、文件截断或授权变化都不能重标 Fresh。custody Head v2 原子保存新 journal 与最多 8 个原始加密终态文件引用，保留原请求字节；历史满明确拒绝，不删除证据。后台先按原 requestId 对账，轮询不会自动批准新交接。界面保留旧工作流的恢复/等待终态/授权变化/历史满原因，开始丢回复只读原状态。范围及验收见 [重新接收工作包](phase0/TARGET_INSTALLATION_RETRY_TASK_FRAME.md)；最终根检查和独立复审已通过，证据见 [重新接收审查](reviews/2026-11-19-target-installation-retry-review.md)。
 
@@ -29,7 +58,7 @@
   设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
   Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
   保存结果未知时先刷新对账，普通业务同步不清空未保存输入。Standby 现在可读目录；本机命名仍只允许 Active，
-  角色降级立即移除改名入口，不依赖旧设置投影。设置已组合来源交接：列出其他绑定 Standby，名称与编号尾号一起预览，确认一次后由 Native 后台推进；Renderer 只轮询状态，不驱动 drain。无已初始化副本的目标已接一次确认后的安装、重开对账和激活入口；已有副本替换与丢机接管仍未完成。
+  角色降级立即移除改名入口，不依赖旧设置投影。设置已组合来源交接：列出其他绑定 Standby，名称与编号尾号一起预览，确认一次后由 Native 后台推进；Renderer 只轮询状态，不驱动 drain。无已初始化副本的目标已接一次确认后的安装、重开对账和激活入口；已有副本替换与无来源 Lease 恢复仍未完成。
 - Desktop 登录/刷新现已在同一事务终结默认工作区的过期引导：烧毁 pending epoch、消费能力与 nonce、释放 checkpoint pin，
   再按原授权规则分配更高 epoch。未到期、孤立或不一致记录继续阻断；同事务内 Lease 签发失败时整体回滚。
   引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。目标专用 status/cancel 已组合严格协议和生产终结事务；同一事务烧毁待用 epoch、消费能力/nonce 并释放 pin，保留来源交接回执。首次目标安装/激活已组合，严格限定可信 custody 证明尚未初始化的本机库。
@@ -49,7 +78,7 @@
 - 普通交接 switch view 使用严格 v2 回执；Cloud 从唯一已消费 proof、释放原因为 normal_handoff 的来源 Lease 及匹配目标能力派生，不从工作流 status 推断成功。
   本地追加迁移 `202611180002` 保存不可变 attempt/receipt/refusal；已签完整请求只进 Native custody。Native 授权地板 v3 保存具名 capabilities，并单独记最后本机 Active epoch，旧地板升级保留所有拒绝重放信息：v1 缺失的历史 Active epoch 保持未知，v2 已记录的值保持不变；旧商业记录仅映射历史 Cloudflare observe 权限。
   初始普通请求也已由 `202611190004` 保存精确字节与幂等键，Cloud request v2 比较 Native 派生的来源 Lease epoch；未知响应先走固定 resolve，再决定只重发原请求或消解更早代次。回答和本地屏障/冻结同事务提交。
-  来源后台在原同步 lane 推进，交接与证据上传各有独立退避；已签 proof 使用当前已验签上下文中的真实密钥版本。首次目标引导已组合；已有副本替换、强制接管与独立跨机恢复仍未完成。
+  来源后台在原同步 lane 推进，交接与证据上传各有独立退避；已签 proof 使用当前已验签上下文中的真实密钥版本。首次目标引导及上述强制接管已组合；已有副本替换、无来源 Lease 云恢复与独立跨机恢复仍未完成。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
@@ -118,7 +147,7 @@
 
 换机云恢复与独立业务备份均为明确需要交付的能力。现有 GDBK v1 是安装绑定格式；其私有
 开发组合和 rebootstrap 故障协议已有测试，但生产 native 文件、密钥 custody 和恢复链路
-尚未完成，已有副本替换入口仍拒绝执行。普通交接后的首次新机安装已实现上文的受限路径；它不能替代丢机强制接管或独立灾难恢复。
+尚未完成，已有副本替换入口仍拒绝执行。普通交接后的首次新机安装已实现上文的受限路径；上述强制接管接续其安装能力，但不能替代无来源 Lease、已有副本或独立灾难恢复。
 恢复场景和设计修订见 [ADR-0023](adr/0023-business-backup-and-recovery.md)，现有格式边界见
 [数据生命周期](DATA_LIFECYCLE.md) 与 [ADR-0023](adr/0023-business-backup-and-recovery.md)。
 

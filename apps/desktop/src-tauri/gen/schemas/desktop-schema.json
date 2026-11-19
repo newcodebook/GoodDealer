@@ -489,6 +489,36 @@
           "markdownDescription": "Enables the device_switch_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the forced_takeover_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-cancel",
+          "markdownDescription": "Enables the forced_takeover_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-confirm",
+          "markdownDescription": "Enables the forced_takeover_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-preview",
+          "markdownDescription": "Enables the forced_takeover_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_reauthenticate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-reauthenticate",
+          "markdownDescription": "Enables the forced_takeover_reauthenticate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-status",
+          "markdownDescription": "Enables the forced_takeover_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_asset_library_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-asset-library-read",
@@ -793,6 +823,36 @@
           "type": "string",
           "const": "deny-device-switch-status",
           "markdownDescription": "Denies the device_switch_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-cancel",
+          "markdownDescription": "Denies the forced_takeover_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-confirm",
+          "markdownDescription": "Denies the forced_takeover_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-preview",
+          "markdownDescription": "Denies the forced_takeover_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_reauthenticate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-reauthenticate",
+          "markdownDescription": "Denies the forced_takeover_reauthenticate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-status",
+          "markdownDescription": "Denies the forced_takeover_status command without any pre-configured scope."
         },
         {
           "description": "Denies the local_asset_library_read command without any pre-configured scope.",

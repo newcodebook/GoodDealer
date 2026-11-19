@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-forced-takeover-reauthenticate"
+description = "Enables the forced_takeover_reauthenticate command without any pre-configured scope."
+commands.allow = ["forced_takeover_reauthenticate"]
+
+[[permission]]
+identifier = "deny-forced-takeover-reauthenticate"
+description = "Denies the forced_takeover_reauthenticate command without any pre-configured scope."
+commands.deny = ["forced_takeover_reauthenticate"]

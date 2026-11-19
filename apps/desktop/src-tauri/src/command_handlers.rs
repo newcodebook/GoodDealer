@@ -1,6 +1,7 @@
 //! Thin Tauri adapters for the single Desktop local-host aggregate.
 pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
+pub(crate) mod forced_takeover;
 pub(crate) mod target_bootstrap;
 pub(crate) mod target_installation;
 

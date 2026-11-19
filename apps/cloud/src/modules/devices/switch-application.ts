@@ -8,6 +8,7 @@ import {
 
 import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
 import type { DefaultWorkspaceTenantResolverPort } from "../workspace/default-workspace/index";
+import type { PostgresForcedTakeover } from "./postgres-forced-takeover";
 import type { PostgresDeviceSwitchDrain } from "./postgres-switch-drain";
 import type { PostgresDeviceSwitchRequests } from "./postgres-switch-requests";
 import type { DesktopSyncAuthorityPort } from "./postgres-sync-authority";
@@ -24,24 +25,25 @@ export interface DeviceSwitchApplicationPort {
 /**
  * Desktop device switch adapter (ADR-0032 S1b). Account, workspace and device come only from the
  * authenticated session. Status permits either eligible participant, including Standby; request,
- * cancel and drain require Active. Forced takeover remains closed until its workflow is composed.
+ * normal cancel and drain require Active. Forced requests use the target-owned authenticated transaction.
  */
 export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationPort {
   constructor(private readonly dependencies: {
     readonly workspaces: DefaultWorkspaceTenantResolverPort;
     readonly authority: DesktopSyncAuthorityPort;
     readonly requests: Pick<PostgresDeviceSwitchRequests, "requestNormal" | "read" | "cancel">;
+    readonly forced?: Pick<PostgresForcedTakeover, "request" | "cancelIfForced">;
     readonly drains: Pick<PostgresDeviceSwitchDrain, "submit">;
   }) {}
 
   async request(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
     const request = deviceSwitchRequestSchema.parse(value);
-    const subject = await this.#subject(principal);
-    if (subject === null) return null;
     if (request.mode === "forced") {
+      if (this.dependencies.forced !== undefined) return this.dependencies.forced.request(request, principal);
       return { schemaVersion: DEVICE_MANAGEMENT_SCHEMA_VERSION, accepted: false, code: "FORCED_SWITCH_UNAVAILABLE" };
     }
-    return this.dependencies.requests.requestNormal(subject, request);
+    const subject = await this.#subject(principal);
+    return subject === null ? null : this.dependencies.requests.requestNormal(subject, request);
   }
 
   async status(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
@@ -52,6 +54,10 @@ export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationP
 
   async cancel(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
     const request = deviceSwitchLookupRequestSchema.parse(value);
+    if (this.dependencies.forced !== undefined) {
+      const forced = await this.dependencies.forced.cancelIfForced(request, principal);
+      if (forced !== undefined) return forced;
+    }
     const subject = await this.#subject(principal);
     return subject === null ? null : this.dependencies.requests.cancel(subject, request.requestId);
   }

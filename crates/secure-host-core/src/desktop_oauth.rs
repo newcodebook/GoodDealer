@@ -66,6 +66,25 @@ pub struct DesktopOAuthAttempt {
 }
 
 impl DesktopOAuthAttempt {
+    /// Creates the fixed browser reauthentication intent used before forced takeover preview.
+    /// This flag requests a new server-validated login; it grants no takeover authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same configuration and randomness failures as [`Self::begin`].
+    pub fn begin_forced_takeover_reauthentication(
+        cloud_origin: &str,
+        identity: &DesktopDeviceIdentity,
+        callback_port: u16,
+    ) -> Result<Self, DesktopOAuthError> {
+        let mut attempt = Self::begin(cloud_origin, identity, callback_port)?;
+        attempt
+            .authorization_url
+            .query_pairs_mut()
+            .append_pair("require_reauth", "true");
+        Ok(attempt)
+    }
+
     /// Creates an S256 PKCE request for an already-bound native device.
     ///
     /// # Errors
@@ -742,6 +761,58 @@ mod tests {
             "S".repeat(43),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn forced_reauthentication_is_fixed_and_survives_device_proof() {
+        let identity = identity();
+        let attempt = DesktopOAuthAttempt::begin_forced_takeover_reauthentication(
+            "https://cloud.gooddealer.test/",
+            &identity,
+            PORT,
+        )
+        .unwrap();
+        let state = attempt
+            .authorization_url()
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        assert_eq!(
+            attempt
+                .authorization_url()
+                .query_pairs()
+                .filter(|(key, _)| key == "require_reauth")
+                .map(|(_, value)| value.into_owned())
+                .collect::<Vec<_>>(),
+            ["true"]
+        );
+        let callback = Url::parse(&format!(
+            "{CALLBACK}?account_id=account-a&challenge_id=login-challenge-a&device_id=device-a&expires_at=2026-09-01T00%3A02%3A00Z&key_id=device-key-a&nonce_digest={}&state={state}",
+            "N".repeat(43)
+        )).unwrap();
+        let DesktopOAuthContinuation::Authorize {
+            authorization_url, ..
+        } = attempt.advance(&callback, &identity).unwrap()
+        else {
+            panic!("proof required")
+        };
+        assert_eq!(
+            authorization_url
+                .query_pairs()
+                .filter(|(key, _)| key == "require_reauth")
+                .map(|(_, value)| value.into_owned())
+                .collect::<Vec<_>>(),
+            ["true"]
+        );
+        assert!(
+            !DesktopOAuthAttempt::begin("https://cloud.gooddealer.test/", &identity, PORT)
+                .unwrap()
+                .authorization_url()
+                .query_pairs()
+                .any(|(key, _)| key == "require_reauth")
+        );
     }
 
     #[test]

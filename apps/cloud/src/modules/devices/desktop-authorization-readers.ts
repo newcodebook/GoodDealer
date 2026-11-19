@@ -140,7 +140,8 @@ export async function readCurrentLease(
             l.online_expires_at, l.offline_execute_until,
             b.status = 'bound' AS binding_live,
             l.released_at IS NULL AND clock_timestamp() >= l.issued_at
-              AND clock_timestamp() < l.online_expires_at AS lease_live,
+              AND clock_timestamp() < l.online_expires_at
+              AND (s.exclusive_execution_block_until IS NULL OR s.exclusive_execution_block_until<=clock_timestamp()) AS lease_live,
             s.current_lease_epoch = l.lease_epoch AS current_epoch
        FROM device_active_leases l
        JOIN device_account_states s ON s.account_id = l.account_id
@@ -196,6 +197,7 @@ export async function grantAuthorityStillCurrent(
         AND workspace.is_default = true
         AND binding.status = 'bound'
         AND device_state.current_lease_epoch = active_lease.lease_epoch
+        AND (device_state.exclusive_execution_block_until IS NULL OR device_state.exclusive_execution_block_until<=clock_timestamp())
         AND active_lease.released_at IS NULL
         AND active_lease.wire_envelope IS NOT NULL
         AND active_lease.signer_receipt_digest IS NOT NULL

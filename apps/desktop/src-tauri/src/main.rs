@@ -4,6 +4,7 @@ mod backup_ipc;
 mod command_handlers;
 mod device_switch_drain;
 mod execution_context_native;
+mod forced_takeover;
 mod native_cloud_runtime;
 mod native_cloud_session;
 mod oauth_loopback;
@@ -165,6 +166,7 @@ fn setup_native_app(
     app.manage(cloud.device_switch());
     app.manage(cloud.target_bootstrap());
     app.manage(cloud.target_installation());
+    app.manage(cloud.forced_takeover());
     app.manage(cloud);
     let maintenance = Arc::clone(&oauth);
     let maintenance_app = app.handle().clone();
@@ -215,6 +217,11 @@ fn main() {
             command_handlers::target_bootstrap::target_bootstrap_cancel,
             command_handlers::target_installation::target_installation_start,
             command_handlers::target_installation::target_installation_status,
+            command_handlers::forced_takeover::forced_takeover_reauthenticate,
+            command_handlers::forced_takeover::forced_takeover_preview,
+            command_handlers::forced_takeover::forced_takeover_confirm,
+            command_handlers::forced_takeover::forced_takeover_status,
+            command_handlers::forced_takeover::forced_takeover_cancel,
             command_handlers::local_backup_restore_status,
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,

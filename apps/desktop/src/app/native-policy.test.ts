@@ -123,6 +123,11 @@ describe("Desktop native policy", () => {
       "allow-desktop-authentication-status",
       "allow-desktop-authentication-begin",
       "allow-desktop-authentication-refresh",
+      "allow-forced-takeover-reauthenticate",
+      "allow-forced-takeover-preview",
+      "allow-forced-takeover-confirm",
+      "allow-forced-takeover-status",
+      "allow-forced-takeover-cancel",
     ]);
     expect(existsSync(fileURLToPath(new URL("../../src-tauri/capabilities/remote-browser.json", import.meta.url)))).toBe(false);
   });

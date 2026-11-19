@@ -28,11 +28,12 @@ interface WorkflowRow {
   readonly from_device_id: string | null;
   readonly to_device_id: string;
   readonly created_at: Date;
+  readonly earliest_takeover_at: Date | null;
   readonly bootstrap_expires_at: Date | null;
   readonly normal_handoff_receipt: unknown;
 }
 
-const WORKFLOW_COLUMNS = `w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
+const WORKFLOW_COLUMNS = `w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at, w.earliest_takeover_at,
   CASE WHEN w.status = 'bootstrapping' THEN c.expires_at END AS bootstrap_expires_at,
   h.normal_handoff_receipt`;
 // Read all handoff facts in the same SQL snapshot. Ambiguous or inconsistent history yields no receipt,
@@ -204,7 +205,7 @@ export class PostgresDeviceSwitchRequests {
             bound_account_security_epoch, state_deadline, source_lease_epoch)
          VALUES ($1, $2, $3, 'device_switch', 'normal', $4, $5, 'draining', 1, $6, $7, $8, $9, $10,
            transaction_timestamp() + make_interval(secs => $11), $12)
-         RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
+         RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at, w.earliest_takeover_at,
            NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
         [
           source.accountId,
@@ -272,7 +273,7 @@ export class PostgresDeviceSwitchRequests {
         `UPDATE device_switch_workflows AS w
          SET status = 'cancelled', workflow_revision = workflow_revision + 1, updated_at = transaction_timestamp()
          WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 AND status = ANY($4::text[])
-         RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
+         RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at, w.earliest_takeover_at,
            NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
         [device.accountId, device.workspaceId, workflowId, [...CANCELLABLE]],
       );
@@ -322,8 +323,6 @@ function parseSubject(subject: DeviceSwitchSubject): DeviceSwitchSubject {
 }
 
 function accepted(row: WorkflowRow): DeviceSwitchResponse {
-  // This owner has no forced-takeover writer yet; never infer its timing or a normal receipt.
-  if (row.mode === "forced") return rejected("FORCED_SWITCH_UNAVAILABLE");
   return {
     schemaVersion: DEVICE_MANAGEMENT_SCHEMA_VERSION,
     accepted: true,
@@ -335,8 +334,7 @@ function accepted(row: WorkflowRow): DeviceSwitchResponse {
       fromDeviceId: row.from_device_id,
       toDeviceId: row.to_device_id,
       requestedAt: canonicalTimestamp(row.created_at),
-      // Only forced switches carry a takeover time; the forced writer is not implemented yet.
-      earliestTakeoverAt: null,
+      earliestTakeoverAt: row.earliest_takeover_at == null ? null : canonicalTimestamp(row.earliest_takeover_at),
       bootstrapExpiresAt:
         row.bootstrap_expires_at === null ? null : canonicalTimestamp(row.bootstrap_expires_at),
       normalHandoffReceipt: row.normal_handoff_receipt,

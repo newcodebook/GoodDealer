@@ -60,7 +60,10 @@ fn unauthenticated_host(
     super::super::execution_context::tests::configure(&mut host, store);
     (host, standby)
 }
-fn host(path: &std::path::Path, store: &TestRebootstrapKeyStore) -> DesktopLocalHost {
+pub(in crate::desktop_local_host) fn host(
+    path: &std::path::Path,
+    store: &TestRebootstrapKeyStore,
+) -> DesktopLocalHost {
     let (host, standby) = unauthenticated_host(path, store);
     host.activate_authorization_grant(&standby).unwrap();
     host
@@ -94,7 +97,9 @@ fn exchange(
     clippy::too_many_lines,
     reason = "one signed test responder preserves the five wire operations and their shared binding"
 )]
-fn response(exchange: &DesktopTargetInstallationExchange) -> Json {
+pub(in crate::desktop_local_host) fn response(
+    exchange: &DesktopTargetInstallationExchange,
+) -> Json {
     let corpus = corpus();
     let request: Json = serde_json::from_slice(exchange.request_bytes()).unwrap();
     let now = current_unix_seconds().unwrap();
@@ -200,7 +205,10 @@ fn response(exchange: &DesktopTargetInstallationExchange) -> Json {
         }
     }
 }
-fn committed(exchange: &DesktopTargetInstallationExchange, direct: &Json) -> Json {
+pub(in crate::desktop_local_host) fn committed(
+    exchange: &DesktopTargetInstallationExchange,
+    direct: &Json,
+) -> Json {
     let request: Json = serde_json::from_slice(exchange.request_bytes()).unwrap();
     let mut operation = request["operation"].clone();
     let (kind, field, revision, status) = match operation["kind"].as_str().unwrap() {
@@ -227,7 +235,7 @@ fn committed(exchange: &DesktopTargetInstallationExchange, direct: &Json) -> Jso
     assert_eq!(operation["kind"], kind);
     json!({"schemaVersion":1,"outcome":"committed","workflow":{"requestId":"installation-workflow","workflowRevision":revision,"status":status},"operation":operation})
 }
-fn advance_to_activation(
+pub(in crate::desktop_local_host) fn advance_to_activation(
     host: &DesktopLocalHost,
 ) -> (
     DesktopNativeCloudAdmission,
@@ -827,6 +835,7 @@ fn new_write_fact_is_strict_and_legacy_conversion_never_guesses_after_pin() {
     let original = Journal::new("original", 2);
     let mut legacy: Json = serde_json::from_slice(&protected_bytes(&original).unwrap()).unwrap();
     legacy["schemaVersion"] = json!(1);
+    legacy.as_object_mut().unwrap().remove("origin");
     legacy.as_object_mut().unwrap().remove("writeState");
     legacy.as_object_mut().unwrap().remove("terminalEvidence");
     assert!(
@@ -1005,6 +1014,7 @@ fn completed_download_without_sql_can_restart_but_legacy_pin_state_cannot() {
             let state = custody.initial_replica_state().unwrap();
             let mut value: Json = serde_json::from_slice(state.bytes.as_ref().unwrap()).unwrap();
             value["schemaVersion"] = json!(1);
+            value.as_object_mut().unwrap().remove("origin");
             value.as_object_mut().unwrap().remove("writeState");
             value.as_object_mut().unwrap().remove("terminalEvidence");
             custody

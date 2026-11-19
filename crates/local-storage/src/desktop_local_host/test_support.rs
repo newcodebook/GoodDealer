@@ -122,6 +122,7 @@ impl DesktopLocalHost {
             execution_context_native: None,
             installation_context_gate: std::sync::atomic::AtomicBool::new(false),
             target_installation_stage: Mutex::new(None),
+            forced_takeover_runtime: Mutex::default(),
             execution_context_state: Mutex::new(execution_context::ExecutionContextState::default()),
             transition_requested_epoch: AtomicU64::new(generation),
             provider_connection_generation: AtomicU64::new(0),

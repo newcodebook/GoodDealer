@@ -529,3 +529,64 @@ pub(super) fn installation_terminal_record(
     }
     serde_json::to_vec(&record).map(Some).map_err(|_| storage())
 }
+
+/// The forced-control owner has already persisted the same cancellation consent. This narrow
+/// transfer shares the existing pending lane so unknown activation still reconciles first.
+pub(super) fn inherit_forced_cancel(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+    request_id: &str,
+    security_epoch: u64,
+) -> Result<(), Error> {
+    validate_identifier(request_id, 160)?;
+    let previous = custody
+        .load_target_bootstrap_control()
+        .map_err(|_| storage())?;
+    let floor = custody
+        .load_authorization_floor()
+        .map_err(|_| storage())?
+        .ok_or(Error::AuthorityRejected)?;
+    let mut record = installation_control(custody)?.unwrap_or(Control {
+        schema_version: 1,
+        installation: custody
+            .installation_binding_digest()
+            .map_err(|_| storage())?,
+        account: floor.account_id,
+        workspace: floor.workspace_id,
+        device: floor.device_id,
+        revision: 0,
+        state: DesktopTargetBootstrapView::Idle,
+        pending: None,
+        last_finished: None,
+        retired_intent: None,
+    });
+    if record.pending.as_ref().is_some_and(|pending| {
+        pending.request_id == request_id && pending.account_security_epoch == security_epoch
+    }) {
+        return Ok(());
+    }
+    if record.pending.is_some()
+        || matches!(&record.last_finished,Some(DesktopTargetBootstrapView::Finished{request_id:id,..}) if id==request_id)
+    {
+        return Err(rejected());
+    }
+    record.revision = record
+        .revision
+        .checked_add(1)
+        .filter(|n| *n <= MAX_REVISION)
+        .ok_or_else(rejected)?;
+    record.pending = Some(Pending {
+        request_id: request_id.into(),
+        account_security_epoch: security_epoch,
+        request_bytes: cancel_bytes(request_id)?,
+    });
+    record.state = DesktopTargetBootstrapView::Pending {
+        request_id: request_id.into(),
+    };
+    record.validate()?;
+    custody
+        .replace_target_bootstrap_control(
+            previous.as_deref(),
+            &serde_json::to_vec(&record).map_err(|_| storage())?,
+        )
+        .map_err(|_| storage())
+}

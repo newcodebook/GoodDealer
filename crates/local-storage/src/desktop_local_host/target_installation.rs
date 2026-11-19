@@ -107,6 +107,8 @@ use wire::{Value, rejected};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Journal {
     schema_version: u8,
+    #[serde(deserialize_with = "required_option")]
+    origin: Option<super::forced_takeover::Origin>,
     security_epoch: u64,
     request_id: String,
     view: DesktopTargetInstallationView,
@@ -153,7 +155,8 @@ fn protected_bytes<T: Serialize>(value: &T) -> Result<Zeroizing<Vec<u8>>, Error>
 impl Journal {
     fn new(request_id: &str, security_epoch: u64) -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 3,
+            origin: None,
             security_epoch,
             request_id: request_id.into(),
             view: DesktopTargetInstallationView::Running {
@@ -181,7 +184,7 @@ impl Journal {
         };
     }
     fn validate(&self) -> Result<(), Error> {
-        if self.schema_version != 2
+        if self.schema_version != 3
             || self.security_epoch == 0
             || self.security_epoch > 9_007_199_254_740_991
             || self.next_step_number == 0
@@ -193,6 +196,9 @@ impl Journal {
             return Err(rejected());
         }
         crate::desktop_native_cloud::validate_identifier(&self.request_id, 160)?;
+        if let Some(origin) = &self.origin {
+            origin.validate(&self.request_id)?;
+        }
         retry::validate_journal(self)?;
         if let Some(pending) = &self.pending {
             if pending.kind == DesktopTargetInstallationExchangeKind::Receipt {
@@ -495,8 +501,7 @@ impl DesktopLocalHost {
                     Some((journal, state.phase)),
                 ));
             }
-            let cancelled =
-                super::target_bootstrap::installation_cancel_pending(custody, &journal.request_id)?;
+            let cancelled = installation_cancel_pending(custody, &journal)?;
             if journal.activation.is_some() {
                 if current.kind == WorkspaceAuthorityKind::Active
                     && current.lease_epoch
@@ -535,6 +540,22 @@ impl DesktopLocalHost {
                     current,
                     self.authority_verifier.as_ref().ok_or(Error::Unavailable)?,
                 )?;
+            }
+            let sending_claim = journal.claim.is_none()
+                && journal.pending.as_ref().is_none_or(|pending| {
+                    pending.kind == DesktopTargetInstallationExchangeKind::Claim
+                        && pending.retry_authorized
+                });
+            if sending_claim
+                && let Some(origin) = &journal.origin
+                && !self.allow_forced_claim(
+                    custody,
+                    current,
+                    origin,
+                    admission.inner.authority_epoch,
+                )?
+            {
+                return Ok((DesktopTargetInstallationWork::Settled(journal.view), None));
             }
             if let Some(pending) = journal.pending.as_mut() {
                 if pending.kind == DesktopTargetInstallationExchangeKind::Checkpoint
@@ -641,11 +662,22 @@ impl DesktopLocalHost {
             let now = current_unix_seconds().map_err(|_| Error::Unavailable)?;
             let verifier = self.authority_verifier.as_ref().ok_or(Error::Unavailable)?;
             if exchange.kind == DesktopTargetInstallationExchangeKind::Receipt {
-                let cancelled = super::target_bootstrap::installation_cancel_pending(
-                    custody,
-                    &journal.request_id,
-                )?;
+                let cancelled = installation_cancel_pending(custody, &journal)?;
                 consume_receipt(&mut journal, &response, current, now, verifier, cancelled)?;
+            } else if exchange.kind == DesktopTargetInstallationExchangeKind::Claim
+                && journal.origin.is_some()
+                && response.get("accepted")? == &Value::Bool(false)
+                && response.get("code")?.equals_text("TAKEOVER_NOT_READY")
+            {
+                response.shape(&["schemaVersion", "accepted", "code"], &[])?;
+                if response.get("schemaVersion")?.number()? != 1 {
+                    return Err(rejected());
+                }
+                journal
+                    .pending
+                    .as_mut()
+                    .ok_or_else(rejected)?
+                    .retry_authorized = true;
             } else {
                 consume_direct(&mut journal, &response, current, now, verifier)?;
             }
@@ -686,10 +718,7 @@ impl DesktopLocalHost {
                     .is_some()
                 || journal.pending.is_some()
                 || journal.local_receipt.is_some()
-                || super::target_bootstrap::installation_cancel_pending(
-                    custody,
-                    &journal.request_id,
-                )?
+                || installation_cancel_pending(custody, &journal)?
             {
                 return Err(rejected());
             }
@@ -836,6 +865,7 @@ impl DesktopLocalHost {
             if journal.request_id != scope.workflow {
                 return Err(Error::AuthorityRejected);
             }
+            retry::validate_terminal_scope(&journal, scope)?;
         }
         let (result, update) = action(&custody, current, state)?;
         if let Some((journal, phase)) = update {
@@ -1238,11 +1268,35 @@ fn consume_receipt(
         return Err(rejected());
     }
     let status = workflow.get("status")?.text()?;
-    if !["bootstrapping", "completed", "cancelled", "failed"].contains(&status) {
+    if ![
+        "waiting_expiry",
+        "bootstrapping",
+        "completed",
+        "cancelled",
+        "failed",
+    ]
+    .contains(&status)
+    {
         return Err(rejected());
     }
     let operation = response.get("operation")?;
     let expected = journal.receipt_request()?.get("operation")?.clone();
+    if status == "waiting_expiry" {
+        if journal.origin.is_none()
+            || outcome != "uncommitted"
+            || operation != &expected
+            || !expected.get("kind")?.equals_text("claim")
+            || !response.get("nextStep")?.is_null()
+        {
+            return Err(rejected());
+        }
+        journal
+            .pending
+            .as_mut()
+            .ok_or_else(rejected)?
+            .retry_authorized = true;
+        return Ok(());
+    }
     if outcome == "committed" {
         let kind = expected.get("kind")?.text()?;
         let field = match kind {
@@ -1420,7 +1474,7 @@ pub(super) fn open_for_initial_authority(
 }
 
 #[cfg(all(test, unix))]
-mod tests;
+pub(super) mod tests;
 
 fn stale_security_view(journal: &Journal) -> DesktopTargetInstallationView {
     DesktopTargetInstallationView::Stopped {
@@ -1476,4 +1530,139 @@ pub(super) fn installation_reconciliation_request(
     custody: &DesktopProductionCustody,
 ) -> Result<Option<String>, Error> {
     retry::reconciliation_request(custody)
+}
+
+fn installation_cancel_pending(
+    custody: &DesktopProductionCustody,
+    journal: &Journal,
+) -> Result<bool, Error> {
+    if let Some(origin) = &journal.origin
+        && super::forced_takeover::cancelled(custody, origin)?
+    {
+        return Ok(true);
+    }
+    super::target_bootstrap::installation_cancel_pending(custody, &journal.request_id)
+}
+
+pub(super) fn forced_eligibility(
+    custody: &DesktopProductionCustody,
+    current: &PrivateWorkspaceAuthority,
+) -> Result<DesktopTargetInstallationNewWorkflow, Error> {
+    let state = custody.initial_replica_state().map_err(|_| storage())?;
+    retry::validate_history(&state)?;
+    if let Some(journal) = load_journal(&state)? {
+        let scope = state.scope.as_ref().ok_or_else(rejected)?;
+        if scope.account != current.account_id
+            || scope.workspace != current.workspace_id
+            || scope.device != current.device_id
+            || scope.workflow != journal.request_id
+            || scope.installation
+                != custody
+                    .installation_binding_digest()
+                    .map_err(|_| storage())?
+        {
+            return Err(Error::AuthorityRejected);
+        }
+        retry::validate_terminal_scope(&journal, scope)?;
+        return retry::eligibility(custody, current, &state, &journal);
+    }
+    Ok(
+        if state.phase == InitialReplicaPhase::Fresh
+            && custody
+                .initial_replica_database_unwritten()
+                .map_err(|_| storage())?
+        {
+            DesktopTargetInstallationNewWorkflow::Allowed
+        } else {
+            DesktopTargetInstallationNewWorkflow::RequiresRecovery
+        },
+    )
+}
+impl DesktopLocalHost {
+    pub(super) fn reserve_forced_installation(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<Option<super::forced_takeover::DesktopForcedTakeoverStoppedReason>, Error> {
+        use super::forced_takeover::DesktopForcedTakeoverStoppedReason as Reason;
+        self.with_initial_replica(admission, |custody, current, state| {
+            // Existing exact origin resumes even when cancellation or Active receipt recovery is
+            // pending. A fresh origin must still satisfy the unchanged consent and Standby fence.
+            if let Some(journal) = load_journal(&state)?
+                && let Some(origin) = &journal.origin
+                && super::forced_takeover::matches_current_origin(
+                    custody,
+                    origin,
+                    current.account_security_epoch,
+                )?
+            {
+                if journal.claim.is_none()
+                    && !custody
+                        .initial_replica_database_unwritten()
+                        .map_err(|_| storage())?
+                {
+                    return Ok((Some(Reason::LocalRecoveryRequired), None));
+                }
+                return Ok((None, None));
+            }
+            let eligibility = forced_eligibility(custody, current)?;
+            if eligibility != DesktopTargetInstallationNewWorkflow::Allowed {
+                return Ok((
+                    Some(
+                        if eligibility == DesktopTargetInstallationNewWorkflow::HistoryFull {
+                            Reason::HistoryFull
+                        } else {
+                            Reason::LocalRecoveryRequired
+                        },
+                    ),
+                    None,
+                ));
+            }
+            let origin = super::forced_takeover::approved_origin(custody, current)?;
+            if current.kind != WorkspaceAuthorityKind::Standby {
+                return Err(Error::AuthorityRejected);
+            }
+            let mut journal = Journal::new(&origin.workflow_id, current.account_security_epoch);
+            journal.origin = Some(origin);
+            Ok((None, Some((journal, InitialReplicaPhase::Installing))))
+        })
+    }
+}
+
+pub(super) fn forced_installation_has_claim(
+    custody: &DesktopProductionCustody,
+    origin: &super::forced_takeover::Origin,
+    security_epoch: u64,
+) -> Result<bool, Error> {
+    let state = custody.initial_replica_state().map_err(|_| storage())?;
+    let Some(journal) = load_journal(&state)? else {
+        return Ok(false);
+    };
+    Ok(journal.origin.as_ref() == Some(origin)
+        && journal.security_epoch == security_epoch
+        && journal.claim.is_some())
+}
+
+pub(super) fn forced_installation_terminal(
+    custody: &DesktopProductionCustody,
+    origin: &super::forced_takeover::Origin,
+    security_epoch: u64,
+) -> Result<Option<DesktopTargetBootstrapTerminalStatus>, Error> {
+    let state = custody.initial_replica_state().map_err(|_| storage())?;
+    let Some(journal) = load_journal(&state)? else {
+        return Ok(None);
+    };
+    if journal.origin.as_ref() != Some(origin) || journal.security_epoch != security_epoch {
+        return Ok(None);
+    }
+    Ok(match journal.view {
+        DesktopTargetInstallationView::Completed { .. } => {
+            Some(DesktopTargetBootstrapTerminalStatus::Completed)
+        }
+        DesktopTargetInstallationView::Stopped { status, .. }
+            if journal.terminal_evidence.is_some() =>
+        {
+            Some(status)
+        }
+        _ => None,
+    })
 }

@@ -170,6 +170,7 @@ const expectedDesktopOAuthPublicItems = [
   "DesktopRefreshToken",
   "authorization_url",
   "begin",
+  "begin_forced_takeover_reauthentication",
   "callback_state_matches",
   "clear_desktop_refresh_request_id",
   "clear_desktop_refresh_token",
@@ -253,8 +254,12 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::execution_evidence_delivery",
   "desktop_local_host::target_installation",
   "desktop_local_host::target_bootstrap",
+  "desktop_local_host::forced_takeover",
 ];
 const expectedLocalStoragePublicExports = [
+  "DesktopForcedTakeoverExchange", "DesktopForcedTakeoverExchangeKind",
+  "DesktopForcedTakeoverPreview", "DesktopForcedTakeoverPreviewReason",
+  "DesktopForcedTakeoverStoppedReason", "DesktopForcedTakeoverView", "DesktopForcedTakeoverWork",
   ...expectedExecutionContextExports,
   "DesktopTargetInstallationExchange", "DesktopTargetInstallationExchangeKind",
   "DesktopTargetInstallationNewWorkflow", "DesktopTargetInstallationPhase", "DesktopTargetInstallationStage",

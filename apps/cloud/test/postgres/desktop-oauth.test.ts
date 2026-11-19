@@ -1,8 +1,9 @@
+import { leaseIssuedOfflineHighWaterMigration } from "../../src/modules/devices/migrations/202611190026-lease-issued-offline-high-water";
 import { submittedSyncMutationSchema, computeWorkspaceCheckpointEntityDigests, encodeCheckpointEntityDigestsInput } from "@gooddealer/protocol/workspace";
 import { PostgresWorkspaceMutationRepository } from "../../src/modules/workspace/mutations/index";
 import { PostgresPortfolioRepository } from "../../src/modules/workspace/state/portfolio/index";
 import { PostgresCheckpointRepository } from "../../src/modules/workspace/checkpoints/index";
-import { PostgresTargetBootstrapInstallation, TrustedBootstrapVerificationKeySource } from "../../src/modules/devices/index";
+import { PostgresForcedTakeover, PostgresTargetBootstrapInstallation, TrustedBootstrapVerificationKeySource } from "../../src/modules/devices/index";
 import { deviceBootstrapActivationRequestSchema, encodeBootstrapActivationRequestDigestInput, encodeBootstrapStepReplayRequest, encodeBootstrapCheckpointPageDigestInput, type DeviceBootstrapClaim } from "@gooddealer/protocol/devices";
 import { PostgresBootstrapActivation } from "../../src/modules/devices/postgres-bootstrap-activation";
 import { PostgresDeviceCursorRepository } from "../../src/modules/workspace/cursors/index";
@@ -484,6 +485,13 @@ describe("PostgreSQL execution context historical evidence", () => {
     new PostgresDefaultWorkspaceTenantResolver(identityTransactions), new DesktopAuthorizationGrantIssuer(grantSigner), leaseVerifier, new DesktopExecutionContextIssuer(signer));
   const request = (n: number) => ({ schemaVersion: 1, nonce: Buffer.alloc(32,n).toString("base64url") });
   const hash=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("base64url");
+  it("forced takeover historical block prevents fresh execution context evidence",async()=>{
+    const active=await desktopGrantPrincipal();
+    expect(await contextService().issue(request(77),active)).not.toBeNull();
+    await ownerPool.query("UPDATE device_account_states SET exclusive_execution_block_until=clock_timestamp()+interval '1 day'");
+    expect(await contextService().issue(request(78),active)).toBeNull();
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_execution_contexts")).rows).toEqual([{count:1}]);
+  });
   async function executionFixture(nonce=50){
     if(nonce===50)await applyEntitlementState("active","evidence-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
     const principal=await desktopGrantPrincipal();const response=await contextService().issue(request(nonce),principal);
@@ -1749,8 +1757,8 @@ function authorizationService(standbySigner: DesktopStandbyGrantSigner = standby
     new DesktopAuthorizationGrantIssuer(grantSigner), leaseVerifier,
     new DesktopStandbyGrantIssuer(standbySigner));
 }
-async function loginStandbyDevice() {
-  const { base, challenged, transcript } = await beginAuthorization(new Date(), oauth, "device-b");
+async function loginStandbyDevice(requireReauthentication = false) {
+  const { base, challenged, transcript } = await beginAuthorization(new Date(), oauth, "device-b", requireReauthentication);
   const authorized = await completeAuthorization(base, challenged, transcript);
   if (!authorized.authorized) throw new Error("Standby authorization failed");
   const exchanged = await oauth.exchange(exchangeInput(authorized.code, verifier));
@@ -1952,9 +1960,11 @@ async function beginAuthorization(
   evaluatedAt: Date,
   service: PostgresDesktopOAuthAuthorizationService = oauth,
   deviceId = "device-a",
+  requireReauthentication = false,
 ) {
   const key = deviceId === "device-a" ? deviceKeyPair : otherDeviceKeyPair;
   const base = {
+    ...(requireReauthentication ? {requireReauthentication:true as const} : {}),
     principal,
     deviceId,
     clientId: DESKTOP_OAUTH_CLIENT_ID,
@@ -2014,6 +2024,54 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
+/** Transactionally reconstruct only the pre-026 Lease columns in this disposable PG database.
+ * Rollback restores the installed schema and fixture; production migration text is never rewritten. */
+async function checkHistoricalLeaseUpgrade(expectBlock:boolean) {
+  const client=await ownerPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DROP TRIGGER device_lease_offline_high_water_guard ON device_active_leases");
+    await client.query("DROP FUNCTION public.device_lease_offline_high_water_guard()");
+    await client.query("ALTER TABLE device_active_leases DROP COLUMN max_issued_offline_execute_until");
+    const before=(await client.query("SELECT clock_timestamp() AS now")).rows[0].now;
+    await client.query(leaseIssuedOfflineHighWaterMigration.sql);
+    const lease=(await client.query("SELECT max_issued_offline_execute_until,offline_execute_until FROM device_active_leases")).rows[0];
+    expect(lease.max_issued_offline_execute_until.getTime()).toBeGreaterThanOrEqual(before.getTime()+86_400_000);
+    expect(lease.max_issued_offline_execute_until.getTime()).toBeGreaterThanOrEqual(lease.offline_execute_until.getTime());
+    const state=(await client.query("SELECT exclusive_execution_block_until FROM device_account_states")).rows[0];
+    if(expectBlock)expect(state.exclusive_execution_block_until).toEqual(lease.max_issued_offline_execute_until);
+    else expect(state.exclusive_execution_block_until).toBeNull();
+  } finally {await client.query("ROLLBACK");client.release();}
+}
+describe("forced takeover historical Lease upgrade",()=>{
+  it.each(["device_switch","lease_verifier_upgrade","normal_handoff"])("blocks released history labelled %s without exact consumed proof",async reason=>{
+    await desktopGrantPrincipal();
+    await ownerPool.query("UPDATE device_active_leases SET released_at=clock_timestamp(),release_reason=$1",[reason]);
+    await checkHistoricalLeaseUpgrade(true);
+  });
+  it("does not add an execution block for an exact verified and consumed normal handoff",async()=>{
+    await desktopGrantPrincipal();await loginStandbyDevice();
+    const txs=new TenantTransactionRunner(appPool),security=new PostgresIdentityAccountSecurityStatePort();
+    const requests=new PostgresDeviceSwitchRequests({transactions:txs,accountSecurity:security});
+    const source={accountId:"oauth-account",workspaceId:"oauth-workspace",deviceId:"device-a"};
+    const opened=await requests.requestNormal(source,{toDeviceId:"device-b",idempotencyKey:"upgrade-normal",expectedSourceLeaseEpoch:1});
+    if(!opened?.accepted)throw new Error("normal switch refused");
+    const drains=new PostgresDeviceSwitchDrain({transactions:txs,requests,transition:new PostgresDeviceDrainTransition(txs,security,new PostgresMutationDrainLedger(),new PostgresExecutionFactDrainLedger(),new PostgresWorkspaceDeviceAuditDrainLedger())});
+    const now=Math.floor(Date.now()/1000)*1000;
+    const proof=signedHandoffDrainProof(deviceKeyPair.privateKey,{workspaceId:"oauth-workspace",sourceDeviceId:"device-a",signingKeyId:"device-key-a",deviceSwitchRequestId:opened.request.requestId,
+      issuedAt:canonicalUtcSecond(new Date(now)),expiresAt:canonicalUtcSecond(new Date(now+300000)),
+      streams:["mutation","execution_fact","device_audit"].map(stream=>({stream,lastAssignedSequence:0,contiguousReceivedThrough:0,pendingCount:0,rollingDigest:DRAIN_STREAM_GENESIS_DIGEST}))});
+    expect(await drains.submit(source,opened.request.requestId,proof)).toMatchObject({accepted:true,request:{normalHandoffReceipt:{sourceLeaseEpoch:1}}});
+    await checkHistoricalLeaseUpgrade(false);
+  });
+  it("blocks newly issued execution grants while released history is still isolated",async()=>{
+    const active=await desktopGrantPrincipal();
+    await ownerPool.query("UPDATE device_account_states SET exclusive_execution_block_until=clock_timestamp()+interval '1 day'");
+    expect(await authorizationService().issue({schemaVersion:5},active)).toBeNull();
+    expect(await ensureLease()).toEqual({outcome:"refused"});
+  });
+});
+
 // Real account-capability transactions and persisted workspace owners; fixture keys are test-only.
 describe("PostgreSQL target bootstrap installation", () => {
   const lookup={schemaVersion:1 as const,requestId:"switch-guard"};
@@ -2030,10 +2088,10 @@ describe("PostgreSQL target bootstrap installation", () => {
     capabilityKeys:new TrustedBootstrapVerificationKeySource([{kid:"installation-pg-bootstrap",publicKey:signing.publicKey}]),
     leaseSigner:activateSigner,leaseVerifier,...(fault===undefined?{}:{fault})});
   const hash=(v:Uint8Array)=>createHash("sha256").update(v).digest("base64url");
-  async function fixture(existingCheckpoint=true) {
+  async function fixture(existingCheckpoint=true, forced=false) {
     signedClaims=0;
     await ownerPool.query("TRUNCATE mutation_drain_records, mutation_drain_heads, mutation_drain_seals CASCADE");
-    const source=await desktopGrantPrincipal(),target=(await loginStandbyDevice()).principal;
+    const source=await desktopGrantPrincipal(),target=(await loginStandbyDevice(forced)).principal;
     const scope={accountId:"oauth-account",workspaceId:"oauth-workspace"};
     const txs=new TenantTransactionRunner(appPool),mutations=new PostgresWorkspaceMutationRepository(),portfolio=new PostgresPortfolioRepository(),revisions=new PostgresWorkspaceRevisionRepository();
     await txs.withTenant(scope,async tx=>{
@@ -2065,16 +2123,27 @@ describe("PostgreSQL target bootstrap installation", () => {
         await repository.publish(tx,await repository.markVerified(tx,built));
       }
     });
-    await seedExpiredBootstrap();
-    await ownerPool.query("UPDATE device_bootstrap_capabilities SET issued_at=date_trunc('second',clock_timestamp())-interval '1 minute',expires_at=date_trunc('second',clock_timestamp())+interval '59 minutes'");
-    return {source,target,service:service()};
+    let requestId=lookup.requestId;
+    if (forced) {
+      await historicalForcedSource();
+      const response=await forcedService().request(forcedRequest,target);
+      expect(response).toMatchObject({accepted:true,request:{status:"waiting_expiry"}});
+      if(!response?.accepted)throw new Error("forced request failed");
+      requestId=response.request.requestId;
+      await waitForDatabaseDeadline(new Date(response.request.earliestTakeoverAt!));
+    } else {
+      await seedExpiredBootstrap();
+      await ownerPool.query("UPDATE device_bootstrap_capabilities SET issued_at=date_trunc('second',clock_timestamp())-interval '1 minute',expires_at=date_trunc('second',clock_timestamp())+interval '59 minutes'");
+    }
+    return {source,target,service:service(),requestId};
   }
   function requestFor(claim:DeviceBootstrapClaim,stepNumber:number,workflowRevision:number,nonce:string,stepKind:string,stepPayload:unknown) {
-    const draft={schemaVersion:2,deviceSwitchRequestId:lookup.requestId,capabilityJti:claim.capability.jti,
+    const draft={schemaVersion:2,deviceSwitchRequestId:claim.requestId,capabilityJti:claim.capability.jti,
       stepNumber,expectedWorkflowRevision:workflowRevision,stepNonce:nonce,stepKind,stepPayload,requestDigest:Buffer.alloc(32).toString("base64url")};
     return bootstrapStepRequestSchema.parse({...draft,requestDigest:hash(encodeBootstrapStepRequestDigestInput(draft))});
   }
   async function install(f:Awaited<ReturnType<typeof fixture>>) {
+    const lookup={schemaVersion:1 as const,requestId:f.requestId};
     const claim=await f.service.claim(lookup,f.target);expect(claim).toMatchObject({accepted:true});
     if(!claim?.accepted)throw new Error("claim refused");
     const pin=requestFor(claim.claim,1,claim.claim.workflowRevision,claim.claim.nextStep.stepNonce,"pin_checkpoint",{});
@@ -2099,6 +2168,173 @@ describe("PostgreSQL target bootstrap installation", () => {
     const activation=deviceBootstrapActivationRequestSchema.parse({...draft,requestDigest:hash(encodeBootstrapActivationRequestDigestInput(draft,hash(encodeBootstrapCapabilitySignedEnvelope(draft.capability))))});
     return {claim:claim.claim,pin,pinned,fetch,fetched,submit,submitted,activation};
   }
+  const forcedService=()=>new PostgresForcedTakeover({transactions:identityTransactions,workspaces:new PostgresDefaultWorkspaceTenantResolver(identityTransactions)});
+  const forcedRequest={schemaVersion:2 as const,mode:"forced" as const,toDeviceId:"device-b",expectedSourceLeaseEpoch:1,idempotencyKey:"forced-pg-original"};
+  // Historical source fixture: replace the initial test-issued row with an independently signed,
+  // already expired source. Production renewal tests below never lower or reset the high-water mark.
+  async function historicalForcedSource() {
+    const now=Math.floor(Date.now()/1000)*1000;
+    await replacePersistedLeaseWindow({issued_at:new Date(now-7200000),renew_after:new Date(now-6900000),online_expires_at:new Date(now-6600000),offline_execute_until:new Date(now-1000)});
+    await ownerPool.query(`WITH old AS (DELETE FROM device_active_leases WHERE account_id='oauth-account' RETURNING *)
+      INSERT INTO device_active_leases(account_id,lease_epoch,device_id,jti,issued_at,renew_after,online_expires_at,offline_execute_until,signed_envelope,wire_envelope,signer_receipt_digest)
+      SELECT account_id,lease_epoch,device_id,jti,issued_at,renew_after,online_expires_at,offline_execute_until,signed_envelope,wire_envelope,signer_receipt_digest FROM old`);
+  }
+  it("forced takeover consumes only dedicated OAuth freshness and persists exact concurrent intent before installation",async()=>{
+    const source=await desktopGrantPrincipal(),target=(await loginStandbyDevice(true)).principal;
+    const forced=forcedService();
+    expect(await forced.preview({schemaVersion:1},target)).toMatchObject({available:true,sourceLeaseEpoch:1});
+    expect(await forced.request({...forcedRequest,expectedSourceLeaseEpoch:2},target)).toMatchObject({accepted:false,code:"SOURCE_LEASE_CHANGED"});
+    const results=await Promise.all([forced.request(forcedRequest,target),forced.request(forcedRequest,target)]);
+    expect(results[0]).toEqual(results[1]);expect(results[0]).toMatchObject({accepted:true,request:{status:"waiting_expiry"}});
+    if(!results[0]?.accepted)throw new Error("request failed");
+    const lookup={schemaVersion:1 as const,requestId:results[0].request.requestId};
+    expect(await forced.status(lookup,target)).toMatchObject({found:true,workflow:{claimable:false,sourceLeaseEpoch:1}});
+    expect(await service().claim(lookup,target)).toMatchObject({accepted:false,code:"TAKEOVER_NOT_READY"});
+    expect(await service().receipt({...lookup,operation:{kind:"claim"}},target)).toMatchObject({outcome:"uncommitted",workflow:{status:"waiting_expiry"},nextStep:null});
+    expect(await forcedService().resolve({schemaVersion:1,idempotencyKey:forcedRequest.idempotencyKey},target)).toMatchObject({found:true,originalRequest:forcedRequest});
+    expect(await forced.resolve({schemaVersion:1,idempotencyKey:forcedRequest.idempotencyKey},source)).toMatchObject({found:false});
+    expect(await forced.request({...forcedRequest,expectedSourceLeaseEpoch:2},target)).toMatchObject({accepted:false,code:"IDEMPOTENCY_CONFLICT"});
+    expect(await forced.cancelIfForced(lookup,target)).toMatchObject({accepted:true,request:{status:"cancelled"}});
+    expect(await service().receipt({...lookup,operation:{kind:"claim"}},target)).toMatchObject({outcome:"terminal",workflow:{status:"cancelled"}});
+    expect(await forced.request({...forcedRequest,idempotencyKey:"second-intent"},target)).toMatchObject({accepted:false,code:"REAUTH_REQUIRED"});
+    expect((await ownerPool.query("SELECT released_at FROM device_active_leases")).rows).toEqual([{released_at:null}]);
+  });
+  it("forced takeover cancellation tombstone rejects late original POST without consuming reauthentication",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal;
+    const forced=forcedService(),cancel={schemaVersion:1,originalRequest:forcedRequest};
+    expect(await forced.resolve({schemaVersion:1,idempotencyKey:forcedRequest.idempotencyKey},target)).toEqual({schemaVersion:1,found:false});
+    const results=await Promise.all([forced.cancelIntent(cancel,target),forced.cancelIntent(cancel,target)]);
+    expect(results[0]).toEqual(results[1]);expect(results[0]).toMatchObject({outcome:"cancelled_before_request",originalRequest:forcedRequest});
+    expect(await forced.request(forcedRequest,target)).toMatchObject({accepted:false,code:"FORCED_INTENT_CANCELLED"});
+    expect(await forced.request({...forcedRequest,expectedSourceLeaseEpoch:2},target)).toMatchObject({accepted:false,code:"IDEMPOTENCY_CONFLICT"});
+    expect(await forced.cancelIntent({schemaVersion:1,originalRequest:{...forcedRequest,expectedSourceLeaseEpoch:2}},target)).toBeNull();
+    expect((await ownerPool.query("SELECT forced_reauth_consumed_at FROM identity_auth_sessions WHERE session_id=$1",[target.sessionId])).rows).toEqual([{forced_reauth_consumed_at:null}]);
+    expect(await forced.request({...forcedRequest,idempotencyKey:"new-approved-intent"},target)).toMatchObject({accepted:true});
+  });
+  it("forced takeover original POST and unknown cancellation converge under the account writer lock",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal,forced=forcedService();
+    const [request,cancel]=await Promise.all([forced.request(forcedRequest,target),forced.cancelIntent({schemaVersion:1,originalRequest:forcedRequest},target)]);
+    if(cancel?.outcome==="workflow")expect(cancel.workflow.request.status).toBe("cancelled");
+    else expect(cancel).toMatchObject({outcome:"cancelled_before_request"});
+    if(request?.accepted)expect(await forced.status({schemaVersion:1,requestId:request.request.requestId},target)).toMatchObject({workflow:{request:{status:"cancelled"}}});
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_capabilities")).rows).toEqual([{count:0}]);
+  });
+  it("forced takeover request crash rolls back session-window consumption and original intent",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal;
+    const failed=new PostgresForcedTakeover({transactions:identityTransactions,workspaces:new PostgresDefaultWorkspaceTenantResolver(identityTransactions),fault(point){if(point==="after_forced_request")throw new Error("forced-request-crash");}});
+    await expect(failed.request(forcedRequest,target)).rejects.toThrow("forced-request-crash");
+    expect((await ownerPool.query("SELECT forced_reauth_consumed_at FROM identity_auth_sessions WHERE session_id=$1",[target.sessionId])).rows).toEqual([{forced_reauth_consumed_at:null}]);
+    expect(await forcedService().resolve({schemaVersion:1,idempotencyKey:forcedRequest.idempotencyKey},target)).toEqual({schemaVersion:1,found:false});
+    expect(await forcedService().request(forcedRequest,target)).toMatchObject({accepted:true});
+  });
+  it("forced takeover code exchange never extends an expired original authentication deadline",async()=>{
+    await desktopGrantPrincipal();const pending=await beginAuthorization(new Date(),oauth,"device-b",true);
+    const authorized=await completeAuthorization(pending.base,pending.challenged,pending.transcript);if(!authorized.authorized)throw new Error("authorization failed");
+    await ownerPool.query("UPDATE identity_desktop_authorization_codes SET forced_reauth_until=clock_timestamp()-interval '1 second' WHERE device_id='device-b'");
+    expect(await oauth.exchange(exchangeInput(authorized.code,verifier))).toEqual({exchanged:false});
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM identity_auth_sessions WHERE device_id='device-b'")).rows).toEqual([{count:0}]);
+  });
+  it("forced takeover ordinary OAuth cannot preview or consume a takeover window",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice()).principal;
+    expect(await forcedService().preview({schemaVersion:1},target)).toMatchObject({available:false,reason:"REAUTH_REQUIRED"});
+    expect(await forcedService().request(forcedRequest,target)).toMatchObject({accepted:false,code:"REAUTH_REQUIRED"});
+  });
+  it("forced takeover rejects old web authentication and challenge freshness expiry",async()=>{
+    await desktopGrantPrincipal();const initial=await beginAuthorization(new Date(),oauth,"device-b",true);
+    await ownerPool.query("UPDATE identity_auth_sessions SET created_at=clock_timestamp()-interval '301 seconds' WHERE client_kind='account_web'");
+    expect(await completeAuthorization(initial.base,initial.challenged,initial.transcript)).toEqual({authorized:false,reauthRequired:true});
+    expect(await oauth.authorize(initial.base)).toEqual({authorized:false,reauthRequired:true});
+  });
+  it("forced takeover refresh preserves the original deadline and consumed state",async()=>{
+    await desktopGrantPrincipal();const target=await loginStandbyDevice(true);
+    const before=(await ownerPool.query("SELECT forced_reauth_until FROM identity_auth_sessions WHERE session_id=$1",[target.principal.sessionId])).rows[0];
+    expect(await forcedService().request(forcedRequest,target.principal)).toMatchObject({accepted:true});
+    const rotated=await refresh.rotate({refreshToken:target.refreshToken,deviceId:"device-b",requestId:"forced-refresh",evaluatedAt:new Date()});
+    expect(rotated.rotated).toBe(true);
+    const after=(await ownerPool.query("SELECT forced_reauth_until,forced_reauth_consumed_at IS NOT NULL AS consumed FROM identity_auth_sessions WHERE session_id=$1",[target.principal.sessionId])).rows[0];
+    expect(after).toEqual({...before,consumed:true});
+  });
+  it("forced takeover persists waiting expiry before returning terminal claim history",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal,forced=forcedService();
+    const created=await forced.request(forcedRequest,target);if(!created?.accepted)throw new Error("request failed");
+    const lookup={schemaVersion:1 as const,requestId:created.request.requestId};
+    await ownerPool.query("UPDATE device_switch_workflows SET state_deadline=clock_timestamp()-interval '1 second'");
+    expect(await service().claim(lookup,target)).toMatchObject({accepted:false,code:"BOOTSTRAP_EXPIRED"});
+    expect(await service().receipt({...lookup,operation:{kind:"claim"}},target)).toMatchObject({outcome:"terminal",workflow:{status:"failed"}});
+    expect((await ownerPool.query("SELECT status FROM device_switch_workflows")).rows).toEqual([{status:"failed"}]);
+    expect((await ownerPool.query("SELECT released_at FROM device_active_leases")).rows).toEqual([{released_at:null}]);
+  });
+  it("forced takeover claim rollback preserves source and epoch then returns one original concurrent capability",async()=>{
+    const f=await fixture(true,true),lookup={schemaVersion:1 as const,requestId:f.requestId};
+    await expect(service(point=>{if(point==="after_claim_persisted")throw new Error("forced crash");}).claim(lookup,f.target)).rejects.toThrow("forced crash");
+    expect((await ownerPool.query("SELECT released_at FROM device_active_leases")).rows).toEqual([{released_at:null}]);
+    expect((await ownerPool.query("SELECT highest_allocated_lease_epoch FROM device_account_states")).rows).toEqual([{highest_allocated_lease_epoch:"1"}]);
+    const claims=await Promise.all([service().claim(lookup,f.target),service().claim(lookup,f.target)]);
+    expect(claims[0]).toEqual(claims[1]);expect(claims[0]).toMatchObject({accepted:true});
+    expect(await forcedService().cancelIntent({schemaVersion:1,originalRequest:forcedRequest},f.target)).toMatchObject({outcome:"workflow",workflow:{request:{status:"bootstrapping"}}});
+  });
+  it("forced takeover shorter renewed windows preserve historical maximum and later renewal advances waiting revision",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal;
+    const original=(await ownerPool.query("SELECT max_issued_offline_execute_until FROM device_active_leases")).rows[0].max_issued_offline_execute_until;
+    const now=Math.floor(Date.now()/1000)*1000;
+    await replacePersistedLeaseWindow({issued_at:new Date(now-600000),renew_after:new Date(now-300000),online_expires_at:new Date(now+300000),offline_execute_until:new Date(now+3600000)});
+    expect((await ownerPool.query("SELECT max_issued_offline_execute_until FROM device_active_leases")).rows[0].max_issued_offline_execute_until).toEqual(original);
+    const created=await forcedService().request(forcedRequest,target);if(!created?.accepted)throw new Error("request failed");
+    expect(Date.parse(created.request.earliestTakeoverAt!)).toBeGreaterThanOrEqual(original.getTime());
+    const later=new Date(now+90000000);
+    await ownerPool.query("UPDATE device_active_leases SET max_issued_offline_execute_until=$1",[later]);
+    expect(await ensureLease()).toMatchObject({outcome:"active"});
+    expect(await forcedService().status({schemaVersion:1,requestId:created.request.requestId},target)).toMatchObject({workflow:{workflowRevision:2,request:{earliestTakeoverAt:canonicalUtcSecond(later)},claimable:false}});
+  });
+  it("forced takeover freezes late source renewal at the claim boundary",async()=>{
+    const f=await fixture(true,true),lookup={schemaVersion:1 as const,requestId:f.requestId};
+    expect(await ensureLease()).toEqual({outcome:"refused"});
+    expect(await forcedService().status(lookup,f.target)).toMatchObject({workflow:{claimable:true,workflowRevision:1}});
+  });
+  it("forced takeover slow capability signer crossing claim deadline rolls back release and reservation",async()=>{
+    const f=await fixture(true,true),lookup={schemaVersion:1 as const,requestId:f.requestId};
+    const deadline=(await ownerPool.query("UPDATE device_switch_workflows SET state_deadline=clock_timestamp()+interval '250 milliseconds' RETURNING state_deadline")).rows[0].state_deadline;
+    const slow={async sign(input:Parameters<typeof capabilitySigner.sign>[0]){await waitForDatabaseDeadline(deadline);return capabilitySigner.sign(input);}};
+    expect(await service(undefined,slow).claim(lookup,f.target)).toMatchObject({accepted:false,code:"BOOTSTRAP_EXPIRED"});
+    expect((await ownerPool.query("SELECT released_at FROM device_active_leases")).rows).toEqual([{released_at:null}]);
+    expect((await ownerPool.query("SELECT highest_allocated_lease_epoch FROM device_account_states")).rows).toEqual([{highest_allocated_lease_epoch:"1"}]);
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_capabilities")).rows).toEqual([{count:0}]);
+  });
+  it("forced takeover slow source signer cannot move an already reached claim boundary",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal;await historicalForcedSource();
+    await ownerPool.query("UPDATE device_active_leases SET max_issued_offline_execute_until=clock_timestamp()+interval '1 second'");
+    const created=await forcedService().request(forcedRequest,target);if(!created?.accepted)throw new Error("request failed");
+    const slow:ActiveDeviceLeaseSigner={async sign(input){await waitForDatabaseDeadline(new Date(created.request.earliestTakeoverAt!));return leaseSigner.sign(input);}};
+    const manager=new PostgresDesktopLoginLease({transactions,entitlement:new PostgresEntitlementDeadlineReader(identityTransactions),signer:slow,verifier:leaseVerifier,bootstrapExpiry});
+    expect(await ensureLease(1,manager)).toEqual({outcome:"refused"});
+    expect(await forcedService().status({schemaVersion:1,requestId:created.request.requestId},target)).toMatchObject({workflow:{claimable:true,workflowRevision:1}});
+  });
+  it("forced takeover current target identity rejects tenant spoofing, rotated keys and revoked sessions",async()=>{
+    const f=await fixture(true,true),lookup={schemaVersion:1 as const,requestId:f.requestId};
+    expect(await forcedService().status(lookup,{...f.target,accountId:"other-account"})).toBeNull();
+    expect(await service().claim(lookup,f.source)).toMatchObject({accepted:false});
+    await ownerPool.query("UPDATE device_signing_keys SET key_id='rotated-key' WHERE device_id='device-b'");
+    expect(await forcedService().status(lookup,f.target)).toMatchObject({workflow:{claimable:false}});
+    expect(await service().claim(lookup,f.target)).toBeNull();
+    await ownerPool.query("UPDATE identity_auth_sessions SET revoked_at=clock_timestamp() WHERE session_id=$1",[f.target.sessionId]);
+    expect(await forcedService().status(lookup,f.target)).toBeNull();
+  });
+  it("forced takeover rejects no-held source without consuming the dedicated window",async()=>{
+    await desktopGrantPrincipal();const target=(await loginStandbyDevice(true)).principal;
+    await releaseHeldLease();
+    expect(await forcedService().preview({schemaVersion:1},target)).toMatchObject({available:false,reason:"SOURCE_UNAVAILABLE"});
+    expect(await forcedService().request(forcedRequest,target)).toMatchObject({accepted:false,code:"SOURCE_LEASE_CHANGED"});
+    expect((await ownerPool.query("SELECT forced_reauth_consumed_at FROM identity_auth_sessions WHERE session_id=$1",[target.sessionId])).rows).toEqual([{forced_reauth_consumed_at:null}]);
+  });
+  it("forced takeover restores real nonempty checkpoint and mutations then activates a new Lease",async()=>{
+    const f=await fixture(true,true),lookup={schemaVersion:1 as const,requestId:f.requestId};
+    expect(await forcedService().status(lookup,f.target)).toMatchObject({found:true,workflow:{claimable:true}});
+    const journey=await install(f);
+    expect(await service().claim(lookup,f.target)).toEqual({schemaVersion:1,accepted:true,claim:journey.claim});
+    expect(journey.fetched.result).toMatchObject({stepKind:"fetch_mutations",resultPayload:{mutationPage:{mutations:[{entityId:"kept.test",entityGeneration:2},{entityId:"removed.test",operationKind:"delete"}]}}});
+    expect(await service().activate(journey.activation,f.target)).toMatchObject({accepted:true,receipt:{pendingLeaseEpoch:2,status:"completed"}});
+    expect((await ownerPool.query("SELECT device_id FROM device_active_leases WHERE released_at IS NULL")).rows).toEqual([{device_id:"device-b"}]);
+  });
   it("installs nonempty generation/tombstone state, resolves each lost ACK, and replays the original signed activation",async()=>{
     const f=await fixture(),journey=await install(f);
     const fresh=service();

@@ -28,6 +28,11 @@ const reviewedCommands = [
   "device_switch_cancel",
   "device_switch_request",
   "device_switch_status",
+  "forced_takeover_cancel",
+  "forced_takeover_confirm",
+  "forced_takeover_preview",
+  "forced_takeover_reauthenticate",
+  "forced_takeover_status",
   "local_asset_library_read",
   "local_backup_artifact_select",
   "local_backup_export",
@@ -252,11 +257,16 @@ export function capabilityCommands(capability) {
   );
 }
 
-export function adapterCommands(source) {
-  // Installation business states share the command prefix. This adapter's installation
-  // commands use literal invoke calls; type/data strings cannot add an executable command.
-  const installationInvocations = new Set([...source.matchAll(
-    /\binvoke(?:<[^>\n]+>)?\s*\(\s*["'](target_installation_[a-z0-9_]+)["']/g,
+export function adapterCommands(source, { literalInvocationsOnly = false } = {}) {
+  if (literalInvocationsOnly) {
+    return unique([...source.matchAll(new RegExp(
+      `\\binvoke(?:<[^>\\n]+>)?\\s*\\(\\s*["'](${commandName})["']`, "g",
+    ))].map((match) => match[1]));
+  }
+  // Business states share these command prefixes. Only literal invoke calls add
+  // executable commands; data strings must not expand the reviewed IPC surface.
+  const boundedInvocations = new Set([...source.matchAll(
+    /\binvoke(?:<[^>\n]+>)?\s*\(\s*["']((?:target_installation|forced_takeover)_[a-z0-9_]+)["']/g,
   )].map((match) => match[1]));
   const commands = [...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
     .map((match) => match[1])
@@ -268,7 +278,7 @@ export function adapterCommands(source) {
       || command.startsWith("target_bootstrap_")
       || command.startsWith("device_directory_")
       || command.startsWith("device_self_"));
-  return unique([...commands, ...installationInvocations]);
+  return unique([...commands, ...boundedInvocations]);
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
@@ -293,6 +303,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/index.ts",
     "apps/desktop/src/adapters/tauri/afternic.ts",
     "apps/desktop/src/adapters/tauri/afternic-delist.ts",
+    "apps/desktop/src/adapters/tauri/forced-takeover.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
@@ -335,7 +346,9 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     handler: handlerCommands(mainSource),
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
-    adapter: adapterCommands(adapterSources.join("\n")),
+    adapter: unique(adapterSources.flatMap((source, index) => adapterCommands(source, {
+      literalInvocationsOnly: index === 3,
+    }))),
   };
   for (const [name, commands] of Object.entries(sets)) {
     const expected = name === "adapter" ? reviewedAdapterCommands : reviewedCommands;

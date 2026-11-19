@@ -374,7 +374,7 @@ export class DevicesFixtureService {
     if (target.status === "removed") return this.#reject("DEVICE_REMOVED");
     if (target.signingKeyStatus === "revoked") return this.#reject("DEVICE_NOT_BOUND");
     if (request.mode === "forced") {
-      const proofFailure = this.#reauthCheck(request.reauthProofId);
+      const proofFailure = this.#reauthCheck("fixture-forced-session");
       if (proofFailure !== null) return proofFailure;
     }
 
@@ -684,3 +684,5 @@ export type { BootstrapVerificationKeySource } from "./bootstrap-capability-veri
 
 export { PostgresTargetBootstrapInstallation } from "./postgres-target-bootstrap-installation";
 export { TrustedBootstrapVerificationKeySource } from "./bootstrap-capability-verifier";
+
+export { PostgresForcedTakeover } from "./postgres-forced-takeover";

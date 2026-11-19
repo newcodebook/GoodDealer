@@ -2,6 +2,8 @@
 
 #[path = "desktop_custody/authorization_floor.rs"]
 mod authorization_floor;
+#[path = "desktop_custody/forced_takeover_control.rs"]
+mod forced_takeover_control;
 #[path = "desktop_custody/initial_replica.rs"]
 mod initial_replica;
 #[path = "desktop_custody/target_bootstrap_control.rs"]
