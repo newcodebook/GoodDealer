@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "typ": "gd.desktop-standby-grant.v1",
+  "iss": "https://accounts.gooddealer.com",
+  "aud": "gooddealer-desktop/standby",
+  "kid": "standby-grant-key-1",
+  "issuedAt": "2026-11-18T08:00:00Z",
+  "expiresAt": "2026-11-18T08:15:00Z",
+  "accountId": "account-local",
+  "deviceId": "device-standby",
+  "accountSecurityEpoch": 4,
+  "workspace": {
+    "workspaceId": "workspace-local",
+    "kind": "personal_default"
+  },
+  "leaseEpochFloor": -1,
+  "scopes": [
+    "workspace:read"
+  ],
+  "signature": "c3RhbmRieS1maXh0dXJlLXNpZ25hdHVyZQ"
+}

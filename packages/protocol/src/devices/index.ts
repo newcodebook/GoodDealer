@@ -86,14 +86,25 @@ export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-step
 
 export {
   DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID,
+  DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
   DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
   DESKTOP_AUTHORIZATION_GRANT_SIGNATURE_DOMAIN,
+  DESKTOP_STANDBY_GRANT_MAX_LIFETIME_SECONDS,
+  DESKTOP_STANDBY_GRANT_SCHEMA_VERSION,
+  DESKTOP_STANDBY_GRANT_SIGNATURE_DOMAIN,
   desktopAuthorizationGrantRequestSchema,
+  desktopAuthorizationGrantRoleRequestSchema,
+  desktopAuthorizationGrantRoleResponseSchema,
   desktopAuthorizationGrantSchema,
+  desktopStandbyGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
+  encodeDesktopStandbyGrantSignatureTranscript,
 } from "./authorization-grant";
 export type {
   DesktopAuthorizationGrant,
   DesktopAuthorizationGrantRequest,
+  DesktopAuthorizationGrantRoleRequest,
+  DesktopAuthorizationGrantRoleResponse,
   DesktopCommercialAuthority,
+  DesktopStandbyGrant,
 } from "./authorization-grant";
