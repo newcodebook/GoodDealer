@@ -18,6 +18,9 @@ function createFixture() {
     "afternic_connection_connect",
     "afternic_connection_revoke",
     "afternic_connection_status",
+    "afternic_delist_approve",
+    "afternic_delist_preview",
+    "afternic_delist_status",
     "afternic_inventory_refresh",
     "cloudflare_connection_activate",
     "cloudflare_connection_create",
@@ -128,7 +131,13 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/afternic.ts",
-    commands.filter((command) => command.startsWith("afternic_"))
+    commands.filter((command) => command.startsWith("afternic_") && !command.startsWith("afternic_delist_"))
+      .map((command) => `"${command}"`).join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic-delist.ts",
+    commands.filter((command) => command.startsWith("afternic_delist_"))
       .map((command) => `"${command}"`).join("\n"),
   );
   writeFile(
@@ -216,6 +225,12 @@ test("rejects missing, symbolic-link, and adapter structural inputs", (t) => {
   assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("regular file")));
   symlinkSync("index.ts", afternicPath);
   assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("symlink")));
+  const delistRoot = useFixture(t);
+  const delistPath = join(delistRoot, "apps/desktop/src/adapters/tauri/afternic-delist.ts");
+  rmSync(delistPath);
+  assert.ok(tauriCommandPolicyErrors({ root: delistRoot }).some((error) => error.includes("regular file")));
+  symlinkSync("index.ts", delistPath);
+  assert.ok(tauriCommandPolicyErrors({ root: delistRoot }).some((error) => error.includes("symlink")));
 });
 
 test("rejects every capability broadening and custom permission surface", (t) => {

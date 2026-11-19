@@ -1,4 +1,7 @@
 use crate::active_workspace::schema::{
+    AFTERNIC_DELIST_MIGRATION_ID, AFTERNIC_DELIST_MIGRATION_OWNER, AFTERNIC_DELIST_MIGRATION_SQL,
+};
+use crate::active_workspace::schema::{
     AFTERNIC_LISTING_MIGRATION_ID, AFTERNIC_LISTING_MIGRATION_OWNER, AFTERNIC_LISTING_MIGRATION_SQL,
 };
 use crate::active_workspace::schema::{
@@ -220,6 +223,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: AFTERNIC_LISTING_MIGRATION_ID,
         owner: AFTERNIC_LISTING_MIGRATION_OWNER,
         sql: AFTERNIC_LISTING_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: AFTERNIC_DELIST_MIGRATION_ID,
+        owner: AFTERNIC_DELIST_MIGRATION_OWNER,
+        sql: AFTERNIC_DELIST_MIGRATION_SQL,
     },
 ];
 
@@ -564,7 +572,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 30);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 31);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -589,7 +597,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 59);
+        assert_eq!(table_count, 60);
         assert!(business_index_count >= 24);
 
         connection
@@ -1745,3 +1753,6 @@ mod listing_binding_tests;
 
 #[cfg(test)]
 mod afternic_listing_tests;
+
+#[cfg(test)]
+mod afternic_delist_tests;

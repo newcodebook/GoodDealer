@@ -7,6 +7,9 @@ const reviewedCommands = [
   "afternic_connection_connect",
   "afternic_connection_revoke",
   "afternic_connection_status",
+  "afternic_delist_approve",
+  "afternic_delist_preview",
+  "afternic_delist_status",
   "afternic_inventory_refresh",
   "cloudflare_connection_activate",
   "cloudflare_connection_create",
@@ -277,6 +280,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   const adapterSources = [
     "apps/desktop/src/adapters/tauri/index.ts",
     "apps/desktop/src/adapters/tauri/afternic.ts",
+    "apps/desktop/src/adapters/tauri/afternic-delist.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(

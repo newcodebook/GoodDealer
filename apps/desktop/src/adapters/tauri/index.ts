@@ -888,3 +888,4 @@ export function createDeviceDirectoryPort(): DeviceDirectorySettingsPort {
   };
 }
 export { createAfternicPort } from "./afternic";
+export { createAfternicDelistPort } from "./afternic-delist";

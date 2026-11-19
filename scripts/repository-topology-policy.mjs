@@ -466,6 +466,8 @@ export const repositoryTopology = Object.freeze([
     ],
     externalDependencies: [
       "base64",
+      // ADR-0006: fixed NSWorkspace sleep/wake notifications only.
+      "block2",
       "chacha20poly1305",
       "flate2",
       "fs2",
@@ -473,6 +475,9 @@ export const repositoryTopology = Object.freeze([
       "getrandom",
       "hmac",
       "libc",
+      "objc2",
+      "objc2-app-kit",
+      "objc2-foundation",
       "rcgen",
       "reqwest",
       "ring",

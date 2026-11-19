@@ -1,5 +1,6 @@
 //! Thin Tauri adapters for the single Desktop local-host aggregate.
 pub(crate) mod afternic;
+pub(crate) mod afternic_delist;
 
 use std::sync::Arc;
 

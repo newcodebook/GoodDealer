@@ -342,3 +342,15 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - Active Grant v4/commercialAuthority v2、role v5；空 capability 仍允许有效本地业务，write 依赖 observe。锁定 Licensing 精确交集，Native floor v3 和运行时/最终栅栏拒绝旧权限；稳定 `.v3` 签名用途不变。
 - 独立审查各范围 PASS，发现和修复见 [审查记录](../reviews/2026-11-19-afternic-inventory-review.md)。最终根 `pnpm check` exit 0（`/tmp/gooddealer-afternic-final-passing-check.log`）：结构 205、Protocol 488、Cloud 798、Desktop 330、client-core 418、local-storage 463/6 项既有 ignored、Desktop Native 89、Core 56。Desktop production build、三个 Native crate 全 targets Clippy `-D warnings`、差异与修改文档链接检查通过。此前命令清单/迁移计数的失败记录不当作通过；修复后完整重跑。
 - 未完成：Afternic 持久父计划/整批批准/Listing 写入/未知结果对账、私有所有权验证及 DNS；其他市场按既定优先级继续；设备目标引导/强制接管/云恢复、独立跨机离线恢复、Windows 原生 custody 等总目标保留。真实账号、目标平台实机和发行资格未取得，空资格清单仍拒绝执行。
+
+
+## 2026-11-19 Afternic 整批下架、后台执行与重开对账
+
+- Task Frame：[整批下架](AFTERNIC_DELIST_TASK_FRAME.md)；基线 `35d409a`，完整任务与条件保持在 [实施目标](../IMPLEMENTATION_GOAL.md)。原归集切片和本下架切片都不是完整 Listing/跨市场功能。
+- 批量页选择连接/已有域名，从最新完整库存生成 15 分钟持久预览；整批批准一次，Host 固定全部前像/来源/代次，真正并发也只产生一个 operation 与一次 DELETE claim。每项精确 GET 前置复核；写响应不当成功，未知结果与重开 running 只做 GET。
+- `202611180004` 复用原 plans/items/attempts/results 和绑定表，仅追加不可变对账事实。缺席观察、detach、聚合结果与最终栅栏原子提交；旧 unknown 保留。修复混合 unknown 结果 SQL 分桶、过期展示、空轮询/重复批准 readGeneration，完整保存合法 u32 Retry-After。
+- 原 Native ProviderLane 逐项执行，Windows/macOS 系统电源事件先失效旧 epoch；批准/下架 worker 的最后网络 guard 在 Host 锁等待前后检查。缺槽进入 remediation，暂时 custody 不可用只退避。unsafe 仅两处固定 OS 通知文件；精确策略拒绝 warn 降级和新增公开回调/OS handle。
+- 交接整合发现的空流错误已修：任何下架 attempt（含 queued/终结/重开）都阻止虚假 execution_fact/device_audit 空证明；持久屏障拒绝新预览/批准/claim/发送，已发 GET 可对账。真实两流来源、签名、上传确认及封链仍须接续，当前拒绝不能当作该旅程完成。
+- 独立审查：[下架审查](../reviews/2026-11-19-afternic-delist-review.md)。Storage/Host 最终独立 Afternic 39、manifest 3、既有 drain 1；client-core 7、Desktop 49；Native helper 3/lane 11/IPC 1；实际 Core power 源码独立 4；root 策略独立 13、拓扑 20 均通过。Desktop build、全仓 typecheck 和 format 通过；新鲜根 `pnpm check` exit 0（`/tmp/gooddealer-delist-final-passing-check.log`）：结构 207、Protocol 488、Cloud 798、Desktop 350、client-core 425、local-storage 485/6 项既有 ignored、Native 94、Core 60。首轮拓扑目录缺四个 macOS 依赖的失败已修，独立复验后完整重跑；失败日志不计通过。最终三个 Native crate 全 targets Clippy `-D warnings` 通过（`/tmp/gooddealer-delist-final-clippy.log`）。
+- 目标证据仅为 Windows GNU/macOS arm64 电源模块原样源码编译；完整应用目标构建、真实 OS 通知/凭据和 Afternic 接口未验收，Host 资格继续关闭。旧连接/刷新流程未统一接入新 power guard，Windows custody/Linux 与 Windows capture 未完成。
+- 后续保持：执行事实/设备审计真实来源及 drain、Afternic 创建/改价/私有验证/DNS、其余平台按既定优先级、目标引导/强制接管/云恢复、独立离线恢复和双系统完整支持。下一实施不能伪造 trusted time、批准 envelope 或 device credentialEpoch 来满足旧协议字段。

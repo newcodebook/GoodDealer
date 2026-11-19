@@ -59,6 +59,26 @@ pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     (
+        "afternic_delist_reconciliations",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "request_digest",
+            "stage",
+            "outcome",
+            "reason",
+            "observed_at",
+            "next_read_at",
+            "observation_json",
+            "observation_digest",
+            "listing_observation_id",
+        ],
+    ),
+    (
         "afternic_inventory_scans",
         &[
             "workspace_id",
@@ -1024,3 +1044,7 @@ pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL: &str =
 pub(crate) const AFTERNIC_LISTING_MIGRATION_ID: i64 = 202_611_180_003;
 pub(crate) const AFTERNIC_LISTING_MIGRATION_OWNER: &str = "active-workspace/afternic-listing";
 pub(crate) const AFTERNIC_LISTING_MIGRATION_SQL: &str = include_str!("afternic_listing.sql");
+
+pub(crate) const AFTERNIC_DELIST_MIGRATION_ID: i64 = 202_611_180_004;
+pub(crate) const AFTERNIC_DELIST_MIGRATION_OWNER: &str = "active-workspace/afternic-delist";
+pub(crate) const AFTERNIC_DELIST_MIGRATION_SQL: &str = include_str!("afternic_delist.sql");

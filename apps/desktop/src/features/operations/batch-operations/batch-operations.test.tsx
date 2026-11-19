@@ -102,7 +102,7 @@ describe("Batch operations presentation", () => {
       <BatchList locale="zh-CN" jobs={view.items} creationAvailability={view.creationAvailability} today="2026-08-20" onCreateFromLibrary={() => undefined} />,
     );
 
-    expect(html).toContain("暂不能新建批量任务");
+    expect(html).toContain("暂不能创建这些类型的批量任务");
     expect(html).not.toContain("去资产库新建");
     expect(html).toContain("Nameserver change");
     const openable = renderToStaticMarkup(<BatchList locale="zh-CN" jobs={view.items} today="2026-08-20" onOpen={() => undefined} />);

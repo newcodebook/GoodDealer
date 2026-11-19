@@ -38,7 +38,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 
 - MUST: Keep one workspace identity per encrypted database and enable SQLite foreign keys.
 - MUST: Commit business state, field versions, and Outbox rows atomically.
-- MUST: Keep Provider account identity and every credential version local-only.
+- MUST: Keep Provider account identity and credential material in Native custody; business tables contain only opaque local connection metadata and generation proofs.
 - MUST: Create the Cloudflare connection anchor and prepare its activation intent in one immediate transaction; immediately before Keychain entry, atomically commit `prewrite_inspection_started` and deny credential use. Only exact-base inspection may then commit the write marker and eventually burn/confirm a generation.
 - MUST: Treat every orphaned prewrite inspection, failed exact-base marker, or unpersisted custody contradiction as sticky remediation; never restore active use from a later matching Keychain read.
 - MUST: Separate user desired state, Provider observed state, and Cloud replica candidates.
@@ -54,13 +54,13 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - Does NOT handle: exposing paths, keys, SQL, Provider accounts, or credentials to the Renderer. (see: `../../apps/desktop/src-tauri`)
 - Does NOT handle: using Cloud PostgreSQL as a Desktop Repository. (see: `../../docs/DATABASE_SCHEMA.md`)
 - Does NOT handle: granting a Provider capability merely because an operation table can represent it. (see: `../../packages/client-core/src/connections`)
-- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; passphrase, cross-device, Cloud-hosted backup, and old-database pointer replacement are intentionally absent. (see: `src/desktop_local_host`)
+- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; portable offline backup and cross-device cloud recovery remain required implementation work under ADR-0023; installation-bound backup does not fulfill them. (see: `src/desktop_local_host`)
 
 ## Adversarial Surfaces
 
 - **sqlcipher-key-and-path-injection**: Only Host composition supplies the path, key, and workspace; IPC has no selectors. Verified by: `../../apps/desktop/src/app/native-policy.test.ts`.
 - **cross-workspace-row-injection**: Root tables structurally reference the singleton workspace; rogue workspace rows fail at insertion and the manifest rejects schema drift. Verified by: `src/active_workspace/business/tests/` and `src/migrations/mod.rs` tests.
-- **provider-secret-replication**: Provider identity and credentials exist only in local tables; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/tests/` tests.
+- **provider-secret-replication**: Provider identity and credentials remain in Native custody; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/tests/` tests.
 - **prewrite-custody-crash**: Ordinary `prepared` alone proves Keychain was never entered. Provision prewrite atomically sets `transition_pending`; mismatch cancellation discards staged evidence and sets `remediation_required` without ledger/head/root advance, while orphan recovery is always sticky remediation. Verified by: `src/active_workspace/business/cloudflare_credential.rs` tests.
 - **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/tests/` tests.
 - **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/tests/` tests.
@@ -291,7 +291,7 @@ generations, tombstoned assets, inactive/remediation credentials, immutable conf
 counters and a rejected Host fence roll back without binding, metadata or Outbox writes. First
 commit advances the Host generation once; exact replay advances neither counters nor generation and
 may report the current generation. Binding persists a local association only. Asset creation, Grant/Lease gates and credential
-revocation are implemented; Provider writes and controlled native/Zone qualification remain
+revocation are implemented; Cloudflare writes and controlled native/Zone qualification remain
 separate delivery work. Current composition is listed in `../../docs/CURRENT_IMPLEMENTATION.md`.
 
 The append-only storage-integrity migration adds write-time triggers: a binding must name its
@@ -348,3 +348,18 @@ Cloudflare adapter; OS key stores live under `desktop_custody/`.
 Migration `202611180001` extends the existing resource-binding owner for connection-scoped Listing
 incarnations, retaining detached history and the DNS/registrar singleton constraints. It does not
 implement Provider listing execution; that requires Host admission and observed platform evidence.
+
+
+## Afternic durable delisting
+
+The private `business/afternic_delist` module reuses operation plans/items/attempts/results and adds
+immutable exact-GET reconciliation facts in migration `202611180004`. Host freezes a bounded
+inventory-backed preview, approves it once, and issues a non-serializable mutation claim only to the
+queued-to-running transaction winner. Restarted attempts only reconcile; exact absence, unlisted
+observation, detach and aggregate result commit together behind the publication fence. Renderer
+receives bounded plan/status DTOs, never credential or resource-binding internals.
+
+Complete execution/audit stream production and synchronization remains a prerequisite for handoff
+after Provider execution; the temporary empty-stream path must refuse recorded delist attempts.
+See [current implementation](../../docs/CURRENT_IMPLEMENTATION.md) for remaining source and
+external-qualification gaps.

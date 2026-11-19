@@ -24,7 +24,7 @@ the [current implementation](docs/CURRENT_IMPLEMENTATION.md).
 - MUST: Treat source, contracts, tests, configuration, and current documentation as one repository truth; fixtures, visual material, local reports, and tests do not establish external facts.
 - MUST: Commit business rows and secret-free Sync Outbox entries atomically in local SQLCipher; Cloud availability and ACK cannot decide local business commits.
 - MUST NOT: Sync third-party account identity, Provider Account ID, account labels, credential bindings, API keys, tokens, cookies, passwords, 2FA, or browser profiles.
-- MUST: Implement the accepted domain-provider scope, including writes, registrar, marketplace and acquisition capabilities, through named contracts, authorization, confirmation and reconciliation. The current read-only implementation is a development state, not a permanent product restriction.
+- MUST: Implement the accepted domain-provider scope, including writes, registrar, marketplace and acquisition capabilities, through named contracts, authorization, confirmation and reconciliation. Current qualified capabilities and source integration are tracked separately; incomplete implementation or qualification does not reduce this scope.
 - MUST NOT: Infer technical scope or runtime authority from marketing or visual material. Current v1 exclusions are maintained in [product requirements](docs/PRODUCT_REQUIREMENTS.md); changes follow an explicit product/architecture decision rather than a stale exclusion copied into this file.
 
 ## Boundaries

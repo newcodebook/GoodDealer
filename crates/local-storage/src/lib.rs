@@ -241,3 +241,13 @@ pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 mod sqlcipher_fixture;
 #[cfg(test)]
 mod test_tempdir;
+
+pub use active_workspace::business::{
+    DesktopAfternicDelistApproveRequest, DesktopAfternicDelistPlan,
+    DesktopAfternicDelistPreviewItem, DesktopAfternicDelistPreviewRequest,
+    DesktopAfternicDelistStatus, DesktopAfternicDelistStatusRequest, DesktopAfternicDelistSummary,
+    DesktopAfternicDelistWorkKind,
+};
+pub use desktop_local_host::afternic_delist::{
+    DesktopAfternicDelistClaim, DesktopAfternicDelistWork,
+};

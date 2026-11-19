@@ -63,7 +63,16 @@
 
 - 本地新增迁移 `202611180001`：原资源绑定表支持连接范围的 Listing、多市场/多账户和 detached 历史；
   Registrar/DNS 单资源约束及已有数据保持。追加 `202611180003` 为 Afternic 连接 publication、完整扫描回执和原始 Listing 详情提供持久事实；观察关联原绑定与代次，销售/资产投影支持同市场多连接，断连后的历史不存在结果降为 unknown。
-  持久父计划、整批预览批准、Listing 写入执行/未知结果对账、私有所有权验证与 DNS 步骤仍未交付；Core HTTP 写方法不是客户写入闭环。
+  追加 `202611180004` 复用原 operation plans/items/attempts/results，保存 Afternic 下架的不可变对账事实；不新增 Listing repository。
+- 批量页已组合 Afternic 下架：选择连接与最多 500 个已有域名，从最新完整库存生成 15 分钟持久预览，整批批准一次；历史和详情读取实际持久结果。
+  每项精确 GET 与冻结前像匹配后，数据库只发出一个 DELETE claim；任何写响应之后以及重开遗留 running/unknown 都先 GET，绝不自动重发 DELETE。
+  精确缺席、unlisted 观察、原绑定 detach 与聚合结果同事务提交；未知/仍存在持久只读退避，完整保留合法 Retry-After。旧绑定和普通 detach 不能伪造成功。
+  UI 换选计划、工作区替换和角色降级撤去旧批准入口；丢失预览/批准响应只查状态。
+- 此下架 worker 与批准入口接入 Windows/macOS 系统电源通知及 epoch 栅栏：休眠/退出阻断，唤醒不得复用旧许可；注册失败禁止新写，当前授权下仍可只读对账。
+  共享原 ProviderLane，每轮处理一项再接收维护/退出请求。旧连接/刷新等路径尚未统一接入此电源栅栏，不能据本切片宣称所有 Provider 操作均已满足休眠要求。
+  两个 OS 电源模块已取得原样源码目标编译证据，尚无完整应用目标构建或实机休眠证据。真实 Afternic 资格仍为空，新执行仍拒绝。
+- 已有下架尝试时，普通交接拒绝声明 execution_fact/device_audit 为空；交接屏障同时拒绝新下架预览、批准、claim 与发送，已发请求仍可只读对账。两流的真实本地来源、上传与 Cloud 确认尚未组合，此临时拒绝需在完整两流接入后移除。
+- Afternic 创建 Listing、改价、私有所有权验证与必要 DNS 步骤继续实施；当前下架旅程源码不等于完整 Afternic 或跨市场客户闭环。
 
 ## Cloud 与 Account Web
 

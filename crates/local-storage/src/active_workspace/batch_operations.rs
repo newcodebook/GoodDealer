@@ -93,6 +93,23 @@ impl<'a> ActiveBatchOperationsReader<'a> {
         start_index: u32,
         size: u16,
     ) -> Result<BatchOperationsReadSnapshot, PortfolioReadError> {
+        let at: String = self
+            .connection
+            .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        self.read_at(requested_workspace_id, start_index, size, &at)
+    }
+
+    fn read_at(
+        &self,
+        requested_workspace_id: &str,
+        start_index: u32,
+        size: u16,
+        at: &str,
+    ) -> Result<BatchOperationsReadSnapshot, PortfolioReadError> {
+        validate_timestamp(Some(at.to_owned()))?;
         let transaction = self
             .connection
             .unchecked_transaction()
@@ -111,23 +128,26 @@ impl<'a> ActiveBatchOperationsReader<'a> {
         let plans = {
             let mut statement = transaction
                 .prepare(
-                    "SELECT plan_id, title, operation_kind, phase, risk_level, item_count, created_at
+                    "SELECT plan_id, title, operation_kind, CASE WHEN operation_kind='afternic_delist' AND phase='awaiting_approval' AND expires_at<=?4 THEN 'expired' ELSE phase END, risk_level, item_count, created_at
                      FROM operation_plans WHERE workspace_id = ?1
                      ORDER BY created_at DESC, plan_id DESC LIMIT ?2 OFFSET ?3",
                 )
                 .map_err(|_| PortfolioReadError::SchemaRejected)?;
             statement
-                .query_map(params![requested_workspace_id, size, start_index], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                    ))
-                })
+                .query_map(
+                    params![requested_workspace_id, size, start_index, at],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
+                )
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?
                 .collect::<Result<Vec<RawPlan>, _>>()
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?
@@ -344,12 +364,12 @@ fn latest_attempts(
     let mut results = BatchResultCounts::default();
     let mut statement = connection
         .prepare(
-            "SELECT status, count(*) FROM operation_attempts a
+            "SELECT COALESCE((SELECT e.effective_status FROM afternic_delist_effective_attempts e WHERE e.workspace_id=a.workspace_id AND e.operation_id=a.operation_id AND e.item_id=a.item_id),status) AS projected_status, count(*) FROM operation_attempts a
              WHERE workspace_id = ?1 AND operation_id = ?2
                AND attempt_number = (SELECT max(attempt_number) FROM operation_attempts b
                  WHERE b.workspace_id = a.workspace_id AND b.operation_id = a.operation_id
                    AND b.item_id = a.item_id)
-             GROUP BY status",
+             GROUP BY projected_status",
         )
         .map_err(|_| PortfolioReadError::SchemaRejected)?;
     let groups = statement
@@ -375,4 +395,65 @@ fn latest_attempts(
         *bucket = count(total)?;
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+    #[test]
+    fn afternic_delist_batch_expiry_is_read_only_and_scoped_to_unapproved_removals() {
+        let mut c = Connection::open_in_memory().unwrap();
+        crate::migrations::run_active_migrations(&mut c).unwrap();
+        c.execute("INSERT INTO active_workspace_metadata(singleton,storage_domain,workspace_id,workspace_schema_version,applied_through_server_revision,local_commit_sequence) VALUES(1,'active_workspace','ws',1,0,1)",[]).unwrap();
+        for (id, kind) in [("delist", "afternic_delist"), ("other", "dns_change")] {
+            c.execute("INSERT INTO operation_plans(workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,expires_at,local_commit_sequence) VALUES('ws',?1,?2,?3,?1,'awaiting_approval','standard',1,'2026-11-19T00:00:00Z','2026-11-19T00:15:00Z',1)",params![id,kind,"a".repeat(64)]).unwrap();
+            c.execute("INSERT INTO operation_plan_items(workspace_id,plan_id,item_id,ordinal,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES('ws',?1,?1,0,'test','{}','standard','manual','included')",[id]).unwrap();
+        }
+        let reader = ActiveBatchOperationsReader::new(&c);
+        for (at, expected) in [
+            ("2026-11-19T00:14:59Z", "awaiting_approval"),
+            ("2026-11-19T00:15:00Z", "expired"),
+        ] {
+            let view = reader.read_at("ws", 0, 20, at).unwrap();
+            for row in view.window.rows {
+                assert_eq!(
+                    row.plan_phase,
+                    if row.operation_kind == "afternic_delist" {
+                        expected
+                    } else {
+                        "awaiting_approval"
+                    }
+                );
+            }
+        }
+        assert_eq!(
+            c.query_row(
+                "SELECT phase FROM operation_plans WHERE plan_id='delist'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "awaiting_approval"
+        );
+        c.execute("UPDATE operation_plans SET phase='approved',approved_at='2026-11-19T00:01:00Z' WHERE plan_id='delist'",[]).unwrap();
+        let view = reader.read_at("ws", 0, 20, "2026-11-19T00:16:00Z").unwrap();
+        assert_eq!(
+            view.window
+                .rows
+                .iter()
+                .find(|r| r.operation_kind == "afternic_delist")
+                .unwrap()
+                .plan_phase,
+            "approved"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT local_commit_sequence FROM active_workspace_metadata",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
 }

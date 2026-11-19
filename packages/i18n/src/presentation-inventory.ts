@@ -18,7 +18,7 @@ export const presentationCopyInventory = {
   // The shell also owns the kit's shared controls (controls.jsx), such as pagination labels.
   shell: { source: ["Shell.jsx", "controls.jsx"], typedBoundary: "DesktopShellViewModel", localeKeyCount: 77, exactBrandCopyKeys: 30 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 58, exactBrandCopyKeys: 38 },
-  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 145, exactBrandCopyKeys: 79 },
+  batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 204, exactBrandCopyKeys: 84 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
   manualTaskInbox: { source: "TaskInbox.jsx", typedBoundary: "ManualTaskInboxViewModel", localeKeyCount: 44, exactBrandCopyKeys: 19 },
   settings: { source: "SettingsPanel.jsx", typedBoundary: "ComposedSettingsViewModel", localeKeyCount: 183, exactBrandCopyKeys: 59 },
@@ -32,6 +32,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 978 as const;
-export const reconciledExactBrandCopyKeyCount = 505 as const;
+export const reconciledLocaleKeyCount = 1037 as const;
+export const reconciledExactBrandCopyKeyCount = 510 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

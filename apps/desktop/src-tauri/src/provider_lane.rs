@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
     time::Instant,
 };
 
@@ -19,6 +19,8 @@ const OBSERVATION_LIMIT: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProviderOperation {
+    /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
+    AfternicDelistStep,
     AfternicConnect {
         display_label: String,
     },
@@ -59,7 +61,8 @@ impl ProviderOperation {
     fn is_afternic(&self) -> bool {
         matches!(
             self,
-            Self::AfternicConnect { .. }
+            Self::AfternicDelistStep
+                | Self::AfternicConnect { .. }
                 | Self::AfternicRefresh { .. }
                 | Self::AfternicRevoke { .. }
         )
@@ -67,6 +70,7 @@ impl ProviderOperation {
 
     fn connection_id(&self) -> &str {
         match self {
+            Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
@@ -172,6 +176,10 @@ impl ProviderAdmissionState {
                 ProviderAdmission::Busy
             };
         }
+        if matches!(operation, ProviderOperation::AfternicDelistStep) {
+            self.in_flight = Some(operation.clone());
+            return ProviderAdmission::Enqueue;
+        }
         let rate = self
             .rates
             .entry(operation.connection_id().to_owned())
@@ -204,7 +212,8 @@ impl ProviderAdmissionState {
                 }
                 rate.observations.push_back(now);
             }
-            ProviderOperation::Revoke { .. }
+            ProviderOperation::AfternicDelistStep
+            | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
         }
@@ -244,6 +253,7 @@ pub(crate) struct ProviderLaneHandle {
     recovery: mpsc::Sender<()>,
     cancel: watch::Sender<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
+    delist_wake: Arc<Notify>,
 }
 
 impl ProviderLaneHandle {
@@ -292,6 +302,10 @@ impl ProviderLaneHandle {
         ProviderSubmission::Accepted
     }
 
+    pub(crate) fn wake_delist(&self) {
+        self.delist_wake.notify_one();
+    }
+
     pub(crate) fn cancel(&self) {
         let _ = self.cancel.send(true);
     }
@@ -310,6 +324,7 @@ pub(crate) struct ProviderLane {
     recovery: mpsc::Receiver<()>,
     cancel: watch::Receiver<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
+    delist_wake: Arc<Notify>,
 }
 
 impl ProviderLane {
@@ -318,33 +333,55 @@ impl ProviderLane {
         let (recovery_tx, recovery_rx) = mpsc::channel(1);
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let admission = Arc::new(Mutex::new(ProviderAdmissionState::default()));
+        let delist_wake = Arc::new(Notify::new());
         (
             ProviderLaneHandle {
                 commands: command_tx,
                 recovery: recovery_tx,
                 cancel: cancel_tx,
                 admission: Arc::clone(&admission),
+                delist_wake: Arc::clone(&delist_wake),
             },
             Self {
                 commands: command_rx,
                 recovery: recovery_rx,
                 cancel: cancel_rx,
                 admission,
+                delist_wake,
             },
         )
     }
 
-    pub(crate) async fn run<R, Recover, E, Execute>(mut self, mut recover: R, mut execute: E)
+    #[cfg(test)]
+    pub(crate) async fn run<R, Recover, E, Execute>(self, recover: R, execute: E)
     where
         R: FnMut() -> Recover,
         Recover: Future<Output = ProviderRecoveryOutcome>,
         E: FnMut(ProviderOperation) -> Execute,
         Execute: Future<Output = ()>,
     {
+        self.run_with_power(recover, execute, None).await;
+    }
+
+    pub(crate) async fn run_with_power<R, Recover, E, Execute>(
+        mut self,
+        mut recover: R,
+        mut execute: E,
+        power: Option<gooddealer_secure_host_core::NativePowerGate>,
+    ) where
+        R: FnMut() -> Recover,
+        Recover: Future<Output = ProviderRecoveryOutcome>,
+        E: FnMut(ProviderOperation) -> Execute,
+        Execute: Future<Output = ()>,
+    {
+        let mut idle_due = Instant::now() + Duration::from_secs(30);
+        let mut power_epoch = power.as_ref().map_or(0, |gate| gate.snapshot().epoch);
         loop {
             enum Work {
                 Recover,
                 Operation(ProviderOperation),
+                Delist,
+                Power(gooddealer_secure_host_core::NativePowerSnapshot),
             }
             let work = tokio::select! {
                 biased;
@@ -354,6 +391,7 @@ impl ProviderLane {
                     }
                     continue;
                 }
+                snapshot = power_change(power.as_ref(), power_epoch) => Work::Power(snapshot),
                 recovery = self.recovery.recv() => {
                     if recovery.is_none() {
                         return;
@@ -366,8 +404,32 @@ impl ProviderLane {
                     };
                     Work::Operation(operation)
                 }
+                () = self.delist_wake.notified(), if power.is_some() => Work::Delist,
+                () = tokio::time::sleep_until(idle_due), if power.is_some() => Work::Delist,
             };
             match work {
+                Work::Power(snapshot) => {
+                    power_epoch = snapshot.epoch;
+                    if snapshot.ready && !snapshot.paused {
+                        if let Ok(mut admission) = self.admission.lock() {
+                            admission.begin_recovery();
+                        }
+                        let generation = self.recovery_generation();
+                        let complete = recover().await;
+                        self.finish_recovery(generation, complete);
+                    }
+                }
+                Work::Delist => {
+                    idle_due = Instant::now() + Duration::from_secs(30);
+                    let operation = ProviderOperation::AfternicDelistStep;
+                    let admitted = self.admission.lock().is_ok_and(|mut admission| {
+                        admission.admit(&operation, Instant::now()) == ProviderAdmission::Enqueue
+                    });
+                    if admitted {
+                        execute(operation.clone()).await;
+                        self.complete(&operation);
+                    }
+                }
                 Work::Recover => {
                     let generation = self.recovery_generation();
                     let complete = recover().await;
@@ -378,6 +440,7 @@ impl ProviderLane {
                     // admitted operation before join so no effect can escape the lane lifetime.
                     execute(operation.clone()).await;
                     self.complete(&operation);
+                    self.delist_wake.notify_one();
                     if !*self.cancel.borrow()
                         && matches!(operation, ProviderOperation::AfternicRevoke { .. })
                     {
@@ -408,12 +471,23 @@ impl ProviderLane {
         if let Ok(mut admission) = self.admission.lock() {
             admission.finish_recovery(generation, complete.into());
         }
+        self.delist_wake.notify_one();
     }
 
     fn complete(&self, operation: &ProviderOperation) {
         if let Ok(mut admission) = self.admission.lock() {
             admission.complete(operation);
         }
+    }
+}
+
+async fn power_change(
+    power: Option<&gooddealer_secure_host_core::NativePowerGate>,
+    epoch: u64,
+) -> gooddealer_secure_host_core::NativePowerSnapshot {
+    match power {
+        Some(power) => power.wait_for_epoch_change(epoch).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -433,6 +507,55 @@ mod tests {
             connection_id: connection.to_owned(),
             entity_id: entity.to_owned(),
         }
+    }
+
+    #[tokio::test]
+    async fn background_steps_share_the_slot_yield_to_commands_and_continue_without_idle_delay() {
+        let monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
+        let (handle, lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        let revoke = ProviderOperation::AfternicRevoke {
+            connection_id: "a".into(),
+        };
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let record = Arc::clone(&observed);
+        let done = Arc::new(Notify::new());
+        let completed = Arc::clone(&done);
+        let wake = handle.clone();
+        let worker = tokio::spawn(lane.run_with_power(
+            || async { true.into() },
+            move |operation| {
+                let record = Arc::clone(&record);
+                let done = Arc::clone(&completed);
+                let wake = wake.clone();
+                async move {
+                    tokio::task::yield_now().await;
+                    let mut items = record.lock().unwrap();
+                    items.push(operation);
+                    if items.len() < 4 {
+                        wake.wake_delist();
+                    } else {
+                        done.notify_one();
+                    }
+                }
+            },
+            Some(monitor.gate()),
+        ));
+        tokio::time::timeout(Duration::from_secs(2), done.notified())
+            .await
+            .unwrap();
+        handle.cancel();
+        worker.await.unwrap();
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![
+                revoke,
+                ProviderOperation::AfternicDelistStep,
+                ProviderOperation::AfternicDelistStep,
+                ProviderOperation::AfternicDelistStep
+            ]
+        );
     }
 
     #[test]

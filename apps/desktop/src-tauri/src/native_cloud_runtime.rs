@@ -50,6 +50,7 @@ pub(crate) struct NativeCloudCoordinator {
     sync: SyncLaneHandle,
     projection: ProjectionLaneHandle,
     provider: ProviderLaneHandle,
+    power: gooddealer_secure_host_core::NativePowerGate,
     cancel_fence: Arc<NativeCloudCancelFence>,
     session: Arc<NativeCloudSession>,
     tasks: Mutex<Option<[JoinHandle<()>; 3]>>,
@@ -147,6 +148,7 @@ impl NativeCloudCoordinator {
     pub(crate) fn start(
         host: &Arc<DesktopLocalHost>,
         session: &Arc<NativeCloudSession>,
+        power: &gooddealer_secure_host_core::NativePowerGate,
     ) -> Arc<Self> {
         let (sync_handle, sync_lane) = SyncLane::production();
         let (projection_handle, projection_lane) = ProjectionLane::new();
@@ -212,9 +214,12 @@ impl NativeCloudCoordinator {
         let provider_recovery_cancel_fence = Arc::clone(&cancel_fence);
         let provider_operations: Arc<ProviderOperationLog> = Arc::new(Mutex::new(None));
         let provider_record = Arc::clone(&provider_operations);
+        let provider_power = power.clone();
+        let lane_power = power.clone();
+        let delist_waker = provider_handle.clone();
         let provider_task = tauri::async_runtime::spawn(async move {
             provider_lane
-                .run(
+                .run_with_power(
                     move || {
                         let host = Arc::clone(&provider_recovery_host);
                         let cancel_fence = Arc::clone(&provider_recovery_cancel_fence);
@@ -239,14 +244,29 @@ impl NativeCloudCoordinator {
                         }
                     },
                     move |operation| {
-                        run_provider_operation(
-                            Arc::clone(&provider_host),
-                            Arc::clone(&provider_cancel_fence),
-                            provider_projection.clone(),
-                            Arc::clone(&provider_record),
-                            operation,
-                        )
+                        let host = Arc::clone(&provider_host);
+                        let cancel = Arc::clone(&provider_cancel_fence);
+                        let projection = provider_projection.clone();
+                        let record = Arc::clone(&provider_record);
+                        let power = provider_power.clone();
+                        let wake = delist_waker.clone();
+                        async move {
+                            if matches!(operation, ProviderOperation::AfternicDelistStep) {
+                                if crate::provider_credential_orchestrator::afternic_delist::step(
+                                    host, cancel, power,
+                                )
+                                .await
+                                .unwrap_or(false)
+                                {
+                                    wake.wake_delist();
+                                }
+                            } else {
+                                run_provider_operation(host, cancel, projection, record, operation)
+                                    .await;
+                            }
+                        }
                     },
+                    Some(lane_power),
                 )
                 .await;
         });
@@ -254,6 +274,7 @@ impl NativeCloudCoordinator {
             sync: sync_handle,
             projection: projection_handle,
             provider: provider_handle,
+            power: power.clone(),
             cancel_fence,
             session: Arc::clone(session),
             tasks: Mutex::new(Some([sync_task, projection_task, provider_task])),
@@ -292,6 +313,20 @@ impl NativeCloudCoordinator {
         self.sync.cancel();
         self.projection.cancel();
         self.provider.cancel();
+    }
+
+    pub(crate) fn power_gate(&self) -> gooddealer_secure_host_core::NativePowerGate {
+        self.power.clone()
+    }
+    pub(crate) fn wake_afternic_delist(&self) {
+        self.provider.wake_delist();
+    }
+    pub(crate) fn afternic_execution_available(&self) -> bool {
+        let power = self.power.snapshot();
+        !self.cancel_fence.is_cancelled()
+            && power.ready
+            && !power.paused
+            && self.provider.afternic_status() == ProviderStatus::Ready
     }
 
     pub(crate) fn submit_provider(&self, operation: &ProviderOperation) -> ProviderSubmission {
@@ -397,47 +432,27 @@ async fn run_provider_operation(
     record: Arc<ProviderOperationLog>,
     operation: ProviderOperation,
 ) {
-    use crate::provider_credential_orchestrator::RevocationOutcome;
+    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic};
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
     // records its prewrite state, revocation commits the denial when it is prepared, and a
     // non-confirmed resolution still changes the connection. So projections are always re-read;
     // a re-read is idempotent and cheap next to a rate-limited Provider call.
-    let confirmed = |confirmed: bool| {
-        if confirmed {
-            "confirmed"
-        } else {
-            "unconfirmed"
-        }
-    };
+    let confirmed = |done: bool| if done { "confirmed" } else { "unconfirmed" };
     let authority = host.authority_identity();
     let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
+        ProviderOperation::AfternicDelistStep => return,
         ProviderOperation::AfternicConnect { display_label } => {
-            let result = crate::provider_credential_orchestrator::afternic::connect(
-                host,
-                display_label,
-                cancel_fence,
-            )
-            .await;
+            let result = afternic::connect(host, display_label, cancel_fence).await;
             ProviderOperationRecord::of("afternic_connect", result.as_ref().map(|()| "confirmed"))
         }
         ProviderOperation::AfternicRefresh { connection_id } => {
-            let result = crate::provider_credential_orchestrator::afternic::refresh(
-                host,
-                connection_id,
-                cancel_fence,
-            )
-            .await;
+            let result = afternic::refresh(host, connection_id, cancel_fence).await;
             ProviderOperationRecord::of("afternic_refresh", result.as_ref().map(|()| "confirmed"))
         }
         ProviderOperation::AfternicRevoke { connection_id } => {
-            let result = crate::provider_credential_orchestrator::afternic::revoke(
-                host,
-                connection_id,
-                cancel_fence,
-            )
-            .await;
+            let result = afternic::revoke(host, connection_id, cancel_fence).await;
             ProviderOperationRecord::of("afternic_revoke", result.as_ref().map(|()| "confirmed"))
         }
         ProviderOperation::Activate { connection_id } => {

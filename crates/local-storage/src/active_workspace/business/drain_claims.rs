@@ -891,6 +891,20 @@ fn load_drain_outbox_rows(
         .map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
+impl BusinessDatabase {
+    /// Temporary ADR-0032 refusal: delist attempts are durable execution/audit facts, including
+    /// queued and terminal history. Remove this refusal only when both real stream sources,
+    /// uploads and verified Cloud receipts feed the handoff proof; never substitute genesis.
+    pub(crate) fn has_unexported_provider_handoff_facts(
+        &self,
+    ) -> Result<bool, BusinessDatabaseError> {
+        self.store.raw_connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM operation_attempts a JOIN operation_plans p USING(workspace_id,plan_id) WHERE a.workspace_id=?1 AND p.operation_kind='afternic_delist')",
+            [&self.workspace_id], |row|row.get(0),
+        ).map_err(|_|BusinessDatabaseError::StorageRejected)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

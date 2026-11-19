@@ -15,6 +15,14 @@ use crate::portfolio_projection::{
 };
 
 mod afternic;
+mod afternic_delist;
+pub(crate) use afternic_delist::AfternicDelistWorkSeed;
+pub use afternic_delist::{
+    DesktopAfternicDelistApproveRequest, DesktopAfternicDelistPlan,
+    DesktopAfternicDelistPreviewItem, DesktopAfternicDelistPreviewRequest,
+    DesktopAfternicDelistStatus, DesktopAfternicDelistStatusRequest, DesktopAfternicDelistSummary,
+    DesktopAfternicDelistWorkKind,
+};
 mod assets;
 pub(crate) use afternic::AfternicConnectionSeed;
 pub use afternic::{

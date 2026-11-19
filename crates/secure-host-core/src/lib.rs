@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![recursion_limit = "256"]
 //! Non-backup native capabilities for the Desktop adapter.
 //!
@@ -76,4 +76,10 @@ pub use local_workspace_binding::{
 pub use desktop_device_directory::{
     DesktopDeviceDirectory, DeviceDirectoryRejected, parse_desktop_device_directory,
     prepare_desktop_device_self_report,
+};
+
+mod native_power;
+pub use native_power::{
+    NativePowerCommitGuard, NativePowerGate, NativePowerMonitor, NativePowerSnapshot,
+    NativePowerUnavailable,
 };

@@ -68,7 +68,7 @@ pub(crate) fn random_id() -> Result<String, BusinessDatabaseError> {
 }
 
 impl DesktopAfternicListingObservation {
-    fn validate(&self) -> Result<(), BusinessDatabaseError> {
+    pub(super) fn validate(&self) -> Result<(), BusinessDatabaseError> {
         validate_domain_asset_id(&self.domain).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         if !self
             .domain

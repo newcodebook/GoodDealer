@@ -2,6 +2,7 @@ import {
   createConflictResolutionIntent,
   type DeviceDirectorySettingsPort,
   type AfternicConnectionPort,
+  type AfternicDelistPort,
   type AssetLibraryViewModel,
   type BatchOperationsReadPort,
   type HistoryReadPort,
@@ -56,6 +57,7 @@ export interface AuthoritativeWorkspacePorts {
    */
   readonly cloudflare: CloudflareConnectionPort;
   readonly afternic: AfternicConnectionPort;
+  readonly afternicDelist: AfternicDelistPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;

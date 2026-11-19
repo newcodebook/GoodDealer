@@ -18,7 +18,7 @@ Current screen composition and remaining work are recorded in
 ## Touchpoints
 
 - Uses `../../crates/local-storage` as the sole local business and backup aggregate owner.
-- Uses `../../crates/secure-host-core` for native OAuth, device identity, authorization verification, and Cloudflare observation.
+- Uses `../../crates/secure-host-core` for native OAuth, device identity, authorization verification, Cloudflare observation, Afternic I/O, and safe OS power admission.
 - Consumes host-independent contracts from `../../packages/client-core`, `../../packages/cloud-client`, `../../packages/ui`, and `../../packages/i18n`.
 
 ## Change Guide

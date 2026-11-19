@@ -363,6 +363,24 @@
           "markdownDescription": "Enables the afternic_connection_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the afternic_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-approve",
+          "markdownDescription": "Enables the afternic_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-preview",
+          "markdownDescription": "Enables the afternic_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-status",
+          "markdownDescription": "Enables the afternic_delist_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the afternic_inventory_refresh command without any pre-configured scope.",
           "type": "string",
           "const": "allow-afternic-inventory-refresh",
@@ -625,6 +643,24 @@
           "type": "string",
           "const": "deny-afternic-connection-status",
           "markdownDescription": "Denies the afternic_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-approve",
+          "markdownDescription": "Denies the afternic_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-preview",
+          "markdownDescription": "Denies the afternic_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-status",
+          "markdownDescription": "Denies the afternic_delist_status command without any pre-configured scope."
         },
         {
           "description": "Denies the afternic_inventory_refresh command without any pre-configured scope.",

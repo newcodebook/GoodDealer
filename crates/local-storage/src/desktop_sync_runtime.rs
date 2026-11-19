@@ -938,6 +938,12 @@ impl DesktopSyncRuntime {
         admission: &DesktopSyncRunAdmission,
     ) -> Result<DrainMutationProgress, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        if database
+            .has_unexported_provider_handoff_facts()
+            .map_err(map_database_error)?
+        {
+            return Ok(DrainMutationProgress::Blocked);
+        }
         database
             .read_drain_mutation_progress(&admission.device_id)
             .map_err(map_database_error)
@@ -977,7 +983,7 @@ impl DesktopSyncRuntime {
 
     /// ADR-0032 S2d: the unsigned handoff proof for `device_switch_request_id`. It exists only while
     /// this switch's barrier holds writes closed under this run's Lease epoch and the mutation
-    /// stream is fully confirmed; the other two streams are claimed empty (ADR-0032 decision 2).
+    /// stream is fully confirmed and there are no local Provider facts requiring the other streams.
     /// The device key version is 1, the only version production registers.
     pub(crate) fn drain_prepare_proof(
         &self,
@@ -987,6 +993,13 @@ impl DesktopSyncRuntime {
         signing_key_id: &str,
     ) -> Result<HandoffDrainProofClaims, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        // This independent check also covers callers that bypass the progress projection.
+        if database
+            .has_unexported_provider_handoff_facts()
+            .map_err(map_database_error)?
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
         let barrier = database
             .device_handoff_barrier()
             .map_err(map_database_error)?

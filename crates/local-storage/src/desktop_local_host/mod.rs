@@ -5,6 +5,7 @@
 //! order. Backup cryptography and plaintext remain inside this private module tree.
 
 pub(crate) mod afternic;
+pub(crate) mod afternic_delist;
 mod authority;
 mod authorization;
 mod backup_workflow;

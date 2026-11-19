@@ -78,9 +78,14 @@ async fn complete_exit_shutdown<E>(
     exit(exit_code);
 }
 
-fn run_app(app: tauri::App) {
+fn run_app(app: tauri::App, mut power_monitor: gooddealer_secure_host_core::NativePowerMonitor) {
     let exit_shutdown = Arc::new(ExitShutdownState::default());
     app.run(move |app_handle, event| {
+        // Main-thread owner keeps fixed OS observers alive until the app event loop exits.
+        if matches!(event, tauri::RunEvent::Exit) {
+            power_monitor.stop();
+            return;
+        }
         let tauri::RunEvent::ExitRequested { code, api, .. } = event else {
             return;
         };
@@ -119,6 +124,8 @@ fn run_app(app: tauri::App) {
 }
 
 fn main() {
+    let power_monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
+    let power_gate = power_monitor.gate();
     let app = tauri::Builder::default()
         // Must be first: later plugin/setup work must never run in a competing refresh process.
         // Browser sign-in returns over loopback (ADR-0011), so a second launch carries nothing.
@@ -145,7 +152,11 @@ fn main() {
             let session = Arc::clone(oauth.session());
             app.manage(Arc::clone(&session));
             app.manage(Arc::clone(&oauth));
-            let cloud = native_cloud_runtime::NativeCloudCoordinator::start(&local_host, &session);
+            let cloud = native_cloud_runtime::NativeCloudCoordinator::start(
+                &local_host,
+                &session,
+                &power_gate,
+            );
             app.manage(Arc::new(device_switch_drain::DesktopDeviceSwitch::new(
                 Arc::clone(&local_host),
                 Arc::clone(&session),
@@ -197,6 +208,9 @@ fn main() {
             command_handlers::afternic::afternic_connection_connect,
             command_handlers::afternic::afternic_connection_revoke,
             command_handlers::afternic::afternic_connection_status,
+            command_handlers::afternic_delist::afternic_delist_approve,
+            command_handlers::afternic_delist::afternic_delist_preview,
+            command_handlers::afternic_delist::afternic_delist_status,
             command_handlers::afternic::afternic_inventory_refresh,
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
@@ -209,7 +223,7 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the GoodDealer desktop host");
-    run_app(app);
+    run_app(app, power_monitor);
 }
 
 #[cfg(test)]

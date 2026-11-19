@@ -12,8 +12,8 @@ const OBSERVE: &str = "afternic:marketplace:observe";
 
 /// This handle is Native-only, non-serializable and bound to an exact Host admission and slot.
 pub struct DesktopAfternicConnection {
-    admission: DesktopNativeCloudAdmission,
-    seed: AfternicConnectionSeed,
+    pub(super) admission: DesktopNativeCloudAdmission,
+    pub(super) seed: AfternicConnectionSeed,
     connection_digest: String,
 }
 impl std::fmt::Debug for DesktopAfternicConnection {
@@ -70,7 +70,7 @@ fn now() -> Result<String, DesktopLocalHostError> {
         current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
     ))
 }
-fn handle(
+pub(super) fn handle(
     admission: DesktopNativeCloudAdmission,
     seed: AfternicConnectionSeed,
 ) -> DesktopAfternicConnection {

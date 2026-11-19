@@ -7,7 +7,7 @@ import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, typ
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
-import { BatchList } from "../features/operations/batch-operations";
+import { AfternicDelistPanel, BatchList } from "../features/operations/batch-operations";
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
@@ -186,6 +186,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               ports={ports}
               readGeneration={publication.status.readGeneration}
               onStale={onRefresh}
+              readOnly={readOnly !== null}
             />
           ),
           "operations.manualTasks": () => (
@@ -313,23 +314,27 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
 const hostWindowSize = 200;
 
 /**
- * Reads every batch window for one Host generation. Rows do not open: the Host has no plan detail
- * read yet, and generating, approving or running a plan needs operation capabilities that are not
- * qualified, so the list reports creation as unavailable.
+ * General history remains a Host-generation projection. Afternic's concrete removal journey uses
+ * its persisted opaque plan references; synthetic presentation row IDs never authorize an action.
  */
-function BatchRoute({ locale, ports, readGeneration, onStale }: {
+function BatchRoute({ locale, ports, readGeneration, onStale, readOnly }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly readGeneration: number;
   readonly onStale: () => void;
+  readonly readOnly: boolean;
 }) {
   const copy = getPresentationCopy(locale, "batchOperation");
   const { state, retry } = useHostRouteRead(
     ports.batches, (port, request) => port.loadBatchOperations(request), readGeneration, onStale,
     projectBatchOperationList, { windowSize: hostWindowSize },
   );
-  if (state.kind === "ready") return <BatchList locale={locale} jobs={state.value.items} creationAvailability={state.value.creationAvailability} />;
-  return <HostRouteStatus state={state} copy={copy} onRetry={retry} />;
+  return <div className="afternic-batch-route">
+    <AfternicDelistPanel locale={locale} port={ports.afternicDelist} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
+    <div className="afternic-batch-history">
+      {state.kind === "ready" ? <BatchList locale={locale} jobs={state.value.items} creationAvailability={state.value.creationAvailability} /> : <HostRouteStatus state={state} copy={copy} onRetry={retry} />}
+    </div>
+  </div>;
 }
 
 const keepWindows = <T,>(windows: readonly T[]): readonly T[] => windows;

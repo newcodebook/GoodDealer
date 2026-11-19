@@ -34,8 +34,20 @@ HTTP 适配遵循 [ADR-0027](0027-multi-platform-domain-providers-and-marketplac
 脱敏且目的明确的结果，不持有秘密、不选择秘密存储位置、不调用通用秘密或密钥链接口。输入从 `unknown`
 严格校验，未知字段与无效 wire 失败关闭；日志、错误与非秘密持久化不得泄漏秘密。
 
-Rust 保持 `forbid(unsafe_code)`；不保留 Windows Credential Manager 的未采用 FFI 例外。新增原生 unsafe
-边界必须有具体、窄范围的 ADR 与审查，不能以平台实现便利绕过。
+Rust 默认保持 `forbid(unsafe_code)`。唯一例外是 `secure-host-core` 私有电源通知边界：该 crate 根使用
+`deny(unsafe_code)`，仅 `src/native_power/windows.rs` 与 `src/native_power/macos.rs` 可覆盖。例外只允许
+注册/注销固定系统休眠与唤醒通知、读取固定通知名，以及实现所需的固定回调；不允许凭据托管、任意 FFI、
+外部回调注册、OS handle 导出或外部 payload 解引用。Windows Credential Manager 不在例外中。
+
+电源通知所有者留在 Native 主线程；其他 Native 模块只持有 ready/paused/epoch 的安全门禁和有界变化通知。
+系统事件先发布原子失效意图，再协调短提交栅栏；旧 epoch 在休眠和唤醒后都不能重新获得发送能力。
+最终本地提交与 epoch 发布线性化，事件回调不访问业务库、秘密、Cloud 或 Provider；任何网络等待不持有该栅栏。
+销毁先永久关闭门禁，再注销通知；并发或晚到回调不得解引用已释放对象，也不得重新启用执行。
+注册失败拒绝新写入，已经发送的操作只在当前授权下继续只读对账；关闭与实际暂停仍拒绝新的本地步骤。
+
+两处 unsafe 文件须逐处说明生命周期、线程及内存安全依据，并接受独立审查、精确文件清单检查与各目标编译。
+真实休眠/唤醒及请求途中暂停须分别在 Windows/macOS 取证，Linux 测试不能替代。若可验证的安全平台封装能提供
+相同通知及时性和生命周期保证，应移除本例外；其他新增 unsafe 边界仍需修改对应最终 ADR 和独立审查。
 
 ## 工程与证据
 

@@ -14,7 +14,7 @@ use gooddealer_secure_host_core::{
 };
 use std::sync::Arc;
 
-struct ConnectionPlan<'a>(&'a DesktopAfternicConnection);
+pub(super) struct ConnectionPlan<'a>(pub(super) &'a DesktopAfternicConnection);
 impl AfternicCredentialPlan for ConnectionPlan<'_> {
     fn connection_incarnation(&self) -> &str {
         self.0.connection_incarnation()
@@ -247,7 +247,7 @@ pub(crate) async fn recover(
     }
 }
 
-fn observation(listing: AfternicListing) -> DesktopAfternicListingObservation {
+pub(super) fn observation(listing: AfternicListing) -> DesktopAfternicListingObservation {
     let status = match listing.status {
         AfternicListingStatus::Pending => "PENDING",
         AfternicListingStatus::FailedCompliance => "FAILED_COMPLIANCE",

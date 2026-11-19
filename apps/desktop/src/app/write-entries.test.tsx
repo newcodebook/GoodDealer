@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   parseConflictCenterViewModel,
+  parseBatchOperationsRead,
   parseDnsHealthRead,
   parseDomainDetailViewModel,
   parseSettingsRead,
@@ -80,6 +81,11 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
     settings: { loadSettings: vi.fn(async () => settingsRead) },
+    batches: { loadBatchOperations: vi.fn(async () => parseBatchOperationsRead({
+      schemaVersion: 1, kind: "batch_operations", readGeneration: generation, freshness,
+      totalRows: 0, window: { startIndex: 0, size: 200, rows: [] },
+    })) },
+    afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
     afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
     cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
@@ -130,6 +136,26 @@ async function openDetail() {
 }
 
 describe("write entries follow the presentation gate", () => {
+  it.each([
+    ["active", ["local:read", "workspace:mutate"], true],
+    ["active", ["local:read"], false],
+    ["standby_read_only", ["local:read"], false],
+    ["commercial_read_only", ["local:read"], false],
+  ] as const)("composes the Afternic batch journey with the %s %j write gate", async (state, capabilities, writable) => {
+    const workspacePorts = ports();
+    vi.mocked(workspacePorts.afternicDelist.status).mockResolvedValue({
+      schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
+    });
+    await render(state, [...capabilities], workspacePorts);
+    await clickButton("Batch operations");
+    expect(workspacePorts.afternicDelist.status).toHaveBeenCalledWith({ schemaVersion: 1, planRef: null });
+    expect(workspacePorts.afternic.status).toHaveBeenCalled();
+    expect(container.textContent).toContain("Afternic");
+    expect(container.querySelector('.afternic-delist textarea') !== null).toBe(writable);
+    expect(workspacePorts.afternicDelist.preview).not.toHaveBeenCalled();
+    expect(workspacePorts.afternicDelist.approve).not.toHaveBeenCalled();
+  });
+
   it("removes self naming immediately when Host demotes Active while settings reads remain stale", async () => {
     const directory = { schemaVersion: 1 as const, listRevision: 1, devices: [{ deviceId: "self", displayName: "Desk", platform: "macos" as const, status: "bound" as const, role: "active" as const, currentDevice: true, lastSeenAt: null }] };
     const workspacePorts = { ...ports(), devices: { read: vi.fn(async () => directory), reportSelf: vi.fn(async () => directory) } };

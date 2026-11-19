@@ -81,8 +81,7 @@ Repository topology 以
 | **Cloudflare API-only Zone/DNS 只读观察** | 显示本地保存的连接状态和本地 Provider 观察。 | 本地 Host 独占第三方账号、Provider Account ID、别名、Token 和 HTTPS read。 | 无 Cloud Observation submit/read；Cloud 不调用 Provider。 | Provider 账号和密封凭据只写本地；允许的业务字段经 DomainAsset Outbox 同步。 | no-secret Mutation、无 Cloud connection persistence、Host read allowlist 和本地结果持久化测试。 | 账号 metadata/Token 泄漏、Cloud Provider 调用、DNS 写、浏览器 fallback 和任意网络均被拒绝。 | 条款、最小 Token、受控 Zone 和独立审查才授权真实 Provider 可用性。 |
 
 新增域名能力的验收还必须覆盖：Host-owned 报价与单项确认、Grant/Lease/凭据代次即时复验、
-计划摘要与资源绑定、未知结果对账、批量逐项结果和 Provider 页面回跳不构成成功。当前只有
-上述只读观察与现有资产本地绑定持久化实现。绑定合同、Desktop IPC 适配器和 Rust 事务测试覆盖严格请求/回执、实体和代次相关性、首次提交、精确重放、拒绝零写及 fence 回滚；这些本地测试不证明绑定 UI、完整能力门禁、撤销或真实 native/Zone 资格。目标能力不得借现有只读证据获得执行许可。
+计划摘要与资源绑定、未知结果对账、批量逐项结果和 Provider 页面回跳不构成成功。当前实现还包括下文 Afternic 归集与下架的有界生产组合。绑定合同、Desktop IPC 适配器和 Rust 事务测试覆盖严格请求/回执、实体和代次相关性、首次提交、精确重放、拒绝零写及 fence 回滚；这些本地测试不证明绑定 UI、完整能力门禁、撤销或真实 native/Zone 资格。目标能力不得借现有只读证据获得执行许可。
 
 ## 多平台交付阶段验收
 
@@ -209,4 +208,16 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - Native：旧 floor 映射历史 Cloudflare 单权限并保留所有防重放/未知 lastActive 语义；相同 revision 或 digest 禁止权限/期限变化；新 revision+digest 可撤权，旧 admission 在 await/最终提交处拒绝。现有三种签名用途继续隔离。
 - 存储：只追加 `202611180003`，保留已应用 SQL/历史绑定；完整扫描资产/Outbox/观察原子提交，多连接隔离，空库存/已删除全部跳过不伪造观察；prepared 新 Grant 与真实关闭重开后恢复原 proof；revoked handle 拒绝 Provider，撤权后仍可首次撤销与 purge；最终 epoch 变化回滚所有事实。
 - 生产组合：四个严格 raw IPC、固定 Provider 端点、Native-only 凭据、共享串行 lane 与两个具名恢复准入；refresh 仅加载既存 slot；lost response 仅读取状态，queued 不表示成功；Renderer role/permission/qualification/capture 条件分别约束入口。
-- 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；持久 Listing 写计划、私有验证及 DNS 客户闭环仍须实现和单独验收。
+- 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；下架计划的本地验收见下一节，创建 Listing、改价、私有验证及 DNS 客户闭环仍须实现和单独验收。
+
+
+## Afternic 整批下架、后台执行与重开对账
+
+- 持久预览绑定完整 Listing 前像、源完整扫描/观察、资产代次、连接 incarnation/凭据代次、原绑定和适配版本；覆盖过期、篡改、跨租户、重复目标、目标缺项及未知字段。
+- 同一预览重复/真正并发批准只产生一个 operation；并发 claim 只发出一个非序列化许可。发送前后崩溃及 SQLCipher 关闭重开仅恢复 GET，跨新计划/新绑定不能绕过未决同域名请求。
+- 精确缺席和 detach 同事务/最终栅栏提交，普通撤销/新 incarnation 不能借旧回执伪装成功；原 unknown 尝试保持不可变。混合已解决/未解决 unknown 的通用批量计数必须各归其类。
+- 失败 GET/仍存在持久只读退避，普通指数延迟封顶 900 秒，合法完整 u32 Retry-After 可延长；不提前调度。空轮询和重复批准不推进 readGeneration。
+- 交接 progress 与 proof 独立拒绝已有下架尝试的虚假空流；并发批准与屏障/签证不能同时成功。屏障拒绝新预览/批准/claim/发送，queued/running/unknown/终结历史和重开均覆盖；已发 GET 对账仍允许。完整两流接入前不能据此宣称有执行历史的普通交接可用。
+- Native 在可能阻塞的 Host 复核前后检查 power/cancel；休眠先原子失效旧 epoch，关闭只唤醒一次，缺失/损坏 slot 进入 remediation，暂时 custody 不可用仅退避。下架专用 guard 不能被宣称为所有既有 Provider 流程的休眠保护。
+- UI 批准严格对应当前选中计划，换计划/角色降级/工作区替换期间不能批准旧详情；丢失响应只查状态，防重复点击；summary/detail 状态与计数均严格校验。
+- 证据及修复见 [下架审查](reviews/2026-11-19-afternic-delist-review.md)。目标源码编译不替代完整应用目标构建、OS 注册/休眠/凭据实机、真实 Afternic 和发行资格；未取得这些证据时资格登记保持拒绝。

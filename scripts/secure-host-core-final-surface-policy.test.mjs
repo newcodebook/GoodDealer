@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 
 const expectedSourceFiles = [
@@ -27,6 +27,9 @@ const expectedSourceFiles = [
   "desktop_oauth.rs",
   "lib.rs",
   "local_workspace_binding.rs",
+  "native_power.rs",
+  "native_power/macos.rs",
+  "native_power/windows.rs",
   "secret_service_custody.rs",
 ];
 // Fixed Afternic capability facade; no URL, request-header or credential-bytes forwarding.
@@ -68,6 +71,15 @@ const expectedCloudflareProviderExports = [
   "CloudflareProviderZone",
   "CloudflareProviderZoneStatus",
   "CloudflareRecordType",
+];
+const expectedNativePowerExports = [
+  "NativePowerMonitor", "NativePowerGate", "NativePowerSnapshot",
+  "NativePowerCommitGuard", "NativePowerUnavailable",
+];
+const expectedNativePowerPublicItems = [
+  ...expectedNativePowerExports,
+  "start", "stop", "gate", "snapshot", "wait_for_epoch_change",
+  "hold_write_epoch", "hold_reconciliation_epoch",
 ];
 const desktopAuthorizationSourceFile = "desktop_authorization_verifier.rs";
 const desktopDeviceIdentitySourceFile = "desktop_device_identity.rs";
@@ -214,6 +226,8 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host",
   "desktop_native_cloud",
   "desktop_sync_runtime",
+  "active_workspace::business",
+  "desktop_local_host::afternic_delist",
 ];
 const expectedLocalStoragePublicExports = [
   "AssetLibraryReadSnapshot",
@@ -226,6 +240,16 @@ const expectedLocalStoragePublicExports = [
   "DesktopAfternicInventoryReceipt",
   "DesktopAfternicListingObservation",
   "DesktopAfternicScanSummary",
+  "DesktopAfternicDelistApproveRequest",
+  "DesktopAfternicDelistClaim",
+  "DesktopAfternicDelistPlan",
+  "DesktopAfternicDelistPreviewItem",
+  "DesktopAfternicDelistPreviewRequest",
+  "DesktopAfternicDelistStatus",
+  "DesktopAfternicDelistStatusRequest",
+  "DesktopAfternicDelistSummary",
+  "DesktopAfternicDelistWork",
+  "DesktopAfternicDelistWorkKind",
   "DesktopApplicationRoot",
   "DesktopApplicationRootError",
   "DesktopAssetLibraryReadRequest",
@@ -369,7 +393,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "afternic_credentials",
@@ -381,6 +405,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     "desktop_oauth",
     "local_workspace_binding",
     "desktop_device_directory",
+    "native_power",
   ];
   if (!sameArray(exportMatches.map((match) => match[1]), expectedExportModules)) {
     errors.push("secure-host-core direct capability export blocks are missing, reordered, or duplicated");
@@ -392,6 +417,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     .filter(Boolean)
     .sort();
   const expectedPublicExports = [
+    ...expectedNativePowerExports,
     ...expectedAfternicExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
@@ -406,10 +432,11 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     errors.push(`secure-host-core public exports differ: ${exported.join(", ")}`);
   }
   const remainingSource = libSource.replace(exportPattern, "");
-  if (/\bpub\s+(?:use|mod|struct|enum|trait|fn|type|const|static)\b/u.test(remainingSource)) {
+  if (/\bpub\s+(?:(?:(?:const|async|unsafe)\s+)*fn|use|mod|struct|enum|trait|type|const|static)\b/u.test(remainingSource)) {
     errors.push("secure-host-core exposes a public item outside the exact capability export blocks");
   }
   const exactPublicItemSurfaces = [
+    ["native_power.rs", expectedNativePowerPublicItems, "native power"],
     ["desktop_device_directory.rs", expectedDesktopDeviceDirectoryExports, "desktop device directory"],
     [desktopAuthorizationSourceFile, expectedDesktopAuthorizationPublicItems, "desktop authorization"],
     [desktopOAuthSourceFile, expectedDesktopOAuthPublicItems, "desktop OAuth"],
@@ -418,7 +445,16 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   ];
   for (const [path, expected, label] of exactPublicItemSurfaces) {
     const source = readRegularFile(resolve(sourceRoot, path), errors);
-    if (source !== null) validateExactPublicItems(source, expected, label, errors);
+    if (source !== null) {
+      validateExactPublicItems(source, expected, label, errors);
+      if (path === "native_power.rs") {
+        const fields = [...source.matchAll(/\bpub\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,\n]+)/gu)]
+          .map((match) => `${match[1]}: ${match[2].trim()}`).sort();
+        if (!sameArray(fields, ["epoch: u64", "paused: bool", "ready: bool"])) {
+          errors.push("native power public fields differ from the safe snapshot");
+        }
+      }
+    }
   }
   return errors;
 }
@@ -461,7 +497,7 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
   const remainingSource = libSource
     .replace(bracedExportPattern, "")
     .replace(singleExportPattern, "");
-  if (/\bpub\s+(?:use|mod|struct|enum|trait|fn|type|const|static)\b/u.test(remainingSource)) {
+  if (/\bpub\s+(?:(?:(?:const|async|unsafe)\s+)*fn|use|mod|struct|enum|trait|type|const|static)\b/u.test(remainingSource)) {
     errors.push("local-storage exposes a public item outside the exact aggregate export blocks");
   }
   return errors;
@@ -469,7 +505,7 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
 
 function validateExactPublicItems(source, expected, label, errors) {
   const publicItems = [...source.matchAll(
-    /\bpub(?:\s*\([^)]*\))?\s+(?:(?:const\s+)?fn|const|enum|mod|static|struct|trait|type|use)\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
+    /\bpub(?:\s*\([^)]*\))?\s+(?:(?:(?:const|async|unsafe)\s+)*fn|const|enum|mod|static|struct|trait|type|use)\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
   )].map((match) => match[1]).sort();
   if (!sameArray(publicItems, [...expected].sort())) {
     errors.push(`${label} public items differ: ${publicItems.join(", ")}`);
@@ -524,6 +560,7 @@ function sameArray(left, right) {
 function writeFixture(root) {
   mkdirSync(join(root, "src"), { recursive: true });
   for (const path of expectedSourceFiles) {
+    mkdirSync(dirname(join(root, "src", path)), { recursive: true });
     writeFileSync(
       join(root, "src", path),
       readFileSync(resolve(repositoryCoreRoot, "src", path), "utf8"),
@@ -657,4 +694,27 @@ test("the Linux Secret Service adapter stays identical in both Host crates", () 
   assert.equal(core, storage);
   assert.match(core, /EncryptionType::Dh/u);
   assert.doesNotMatch(core, /EncryptionType::Plain/u);
+});
+
+
+test("rejects unreviewed power methods, async methods and OS-handle fields", (t) => {
+  for (const addition of [
+    "impl NativePowerGate { pub fn unexpected_callback() {} }",
+    "impl NativePowerGate { pub async fn unexpected_async_callback() {} }",
+    "pub struct ForeignHandle { pub os_handle: usize }",
+  ]) {
+    const fixture = useFixture(t);
+    writeFileSync(join(fixture, "src/native_power.rs"), `\n${addition}\n`, { flag: "a" });
+    assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: fixture })
+      .some((error) => error.includes("native power public")));
+  }
+  const fixture = useFixture(t);
+  const path = join(fixture, "src/native_power.rs");
+  writeFileSync(path, readFileSync(path, "utf8").replace("pub epoch: u64,", "pub epoch: u64,\n    pub os_handle: usize,"));
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: fixture })
+    .some((error) => error.includes("native power public fields")));
+  const rootFixture = useFixture(t);
+  writeFileSync(join(rootFixture, "src/lib.rs"), "\npub async fn unexpected() {}\n", { flag: "a" });
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: rootFixture })
+    .some((error) => error.includes("outside")));
 });
