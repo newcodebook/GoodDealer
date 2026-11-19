@@ -18,6 +18,7 @@ export interface OpenBaoAuthorityKeyConfiguration {
   readonly lease: OpenBaoTransitPurposeKeyring;
   readonly standby: OpenBaoTransitPurposeKeyring;
   readonly context: OpenBaoTransitPurposeKeyring;
+  readonly bootstrap: OpenBaoTransitPurposeKeyring;
 }
 
 interface ActiveKeyReference {
@@ -28,7 +29,7 @@ interface ActiveKeyReference {
 
 /** Strictly admits the independently provisioned public keyring used by the Cloud composition root. */
 export function parseOpenBaoAuthorityKeyConfiguration(value: unknown): OpenBaoAuthorityKeyConfiguration {
-  const root = exactRecord(value, ["schemaVersion", "address", "transitMount", "grant", "lease", "standby", "context"]);
+  const root = exactRecord(value, ["schemaVersion", "address", "transitMount", "grant", "lease", "standby", "context", "bootstrap"]);
   if (root.schemaVersion !== 1 || typeof root.address !== "string" || typeof root.transitMount !== "string") {
     throw new TypeError("OpenBao public-key configuration is invalid");
   }
@@ -36,6 +37,8 @@ export function parseOpenBaoAuthorityKeyConfiguration(value: unknown): OpenBaoAu
   const lease = parsePurposeKeyring(root.lease, "Lease");
   const standby = parsePurposeKeyring(root.standby, "Standby");
   const context = parsePurposeKeyring(root.context, "Execution context");
+  const bootstrap = parsePurposeKeyring(root.bootstrap, "Bootstrap capability");
+  for (const other of [grant, lease, standby, context]) rejectDuplicateAuthority(other, bootstrap);
   for (const other of [grant, lease, standby]) rejectDuplicateAuthority(other, context);
   rejectDuplicateAuthority(grant, lease);
   rejectDuplicateAuthority(grant, standby);
@@ -47,6 +50,7 @@ export function parseOpenBaoAuthorityKeyConfiguration(value: unknown): OpenBaoAu
     lease,
     standby,
     context,
+    bootstrap,
   };
 }
 

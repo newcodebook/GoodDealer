@@ -379,3 +379,5 @@ function project(checkpoint: StoredCheckpoint): CheckpointProjection {
 function canonicalNow(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
+
+export { PostgresCheckpointRepository } from "./postgres-repository";

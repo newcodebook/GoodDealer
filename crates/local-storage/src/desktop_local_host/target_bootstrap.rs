@@ -203,7 +203,7 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopTargetBootstrapStatusExchange, Error> {
-        self.with_target_control(admission, |record, _, next_revision| {
+        self.with_target_control(admission, |record, _, next_revision, _| {
             let request_id = record
                 .pending
                 .as_ref()
@@ -234,7 +234,7 @@ impl DesktopLocalHost {
             admission.inner.device_id(),
             exchange.request_id.as_deref(),
         )?;
-        self.with_target_control(admission, |record, security_epoch, next_revision| {
+        self.with_target_control(admission, |record, security_epoch, next_revision, custody| {
             if exchange.authority_epoch != admission.inner.authority_epoch
                 || record.revision != exchange.revision
                 || record.pending.as_ref().map(|p| &p.request_id) != exchange.request_id.as_ref()
@@ -267,7 +267,8 @@ impl DesktopLocalHost {
                 _ => return Err(rejected()),
             }
             // Exchange revision anticipates the single durable update performed by the owner below.
-            let cancel = if retry {
+            let blocked = record.pending.as_ref().map(|pending|super::target_installation::cancellation_blocked(custody,&pending.request_id,security_epoch)).transpose()?.unwrap_or(false);
+            let cancel = if retry && !blocked {
                 Some(record.cancel_exchange(next_revision, admission.inner.authority_epoch)?)
             } else {
                 None
@@ -288,7 +289,7 @@ impl DesktopLocalHost {
         request_id: &str,
     ) -> Result<DesktopTargetBootstrapCancelExchange, Error> {
         validate_identifier(request_id, 160)?;
-        self.with_target_control(admission, |record, security_epoch, next_revision| {
+        self.with_target_control(admission, |record, security_epoch, next_revision, _| {
             if record.pending.is_some() || !matches!(&record.state, DesktopTargetBootstrapView::Available { request_id: current, .. } if current == request_id) { return Err(rejected()); }
             record.pending = Some(Pending { request_id: request_id.into(), account_security_epoch: security_epoch, request_bytes: cancel_bytes(request_id)? });
             record.state = DesktopTargetBootstrapView::Pending { request_id: request_id.into() };
@@ -306,7 +307,7 @@ impl DesktopLocalHost {
         bytes: &[u8],
     ) -> Result<DesktopTargetBootstrapView, Error> {
         let response = wire::cancel(bytes, admission.inner.device_id(), &exchange.request_id)?;
-        self.with_target_control(admission, |record, _, _| {
+        self.with_target_control(admission, |record, _, _, _| {
             if exchange.authority_epoch != admission.inner.authority_epoch
                 || record.revision != exchange.revision
                 || record.pending.as_ref().is_none_or(|pending| {
@@ -326,7 +327,12 @@ impl DesktopLocalHost {
     fn with_target_control<T>(
         &self,
         admission: &DesktopNativeCloudAdmission,
-        action: impl FnOnce(&mut Control, u64, u64) -> Result<T, Error>,
+        action: impl FnOnce(
+            &mut Control,
+            u64,
+            u64,
+            &crate::desktop_custody::DesktopProductionCustody,
+        ) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let _operation = self.operation_selection.lock().map_err(|_| storage())?;
         let authority = self.authority_publication.lock().map_err(|_| storage())?;
@@ -347,7 +353,11 @@ impl DesktopLocalHost {
                 false
             )
         );
-        if !matching_role
+        let restricted_target = admission.is_installing_target()
+            && self.installation_context_gate.load(Ordering::Acquire)
+            && authority.restriction == RuntimeRestriction::Active
+            && current.kind == WorkspaceAuthorityKind::Active;
+        if !(matching_role || restricted_target)
             || admission.inner.authority_epoch != epoch
             || admission.workspace_id() != current.workspace_id
             || admission.inner.device_id() != current.device_id
@@ -403,7 +413,12 @@ impl DesktopLocalHost {
             .checked_add(1)
             .filter(|n| *n <= MAX_REVISION)
             .ok_or_else(rejected)?;
-        let result = action(&mut record, current.account_security_epoch, next_revision)?;
+        let result = action(
+            &mut record,
+            current.account_security_epoch,
+            next_revision,
+            &custody,
+        )?;
         record.revision = next_revision;
         record.validate()?;
         let bytes = serde_json::to_vec(&record).map_err(|_| storage())?;
@@ -434,3 +449,54 @@ fn storage() -> Error {
 
 #[cfg(all(test, unix))]
 mod tests;
+
+fn installation_control(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+) -> Result<Option<Control>, Error> {
+    custody
+        .load_target_bootstrap_control()
+        .map_err(|_| storage())?
+        .map(|bytes| {
+            let record: Control = strict_json(&bytes)?;
+            record.validate()?;
+            Ok(record)
+        })
+        .transpose()
+}
+pub(super) fn require_installation_preview(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+    request_id: &str,
+) -> Result<(), Error> {
+    let record = installation_control(custody)?.ok_or_else(rejected)?;
+    if record.pending.is_some()
+        || !matches!(record.state,DesktopTargetBootstrapView::Available{request_id:current,..} if current==request_id)
+    {
+        return Err(rejected());
+    }
+    Ok(())
+}
+pub(super) fn installation_cancel_pending(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+    request_id: &str,
+) -> Result<bool, Error> {
+    Ok(installation_control(custody)?.is_some_and(|record| {
+        record
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.request_id == request_id)
+    }))
+}
+pub(super) fn installation_terminal(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+    request_id: &str,
+) -> Result<Option<DesktopTargetBootstrapTerminalStatus>, Error> {
+    Ok(
+        installation_control(custody)?.and_then(|record| match record.state {
+            DesktopTargetBootstrapView::Finished {
+                request_id: current,
+                status,
+            } if current == request_id => Some(status),
+            _ => None,
+        }),
+    )
+}

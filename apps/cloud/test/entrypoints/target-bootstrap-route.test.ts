@@ -12,7 +12,7 @@ const headers = { authorization: "Bearer fixture" };
 function create({ allowed = true, absent = false, invalid = false, web = false } = {}) {
   const status = vi.fn(async () => invalid ? { schemaVersion: 1, found: false, privateData: "forbidden" } as never : { schemaVersion: 1 as const, found: false as const });
   const cancel = vi.fn(async () => invalid ? null : { schemaVersion: 1 as const, accepted: false as const, code: "SWITCH_NOT_CANCELLABLE" as const });
-  const authorize = vi.fn(async (_principal: unknown, role: string) => allowed && role === "active_or_standby");
+  const authorize = vi.fn(async (_principal: unknown, role: string) => allowed && ["active_or_standby", "bound_device"].includes(role));
   const app = createPublicHttp({
     sessions: new StaticPublicSessionVerifier(web ? [{ ...principal, sessionId: "web", clientKind: "account_web" }] : []),
     desktopAccessTokens: { verifyAccessToken: async () => principal },
@@ -32,7 +32,7 @@ describe("target bootstrap control routes", () => {
     expect((await app.inject({ method: "POST", url: TARGET_BOOTSTRAP_CANCEL_ROUTE, headers, payload: lookup })).json()).toEqual({ schemaVersion: 1, accepted: false, code: "SWITCH_NOT_CANCELLABLE" });
     expect(status).toHaveBeenCalledExactlyOnceWith(discovery, principal);
     expect(cancel).toHaveBeenCalledExactlyOnceWith(lookup, principal);
-    expect(authorize).toHaveBeenCalledWith(principal, "active_or_standby");
+    expect(authorize).toHaveBeenCalledWith(principal, "bound_device");
   });
   it("rejects implicit cancel, foreign selectors and oversized wire before the owner", async () => {
     const { app, status, cancel } = create();

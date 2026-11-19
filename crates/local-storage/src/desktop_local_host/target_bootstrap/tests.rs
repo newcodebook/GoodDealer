@@ -350,7 +350,7 @@ fn transition_before_persist_does_not_create_cancellation_and_cas_rejects_overwr
         .load_target_bootstrap_control()
         .unwrap()
         .unwrap();
-    let result = host.with_target_control(&admission, |record, _, _| {
+    let result = host.with_target_control(&admission, |record, _, _, _| {
         record.state = DesktopTargetBootstrapView::Idle;
         host.transition_requested_epoch
             .fetch_add(1, Ordering::AcqRel);

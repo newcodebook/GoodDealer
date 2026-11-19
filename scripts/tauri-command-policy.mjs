@@ -53,6 +53,8 @@ const reviewedCommands = [
   "local_sync_status",
   "target_bootstrap_cancel",
   "target_bootstrap_status",
+  "target_installation_start",
+  "target_installation_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(
   (command) => !command.startsWith("local_backup_"),
@@ -251,7 +253,12 @@ export function capabilityCommands(capability) {
 }
 
 export function adapterCommands(source) {
-  return unique([...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
+  // Installation business states share the command prefix. This adapter's installation
+  // commands use literal invoke calls; type/data strings cannot add an executable command.
+  const installationInvocations = new Set([...source.matchAll(
+    /\binvoke(?:<[^>\n]+>)?\s*\(\s*["'](target_installation_[a-z0-9_]+)["']/g,
+  )].map((match) => match[1]));
+  const commands = [...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
     .map((match) => match[1])
     .filter((command) => command.startsWith("local_")
       || command.startsWith("desktop_authentication_")
@@ -260,7 +267,8 @@ export function adapterCommands(source) {
       || command.startsWith("device_switch_")
       || command.startsWith("target_bootstrap_")
       || command.startsWith("device_directory_")
-      || command.startsWith("device_self_")));
+      || command.startsWith("device_self_"));
+  return unique([...commands, ...installationInvocations]);
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {

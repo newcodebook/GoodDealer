@@ -1,3 +1,6 @@
+import { bootstrapCheckpointPolicyMigration } from "../modules/workspace/checkpoints/migrations/202611190024-bootstrap-checkpoint-policy";
+import { bootstrapCheckpointCapabilityMigration } from "../modules/workspace/checkpoints/migrations/202611190023-bootstrap-checkpoint-capability";
+import { targetBootstrapInstallationMigration } from "../modules/devices/migrations/202611190022-target-bootstrap-installation";
 import { mutationDrainLoginAllocationMigration } from "../modules/workspace/mutations/migrations/202611190021-mutation-drain-login-allocation";
 import { switchSourceEpochPurposeMigration } from "../modules/devices/migrations/202611190020-switch-source-epoch-purpose";
 import { switchRequestSourceEpochMigration } from "../modules/devices/migrations/202611190019-switch-request-source-epoch";
@@ -128,6 +131,9 @@ export const cloudMigrations: readonly CloudMigration[] = [
   switchRequestSourceEpochMigration,
   switchSourceEpochPurposeMigration,
   mutationDrainLoginAllocationMigration,
+  targetBootstrapInstallationMigration,
+  bootstrapCheckpointCapabilityMigration,
+  bootstrapCheckpointPolicyMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

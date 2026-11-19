@@ -566,8 +566,13 @@ impl DesktopLocalHost {
         .map_err(|_| Error::Rejected)?;
         // Opening and orphan cleanup are fallible prerequisites, before the Native commit point.
         let database = if runtime.is_none() {
-            let mut database = custody
-                .open_workspace(a.workspace_id())
+            let installation_database =
+                super::target_installation::open_for_initial_authority(&custody, a)
+                    .map_err(|_| Error::Rejected)?;
+            self.installation_context_gate
+                .store(installation_database.is_some(), Ordering::Release);
+            let mut database = installation_database
+                .map_or_else(|| custody.open_workspace(a.workspace_id()), Ok)
                 .map_err(|_| Error::StorageRejected)?;
             database
                 .recover_cloudflare_credential_orphans_guarded(&format_timestamp(now), || Ok(()))
@@ -761,6 +766,8 @@ impl DesktopLocalHost {
         publication.authority = Some(stage.replacement);
         publication.restriction = RuntimeRestriction::Active;
         context.current = Some(stage.current);
+        self.installation_context_gate
+            .store(false, Ordering::Release);
         Ok(())
     }
 

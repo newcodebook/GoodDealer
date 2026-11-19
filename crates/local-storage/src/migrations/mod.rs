@@ -14,6 +14,10 @@ use crate::active_workspace::schema::{
     EXECUTION_EVIDENCE_RESULTS_MIGRATION_OWNER, EXECUTION_EVIDENCE_RESULTS_MIGRATION_SQL,
 };
 use crate::active_workspace::schema::{
+    INITIAL_REPLICA_INSTALLATION_MIGRATION_ID, INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER,
+    INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL,
+};
+use crate::active_workspace::schema::{
     LISTING_PROVIDER_BINDING_MIGRATION_ID, LISTING_PROVIDER_BINDING_MIGRATION_OWNER,
     LISTING_PROVIDER_BINDING_MIGRATION_SQL,
 };
@@ -261,6 +265,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: NORMAL_HANDOFF_REQUEST_MIGRATION_ID,
         owner: NORMAL_HANDOFF_REQUEST_MIGRATION_OWNER,
         sql: NORMAL_HANDOFF_REQUEST_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: INITIAL_REPLICA_INSTALLATION_MIGRATION_ID,
+        owner: INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER,
+        sql: INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL,
     },
 ];
 
@@ -605,7 +614,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 35);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 36);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -630,7 +639,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 67);
+        assert_eq!(table_count, 68);
         assert!(business_index_count >= 24);
 
         connection

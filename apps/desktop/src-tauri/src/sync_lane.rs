@@ -1,6 +1,13 @@
 //! Native-only scheduling core for the `GoodDealer` synchronization lane.
 
-use std::{future::Future, time::Duration};
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use tokio::{
     sync::{mpsc, watch},
@@ -51,6 +58,7 @@ pub(crate) struct SyncCyclePlan {
     pub(crate) evidence_due: bool,
     pub(crate) handoff_due: bool,
     pub(crate) bootstrap_due: bool,
+    pub(crate) installation_due: bool,
     pub(crate) pull_due: bool,
     pub(crate) checkpoint_due: bool,
 }
@@ -60,6 +68,8 @@ pub(crate) struct SyncCycleResult {
     pub(crate) evidence: SyncStageOutcome,
     pub(crate) handoff: SyncStageOutcome,
     pub(crate) bootstrap: SyncStageOutcome,
+    pub(crate) installation: SyncStageOutcome,
+    pub(crate) installation_more: bool,
     pub(crate) evidence_more: bool,
     pub(crate) push: SyncStageOutcome,
     pub(crate) pull: SyncStageOutcome,
@@ -122,6 +132,7 @@ struct SyncLaneState {
     evidence: TransientDeadline,
     handoff: TransientDeadline,
     bootstrap: TransientDeadline,
+    installation: TransientDeadline,
     pull: TransientDeadline,
     checkpoint: TransientDeadline,
     durable_push_wake: Option<Instant>,
@@ -133,6 +144,7 @@ impl SyncLaneState {
             evidence: TransientDeadline::new(),
             handoff: TransientDeadline::new(),
             bootstrap: TransientDeadline::new(),
+            installation: TransientDeadline::new(),
             pull: TransientDeadline::new(),
             checkpoint: TransientDeadline::new(),
             durable_push_wake: None,
@@ -144,6 +156,7 @@ impl SyncLaneState {
             evidence_due: self.evidence.is_due(now),
             handoff_due: self.handoff.is_due(now),
             bootstrap_due: self.bootstrap.is_due(now),
+            installation_due: self.installation.is_due(now),
             pull_due: self.pull.is_due(now),
             checkpoint_due: self.checkpoint.is_due(now),
         }
@@ -153,6 +166,20 @@ impl SyncLaneState {
         self.evidence.apply(result.evidence, now);
         self.handoff.apply(result.handoff, now);
         self.bootstrap.apply(result.bootstrap, now);
+        self.installation.apply(result.installation, now);
+        if !matches!(
+            result.installation,
+            SyncStageOutcome::NotAttempted | SyncStageOutcome::Retryable
+        ) {
+            self.installation.retry_at = Some(
+                now + if result.installation_more && result.installation == SyncStageOutcome::Valid
+                {
+                    Duration::from_millis(10)
+                } else {
+                    TARGET_BOOTSTRAP_POLL_CADENCE
+                },
+            );
+        }
         // Target discovery contacts Cloud even while idle. An evidence backlog may wake this
         // lane every 10ms; neither successful discovery nor a closed denial may follow that rate.
         if !matches!(
@@ -175,6 +202,7 @@ impl SyncLaneState {
             self.evidence.retry_at(),
             self.handoff.retry_at(),
             self.bootstrap.retry_at(),
+            self.installation.retry_at(),
             self.pull.retry_at(),
             self.checkpoint.retry_at(),
         ]
@@ -187,6 +215,7 @@ impl SyncLaneState {
 #[derive(Clone)]
 pub(crate) struct SyncLaneHandle {
     wake: mpsc::Sender<()>,
+    installation_wake: Arc<AtomicBool>,
     cancel: watch::Sender<bool>,
 }
 
@@ -194,6 +223,12 @@ impl SyncLaneHandle {
     /// Coalesces any number of scheduler or authority wakes into one pending wake.
     pub(crate) fn wake(&self) {
         let _ = self.wake.try_send(());
+    }
+
+    /// A new user-confirmed installation bypasses idle polling, but never a network backoff.
+    pub(crate) fn wake_installation(&self) {
+        self.installation_wake.store(true, Ordering::Release);
+        self.wake();
     }
 
     /// Cancels the current lane instance. A later authority/session must create a fresh instance.
@@ -204,6 +239,7 @@ impl SyncLaneHandle {
 
 pub(crate) struct SyncLane {
     wake: mpsc::Receiver<()>,
+    installation_wake: Arc<AtomicBool>,
     cancel: watch::Receiver<bool>,
     state: SyncLaneState,
     cadence: Duration,
@@ -217,13 +253,16 @@ impl SyncLane {
     fn with_cadence(cadence: Duration) -> (SyncLaneHandle, Self) {
         let (wake_tx, wake_rx) = mpsc::channel(1);
         let (cancel_tx, cancel_rx) = watch::channel(false);
+        let installation_wake = Arc::new(AtomicBool::new(false));
         (
             SyncLaneHandle {
                 wake: wake_tx,
+                installation_wake: Arc::clone(&installation_wake),
                 cancel: cancel_tx,
             },
             Self {
                 wake: wake_rx,
+                installation_wake,
                 cancel: cancel_rx,
                 state: SyncLaneState::new(),
                 cadence,
@@ -257,6 +296,12 @@ impl SyncLane {
             }
             if *self.cancel.borrow() {
                 return;
+            }
+            // Keep the user intent even when a general wake already filled the coalescing channel.
+            if self.installation_wake.swap(false, Ordering::AcqRel)
+                && self.state.installation.failures == 0
+            {
+                self.state.installation.retry_at = None;
             }
             let started_at = Instant::now();
             // Once a cycle has crossed its admission boundary it drains before shutdown. This
@@ -326,6 +371,8 @@ mod tests {
             SyncCycleResult {
                 handoff: SyncStageOutcome::NotAttempted,
                 bootstrap: SyncStageOutcome::NotAttempted,
+                installation: SyncStageOutcome::NotAttempted,
+                installation_more: false,
                 evidence: SyncStageOutcome::NotAttempted,
                 evidence_more: false,
                 push: SyncStageOutcome::Valid,
@@ -343,6 +390,8 @@ mod tests {
             SyncCycleResult {
                 handoff: SyncStageOutcome::NotAttempted,
                 bootstrap: SyncStageOutcome::NotAttempted,
+                installation: SyncStageOutcome::NotAttempted,
+                installation_more: false,
                 evidence: SyncStageOutcome::NotAttempted,
                 evidence_more: false,
                 push: SyncStageOutcome::NotAttempted,
@@ -369,6 +418,10 @@ mod tests {
             evidence_more: true,
             handoff: SyncStageOutcome::Retryable,
             bootstrap: SyncStageOutcome::Retryable,
+
+            installation: SyncStageOutcome::NotAttempted,
+
+            installation_more: false,
             push: SyncStageOutcome::NotAttempted,
             pull: SyncStageOutcome::NotAttempted,
             checkpoint: SyncStageOutcome::NotAttempted,
@@ -401,6 +454,85 @@ mod tests {
     }
 
     #[test]
+    fn installation_steps_yield_and_keep_retry_deadlines_independent_of_evidence() {
+        let now = Instant::now();
+        let mut state = SyncLaneState::new();
+        let mut result = SyncCycleResult {
+            evidence: SyncStageOutcome::Valid,
+            evidence_more: true,
+            handoff: SyncStageOutcome::NotAttempted,
+            bootstrap: SyncStageOutcome::NotAttempted,
+            installation: SyncStageOutcome::Retryable,
+            installation_more: false,
+            push: SyncStageOutcome::NotAttempted,
+            pull: SyncStageOutcome::NotAttempted,
+            checkpoint: SyncStageOutcome::NotAttempted,
+            durable_push_wake: None,
+        };
+        state.apply(result, now);
+        result.installation = SyncStageOutcome::NotAttempted;
+        for millis in [10, 100, 999] {
+            let at = now + Duration::from_millis(millis);
+            assert!(!state.plan(at).installation_due);
+            state.apply(result, at);
+        }
+        let retried = now + Duration::from_secs(1);
+        result.installation = SyncStageOutcome::Valid;
+        result.installation_more = true;
+        state.apply(result, retried);
+        assert!(!state.plan(retried).installation_due);
+        assert!(
+            state
+                .plan(retried + Duration::from_millis(10))
+                .installation_due
+        );
+        result.installation_more = false;
+        state.apply(result, retried);
+        assert_eq!(
+            state.installation.retry_at(),
+            Some(retried + TARGET_BOOTSTRAP_POLL_CADENCE)
+        );
+    }
+
+    #[tokio::test]
+    async fn confirmed_installation_wake_survives_coalescing_but_never_clears_failure_backoff() {
+        for failures in [0, 1] {
+            let (handle, mut lane) = SyncLane::with_cadence(Duration::from_secs(3_600));
+            lane.state.installation.retry_at = Some(Instant::now() + Duration::from_secs(60));
+            lane.state.installation.failures = failures;
+            handle.wake();
+            handle.wake_installation();
+            let observed = Arc::new(AtomicUsize::new(0));
+            let count = Arc::clone(&observed);
+            let stop = handle.clone();
+            let runner = tokio::spawn(lane.run(move |plan| {
+                assert_eq!(plan.installation_due, failures == 0);
+                count.fetch_add(1, Ordering::SeqCst);
+                stop.cancel();
+                async {
+                    SyncCycleResult {
+                        evidence: SyncStageOutcome::NotAttempted,
+                        evidence_more: false,
+                        handoff: SyncStageOutcome::NotAttempted,
+                        bootstrap: SyncStageOutcome::NotAttempted,
+                        installation: SyncStageOutcome::NotAttempted,
+                        installation_more: false,
+                        push: SyncStageOutcome::NotAttempted,
+                        pull: SyncStageOutcome::NotAttempted,
+                        checkpoint: SyncStageOutcome::NotAttempted,
+                        durable_push_wake: None,
+                    }
+                }
+            }));
+            tokio::time::timeout(Duration::from_secs(2), runner)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(observed.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
     fn target_discovery_success_and_denial_keep_a_normal_poll_deadline() {
         let now = Instant::now();
         for outcome in [
@@ -414,6 +546,10 @@ mod tests {
                 evidence_more: true,
                 handoff: SyncStageOutcome::Valid,
                 bootstrap: outcome,
+
+                installation: SyncStageOutcome::NotAttempted,
+
+                installation_more: false,
                 push: SyncStageOutcome::NotAttempted,
                 pull: SyncStageOutcome::NotAttempted,
                 checkpoint: SyncStageOutcome::NotAttempted,
@@ -441,6 +577,8 @@ mod tests {
         let mut result = SyncCycleResult {
             handoff: SyncStageOutcome::NotAttempted,
             bootstrap: SyncStageOutcome::NotAttempted,
+            installation: SyncStageOutcome::NotAttempted,
+            installation_more: false,
             evidence: SyncStageOutcome::Retryable,
             evidence_more: false,
             push: SyncStageOutcome::Valid,
@@ -508,6 +646,8 @@ mod tests {
                 async {
                     SyncCycleResult {
                         bootstrap: SyncStageOutcome::NotAttempted,
+                        installation: SyncStageOutcome::NotAttempted,
+                        installation_more: false,
                         evidence: SyncStageOutcome::NotAttempted,
                         evidence_more: false,
                         handoff: SyncStageOutcome::NotAttempted,
@@ -548,6 +688,8 @@ mod tests {
                 SyncCycleResult {
                     handoff: SyncStageOutcome::NotAttempted,
                     bootstrap: SyncStageOutcome::NotAttempted,
+                    installation: SyncStageOutcome::NotAttempted,
+                    installation_more: false,
                     evidence: SyncStageOutcome::NotAttempted,
                     evidence_more: false,
                     push: SyncStageOutcome::Valid,

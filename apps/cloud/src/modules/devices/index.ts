@@ -39,11 +39,6 @@ import {
   type VerifiedDrainSealClaims,
 } from "./ports";
 import { DeviceSwitchWorkflow, isTerminal } from "./switch-workflow";
-import {
-  BootstrapCapabilityVerifier,
-  DenyingBootstrapVerificationKeySource,
-} from "./bootstrap-capability-verifier";
-import type { ActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
 
 export { BootstrapFixtureService } from "./bootstrap-fixture";
 export { PostgresMutationAuthority } from "./postgres-mutation-authority";
@@ -124,16 +119,6 @@ export {
   desktopDeviceProofTranscript,
 } from "./postgres-device-login-proof";
 
-/**
- * Production Bootstrap verification remains closed until its device trust-root source is
- * composed. Lease signing is explicit so a qualified purpose-specific signer can be injected.
- */
-export function createProductionBootstrapCryptoBoundary(leaseSigner: ActiveDeviceLeaseSigner) {
-  return Object.freeze({
-    verifier: new BootstrapCapabilityVerifier(new DenyingBootstrapVerificationKeySource()),
-    leaseSigner,
-  });
-}
 export type {
   DrainTransitionRejection,
   PostgresDrainFaultPoint,
@@ -692,3 +677,10 @@ export type { ExecutionEvidenceAuthorityPort, ExecutionEvidenceSource } from "./
 export { PostgresDeviceSwitchRequestResolution } from "./postgres-switch-request-resolution";
 
 export { PostgresTargetBootstrapControl } from "./postgres-target-bootstrap-control";
+
+export { BootstrapCapabilityIssuer, BOOTSTRAP_CAPABILITY_KEY_PURPOSE } from "./bootstrap-capability-issuer";
+export type { BootstrapCapabilitySigner } from "./bootstrap-capability-issuer";
+export type { BootstrapVerificationKeySource } from "./bootstrap-capability-verifier";
+
+export { PostgresTargetBootstrapInstallation } from "./postgres-target-bootstrap-installation";
+export { TrustedBootstrapVerificationKeySource } from "./bootstrap-capability-verifier";

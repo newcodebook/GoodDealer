@@ -28,6 +28,7 @@ mod source;
 mod standby_tests;
 mod sync;
 pub(crate) mod target_bootstrap;
+pub(crate) mod target_installation;
 #[cfg(test)]
 mod test_support;
 #[cfg(all(test, unix))]
@@ -153,6 +154,7 @@ pub enum DesktopLocalBusinessState {
     CommercialReadOnly,
     StandbyReadOnly,
     StandbyAwaitingReplica,
+    TargetInstallationPending,
     Active,
 }
 
@@ -719,6 +721,8 @@ pub struct DesktopLocalHost {
     execution_context_native:
         Option<std::sync::Arc<dyn execution_context::DesktopExecutionContextNativePort>>,
     execution_context_state: Mutex<execution_context::ExecutionContextState>,
+    installation_context_gate: std::sync::atomic::AtomicBool,
+    target_installation_stage: Mutex<Option<target_installation::PreparedInstallationPublication>>,
     /// Published before any authority transition waits for the operation lock.
     transition_requested_epoch: AtomicU64,
     /// Advances on both sides of every Cloudflare connection create and backup restore, the only
@@ -778,6 +782,8 @@ impl DesktopLocalHost {
             authority_verifier: None,
             execution_context_native: None,
             execution_context_state: Mutex::new(execution_context::ExecutionContextState::default()),
+            installation_context_gate: std::sync::atomic::AtomicBool::new(false),
+            target_installation_stage: Mutex::new(None),
             transition_requested_epoch: AtomicU64::new(0),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),

@@ -16,6 +16,9 @@ import { correlationIdFor } from "./correlation";
 
 export type RejectionHttpStatus = 400 | 401 | 403 | 404 | 405 | 409 | 413 | 415 | 429 | 500;
 
+/** Maps a final application-port admission refusal to the closed public HTTP identity. */
+export class PublicRouteAuthorizationError extends Error {}
+
 export const ACCOUNT_REJECTION_STATUS = {
   INVALID_CREDENTIALS: 401,
   RATE_LIMITED: 429,

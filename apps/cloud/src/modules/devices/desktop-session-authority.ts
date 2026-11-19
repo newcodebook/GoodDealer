@@ -98,3 +98,41 @@ function unsigned(value: string | undefined): number | null {
   const n = Number(value);
   return Number.isSafeInteger(n) ? n : null;
 }
+
+/** A current bound identity may reconcile history after execution and bootstrap authority expire. */
+export async function readBoundDesktopIdentity(
+  transaction: AccountTransaction, principal: PublicPrincipal, workspaceId: string,
+): Promise<{ readonly deviceId: string; readonly accountSecurityEpoch: number } | null> {
+  if (principal.clientKind !== "desktop" || principal.accountId !== transaction.accountId
+    || !identifier.safeParse(workspaceId).success) return null;
+  const security = await transaction.query<{ account_security_epoch: string; status: string }>(
+    "SELECT account_security_epoch, status FROM identity_account_security_states WHERE account_id = $1 FOR SHARE",
+    [principal.accountId]);
+  const epoch = unsigned(security.rows[0]?.account_security_epoch);
+  if (security.rows.length !== 1 || security.rows[0]?.status !== "normal" || epoch === null || epoch < 1) return null;
+  const session = await transaction.query<{ device_id: string }>(
+    `SELECT s.device_id FROM identity_auth_sessions s JOIN identity_refresh_families f
+       ON f.account_id = s.account_id AND f.session_id = s.session_id
+     WHERE s.account_id = $1 AND s.session_id = $2 AND s.client_kind = 'desktop'
+       AND s.revoked_at IS NULL AND s.epoch_at_issue = $3 AND f.state = 'active'
+       AND (s.expires_at IS NULL OR clock_timestamp() < s.expires_at) FOR SHARE OF s, f`,
+    [principal.accountId, principal.sessionId, epoch]);
+  const deviceId = session.rows[0]?.device_id;
+  if (session.rows.length !== 1 || !identifier.safeParse(deviceId).success || deviceId === undefined) return null;
+  const workspace = await transaction.query(
+    `SELECT 1 FROM workspace_account_bindings WHERE account_id = $1 AND workspace_id = $2
+       AND owner_kind = 'account' AND role = 'default_owner' AND is_default = true`,
+    [principal.accountId, workspaceId]);
+  if (workspace.rows.length !== 1) return null;
+  // The default binding was server-derived; install and lock that exact tenant before reading workflows.
+  await transaction.query("SELECT set_config('gooddealer.workspace_id', $1, true)", [workspaceId]);
+  const lockedWorkspace = await transaction.query(
+    `SELECT 1 FROM workspace_account_bindings WHERE account_id = $1 AND workspace_id = $2
+       AND owner_kind = 'account' AND role = 'default_owner' AND is_default = true FOR SHARE`,
+    [principal.accountId, workspaceId]);
+  if (lockedWorkspace.rows.length !== 1) return null;
+  const binding = await transaction.query(`SELECT 1 FROM device_bindings b JOIN device_signing_keys k
+    ON k.account_id=b.account_id AND k.device_id=b.device_id AND k.status='active'
+    WHERE b.account_id=$1 AND b.device_id=$2 AND b.status='bound' FOR SHARE OF b,k`,[principal.accountId,deviceId]);
+  return binding.rows.length === 1 ? {deviceId,accountSecurityEpoch:epoch} : null;
+}

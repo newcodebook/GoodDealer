@@ -6,7 +6,7 @@ import {
   encodeBootstrapStepRequestDigestInput,
   type BootstrapStepRequest,
 } from "@gooddealer/protocol/devices";
-import type { SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
+import { computeWorkspaceCheckpointEntityDigests, type SubmittedSyncMutation } from "@gooddealer/protocol/workspace";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -34,6 +34,7 @@ import { InMemoryWorkspaceRevisions } from "../src/modules/workspace/revisions/i
 import { InMemoryDomainAssetPortfolio } from "../src/modules/workspace/state/portfolio/index";
 
 const scope = { accountId: "account-1", workspaceId: "workspace-1" } as const;
+function nonce(step: number): string { return createHash("sha256").update(`bootstrap-nonce-${step}`).digest("base64url"); }
 const zeroDigest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const sha256 = { digest: async (bytes: Uint8Array) => createHash("sha256").update(bytes).digest() };
 
@@ -399,7 +400,8 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
     const checkpoint = await subject.checkpoints.selectPublishedCheckpoint(scope, "checkpoint-1");
     if (checkpoint === null) throw new TypeError("published checkpoint is unavailable");
     const chain = subject.ingest.readCommitted(scope, 1, 3);
-    const entityDigests = await subject.portfolio.readEntityDigestsAt(scope, 3, sha256.digest);
+    const entityDigests = await computeWorkspaceCheckpointEntityDigests(subject.portfolio.readCheckpointStateAt(scope, 3), sha256.digest);
+    const checkpointEntityDigests = await computeWorkspaceCheckpointEntityDigests(subject.portfolio.readCheckpointStateAt(scope, 1), sha256.digest);
     const lifecycle = new ActiveDeviceLeaseLifecycle({ trustedTime: { now: () => "2026-08-15T08:00:00Z" } });
     const aggregate = new DeviceSwitchWorkflow({
       workflowId: "switch-1",
@@ -444,7 +446,8 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       checkpoint,
       mutations: chain,
       expectedEntityDigests: entityDigests,
-      stepNonceFor: (stepNumber) => `nonce-${stepNumber}`,
+      checkpointEntityDigests,
+      stepNonceFor: (stepNumber) => nonce(stepNumber),
       capabilityVerifier: new BindingOnlyCapabilityVerifier(),
       checkpointCatalog: subject.checkpoints,
       workspaceRevision: { readHead: async (workspaceScope) => subject.revisions.readHead(workspaceScope) },
@@ -455,29 +458,25 @@ describe("workspace checkpoint, cursor, and reader lifecycle", () => {
       readTargetBinding: () => ({ signingKeyId: "key-b", signingKeyVersion: 1 }),
     });
     const pin = signedStep({
-      schemaVersion: 1,
+      schemaVersion: 2,
       deviceSwitchRequestId: "switch-1",
       capabilityJti: "capability-1",
       stepNumber: 1,
-      stepNonce: "nonce-1",
+      stepNonce: nonce(1),
       expectedWorkflowRevision: 1,
       stepKind: "pin_checkpoint",
-      stepPayload: {
-        checkpointId: checkpoint.checkpointId,
-        checkpointThroughServerRevision: checkpoint.throughServerRevision,
-        checkpointDigest: checkpoint.checkpointDigest,
-      },
+      stepPayload: {},
     });
     expect(await workflow.executeStep(presentedCapability, pin)).toMatchObject({
       acceptedStepNumber: 1,
-      nextStepNonce: "nonce-2",
+      nextStepNonce: nonce(2),
     });
     const fetch = signedStep({
-      schemaVersion: 1,
+      schemaVersion: 2,
       deviceSwitchRequestId: "switch-1",
       capabilityJti: "capability-1",
       stepNumber: 2,
-      stepNonce: "nonce-2",
+      stepNonce: nonce(2),
       expectedWorkflowRevision: 2,
       stepKind: "fetch_mutations",
       stepPayload: {

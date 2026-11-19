@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createTargetBootstrapPort, createCloudflarePort, createDeviceSwitchPort, DeviceSwitchError, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
+import { createTargetInstallationPort, createTargetBootstrapPort, createCloudflarePort, createDeviceSwitchPort, DeviceSwitchError, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -545,4 +545,41 @@ describe("target bootstrap control adapter", () => {
     for (const id of ["", "a b", "x".repeat(161)]) await expect(createTargetBootstrapPort().cancel(id)).rejects.toThrow(TypeError);
     expect(invokeMock).not.toHaveBeenCalled();
   });
+});
+
+
+describe("target installation adapter", () => {
+  beforeEach(() => invokeMock.mockReset());
+  it("confirms only an exact workflow and exposes no authority", async () => {
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, kind: "running", requestId: "w", phase: "claiming" });
+    expect(await createTargetInstallationPort().start("w")).toEqual({ kind: "running", requestId: "w", phase: "claiming" });
+    expect(invokeMock).toHaveBeenLastCalledWith("target_installation_start", { request: { schemaVersion: 1, requestId: "w" } });
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, kind: "running", requestId: "other", phase: "claiming" });
+    await expect(createTargetInstallationPort().start("w")).rejects.toThrow(TypeError);
+    for (const id of ["", "a b", "x".repeat(161)]) await expect(createTargetInstallationPort().start(id)).rejects.toThrow(TypeError);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+  it("rejects new phases, missing identities and secret-bearing projections", async () => {
+    for (const value of [null, { schemaVersion: 2, kind: "idle" }, { schemaVersion: 1, kind: "idle", requestId: null },
+      { schemaVersion: 1, kind: "running", requestId: "w", phase: "executing" },
+      { schemaVersion: 1, kind: "completed" }, { schemaVersion: 1, kind: "existing_replica", requestId: "" },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "active" },
+      { schemaVersion: 1, kind: "running", requestId: "w", phase: "activating", capability: "private" },
+    ]) {
+      invokeMock.mockResolvedValueOnce(value);
+      await expect(createTargetInstallationPort().status()).rejects.toThrow(TypeError);
+    }
+  });
+});
+
+
+it("admits only a capability-free target installation pending status", async () => {
+  invokeMock.mockReset();
+  const status = { schemaVersion: 2, state: "target_installation_pending", capabilities: [], readGeneration: 0 };
+  invokeMock.mockResolvedValueOnce(status);
+  expect(await createLocalBusinessPort().status()).toEqual(status);
+  for (const capabilities of [["local:read"], ["workspace:mutate"]]) {
+    invokeMock.mockResolvedValueOnce({ ...status, capabilities });
+    await expect(createLocalBusinessPort().status()).rejects.toThrow(TypeError);
+  }
 });

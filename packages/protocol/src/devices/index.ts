@@ -77,6 +77,7 @@ export type { DeviceOperation } from "./operations";
 
 export {
   BOOTSTRAP_STEP_SCHEMA_VERSION,
+  bootstrapStepNonceSchema,
   bootstrapStepRequestSchema,
   bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
@@ -128,3 +129,39 @@ export type { DeviceSwitchRequestResolutionRequest, DeviceSwitchRequestResolutio
 
 export { deviceBootstrapStatusRequestSchema, deviceBootstrapStatusResponseSchema } from "./target-bootstrap";
 export type { DeviceBootstrapStatusRequest, DeviceBootstrapStatusResponse } from "./target-bootstrap";
+
+export {
+  DEVICE_BOOTSTRAP_INSTALLATION_LIMITS,
+  deviceBootstrapRejectionSchema,
+  deviceBootstrapClaimRequestSchema,
+  deviceBootstrapClaimSchema,
+  deviceBootstrapClaimResponseSchema,
+  deviceBootstrapStepRequestSchema,
+  deviceBootstrapStepResponseSchema,
+  deviceBootstrapCheckpointRequestSchema,
+  deviceBootstrapCheckpointPageSchema,
+  deviceBootstrapCheckpointResponseSchema,
+  encodeBootstrapCheckpointPageDigestInput,
+  deviceBootstrapActivationRequestSchema,
+  encodeBootstrapActivationRequestDigestInput,
+  deviceBootstrapActivationReceiptSchema,
+  deviceBootstrapActivationResponseSchema,
+  deviceBootstrapReceiptOperationSchema,
+  deviceBootstrapReceiptRequestSchema,
+  deviceBootstrapReceiptResponseSchema
+} from "./target-installation";
+export type {
+  DeviceBootstrapClaimRequest,
+  DeviceBootstrapClaim,
+  DeviceBootstrapClaimResponse,
+  DeviceBootstrapStepRequest,
+  DeviceBootstrapStepResponse,
+  DeviceBootstrapCheckpointRequest,
+  DeviceBootstrapCheckpointPage,
+  DeviceBootstrapCheckpointResponse,
+  DeviceBootstrapActivationRequest,
+  DeviceBootstrapActivationReceipt,
+  DeviceBootstrapActivationResponse,
+  DeviceBootstrapReceiptRequest,
+  DeviceBootstrapReceiptResponse
+} from "./target-installation";

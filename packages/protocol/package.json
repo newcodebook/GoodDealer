@@ -18,6 +18,7 @@
     "./jobs": "./src/jobs/index.ts"
   },
   "scripts": {
+    "generate:target-installation-vectors": "esbuild scripts/generate-target-installation-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-target-installation-vectors.mjs && node /tmp/gooddealer-target-installation-vectors.mjs",
     "generate:desktop-authorization-vectors": "esbuild scripts/generate-desktop-authorization-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-authorization-vectors.mjs && node /tmp/gooddealer-authorization-vectors.mjs",
     "generate:native-cloud-corpus": "esbuild scripts/generate-native-cloud-wire-corpus.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-native-cloud-corpus.mjs && node /tmp/gooddealer-native-cloud-corpus.mjs",
     "typecheck": "tsc -p tsconfig.json",

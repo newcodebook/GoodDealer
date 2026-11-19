@@ -29,6 +29,7 @@ describe("OpenBao authority key rollover", () => {
       leaseKeys: configuration.lease.verifierKeys,
       standbyKeys: configuration.standby.verifierKeys,
       contextKeys: configuration.context.verifierKeys,
+      bootstrapKeys: configuration.bootstrap.verifierKeys,
     });
     expect(registry.keys.map((key) => [key.purpose, key.keyId])).toEqual([
       ["grant_v3", "grant-v1"],
@@ -37,6 +38,7 @@ describe("OpenBao authority key rollover", () => {
       ["active_device_lease_v1", "lease-v2"],
       ["standby_grant_v1", "standby-v1"],
       ["execution_context_v1", "context-v1"],
+      ["bootstrap_capability_v1", "bootstrap-v1"],
     ]);
 
     const claims = leaseClaims();
@@ -52,6 +54,7 @@ describe("OpenBao authority key rollover", () => {
       leaseKey: configuration.lease.activeKey,
       standbyKey: configuration.standby.activeKey,
       contextKey: configuration.context.activeKey,
+      bootstrapKey: configuration.bootstrap.activeKey,
       tokenSource: { token: async () => "short-lived-token", invalidate: () => undefined },
       fetch: async (url, init) => {
         const request = JSON.parse(String(init.body)) as { input: string; key_version: number };
@@ -89,6 +92,16 @@ describe("OpenBao authority key rollover", () => {
       activeLease: lease,
     });
     expect(() => parseOpenBaoAuthorityKeyConfiguration({ ...valid, extra: true })).toThrow("invalid");
+    const { bootstrap: _bootstrap, ...missingBootstrap } = valid;
+    expect(() => parseOpenBaoAuthorityKeyConfiguration(missingBootstrap)).toThrow("invalid");
+    for (const other of [valid.grant, valid.lease, valid.standby, valid.context]) {
+      for (const field of ["name", "kid", "publicKeyPem"] as const) {
+        const key = { ...valid.bootstrap.verifierKeys[0]!, [field]: other.verifierKeys[0]![field] };
+        expect(() => parseOpenBaoAuthorityKeyConfiguration({ ...valid,
+          bootstrap: { active: { name: key.name, kid: key.kid, version: key.version }, verifierKeys: [key] },
+        })).toThrow("purpose-separated");
+      }
+    }
     expect(() => parseOpenBaoAuthorityKeyConfiguration({
       ...valid,
       grant: { ...valid.grant, extra: true },
@@ -155,8 +168,10 @@ function configurationWire(input: {
 }) {
   const standby = signingKey("standby", 1, "standby-v1");
   const context = signingKey("context", 1, "context-v1");
+  const bootstrap = signingKey("bootstrap", 1, "bootstrap-v1");
   return {
     context: { active: activeReference(context), verifierKeys: [context.wire] },
+    bootstrap: { active: activeReference(bootstrap), verifierKeys: [bootstrap.wire] },
     standby: { active: { name: standby.wire.name, version: standby.wire.version, kid: standby.wire.kid }, verifierKeys: [standby.wire] },
     schemaVersion: 1,
     address: "https://openbao.internal",

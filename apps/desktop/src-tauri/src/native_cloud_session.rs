@@ -87,6 +87,11 @@ const DEVICE_SWITCH_CANCEL_PATH: &str = "/v1/device-switch/requests/cancel";
 const DEVICE_SWITCH_DRAIN_PATH: &str = "/v1/device-switch/requests/drain";
 const BOOTSTRAP_STATUS_PATH: &str = "/v1/device-switch/bootstrap/status";
 const BOOTSTRAP_CANCEL_PATH: &str = "/v1/device-switch/bootstrap/cancel";
+const BOOTSTRAP_CLAIM_PATH: &str = "/v1/device-switch/bootstrap/claim";
+const BOOTSTRAP_STEP_PATH: &str = "/v1/device-switch/bootstrap/step";
+const BOOTSTRAP_CHECKPOINT_PATH: &str = "/v1/device-switch/bootstrap/checkpoint";
+const BOOTSTRAP_ACTIVATE_PATH: &str = "/v1/device-switch/bootstrap/activate";
+const BOOTSTRAP_RECEIPT_PATH: &str = "/v1/device-switch/bootstrap/receipt";
 pub(crate) const PRODUCTION_CLOUD_ORIGIN: &str = "https://api.gooddealer.com/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +117,7 @@ pub(crate) enum NativeCloudRequestError {
 
 pub(crate) struct NativeCloudJsonResponse {
     admission: DesktopNativeCloudAdmission,
-    body: Vec<u8>,
+    body: Zeroizing<Vec<u8>>,
     credential_instance: u64,
 }
 
@@ -128,8 +133,12 @@ impl From<NativeCloudRequestError> for DataPlaneAttemptError {
 }
 
 impl NativeCloudJsonResponse {
-    pub(crate) fn into_parts(self) -> (DesktopNativeCloudAdmission, Vec<u8>, u64) {
-        (self.admission, self.body, self.credential_instance)
+    pub(crate) fn into_parts(mut self) -> (DesktopNativeCloudAdmission, Vec<u8>, u64) {
+        (
+            self.admission,
+            std::mem::take(&mut *self.body),
+            self.credential_instance,
+        )
     }
 }
 
@@ -150,6 +159,27 @@ pub(crate) enum BootstrapTerminationExchange {
     Cancel,
 }
 
+/// Host-owned first-install exchanges; operation receipts reconcile exact persisted requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BootstrapInstallationExchange {
+    Claim,
+    Step,
+    Checkpoint,
+    Activate,
+    Receipt,
+}
+impl BootstrapInstallationExchange {
+    const fn transport(self) -> (DataPlaneRoute, usize, usize) {
+        match self {
+            Self::Claim => (DataPlaneRoute::BootstrapClaim, 2 * 1024, 16 * 1024),
+            Self::Step => (DataPlaneRoute::BootstrapStep, 1024 * 1024, 1024 * 1024),
+            Self::Checkpoint => (DataPlaneRoute::BootstrapCheckpoint, 16 * 1024, 1024 * 1024),
+            Self::Activate => (DataPlaneRoute::BootstrapActivate, 16 * 1024, 16 * 1024),
+            Self::Receipt => (DataPlaneRoute::BootstrapReceipt, 16 * 1024, 1024 * 1024),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum DataPlaneRoute {
     DeviceAuditIngest,
@@ -168,6 +198,11 @@ enum DataPlaneRoute {
     DeviceSwitchDrain,
     BootstrapStatus,
     BootstrapCancel,
+    BootstrapClaim,
+    BootstrapStep,
+    BootstrapCheckpoint,
+    BootstrapActivate,
+    BootstrapReceipt,
 }
 
 impl DataPlaneRoute {
@@ -184,6 +219,11 @@ impl DataPlaneRoute {
                 | Self::DeviceSwitchResolve
                 | Self::BootstrapStatus
                 | Self::BootstrapCancel
+                | Self::BootstrapClaim
+                | Self::BootstrapStep
+                | Self::BootstrapCheckpoint
+                | Self::BootstrapActivate
+                | Self::BootstrapReceipt
         )
     }
 
@@ -198,7 +238,23 @@ impl DataPlaneRoute {
         }
     }
 
-    fn require_role(self, active: bool) -> Result<(), NativeCloudRequestError> {
+    fn require_role(
+        self,
+        active: bool,
+        installing_target: bool,
+    ) -> Result<(), NativeCloudRequestError> {
+        if installing_target {
+            // A signed Active identity can arrive after activation committed but before its
+            // receipt survived locally. This admission cannot download, activate or sync.
+            return if matches!(
+                self,
+                Self::BootstrapReceipt | Self::BootstrapStatus | Self::BootstrapCancel
+            ) {
+                Ok(())
+            } else {
+                Err(NativeCloudRequestError::AuthorityStale)
+            };
+        }
         if active || self.allows_standby() {
             Ok(())
         } else {
@@ -224,6 +280,11 @@ impl DataPlaneRoute {
             Self::DeviceSwitchDrain => DEVICE_SWITCH_DRAIN_PATH,
             Self::BootstrapStatus => BOOTSTRAP_STATUS_PATH,
             Self::BootstrapCancel => BOOTSTRAP_CANCEL_PATH,
+            Self::BootstrapClaim => BOOTSTRAP_CLAIM_PATH,
+            Self::BootstrapStep => BOOTSTRAP_STEP_PATH,
+            Self::BootstrapCheckpoint => BOOTSTRAP_CHECKPOINT_PATH,
+            Self::BootstrapActivate => BOOTSTRAP_ACTIVATE_PATH,
+            Self::BootstrapReceipt => BOOTSTRAP_RECEIPT_PATH,
         }
     }
 }
@@ -1097,10 +1158,48 @@ impl NativeCloudSession {
         }
     }
 
-    /// Serializes a target termination stage with session shutdown and credential replacement.
+    /// Exactly one fixed installation exchange. A lost mutation reply is resolved through
+    /// the Host's persisted operation receipt before the original request may be replayed.
+    /// The installation coordinator requests role/context refresh only after Host validates a
+    /// completed activation receipt. Startup may authenticate a restricted receipt-only identity.
+    pub(crate) async fn send_bootstrap_installation(
+        &self,
+        admission: DesktopNativeCloudAdmission,
+        exchange: BootstrapInstallationExchange,
+        request_body: Zeroizing<Vec<u8>>,
+        expected_credential_instance: u64,
+    ) -> Result<(DesktopNativeCloudAdmission, Zeroizing<Vec<u8>>, u64), NativeCloudRequestError>
+    {
+        let (route, request_limit, response_limit) = exchange.transport();
+        if request_body.is_empty() || request_body.len() > request_limit {
+            return Err(NativeCloudRequestError::ConfigurationBlocked);
+        }
+        match self
+            .send_data_plane_attempt(
+                admission,
+                &request_body,
+                route,
+                response_limit,
+                Some(expected_credential_instance),
+            )
+            .await
+        {
+            Ok(response) => Ok((
+                response.admission,
+                response.body,
+                response.credential_instance,
+            )),
+            Err(DataPlaneAttemptError::Request(error)) => Err(error),
+            Err(DataPlaneAttemptError::AuthorizationRejected(credential)) => {
+                Err(self.invalidate_for_authorization(credential.credential_instance))
+            }
+        }
+    }
+
+    /// Serializes target installation/termination stages with shutdown and credential replacement.
     /// Custody stages use this outside the power mutex; final publication uses only a Host fast
     /// recheck inside the power guard. Neither path activates or refreshes a role.
-    pub(crate) fn with_bootstrap_termination_session<T>(
+    pub(crate) fn with_target_bootstrap_session<T>(
         &self,
         expected_credential_instance: Option<u64>,
         work: impl FnOnce() -> Result<T, DesktopLocalHostError>,
@@ -1244,7 +1343,7 @@ impl NativeCloudSession {
     ) -> Result<NativeCloudJsonResponse, DataPlaneAttemptError> {
         // An admission retained across a refresh cannot lend Standby read authority to an
         // Active-only route, even when the caller supplied it through an internal Native API.
-        route.require_role(admission.is_active())?;
+        route.require_role(admission.is_active(), admission.is_installing_target())?;
         let (credential, request) =
             self.prepare_data_plane_request(request_body, route, expected_credential_instance)?;
         self.local_host
@@ -1288,7 +1387,9 @@ impl NativeCloudSession {
             self.block_protocol(credential.credential_instance)?;
             return Err(NativeCloudRequestError::ProtocolBlocked.into());
         }
-        let mut body = Vec::new();
+        // This buffer also carries target capability/nonce responses. Zeroize partial
+        // bodies on transport, size, power-driven cancellation or authority errors.
+        let mut body = Zeroizing::new(Vec::new());
         while let Some(chunk) = response
             .chunk()
             .await
@@ -2202,6 +2303,25 @@ mod tests {
     }
 
     #[test]
+    fn pending_activation_identity_keeps_session_until_receipt_unlocks_context_exchange() {
+        // A restart can receive signed Active identity before its lost activation ACK is
+        // reconciled. Host keeps business locked and allows only the exact receipt/control.
+        assert_eq!(
+            AuthorizationExchangeStep::initial(DesktopHostAuthorizationStatus::RetryableLocked),
+            AuthorizationExchangeStep::Role
+        );
+        assert_eq!(
+            AuthorizationExchangeStep::after_role(DesktopHostAuthorizationStatus::RetryableLocked),
+            AuthorizationExchangeStep::Complete
+        );
+        // Receipt acceptance alone never substitutes for a fresh execution-context exchange.
+        assert_eq!(
+            AuthorizationExchangeStep::after_role(DesktopHostAuthorizationStatus::Authorized),
+            AuthorizationExchangeStep::ContextAfterRole
+        );
+    }
+
+    #[test]
     fn context_refresh_keeps_nonce_and_final_publication_outside_generic_request_retry() {
         let source = include_str!("native_cloud_session.rs");
         let start = source
@@ -2726,7 +2846,7 @@ mod tests {
             .unwrap();
         assert!(
             attempt
-                .find("route.require_role(admission.is_active())")
+                .find("route.require_role(admission.is_active(), admission.is_installing_target())")
                 .unwrap()
                 < execute
         );
@@ -2841,7 +2961,7 @@ mod tests {
             .unwrap();
         let original = session.state.lock().unwrap().credential_instance;
         assert_eq!(
-            session.with_bootstrap_termination_session(Some(original), || {
+            session.with_target_bootstrap_session(Some(original), || {
                 Err::<(), _>(DesktopLocalHostError::CloudProtocolRejected)
             }),
             Err(NativeCloudRequestError::ProtocolBlocked)
@@ -2859,7 +2979,7 @@ mod tests {
             .commit_access(prepared_credentials().access, false)
             .unwrap();
         assert!(matches!(
-            session.with_bootstrap_termination_session(
+            session.with_target_bootstrap_session(
                 Some(original),
                 || -> Result<(), DesktopLocalHostError> {
                     panic!("stale session must not stage custody")
@@ -2878,14 +2998,69 @@ mod tests {
         );
         session.close_mutation_admission();
         assert!(matches!(
-            session.with_bootstrap_termination_session(
-                None,
-                || -> Result<(), DesktopLocalHostError> {
-                    panic!("closed session must not stage custody")
-                }
-            ),
+            session.with_target_bootstrap_session(None, || -> Result<(), DesktopLocalHostError> {
+                panic!("closed session must not stage custody")
+            }),
             Err(NativeCloudRequestError::Unavailable)
         ));
+    }
+
+    #[test]
+    fn installation_transport_routes_are_fixed_and_unknown_outcomes_never_auto_retry() {
+        let cases = [
+            (
+                BootstrapInstallationExchange::Claim,
+                "/v1/device-switch/bootstrap/claim",
+                2048,
+                16_384,
+            ),
+            (
+                BootstrapInstallationExchange::Step,
+                "/v1/device-switch/bootstrap/step",
+                1_048_576,
+                1_048_576,
+            ),
+            (
+                BootstrapInstallationExchange::Checkpoint,
+                "/v1/device-switch/bootstrap/checkpoint",
+                16_384,
+                1_048_576,
+            ),
+            (
+                BootstrapInstallationExchange::Activate,
+                "/v1/device-switch/bootstrap/activate",
+                16_384,
+                16_384,
+            ),
+            (
+                BootstrapInstallationExchange::Receipt,
+                "/v1/device-switch/bootstrap/receipt",
+                16_384,
+                1_048_576,
+            ),
+        ];
+        for (exchange, path, request_limit, response_limit) in cases {
+            let (route, actual_request_limit, actual_response_limit) = exchange.transport();
+            assert_eq!(route.path(), path);
+            assert!(route.allows_standby());
+            assert_eq!(route.require_role(false, false), Ok(()));
+            assert_eq!(actual_request_limit, request_limit);
+            assert_eq!(actual_response_limit, response_limit);
+        }
+        let source = include_str!("native_cloud_session.rs");
+        let start = source
+            .find("    pub(crate) async fn send_bootstrap_installation(")
+            .unwrap();
+        let end = source[start..]
+            .find("    pub(crate) fn with_target_bootstrap_session")
+            .unwrap()
+            + start;
+        let method = &source[start..end];
+        assert_eq!(method.matches(".send_data_plane_attempt(").count(), 1);
+        assert!(!method.contains("refresh_for_source("));
+        assert!(!method.contains(".send_data_plane("));
+        assert!(method.contains("Some(expected_credential_instance)"));
+        assert!(method.contains("request_body.len() > request_limit"));
     }
 
     #[test]
@@ -2895,7 +3070,7 @@ mod tests {
             .find("    pub(crate) async fn send_bootstrap_termination(")
             .unwrap();
         let end = source[start..]
-            .find("    pub(crate) fn with_bootstrap_termination_session")
+            .find("    pub(crate) async fn send_bootstrap_installation(")
             .unwrap()
             + start;
         let method = &source[start..end];
@@ -2935,6 +3110,11 @@ mod tests {
             DataPlaneRoute::DeviceSwitchDrain,
             DataPlaneRoute::BootstrapStatus,
             DataPlaneRoute::BootstrapCancel,
+            DataPlaneRoute::BootstrapClaim,
+            DataPlaneRoute::BootstrapStep,
+            DataPlaneRoute::BootstrapCheckpoint,
+            DataPlaneRoute::BootstrapActivate,
+            DataPlaneRoute::BootstrapReceipt,
         ];
         let allowed: Vec<_> = routes
             .iter()
@@ -2951,15 +3131,38 @@ mod tests {
                 DEVICE_SWITCH_STATUS_PATH,
                 BOOTSTRAP_STATUS_PATH,
                 BOOTSTRAP_CANCEL_PATH,
+                BOOTSTRAP_CLAIM_PATH,
+                BOOTSTRAP_STEP_PATH,
+                BOOTSTRAP_CHECKPOINT_PATH,
+                BOOTSTRAP_ACTIVATE_PATH,
+                BOOTSTRAP_RECEIPT_PATH,
+            ]
+        );
+        let recovery_routes: Vec<_> = routes
+            .iter()
+            .filter(|route| route.require_role(false, true).is_ok())
+            .map(|route| route.path())
+            .collect();
+        assert_eq!(
+            recovery_routes,
+            [
+                BOOTSTRAP_STATUS_PATH,
+                BOOTSTRAP_CANCEL_PATH,
+                BOOTSTRAP_RECEIPT_PATH
             ]
         );
         for route in routes {
-            assert_eq!(route.require_role(true), Ok(()));
+            assert_eq!(route.require_role(true, false), Ok(()));
             assert_eq!(
-                route.require_role(false).is_ok(),
+                route.require_role(false, false).is_ok(),
                 route.allows_standby(),
                 "{}",
                 route.path()
+            );
+            assert_eq!(
+                route.require_role(true, true),
+                route.require_role(false, true),
+                "restricted installation identity must never inherit Active route access"
             );
         }
     }

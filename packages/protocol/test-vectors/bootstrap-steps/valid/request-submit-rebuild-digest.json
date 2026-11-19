@@ -1,21 +1,26 @@
 {
-  "schemaVersion": 1,
-  "deviceSwitchRequestId": "switch-1",
-  "capabilityJti": "bootstrap-jti-1",
+  "schemaVersion": 2,
+  "deviceSwitchRequestId": "installation-workflow",
+  "capabilityJti": "installation-capability",
   "stepNumber": 3,
-  "stepNonce": "bm9uY2UtMw",
-  "expectedWorkflowRevision": 2,
+  "stepNonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+  "expectedWorkflowRevision": 3,
+  "requestDigest": "s3W0BA_6QQRA0ObdzHpzs1aoFccjBSnLLUS6B7LfjBo",
   "stepKind": "submit_rebuild_digest",
   "stepPayload": {
-    "targetServerRevision": 5,
+    "targetServerRevision": 7,
     "workspaceSchemaVersion": 1,
     "entityDigests": [
       {
         "entityType": "domain_asset",
-        "partitionId": null,
-        "digest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+        "partitionId": "p0000",
+        "digest": "3IositAmBgzyGmHtjyRDP6UR6xmlYZqVW_-7z7WE8Rs"
+      },
+      {
+        "entityType": "domain_asset_tombstone",
+        "partitionId": "t0000",
+        "digest": "83MQSeUwzpyrrzAfyVrC5-gAOiY1ZsC8PAYUOODx0Ws"
       }
     ]
-  },
-  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+  }
 }

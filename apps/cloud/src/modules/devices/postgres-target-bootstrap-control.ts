@@ -15,7 +15,7 @@ import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
 import type { LockedDefaultWorkspaceAuthorityPort } from "../workspace/default-workspace/index";
 import type { BootstrapCheckpointPort } from "./bootstrap-persistence-ports";
 import { isPostgresAuthorizationFailure, readCurrentIdentity } from "./desktop-authorization-readers";
-import { readDesktopSessionAuthority } from "./desktop-session-authority";
+import { readBoundDesktopIdentity } from "./desktop-session-authority";
 import { readTargetBootstrapRequest, type DeviceSwitchSubject } from "./postgres-switch-requests";
 import { terminateDeviceBootstrap } from "./terminate-device-bootstrap";
 
@@ -82,14 +82,14 @@ export class PostgresTargetBootstrapControl {
             [principal.accountId],
           );
           if (account.rows.length !== 1) return null;
-          const session = await readDesktopSessionAuthority(transaction, principal, workspace.workspaceId);
+          const session = await readBoundDesktopIdentity(transaction, principal, workspace.workspaceId);
           if (session === null || session.deviceId !== identity.deviceId) return null;
           const result = await work(transaction, {
             accountId: workspace.accountId,
             workspaceId: workspace.workspaceId,
             deviceId: session.deviceId,
           });
-          const after = await readDesktopSessionAuthority(transaction, principal, workspace.workspaceId);
+          const after = await readBoundDesktopIdentity(transaction, principal, workspace.workspaceId);
           const live = await transaction.query<{ device: string | null }>(
             "SELECT identity_private.current_execution_context_device() AS device",
           );

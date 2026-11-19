@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { computeDomainAssetEntityDigests } from "@gooddealer/protocol/workspace";
+import { computeWorkspaceCheckpointEntityDigests } from "@gooddealer/protocol/workspace";
 
 import type { TenantTransaction } from "../../../../db/index";
 import type { BootstrapProjectionDigestPort } from "../../../devices/bootstrap-persistence-ports";
@@ -24,7 +24,7 @@ export class PostgresBootstrapProjectionDigestPort implements BootstrapProjectio
       throw new TypeError("bootstrap projection target is no longer frozen");
     }
     const rows = await (this.dependencies.repository ?? new PostgresPortfolioRepository())
-      .captureSnapshot(transaction);
-    return computeDomainAssetEntityDigests(rows, async (bytes) => createHash("sha256").update(bytes).digest());
+      .captureCheckpointState(transaction);
+    return computeWorkspaceCheckpointEntityDigests(rows, async (bytes) => createHash("sha256").update(bytes).digest());
   }
 }

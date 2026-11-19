@@ -96,6 +96,54 @@ impl DesktopLocalHost {
         Ok(crate::DesktopNativeCloudAdmission { inner })
     }
 
+    /// Admits only target installation controls while a signed server Active identity awaits
+    /// its exact activation receipt. Ordinary sync and Provider callers cannot use this role.
+    /// # Errors
+    /// Rejects stale identity or a changed local installation gate.
+    pub fn begin_target_installation_control_run(
+        &self,
+    ) -> Result<crate::DesktopNativeCloudAdmission, DesktopLocalHostError> {
+        let operation = self
+            .operation_selection
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let authority = self
+            .authority_publication
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        if authority.restriction == RuntimeRestriction::Active
+            && self.installation_context_gate.load(Ordering::Acquire)
+        {
+            let current = authority
+                .authority
+                .as_ref()
+                .ok_or(DesktopLocalHostError::AuthorityRejected)?;
+            let epoch = authority.applied_authority_epoch;
+            if current.kind != WorkspaceAuthorityKind::Active
+                || self.transition_requested_epoch.load(Ordering::Acquire) != epoch
+                || !current.is_current_at(
+                    current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
+                )
+            {
+                return Err(DesktopLocalHostError::AuthorityRejected);
+            }
+            return Ok(crate::DesktopNativeCloudAdmission {
+                inner: DesktopSyncRunAdmission::initial_replica_authority(
+                    current.workspace_id.clone(),
+                    current.device_id.clone(),
+                    current.lease_epoch,
+                    current.trusted_time_floor,
+                    current.execute_before,
+                    super::hex_digest(&current.digest),
+                    epoch,
+                ),
+            });
+        }
+        drop(authority);
+        drop(operation);
+        self.begin_native_cloud_read_run()
+    }
+
     /// Lock-free prompt cancellation check. Exact identity and final commit authorization remain
     /// owned by `recheck_native_cloud` and the one-shot Host commit fence.
     ///
@@ -126,6 +174,41 @@ impl DesktopLocalHost {
         &self,
         admission: &crate::DesktopNativeCloudAdmission,
     ) -> Result<(), DesktopLocalHostError> {
+        if admission.is_installing_target() {
+            let _operation = self
+                .operation_selection
+                .lock()
+                .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+            let authority = self
+                .authority_publication
+                .lock()
+                .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+            let current = authority
+                .authority
+                .as_ref()
+                .ok_or(DesktopLocalHostError::AuthorityRejected)?;
+            let epoch = authority.applied_authority_epoch;
+            if !self.installation_context_gate.load(Ordering::Acquire)
+                || authority.restriction != RuntimeRestriction::Active
+                || current.kind != WorkspaceAuthorityKind::Active
+                || self.transition_requested_epoch.load(Ordering::Acquire) != epoch
+                || !current.is_current_at(
+                    current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
+                )
+                || !admission.inner.matches_initial_replica_authority(
+                    &current.workspace_id,
+                    &current.device_id,
+                    current.lease_epoch,
+                    current.trusted_time_floor,
+                    current.execute_before,
+                    &super::hex_digest(&current.digest),
+                    epoch,
+                )
+            {
+                return Err(DesktopLocalHostError::AuthorityRejected);
+            }
+            return Ok(());
+        }
         if admission.is_active() {
             return self.recheck_sync_run(&admission.inner);
         }
@@ -382,7 +465,8 @@ impl DesktopLocalHost {
             .authority_publication
             .lock()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
-        if authority.restriction != RuntimeRestriction::Active
+        if self.installation_context_gate.load(Ordering::Acquire)
+            || authority.restriction != RuntimeRestriction::Active
             || self.transition_requested_epoch.load(Ordering::Acquire)
                 != authority.applied_authority_epoch
             || authority.authority.as_ref().is_none_or(|current| {
@@ -454,7 +538,8 @@ impl DesktopLocalHost {
             .ok_or(DesktopLocalHostError::AuthorityRejected)?;
         let captured_epoch = authority.applied_authority_epoch;
         let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
-        if authority.restriction != RuntimeRestriction::Active
+        if self.installation_context_gate.load(Ordering::Acquire)
+            || authority.restriction != RuntimeRestriction::Active
             || current.kind != WorkspaceAuthorityKind::Active
             || self.transition_requested_epoch.load(Ordering::Acquire) != captured_epoch
             || !current.is_current_at(now)

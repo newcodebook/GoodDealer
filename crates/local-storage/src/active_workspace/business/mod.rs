@@ -37,6 +37,8 @@ pub use afternic::{
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
 };
 mod checkpoint;
+mod initial_replica;
+pub(crate) use initial_replica::{InitialReplicaProjection, InitialReplicaReceipt};
 mod conflicts;
 mod database;
 mod inbox;
@@ -169,6 +171,25 @@ impl LocalDatabaseKey {
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
+    }
+
+    pub(crate) fn derive_initial_replica_journal_key(
+        &self,
+        binding: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, BusinessDatabaseError> {
+        let salt = ring::hkdf::Salt::new(
+            ring::hkdf::HKDF_SHA256,
+            b"GOODDEALER/INITIAL-REPLICA-JOURNAL-KEY-V1",
+        );
+        let prk = salt.extract(&self.0);
+        let info = [binding];
+        let okm = prk
+            .expand(&info, ring::hkdf::HKDF_SHA256)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let mut key = zeroize::Zeroizing::new([0; 32]);
+        okm.fill(&mut *key)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok(key)
     }
 
     #[cfg(test)]

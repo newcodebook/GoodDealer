@@ -84,6 +84,14 @@ describe("desktop presentation adjudication", () => {
     expect(adjudicateDesktopPresentation(false, { ...empty, status: { ...empty.status, capabilities: ["local:read"] } }, "authenticated")).toEqual({ view: "host_unavailable" });
   });
 
+  it("shows activation reconciliation without exposing business rows or claiming Standby", () => {
+    const pending = publication("target_installation_pending", [], { portfolio: null, conflicts: null, sync: null });
+    expect(adjudicateDesktopPresentation(false, pending, "authorization_retryable")).toEqual({ view: "target_installation_pending" });
+    expect(adjudicateDesktopPresentation(false, { ...pending, portfolio }, "authenticated")).toEqual({ view: "host_unavailable" });
+    expect(adjudicateDesktopPresentation(false, { ...pending, status: { ...pending.status, capabilities: ["local:read"] } }, "authenticated"))
+      .toEqual({ view: "host_unavailable" });
+  });
+
   it("keeps locked states route-free", () => {
     expect(adjudicateDesktopPresentation(false, publication("security_locked", []), "authenticated"))
       .toEqual({ view: "locked", reason: "security_locked" });

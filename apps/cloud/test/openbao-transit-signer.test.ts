@@ -4,6 +4,8 @@ import { DESKTOP_EXECUTION_CONTEXT_KEY_PURPOSE } from "../src/modules/devices/ex
 import { generateKeyPairSync, sign, verify, type KeyObject } from "node:crypto";
 
 import {
+  bootstrapCapabilityEnvelopeSchema,
+  encodeBootstrapCapabilitySignatureTranscript,
   desktopStandbyGrantSchema,
   encodeDesktopStandbyGrantSignatureTranscript,
   encodeActiveDeviceLeaseSignatureTranscript,
@@ -26,8 +28,11 @@ import {
   type DesktopAuthorizationGrantSigner,
 } from "../src/modules/devices/authorization-grant-issuer";
 
+import { BOOTSTRAP_CAPABILITY_KEY_PURPOSE } from "../src/modules/devices/index";
 import { DESKTOP_STANDBY_GRANT_KEY_PURPOSE } from "../src/modules/devices/standby-grant-issuer";
 
+const bootstrapPair = generateKeyPairSync("ed25519");
+const bootstrapKey = { name: "bootstrap-capability", version: 1, kid: "bootstrap-test-v1", publicKeyPem: bootstrapPair.publicKey.export({ format: "pem", type: "spki" }).toString() };
 const contextPair = generateKeyPairSync("ed25519");
 const contextKey = { name: "execution-context", version: 1, kid: "execution-context-test-v1", publicKeyPem: contextPair.publicKey.export({ format: "pem", type: "spki" }).toString() };
 const standbyPair = generateKeyPairSync("ed25519");
@@ -76,11 +81,11 @@ const grantClaims: Omit<DesktopAuthorizationGrant, "kid" | "signature"> = {
 };
 
 describe("OpenBao Transit signer", () => {
-  it("uses isolated pinned key versions and returns locally verifiable Active Grant, Standby Grant, Lease and execution context envelopes", async () => {
+  it("uses isolated pinned key versions and returns locally verifiable Active Grant, Standby Grant, Lease, execution context and bootstrap capability envelopes", async () => {
     const grantPair = generateKeyPairSync("ed25519");
     const leasePair = generateKeyPairSync("ed25519");
     const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-    const signer = new OpenBaoTransitSigner({ contextKey, standbyKey,
+    const signer = new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       address: "https://openbao.internal.example",
       namespace: "gooddealer/production",
       mount: "gooddealer-transit",
@@ -105,7 +110,7 @@ describe("OpenBao Transit signer", () => {
         const request = JSON.parse(String(init.body)) as { input: string; key_version: number };
         const selected = url.endsWith("/desktop-authorization-grant")
           ? { pair: grantPair, version: 7 }
-          : url.endsWith("/execution-context") ? { pair: contextPair, version: 1 } : url.endsWith("/standby-grant") ? { pair: standbyPair, version: 1 } : { pair: leasePair, version: 11 };
+          : url.endsWith("/bootstrap-capability") ? { pair: bootstrapPair, version: 1 } : url.endsWith("/execution-context") ? { pair: contextPair, version: 1 } : url.endsWith("/standby-grant") ? { pair: standbyPair, version: 1 } : { pair: leasePair, version: 11 };
         expect(request.key_version).toBe(selected.version);
         const signature = sign(null, Buffer.from(request.input, "base64"), selected.pair.privateKey);
         return jsonResponse({
@@ -162,11 +167,25 @@ describe("OpenBao Transit signer", () => {
     for (const pair of [contextPair, grantPair, leasePair, standbyPair]) {
       expect(verify(null, encodeDesktopExecutionContextSignatureTranscript(context), pair.publicKey, Buffer.from(context.signature, "base64url"))).toBe(pair === contextPair);
     }
+    const bootstrapResult = await signer.sign({ purpose: BOOTSTRAP_CAPABILITY_KEY_PURPOSE, claims: {
+      schemaVersion: 1, typ: "gd.bootstrap-capability.v1", iss: "https://accounts.gooddealer.com",
+      aud: "gooddealer-desktop/bootstrap", accountId: lease.accountId, deviceId: "device-b",
+      accountSecurityEpoch: 3, jti: "bootstrap-target-a", issuedAt: lease.issuedAt,
+      expiresAt: "2026-08-30T01:00:00Z", payload: { deviceSwitchRequestId: "switch-a" },
+    } });
+    if (!bootstrapResult.signed) throw new Error("Bootstrap signing refused");
+    const bootstrap = bootstrapCapabilityEnvelopeSchema.parse(bootstrapResult.envelope);
+    expect(bootstrap.kid).toBe(bootstrapKey.kid);
+    for (const pair of [bootstrapPair, contextPair, grantPair, leasePair, standbyPair]) {
+      expect(verify(null, encodeBootstrapCapabilitySignatureTranscript(bootstrap), pair.publicKey,
+        Buffer.from(bootstrap.signature, "base64url"))).toBe(pair === bootstrapPair);
+    }
     expect(calls.map(({ url }) => url)).toEqual([
       "https://openbao.internal.example/v1/gooddealer-transit/sign/desktop-authorization-grant",
       "https://openbao.internal.example/v1/gooddealer-transit/sign/active-device-lease",
       "https://openbao.internal.example/v1/gooddealer-transit/sign/standby-grant",
       "https://openbao.internal.example/v1/gooddealer-transit/sign/execution-context",
+      "https://openbao.internal.example/v1/gooddealer-transit/sign/bootstrap-capability",
     ]);
     for (const { init } of calls) {
       expect(init.redirect).toBe("error");
@@ -192,11 +211,11 @@ describe("OpenBao Transit signer", () => {
       leaseKey: { ...key, kid: "lease-v1" },
       tokenSource: { token: async () => "token", invalidate: () => undefined },
     };
-    expect(() => new OpenBaoTransitSigner({ contextKey, standbyKey, ...base, address: "http://openbao.internal" }))
+    expect(() => new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey, ...base, address: "http://openbao.internal" }))
       .toThrow(/HTTPS origin/u);
-    expect(() => new OpenBaoTransitSigner({ contextKey, standbyKey, ...base, address: "https://openbao.internal" }))
+    expect(() => new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey, ...base, address: "https://openbao.internal" }))
       .toThrow(/purpose-separated/u);
-    expect(() => new OpenBaoTransitSigner({ contextKey, standbyKey,
+    expect(() => new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       ...base,
       address: "https://openbao.internal",
       leaseKey: {
@@ -206,7 +225,7 @@ describe("OpenBao Transit signer", () => {
         publicKeyPem: publicKeyPem(otherPair.publicKey),
       },
     })).toThrow(/purpose-separated/u);
-    expect(() => new OpenBaoTransitSigner({ contextKey, standbyKey,
+    expect(() => new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       ...base,
       address: "https://openbao.internal",
       leaseKey: { ...key, name: "lease", kid: "lease-v1" },
@@ -224,7 +243,7 @@ describe("OpenBao Transit signer", () => {
       jsonResponse({ errors: ["permission denied"] }, 403),
     ];
     const failureCount = failures.length;
-    const signer = new OpenBaoTransitSigner({ contextKey, standbyKey,
+    const signer = new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       address: "https://openbao.internal",
       mount: "transit",
       grantKey: {
@@ -277,7 +296,7 @@ describe("OpenBao Transit signer", () => {
       },
     });
     const observedTokens: string[] = [];
-    const signer = new OpenBaoTransitSigner({ contextKey, standbyKey,
+    const signer = new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       address: "https://openbao.internal",
       mount: "transit",
       grantKey: {
@@ -322,7 +341,7 @@ describe("OpenBao Transit signer", () => {
     const leasePair = generateKeyPairSync("ed25519");
     let cancelled = 0;
     let tokens = 0;
-    const signer = new OpenBaoTransitSigner({ contextKey, standbyKey,
+    const signer = new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       address: "https://openbao.internal",
       mount: "transit",
       grantKey: {
@@ -356,7 +375,7 @@ describe("OpenBao Transit signer", () => {
     const pair = generateKeyPairSync("ed25519");
     const leasePair = generateKeyPairSync("ed25519");
     let cancelled = false;
-    const signer = new OpenBaoTransitSigner({ contextKey, standbyKey,
+    const signer = new OpenBaoTransitSigner({ bootstrapKey, contextKey, standbyKey,
       address: "https://openbao.internal",
       mount: "transit",
       grantKey: {

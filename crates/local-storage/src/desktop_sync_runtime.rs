@@ -135,6 +135,7 @@ pub(crate) struct DesktopSyncRunAdmission {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NativeCloudRole {
+    InitialReplica,
     Active,
     Standby,
 }
@@ -151,6 +152,13 @@ impl DesktopNativeCloudAdmission {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         matches!(self.inner.role, NativeCloudRole::Active)
+    }
+
+    /// A verified Active server credential whose local replica still needs its exact receipt.
+    /// It grants no business, sync or Provider authority.
+    #[must_use]
+    pub fn is_installing_target(&self) -> bool {
+        self.inner.role == NativeCloudRole::InitialReplica
     }
 
     pub(crate) fn workspace_id(&self) -> &str {
@@ -184,6 +192,51 @@ impl DesktopSyncRunAdmission {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn initial_replica_authority(
+        workspace_id: String,
+        device_id: String,
+        lease_epoch: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: String,
+        authority_epoch: u64,
+    ) -> Self {
+        let mut value = Self::standby_authority(
+            workspace_id,
+            device_id,
+            lease_epoch,
+            trusted_time_floor,
+            execute_before,
+            authority_snapshot_digest,
+            authority_epoch,
+        );
+        value.role = NativeCloudRole::InitialReplica;
+        value
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn matches_initial_replica_authority(
+        &self,
+        workspace_id: &str,
+        device_id: &str,
+        lease_epoch: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        digest: &str,
+        epoch: u64,
+    ) -> bool {
+        self.role == NativeCloudRole::InitialReplica
+            && self.runtime_nonce.is_none()
+            && self.run_sequence.is_none()
+            && self.provider_capabilities.is_empty()
+            && self.workspace_id == workspace_id
+            && self.device_id == device_id
+            && self.lease_epoch == lease_epoch
+            && self.trusted_time_floor == trusted_time_floor
+            && self.execute_before == execute_before
+            && self.authority_snapshot_digest == digest
+            && self.authority_epoch == epoch
+    }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn matches_standby_authority(
         &self,

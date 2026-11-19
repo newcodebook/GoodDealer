@@ -13,12 +13,14 @@ mod native_keys;
 use native_keys::{delete_native, load_device_binding_native, load_native, store_native};
 
 mod authorization_floor;
+mod initial_replica;
 mod normal_handoff_submission;
 mod target_bootstrap_control;
 pub(crate) use authorization_floor::{
     CommercialAuthorizationFloor, DeviceEvidenceFloor, ExecutionAnchorRecord,
     WorkspaceAuthorizationFloor, WorkspaceAuthorizationRecord,
 };
+pub(crate) use initial_replica::{InitialReplicaPhase, InitialReplicaScope, InitialReplicaState};
 
 use std::fmt;
 use std::fs::File;
@@ -205,6 +207,8 @@ pub(crate) struct TestRebootstrapKeyStore {
     authorization_floor: Arc<Mutex<Option<Vec<u8>>>>,
     authorization_floor_marker: Arc<Mutex<Option<Vec<u8>>>>,
     normal_handoff_submission: Arc<Mutex<Option<Vec<u8>>>>,
+    initial_replica_head: Arc<Mutex<Option<Vec<u8>>>>,
+    initial_replica_marker: Arc<Mutex<Option<Vec<u8>>>>,
     target_bootstrap_control: Arc<Mutex<Option<Vec<u8>>>>,
     target_bootstrap_marker: Arc<Mutex<Option<Vec<u8>>>>,
     target_bootstrap_write_probe:
@@ -236,6 +240,8 @@ impl Default for TestRebootstrapKeyStore {
             authorization_floor: Arc::default(),
             authorization_floor_marker: Arc::default(),
             normal_handoff_submission: Arc::default(),
+            initial_replica_head: Arc::default(),
+            initial_replica_marker: Arc::default(),
             target_bootstrap_control: Arc::default(),
             target_bootstrap_marker: Arc::default(),
             target_bootstrap_write_probe: Arc::default(),
@@ -4827,7 +4833,7 @@ impl DesktopProductionCustody {
             .map_err(|_| DesktopCustodyError::Rejected)?;
         let key = LocalDatabaseKey::from_bytes(*database_key);
         database_key.zeroize();
-        Ok(Self {
+        let custody = Self {
             _process_lock: process_lock,
             _active_workspace: active_workspace,
             active_workspace_identity,
@@ -4841,7 +4847,9 @@ impl DesktopProductionCustody {
             rebootstrap_capability,
             #[cfg(test)]
             rebootstrap_test_store,
-        })
+        };
+        custody.initialize_replica_marker()?;
+        Ok(custody)
     }
 
     /// An uninitialized first-run file is not a recovered business replica.
@@ -4849,27 +4857,34 @@ impl DesktopProductionCustody {
         &self,
         workspace_id: &str,
     ) -> Result<Option<crate::BusinessDatabase>, crate::BusinessDatabaseError> {
-        {
-            let active = self
-                .active_database
-                .lock()
-                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
-            ensure_file_identity(&active.file, active.identity)
-                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
-            if active
-                .file
-                .metadata()
-                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?
-                .len()
-                == 0
-            {
-                return Ok(None);
-            }
+        let phase = self
+            .initial_replica_state()
+            .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?
+            .phase;
+        if matches!(
+            phase,
+            InitialReplicaPhase::Fresh
+                | InitialReplicaPhase::Installing
+                | InitialReplicaPhase::Installed
+        ) {
+            return Ok(None);
         }
         self.open_workspace(workspace_id).map(Some)
     }
 
     pub(crate) fn open_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<crate::BusinessDatabase, crate::BusinessDatabaseError> {
+        self.initial_replica_begin_ordinary_open()
+            .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
+        let database = self.open_initial_replica_database(workspace_id)?;
+        self.initial_replica_finish_ordinary_open()
+            .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
+        Ok(database)
+    }
+
+    pub(crate) fn open_initial_replica_database(
         &self,
         workspace_id: &str,
     ) -> Result<crate::BusinessDatabase, crate::BusinessDatabaseError> {

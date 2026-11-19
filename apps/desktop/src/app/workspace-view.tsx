@@ -295,7 +295,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
       connections={state.connections}
       connectionMaintenance={<><AfternicPanel locale={locale} port={ports.afternic} readOnly={!writable} onChanged={() => setAttempt((current) => current + 1)} />{writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}</>}
       devices={null}
-      {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} readOnly={standby} {...(ports.deviceSwitch === undefined ? {} : { switchPort: ports.deviceSwitch })} {...(ports.targetBootstrap === undefined ? {} : { bootstrapPort: ports.targetBootstrap })} /> })}
+      {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} readOnly={standby} {...(ports.deviceSwitch === undefined ? {} : { switchPort: ports.deviceSwitch })} {...(ports.targetBootstrap === undefined ? {} : { bootstrapPort: ports.targetBootstrap })} {...(ports.targetInstallation === undefined ? {} : { installationPort: ports.targetInstallation })} /> })}
       license="unavailable"
       sync={null}
       about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}

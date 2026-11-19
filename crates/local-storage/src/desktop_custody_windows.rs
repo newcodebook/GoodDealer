@@ -2,12 +2,15 @@
 
 #[path = "desktop_custody/authorization_floor.rs"]
 mod authorization_floor;
+#[path = "desktop_custody/initial_replica.rs"]
+mod initial_replica;
 #[path = "desktop_custody/target_bootstrap_control.rs"]
 mod target_bootstrap_control;
 pub(crate) use authorization_floor::{
     CommercialAuthorizationFloor, DeviceEvidenceFloor, ExecutionAnchorRecord,
     WorkspaceAuthorizationFloor, WorkspaceAuthorizationRecord,
 };
+pub(crate) use initial_replica::{InitialReplicaPhase, InitialReplicaScope, InitialReplicaState};
 
 use crate::windows_custody::format::FileIdentity;
 use crate::windows_private_files::{PinnedDirectory, file_identity};
@@ -92,6 +95,7 @@ impl DesktopProductionCustody {
             workspace_open: Mutex::new(()),
         };
         custody.verify()?;
+        custody.initialize_replica_marker()?;
         Ok(custody)
     }
     fn verify(&self) -> Result<(), DesktopCustodyError> {
@@ -112,6 +116,17 @@ impl DesktopProductionCustody {
         Ok(())
     }
     pub(crate) fn open_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<BusinessDatabase, BusinessDatabaseError> {
+        self.initial_replica_begin_ordinary_open()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let database = self.open_initial_replica_database(workspace_id)?;
+        self.initial_replica_finish_ordinary_open()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        Ok(database)
+    }
+    pub(crate) fn open_initial_replica_database(
         &self,
         workspace_id: &str,
     ) -> Result<BusinessDatabase, BusinessDatabaseError> {
@@ -161,15 +176,16 @@ impl DesktopProductionCustody {
         &self,
         workspace_id: &str,
     ) -> Result<Option<BusinessDatabase>, BusinessDatabaseError> {
-        self.verify()
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if self
-            .database
-            .metadata()
+        let phase = self
+            .initial_replica_state()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?
-            .len()
-            == 0
-        {
+            .phase;
+        if matches!(
+            phase,
+            InitialReplicaPhase::Fresh
+                | InitialReplicaPhase::Installing
+                | InitialReplicaPhase::Installed
+        ) {
             return Ok(None);
         }
         self.open_workspace(workspace_id).map(Some)

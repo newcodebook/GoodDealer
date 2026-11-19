@@ -11,6 +11,8 @@ import type { CheckpointDescriptor, SyncMutation } from "@gooddealer/protocol/wo
 import { BootstrapFixtureService, type BootstrapFixtureRejection } from "../src/modules/devices/index";
 import { createHash } from "node:crypto";
 
+function nonce(step: number | string): string { return createHash("sha256").update(`bootstrap-nonce-${step}`).digest("base64url"); }
+
 const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
@@ -51,8 +53,9 @@ function service(
     capabilityJti: "bootstrap-jti-1",
     checkpoint,
     mutations,
-    expectedEntityDigests: [{ entityType: "domain_asset", partitionId: null, digest: ENTITY_DIGEST }],
-    stepNonceFor: (stepNumber) => `nonce-${stepNumber}`,
+    checkpointEntityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest: ZERO_DIGEST }],
+    expectedEntityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest: ENTITY_DIGEST }],
+    stepNonceFor: (stepNumber) => nonce(stepNumber),
     now: () => new Date("2026-08-14T08:00:00Z"),
     initialWorkflowRevision,
   });
@@ -68,18 +71,14 @@ function signedRequest(value: Omit<BootstrapStepRequest, "requestDigest">): Boot
 
 function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest">> = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 1,
-    stepNonce: "nonce-1",
+    stepNonce: nonce(1),
     expectedWorkflowRevision: 0,
     stepKind: "pin_checkpoint",
-    stepPayload: {
-      checkpointId: checkpoint.checkpointId,
-      checkpointThroughServerRevision: checkpoint.throughServerRevision,
-      checkpointDigest: checkpoint.checkpointDigest,
-    },
+    stepPayload: {},
     ...overrides,
   } as Omit<BootstrapStepRequest, "requestDigest">);
 }
@@ -92,11 +91,11 @@ function fetchRequest(
   pageLimit = 1,
 ): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber,
-    stepNonce: `nonce-${stepNumber}`,
+    stepNonce: nonce(stepNumber),
     expectedWorkflowRevision,
     stepKind: "fetch_mutations",
     stepPayload: {
@@ -113,17 +112,17 @@ function fetchRequest(
 
 function submitRequest(digest = ENTITY_DIGEST): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "bootstrap-jti-1",
     stepNumber: 4,
-    stepNonce: "nonce-4",
+    stepNonce: nonce(4),
     expectedWorkflowRevision: 3,
     stepKind: "submit_rebuild_digest",
     stepPayload: {
       targetServerRevision: 6,
       workspaceSchemaVersion: 1,
-      entityDigests: [{ entityType: "domain_asset", partitionId: null, digest }],
+      entityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest }],
     },
   });
 }
@@ -138,7 +137,7 @@ describe("BootstrapFixtureService", () => {
     const fixture = service();
     const pin = fixture.execute(pinRequest());
     expect("stepKind" in pin && pin.stepKind).toBe("pin_checkpoint");
-    expect("nextStepNonce" in pin && pin.nextStepNonce).toBe("nonce-2");
+    expect("nextStepNonce" in pin && pin.nextStepNonce).toBe(nonce(2));
     expect(JSON.stringify(fixture.execute(pinRequest()))).toBe(JSON.stringify(pin));
 
     const firstPage = fixture.execute(fetchRequest(2, 1, 4, null));
@@ -164,7 +163,7 @@ describe("BootstrapFixtureService", () => {
     expect(rejection(digestFixture.execute({ ...pinRequest(), requestDigest: ZERO_DIGEST })).code).toBe("DIGEST_MISMATCH");
 
     const nonceFixture = service();
-    expect(rejection(nonceFixture.execute(pinRequest({ stepNonce: "wrong-nonce" }))).code).toBe("NONCE_MISMATCH");
+    expect(rejection(nonceFixture.execute(pinRequest({ stepNonce: nonce("wrong-nonce") }))).code).toBe("NONCE_MISMATCH");
 
     const stepFixture = service();
     expect(rejection(stepFixture.execute(fetchRequest(2, 1, 4, null))).code).toBe("STEP_OUT_OF_ORDER");
@@ -174,7 +173,7 @@ describe("BootstrapFixtureService", () => {
 
     const replayFixture = service();
     replayFixture.execute(pinRequest());
-    expect(rejection(replayFixture.execute(pinRequest({ stepNonce: "other-nonce" }))).code).toBe("STEP_REPLAY_CONFLICT");
+    expect(rejection(replayFixture.execute(pinRequest({ stepNonce: nonce("other-nonce") }))).code).toBe("STEP_REPLAY_CONFLICT");
   });
 
   it("rejects cursor changes and a rebuild digest that does not match the pinned chain", () => {
@@ -205,7 +204,7 @@ describe("BootstrapFixtureService", () => {
     expect(result).toMatchObject({
       workflowRevision: 5,
       acceptedStepNumber: 1,
-      nextStepNonce: "nonce-2",
+      nextStepNonce: nonce(2),
     });
   });
 });

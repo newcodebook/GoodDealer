@@ -1,3 +1,4 @@
+import { TrustedBootstrapVerificationKeySource } from "../modules/devices/index";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createPublicKey } from "node:crypto";
@@ -47,6 +48,7 @@ if (process.argv.includes("--print-desktop-registry")) {
     leaseKeys: publicKeys.lease.verifierKeys,
     standbyKeys: publicKeys.standby.verifierKeys,
     contextKeys: publicKeys.context.verifierKeys,
+    bootstrapKeys: publicKeys.bootstrap.verifierKeys,
   })}\n`);
 } else {
   await startDevelopmentServer();
@@ -85,6 +87,7 @@ async function startDevelopmentServer(): Promise<void> {
     leaseKey: publicKeys.lease.activeKey,
     standbyKey: publicKeys.standby.activeKey,
     contextKey: publicKeys.context.activeKey,
+    bootstrapKey: publicKeys.bootstrap.activeKey,
     tokenSource,
   });
   const leaseVerifier = new TrustedActiveDeviceLeaseVerifier(
@@ -147,6 +150,11 @@ async function startDevelopmentServer(): Promise<void> {
     desktopAuthorizationSigner: signer,
     desktopStandbySigner: signer,
     desktopExecutionContextSigner: signer,
+    bootstrapCapabilitySigner: signer,
+    activeDeviceLeaseSigner: signer,
+    bootstrapVerificationKeys: new TrustedBootstrapVerificationKeySource(publicKeys.bootstrap.verifierKeys.map(key => ({
+      kid: key.kid, publicKey: createPublicKey(key.publicKeyPem),
+    }))),
     activeDeviceLeaseVerifier: leaseVerifier,
     desktopAccessTokens: new PostgresDesktopAccessTokenVerifier(new AccountTransactionRunner(pool)),
     commercialCheckoutCatalog: commercialProviders.checkoutCatalog,

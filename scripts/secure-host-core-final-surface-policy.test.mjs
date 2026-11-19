@@ -251,10 +251,14 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::execution_context",
   "active_workspace::business",
   "desktop_local_host::execution_evidence_delivery",
+  "desktop_local_host::target_installation",
   "desktop_local_host::target_bootstrap",
 ];
 const expectedLocalStoragePublicExports = [
   ...expectedExecutionContextExports,
+  "DesktopTargetInstallationExchange", "DesktopTargetInstallationExchangeKind",
+  "DesktopTargetInstallationPhase", "DesktopTargetInstallationStage",
+  "DesktopTargetInstallationView", "DesktopTargetInstallationWork",
   "DesktopTargetBootstrapCancelExchange", "DesktopTargetBootstrapStatusExchange",
   "DesktopTargetBootstrapStatusOutcome", "DesktopTargetBootstrapTerminalStatus", "DesktopTargetBootstrapView",
   "AssetLibraryReadSnapshot",

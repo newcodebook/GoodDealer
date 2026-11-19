@@ -1,3 +1,6 @@
+import { registerTargetInstallationJsonBoundary } from "./adapter/target-installation-json";
+import { createTargetBootstrapInstallationRoutes } from "./routes/public/target-installation";
+import type { TargetBootstrapInstallationPort } from "./ports/target-installation";
 import { DesktopExecutionContextIssuer, PostgresDesktopExecutionContextService, type DesktopExecutionContextSigner } from "../modules/devices/index";
 import type { DesktopExecutionContextApplicationPort } from "./ports/execution-context";
 import type { ExecutionEvidenceApplicationPort } from "./ports/execution-evidence";
@@ -35,6 +38,10 @@ import {
   PostgresDeviceSwitchRequests,
   PostgresDeviceSwitchRequestResolution,
   PostgresTargetBootstrapControl,
+  PostgresTargetBootstrapInstallation,
+  type BootstrapCapabilitySigner,
+  type BootstrapVerificationKeySource,
+  type ActiveDeviceLeaseSigner,
   PostgresExecutionEvidenceAuthority,
   PostgresHistoricalExecutionContext,
 } from "../modules/devices/index";
@@ -66,6 +73,7 @@ import {
 } from "../modules/workspace/sync/cloudflare-observation";
 import { assignCorrelationId, correlationIdFor } from "./adapter/correlation";
 import {
+  PublicRouteAuthorizationError,
   rateLimitedRejection,
   sendAccountRejection,
   sendNotFound,
@@ -108,10 +116,10 @@ import {
 import {
   createPublicBusinessRoutes,
   publicBoundaryRoutes,
-  PublicRouteAuthorizationError,
 } from "./routes/public/boundary";
 
 export interface PublicApplicationPorts {
+  readonly targetBootstrapInstallation?: TargetBootstrapInstallationPort;
   readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
   readonly desktopAuthorization: DesktopAuthorizationApplicationPort;
@@ -151,6 +159,9 @@ export interface PostgresCloudPublicHttpDependencies
   readonly desktopAuthorizationSigner: DesktopAuthorizationGrantSigner;
   readonly desktopStandbySigner: DesktopStandbyGrantSigner;
   readonly desktopExecutionContextSigner: DesktopExecutionContextSigner;
+  readonly bootstrapCapabilitySigner: BootstrapCapabilitySigner;
+  readonly bootstrapVerificationKeys: BootstrapVerificationKeySource;
+  readonly activeDeviceLeaseSigner: ActiveDeviceLeaseSigner;
   readonly activeDeviceLeaseVerifier: ActiveDeviceLeaseVerifier;
   readonly desktopAccessTokens: DesktopAccessTokenVerifierPort;
   readonly commercialCheckoutCatalog: CommercialCheckoutCatalog;
@@ -185,6 +196,9 @@ export function createPostgresCloudPublicHttp(
     desktopAuthorizationSigner,
     desktopStandbySigner,
     desktopExecutionContextSigner,
+    bootstrapCapabilitySigner,
+    bootstrapVerificationKeys,
+    activeDeviceLeaseSigner,
     activeDeviceLeaseVerifier,
     commercialCheckoutCatalog,
     commercialCheckoutGateways,
@@ -279,6 +293,10 @@ export function createPostgresCloudPublicHttp(
       ),
       desktopAuthorization,
       ...executionEvidence,
+      ...(identityTransactions === undefined ? {} : { targetBootstrapInstallation: new PostgresTargetBootstrapInstallation({
+        transactions: identityTransactions, workspaces, capabilitySigner: bootstrapCapabilitySigner,
+        capabilityKeys: bootstrapVerificationKeys, leaseSigner: activeDeviceLeaseSigner, leaseVerifier: activeDeviceLeaseVerifier,
+      }) }),
       ...(identityTransactions === undefined ? {} : { targetBootstrap: new PostgresTargetBootstrapControl(identityTransactions, workspaces, new PostgresBootstrapCheckpointPort()) }),
       ...(identityTransactions === undefined ? {} : { desktopExecutionContext: new PostgresDesktopExecutionContextService(identityTransactions, workspaces, new DesktopAuthorizationGrantIssuer(desktopAuthorizationSigner), activeDeviceLeaseVerifier, new DesktopExecutionContextIssuer(desktopExecutionContextSigner)) }),
       commercialCheckout,
@@ -338,10 +356,14 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
     trustProxy: trustLoopbackProxy,
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
+  const installationRoutes = createTargetBootstrapInstallationRoutes(
+    deps.ports.targetBootstrapInstallation, deps.ports.desktopRouteAuthority,
+  );
+  registerTargetInstallationJsonBoundary(app, installationRoutes.map(route => route.path));
   const preAuthLimiter = new InMemoryFixedWindowRateLimiter(deps.preAuthRateLimit);
   const sessionLimiter = new InMemoryFixedWindowRateLimiter(deps.sessionRateLimit);
   const desktopAccessTokens = deps.desktopAccessTokens ?? new DenyingDesktopAccessTokenVerifier();
-  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports)] as const;
+  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports), ...installationRoutes] as const;
 
   app.addHook("onRequest", async (request, reply) => {
     assignCorrelationId(request, reply, deps.correlationIds);

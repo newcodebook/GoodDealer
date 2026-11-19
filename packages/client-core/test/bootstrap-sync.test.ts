@@ -6,16 +6,17 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   bootstrapStepRequestSchema,
+  bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
   type BootstrapStepRequest,
 } from "@gooddealer/protocol/devices";
 import {
   encodeMutationPageDigestInput,
-  encodeWorkspaceEntityDigestsInput,
+  encodeCheckpointEntityDigestsInput,
   mutationPageSchema,
   type MutationPage,
   type SyncMutation,
-  type WorkspaceEntityDigest,
+  type CheckpointEntityDigest,
 } from "@gooddealer/protocol/workspace";
 
 import {
@@ -40,31 +41,27 @@ function digestText(bytes: Uint8Array): string {
 const sha256: Sha256Port = { digest: async (bytes) => digest(bytes) };
 
 const common = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   deviceSwitchRequestId: "switch-1",
   capabilityJti: "bootstrap-jti-1",
-  stepNonce: "bm9uY2UtMQ",
+  stepNonce: digestText(Buffer.from("nonce-1")),
 } as const;
 
 const entityDigests = [
-  { entityType: "domain_asset", partitionId: null, digest: ZERO_DIGEST },
-] as const satisfies readonly WorkspaceEntityDigest[];
+  { entityType: "domain_asset", partitionId: "empty", digest: ZERO_DIGEST },
+] as const satisfies readonly CheckpointEntityDigest[];
 
 const pinInput = {
   ...common,
   stepNumber: 1,
   expectedWorkflowRevision: 1,
-  stepPayload: {
-    checkpointId: "checkpoint-1",
-    checkpointThroughServerRevision: 2,
-    checkpointDigest: ZERO_DIGEST,
-  },
+  stepPayload: {},
 } as const satisfies PinInput;
 
 const fetchInput = {
   ...common,
   stepNumber: 2,
-  stepNonce: "bm9uY2UtMg",
+  stepNonce: digestText(Buffer.from("nonce-2")),
   expectedWorkflowRevision: 2,
   stepPayload: {
     pinnedCheckpointId: "checkpoint-1",
@@ -80,7 +77,7 @@ const fetchInput = {
 const submitInput = {
   ...common,
   stepNumber: 4,
-  stepNonce: "bm9uY2UtNA",
+  stepNonce: digestText(Buffer.from("nonce-4")),
   expectedWorkflowRevision: 4,
   stepPayload: {
     targetServerRevision: 4,
@@ -415,4 +412,26 @@ describe("BootstrapRebuildAccumulator", () => {
     await accumulator.appendPage(clone(corpus.pages[1]!));
     await expect(accumulator.appendPage(clone(corpus.pages[1]!))).rejects.toThrow(/complete/i);
   });
+});
+
+
+it("matches the Native installation corpus final digest including generation two and both tombstones", async () => {
+  const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname,
+    "../../protocol/test-vectors/target-installation/valid.json"), "utf8")) as {
+      steps: { result: unknown }[]; checkpointState: unknown; finalDigests: unknown; verifiedDigest: string;
+    };
+  const pin = bootstrapStepResultSchema.parse(fixture.steps[0]!.result);
+  const fetch = bootstrapStepResultSchema.parse(fixture.steps[1]!.result);
+  if (pin.stepKind !== "pin_checkpoint" || fetch.stepKind !== "fetch_mutations") throw new Error("invalid test corpus");
+  const descriptor = pin.resultPayload.checkpoint;
+  const accumulator = await BootstrapRebuildAccumulator.start({ sha256,
+    workspaceId: descriptor.workspaceId, workspaceSchemaVersion: descriptor.workspaceSchemaVersion,
+    targetServerRevision: pin.resultPayload.targetServerRevision, checkpointDescriptor: descriptor,
+    checkpointSnapshot: { schemaVersion: 2, workspaceId: descriptor.workspaceId,
+      workspaceSchemaVersion: descriptor.workspaceSchemaVersion, throughServerRevision: descriptor.throughServerRevision,
+      state: fixture.checkpointState },
+  });
+  await accumulator.appendPage({ cursor: null, page: fetch.resultPayload.mutationPage });
+  expect(await accumulator.finalize()).toMatchObject({ entityDigests: fixture.finalDigests, digest: fixture.verifiedDigest });
+  expect(accumulator.snapshot().tombstones).toHaveLength(2);
 });

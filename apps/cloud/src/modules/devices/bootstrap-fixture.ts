@@ -12,14 +12,14 @@ import {
 import {
   WORKSPACE_SYNC_MUTATION_SCHEMA_VERSION,
   encodeMutationPageDigestInput,
-  encodeWorkspaceEntityDigestsInput,
+  encodeCheckpointEntityDigestsInput,
   checkpointDescriptorSchema,
   mutationPageSchema,
   syncMutationSchema,
-  workspaceEntityDigestsSchema,
+  checkpointEntityDigestsSchema,
   type CheckpointDescriptor,
   type SyncMutation,
-  type WorkspaceEntityDigest,
+  type CheckpointEntityDigest,
 } from "@gooddealer/protocol/workspace";
 
 export type BootstrapFixtureRejectionCode =
@@ -67,7 +67,8 @@ export interface BootstrapFixtureOptions {
   readonly capabilityJti: string;
   readonly checkpoint: CheckpointDescriptor;
   readonly mutations: readonly SyncMutation[];
-  readonly expectedEntityDigests: readonly WorkspaceEntityDigest[];
+  readonly checkpointEntityDigests: readonly CheckpointEntityDigest[];
+  readonly expectedEntityDigests: readonly CheckpointEntityDigest[];
   readonly stepNonceFor: (stepNumber: number) => string;
   readonly now?: () => Date;
   readonly pinTtlSeconds?: number;
@@ -87,7 +88,8 @@ export class BootstrapFixtureService {
   readonly #capabilityJti: string;
   readonly #checkpoint: CheckpointDescriptor;
   readonly #mutations: readonly SyncMutation[];
-  readonly #expectedEntityDigests: readonly WorkspaceEntityDigest[];
+  readonly #checkpointEntityDigests: readonly CheckpointEntityDigest[];
+  readonly #expectedEntityDigests: readonly CheckpointEntityDigest[];
   readonly #stepNonceFor: (stepNumber: number) => string;
   readonly #now: () => Date;
   readonly #pinTtlSeconds: number;
@@ -107,7 +109,8 @@ export class BootstrapFixtureService {
     if (!Number.isSafeInteger(this.#pinTtlSeconds) || this.#pinTtlSeconds < 1 || this.#pinTtlSeconds > 3_600) {
       throw new TypeError("fixture pin TTL must be an integer from 1 through 3600 seconds");
     }
-    this.#expectedEntityDigests = workspaceEntityDigestsSchema.parse(options.expectedEntityDigests);
+    this.#checkpointEntityDigests = checkpointEntityDigestsSchema.parse(options.checkpointEntityDigests);
+    this.#expectedEntityDigests = checkpointEntityDigestsSchema.parse(options.expectedEntityDigests);
     if (options.mutations.length > 4_096) throw new TypeError("fixture mutation chain exceeds the in-memory limit");
     this.#mutations = options.mutations.map((mutation) => syncMutationSchema.parse(mutation));
 
@@ -182,22 +185,16 @@ export class BootstrapFixtureService {
     request: BootstrapStepRequest,
   ): BootstrapResultDraft | BootstrapFixtureRejection {
     if (request.stepKind !== "pin_checkpoint") return reject("STEP_OUT_OF_ORDER");
-    if (
-      request.stepPayload.checkpointId !== this.#checkpoint.checkpointId ||
-      request.stepPayload.checkpointThroughServerRevision !== this.#checkpoint.throughServerRevision ||
-      request.stepPayload.checkpointDigest !== this.#checkpoint.checkpointDigest
-    ) {
-      return reject("CHECKPOINT_MISMATCH");
-    }
     this.#phase = "fetching";
     return {
       schemaVersion: BOOTSTRAP_STEP_SCHEMA_VERSION,
       acceptedStepNumber: request.stepNumber,
       stepKind: "pin_checkpoint",
       resultPayload: {
-        checkpointId: this.#checkpoint.checkpointId,
-        checkpointThroughServerRevision: this.#checkpoint.throughServerRevision,
-        checkpointDigest: this.#checkpoint.checkpointDigest,
+        checkpoint: this.#checkpoint,
+        targetServerRevision: this.#checkpoint.throughServerRevision + this.#mutations.length,
+        workspaceSchemaVersion: this.#checkpoint.workspaceSchemaVersion,
+        checkpointEntityDigests: [...this.#checkpointEntityDigests],
         pinExpiresAt: new Date(this.#now().getTime() + this.#pinTtlSeconds * 1000)
           .toISOString()
           .replace(/\.\d{3}Z$/, "Z"),
@@ -264,8 +261,8 @@ export class BootstrapFixtureService {
       request.stepPayload.targetServerRevision !== targetServerRevision ||
       request.stepPayload.workspaceSchemaVersion !== this.#checkpoint.workspaceSchemaVersion ||
       !equalBytes(
-        encodeWorkspaceEntityDigestsInput(request.stepPayload.entityDigests),
-        encodeWorkspaceEntityDigestsInput(this.#expectedEntityDigests),
+        encodeCheckpointEntityDigestsInput(request.stepPayload.entityDigests),
+        encodeCheckpointEntityDigestsInput(this.#expectedEntityDigests),
       )
     ) {
       return reject("REBUILD_DIGEST_MISMATCH");
@@ -277,7 +274,8 @@ export class BootstrapFixtureService {
       stepKind: "submit_rebuild_digest",
       resultPayload: {
         verifiedRevision: targetServerRevision,
-        verifiedDigest: digest(encodeWorkspaceEntityDigestsInput(this.#expectedEntityDigests)),
+        workspaceSchemaVersion: this.#checkpoint.workspaceSchemaVersion,
+        verifiedDigest: digest(encodeCheckpointEntityDigestsInput(this.#expectedEntityDigests)),
         accepted: true,
       },
     };

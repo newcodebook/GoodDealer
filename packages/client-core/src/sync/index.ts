@@ -19,11 +19,11 @@ import {
 import {
   checkpointDescriptorSchema,
   compareUtf8,
-  computeDomainAssetEntityDigests,
+  computeWorkspaceCheckpointEntityDigests,
   computeWorkspaceCheckpointDigest,
   domainAssetProjectionSchema,
   encodeMutationPageDigestInput,
-  encodeWorkspaceEntityDigestsInput,
+  encodeCheckpointEntityDigestsInput,
   mutationCursorSchema,
   mutationPageSchema,
   serverRevisionSchema,
@@ -31,7 +31,7 @@ import {
   type CheckpointDomainAssetTombstone,
   type DomainAssetProjectionRow,
   type SyncMutation,
-  type WorkspaceEntityDigest,
+  type CheckpointEntityDigest,
 } from "@gooddealer/protocol/workspace";
 import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 import { z } from "zod";
@@ -460,7 +460,7 @@ export interface BootstrapRebuildSnapshot {
 export interface BootstrapRebuildDigestSet {
   readonly targetServerRevision: number;
   readonly projection: readonly DomainAssetProjectionRow[];
-  readonly entityDigests: readonly WorkspaceEntityDigest[];
+  readonly entityDigests: readonly CheckpointEntityDigest[];
   readonly digest: string;
 }
 
@@ -646,12 +646,15 @@ export class BootstrapRebuildAccumulator {
   async finalize(): Promise<BootstrapRebuildDigestSet> {
     if (!this.#completed) throw new TypeError("rebuild digest requires a terminal page");
     const projection = canonicalProjection(this.#projection);
-    const entityDigests = await computeDomainAssetEntityDigests(
-      projection,
+    const entityDigests = await computeWorkspaceCheckpointEntityDigests(
+      {
+        assets: [...this.#projection.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)),
+        tombstones: [...this.#tombstones.values()].sort((left, right) => compareUtf8(left.entityId, right.entityId)),
+      },
       this.#sha256.digest.bind(this.#sha256),
     );
     const digest = encodeSha256Digest(
-      await this.#sha256.digest(encodeWorkspaceEntityDigestsInput(entityDigests)),
+      await this.#sha256.digest(encodeCheckpointEntityDigestsInput(entityDigests)),
     );
     return {
       targetServerRevision: this.#throughServerRevisionInclusive,
@@ -677,7 +680,7 @@ function cloneProjection(input: Map<string, MutableDomainAsset>): Map<string, Mu
   return new Map([...input].map(([entityId, row]) => [entityId, cloneDomainAsset(row)]));
 }
 
-/** The live projection; generations are replica bookkeeping and stay out of the projection digest. */
+/** Display rows omit generations; the final rebuild digest separately binds the entire replica state. */
 function canonicalProjection(input: Map<string, MutableDomainAsset>): DomainAssetProjectionRow[] {
   return [...input.values()]
     .sort((left, right) => compareUtf8(left.entityId, right.entityId))

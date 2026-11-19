@@ -5,11 +5,11 @@ import {
   mutationCursorSchema,
   mutationPageSchema,
   sha256DigestSchema,
-  workspaceEntityDigestsSchema,
+  checkpointEntityDigestsSchema,
+  checkpointDescriptorSchema,
   serverRevisionSchema,
 } from "../workspace/index";
 import {
-  base64Url,
   canonicalUtcTimestamp,
   encodeDomainSeparatedWireValue,
   identifier,
@@ -17,22 +17,18 @@ import {
   safeUnsignedInteger,
 } from "../wire/index";
 
-export const BOOTSTRAP_STEP_SCHEMA_VERSION = 1 as const;
+export const BOOTSTRAP_STEP_SCHEMA_VERSION = 2 as const;
+
+export const bootstrapStepNonceSchema = z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u);
 
 const requestFields = {
   schemaVersion: z.literal(BOOTSTRAP_STEP_SCHEMA_VERSION),
   deviceSwitchRequestId: identifier,
   capabilityJti: identifier,
   stepNumber: safePositiveInteger,
-  stepNonce: base64Url.max(128),
+  stepNonce: bootstrapStepNonceSchema,
   expectedWorkflowRevision: safeUnsignedInteger,
   requestDigest: sha256DigestSchema,
-} as const;
-
-const checkpointBindingFields = {
-  checkpointId: identifier,
-  checkpointThroughServerRevision: serverRevisionSchema,
-  checkpointDigest: sha256DigestSchema,
 } as const;
 
 export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
@@ -40,7 +36,7 @@ export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
     .object({
       ...requestFields,
       stepKind: z.literal("pin_checkpoint"),
-      stepPayload: z.object(checkpointBindingFields).strict(),
+      stepPayload: z.object({}).strict(),
     })
     .strict(),
   z
@@ -84,7 +80,7 @@ export const bootstrapStepRequestSchema = z.discriminatedUnion("stepKind", [
         .object({
           targetServerRevision: serverRevisionSchema,
           workspaceSchemaVersion: safePositiveInteger,
-          entityDigests: workspaceEntityDigestsSchema,
+          entityDigests: checkpointEntityDigestsSchema,
         })
         .strict(),
     })
@@ -95,7 +91,7 @@ const resultFields = {
   schemaVersion: z.literal(BOOTSTRAP_STEP_SCHEMA_VERSION),
   workflowRevision: safePositiveInteger,
   acceptedStepNumber: safePositiveInteger,
-  nextStepNonce: base64Url.max(128).nullable(),
+  nextStepNonce: bootstrapStepNonceSchema.nullable(),
   resultDigest: sha256DigestSchema,
 } as const;
 
@@ -107,8 +103,11 @@ export const bootstrapStepResultSchema = z
         stepKind: z.literal("pin_checkpoint"),
         resultPayload: z
           .object({
-            ...checkpointBindingFields,
+            checkpoint: checkpointDescriptorSchema,
             pinExpiresAt: canonicalUtcTimestamp,
+            targetServerRevision: serverRevisionSchema,
+            workspaceSchemaVersion: safePositiveInteger,
+            checkpointEntityDigests: checkpointEntityDigestsSchema,
           })
           .strict(),
       })
@@ -127,6 +126,7 @@ export const bootstrapStepResultSchema = z
         resultPayload: z
           .object({
             verifiedRevision: serverRevisionSchema,
+            workspaceSchemaVersion: safePositiveInteger,
             verifiedDigest: sha256DigestSchema,
             accepted: z.literal(true),
           })
@@ -135,6 +135,11 @@ export const bootstrapStepResultSchema = z
       .strict(),
   ])
   .superRefine((result, context) => {
+    if (result.stepKind === "pin_checkpoint" &&
+        (result.resultPayload.checkpoint.throughServerRevision > result.resultPayload.targetServerRevision ||
+         result.resultPayload.checkpoint.workspaceSchemaVersion !== result.resultPayload.workspaceSchemaVersion)) {
+      context.addIssue({ code: "custom", path: ["resultPayload"], message: "checkpoint must bind the frozen target schema and revision" });
+    }
     const isTerminal = result.stepKind === "submit_rebuild_digest";
     if (isTerminal !== (result.nextStepNonce === null)) {
       context.addIssue({
@@ -148,19 +153,19 @@ export const bootstrapStepResultSchema = z
 export function encodeBootstrapStepRequestDigestInput(value: unknown): Uint8Array {
   const parsed = bootstrapStepRequestSchema.parse(value);
   const { stepNonce: _stepNonce, requestDigest: _requestDigest, ...digestInput } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-REQUEST-V1", digestInput);
+  return encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-REQUEST-V2", digestInput);
 }
 
 export function encodeBootstrapStepResultDigestInput(value: unknown): Uint8Array {
   const parsed = bootstrapStepResultSchema.parse(value);
   const { resultDigest: _resultDigest, ...digestInput } = parsed;
-  return encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-RESULT-V1", digestInput);
+  return encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-RESULT-V2", digestInput);
 }
 
 /** Complete replay identity; unlike requestDigest this intentionally includes nonce and digest. */
 export function encodeBootstrapStepRequestReplayIdentity(value: unknown): Uint8Array {
   return encodeDomainSeparatedWireValue(
-    "GOODDEALER-BOOTSTRAP-STEP-REQUEST-REPLAY-V1",
+    "GOODDEALER-BOOTSTRAP-STEP-REQUEST-REPLAY-V2",
     bootstrapStepRequestSchema.parse(value),
   );
 }
@@ -171,7 +176,7 @@ export const encodeBootstrapStepReplayRequest = encodeBootstrapStepRequestReplay
 /** Complete persisted result bytes used for byte-identical idempotent replay. */
 export function encodeBootstrapStepResultReplayIdentity(value: unknown): Uint8Array {
   return encodeDomainSeparatedWireValue(
-    "GOODDEALER-BOOTSTRAP-STEP-RESULT-REPLAY-V1",
+    "GOODDEALER-BOOTSTRAP-STEP-RESULT-REPLAY-V2",
     bootstrapStepResultSchema.parse(value),
   );
 }

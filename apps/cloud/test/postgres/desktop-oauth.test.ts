@@ -1,3 +1,9 @@
+import { submittedSyncMutationSchema, computeWorkspaceCheckpointEntityDigests, encodeCheckpointEntityDigestsInput } from "@gooddealer/protocol/workspace";
+import { PostgresWorkspaceMutationRepository } from "../../src/modules/workspace/mutations/index";
+import { PostgresPortfolioRepository } from "../../src/modules/workspace/state/portfolio/index";
+import { PostgresCheckpointRepository } from "../../src/modules/workspace/checkpoints/index";
+import { PostgresTargetBootstrapInstallation, TrustedBootstrapVerificationKeySource } from "../../src/modules/devices/index";
+import { deviceBootstrapActivationRequestSchema, encodeBootstrapActivationRequestDigestInput, encodeBootstrapStepReplayRequest, encodeBootstrapCheckpointPageDigestInput, type DeviceBootstrapClaim } from "@gooddealer/protocol/devices";
 import { PostgresBootstrapActivation } from "../../src/modules/devices/postgres-bootstrap-activation";
 import { PostgresDeviceCursorRepository } from "../../src/modules/workspace/cursors/index";
 import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
@@ -169,6 +175,7 @@ beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
   await ownerPool.query("TRUNCATE workspace_device_audit_drain_records,workspace_device_audit_drain_heads,workspace_device_audit_drain_seals,audit_execution_evidence_quarantines,execution_fact_drain_records,execution_fact_drain_heads,execution_fact_drain_seals,execution_fact_evidence_quarantines CASCADE");
   await ownerPool.query("TRUNCATE workspace_device_cursors CASCADE");
+  await ownerPool.query("TRUNCATE mutation_drain_records, mutation_drain_heads, mutation_drain_seals, workspace_mutations, workspace_mutation_receipts CASCADE");
   await ownerPool.query("DELETE FROM workspace_revisions WHERE account_id = 'oauth-account'");
   await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
     identity_desktop_authorization_codes, identity_credential_jtis,
@@ -364,7 +371,7 @@ describe("PostgreSQL target bootstrap termination", () => {
   it.each(["step","cancel"] as const)("serializes a valid signed bootstrap step against cancellation when %s owns the account first",async(winner)=>{
     const f=await fixture();const capability=await signedCapability();const barrier=gate();
     const nonce=Buffer.alloc(32,31).toString("base64url");
-    const nonceDigest=createHash("sha256").update(encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-NONCE-V1",nonce)).digest();
+    const nonceDigest=createHash("sha256").update(encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-NONCE-V2",nonce)).digest();
     await ownerPool.query(`DELETE FROM device_bootstrap_step_nonces;
       UPDATE device_bootstrap_authorities SET next_step_kind='pin_checkpoint',next_step_number=1,
       pin_expires_at=clock_timestamp()+interval '1 hour'`);
@@ -374,11 +381,14 @@ describe("PostgreSQL target bootstrap termination", () => {
     const real=new PostgresBootstrapCheckpointPort();
     const step=new PostgresBootstrapStepService({transactions:new TenantTransactionRunner(appPool),verifier:capability.verifier,
       accountSecurity:new PostgresIdentityAccountSecurityStatePort(),revisions:new PostgresWorkspaceRevisionRepository(),
-      checkpoints:{async lockAvailableAndPin(tx,input){const pinned=await real.lockAvailableAndPin(tx,input);if(winner==="step")await barrier.hold();return pinned;},release:real.release.bind(real)},
+      checkpoints:{lockAvailableAndPin:real.lockAvailableAndPin.bind(real),async ensureBootstrapCheckpointLocked(tx,input){
+        const descriptor={schemaVersion:3 as const,workspaceId:scope.workspaceId,workspaceSchemaVersion:1,checkpointId:"expiry-checkpoint",throughServerRevision:0,checkpointDigest:createHash("sha256").update("checkpoint").digest("base64url")};
+        const pinned=await real.lockAvailableAndPin(tx,{...input,descriptor});if(winner==="step")await barrier.hold();
+        return pinned===null?null:{checkpoint:pinned,checkpointEntityDigests:[{entityType:"domain_asset" as const,partitionId:"empty",digest:descriptor.checkpointDigest}],targetServerRevision:0,workspaceSchemaVersion:1};
+      },release:real.release.bind(real)},
       mutations:{async readDensePage(){throw new Error("pin must not read mutations");}},projection:{async readEntityDigestsAt(){throw new Error("pin must not read projection");}}});
-    const draft={schemaVersion:1,deviceSwitchRequestId:"switch-guard",capabilityJti:"expiry-cap",stepNumber:1,stepNonce:nonce,
-      expectedWorkflowRevision:1,stepKind:"pin_checkpoint",stepPayload:{checkpointId:"expiry-checkpoint",checkpointThroughServerRevision:0,
-      checkpointDigest:createHash("sha256").update("checkpoint").digest("base64url")},requestDigest:Buffer.alloc(32).toString("base64url")};
+    const draft={schemaVersion:2,deviceSwitchRequestId:"switch-guard",capabilityJti:"expiry-cap",stepNumber:1,stepNonce:nonce,
+      expectedWorkflowRevision:1,stepKind:"pin_checkpoint",stepPayload:{},requestDigest:Buffer.alloc(32).toString("base64url")};
     const request=bootstrapStepRequestSchema.parse({...draft,requestDigest:createHash("sha256").update(encodeBootstrapStepRequestDigestInput(draft)).digest("base64url")});
     const execute=()=>step.execute({scope,expectedCapability:capability.expected,capability:capability.envelope,request});
     if(winner==="step"){
@@ -418,7 +428,7 @@ describe("PostgreSQL target bootstrap termination", () => {
   });
   it("refuses inconsistent pending authority without changing reservations",async()=>{
     const f=await fixture();await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch=3");
-    await expect(f.service.cancel(lookup,f.target)).resolves.toBeNull();
+    await expect(f.service.cancel(lookup,f.target)).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
     expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1"});
     await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch=2; UPDATE device_bootstrap_authorities SET target_device_id='device-a'");
     await expect(f.service.cancel(lookup,f.target)).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
@@ -2003,3 +2013,228 @@ function requiredEnvironment(name: string): string {
   if (value === undefined || value.length === 0) throw new Error(`${name} is required; PostgreSQL evidence never skips`);
   return value;
 }
+
+// Real account-capability transactions and persisted workspace owners; fixture keys are test-only.
+describe("PostgreSQL target bootstrap installation", () => {
+  const lookup={schemaVersion:1 as const,requestId:"switch-guard"};
+  const corpus=JSON.parse(readFileSync(new URL("../../../../packages/protocol/test-vectors/target-installation/valid.json",import.meta.url),"utf8"));
+  const signing=generateKeyPairSync("ed25519");
+  let signedClaims=0;
+  const capabilitySigner={async sign(input:Parameters<import("../../src/modules/devices/bootstrap-capability-issuer").BootstrapCapabilitySigner["sign"]>[0]){
+    signedClaims+=1;
+    const draft={...input.claims,kid:"installation-pg-bootstrap",signature:Buffer.alloc(64).toString("base64url")};
+    return {signed:true as const,envelope:{...draft,signature:sign(null,encodeBootstrapCapabilitySignatureTranscript(draft),signing.privateKey).toString("base64url")},verificationKey:signing.publicKey,receipt:Buffer.from("fixture-bootstrap-receipt")};
+  }};
+  const service=(fault?: (point:string)=>void, signer=capabilitySigner, activateSigner=leaseSigner)=>new PostgresTargetBootstrapInstallation({
+    transactions:identityTransactions,workspaces:new PostgresDefaultWorkspaceTenantResolver(identityTransactions),capabilitySigner:signer,
+    capabilityKeys:new TrustedBootstrapVerificationKeySource([{kid:"installation-pg-bootstrap",publicKey:signing.publicKey}]),
+    leaseSigner:activateSigner,leaseVerifier,...(fault===undefined?{}:{fault})});
+  const hash=(v:Uint8Array)=>createHash("sha256").update(v).digest("base64url");
+  async function fixture(existingCheckpoint=true) {
+    signedClaims=0;
+    await ownerPool.query("TRUNCATE mutation_drain_records, mutation_drain_heads, mutation_drain_seals CASCADE");
+    const source=await desktopGrantPrincipal(),target=(await loginStandbyDevice()).principal;
+    const scope={accountId:"oauth-account",workspaceId:"oauth-workspace"};
+    const txs=new TenantTransactionRunner(appPool),mutations=new PostgresWorkspaceMutationRepository(),portfolio=new PostgresPortfolioRepository(),revisions=new PostgresWorkspaceRevisionRepository();
+    await txs.withTenant(scope,async tx=>{
+      await revisions.bind(tx,1);
+      await tx.query("INSERT INTO workspace_replica_domain_assets(account_id,workspace_id,entity_id) VALUES ('oauth-account','oauth-workspace','deleted.test')");
+    });
+    const kept=corpus.checkpointState.assets[0];
+    const edits=[
+      {entityId:"kept.test",entityGeneration:1,operationKind:"upsert",changedFields:[{fieldPath:"note",value:"first life"}]},
+      {entityId:"kept.test",entityGeneration:1,operationKind:"delete",deletedAt:"2030-01-01T00:00:00Z",changedFields:[]},
+      {entityId:"kept.test",entityGeneration:2,operationKind:"upsert",reAddsDeletedRevision:2,changedFields:[{fieldPath:"note",value:kept.note},{fieldPath:"portfolioId",value:kept.portfolioId},{fieldPath:"tags",value:kept.tags},{fieldPath:"targetPrice",value:kept.targetPrice}]},
+      {entityId:"deleted.test",entityGeneration:1,operationKind:"delete",deletedAt:corpus.checkpointState.tombstones[0].deletedAt,changedFields:[]},
+      {entityId:"removed.test",entityGeneration:1,operationKind:"upsert",changedFields:[{fieldPath:"note",value:corpus.checkpointState.assets[1].note}]},
+      {entityId:"kept.test",entityGeneration:2,operationKind:"upsert",changedFields:[{fieldPath:"note",value:corpus.finalState.assets[0].note}]},
+      {entityId:"removed.test",entityGeneration:1,operationKind:"delete",deletedAt:corpus.finalState.tombstones[1].deletedAt,changedFields:[]},
+    ];
+    for(const [index,edit] of edits.entries())await txs.withTenant(scope,async tx=>{
+      const mutation=submittedSyncMutationSchema.parse({schemaVersion:3,mutationId:`installation-pg-${index+1}`,workspaceId:scope.workspaceId,workspaceSchemaVersion:1,entityType:"domain_asset",baseServerRevision:index,sourceDeviceId:"device-a",activeLeaseEpoch:1,deviceMutationSequence:index+1,...edit});
+      const lock=await mutations.lockDrainDomain(tx,{sourceDeviceId:"device-a",activeLeaseEpoch:1});
+      await revisions.lock(tx);
+      await mutations.appendAccepted(tx,lock,[{mutation,serverRevision:index+1}]);
+      await portfolio.applyAcceptedMutations(tx,[{mutation,serverRevision:index+1}]);
+      await revisions.compareAndAdvance(tx,index,index+1);
+      if(index===4 && existingCheckpoint){
+        const repository=new PostgresCheckpointRepository(),state=await portfolio.captureCheckpointState(tx);
+        const digests=await computeWorkspaceCheckpointEntityDigests(state,async bytes=>createHash("sha256").update(bytes).digest());
+        const descriptor={schemaVersion:3,checkpointId:"installation-existing",workspaceId:scope.workspaceId,workspaceSchemaVersion:1,throughServerRevision:5,checkpointDigest:hash(encodeCheckpointEntityDigestsInput(digests))};
+        const built=await repository.createBuilding(tx,descriptor,state,digests);
+        await repository.publish(tx,await repository.markVerified(tx,built));
+      }
+    });
+    await seedExpiredBootstrap();
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET issued_at=date_trunc('second',clock_timestamp())-interval '1 minute',expires_at=date_trunc('second',clock_timestamp())+interval '59 minutes'");
+    return {source,target,service:service()};
+  }
+  function requestFor(claim:DeviceBootstrapClaim,stepNumber:number,workflowRevision:number,nonce:string,stepKind:string,stepPayload:unknown) {
+    const draft={schemaVersion:2,deviceSwitchRequestId:lookup.requestId,capabilityJti:claim.capability.jti,
+      stepNumber,expectedWorkflowRevision:workflowRevision,stepNonce:nonce,stepKind,stepPayload,requestDigest:Buffer.alloc(32).toString("base64url")};
+    return bootstrapStepRequestSchema.parse({...draft,requestDigest:hash(encodeBootstrapStepRequestDigestInput(draft))});
+  }
+  async function install(f:Awaited<ReturnType<typeof fixture>>) {
+    const claim=await f.service.claim(lookup,f.target);expect(claim).toMatchObject({accepted:true});
+    if(!claim?.accepted)throw new Error("claim refused");
+    const pin=requestFor(claim.claim,1,claim.claim.workflowRevision,claim.claim.nextStep.stepNonce,"pin_checkpoint",{});
+    const pinned=await f.service.step({schemaVersion:1,capability:claim.claim.capability,step:pin},f.target);
+    expect(pinned).toMatchObject({accepted:true,result:{stepKind:"pin_checkpoint",resultPayload:{targetServerRevision:7}}});
+    if(!pinned?.accepted||pinned.result.stepKind!=="pin_checkpoint")throw new Error("pin refused");
+    const checkpoint=pinned.result.resultPayload.checkpoint;
+    const fetch=requestFor(claim.claim,2,pinned.result.workflowRevision,pinned.result.nextStepNonce!,"fetch_mutations",{
+      pinnedCheckpointId:checkpoint.checkpointId,pinnedCheckpointDigest:checkpoint.checkpointDigest,pinnedCheckpointThroughServerRevision:checkpoint.throughServerRevision,
+      fromServerRevisionExclusive:checkpoint.throughServerRevision,throughServerRevisionInclusive:7,cursor:null,pageLimit:256});
+    const fetched=await f.service.step({schemaVersion:1,capability:claim.claim.capability,step:fetch},f.target);
+    expect(fetched).toMatchObject({accepted:true});
+    if(!fetched?.accepted)throw new Error("fetch refused");
+    const submit=requestFor(claim.claim,3,fetched.result.workflowRevision,fetched.result.nextStepNonce!,"submit_rebuild_digest",{
+      targetServerRevision:7,workspaceSchemaVersion:1,entityDigests:corpus.finalDigests});
+    const submitted=await f.service.step({schemaVersion:1,capability:claim.claim.capability,step:submit},f.target);
+    expect(submitted).toMatchObject({accepted:true});
+    if(!submitted?.accepted||submitted.result.stepKind!=="submit_rebuild_digest")throw new Error("digest refused");
+    const draft={...lookup,capability:claim.claim.capability,activationId:"00000000-0000-4000-8000-000000000071",
+      expectedWorkflowRevision:submitted.result.workflowRevision,pendingLeaseEpoch:2,targetServerRevision:7,workspaceSchemaVersion:1,
+      verifiedRebuildDigest:submitted.result.resultPayload.verifiedDigest,requestDigest:Buffer.alloc(32).toString("base64url")};
+    const activation=deviceBootstrapActivationRequestSchema.parse({...draft,requestDigest:hash(encodeBootstrapActivationRequestDigestInput(draft,hash(encodeBootstrapCapabilitySignedEnvelope(draft.capability))))});
+    return {claim:claim.claim,pin,pinned,fetch,fetched,submit,submitted,activation};
+  }
+  it("installs nonempty generation/tombstone state, resolves each lost ACK, and replays the original signed activation",async()=>{
+    const f=await fixture(),journey=await install(f);
+    const fresh=service();
+    expect(await fresh.claim(lookup,f.target)).toEqual({schemaVersion:1,accepted:true,claim:journey.claim});
+    expect(signedClaims).toBe(1);
+    expect(await fresh.receipt({...lookup,operation:{kind:"claim"}},f.target)).toMatchObject({outcome:"committed",operation:{claim:journey.claim}});
+    for(const [request,result] of [[journey.pin,journey.pinned],[journey.fetch,journey.fetched],[journey.submit,journey.submitted]] as const){
+      expect(await fresh.step({schemaVersion:1,capability:journey.claim.capability,step:request},f.target)).toEqual(result);
+      expect(await fresh.receipt({...lookup,operation:{kind:"step",stepNumber:request.stepNumber,requestDigest:request.requestDigest,replayDigest:hash(encodeBootstrapStepReplayRequest(request))}},f.target))
+        .toMatchObject({outcome:"committed",operation:{result:result.result}});
+    }
+    const rows:unknown[]=[];
+    if(journey.pinned.result.stepKind!=="pin_checkpoint")throw new Error("wrong pin result");
+    for(const partition of journey.pinned.result.resultPayload.checkpointEntityDigests){
+      const page=await fresh.checkpoint({...lookup,capability:journey.claim.capability,
+        checkpointId:journey.pinned.result.resultPayload.checkpoint.checkpointId,checkpointDigest:journey.pinned.result.resultPayload.checkpoint.checkpointDigest,
+        entityType:partition.entityType,partitionId:partition.partitionId,offset:0,pageLimit:256},f.target);
+      expect(page).toMatchObject({accepted:true});if(page?.accepted){expect(hash(encodeBootstrapCheckpointPageDigestInput(page.page))).toBe(page.page.pageDigest);rows.push(...page.page.rows);}
+    }
+    expect(rows).toEqual([...corpus.checkpointState.assets,...corpus.checkpointState.tombstones]);
+    expect(journey.fetched.result).toMatchObject({stepKind:"fetch_mutations",resultPayload:{mutationPage:{mutations:[{entityId:"kept.test",entityGeneration:2},{entityId:"removed.test",operationKind:"delete"}]}}});
+    const result=await fresh.activate(journey.activation,f.target);expect(result).toMatchObject({accepted:true,receipt:{status:"completed",pendingLeaseEpoch:2,targetServerRevision:7}});
+    expect(await service().activate(journey.activation,f.target)).toEqual(result);
+    expect(await service().receipt({...lookup,operation:{kind:"activate",activationId:journey.activation.activationId,requestDigest:journey.activation.requestDigest}},f.target))
+      .toMatchObject({outcome:"committed",operation:{receipt:result?.accepted?result.receipt:null}});
+    expect(await expiryState()).toMatchObject({workflow:"completed",allocation:"activated",highest:"2",current:"2",held:"1"});
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_activation_attempts")).rows).toEqual([{count:1}]);
+  });
+  it("rolls back claim, step and activation crash windows, then reuses the original operation",async()=>{
+    const f=await fixture();
+    await expect(service(point=>{if(point==="after_claim_persisted")throw new Error("crash");}).claim(lookup,f.target)).rejects.toThrow("crash");
+    expect(await service().receipt({...lookup,operation:{kind:"claim"}},f.target)).toMatchObject({outcome:"uncommitted",nextStep:null});
+    const journey=await install(f);
+    await expect(service(point=>{if(point==="after_activation_receipt_persisted")throw new Error("crash");}).activate(journey.activation,f.target)).rejects.toThrow("crash");
+    expect(await service().receipt({...lookup,operation:{kind:"activate",activationId:journey.activation.activationId,requestDigest:journey.activation.requestDigest}},f.target)).toMatchObject({outcome:"uncommitted"});
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",highest:"2",current:"1",held:"0"});
+    expect(await service().activate(journey.activation,f.target)).toMatchObject({accepted:true});
+  });
+  it("builds, reads back, publishes and pins the full nonempty checkpoint atomically",async()=>{
+    const f=await fixture(false);const claim=await f.service.claim(lookup,f.target);if(!claim?.accepted)throw new Error("claim refused");
+    const pin=requestFor(claim.claim,1,claim.claim.workflowRevision,claim.claim.nextStep.stepNonce,"pin_checkpoint",{});
+    const input={schemaVersion:1,capability:claim.claim.capability,step:pin};
+    await expect(service(point=>{if(point==="after_step_ports")throw new Error("pin-crash");}).step(input,f.target)).rejects.toThrow("pin-crash");
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM workspace_checkpoints")).rows).toEqual([{count:0}]);
+    expect(await f.service.receipt({...lookup,operation:{kind:"step",stepNumber:1,requestDigest:pin.requestDigest,replayDigest:hash(encodeBootstrapStepReplayRequest(pin))}},f.target)).toMatchObject({outcome:"uncommitted",nextStep:{stepNumber:1,stepKind:"pin_checkpoint"}});
+    const result=await f.service.step(input,f.target);expect(result).toMatchObject({accepted:true,result:{stepKind:"pin_checkpoint",resultPayload:{checkpoint:{throughServerRevision:7},checkpointEntityDigests:corpus.finalDigests}}});
+    expect((await ownerPool.query("SELECT status FROM workspace_checkpoints")).rows).toEqual([{status:"available"}]);
+    expect(await service().step(input,f.target)).toEqual(result);
+  });
+  it("serializes concurrent claims and returns one original nonce and signature",async()=>{
+    const f=await fixture();const results=await Promise.all([service().claim(lookup,f.target),service().claim(lookup,f.target)]);
+    expect(results[0]).toMatchObject({accepted:true});expect(results[1]).toEqual(results[0]);expect(signedClaims).toBe(1);
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_step_nonces")).rows).toEqual([{count:1}]);
+  });
+  it("rolls back a signed claim when its current desktop session expires before commit",async()=>{
+    const f=await fixture();await ownerPool.query("UPDATE identity_auth_sessions SET expires_at=clock_timestamp()+interval '300 milliseconds' WHERE session_id=$1",[f.target.sessionId]);
+    const delayed={async sign(input:Parameters<typeof capabilitySigner.sign>[0]){await new Promise(resolve=>setTimeout(resolve,500));return capabilitySigner.sign(input);}};
+    expect(await service(undefined,delayed).claim(lookup,f.target)).toBeNull();
+    expect((await ownerPool.query("SELECT ready_at,claim_response FROM device_bootstrap_capabilities")).rows).toEqual([{ready_at:null,claim_response:null}]);
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_authorities")).rows).toEqual([{count:0}]);
+  });
+  it("serializes final activation with target cancellation without reallocating the epoch",async()=>{
+    const f=await fixture(),journey=await install(f);
+    let entered!:()=>void,release!:()=>void;
+    const ready=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;});
+    const slow:ActiveDeviceLeaseSigner={async sign(input){entered();await gate;return leaseSigner.sign(input);}};
+    const activation=service(undefined,capabilitySigner,slow).activate(journey.activation,f.target);await ready;
+    const control=new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new PostgresBootstrapCheckpointPort());
+    const cancelled=control.cancel(lookup,f.target);release();
+    expect(await activation).toMatchObject({accepted:true});expect(await cancelled).toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
+    expect(await expiryState()).toMatchObject({workflow:"completed",allocation:"activated",highest:"2",current:"2",held:"1"});
+  });
+  it("keeps cancellation authoritative over prepared activation and returns terminal original-operation history",async()=>{
+    const f=await fixture(),journey=await install(f);
+    const control=new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new PostgresBootstrapCheckpointPort());
+    expect(await control.cancel(lookup,f.target)).toMatchObject({accepted:true});
+    expect(await f.service.activate(journey.activation,f.target)).toMatchObject({accepted:false});
+    expect(await f.service.receipt({...lookup,operation:{kind:"activate",activationId:journey.activation.activationId,requestDigest:journey.activation.requestDigest}},f.target)).toMatchObject({outcome:"terminal",workflow:{status:"cancelled"}});
+    expect(await expiryState()).toMatchObject({workflow:"cancelled",allocation:"burned",highest:"2",current:"1",held:"0"});
+  });
+  it("does not persist a capability whose signer key is absent from the trusted bootstrap registry",async()=>{
+    const f=await fixture();
+    const untrusted=new PostgresTargetBootstrapInstallation({transactions:identityTransactions,workspaces:new PostgresDefaultWorkspaceTenantResolver(identityTransactions),
+      capabilitySigner,capabilityKeys:new TrustedBootstrapVerificationKeySource([]),leaseSigner,leaseVerifier});
+    expect(await untrusted.claim(lookup,f.target)).toEqual({schemaVersion:1,accepted:false,code:"SIGNING_UNAVAILABLE"});
+    expect((await ownerPool.query("SELECT ready_at,claim_response FROM device_bootstrap_capabilities")).rows).toEqual([{ready_at:null,claim_response:null}]);
+  });
+  it("rejects a trusted signature for another device and a changed semantic request digest before consuming the nonce",async()=>{
+    const f=await fixture(),response=await f.service.claim(lookup,f.target);if(!response?.accepted)throw new Error("claim refused");
+    const claim=response.claim,pin=requestFor(claim,1,claim.workflowRevision,claim.nextStep.stepNonce,"pin_checkpoint",{});
+    const foreign={...claim.capability,deviceId:"device-a"};
+    foreign.signature=sign(null,encodeBootstrapCapabilitySignatureTranscript(foreign),signing.privateKey).toString("base64url");
+    expect(await f.service.step({schemaVersion:1,capability:foreign,step:pin},f.target)).toEqual({schemaVersion:1,accepted:false,code:"CAPABILITY_INVALID"});
+    expect(await f.service.step({schemaVersion:1,capability:claim.capability,step:{...pin,requestDigest:Buffer.alloc(32).toString("base64url")}},f.target)).toEqual({schemaVersion:1,accepted:false,code:"BOOTSTRAP_CONFLICT"});
+    expect((await ownerPool.query("SELECT state FROM device_bootstrap_step_nonces")).rows).toEqual([{state:"active"}]);
+    await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch=3");
+    expect(await f.service.step({schemaVersion:1,capability:claim.capability,step:pin},f.target)).toMatchObject({accepted:false,code:"BOOTSTRAP_CONFLICT"});
+  });
+  it("does not install an Active Lease signed by an unconfigured Lease key",async()=>{
+    const f=await fixture(),journey=await install(f),foreign=generateKeyPairSync("ed25519");
+    const badSigner:ActiveDeviceLeaseSigner={async sign(input){const draft={...input.claims,kid:"unconfigured-lease",signature:Buffer.alloc(64).toString("base64url")};
+      return {signed:true,envelope:{...draft,signature:sign(null,encodeActiveDeviceLeaseSignatureTranscript(draft),foreign.privateKey).toString("base64url")},verificationKey:foreign.publicKey,receipt:Buffer.from("untrusted-fixture")};}};
+    expect(await service(undefined,capabilitySigner,badSigner).activate(journey.activation,f.target)).toEqual({schemaVersion:1,accepted:false,code:"SIGNING_UNAVAILABLE"});
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",highest:"2",current:"1",held:"0"});
+    expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_bootstrap_activation_attempts")).rows).toEqual([{count:0}]);
+  });
+  it("keeps v3 checkpoint tombstones behind the consumed devices capability despite selector spoofing",async()=>{
+    const f=await fixture();
+    expect((await accountApiPool.query("SELECT entity_id FROM workspace_checkpoint_domain_asset_tombstones")).rows).toEqual([]);
+    const read=(purpose:"identity_account"|"devices_account",spoofPurpose=false)=>identityTransactions.withAccountCredential(f.target.transactionCredential,purpose,async tx=>{
+      await tx.query("SELECT set_config('gooddealer.workspace_id','oauth-workspace',true)");
+      if(spoofPurpose)await tx.query("SELECT set_config('gooddealer.capability_purpose','devices_account',true)");
+      return (await tx.query("SELECT entity_id FROM workspace_checkpoint_domain_asset_tombstones")).rows;
+    });
+    expect(await read("identity_account")).toEqual([]);
+    expect(await read("identity_account",true)).toEqual([]);
+    expect(await read("devices_account")).toEqual([{entity_id:"deleted.test"}]);
+  });
+  it("keeps expired history queryable through a bound identity and burns authority before suggesting any retry",async()=>{
+    const f=await fixture();await f.service.claim(lookup,f.target);
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET expires_at=clock_timestamp()-interval '1 second'");
+    const routes=new PostgresDesktopRouteAuthority(new PostgresDefaultWorkspaceTenantResolver(transactions),new PostgresDesktopSyncAuthority(transactions));
+    expect(await routes.authorize(f.target,"bound_device")).toBe(true);expect(await routes.authorize(f.target,"active_or_standby")).toBe(false);
+    const control=new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new PostgresBootstrapCheckpointPort());
+    expect(await control.status(lookup,f.target)).toMatchObject({found:true,request:{status:"bootstrapping"}});
+    expect(await f.service.receipt({...lookup,operation:{kind:"claim"}},f.target)).toMatchObject({outcome:"committed",workflow:{status:"failed"}});
+    expect(await expiryState()).toMatchObject({workflow:"failed",allocation:"burned",highest:"2",current:"1",held:"0"});
+    expect(await f.service.claim(lookup,f.target)).toMatchObject({accepted:false});
+  });
+  it("rejects source/cross-account/nonce tampering and preserves exact receipt identity",async()=>{
+    const f=await fixture();expect(await f.service.claim(lookup,f.source)).toMatchObject({accepted:false});
+    expect(await f.service.claim(lookup,{...f.target,accountId:"foreign"})).toBeNull();
+    const journey=await install(f);
+    expect(await f.service.receipt({...lookup,operation:{kind:"step",stepNumber:1,requestDigest:journey.pin.requestDigest,replayDigest:Buffer.alloc(32).toString("base64url")}},f.target)).toEqual({schemaVersion:1,outcome:"conflict"});
+    expect(await f.service.step({schemaVersion:1,capability:journey.claim.capability,step:{...journey.pin,stepNonce:Buffer.alloc(32,99).toString("base64url")}},f.target)).toMatchObject({accepted:false});
+    await ownerPool.query("UPDATE device_signing_keys SET status='revoked' WHERE device_id='device-b'");
+    expect(await f.service.receipt({...lookup,operation:{kind:"claim"}},f.target)).toBeNull();
+  });
+});

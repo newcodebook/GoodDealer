@@ -232,6 +232,9 @@ impl DesktopLocalHost {
         let verified_authority = match verified_role {
             VerifiedWorkspaceRole::Active(active) => active,
             VerifiedWorkspaceRole::Standby(standby) => {
+                if self.installation_context_gate.swap(false, Ordering::AcqRel) {
+                    *runtime = None;
+                }
                 // Durable continuation authority cannot resurrect the superseded Active Lease.
                 if let (Some(manager), Some(continuation)) =
                     (&authority.continuity, &authority.verified_continuation)
@@ -280,8 +283,51 @@ impl DesktopLocalHost {
                 return Ok(());
             }
         };
-        let mut database = custody
-            .open_workspace(verified_authority.workspace_id())
+        if super::target_installation::initial_authority_awaits_receipt(
+            custody,
+            &verified_authority,
+        )
+        .map_err(|_| {
+            self.abort_transition(
+                &mut authority,
+                &mut runtime,
+                &mut operation,
+                requested,
+                DesktopLocalHostError::AuthorityRejected,
+            )
+        })? {
+            // Server activation may precede its lost ACK. Retain only exact target receipt
+            // admission; no database or Provider authority is published from this Grant.
+            *runtime = None;
+            self.installation_context_gate
+                .store(true, Ordering::Release);
+            authority.authority = Some(PrivateWorkspaceAuthority::from_verified(
+                &verified_authority,
+                requested,
+            ));
+            authority.applied_authority_epoch = requested;
+            authority.restriction = RuntimeRestriction::Active;
+            clear_operation_state(&mut operation);
+            return Ok(());
+        }
+        let installation_database =
+            super::target_installation::open_for_initial_authority(custody, &verified_authority)
+                .map_err(|_| {
+                    self.abort_transition(
+                        &mut authority,
+                        &mut runtime,
+                        &mut operation,
+                        requested,
+                        DesktopLocalHostError::AuthorityRejected,
+                    )
+                })?;
+        self.installation_context_gate
+            .store(installation_database.is_some(), Ordering::Release);
+        let mut database = installation_database
+            .map_or_else(
+                || custody.open_workspace(verified_authority.workspace_id()),
+                Ok,
+            )
             .map_err(|_| {
                 self.abort_transition(
                     &mut authority,
@@ -535,6 +581,7 @@ impl DesktopLocalHost {
         let snapshot = self.status_snapshot();
         match snapshot.business {
             DesktopLocalBusinessState::StandbyAwaitingReplica
+            | DesktopLocalBusinessState::TargetInstallationPending
             | DesktopLocalBusinessState::ActivationRequired
             | DesktopLocalBusinessState::SecurityLocked
             | DesktopLocalBusinessState::RetryableLocked => {
@@ -611,7 +658,8 @@ impl DesktopLocalHost {
             return Err(DesktopLocalHostError::Unavailable);
         };
         let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::Unavailable)?;
-        if runtime.is_none()
+        if self.installation_context_gate.load(Ordering::Acquire)
+            || runtime.is_none()
             || self.transition_requested_epoch.load(Ordering::Acquire)
                 != authority.applied_authority_epoch
             || authority.restriction != RuntimeRestriction::Active
@@ -632,6 +680,10 @@ impl DesktopLocalHost {
             .ok_or(DesktopLocalHostError::Unavailable)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one locked snapshot maps every closed authority and installation state exhaustively"
+    )]
     fn status_snapshot(&self) -> DesktopStatusSnapshot {
         // Status is itself an authorization boundary. Use the same aggregate lock prefix as
         // operations so a renderer can never observe a restriction independently of a pending
@@ -688,7 +740,25 @@ impl DesktopLocalHost {
                 }
             }
             RuntimeRestriction::Active => {
-                let valid = runtime.is_some()
+                if self.installation_context_gate.load(Ordering::Acquire) {
+                    if authority.authority.as_ref().is_none_or(|current| {
+                        current.kind != WorkspaceAuthorityKind::Active
+                            || !current.is_current_at(now)
+                    }) {
+                        return DesktopStatusSnapshot::security_locked(0);
+                    }
+                    return DesktopStatusSnapshot {
+                        authorization: if runtime.is_some() {
+                            DesktopHostAuthorizationStatus::Authorized
+                        } else {
+                            DesktopHostAuthorizationStatus::RetryableLocked
+                        },
+                        business: DesktopLocalBusinessState::TargetInstallationPending,
+                        read_generation: 0,
+                    };
+                }
+                let valid = !self.installation_context_gate.load(Ordering::Acquire)
+                    && runtime.is_some()
                     && authority.authority.as_ref().is_some_and(|current| {
                         current.kind == WorkspaceAuthorityKind::Active && current.is_current_at(now)
                     });
@@ -703,7 +773,8 @@ impl DesktopLocalHost {
                 }
             }
             RuntimeRestriction::CommercialReadOnly => {
-                let valid = runtime.is_some()
+                let valid = !self.installation_context_gate.load(Ordering::Acquire)
+                    && runtime.is_some()
                     && authority.continuity.is_some()
                     && authority
                         .verified_continuation

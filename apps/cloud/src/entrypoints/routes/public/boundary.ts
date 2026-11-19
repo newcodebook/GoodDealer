@@ -1,3 +1,4 @@
+import { PublicRouteAuthorizationError } from "../../adapter/error-identity";
 import { desktopExecutionContextRequestSchema, desktopExecutionContextResponseSchema, DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES } from "@gooddealer/protocol/devices";
 import type { DesktopExecutionContextApplicationPort } from "../../ports/execution-context";
 import type { TargetBootstrapControlPort } from "../../ports/target-bootstrap";
@@ -168,8 +169,6 @@ export const DEVICE_AUDIT_INGEST_ROUTE = "/v1/device-audits/ingest" as const;
 export const DEVICE_AUDIT_RECEIPTS_ROUTE = "/v1/device-audits/receipts" as const;
 export const EXECUTION_FACT_INGEST_ROUTE = "/v1/execution-facts/ingest" as const;
 export const EXECUTION_FACT_RECEIPTS_ROUTE = "/v1/execution-facts/receipts" as const;
-
-export class PublicRouteAuthorizationError extends Error {}
 
 function assertExecutionEvidenceResponseBound(value: unknown): void {
   // The 100-entry contract is a count bound. Escaped identifiers can still exceed Native's
@@ -506,7 +505,7 @@ export function createPublicBusinessRoutes(
     {
       surface: PUBLIC_SURFACE, method: "POST", path: TARGET_BOOTSTRAP_STATUS_ROUTE,
       request: deviceBootstrapStatusRequestSchema, response: deviceBootstrapStatusResponseSchema,
-      requiredScope: null, deviceRole: "active_or_standby",
+      requiredScope: null, deviceRole: "bound_device",
       authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: async (value: unknown, principal: PublicPrincipal) => {
@@ -520,7 +519,7 @@ export function createPublicBusinessRoutes(
     {
       surface: PUBLIC_SURFACE, method: "POST", path: TARGET_BOOTSTRAP_CANCEL_ROUTE,
       request: deviceSwitchLookupRequestSchema, response: deviceSwitchResponseSchema,
-      requiredScope: null, deviceRole: "active_or_standby",
+      requiredScope: null, deviceRole: "bound_device",
       authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: async (value: unknown, principal: PublicPrincipal) => {

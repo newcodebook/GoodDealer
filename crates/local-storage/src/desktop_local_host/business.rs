@@ -447,7 +447,8 @@ impl DesktopLocalHost {
             | RuntimeRestriction::RetryableLocked
             | RuntimeRestriction::SecurityLocked => false,
         };
-        if !restriction_authorizes
+        if self.installation_context_gate.load(Ordering::Acquire)
+            || !restriction_authorizes
             || mutable && authority.restriction != RuntimeRestriction::Active
             || self.transition_requested_epoch.load(Ordering::Acquire) != captured_epoch
             || !current.is_current_at(now)

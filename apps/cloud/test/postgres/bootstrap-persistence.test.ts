@@ -235,10 +235,10 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
     await transactions.withTenant(scope, (transaction) => transaction.query(
       "UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '300 milliseconds'"));
     const ports = new TestBootstrapPorts(scope.workspaceId);
-    const pin = ports.lockAvailableAndPin.bind(ports);
-    ports.lockAvailableAndPin = async (transaction, input) => {
+    const pin = ports.ensureBootstrapCheckpointLocked.bind(ports);
+    ports.ensureBootstrapCheckpointLocked = async (transaction) => {
       await transaction.query("SELECT pg_sleep(0.4)");
-      return pin(transaction, input);
+      return pin(transaction);
     };
     const service = createStepService(fixture, ports);
     await expect(service.execute({ scope, expectedCapability: fixture.expected,
@@ -495,7 +495,7 @@ async function seedBootstrap(
       [scope.accountId, scope.workspaceId, fixture.envelope.jti, fixture.envelope.issuedAt,
         fixture.envelope.expiresAt, canonical, createHash("sha256").update(canonical).digest(), fixture.envelope.kid]);
     const nonceDigest = createHash("sha256").update(encodeDomainSeparatedWireValue(
-      "GOODDEALER-BOOTSTRAP-STEP-NONCE-V1", fixture.nonce,
+      "GOODDEALER-BOOTSTRAP-STEP-NONCE-V2", fixture.nonce,
     )).digest();
     await transaction.query(`INSERT INTO device_bootstrap_authorities
       (account_id, workspace_id, workflow_id, capability_jti, target_device_id, account_security_epoch,
@@ -521,10 +521,9 @@ function createStepService(fixture: ReturnType<typeof signedFixture>, ports: Tes
 }
 
 function pinRequest(capabilityJti: string, stepNonce: string, checkpointId = "checkpoint-1") {
-  const draft = { schemaVersion: 1 as const, deviceSwitchRequestId: "switch-request-1", capabilityJti,
-    stepNumber: 1, stepNonce, expectedWorkflowRevision: 4, stepKind: "pin_checkpoint" as const,
-    stepPayload: { checkpointId, checkpointThroughServerRevision: 0,
-      checkpointDigest: Buffer.alloc(32, 9).toString("base64url") },
+  const draft = { schemaVersion: 2 as const, deviceSwitchRequestId: "switch-request-1", capabilityJti,
+    stepNumber: 1, stepNonce, expectedWorkflowRevision: checkpointId === "checkpoint-1" ? 4 : 3, stepKind: "pin_checkpoint" as const,
+    stepPayload: {},
     requestDigest: Buffer.alloc(32).toString("base64url") };
   return bootstrapStepRequestSchema.parse({ ...draft,
     requestDigest: createHash("sha256").update(encodeBootstrapStepRequestDigestInput(draft)).digest("base64url") });
@@ -534,6 +533,13 @@ class TestBootstrapPorts {
   readonly calls = { revisions: 0, checkpoints: 0, mutations: 0, projection: 0 };
   constructor(private readonly workspaceId: string) {}
   async lock(_transaction: TenantTransaction) { this.calls.revisions += 1; return { serverRevision: 0, workspaceSchemaVersion: 1 }; }
+  async ensureBootstrapCheckpointLocked(transaction: TenantTransaction) {
+    await this.lock(transaction); this.calls.checkpoints += 1;
+    return {checkpoint:{schemaVersion:3 as const,workspaceId:this.workspaceId,workspaceSchemaVersion:1,
+      checkpointId:"checkpoint-1",throughServerRevision:0,checkpointDigest:Buffer.alloc(32,9).toString("base64url")},
+      checkpointEntityDigests:[{entityType:"domain_asset" as const,partitionId:"empty",digest:Buffer.alloc(32,9).toString("base64url")}],
+      targetServerRevision:0,workspaceSchemaVersion:1};
+  }
   async lockAvailableAndPin(_transaction: TenantTransaction, input: { readonly descriptor: object }) {
     this.calls.checkpoints += 1; return { ...input.descriptor } as never;
   }

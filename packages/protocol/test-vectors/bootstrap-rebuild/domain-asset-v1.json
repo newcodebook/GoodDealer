@@ -166,9 +166,14 @@
       {
         "entityType": "domain_asset",
         "partitionId": "p0000",
-        "digest": "LjNHbM6LGrhGrAMRK8LmWm5Efp40SXMeLSz_2jNqAL4"
+        "digest": "VRoV8OuLYTqwwwTu8FAJLUO-XF6bqt9r7nMkX07FgAs"
+      },
+      {
+        "entityType": "domain_asset_tombstone",
+        "partitionId": "t0000",
+        "digest": "VLEAhJl1d-jsP8YEe5Sv7bshp_yTKb2xCncUa-7vF_Q"
       }
     ],
-    "digest": "SLyNpM66wd9nqIN3Mt5p49CQevBzfP2_1dzQjexXBf4"
+    "digest": "gzowln3mXPyRpn67MqQ3HNqrIN4hH54rj-dbTUQXNs0"
   }
 }

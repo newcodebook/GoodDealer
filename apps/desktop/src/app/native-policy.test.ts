@@ -118,6 +118,8 @@ describe("Desktop native policy", () => {
       "allow-device-switch-cancel",
       "allow-target-bootstrap-status",
       "allow-target-bootstrap-cancel",
+      "allow-target-installation-start",
+      "allow-target-installation-status",
       "allow-desktop-authentication-status",
       "allow-desktop-authentication-begin",
       "allow-desktop-authentication-refresh",

@@ -81,7 +81,7 @@ Transit mount 为 `transit`。此前已记录部署的五把不可导出、不�
 `OpenBaoTransitSigner` 只使用 `public-keys.json` 为每个 purpose 明确选择的 active key/version 签名，
 同时把该 purpose 的 1–8 把 verifier key 安装到 Cloud/Desktop 验签边界。轮换期 verifier 集合同时
 保留旧/新 key，active 只指向新 key；旧 envelope 窗口结束后再从集合中撤旧。配置严格拒绝未知字段、
-缺失 active 引用、重复 `(name, version)`、`kid` 或公钥材料，以及 Active Grant/Lease/Standby Grant/Execution Context 跨用途共享 name、`kid` 或材料。
+缺失 active 引用、重复 `(name, version)`、`kid` 或公钥材料，以及 Active Grant/Lease/Standby Grant/Execution Context/Bootstrap Capability 跨用途共享 name、`kid` 或材料。
 Transit 返回 401/403 时，Cloud 仅失效本次被拒绝的内存 token，重新执行一次 AppRole 登录并重试；
 并发请求已取得的新 token 不会被旧请求清除。任何非成功响应体都会先取消，再重试或返回通用失败。
 
@@ -94,7 +94,7 @@ Transit 返回 401/403 时，Cloud 仅失效本次被拒绝的内存 token，重
 在受控 OpenBao 管理流程中创建同样不可导出、不可明文备份、不可删除的独立 key，并只为现有
 `gooddealer-dev-authority` 策略新增 `transit/sign/gooddealer-dev-desktop-standby-grant` 的签名权限。
 AppRole 仍不能管理 key、读取秘密或签 audit key。把真实公开 key/version 安装到下列 `standby`
-keyring，并与下述第四用途一起生成、发布 Desktop registry 后再启用新 Cloud 组合。缺失用途的配置会被严格
+keyring，并与下述第四、第五用途一起生成、发布 Desktop registry 后再启用新 Cloud 组合。缺失用途的配置会被严格
 拒绝，不以复用 Active key、测试 key 或放宽策略作为兼容路径。验证需实际签发 Standby，并确认
 Active/Lease 公钥不能验证其签名；测试环境的本地 Ed25519 证据不等于该部署验收。
 
@@ -108,9 +108,15 @@ Active/Lease 公钥不能验证其签名；测试环境的本地 Ed25519 证据�
 
 受控升级须创建独立不可导出的 Ed25519 key，仅向现有 authority AppRole 增加对应
 `transit/sign/gooddealer-dev-desktop-execution-context` 权限，并安装真实公开材料到 Cloud 与 Desktop
-的四用途 registry。所有用途间的名称、`kid` 和公钥必须分离；旧验证 key 在历史证据仍需验证时保留。
-第三、第四用途均仍缺共享实例部署和真实 Transit 验收证据。需要实际验证签名、错用途拒绝及事务提交
+的五用途 registry。所有用途间的名称、`kid` 和公钥必须分离；旧验证 key 在历史证据仍需验证时保留。
+第三、第四、第五用途均仍缺共享实例部署和真实 Transit 验收证据。需要实际验证签名、错用途拒绝及事务提交
 后的上下文返回，不能用本地签名测试替代；源码配置已拒绝缺少任一用途的文件。
+
+### 目标引导第五用途
+
+源码要求独立 `bootstrap` keyring，对应逻辑用途 `gooddealer.devices.bootstrap-capability.v1` 和 Desktop registry 的 `bootstrap_capability_v1`。受控部署需创建独立不可导出、不可明文备份、不可删除的 Ed25519 Transit key，为 authority AppRole 仅增加该 key 的签名权限，并安装真实公钥和显式版本。不得复用 Grant、Lease、Standby 或 Context 的 key name、kid、公钥材料。
+
+此用途尚无共享实例部署及真实 Transit 资格证据。先发布包含五个独立用途的 Desktop registry，再启用匹配 Cloud 组合；分别验证真实 claim 签名、错用途拒绝、精确原回执重放以及签名失败回滚。源码签名器测试不替代部署验收。
 
 ## 共享 Cloud 调用
 

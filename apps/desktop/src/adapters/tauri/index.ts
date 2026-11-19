@@ -72,6 +72,7 @@ export interface LocalBusinessStatus {
     | "security_locked"
     | "retryable_locked"
     | "commercial_read_only"
+    | "target_installation_pending"
     | "standby_awaiting_replica"
     | "standby_read_only"
     | "active";
@@ -196,6 +197,19 @@ export type TargetBootstrapView =
 export interface TargetBootstrapPort {
   status(): Promise<TargetBootstrapView>;
   cancel(requestId: string): Promise<TargetBootstrapView>;
+}
+
+export type TargetInstallationPhase = "claiming" | "downloading" | "installing" | "verifying" | "activating" | "authorizing";
+export type TargetInstallationView =
+  | { readonly kind: "idle" }
+  | { readonly kind: "running"; readonly requestId: string; readonly phase: TargetInstallationPhase }
+  | { readonly kind: "completed" | "existing_replica"; readonly requestId: string }
+  | { readonly kind: "stopped"; readonly requestId: string; readonly status: "cancelled" | "failed" | "completed" };
+export interface TargetInstallationPort {
+  /** Persists one confirmation; Native owns all subsequent work and replay. */
+  start(requestId: string): Promise<TargetInstallationView>;
+  /** Reads local progress only; never initiates or retries an installation. */
+  status(): Promise<TargetInstallationView>;
 }
 
 export type CloudflareConnectionStatusState = "not-configured" | "recovering" | "ready" | "busy" | "blocked";
@@ -654,6 +668,37 @@ export function createTargetBootstrapPort(): TargetBootstrapPort {
   };
 }
 
+export function createTargetInstallationPort(): TargetInstallationPort {
+  return {
+    async status() { return parseTargetInstallationView(await invoke<unknown>("target_installation_status")); },
+    async start(requestId) {
+      if (!isPrintableIdentifier(requestId, 160)) throw new TypeError("invalid installation request");
+      const view = parseTargetInstallationView(await invoke<unknown>("target_installation_start", { request: { schemaVersion: 1, requestId } }));
+      if (view.kind === "idle" || view.requestId !== requestId) throw new TypeError("installation identity mismatch");
+      return view;
+    },
+  };
+}
+function parseTargetInstallationView(value: unknown): TargetInstallationView {
+  const data = copyPlainData(value);
+  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new TypeError("invalid installation view");
+  const kind = (data as Record<string, unknown>)["kind"];
+  const fields = kind === "idle" ? ["schemaVersion", "kind"] : kind === "running"
+    ? ["schemaVersion", "kind", "requestId", "phase"] : kind === "stopped"
+      ? ["schemaVersion", "kind", "requestId", "status"] : ["schemaVersion", "kind", "requestId"];
+  const record = exactRecord(data, fields);
+  if (record["schemaVersion"] !== 1) throw new TypeError("invalid installation version");
+  if (kind === "idle") return Object.freeze({ kind });
+  const requestId = record["requestId"];
+  if (!isPrintableIdentifier(requestId, 160)) throw new TypeError("invalid installation identity");
+  if (kind === "completed" || kind === "existing_replica") return Object.freeze({ kind, requestId });
+  const phase = record["phase"];
+  if (kind === "running" && (phase === "claiming" || phase === "downloading" || phase === "installing" || phase === "verifying" || phase === "activating" || phase === "authorizing")) return Object.freeze({ kind, requestId, phase });
+  const status = record["status"];
+  if (kind === "stopped" && (status === "cancelled" || status === "failed" || status === "completed")) return Object.freeze({ kind, requestId, status });
+  throw new TypeError("invalid installation state");
+}
+
 function parseTargetBootstrapView(value: unknown): TargetBootstrapView {
   const data = copyPlainData(value);
   if (typeof data !== "object" || data === null || Array.isArray(data)) throw new TypeError("invalid target bootstrap view");
@@ -730,6 +775,7 @@ function parseStatus(value: unknown): LocalBusinessStatus {
     "security_locked",
     "retryable_locked",
     "commercial_read_only",
+    "target_installation_pending",
     "standby_awaiting_replica",
     "standby_read_only",
     "active",

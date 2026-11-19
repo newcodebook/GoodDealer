@@ -1,16 +1,12 @@
 {
-  "schemaVersion": 1,
-  "deviceSwitchRequestId": "switch-1",
-  "capabilityJti": "bootstrap-jti-1",
+  "schemaVersion": 2,
+  "deviceSwitchRequestId": "installation-workflow",
+  "capabilityJti": "installation-capability",
   "stepNumber": 1,
-  "stepNonce": "bm9uY2UtMQ",
-  "expectedWorkflowRevision": 0,
+  "stepNonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+  "expectedWorkflowRevision": 1,
+  "requestDigest": "2jRmtOEsJ5N-jd2xayKj4Xtio0VIOzycKNpzSiI0U6Q",
   "stepKind": "pin_checkpoint",
-  "stepPayload": {
-    "checkpointId": "checkpoint-4",
-    "checkpointThroughServerRevision": 4,
-    "checkpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-  },
-  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-  "workspaceId": "workspace-a"
+  "stepPayload": {},
+  "extra": true
 }

@@ -14,6 +14,7 @@ mod provider_ipc;
 mod provider_lane;
 mod sync_lane;
 mod target_bootstrap_termination;
+mod target_installation;
 
 use gooddealer_local_storage::DesktopApplicationRoot;
 use gooddealer_secure_host_core::load_or_create_desktop_device_identity;
@@ -125,6 +126,54 @@ fn run_app(app: tauri::App, mut power_monitor: gooddealer_secure_host_core::Nati
     });
 }
 
+fn setup_native_app(
+    app: &mut tauri::App,
+    power_gate: &gooddealer_secure_host_core::NativePowerGate,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The Host owns a dedicated child: WebKitGTK creates the app data directory itself
+    // (media keys) before setup runs, under the user's umask, so that directory can be
+    // group-writable on stock Linux desktops. The child is created owner-only by the root
+    // validator and holds nothing the webview writes.
+    #[cfg(not(windows))]
+    let app_data_root = app.path().app_data_dir()?.join("local-host");
+    #[cfg(windows)]
+    let app_data_root = app.path().app_local_data_dir()?.join("local-host");
+    let application_root = DesktopApplicationRoot::validate(&app_data_root)?;
+    let identity = load_or_create_desktop_device_identity().ok().map(Arc::new);
+    let local_host = Arc::new(execution_context_native::production_host(
+        application_root,
+        identity.clone(),
+        power_gate,
+    )?);
+    app.manage(Arc::clone(&local_host));
+    let oauth = Arc::new(oauth_runtime::DesktopOAuthRuntime::new(
+        Some(native_cloud_session::PRODUCTION_CLOUD_ORIGIN),
+        Some(oauth_runtime::PRODUCTION_ACCOUNT_ORIGIN),
+        identity,
+        Arc::clone(&local_host),
+        Some(power_gate.clone()),
+    ));
+    let session = Arc::clone(oauth.session());
+    app.manage(Arc::clone(&session));
+    app.manage(Arc::clone(&oauth));
+    let cloud = native_cloud_runtime::NativeCloudCoordinator::start(
+        &local_host,
+        &session,
+        power_gate,
+        &oauth,
+    );
+    app.manage(cloud.device_switch());
+    app.manage(cloud.target_bootstrap());
+    app.manage(cloud.target_installation());
+    app.manage(cloud);
+    let maintenance = Arc::clone(&oauth);
+    let maintenance_app = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        maintenance.maintain_authentication(maintenance_app).await;
+    });
+    Ok(())
+}
+
 fn main() {
     let power_monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
     let power_gate = power_monitor.gate();
@@ -135,49 +184,7 @@ fn main() {
             |_app, _arguments, _cwd| {},
         ))
         .plugin(tauri_plugin_opener::init())
-        .setup(move |app| {
-            // The Host owns a dedicated child: WebKitGTK creates the app data directory itself
-            // (media keys) before setup runs, under the user's umask, so that directory can be
-            // group-writable on stock Linux desktops. The child is created owner-only by the root
-            // validator and holds nothing the webview writes.
-            #[cfg(not(windows))]
-            let app_data_root = app.path().app_data_dir()?.join("local-host");
-            #[cfg(windows)]
-            let app_data_root = app.path().app_local_data_dir()?.join("local-host");
-            let application_root = DesktopApplicationRoot::validate(&app_data_root)?;
-            let identity = load_or_create_desktop_device_identity().ok().map(Arc::new);
-            let local_host = Arc::new(execution_context_native::production_host(
-                application_root,
-                identity.clone(),
-                &power_gate,
-            )?);
-            app.manage(Arc::clone(&local_host));
-            let oauth = Arc::new(oauth_runtime::DesktopOAuthRuntime::new(
-                Some(native_cloud_session::PRODUCTION_CLOUD_ORIGIN),
-                Some(oauth_runtime::PRODUCTION_ACCOUNT_ORIGIN),
-                identity,
-                Arc::clone(&local_host),
-                Some(power_gate.clone()),
-            ));
-            let session = Arc::clone(oauth.session());
-            app.manage(Arc::clone(&session));
-            app.manage(Arc::clone(&oauth));
-            let cloud = native_cloud_runtime::NativeCloudCoordinator::start(
-                &local_host,
-                &session,
-                &power_gate,
-                &oauth,
-            );
-            app.manage(cloud.device_switch());
-            app.manage(cloud.target_bootstrap());
-            app.manage(cloud);
-            let maintenance = Arc::clone(&oauth);
-            let maintenance_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                maintenance.maintain_authentication(maintenance_app).await;
-            });
-            Ok(())
-        })
+        .setup(move |app| setup_native_app(app, &power_gate))
         .invoke_handler(tauri::generate_handler![
             command_handlers::local_business_status,
             command_handlers::local_device_lease_read,
@@ -206,6 +213,8 @@ fn main() {
             command_handlers::device_switch_cancel,
             command_handlers::target_bootstrap::target_bootstrap_status,
             command_handlers::target_bootstrap::target_bootstrap_cancel,
+            command_handlers::target_installation::target_installation_start,
+            command_handlers::target_installation::target_installation_status,
             command_handlers::local_backup_restore_status,
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,

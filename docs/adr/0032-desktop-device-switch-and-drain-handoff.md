@@ -110,16 +110,17 @@ Standby 可调用的路由是封闭清单：
 | `POST /v1/device-switch/requests/cancel` | 只接受取消本设备为目标、仍处于 `waiting_expiry` 的强制接管 |
 | `POST /v1/device-switch/bootstrap/status` | 仅发现本会话设备作为目标的唯一 `bootstrapping` 工作流，或按精确 id 读取本目标历史；账户和默认工作区由服务器派生 |
 | `POST /v1/device-switch/bootstrap/cancel` | 仅终止本会话设备作为目标的精确 `bootstrapping` 工作流；未领取能力也可取消；原子烧 pending epoch、消费能力与 nonce、释放 pin，保留来源交接回执，不授予执行权限 |
-| 引导能力获取、引导步骤与激活路由 | 会话设备必须是工作流目标，且引导步骤与激活同时出示绑定该设备与工作流的引导能力 |
+| `POST /v1/device-switch/bootstrap/receipt` | 当前绑定的精确目标会话可核对原 claim、step 或 activation；不要求历史能力仍有效，终态回执不能恢复旧 nonce 或执行权 |
+| `POST /v1/device-switch/bootstrap/claim`、`step`、`checkpoint`、`activate` | Active/Standby 会话设备必须是工作流目标；后三者同时出示绑定该设备与工作流的独立用途引导能力 |
 
 目标停止引导的确认绑定精确工作流 id，Native 先持久化意图再发送；未知响应与重开先查同一工作流，再决定重发原取消。新工作流必须重新预览确认，历史取消不得套用到它。取消与激活、过期、步骤提交在账户/工作流锁序下串行；终结不回退最高分配 epoch，不恢复来源 Lease，也不删除既有云副本或原机数据。
 
 其余 Desktop 路由——`mutations/push`、`mutations/receipts`、`device-switch/requests/drain`、普通切换请求、来源设备取消、
 `/v1/workspace-observations/cloudflare-dns` 以及以后新增的任何路由——都要求 Active。拒绝分两层，任一层都足以拒绝：
 
-1. **路由声明**：Desktop 路由的 `RouteAdapter` 增加必填的 `deviceRole: "active" | "active_or_standby"`，没有默认值；
+1. **路由声明**：Desktop 路由的 `RouteAdapter` 增加必填的 `deviceRole: "active" | "active_or_standby" | "bound_device"`，没有默认值；
    路由表测试钉住 `active_or_standby` 的精确集合，新增路由不声明或扩大集合都使测试失败（与现有 Tauri 命令清单测试
-   同一方式）。
+   同一方式）。`bound_device` 仅用于目标引导 `status`、`cancel`、`receipt` 三条路由；它验证当前会话、刷新族、安全代次、默认工作区、设备绑定和有效设备密钥，不要求仍有效的 Lease 或引导能力。历史回执查询和终结不能被过期的 pending 能力阻止；不使用空角色跳过准入。
 2. **应用层解析**：Active 路由继续只经 `resolveActiveDevice`；Standby 可调用的路由改经新的
    `resolveSessionDevice(principal, workspaceId) → { deviceId, role } | null`，它在同一事务中复核 S1 节全部资格条件，
    再由各服务按上表细化（例如强制接管要求 `role = standby` 且目标为本设备，Active 设备不能对自己发起强制接管）。
@@ -129,6 +130,20 @@ rebootstrap 计划重建——但长期不在线或权益已过期的 Standby �
 
 拒绝沿用各路由现有的封闭结果（同步路由 `SYNC_AUTHORIZATION_REJECTED`，其余为不带细节的授权拒绝），不新增
 “你是 Standby”的错误码；设备的角色只经 Grant 告知 Host。
+
+### 目标首次安装、激活与未知结果
+
+首次安装只接纳 Native custody 明确证明尚未初始化的固定业务库；复用其已有 SQLCipher key，不替换已初始化副本。Fresh、OrdinaryOpening、Installing、Initialized 持久标记区分普通初始化、合法崩溃前缀与缺失/截断；不能凭零长度库推导 fresh。现有副本恢复仍遵守 ADR-0023 的替换合同。
+
+用户确认精确工作流后，Host 在 Native 中先持久化每个原请求及身份，再进行网络操作。claim 保存原签名能力和首 nonce；step v2 的 pin 请求为空，由 Cloud 在同一授权事务选择或构建、持久读回核验、发布并固定真实 checkpoint 与目标 revision/schema。最终摘要使用包含资产 generation 和墓碑的 checkpoint state v3。数据页按实际 UTF8 字节预算取连续前缀；Native 验证严格字段、页摘要、完整分区、排序、代次与 mutation 连续性后，由原单 writer 原子写入业务数据和不可变安装回执，不导入平台凭据、绑定、Outbox 或可执行任务。
+
+安装 journal 使用专用域从本机数据库 key 派生的加密密钥，数据写入 Native 私有文件并同步、读回，OS custody 中的小型 head 绑定安装、固定业务文件和 journal digest/revision。恢复先验证 head 与所选文件；任一缺失或篡改均失败关闭。秘密临时缓冲由 zeroizing owner 持有，journal 不进入业务备份。慢速文件、数据库及验签在 stage 执行，最终内存发布仍经过原 publication/power/session 栅栏。
+
+激活仅使用本机已落盘的原 activation UUID、请求摘要、完整安装回执和该工作流预留的 pending epoch。Cloud 同事务保存精确原请求与签名 Lease 响应，重复请求返回原回执，不重新签名、延长期限或分配 epoch。未知 claim、step 或 activation 结果先按精确身份查询 receipt，只有明确 uncommitted 且工作流仍活跃时才重发原字节。历史 receipt 可在能力过期后由当前有效目标身份查询，但不能继续已终结工作流。安装未完成不得经普通 Standby 读取或 Active 刷新提前发布；取得匹配的当前 Active Grant 与新鲜执行上下文后才开放资产工作区，平台需重新连接。
+
+Cloud 已提交激活但本机丢失回复时，重开可能先收到 Active Grant。Host 可接受与持久 pending activation 精确匹配的签名身份，发布单独受限的目标安装控制准入；它不发布业务库，不提供普通同步、Provider 或本地读写能力，只允许固定的原 receipt、status、cancel。Renderer 显示 `target_installation_pending`，不冒充 Standby 或空资产工作区。取回并验证原激活回执后准备已安装库，匹配的新鲜 execution context 在原最终栅栏发布后才开放业务；后台随后持久标记安装完成。
+
+取消意图先持久化。若激活结果未知，安装与终止协调器共享同一串行入口，先查原激活回执：committed 接受已完成事实；uncommitted 后禁止重发激活，继续精确取消。取消确认不能被瞬时拒绝后仍自动推进激活，也不能被 Renderer 误报为已生效。
 
 ### S3. 不含 Lease 的 Grant
 

@@ -59,6 +59,18 @@ pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     (
+        "initial_replica_installation_receipts",
+        &[
+            "workspace_id",
+            "workflow_id",
+            "target_device_id",
+            "target_server_revision",
+            "workspace_schema_version",
+            "replica_digest",
+            "installed_at",
+        ],
+    ),
+    (
         "normal_handoff_requests",
         &[
             "workspace_id",
@@ -1188,3 +1200,9 @@ pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_OWNER: &str =
     "active-workspace/normal-handoff-request";
 pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_SQL: &str =
     include_str!("normal_handoff_request.sql");
+
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_ID: i64 = 202_611_190_005;
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER: &str =
+    "active-workspace/initial-replica-installation";
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL: &str =
+    include_str!("initial_replica_installation.sql");

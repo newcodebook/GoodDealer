@@ -76,7 +76,7 @@ VPS 上的配置位置只用于定位和权限审查，不能把内容输出到�
 | `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并符合当前协议能力目录；Grant 只包含已配置授权能力的精确交集。Afternic 观察、写入分别需要对应授权，不由启用路由推导。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/postgres.env` | PostgreSQL 容器管理凭据。 | `root:root 0600` |
 | `/etc/gooddealer/openbao/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
-| `/etc/gooddealer/openbao/public-keys.json` | 当前源码要求 OpenBao 地址及 grant/lease/standby/context 四个独立 purpose，各有 active key/version 与 1–8 把重叠 verifier key。Standby 和 context 仍待共享实例部署取证，详见 OpenBao 运行手册。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao/public-keys.json` | 当前源码要求 OpenBao 地址及 grant/lease/standby/context/bootstrap 五个独立 purpose，各有 active key/version 与 1–8 把重叠 verifier key。Standby、context 和 bootstrap 仍待共享实例部署取证，详见 OpenBao 运行手册。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/openbao/ca.crt` | 开发 CA。 | `root:gooddealer 0640` |
 
 禁止执行会回显环境或秘密的命令，包括无过滤的 `systemctl show`、`docker inspect`、`env`、`printenv`、
@@ -229,7 +229,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 ```
 
 两项都是 Desktop 编译期信任输入。构建日志不得输出完整 registry；验证时只检查 schema version、
-四个独立 purpose（`grant_v3`、`active_device_lease_v1`、`standby_grant_v1`、`execution_context_v1`）、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
+五个独立 purpose（`grant_v3`、`active_device_lease_v1`、`standby_grant_v1`、`execution_context_v1`、`bootstrap_capability_v1`）、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
 同时含旧/新 verifier key 的配置生成 registry 并发布 Desktop，再切换对应 purpose 的 `active` 引用；
 旧 envelope 窗口结束后才从 Cloud verifier 和后续 Desktop registry 中撤旧。
 

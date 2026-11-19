@@ -2,6 +2,7 @@
 pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
 pub(crate) mod target_bootstrap;
+pub(crate) mod target_installation;
 
 use std::sync::Arc;
 

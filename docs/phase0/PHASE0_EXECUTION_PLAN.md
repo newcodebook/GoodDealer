@@ -18,6 +18,16 @@
 
 ## 目标
 
+### 2026-11-19 目标设备首次安装与激活（源码切片）
+
+- 工作包：[目标首次安装 Task Frame](TARGET_INSTALLATION_TASK_FRAME.md)。Cloud claim/step/checkpoint/activate/receipt、第五签名用途、真实 checkpoint 与完整代次/墓碑摘要、本地 Host/SQLCipher 首次安装、Native 协调器、IPC 与客户确认入口已实现。仅准入可信 custody 证明尚未初始化的固定本机库；已有副本替换仍拒绝。首次安装到激活的源码与独立验证已通过；终止后再次接收的缺口见下。
+- 实际数据库暴露 v3 checkpoint 墓碑表缺少 account capability 权限，追加 023/024 修复。原 022 和先前已应用迁移保持不变。
+- 独立审查修正 capability/Lease 的独立注册表验证、journal 正常及崩溃恢复路径同步后才发布 custody head、legacy 空文件不能仅凭长度追认为 fresh，以及未知 activation 下先持久取消意图再对账的顺序。激活丢 ACK 后重开先收到 Active 时仅准入 receipt/status/cancel；原回执与新 execution context 齐备后才展示资产并持久完成。详见 [审查记录](../reviews/2026-11-19-target-installation-review.md)。
+- 真实 PostgreSQL：Cloud 完整 OAuth 99/99，root 独立目标回归 29/29（70 项未选择），checkpoint 31/31、bootstrap 14/14 另有通过证据。最终 Native 144、Core 84、public surface 3、doc 4 全过；独立最新二进制安装 13、会话 32、终止 10、verifier 7 全过。Linux/Windows 三包全目标 strict Clippy 通过。
+- UI/adapter/状态投影相关 46/46、i18n 19/19；最终 Cloud HTTP/role 15/15。根检查已通过 TypeScript 2370 项、结构策略 214 项及依赖/拓扑检查，Rust 844 项通过（Storage 558，6 项规模基准 ignored），根 `pnpm check` 完整通过，日志 `target/root-target-installation-check-final.log`。此前品牌规则把本地 confirm 函数误认作原生弹窗，已按业务语义重命名；格式、文档链接与 diff 检查通过。Windows/macOS 实机、OpenBao 第五用途部署与真实双设备仍无资格证据。
+
+- 接续核查确认一个未交付旅程：安装 journal 建立后，即使取消/过期且尚未写库，当前也不能接受另一个工作流。原终态和数据保留，但新工作流页面缺少准确说明；下个切片须先补可证明未写库时保留原终态的重新接收，已写库不得重标 Fresh。不得把此缺口当成已有副本替换或宣称完整安装重试已交付。
+
 ### 2026-11-19 执行证据与目标引导终结（源码切片完成）
 
 - 总任务全文见 [实施目标](../IMPLEMENTATION_GOAL.md)，工作包见 [执行证据 Task Frame](EXECUTION_EVIDENCE_TASK_FRAME.md) 与 [目标引导终结 Task Frame](BOOTSTRAP_TERMINATION_TASK_FRAME.md)。十二平台、双系统和双恢复范围不变。

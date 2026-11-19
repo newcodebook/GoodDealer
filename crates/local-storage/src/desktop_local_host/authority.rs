@@ -64,7 +64,8 @@ impl fmt::Display for WorkspaceAuthorityError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum CredentialPurpose {
+pub(super) enum CredentialPurpose {
+    BootstrapCapabilityV1,
     ExecutionContextV1,
     StandbyGrantV1,
     GrantV3,
@@ -120,6 +121,7 @@ impl WorkspaceAuthorityVerifier {
         {
             return Err(WorkspaceAuthorityError::Malformed);
         }
+        let mut has_bootstrap = false;
         let mut has_context = false;
         let mut has_standby = false;
         let mut has_grant = false;
@@ -127,6 +129,10 @@ impl WorkspaceAuthorityVerifier {
         let mut keys = Vec::with_capacity(registry.keys.len());
         for wire in registry.keys {
             let purpose = match wire.purpose {
+                VerificationPurposeWire::BootstrapCapabilityV1 => {
+                    has_bootstrap = true;
+                    CredentialPurpose::BootstrapCapabilityV1
+                }
                 VerificationPurposeWire::ExecutionContextV1 => {
                     has_context = true;
                     CredentialPurpose::ExecutionContextV1
@@ -152,10 +158,11 @@ impl WorkspaceAuthorityVerifier {
             }
             keys.push(VerificationKey::new(purpose, &wire.key_id, &decoded)?);
         }
-        if !has_grant || !has_lease || !has_standby || !has_context {
+        if !has_grant || !has_lease || !has_standby || !has_context || !has_bootstrap {
             return Err(WorkspaceAuthorityError::Malformed);
         }
         if [
+            CredentialPurpose::BootstrapCapabilityV1,
             CredentialPurpose::ExecutionContextV1,
             CredentialPurpose::GrantV3,
             CredentialPurpose::ActiveDeviceLeaseV1,
@@ -188,7 +195,7 @@ impl WorkspaceAuthorityVerifier {
         Ok(Self { keys: registry })
     }
 
-    fn verify(
+    pub(super) fn verify(
         &self,
         purpose: CredentialPurpose,
         key_id: &str,
@@ -207,6 +214,14 @@ impl WorkspaceAuthorityVerifier {
                 .is_ok()
     }
 
+    #[cfg(all(test, unix))]
+    pub(super) fn with_bootstrap_key_for_test(mut self, key_id: &str, public_key: &[u8]) -> Self {
+        self.keys.insert(
+            (CredentialPurpose::BootstrapCapabilityV1, key_id.into()),
+            public_key.try_into().unwrap(),
+        );
+        self
+    }
     #[cfg(test)]
     pub(super) fn for_test(
         grant_key_id: &str,
@@ -243,6 +258,7 @@ struct VerificationKeyWire {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum VerificationPurposeWire {
+    BootstrapCapabilityV1,
     ExecutionContextV1,
     StandbyGrantV1,
     GrantV3,
@@ -1007,7 +1023,7 @@ fn frame(tag: u8, payload: &[u8]) -> Vec<u8> {
     value
 }
 
-fn parse_canonical_utc(value: &str) -> Result<i64, WorkspaceAuthorityError> {
+pub(super) fn parse_canonical_utc(value: &str) -> Result<i64, WorkspaceAuthorityError> {
     let bytes = value.as_bytes();
     if bytes.len() != 20
         || bytes[4] != b'-'
@@ -1412,13 +1428,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn pinned_registry_requires_all_four_separate_purpose_rings() {
-        let keys: Vec<_> = ["grant_v3", "active_device_lease_v1", "standby_grant_v1", "execution_context_v1"].into_iter().enumerate()
+    fn pinned_registry_requires_all_five_separate_purpose_rings() {
+        let keys: Vec<_> = ["grant_v3", "active_device_lease_v1", "standby_grant_v1", "execution_context_v1", "bootstrap_capability_v1"].into_iter().enumerate()
             .map(|(index, purpose)| json!({"purpose":purpose,"keyId":format!("key-{index}"),
                 "publicKey":URL_SAFE_NO_PAD.encode(Ed25519KeyPair::from_seed_unchecked(&[u8::try_from(index + 1).unwrap();32]).unwrap().public_key().as_ref())})).collect();
         let valid = json!({"schemaVersion":1,"keys":keys});
         assert!(WorkspaceAuthorityVerifier::parse_registry(&valid.to_string()).is_ok());
-        for index in 0..4 {
+        for index in 0..5 {
             let mut missing = valid.clone();
             missing["keys"].as_array_mut().unwrap().remove(index);
             assert!(WorkspaceAuthorityVerifier::parse_registry(&missing.to_string()).is_err());

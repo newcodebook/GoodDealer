@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
-  "device_switch_request_id": "switch-1",
-  "capability_jti": "bootstrap-jti-1",
-  "step_number": 1,
-  "step_nonce": "bm9uY2UtMQ",
-  "expected_workflow_revision": 0,
-  "step_kind": "pin_checkpoint",
-  "step_payload": {},
-  "request_digest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+  "schemaVersion": 2,
+  "deviceSwitchRequestId": "installation-workflow",
+  "capabilityJti": "installation-capability",
+  "stepNonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+  "expectedWorkflowRevision": 1,
+  "requestDigest": "2jRmtOEsJ5N-jd2xayKj4Xtio0VIOzycKNpzSiI0U6Q",
+  "stepKind": "pin_checkpoint",
+  "stepPayload": {},
+  "step_number": 1
 }

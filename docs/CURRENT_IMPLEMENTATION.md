@@ -6,6 +6,16 @@
 营销和设计材料不构成技术指令。未实现、未组合、未取得真实环境证据是不同的交付工作，
 不能互相替代，也不能自动成为永久限制。最新需求对谈见 [产品对谈](PRODUCT_DISCOVERY.md)。
 
+## 目标设备首次安装
+
+[当前工作包](phase0/TARGET_INSTALLATION_TASK_FRAME.md)接续 `a95dcdb` 的来源交接与目标终止。Cloud 已接 claim/step/checkpoint/activate/receipt 五条固定路由、独立第五签名用途、原请求及精确回执、真实 checkpoint 构建与完整 generation/墓碑摘要；目标历史 status/cancel/receipt 使用窄 bound_device 准入。追加迁移 022–024，未改旧 SQL。
+
+设置与无副本 Standby 页面已接“在本机接收”的一次确认、同步字段限制说明、Provider 重连说明和 Native 状态轮询。开始回复丢失后仅读原进度；工作流或 port 变化使旧确认失效。local-storage 使用本机固定加密库、持久加密 journal 和不可变安装回执完成首次安装；追加迁移 `202611190005`。每个未知 mutation 先查询精确回执，取消意图先落盘，不能盲目重发激活。已初始化副本一律拒绝该入口。
+
+激活成功但回复丢失后，重开先收到 Active Grant 也只能进入 `target_installation_pending`：专用准入仅允许 receipt/status/cancel；原激活回执、匹配 Active Grant 与新鲜 execution context 全部通过后才开放资产库和正常后台。Host/SQLCipher 覆盖非空资产、代次及墓碑、网络回复丢失和关闭重开；最终整合检查与独立复审记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md) 和 [审查记录](reviews/2026-11-19-target-installation-review.md)。已有副本替换、强制接管、丢机云恢复和独立跨机备份仍须继续交付；本节不宣称真实双设备或发行资格。
+
+取消或过期后的另一轮接收尚未实现：已有安装 journal 固定原工作流，即使尚未写业务库也不能接收新的交接。原记录保留；下一切片优先补可信未写库前缀的重新接收及准确客户提示，不把可能已安装的数据库重标 Fresh。
+
 ## Desktop 与 Native Host
 
 - [生产根组件](../apps/desktop/src/app.tsx)组合启动、登录、锁定、首次接入引导和工作区。
@@ -19,10 +29,10 @@
   设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
   Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
   保存结果未知时先刷新对账，普通业务同步不清空未保存输入。Standby 现在可读目录；本机命名仍只允许 Active，
-  角色降级立即移除改名入口，不依赖旧设置投影。设置已组合来源交接：列出其他绑定 Standby，名称与编号尾号一起预览，确认一次后由 Native 后台推进；Renderer 只轮询状态，不驱动 drain。目标引导仍须接续，界面明确显示待目标设置，不能宣称完整换机已可用。
+  角色降级立即移除改名入口，不依赖旧设置投影。设置已组合来源交接：列出其他绑定 Standby，名称与编号尾号一起预览，确认一次后由 Native 后台推进；Renderer 只轮询状态，不驱动 drain。无已初始化副本的目标已接一次确认后的安装、重开对账和激活入口；已有副本替换与丢机接管仍未完成。
 - Desktop 登录/刷新现已在同一事务终结默认工作区的过期引导：烧毁 pending epoch、消费能力与 nonce、释放 checkpoint pin，
   再按原授权规则分配更高 epoch。未到期、孤立或不一致记录继续阻断；同事务内 Lease 签发失败时整体回滚。
-  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。目标专用 status/cancel 已组合严格协议和生产终结事务；同一事务烧毁待用 epoch、消费能力/nonce 并释放 pin，保留来源交接回执。目标安装/激活仍未组合。
+  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。目标专用 status/cancel 已组合严格协议和生产终结事务；同一事务烧毁待用 epoch、消费能力/nonce 并释放 pin，保留来源交接回执。首次目标安装/激活已组合，严格限定可信 custody 证明尚未初始化的本机库。
 - 设置与无副本 Standby 页面已组合目标引导终止入口：预览本机当前工作流后确认停止；local-storage 固定用途 custody 先保存精确意图，后台和重开先按原 id 对账，未知响应不取消新工作流。无业务库也能工作，不创建空库；终止不触发授权刷新或授予 Active。新的 security epoch 只退回原工作流的重新确认，不复用旧批准。来源释放 Lease 后撤去来源取消按钮。
 - Desktop OAuth/刷新支持第二台已绑定设备以 Standby 登录；Cloud/Host 使用严格 v5 角色交换，Active 内层为 v4 Grant 与 v1 Lease 双签名，
   Standby 使用独立用途签名 v1。Cloud 在锁定服务器状态派生角色，签名后重查会话/撤销/期限；精确当前引导目标的 floor 为 pending−1，其余设备为 highest allocated。
@@ -39,7 +49,7 @@
 - 普通交接 switch view 使用严格 v2 回执；Cloud 从唯一已消费 proof、释放原因为 normal_handoff 的来源 Lease 及匹配目标能力派生，不从工作流 status 推断成功。
   本地追加迁移 `202611180002` 保存不可变 attempt/receipt/refusal；已签完整请求只进 Native custody。Native 授权地板 v3 保存具名 capabilities，并单独记最后本机 Active epoch，旧地板升级保留所有拒绝重放信息：v1 缺失的历史 Active epoch 保持未知，v2 已记录的值保持不变；旧商业记录仅映射历史 Cloudflare observe 权限。
   初始普通请求也已由 `202611190004` 保存精确字节与幂等键，Cloud request v2 比较 Native 派生的来源 Lease epoch；未知响应先走固定 resolve，再决定只重发原请求或消解更早代次。回答和本地屏障/冻结同事务提交。
-  来源后台在原同步 lane 推进，交接与证据上传各有独立退避；已签 proof 使用当前已验签上下文中的真实密钥版本。完整目标引导、强制接管与跨机恢复仍未完成。
+  来源后台在原同步 lane 推进，交接与证据上传各有独立退避；已签 proof 使用当前已验签上下文中的真实密钥版本。首次目标引导已组合；已有副本替换、强制接管与独立跨机恢复仍未完成。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
@@ -100,7 +110,7 @@
   数据库是否实际应用这些迁移，必须依据相应环境的运行记录。
 - execution-context 已组合独立第四签名用途、锁定事务、签后期限复核及不可变历史；普通应用角色不能通过伪造
   租户变量读取该历史。设备审计/执行事实 ingest 复用原 ledger/封链表，以当前 Active 会话派生来源；严格核验历史时间、用途、批准与配对审计，精确重复返回原回执，已封链不接受新事件。真实签名语义拒绝可阻断首次封链，伪造签名不能污染猜测的流。
-  共享 OpenBao 的 Standby/context 用途配置和真实签发仍待部署验收。
+  共享 OpenBao 的 Standby/context/bootstrap capability 用途配置和真实签发仍待部署验收。
 - Account Web 已组合账户访问和商业旅程；已有 staging 观察与其具体限制见
   [开发 Cloud](DEVELOPMENT_CLOUD.md)。这些记录不能替代生产支付、邮件或发行证据。
 
@@ -108,7 +118,7 @@
 
 换机云恢复与独立业务备份均为明确需要交付的能力。现有 GDBK v1 是安装绑定格式；其私有
 开发组合和 rebootstrap 故障协议已有测试，但生产 native 文件、密钥 custody 和恢复链路
-尚未完成，生产入口仍拒绝执行。当前实现不能作为跨设备或灾难恢复方案。
+尚未完成，已有副本替换入口仍拒绝执行。普通交接后的首次新机安装已实现上文的受限路径；它不能替代丢机强制接管或独立灾难恢复。
 恢复场景和设计修订见 [ADR-0023](adr/0023-business-backup-and-recovery.md)，现有格式边界见
 [数据生命周期](DATA_LIFECYCLE.md) 与 [ADR-0023](adr/0023-business-backup-and-recovery.md)。
 

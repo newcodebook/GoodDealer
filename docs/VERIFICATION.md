@@ -241,3 +241,11 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 Host 在没有业务数据库的 Standby 安装上也能持久确认、重开和精确对账；每个 custody 初始化前缀可恢复，已建立记录缺失/损坏拒绝。security epoch 变化要求重新确认，不能无限 pending，也不能自动重发旧确认。Native 401 不在终止链刷新或授予 Active；power/session/Host 变化阻止旧网络操作与发布。后台成功轮询和失败退避均独立于证据热循环。
 
 执行上下文的慢验签/custody/SQLCipher 阶段与短内存发布分离。测试须证明持有 custody 锁时最终 publish 仍可完成、stage 丢失不保留旧执行权威、旧/外 Host stage 和 clock/boot/generation 变化拒绝；恢复保留原 t0。上述源码/数据库测试不替代 Windows/macOS 实机或双设备 OpenBao 部署资格。
+
+### 目标设备首次安装验收
+
+首次安装须从真实来源交接进入无副本目标的一次确认，恢复 Cloud 最后成功同步的非空资产、generation 和墓碑，再使用精确安装回执激活原 pending epoch。checkpoint 构建、读回核验、发布与 pin 在真实 PostgreSQL 同事务验证；Cloud 只读页必须按 UTF8 字节预算保持连续，最终摘要不得遗漏墓碑。签名器与独立 bootstrap 注册表不一致时 claim 不落盘。
+
+SQLCipher 与 Native 验收必须覆盖 journal 每个持久前缀、请求发送前后崩溃、各类丢 ACK 的原回执对账、gen2 普通编辑/删除、缺页/重复字段/缺少必填 nullable 字段、并发激活与取消，以及初始化标记缺失/数据库截断拒绝。已有副本不能被首次安装覆盖；普通授权刷新不能发布尚未完成安装的库。取消意图须在未知激活对账期间保留，只有确认为 uncommitted 才继续取消，不重发激活。
+
+最终仍需根 `pnpm check`、独立审查、Windows/macOS 分别编译与实机证据。源码测试、本机 PostgreSQL、目标编译均不等于部署的 OpenBao 第五用途、真实双设备或发行资格。

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
+import { adapterCommands, tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 function writeFile(root, path, source) {
   const destination = join(root, path);
@@ -63,6 +63,8 @@ function createFixture() {
     "local_settings_read",
     "local_storage_repair",
     "target_bootstrap_status",
+    "target_installation_start",
+    "target_installation_status",
     "target_bootstrap_cancel",
   ];
   writeFile(root, "apps/desktop/src-tauri/build.rs", `AppManifest::new().commands(&[${commands.map((command) => `"${command}"`).join(",")}])\n`);
@@ -134,7 +136,7 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
     commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_"))
-      .map((command) => `"${command}"`)
+      .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
   writeFile(
@@ -549,4 +551,15 @@ test("rejects JSON, unbounded, or non-aggregate backup IPC composition", (t) => 
     "[dependencies]\ngooddealer-secure-host-core = { features = [\"backup-test-adapter\"] }\n",
   );
   assert.ok(tauriCommandPolicyErrors({ root: featureRoot }).some((error) => error.includes("test adapter")));
+});
+
+test("distinguishes installation state data from literal command invocations", () => {
+  const states = 'type State = "target_installation_pending"; const states = ["target_installation_pending"];';
+  assert.deepEqual(adapterCommands(states), []);
+  assert.deepEqual(adapterCommands(states + '\ninvoke<unknown>("target_installation_status"); invoke("target_installation_start");'),
+    ["target_installation_start", "target_installation_status"]);
+  assert.deepEqual(adapterCommands(states + '\ninvoke("target_installation_pending"); invoke("target_installation_unreviewed");'),
+    ["target_installation_pending", "target_installation_unreviewed"]);
+  assert.deepEqual(adapterCommands("invoke<unknown>('target_installation_unreviewed');"),
+    ["target_installation_unreviewed"]);
 });

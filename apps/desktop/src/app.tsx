@@ -8,6 +8,7 @@ import {
   createDeviceDirectoryPort,
   createDeviceSwitchPort,
   createTargetBootstrapPort,
+  createTargetInstallationPort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
   createLocalBatchOperationsPort,
@@ -39,16 +40,18 @@ import {
   type AuthoritativeWorkspacePorts,
   type AuthoritativeWorkspacePublication,
 } from "./app/workspace-publication";
-import { StandbyAwaitingReplica } from "./app/standby-awaiting-replica";
+import { StandbyAwaitingReplica, TargetInstallationPending } from "./app/standby-awaiting-replica";
 import { WorkspaceView } from "./app/workspace-view";
 import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
 import "./app.css";
 
 const deviceDirectory = createDeviceDirectoryPort();
 const targetBootstrap = createTargetBootstrapPort();
+const targetInstallation = createTargetInstallationPort();
 const workspacePorts: AuthoritativeWorkspacePorts = {
   devices: deviceDirectory,
   targetBootstrap,
+  targetInstallation,
   deviceSwitch: createDeviceSwitchPort(),
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
@@ -245,8 +248,10 @@ export function App() {
             onRetry={refreshAuthorization}
           />
         );
+      case "target_installation_pending":
+        return <TargetInstallationPending locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} onRefreshAuthorization={refreshAuthorization} />;
       case "standby_awaiting_replica":
-        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} onRefreshAuthorization={refreshAuthorization} />;
+        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} installationPort={targetInstallation} onRefreshAuthorization={refreshAuthorization} />;
       case "workspace":
         if (onboarding.state === "offered" && workspace !== null) {
           return (

@@ -279,6 +279,12 @@ pub use active_workspace::business::{
 };
 pub use desktop_local_host::execution_evidence_delivery::DesktopExecutionEvidenceUpload;
 
+pub use desktop_local_host::target_installation::{
+    DesktopTargetInstallationExchange, DesktopTargetInstallationExchangeKind,
+    DesktopTargetInstallationPhase, DesktopTargetInstallationStage, DesktopTargetInstallationView,
+    DesktopTargetInstallationWork,
+};
+
 pub use desktop_local_host::target_bootstrap::{
     DesktopTargetBootstrapCancelExchange, DesktopTargetBootstrapStatusExchange,
     DesktopTargetBootstrapStatusOutcome, DesktopTargetBootstrapTerminalStatus,

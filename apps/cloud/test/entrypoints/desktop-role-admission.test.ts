@@ -4,6 +4,7 @@ import { boundaryEmptyRequestSchema, publicBoundaryIdentityResponseSchema } from
 import { PUBLIC_SURFACE, registerPublicRoutes, setRoutePrincipal } from "../../src/entrypoints/adapter/surface";
 import { assignCorrelationId } from "../../src/entrypoints/adapter/correlation";
 import { createPublicBusinessRoutes } from "../../src/entrypoints/routes/public/boundary";
+import { createTargetBootstrapInstallationRoutes } from "../../src/entrypoints/routes/public/target-installation";
 import { denyingPublicApplicationPorts } from "../support/public-session";
 
 const principal = { accountId: "account-a", sessionId: "session-a", clientKind: "desktop" as const };
@@ -12,14 +13,17 @@ describe("Desktop route roles", () => {
   it("closes every Desktop business route over the reviewed role list", () => {
     // Declarations only; the inert ports are never invoked in this inventory test.
     const unused = async (): Promise<never> => { throw new Error("must not invoke"); };
-    const routes = createPublicBusinessRoutes({ ...denyingPublicApplicationPorts,
+    const routes = [...createPublicBusinessRoutes({ ...denyingPublicApplicationPorts,
       workspaceSync: { push: unused, pull: unused, checkpoint: unused, rebootstrap: unused, receipts: unused },
       deviceDirectory: { list: unused, reportSelf: unused },
       targetBootstrap: { status: unused, cancel: unused },
       deviceSwitchResolution: { resolve: unused },
       deviceSwitch: { request: unused, status: unused, cancel: unused, drain: unused },
       cloudflareDnsObservation: { submit: unused },
-    }).filter((route) => route.authorize(principal));
+    }), ...createTargetBootstrapInstallationRoutes(
+      { claim: unused, step: unused, checkpoint: unused, activate: unused, receipt: unused },
+      denyingPublicApplicationPorts.desktopRouteAuthority,
+    )].filter((route) => route.authorize(principal));
     expect(routes.map(({ path, deviceRole }) => [path, deviceRole]).sort()).toEqual([
       ["/v1/devices/authorization-grant", "active_or_standby"],
       ["/v1/workspace-sync/mutations/push", "active"],
@@ -29,8 +33,13 @@ describe("Desktop route roles", () => {
       ["/v1/workspace-sync/mutations/receipts", "active"],
       ["/v1/workspace-observations/cloudflare-dns", "active"],
       ["/v1/device-switch/requests", "active_or_standby"],
-      ["/v1/device-switch/bootstrap/status", "active_or_standby"],
-      ["/v1/device-switch/bootstrap/cancel", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/status", "bound_device"],
+      ["/v1/device-switch/bootstrap/claim", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/step", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/checkpoint", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/activate", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/receipt", "bound_device"],
+      ["/v1/device-switch/bootstrap/cancel", "bound_device"],
       ["/v1/device-switch/requests/resolve", "active_or_standby"],
       ["/v1/device-switch/requests/status", "active_or_standby"],
       ["/v1/device-switch/requests/cancel", "active_or_standby"],

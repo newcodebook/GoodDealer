@@ -3,7 +3,7 @@ import { formatDate, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Banner, Button, Input, Panel } from "@gooddealer/ui";
 import { useEffect, useId, useRef, useState } from "react";
 
-import type { DeviceSwitchPort, TargetBootstrapPort } from "../../adapters/tauri";
+import type { DeviceSwitchPort, TargetBootstrapPort, TargetInstallationPort } from "../../adapters/tauri";
 import { TargetBootstrapPanel } from "./target-bootstrap-panel";
 import { DeviceHandoffPanel } from "./device-handoff-panel";
 
@@ -13,7 +13,7 @@ type DirectoryState = { readonly kind: "loading" | "failed" | "unknown" }
   | { readonly kind: "ready" | "saving"; readonly view: DeviceDirectoryView; readonly saved: boolean };
 
 /** Directory metadata offers candidates; every handoff still crosses the separate Native gate. */
-export function DeviceDirectoryPanel({ locale, port, switchPort, bootstrapPort, readOnly = false }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort; readonly switchPort?: DeviceSwitchPort; readonly bootstrapPort?: TargetBootstrapPort; readonly readOnly?: boolean }) {
+export function DeviceDirectoryPanel({ locale, port, switchPort, bootstrapPort, installationPort, readOnly = false }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort; readonly switchPort?: DeviceSwitchPort; readonly bootstrapPort?: TargetBootstrapPort; readonly installationPort?: TargetInstallationPort; readonly readOnly?: boolean }) {
   const copy = getPresentationCopy(locale, "settings");
   const [state, setState] = useState<DirectoryState>({ kind: "loading" });
   const [name, setName] = useState("");
@@ -52,7 +52,7 @@ export function DeviceDirectoryPanel({ locale, port, switchPort, bootstrapPort, 
   return <Panel title={copy.deviceExecutionTitle} actions={<Button size="sm" disabled={state.kind === "saving" || state.kind === "loading"} onClick={() => setAttempt((value) => value + 1)}>{copy.refreshDevices}</Button>}>
     {state.kind === "loading" ? <p>{copy.devicesLoading}</p> : null}
     {state.kind === "failed" || state.kind === "unknown" ? <Banner tone="warning" title={state.kind === "unknown" ? copy.deviceSaveUnknown : copy.devicesUnavailable} /> : null}
-    {bootstrapPort === undefined ? null : <TargetBootstrapPanel locale={locale} port={bootstrapPort} />}
+    {bootstrapPort === undefined ? null : <TargetBootstrapPanel locale={locale} port={bootstrapPort} {...(installationPort === undefined ? {} : { installationPort })} />}
     {ready ? <>
       <ul className="settings-device-directory" role="list">
         {state.view.devices.map((device) => <li key={device.deviceId} className="settings-device-row">

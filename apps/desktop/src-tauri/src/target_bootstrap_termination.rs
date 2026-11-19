@@ -87,7 +87,7 @@ pub(crate) struct TargetBootstrapTermination<H: TargetBootstrapHost, C, P> {
     power: Arc<P>,
     fence: Arc<NativeCloudCancelFence>,
     wake: Arc<dyn Fn() + Send + Sync>,
-    serialized: Mutex<()>,
+    serialized: Arc<Mutex<()>>,
 }
 impl<H, C, P> TargetBootstrapTermination<H, C, P>
 where
@@ -101,6 +101,7 @@ where
         fence: Arc<NativeCloudCancelFence>,
         power: Arc<P>,
         wake: Arc<dyn Fn() + Send + Sync>,
+        serialized: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             host,
@@ -108,7 +109,7 @@ where
             power,
             fence,
             wake,
-            serialized: Mutex::new(()),
+            serialized,
         }
     }
     pub(crate) async fn status(&self) -> Result<DesktopTargetBootstrapView, TargetBootstrapError> {
@@ -270,7 +271,7 @@ impl TargetBootstrapHost for DesktopLocalHost {
     type StatusExchange = DesktopTargetBootstrapStatusExchange;
     type CancelExchange = DesktopTargetBootstrapCancelExchange;
     fn admit(&self) -> Result<Self::Admission, DesktopLocalHostError> {
-        self.begin_native_cloud_read_run()
+        self.begin_target_installation_control_run()
     }
     fn fast_recheck(&self, admission: &Self::Admission) -> Result<(), DesktopLocalHostError> {
         self.fast_recheck_native_cloud(admission)
@@ -330,7 +331,7 @@ impl TargetBootstrapCloud<DesktopNativeCloudAdmission> for NativeCloudSession {
         credential: Option<u64>,
         work: impl FnOnce() -> Result<T, DesktopLocalHostError>,
     ) -> Result<(T, u64), NativeCloudRequestError> {
-        self.with_bootstrap_termination_session(credential, work)
+        self.with_target_bootstrap_session(credential, work)
     }
 }
 impl TargetBootstrapPower for NativePowerGate {
@@ -672,6 +673,7 @@ mod tests {
             fence,
             power,
             Arc::new(|| {}),
+            Arc::new(Mutex::new(())),
         );
         (host, cloud, coordinator)
     }
@@ -682,6 +684,7 @@ mod tests {
             Arc::clone(&cloud.fence),
             Arc::clone(&host.power),
             Arc::new(|| {}),
+            Arc::new(Mutex::new(())),
         )
     }
     #[tokio::test]
