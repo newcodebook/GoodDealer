@@ -103,6 +103,8 @@ enum DataPlaneRoute {
     SyncCheckpoint,
     CloudflareProjection,
     SyncReceipts,
+    DeviceList,
+    DeviceSelfReport,
     DeviceSwitchRequest,
     DeviceSwitchStatus,
     DeviceSwitchCancel,
@@ -117,6 +119,8 @@ impl DataPlaneRoute {
             Self::SyncCheckpoint => SYNC_CHECKPOINT_PATH,
             Self::CloudflareProjection => CLOUDFLARE_PROJECTION_PATH,
             Self::SyncReceipts => SYNC_RECEIPTS_PATH,
+            Self::DeviceList => "/v1/devices/list",
+            Self::DeviceSelfReport => "/v1/devices/self",
             Self::DeviceSwitchRequest => DEVICE_SWITCH_REQUEST_PATH,
             Self::DeviceSwitchStatus => DEVICE_SWITCH_STATUS_PATH,
             Self::DeviceSwitchCancel => DEVICE_SWITCH_CANCEL_PATH,
@@ -829,6 +833,47 @@ impl NativeCloudSession {
         };
         self.send_data_plane(admission, request_body, route, request_limit, 4 * 1024)
             .await
+    }
+
+    /// Device metadata never grants execution authority. Platform and session identity stay Native.
+    pub(crate) async fn device_directory(
+        self: &Arc<Self>,
+        name_intent: Option<Vec<u8>>,
+    ) -> Result<gooddealer_secure_host_core::DesktopDeviceDirectory, NativeCloudRequestError> {
+        let (route, body) = match name_intent {
+            None => (
+                DataPlaneRoute::DeviceList,
+                b"{\"schemaVersion\":1}".to_vec(),
+            ),
+            Some(wire) => (
+                DataPlaneRoute::DeviceSelfReport,
+                gooddealer_secure_host_core::prepare_desktop_device_self_report(&wire)
+                    .map_err(|_| NativeCloudRequestError::ConfigurationBlocked)?,
+            ),
+        };
+        let host = Arc::clone(&self.local_host);
+        let device_id = self
+            .device_id
+            .clone()
+            .ok_or(NativeCloudRequestError::Unavailable)?;
+        let admission = tokio::task::spawn_blocking(move || host.begin_native_cloud_run())
+            .await
+            .map_err(|_| NativeCloudRequestError::Unavailable)?
+            .map_err(|_| NativeCloudRequestError::AuthorityStale)?;
+        let (admission, wire, instance) = self
+            .send_data_plane(admission, body, route, 1024, 16_384)
+            .await?
+            .into_parts();
+        let session = Arc::clone(self);
+        tokio::task::spawn_blocking(move || {
+            session.commit_response(instance, || {
+                session.local_host.recheck_native_cloud(&admission)?;
+                gooddealer_secure_host_core::parse_desktop_device_directory(&wire, &device_id)
+                    .map_err(|_| DesktopLocalHostError::CloudProtocolRejected)
+            })
+        })
+        .await
+        .map_err(|_| NativeCloudRequestError::Unavailable)?
     }
 
     async fn send_data_plane(
@@ -2081,8 +2126,31 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn device_directory_refuses_without_host_admission_or_with_selectors() {
+        let session = Arc::new(NativeCloudSession::new(
+            Some(PRODUCTION_CLOUD_ORIGIN),
+            Some("device-1".to_owned()),
+            Arc::new(DesktopLocalHost::default()),
+        ));
+        assert!(matches!(
+            session.device_directory(None).await,
+            Err(NativeCloudRequestError::AuthorityStale)
+        ));
+        assert!(matches!(
+            session
+                .device_directory(Some(
+                    br#"{"schemaVersion":1,"displayName":"Desk","deviceId":"other"}"#.to_vec()
+                ))
+                .await,
+            Err(NativeCloudRequestError::ConfigurationBlocked)
+        ));
+    }
+
     #[test]
     fn data_plane_routes_statuses_and_caps_are_fixed() {
+        assert_eq!(DataPlaneRoute::DeviceList.path(), "/v1/devices/list");
+        assert_eq!(DataPlaneRoute::DeviceSelfReport.path(), "/v1/devices/self");
         assert_eq!(DataPlaneRoute::SyncPush.path(), SYNC_PUSH_PATH);
         assert_eq!(DataPlaneRoute::SyncPull.path(), SYNC_PULL_PATH);
         assert_eq!(DataPlaneRoute::SyncCheckpoint.path(), SYNC_CHECKPOINT_PATH);

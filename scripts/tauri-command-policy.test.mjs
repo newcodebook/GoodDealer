@@ -26,6 +26,8 @@ function createFixture() {
     "desktop_authentication_begin",
     "desktop_authentication_refresh",
     "desktop_authentication_status",
+    "device_directory_read",
+    "device_self_report",
     "device_switch_advance",
     "device_switch_cancel",
     "device_switch_request",

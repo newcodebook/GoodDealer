@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createCloudflarePort,
+  createDeviceDirectoryPort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
   createLocalBatchOperationsPort,
@@ -39,6 +40,7 @@ import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
 import "./app.css";
 
 const workspacePorts: AuthoritativeWorkspacePorts = {
+  devices: createDeviceDirectoryPort(),
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
   dns: createLocalDnsHealthPort(),

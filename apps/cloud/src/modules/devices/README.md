@@ -65,3 +65,14 @@ ports; HTTP and OpenBao transport remain in Cloud entrypoints.
 ## Open Questions
 
 - [ ] Which production OpenBao cluster identity, namespace, Transit mount, key versions, approved public keys, workload-auth method and seal backend will the accountable operators record during external qualification? (open since: 2026-09)
+
+
+## Desktop device directory
+
+`PostgresDeviceDirectory` owns list and self-report persistence. It derives the account/device from
+an authenticated Desktop session, locks security/account state before session/family/binding/active
+key, and refuses removed bindings or inactive signing keys. Names/platforms reuse the self-report
+migration; reports advance the list revision only when metadata changes. Native supplies platform,
+projects away signing metadata, and composes the settings list and self-name form. Directory roles
+are descriptive and never authorize handoff. PostgreSQL evidence lives in
+`../../../test/postgres/device-directory-persistence.test.ts`.

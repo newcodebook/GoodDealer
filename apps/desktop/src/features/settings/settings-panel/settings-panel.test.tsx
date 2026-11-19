@@ -161,7 +161,7 @@ describe("Settings from the Host projection", () => {
   });
 
   it("says each section without a Host source is unavailable instead of inventing values", () => {
-    expect(render("devices")).toContain("设备列表与执行权移交尚未接入 Host");
+    expect(render("devices")).toContain("设备信息暂不可用");
     expect(render("devices")).not.toContain("移交执行权<");
     expect(render("license")).toContain("许可状态尚未接入 Host");
     const sync = render("sync");

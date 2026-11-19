@@ -14,7 +14,10 @@
   重新验证授权、代次和请求，不由 UI 自行裁决。
 - [Native 注册表](../apps/desktop/src-tauri/src/main.rs)、[command manifest](../apps/desktop/src-tauri/build.rs)
   与 [WebView capability](../apps/desktop/src-tauri/capabilities/local-app.json)定义命令面。
-  设备切换 request/advance/status/cancel 已组合 Native 协调器；客户设备管理页面仍需组合。
+  设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
+  Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
+  保存结果未知时先刷新对账，普通业务同步不清空未保存输入。当前 Native 目录仍要求 Active 授权；
+  交接按钮在目标引导与 pending epoch 终结交付前不开放。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
@@ -49,7 +52,8 @@
   workspace sync、Cloudflare 观察副本、设备切换和设备列表/self-report。
   声明了 route 不代表任意环境都已配置其依赖；具体可达面由对应 composition 和运行配置决定。
 - Identity、Desktop OAuth、支付 webhook 与 worker 由各自入口组合；身份、租户范围和商业权威
-  由服务器派生。Cloudflare ingress 接收允许字段的业务观察副本，不接受 Provider 凭据或代为请求 Provider。
+  由服务器派生。设备目录读/报告锁定当前会话、刷新族、绑定与有效签名密钥，撤销或 rotated 密钥拒绝。
+  Cloudflare ingress 接收允许字段的业务观察副本，不接受 Provider 凭据或代为请求 Provider。
 - [唯一迁移目录](../apps/cloud/src/db/migrations.ts)维护迁移顺序和校验和；本文件不复制数量。
   包括后续设备交接、mutation receipt、删除/重新添加代次和设备 self-report 的追加迁移。
   数据库是否实际应用这些迁移，必须依据相应环境的运行记录。

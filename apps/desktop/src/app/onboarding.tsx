@@ -48,7 +48,7 @@ export function onboardingOffer(publication: AuthoritativeWorkspacePublication):
  * The wizard view for one step, built only from Host facts and validated by the client-core
  * schema. Null means the facts do not form a valid step, and the caller leaves onboarding.
  *
- * - The device step shows the lease the Host verified; the Host has no device name, so none shows.
+ * - The device step shows the Host-verified lease; device naming is currently composed in settings.
  * - Cloudflare's card follows the Host status (`cloudflare` is null until it is read). It is
  *   unavailable unless the capability is qualified (ADR-0027), and admits connecting or
  *   disconnecting only as `cloudflareAdmittedActions` decides; while one runs (`cloudflarePending`)

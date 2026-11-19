@@ -12,7 +12,7 @@ import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
 import { CloudflareRetirementPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
-import { SettingsPanel } from "../features/settings";
+import { DeviceDirectoryPanel, SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
 import type { DesktopPresentation } from "./desktop-presentation";
@@ -93,7 +93,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
 
   const status: DesktopShellStatus = {
     sync: publication.sync,
-    // The Host reports this device's role but not its name, lease epoch, license, or providers yet.
+    // Device metadata is read on demand in settings; the shell currently publishes only the workspace role.
     device: { name: shellCopy.device, role: surface.kind === "standby" ? "standby" : "active" },
     peerDevice: null,
     leaseEpoch: null,
@@ -244,7 +244,8 @@ type SettingsState =
 
 /**
  * Settings from the Host projection. Role qualification remains authoritative; refused custody
- * has a separate Host-issued maintenance target, offered only when writable. Devices, license,
+ * has a separate Host-issued maintenance target, offered only when writable. Device metadata uses
+ * its own Cloud read. License,
  * pull cadence and build facts have no Host source yet, so
  * the panel shows those as unavailable instead of placeholder values.
  */
@@ -291,6 +292,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, onRepaired, onLo
       connections={state.connections}
       connectionMaintenance={writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
       devices={null}
+      {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} /> })}
       license="unavailable"
       sync={null}
       about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}

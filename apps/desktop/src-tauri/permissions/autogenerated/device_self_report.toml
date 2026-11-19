@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-device-self-report"
+description = "Enables the device_self_report command without any pre-configured scope."
+commands.allow = ["device_self_report"]
+
+[[permission]]
+identifier = "deny-device-self-report"
+description = "Denies the device_self_report command without any pre-configured scope."
+commands.deny = ["device_self_report"]

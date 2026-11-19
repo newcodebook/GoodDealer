@@ -46,7 +46,8 @@ export class PostgresDeviceDirectory implements DeviceDirectoryApplicationPort {
     deviceListRequestSchema.parse(value);
     if (principal.clientKind !== "desktop") return null;
     return this.transactions.withAccount(principal.accountId, async (transaction) => {
-      const deviceId = await sessionDevice(transaction, principal, false);
+      await lockDirectoryAuthority(transaction, principal.accountId);
+      const deviceId = await sessionDevice(transaction, principal);
       return deviceId === null ? null : readList(transaction, principal.accountId, deviceId);
     });
   }
@@ -58,11 +59,8 @@ export class PostgresDeviceDirectory implements DeviceDirectoryApplicationPort {
       // Locks follow DEVICE_DRAIN_LOCK_ORDER (security, account state, bindings) so a report that
       // bumps the list revision serializes with drain, login and switch writers instead of
       // deadlocking against them.
-      await transaction.query(
-        "SELECT 1 FROM identity_account_security_states WHERE account_id = $1 FOR UPDATE", [principal.accountId]);
-      await transaction.query(
-        "SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE", [principal.accountId]);
-      const deviceId = await sessionDevice(transaction, principal, true);
+      await lockDirectoryAuthority(transaction, principal.accountId);
+      const deviceId = await sessionDevice(transaction, principal);
       if (deviceId === null) return null;
       const updated = await transaction.query<{ renamed: boolean }>(
         `WITH previous AS (
@@ -92,14 +90,19 @@ export class PostgresDeviceDirectory implements DeviceDirectoryApplicationPort {
   }
 }
 
+/** Stabilizes the directory snapshot and follows the same lock order as device writers. */
+async function lockDirectoryAuthority(transaction: AccountTransaction, accountId: string): Promise<void> {
+  await transaction.query("SELECT 1 FROM identity_account_security_states WHERE account_id = $1 FOR UPDATE", [accountId]);
+  await transaction.query("SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE", [accountId]);
+}
+
 /**
- * The bound device of a live Desktop session. For a report the binding row is locked, after the
- * caller has locked security and account state, so a concurrent removal cannot interleave.
+ * The bound device of a live Desktop session. Session, family, binding and active key remain
+ * locked through publication, so revocation cannot interleave with a list or self-report.
  */
 async function sessionDevice(
   transaction: AccountTransaction,
   principal: PublicPrincipal,
-  lock: boolean,
 ): Promise<string | null> {
   const result = await transaction.query<{ device_id: string }>(
     `SELECT session.device_id
@@ -109,11 +112,13 @@ async function sessionDevice(
        JOIN identity_account_security_states security ON security.account_id = session.account_id
        JOIN device_bindings binding
          ON binding.account_id = session.account_id AND binding.device_id = session.device_id
+       JOIN device_signing_keys key
+         ON key.account_id = binding.account_id AND key.device_id = binding.device_id AND key.status = 'active'
       WHERE session.account_id = $1 AND session.session_id = $2 AND session.client_kind = 'desktop'
         AND session.revoked_at IS NULL AND session.epoch_at_issue = security.account_security_epoch
-        AND (session.expires_at IS NULL OR session.expires_at > transaction_timestamp())
+        AND (session.expires_at IS NULL OR session.expires_at > clock_timestamp())
         AND security.status = 'normal' AND family.state = 'active' AND binding.status = 'bound'
-      LIMIT 2${lock ? " FOR UPDATE OF binding" : ""}`,
+      LIMIT 2 FOR SHARE OF session, family, security, binding, key`,
     [principal.accountId, principal.sessionId],
   );
   return result.rows.length === 1 ? result.rows[0]?.device_id ?? null : null;
@@ -138,6 +143,7 @@ async function readList(
               SELECT 1 FROM device_active_leases lease
                WHERE lease.account_id = binding.account_id AND lease.device_id = binding.device_id
                  AND lease.lease_epoch = $2 AND lease.released_at IS NULL
+                 AND clock_timestamp() >= lease.issued_at AND clock_timestamp() < lease.online_expires_at
             ) AS holds_lease
        FROM device_bindings binding
        JOIN LATERAL (
@@ -161,7 +167,7 @@ async function readList(
       platform: row.platform,
       displayName: row.display_name,
       status: row.status,
-      role: row.status !== "bound" || row.key_status === "revoked" ? "none" : row.holds_lease ? "active" : "standby",
+      role: row.status !== "bound" || row.key_status !== "active" ? "none" : row.holds_lease ? "active" : "standby",
       credentialEpoch: Number(row.credential_epoch),
       signingKeyId: row.key_id,
       signingKeyVersion: Number(row.key_version),

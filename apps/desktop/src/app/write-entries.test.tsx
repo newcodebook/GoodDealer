@@ -98,9 +98,9 @@ afterEach(() => {
   container.remove();
 });
 
-async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"], workspacePorts: AuthoritativeWorkspacePorts = ports(), onRunOnboarding = vi.fn()) {
+async function render(state: BusinessStatus["state"], capabilities: BusinessStatus["capabilities"], workspacePorts: AuthoritativeWorkspacePorts = ports(), onRunOnboarding = vi.fn(), readGeneration = generation) {
   const publication: AuthoritativeWorkspacePublication = {
-    status: { schemaVersion: 2, state, capabilities, readGeneration: generation } as BusinessStatus,
+    status: { schemaVersion: 2, state, capabilities, readGeneration } as BusinessStatus,
     portfolio, conflicts, sync,
   };
   const presentation = adjudicateDesktopPresentation(false, publication, "authenticated");
@@ -129,6 +129,22 @@ async function openDetail() {
 }
 
 describe("write entries follow the presentation gate", () => {
+  it("keeps an unsaved device name when ordinary synchronization advances the business generation", async () => {
+    const directory = { schemaVersion: 1 as const, listRevision: 1, devices: [{ deviceId: "self", displayName: "Desk", platform: "macos" as const, status: "bound" as const, role: "active" as const, currentDevice: true, lastSeenAt: null }] };
+    const workspacePorts = { ...ports(), devices: { read: vi.fn(async () => directory), reportSelf: vi.fn(async () => directory) } };
+    await render("active", ["local:read", "workspace:mutate"], workspacePorts);
+    await clickButton("Settings");
+    await clickButton("Devices & runtime");
+    await act(async () => {
+      const input = container.querySelector<HTMLInputElement>('input[name="displayName"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Unsaved name");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await render("active", ["local:read", "workspace:mutate"], workspacePorts, vi.fn(), generation + 1);
+    expect(container.querySelector<HTMLInputElement>('input[name="displayName"]')?.value).toBe("Unsaved name");
+    expect(workspacePorts.devices.read).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["active", ["local:read", "workspace:mutate"], true],
     ["active", ["local:read"], false],

@@ -15,6 +15,8 @@ const reviewedCommands = [
   "desktop_authentication_begin",
   "desktop_authentication_refresh",
   "desktop_authentication_status",
+  "device_directory_read",
+  "device_self_report",
   "device_switch_advance",
   "device_switch_cancel",
   "device_switch_request",
@@ -245,7 +247,9 @@ export function adapterCommands(source) {
     .filter((command) => command.startsWith("local_")
       || command.startsWith("desktop_authentication_")
       || command.startsWith("cloudflare_")
-      || command.startsWith("device_switch_")));
+      || command.startsWith("device_switch_")
+      || command.startsWith("device_directory_")
+      || command.startsWith("device_self_")));
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {

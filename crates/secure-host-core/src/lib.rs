@@ -19,6 +19,7 @@ mod cloudflare_capture;
 mod cloudflare_keychain;
 mod cloudflare_provider;
 mod desktop_authorization_verifier;
+mod desktop_device_directory;
 mod desktop_device_identity;
 mod desktop_oauth;
 mod local_workspace_binding;
@@ -58,4 +59,9 @@ pub use local_workspace_binding::{
     LocalWorkspaceBindingError, VerifiedLocalWorkspaceBinding, VerifiedLocalWorkspaceBindingParams,
     clear_verified_local_workspace_binding, load_verified_local_workspace_binding,
     store_verified_local_workspace_binding,
+};
+
+pub use desktop_device_directory::{
+    DesktopDeviceDirectory, DeviceDirectoryRejected, parse_desktop_device_directory,
+    prepare_desktop_device_self_report,
 };

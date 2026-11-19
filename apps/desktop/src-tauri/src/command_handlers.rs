@@ -687,3 +687,32 @@ mod tests {
         );
     }
 }
+
+/// Reads only the current account's redacted device directory.
+#[tauri::command]
+pub(crate) async fn device_directory_read(
+    session: State<'_, Arc<crate::native_cloud_session::NativeCloudSession>>,
+) -> Result<gooddealer_secure_host_core::DesktopDeviceDirectory, String> {
+    session
+        .device_directory(None)
+        .await
+        .map_err(|_| "DEVICE_DIRECTORY_UNAVAILABLE".to_owned())
+}
+
+/// The raw intent contains a name only; Native supplies the build platform.
+#[tauri::command]
+pub(crate) async fn device_self_report(
+    request: tauri::ipc::Request<'_>,
+    session: State<'_, Arc<crate::native_cloud_session::NativeCloudSession>>,
+) -> Result<gooddealer_secure_host_core::DesktopDeviceDirectory, String> {
+    let tauri::ipc::InvokeBody::Raw(wire) = request.body() else {
+        return Err("DEVICE_DIRECTORY_INPUT_REJECTED".to_owned());
+    };
+    if wire.is_empty() || wire.len() > 1024 {
+        return Err("DEVICE_DIRECTORY_INPUT_REJECTED".to_owned());
+    }
+    session
+        .device_directory(Some(wire.clone()))
+        .await
+        .map_err(|_| "DEVICE_DIRECTORY_UNAVAILABLE".to_owned())
+}

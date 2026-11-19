@@ -48,8 +48,8 @@ export const deviceBindingSummarySchema = z
     ) {
       context.addIssue({ code: "custom", path: ["boundAt"], message: "device timestamps are out of order" });
     }
-    if (value.signingKeyStatus === "revoked" && value.role !== "none") {
-      context.addIssue({ code: "custom", path: ["signingKeyStatus"], message: "a revoked signing key carries no role" });
+    if (value.signingKeyStatus !== "active" && value.role !== "none") {
+      context.addIssue({ code: "custom", path: ["signingKeyStatus"], message: "only an active signing key carries a role" });
     }
   });
 

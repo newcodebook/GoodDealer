@@ -411,6 +411,18 @@
           "markdownDescription": "Enables the desktop_authentication_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the device_directory_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-directory-read",
+          "markdownDescription": "Enables the device_directory_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_self_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-self-report",
+          "markdownDescription": "Enables the device_self_report command without any pre-configured scope."
+        },
+        {
           "description": "Enables the device_switch_advance command without any pre-configured scope.",
           "type": "string",
           "const": "allow-device-switch-advance",
@@ -637,6 +649,18 @@
           "type": "string",
           "const": "deny-desktop-authentication-status",
           "markdownDescription": "Denies the desktop_authentication_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_directory_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-directory-read",
+          "markdownDescription": "Denies the device_directory_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_self_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-self-report",
+          "markdownDescription": "Denies the device_self_report command without any pre-configured scope."
         },
         {
           "description": "Denies the device_switch_advance command without any pre-configured scope.",

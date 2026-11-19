@@ -309,3 +309,5 @@ export class ValidatingConnectionSettingsPort implements ConnectionSettingsPort 
     return parseConnectionSettingsViewModel(await this.#boundary.getConnectionSettings());
   }
 }
+
+export { deviceDirectoryViewSchema, deviceSelfNameIntentSchema, parseDeviceDirectoryView, type DeviceDirectoryView, type DeviceSelfNameIntent, type DeviceDirectorySettingsPort } from "./device-directory";

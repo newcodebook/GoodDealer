@@ -303,3 +303,13 @@ pnpm --filter @gooddealer/desktop test
 cargo test -p gooddealer-desktop-tauri
 node --test scripts/tauri-command-policy.test.mjs
 ```
+
+
+### Device directory and self-name
+
+Settings → Devices reads Cloud's bounded device directory through Native fixed routes. The Renderer
+submits only a name; Native supplies the build platform, verifies the current-device identity and
+credential-instance fence, and removes signing metadata before IPC. Cloud owns persistence; no local
+business database copy is introduced. Unknown save outcomes require a directory read before another
+save. Ordinary business replication preserves unsaved edits. The current Native admission still
+requires Active authority; this does not enable Standby login, handoff or bootstrap.

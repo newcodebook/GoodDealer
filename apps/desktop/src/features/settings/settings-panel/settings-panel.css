@@ -42,3 +42,6 @@
 .settings-steps { display: flex; flex-direction: column; gap: var(--space-2); padding: 11px 13px; border: 1px solid var(--gd-line-strong); border-radius: var(--radius-md); background: var(--gd-panel); color: var(--text-2); font-size: var(--text-xs); line-height: 1.5; }
 .settings-steps b { color: var(--text-1); font-weight: var(--weight-medium); }
 .settings-ack { padding-top: 10px; border-top: 1px solid var(--gd-line); }
+
+.settings-device-directory { margin: 0; padding: 0; list-style: none; }
+.settings-device-row { display: flex; justify-content: space-between; gap: 1rem; padding-block: 0.75rem; border-bottom: 1px solid var(--gd-line); overflow-wrap: anywhere; }

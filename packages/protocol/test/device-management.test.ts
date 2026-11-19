@@ -53,6 +53,7 @@ const invalidCases = [
   ["binding-removed-current-device.json", deviceBindingSummarySchema],
   ["binding-last-seen-before-bound.json", deviceBindingSummarySchema],
   ["binding-revoked-key-with-role.json", deviceBindingSummarySchema],
+  ["binding-rotated-key-with-role.json", deviceBindingSummarySchema],
   ["binding-last-seen-not-whole-hour.json", deviceBindingSummarySchema],
   ["self-report-names-a-device.json", deviceSelfReportSchema],
   ["self-report-control-character.json", deviceSelfReportSchema],

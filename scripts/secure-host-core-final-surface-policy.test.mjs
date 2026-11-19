@@ -19,6 +19,7 @@ const expectedSourceFiles = [
   "cloudflare_provider.rs",
   "desktop_authorization_verifier.rs",
   "desktop_device_identity.rs",
+  "desktop_device_directory.rs",
   "desktop_oauth.rs",
   "lib.rs",
   "local_workspace_binding.rs",
@@ -77,6 +78,12 @@ const expectedDesktopAuthorizationPublicItems = [
   "new",
   "parse_desktop_authorization_verifier_registry",
   "verify",
+];
+const expectedDesktopDeviceDirectoryExports = [
+  "DesktopDeviceDirectory",
+  "DeviceDirectoryRejected",
+  "parse_desktop_device_directory",
+  "prepare_desktop_device_self_report",
 ];
 const expectedDesktopDeviceIdentityExports = [
   "DESKTOP_DEVICE_PROOF_DOMAIN",
@@ -343,7 +350,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "cloudflare_capture",
@@ -353,6 +360,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     "desktop_device_identity",
     "desktop_oauth",
     "local_workspace_binding",
+    "desktop_device_directory",
   ];
   if (!sameArray(exportMatches.map((match) => match[1]), expectedExportModules)) {
     errors.push("secure-host-core direct capability export blocks are missing, reordered, or duplicated");
@@ -369,6 +377,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedCloudflareProviderExports,
     ...expectedDesktopAuthorizationExports,
     ...expectedDesktopDeviceIdentityExports,
+    ...expectedDesktopDeviceDirectoryExports,
     ...expectedDesktopOAuthExports,
     ...expectedLocalWorkspaceBindingExports,
   ].sort();
@@ -380,6 +389,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     errors.push("secure-host-core exposes a public item outside the exact capability export blocks");
   }
   const exactPublicItemSurfaces = [
+    ["desktop_device_directory.rs", expectedDesktopDeviceDirectoryExports, "desktop device directory"],
     [desktopAuthorizationSourceFile, expectedDesktopAuthorizationPublicItems, "desktop authorization"],
     [desktopOAuthSourceFile, expectedDesktopOAuthPublicItems, "desktop OAuth"],
     [desktopDeviceIdentitySourceFile, expectedDesktopDeviceIdentityPublicItems, "desktop device identity"],

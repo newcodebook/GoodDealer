@@ -1,5 +1,6 @@
 import {
   createConflictResolutionIntent,
+  type DeviceDirectorySettingsPort,
   type AssetLibraryViewModel,
   type BatchOperationsReadPort,
   type HistoryReadPort,
@@ -31,6 +32,8 @@ export interface AuthoritativeWorkspacePublication {
 }
 
 export interface AuthoritativeWorkspacePorts {
+  /** Cloud device metadata; absent in offline-only compositions. */
+  readonly devices?: DeviceDirectorySettingsPort;
   readonly business: LocalBusinessPort;
   /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
   readonly dns: DnsHealthPort;

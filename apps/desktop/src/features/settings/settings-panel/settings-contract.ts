@@ -4,9 +4,9 @@ export type SettingsSection = "connections" | "devices" | "license" | "sync" | "
 export const settingsSections: readonly SettingsSection[] = ["connections", "devices", "license", "sync", "about"];
 
 /**
- * Execution devices as the Host reports them. There is no composed settings contract yet, so
- * these shapes are Desktop-local and supplied by the design host. Sunset/LocalContinuation
- * artifacts are deliberately absent: they never appear in the everyday device list.
+ * Handoff presentation requires explicit Host-admitted targets in addition to device metadata.
+ * Production currently uses the redacted directory settings port without handoff admission.
+ * Sunset/LocalContinuation artifacts never appear in the everyday device list.
  */
 export interface DeviceRuntimeEntry {
   readonly id: string;

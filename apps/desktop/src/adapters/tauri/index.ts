@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   connectionLabelSchema,
+  deviceSelfNameIntentSchema,
+  parseDeviceDirectoryView,
+  type DeviceDirectorySettingsPort,
   copyPlainData,
   batchOperationsWindowRequestSchema,
   parseBatchOperationsRead,
@@ -869,3 +872,16 @@ export {
   type DesktopWindowControlsPort,
   type DesktopWindowPlatform,
 } from "./window-controls";
+
+export function createDeviceDirectoryPort(): DeviceDirectorySettingsPort {
+  return {
+    async read() {
+      return parseDeviceDirectoryView(await invoke<unknown>("device_directory_read"));
+    },
+    async reportSelf(intent) {
+      const parsed = deviceSelfNameIntentSchema.safeParse(copyPlainData(intent));
+      if (!parsed.success) throw new TypeError("invalid device name intent");
+      return parseDeviceDirectoryView(await invoke<unknown>("device_self_report", new TextEncoder().encode(JSON.stringify(parsed.data))));
+    },
+  };
+}

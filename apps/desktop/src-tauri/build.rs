@@ -12,6 +12,8 @@ fn main() {
             "cloudflare_observation_read",
             "local_business_status",
             "local_device_lease_read",
+            "device_directory_read",
+            "device_self_report",
             "local_asset_library_read",
             "local_domain_detail_read",
             "local_dns_health_read",

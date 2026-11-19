@@ -54,6 +54,7 @@ export interface SettingsPanelProps {
   readonly connectionMaintenance?: ReactNode;
   /** Null while the Host has no device projection; the section says so instead of inventing one. */
   readonly devices: DeviceRuntimeView | null;
+  readonly deviceManagement?: ReactNode;
   /** Fires only after the handoff acknowledgement, for a target the Host admitted. */
   readonly onHandoff?: (deviceId: string) => void;
   /** Null is an uninitialized license; `"unavailable"` means the Host does not report one yet. */
@@ -89,6 +90,7 @@ export function SettingsPanel({
   onRunOnboarding,
   connectionMaintenance,
   devices,
+  deviceManagement,
   onHandoff,
   license,
   onManageSubscription,
@@ -155,10 +157,11 @@ export function SettingsPanel({
 
           {section === "connections" ? connectionMaintenance : null}
 
-          {section === "devices" && devices === null ? (
+          {section === "devices" ? deviceManagement : null}
+          {section === "devices" && deviceManagement === undefined && devices === null ? (
             <Panel title={copy.deviceExecutionTitle}><span className="gd-t-meta">{copy.devicesUnavailable}</span></Panel>
           ) : null}
-          {section === "devices" && devices !== null ? (
+          {section === "devices" && deviceManagement === undefined && devices !== null ? (
             <>
               <Panel flush title={copy.deviceExecutionTitle} actions={devices.leaseEpoch === null ? null : <span className="settings-mono settings-gold">{copy.epoch} {formatNumber(locale, devices.leaseEpoch)}</span>}>
                 {devices.devices.map((device) => (

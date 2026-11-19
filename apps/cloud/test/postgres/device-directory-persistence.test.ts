@@ -95,6 +95,50 @@ describe("PostgreSQL device directory (ADR-0032 S3a)", () => {
     expect(await owner("directory-account-a", "SELECT binding_list_revision FROM device_account_states WHERE account_id = 'directory-account-a'")).toEqual([{ binding_list_revision: "1" }]);
   });
 
+  it("does not describe an unreleased but expired Lease as Active", async () => {
+    await owner("directory-account-a", `UPDATE device_active_leases
+      SET issued_at = clock_timestamp() - interval '2 hours', renew_after = clock_timestamp() - interval '90 minutes',
+          online_expires_at = clock_timestamp() - interval '1 hour'
+      WHERE account_id = 'directory-account-a'`);
+    const view = await directory.list(listRequest, active);
+    expect(view?.devices.find(({ deviceId }) => deviceId === "device-old")?.role).toBe("standby");
+  });
+
+  it.each(["revoked", "rotated"])("denies a bound device whose signing key is %s and gives it no role", async (status) => {
+    await owner("directory-account-a", `UPDATE device_signing_keys SET status = '${status}' WHERE account_id = 'directory-account-a' AND device_id = 'device-new'`);
+    await expect(directory.list(listRequest, standby)).resolves.toBeNull();
+    await expect(directory.reportSelf(report("must not persist"), standby)).resolves.toBeNull();
+    const view = await directory.list(listRequest, active);
+    expect(view?.devices.find(({ deviceId }) => deviceId === "device-new")).toMatchObject({ role: "none", displayName: null });
+    expect(view?.listRevision).toBe(1);
+  });
+
+  it("waits for concurrent key revocation before allowing a report", async () => {
+    const client = await ownerPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE device_signing_keys SET status = 'revoked' WHERE account_id = 'directory-account-a' AND device_id = 'device-new'");
+      const pending = directory.reportSelf(report("revoked while reporting"), standby);
+      // Prove the report reached the locked key before committing its revocation.
+      let waiting = false;
+      for (let poll = 0; poll < 100 && !waiting; poll += 1) {
+        const activity = await appPool.query<{ waiting: boolean }>(`SELECT EXISTS (
+          SELECT 1 FROM pg_stat_activity WHERE usename = current_user AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock' AND query LIKE 'SELECT session.device_id%'
+        ) AS waiting`);
+        waiting = activity.rows[0]?.waiting === true;
+        if (!waiting) await appPool.query("SELECT pg_sleep(0.01)");
+      }
+      expect(waiting).toBe(true);
+      await client.query("COMMIT");
+      await expect(pending).resolves.toBeNull();
+      expect((await directory.list(listRequest, active))?.listRevision).toBe(1);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
+
   it("serializes renames with writers that lock in drain order, without deadlock", async () => {
     // A drain, login or switch writer locks security, then account state, then bindings. Renames
     // racing such writers must queue behind them rather than deadlock (SQLSTATE 40P01).
@@ -159,7 +203,7 @@ describe("PostgreSQL device directory (ADR-0032 S3a)", () => {
       if (/[\p{Cc}\p{Cf}]/u.test(String.fromCodePoint(codePoint))) rejected.push(String.fromCodePoint(codePoint));
     }
     const edges = [" a", "a ", "\u3000a", "a\u00a0", "\u2028a", "a\u205f"];
-    const accepted = ["a b", "Studio\u00a0PC", "设备", "é", "x".repeat(64)];
+    const accepted = ["a b", "Studio\u00a0PC", "设备", "é", "x".repeat(64), "😀".repeat(64)];
     for (const value of [...rejected.map((character) => `a${character}b`), ...edges, ...accepted]) {
       expect(deviceSelfReportSchema.safeParse({ schemaVersion: 1, platform: "linux", displayName: value }).success)
         .toBe(accepted.includes(value));

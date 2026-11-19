@@ -86,6 +86,8 @@ describe("Desktop native policy", () => {
       "allow-local-backup-restore-begin",
       "allow-local-business-status",
       "allow-local-device-lease-read",
+      "allow-device-directory-read",
+      "allow-device-self-report",
       "allow-local-asset-library-read",
       "allow-local-domain-detail-read",
       "allow-local-dns-health-read",
