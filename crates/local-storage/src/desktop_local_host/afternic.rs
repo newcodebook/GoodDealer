@@ -301,6 +301,7 @@ impl DesktopLocalHost {
     }
 }
 
-#[cfg(test)]
+// This integration fixture uses Unix custody and its in-memory OS key-store adapter.
+#[cfg(all(test, unix))]
 #[path = "afternic_tests.rs"]
 mod tests;

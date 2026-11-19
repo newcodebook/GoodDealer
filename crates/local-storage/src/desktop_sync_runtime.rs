@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::active_workspace::business::{
     CloudMutationReceipt, CloudflareRetirementSeed, DrainMutationProgress, DrainProofSchemaVersion,
-    DrainStreamClaim, HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
+    HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
 };
 use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
 use crate::{
@@ -922,12 +922,24 @@ impl DesktopSyncRuntime {
         self.recheck_sync_run(database, admission)?;
         let now = timestamp(trusted_now()?)?;
         database
-            .begin_device_handoff_barrier(
+            .begin_device_handoff_barrier_for_source(
                 device_switch_request_id,
+                &admission.device_id,
                 admission.lease_epoch,
                 &now,
                 || commit_guard.verify(self, admission),
             )
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn drain_frozen_unresolved_count(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<u64, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .device_handoff_frozen_unresolved_count(&admission.device_id, admission.lease_epoch)
             .map_err(map_database_error)
     }
 
@@ -938,15 +950,31 @@ impl DesktopSyncRuntime {
         admission: &DesktopSyncRunAdmission,
     ) -> Result<DrainMutationProgress, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
-        if database
-            .has_unexported_provider_handoff_facts()
+        let Some(pending) = database
+            .execution_evidence_pending_count()
             .map_err(map_database_error)?
+        else {
+            return Ok(DrainMutationProgress::Blocked);
+        };
+        if pending > 0 {
+            return Ok(DrainMutationProgress::Waiting {
+                unconfirmed: pending,
+            });
+        }
+        let mutation = database
+            .read_drain_mutation_progress(&admission.device_id)
+            .map_err(map_database_error)?;
+        if !matches!(mutation, DrainMutationProgress::Ready(_)) {
+            return Ok(mutation);
+        }
+        if database
+            .execution_evidence_drain_claims(&admission.device_id, admission.lease_epoch)
+            .map_err(map_database_error)?
+            .is_none()
         {
             return Ok(DrainMutationProgress::Blocked);
         }
-        database
-            .read_drain_mutation_progress(&admission.device_id)
-            .map_err(map_database_error)
+        Ok(mutation)
     }
 
     /// ADR-0032 S2c: the version-2 rows that still need Cloud's receipt.
@@ -984,13 +1012,14 @@ impl DesktopSyncRuntime {
     /// ADR-0032 S2d: the unsigned handoff proof for `device_switch_request_id`. It exists only while
     /// this switch's barrier holds writes closed under this run's Lease epoch and the mutation
     /// stream is fully confirmed and there are no local Provider facts requiring the other streams.
-    /// The device key version is 1, the only version production registers.
+    /// The key version comes from the current independently verified execution context.
     pub(crate) fn drain_prepare_proof(
         &self,
         database: &mut BusinessDatabase,
         admission: &DesktopSyncRunAdmission,
         device_switch_request_id: &str,
         signing_key_id: &str,
+        signing_key_version: u64,
     ) -> Result<HandoffDrainProofClaims, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
         // This independent check also covers callers that bypass the progress projection.
@@ -1015,6 +1044,10 @@ impl DesktopSyncRuntime {
         else {
             return Err(DesktopSyncError::Blocked);
         };
+        let [execution, audit] = database
+            .execution_evidence_drain_claims(&admission.device_id, admission.lease_epoch)
+            .map_err(map_database_error)?
+            .ok_or(DesktopSyncError::Blocked)?;
         let now = trusted_now()?;
         Ok(HandoffDrainProofClaims {
             schema_version: DrainProofSchemaVersion::V2,
@@ -1023,18 +1056,14 @@ impl DesktopSyncRuntime {
             source_device_id: admission.device_id.clone(),
             active_lease_epoch: admission.lease_epoch,
             device_switch_request_id: device_switch_request_id.to_owned(),
-            streams: [
-                mutation,
-                DrainStreamClaim::empty(),
-                DrainStreamClaim::empty(),
-            ],
+            streams: [mutation, execution, audit],
             // Cloud refuses a proof issued after its own clock and admits a window of at most 600
             // seconds. Issuing 30 seconds back keeps a Desktop clock slightly ahead of Cloud from
             // failing the first submission; the window stays five minutes.
             issued_at: checked_timestamp(now, -30)?,
             expires_at: checked_timestamp(now, 270)?,
             signing_key_id: signing_key_id.to_owned(),
-            signing_key_version: 1,
+            signing_key_version,
         })
     }
 
@@ -1048,9 +1077,12 @@ impl DesktopSyncRuntime {
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
         database
-            .clear_device_handoff_barrier(device_switch_request_id, || {
-                commit_guard.verify(self, admission)
-            })
+            .clear_device_handoff_barrier_for_source(
+                device_switch_request_id,
+                &admission.device_id,
+                admission.lease_epoch,
+                || commit_guard.verify(self, admission),
+            )
             .map_err(map_database_error)
     }
 

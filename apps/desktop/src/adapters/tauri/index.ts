@@ -137,6 +137,7 @@ const deviceSwitchRejections = [
   "TARGET_IS_SOURCE",
   "TARGET_NOT_BOUND",
   "TARGET_REMOVED",
+  "SOURCE_LEASE_CHANGED",
   "ACCOUNT_RECOVERY_PENDING",
   "FORCED_SWITCH_UNAVAILABLE",
   "DRAIN_PROOF_INVALID",
@@ -149,14 +150,15 @@ export type DeviceSwitchRejection = (typeof deviceSwitchRejections)[number];
  * Where this device's switch stands (ADR-0032). Only closed codes cross IPC: the switch id, Lease,
  * receipts, proof and signature stay in the Host.
  */
-export type DeviceSwitchStep =
+export type DeviceSwitchStep = { readonly frozenUnresolved: number | null } & (
   | { readonly kind: "idle" }
+  | { readonly kind: "request_pending" }
   | { readonly kind: "rejected"; readonly rejection: DeviceSwitchRejection }
   | { readonly kind: "waiting_for_sync"; readonly unconfirmed: number }
   | { readonly kind: "blocked" }
   | { readonly kind: "receipts_missing" }
   | { readonly kind: "switch"; readonly status: DeviceSwitchStatus }
-  | { readonly kind: "writes_reopened" };
+  | { readonly kind: "writes_reopened" });
 
 const deviceSwitchErrorCodes = [
   "DEVICE_SWITCH_RETRY_LATER",
@@ -183,6 +185,17 @@ export interface DeviceSwitchPort {
   status(): Promise<DeviceSwitchStep>;
   /** Writes reopen only once Cloud confirms the cancellation. */
   cancel(): Promise<DeviceSwitchStep>;
+}
+
+export type TargetBootstrapView =
+  | { readonly kind: "idle" }
+  | { readonly kind: "available"; readonly requestId: string; readonly bootstrapExpiresAt: string }
+  | { readonly kind: "pending"; readonly requestId: string }
+  | { readonly kind: "finished"; readonly requestId: string; readonly status: "cancelled" | "failed" | "completed" };
+
+export interface TargetBootstrapPort {
+  status(): Promise<TargetBootstrapView>;
+  cancel(requestId: string): Promise<TargetBootstrapView>;
 }
 
 export type CloudflareConnectionStatusState = "not-configured" | "recovering" | "ready" | "busy" | "blocked";
@@ -631,25 +644,65 @@ function isPrintableIdentifier(value: unknown, maximum: number): value is string
     && [...value].every((char) => { const code = char.codePointAt(0) ?? 0; return code >= 0x21 && code <= 0x7e; });
 }
 
+export function createTargetBootstrapPort(): TargetBootstrapPort {
+  return {
+    async status() { return parseTargetBootstrapView(await invoke<unknown>("target_bootstrap_status")); },
+    async cancel(requestId) {
+      if (!isPrintableIdentifier(requestId, 160)) throw new TypeError("invalid bootstrap request");
+      return parseTargetBootstrapView(await invoke<unknown>("target_bootstrap_cancel", { request: { schemaVersion: 1, requestId } }));
+    },
+  };
+}
+
+function parseTargetBootstrapView(value: unknown): TargetBootstrapView {
+  const data = copyPlainData(value);
+  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new TypeError("invalid target bootstrap view");
+  const kind = (data as Record<string, unknown>)["kind"];
+  const fields = kind === "idle" ? ["schemaVersion", "kind"] : kind === "available"
+    ? ["schemaVersion", "kind", "requestId", "bootstrapExpiresAt"] : kind === "pending"
+      ? ["schemaVersion", "kind", "requestId"] : ["schemaVersion", "kind", "requestId", "status"];
+  const record = exactRecord(data, fields);
+  if (record["schemaVersion"] !== 1) throw new TypeError("invalid target bootstrap version");
+  if (kind === "idle") return Object.freeze({ kind });
+  const requestId = record["requestId"];
+  if (!isPrintableIdentifier(requestId, 160)) throw new TypeError("invalid target bootstrap identity");
+  if (kind === "pending") return Object.freeze({ kind, requestId });
+  const bootstrapExpiresAt = record["bootstrapExpiresAt"];
+  if (kind === "available" && typeof bootstrapExpiresAt === "string"
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(bootstrapExpiresAt)
+      && Number.isFinite(Date.parse(bootstrapExpiresAt))
+      && new Date(bootstrapExpiresAt).toISOString().replace(".000Z", "Z") === bootstrapExpiresAt) {
+    return Object.freeze({ kind, requestId, bootstrapExpiresAt });
+  }
+  const status = record["status"];
+  if (kind === "finished" && (status === "cancelled" || status === "failed" || status === "completed")) {
+    return Object.freeze({ kind, requestId, status });
+  }
+  throw new TypeError("invalid target bootstrap state");
+}
+
 function parseDeviceSwitchStep(value: unknown): DeviceSwitchStep {
-  const record = exactRecord(copyPlainData(value), ["schemaVersion", "step", "unconfirmed", "status", "rejection"]);
-  const { step, unconfirmed, status, rejection } = record;
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "step", "unconfirmed", "frozenUnresolved", "status", "rejection"]);
+  const { step, unconfirmed, frozenUnresolved, status, rejection } = record;
+  if (frozenUnresolved !== null && (!Number.isSafeInteger(frozenUnresolved) || (frozenUnresolved as number) < 0)) throw new TypeError("invalid frozen outcome count");
+  const frozen = frozenUnresolved as number | null;
   const empty = (...fields: unknown[]) => fields.every((field) => field === null);
   if (record["schemaVersion"] === 1) {
-    if (step === "idle" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "idle" });
-    if (step === "blocked" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "blocked" });
-    if (step === "receipts_missing" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "receipts_missing" });
-    if (step === "writes_reopened" && empty(unconfirmed, status, rejection)) return Object.freeze({ kind: "writes_reopened" });
+    if (step === "request_pending" && empty(unconfirmed, status, rejection)) return Object.freeze({ frozenUnresolved: frozen, kind: "request_pending" });
+    if (step === "idle" && empty(unconfirmed, status, rejection)) return Object.freeze({ frozenUnresolved: frozen, kind: "idle" });
+    if (step === "blocked" && empty(unconfirmed, status, rejection)) return Object.freeze({ frozenUnresolved: frozen, kind: "blocked" });
+    if (step === "receipts_missing" && empty(unconfirmed, status, rejection)) return Object.freeze({ frozenUnresolved: frozen, kind: "receipts_missing" });
+    if (step === "writes_reopened" && empty(unconfirmed, status, rejection)) return Object.freeze({ frozenUnresolved: frozen, kind: "writes_reopened" });
     if (step === "waiting_for_sync" && empty(status, rejection) && Number.isSafeInteger(unconfirmed) && (unconfirmed as number) >= 0) {
-      return Object.freeze({ kind: "waiting_for_sync", unconfirmed: unconfirmed as number });
+      return Object.freeze({ frozenUnresolved: frozen, kind: "waiting_for_sync", unconfirmed: unconfirmed as number });
     }
     const knownStatus = deviceSwitchStatuses.find((candidate) => candidate === status);
     if (step === "switch" && empty(unconfirmed, rejection) && knownStatus !== undefined) {
-      return Object.freeze({ kind: "switch", status: knownStatus });
+      return Object.freeze({ frozenUnresolved: frozen, kind: "switch", status: knownStatus });
     }
     const knownRejection = deviceSwitchRejections.find((candidate) => candidate === rejection);
     if (step === "rejected" && empty(unconfirmed, status) && knownRejection !== undefined) {
-      return Object.freeze({ kind: "rejected", rejection: knownRejection });
+      return Object.freeze({ frozenUnresolved: frozen, kind: "rejected", rejection: knownRejection });
     }
   }
   throw new TypeError("invalid device switch step");

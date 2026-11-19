@@ -1,12 +1,12 @@
-//! Fixed macOS native credential capture. The production command is intentionally not injectable.
+//! Fixed Native credential capture. Platform adapters never accept secrets through Renderer IPC.
 
 use std::fmt;
 
 use zeroize::Zeroizing;
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const MAX_OUTPUT_BYTES: usize = 8 * 1024;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const MAX_TOKEN_BYTES: usize = 512;
 #[cfg(target_os = "macos")]
 const STATIC_APPLESCRIPT: &str = r#"set zoneId to text returned of (display dialog "Cloudflare Zone ID" default answer "")
@@ -79,14 +79,14 @@ impl CloudflareCandidate {
 pub struct CloudflareCapture;
 
 impl CloudflareCapture {
-    /// Whether this build can capture a token at all. Capture runs only through the fixed macOS
-    /// system script; every other platform fails closed, so a Host on one never offers connecting.
+    /// Whether this build has a fixed Native capture adapter. Windows uses masked Win32 controls;
+    /// macOS uses its fixed system dialog. Runtime custody admission is still independent.
     #[must_use]
     pub const fn supported() -> bool {
-        cfg!(target_os = "macos")
+        cfg!(any(target_os = "macos", target_os = "windows"))
     }
 
-    /// Captures a candidate using the fixed system script on macOS; all other platforms fail closed.
+    /// Captures a candidate through the fixed Native adapter on Windows or macOS.
     ///
     /// # Errors
     ///
@@ -108,9 +108,32 @@ impl CloudflareCapture {
         guard: &mut dyn FnMut() -> Result<(), CloudflareCaptureError>,
     ) -> Result<CloudflareCandidate, CloudflareCaptureError> {
         guard()?;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             Err(CloudflareCaptureError::Unavailable)
+        }
+        #[cfg(windows)]
+        {
+            use crate::windows_credential_capture::{CaptureError, Purpose, capture};
+            let mut guard_error = None;
+            let captured = capture(Purpose::Cloudflare, &mut || match guard() {
+                Ok(()) => true,
+                Err(error) => {
+                    guard_error = Some(error);
+                    false
+                }
+            });
+            if let Some(error) = guard_error {
+                return Err(error);
+            }
+            let bytes = captured.map_err(|error| match error {
+                CaptureError::Unavailable => CloudflareCaptureError::Unavailable,
+                CaptureError::Cancelled => CloudflareCaptureError::Cancelled,
+                CaptureError::Timeout => CloudflareCaptureError::Timeout,
+                CaptureError::AuthorityStale => CloudflareCaptureError::AuthorityStale,
+            })?;
+            guard()?;
+            parse_capture_output(&bytes)
         }
         #[cfg(target_os = "macos")]
         {
@@ -172,7 +195,7 @@ impl CloudflareCapture {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareCaptureError> {
     if bytes.len() > MAX_OUTPUT_BYTES {
         return Err(CloudflareCaptureError::OutputTooLarge);
@@ -196,7 +219,7 @@ fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareC
     })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn is_zone_id(value: &str) -> bool {
     value.len() == 32
         && value

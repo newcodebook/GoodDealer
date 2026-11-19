@@ -12,6 +12,8 @@ mod backup_workflow;
 mod business;
 mod container;
 pub(crate) mod continuity;
+pub(crate) mod execution_context;
+pub(crate) mod execution_evidence_delivery;
 mod native_backup;
 mod normal_handoff;
 mod provider;
@@ -25,7 +27,8 @@ mod source;
 #[cfg(all(test, unix))]
 mod standby_tests;
 mod sync;
-#[cfg(all(test, unix))]
+pub(crate) mod target_bootstrap;
+#[cfg(test)]
 mod test_support;
 #[cfg(all(test, unix))]
 mod tests;
@@ -70,7 +73,6 @@ use crate::desktop_local_host::container::{
 use crate::desktop_local_host::continuity::{
     BarrierReason, ContinuityManager, VerifiedLocalContinuation,
 };
-#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 use crate::desktop_local_host::continuity::{
     ContinuityBinding, ContinuityReceiptV1, ReceiptState, StartupContinuity,
@@ -678,7 +680,6 @@ impl PrivateWorkspaceAuthority {
         self.generation != 0 && now >= self.trusted_time_floor && now < self.execute_before
     }
 
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     fn binding(&self) -> crate::desktop_local_host::container::BindingDigests {
         let account = digest_component(b"account", self.account_id.as_bytes());
@@ -715,6 +716,9 @@ pub struct DesktopLocalHost {
     )]
     production_custody: Option<Mutex<DesktopProductionCustody>>,
     authority_verifier: Option<WorkspaceAuthorityVerifier>,
+    execution_context_native:
+        Option<std::sync::Arc<dyn execution_context::DesktopExecutionContextNativePort>>,
+    execution_context_state: Mutex<execution_context::ExecutionContextState>,
     /// Published before any authority transition waits for the operation lock.
     transition_requested_epoch: AtomicU64,
     /// Advances on both sides of every Cloudflare connection create and backup restore, the only
@@ -737,10 +741,8 @@ pub struct DesktopLocalHost {
     #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     rebootstrap_test_executor_enabled: bool,
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     development_installation_binding: Option<[u8; 32]>,
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     business_commit_transition_epoch: AtomicU64,
     #[cfg_attr(not(unix), cfg(any()))]
@@ -774,6 +776,8 @@ impl DesktopLocalHost {
             application_root: None,
             production_custody: None,
             authority_verifier: None,
+            execution_context_native: None,
+            execution_context_state: Mutex::new(execution_context::ExecutionContextState::default()),
             transition_requested_epoch: AtomicU64::new(0),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),
@@ -788,10 +792,8 @@ impl DesktopLocalHost {
             #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             rebootstrap_test_executor_enabled: false,
-            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             development_installation_binding: None,
-            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             business_commit_transition_epoch: AtomicU64::new(0),
             #[cfg_attr(not(unix), cfg(any()))]
@@ -862,7 +864,6 @@ fn clear_operation_state(operation: &mut HostOperationState) {
     operation.selection_consumed = true;
 }
 
-#[cfg_attr(not(unix), cfg(any()))]
 #[cfg(test)]
 fn digest_component(label: &[u8], value: &[u8]) -> [u8; 32] {
     let mut digest = Sha256::new();

@@ -1,7 +1,6 @@
 use super::*;
 
 impl DesktopLocalHost {
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -14,6 +13,8 @@ impl DesktopLocalHost {
         workspace_id: &str,
         device_id: &str,
     ) -> Result<Self, DesktopBackupError> {
+        #[cfg(not(unix))]
+        drop(native_root);
         let generation: u64 = 1;
         let now = current_unix_seconds()?;
         let mut digest = Sha256::new();
@@ -118,15 +119,20 @@ impl DesktopLocalHost {
             application_root: None,
             production_custody: None,
             authority_verifier: None,
+            execution_context_native: None,
+            execution_context_state: Mutex::new(execution_context::ExecutionContextState::default()),
             transition_requested_epoch: AtomicU64::new(generation),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),
             authority_publication: Mutex::new(WorkspaceAuthorityState {
                 authority: Some(authority),
                 backup: BackupArtifactState {
+                    #[cfg(unix)]
                     native: NativeBackupComposition::Development(DevelopmentNativeBackup::new(
                         native_root,
                     )?),
+                    #[cfg(not(unix))]
+                    native: NativeBackupComposition::Unavailable,
                     container: Some(container),
                 },
                 applied_authority_epoch: generation,
@@ -138,12 +144,17 @@ impl DesktopLocalHost {
                 business: DesktopBusinessRuntime::new(database),
                 sync: Some(sync),
             })),
+            #[cfg(unix)]
             rebootstrap_runtime: None,
+            #[cfg(unix)]
             rebootstrap_quarantine_custody: None,
+            #[cfg(unix)]
             rebootstrap_test_executor_enabled: false,
             development_installation_binding: Some(installation_digest),
             business_commit_transition_epoch: AtomicU64::new(0),
+            #[cfg(unix)]
             restore_precommit_transition_epoch: AtomicU64::new(0),
+            #[cfg(unix)]
             restore_postcommit_transition_epoch: AtomicU64::new(0),
         })
     }
@@ -517,7 +528,6 @@ impl DesktopLocalHost {
         }
     }
 
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     pub(crate) fn publish_transition_at_next_business_commit_for_test(
         &self,
@@ -575,7 +585,6 @@ impl DesktopLocalHost {
         }
     }
 
-    #[cfg_attr(not(unix), cfg(any()))]
     #[cfg(test)]
     pub(crate) fn renew_business_authority_for_test(
         &self,

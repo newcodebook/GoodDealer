@@ -289,7 +289,7 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       { routine: "audit_recompute_workspace_device_drain_head(text,bigint)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "device_consume_drain_proof(text,bytea,text,bigint,text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "device_read_just_consumed_drain_proof(text)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
-      { routine: "execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
+      { routine: "execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "execution_fact_drain_install_accepted_seal(text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "execution_fact_drain_recompute_head(text,bigint)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "workspace_mutation_drain_append_record(text,bigint,bigint,bytea)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
@@ -454,7 +454,7 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       ORDER BY c.relname`, [tables]);
     expect(state.rows).toHaveLength(tables.length);
     expect(state.rows.every((row) => row.owner === "gooddealer_cloud_owner"
-      && row.enabled && row.forced && row.can_select
+      && row.enabled && row.forced && row.can_select === !["execution_fact_drain_records","workspace_device_audit_drain_records"].includes(row.table)
       && !row.can_insert && !row.can_update && !row.can_delete && !row.can_truncate)).toBe(true);
   });
 });

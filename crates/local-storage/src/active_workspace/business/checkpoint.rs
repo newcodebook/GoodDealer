@@ -10,7 +10,7 @@ use super::{
 };
 
 impl BusinessDatabase {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn prepare_rebootstrap_publication(&mut self) -> Result<(), BusinessDatabaseError> {
         self.store
             .fixture_connection()

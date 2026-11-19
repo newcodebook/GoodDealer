@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use gooddealer_local_storage::{
+    DesktopExecutionContextError, DesktopExecutionContextRequest, DesktopExecutionEvidenceStream,
     DesktopHostAuthorizationStatus, DesktopLocalHost, DesktopLocalHostError,
     DesktopNativeCloudAdmission,
 };
@@ -31,6 +32,48 @@ const AUTHORIZATION_GRANT_REQUEST_BODY: &str = include_str!(
     "../../../../packages/protocol/test-vectors/device-identity/valid/desktop-authorization-request.json"
 );
 const MAX_GRANT_RESPONSE_BYTES: usize = 16_384;
+const EXECUTION_CONTEXT_PATH: &str = "/v1/devices/execution-context";
+const MAX_EXECUTION_CONTEXT_RESPONSE_BYTES: usize = 32_768;
+
+fn context_requires_role_exchange(status: StatusCode) -> bool {
+    // Cloud deliberately hides role denial with 404; the same status may indicate an absent
+    // deployment. A single role exchange resolves the former without looping on the latter.
+    matches!(status, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthorizationExchangeStep {
+    ContextBeforeRole,
+    Role,
+    ContextAfterRole,
+    Complete,
+}
+
+impl AuthorizationExchangeStep {
+    fn initial(status: DesktopHostAuthorizationStatus) -> Self {
+        if status == DesktopHostAuthorizationStatus::Authorized {
+            Self::ContextBeforeRole
+        } else {
+            Self::Role
+        }
+    }
+
+    fn after_context(self, accepted: bool) -> Result<Self, NativeOAuthError> {
+        match (self, accepted) {
+            (Self::ContextBeforeRole | Self::ContextAfterRole, true) => Ok(Self::Complete),
+            (Self::ContextBeforeRole, false) => Ok(Self::Role),
+            _ => Err(NativeOAuthError::CredentialRejected),
+        }
+    }
+
+    fn after_role(status: DesktopHostAuthorizationStatus) -> Self {
+        if status == DesktopHostAuthorizationStatus::Authorized {
+            Self::ContextAfterRole
+        } else {
+            Self::Complete
+        }
+    }
+}
 const SYNC_PUSH_PATH: &str = "/v1/workspace-sync/mutations/push";
 const SYNC_PULL_PATH: &str = "/v1/workspace-sync/mutations/pull";
 const SYNC_CHECKPOINT_PATH: &str = "/v1/workspace-sync/checkpoint";
@@ -38,9 +81,12 @@ const CLOUDFLARE_PROJECTION_PATH: &str = "/v1/workspace-observations/cloudflare-
 // ADR-0032: the source device's side of a normal device switch.
 const SYNC_RECEIPTS_PATH: &str = "/v1/workspace-sync/mutations/receipts";
 const DEVICE_SWITCH_REQUEST_PATH: &str = "/v1/device-switch/requests";
+const DEVICE_SWITCH_RESOLVE_PATH: &str = "/v1/device-switch/requests/resolve";
 const DEVICE_SWITCH_STATUS_PATH: &str = "/v1/device-switch/requests/status";
 const DEVICE_SWITCH_CANCEL_PATH: &str = "/v1/device-switch/requests/cancel";
 const DEVICE_SWITCH_DRAIN_PATH: &str = "/v1/device-switch/requests/drain";
+const BOOTSTRAP_STATUS_PATH: &str = "/v1/device-switch/bootstrap/status";
+const BOOTSTRAP_CANCEL_PATH: &str = "/v1/device-switch/bootstrap/cancel";
 pub(crate) const PRODUCTION_CLOUD_ORIGIN: &str = "https://api.gooddealer.com/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,13 +137,23 @@ impl NativeCloudJsonResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeviceSwitchExchange {
     Request,
+    Resolve,
     Status,
     Cancel,
     Drain,
 }
 
+/// Exact target-device bootstrap termination routes; neither exchange refreshes roles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BootstrapTerminationExchange {
+    Status,
+    Cancel,
+}
+
 #[derive(Clone, Copy)]
 enum DataPlaneRoute {
+    DeviceAuditIngest,
+    ExecutionFactIngest,
     SyncPush,
     SyncPull,
     SyncCheckpoint,
@@ -106,18 +162,28 @@ enum DataPlaneRoute {
     DeviceList,
     DeviceSelfReport,
     DeviceSwitchRequest,
+    DeviceSwitchResolve,
     DeviceSwitchStatus,
     DeviceSwitchCancel,
     DeviceSwitchDrain,
+    BootstrapStatus,
+    BootstrapCancel,
 }
 
 impl DataPlaneRoute {
     /// Only routes with a composed Standby application path may use read authority. The
-    /// self-report is a metadata write; forced requests/cancellation await their own admission.
+    /// self-report is a metadata write; source cancellation remains Active-only. Target
+    /// bootstrap termination is a separate fixed route and never confers execution authority.
     const fn allows_standby(self) -> bool {
         matches!(
             self,
-            Self::SyncPull | Self::SyncCheckpoint | Self::DeviceList | Self::DeviceSwitchStatus
+            Self::SyncPull
+                | Self::SyncCheckpoint
+                | Self::DeviceList
+                | Self::DeviceSwitchStatus
+                | Self::DeviceSwitchResolve
+                | Self::BootstrapStatus
+                | Self::BootstrapCancel
         )
     }
 
@@ -142,6 +208,8 @@ impl DataPlaneRoute {
 
     const fn path(self) -> &'static str {
         match self {
+            Self::DeviceAuditIngest => "/v1/device-audits/ingest",
+            Self::ExecutionFactIngest => "/v1/execution-facts/ingest",
             Self::SyncPush => SYNC_PUSH_PATH,
             Self::SyncPull => SYNC_PULL_PATH,
             Self::SyncCheckpoint => SYNC_CHECKPOINT_PATH,
@@ -150,9 +218,12 @@ impl DataPlaneRoute {
             Self::DeviceList => "/v1/devices/list",
             Self::DeviceSelfReport => "/v1/devices/self",
             Self::DeviceSwitchRequest => DEVICE_SWITCH_REQUEST_PATH,
+            Self::DeviceSwitchResolve => DEVICE_SWITCH_RESOLVE_PATH,
             Self::DeviceSwitchStatus => DEVICE_SWITCH_STATUS_PATH,
             Self::DeviceSwitchCancel => DEVICE_SWITCH_CANCEL_PATH,
             Self::DeviceSwitchDrain => DEVICE_SWITCH_DRAIN_PATH,
+            Self::BootstrapStatus => BOOTSTRAP_STATUS_PATH,
+            Self::BootstrapCancel => BOOTSTRAP_CANCEL_PATH,
         }
     }
 }
@@ -179,6 +250,48 @@ impl Display for NativeOAuthError {
 }
 
 impl std::error::Error for NativeOAuthError {}
+
+struct PendingExecutionContext<'a> {
+    host: &'a DesktopLocalHost,
+    request: Option<DesktopExecutionContextRequest>,
+}
+
+impl PendingExecutionContext<'_> {
+    fn body(&self) -> Result<&[u8], NativeOAuthError> {
+        self.request
+            .as_ref()
+            .map(DesktopExecutionContextRequest::request_body)
+            .ok_or(NativeOAuthError::CredentialRejected)
+    }
+
+    fn take_request(&mut self) -> Result<DesktopExecutionContextRequest, NativeOAuthError> {
+        self.request
+            .take()
+            .ok_or(NativeOAuthError::CredentialRejected)
+    }
+}
+
+impl Drop for PendingExecutionContext<'_> {
+    fn drop(&mut self) {
+        // Network errors, cancellation and task abort consume the one-use Host request too.
+        // This scope is never dropped while holding a Host lock or awaiting network work.
+        if let Some(request) = self.request.take() {
+            let _ = self.host.cancel_execution_context_request(request);
+        }
+    }
+}
+
+fn execution_context_error(error: DesktopExecutionContextError) -> NativeOAuthError {
+    match error {
+        DesktopExecutionContextError::Rejected | DesktopExecutionContextError::StorageRejected => {
+            NativeOAuthError::CredentialRejected
+        }
+        DesktopExecutionContextError::Unavailable
+        | DesktopExecutionContextError::Busy
+        | DesktopExecutionContextError::Stale
+        | DesktopExecutionContextError::Expired => NativeOAuthError::TransportRejected,
+    }
+}
 
 #[derive(Debug, Clone, Copy, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -216,6 +329,24 @@ pub(crate) struct NativeCloudSessionState {
     data_plane_suspension: DataPlaneSuspension,
     request_cohort: Arc<()>,
     completed_refresh: Option<CompletedRefresh>,
+}
+
+fn install_access(
+    state: &mut NativeCloudSessionState,
+    credential: AccessCredential,
+    revalidated: bool,
+) -> Result<(), NativeOAuthError> {
+    state.credential_instance = state
+        .credential_instance
+        .checked_add(1)
+        .ok_or(NativeOAuthError::Unavailable)?;
+    state.revalidated_credential_instance = revalidated.then_some(state.credential_instance);
+    state.data_plane_suspension = DataPlaneSuspension::None;
+    state.request_cohort = Arc::new(());
+    state.completed_refresh = None;
+    state.access = Some(credential);
+    state.authorization_failure = None;
+    Ok(())
 }
 
 struct CompletedRefresh {
@@ -342,6 +473,7 @@ pub(crate) struct NativeCloudSession {
     refresh_flight: Mutex<Option<Arc<RefreshFlight>>>,
     refresh_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     publication_subscriber: OnceLock<SessionPublicationSubscriber>,
+    power: Option<gooddealer_secure_host_core::NativePowerGate>,
 }
 
 impl NativeCloudSession {
@@ -349,6 +481,7 @@ impl NativeCloudSession {
         cloud_origin: Option<&str>,
         device_id: Option<String>,
         local_host: Arc<DesktopLocalHost>,
+        power: Option<gooddealer_secure_host_core::NativePowerGate>,
     ) -> Self {
         let cloud_origin = cloud_origin.and_then(valid_cloud_origin);
         let client = Client::builder()
@@ -381,6 +514,7 @@ impl NativeCloudSession {
             refresh_flight: Mutex::new(None),
             refresh_task: Mutex::new(None),
             publication_subscriber: OnceLock::new(),
+            power,
         }
     }
 
@@ -440,6 +574,11 @@ impl NativeCloudSession {
         &self,
         exchange: DesktopAuthorizationCodeExchange,
     ) -> Result<(), NativeOAuthError> {
+        let expected_instance = self
+            .state
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?
+            .credential_instance;
         let endpoint = self.token_endpoint()?;
         let request = exchange.expose(|code, verifier, redirect_uri| {
             self.client
@@ -455,29 +594,48 @@ impl NativeCloudSession {
         });
         let credentials = Self::prepare(self.send_token_request(request).await?)?;
         let authorization_result = self
-            .fetch_and_activate_authorization(&credentials.access.token)
+            .fetch_and_activate_authorization(&credentials.access.token, expected_instance)
             .await;
-        self.complete_authorization_code_exchange(credentials, authorization_result)
+        self.complete_authorization_code_exchange(
+            credentials,
+            authorization_result,
+            expected_instance,
+        )
     }
 
-    pub(crate) fn complete_authorization_code_exchange(
+    fn complete_authorization_code_exchange(
         &self,
         credentials: PreparedCredentials,
         authorization_result: Result<(), NativeOAuthError>,
+        expected_instance: u64,
     ) -> Result<(), NativeOAuthError> {
-        if let Err(error) = authorization_result {
-            self.mark_authorization_failed(refresh_authorization_failure(error), None)?;
-            return Err(error);
-        }
-        if self
-            .refresh_credentials
-            .store(&credentials.refresh)
-            .is_err()
-        {
-            self.mark_authorization_failed(AuthorizationFailure::ReauthenticationRequired, None)?;
-            return Err(NativeOAuthError::CredentialRejected);
-        }
-        self.commit_access(credentials.access, false)
+        self.with_authorization_session(expected_instance, |state| {
+            if let Err(error) = authorization_result {
+                self.mark_authorization_failed_locked(
+                    state,
+                    refresh_authorization_failure(error),
+                    None,
+                )?;
+                return Err(error);
+            }
+            // The same credential fence covers Native persistence and publication. A late
+            // completion cannot store a refresh token or revive access after invalidation.
+            if self
+                .refresh_credentials
+                .store(&credentials.refresh)
+                .is_err()
+            {
+                self.mark_authorization_failed_locked(
+                    state,
+                    AuthorizationFailure::ReauthenticationRequired,
+                    None,
+                )?;
+                return Err(NativeOAuthError::CredentialRejected);
+            }
+            install_access(state, credentials.access, false)
+        })?;
+        self.notify_successful_publication();
+        Ok(())
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>) -> Result<(), NativeOAuthError> {
@@ -710,7 +868,11 @@ impl NativeCloudSession {
                 let credentials = match Self::prepare_refresh(response) {
                     Ok(credentials) => credentials,
                     Err(error) => {
-                        self.mark_authorization_failed(refresh_authorization_failure(error), None)?;
+                        self.mark_authorization_failed(
+                            expected_instance,
+                            refresh_authorization_failure(error),
+                            None,
+                        )?;
                         return Err(error);
                     }
                 };
@@ -721,25 +883,27 @@ impl NativeCloudSession {
                     .is_err()
                 {
                     self.mark_authorization_failed(
+                        expected_instance,
                         AuthorizationFailure::ReauthenticationRequired,
                         None,
                     )?;
                     return Err(NativeOAuthError::CredentialRejected);
                 }
                 if let Err(error) = self
-                    .fetch_and_activate_authorization(&credentials.access.token)
+                    .fetch_and_activate_authorization(&credentials.access.token, expected_instance)
                     .await
                 {
                     let failure = refresh_authorization_failure(error);
                     let retry_access = (failure == AuthorizationFailure::RefreshRetryable)
                         .then_some(credentials.access);
-                    self.mark_authorization_failed(failure, retry_access)?;
+                    self.mark_authorization_failed(expected_instance, failure, retry_access)?;
                     return Err(error);
                 }
                 self.commit_refreshed_access(credentials.access, source, expected_instance)
             }
             Err(NativeOAuthError::CredentialRejected) => {
                 self.mark_authorization_failed(
+                    expected_instance,
                     AuthorizationFailure::ReauthenticationRequired,
                     None,
                 )?;
@@ -755,16 +919,39 @@ impl NativeCloudSession {
         source: &CredentialRequestHandle,
         expected_instance: u64,
     ) -> Result<u64, NativeOAuthError> {
-        match self.fetch_and_activate_authorization(&access.token).await {
+        match self
+            .fetch_and_activate_authorization(&access.token, expected_instance)
+            .await
+        {
             Ok(()) => self.commit_refreshed_access(access, source, expected_instance),
             Err(error) => {
                 let failure = refresh_authorization_failure(error);
                 let retry_access =
                     (failure == AuthorizationFailure::RefreshRetryable).then_some(access);
-                self.mark_authorization_failed(failure, retry_access)?;
+                self.mark_authorization_failed(expected_instance, failure, retry_access)?;
                 Err(error)
             }
         }
+    }
+
+    /// One immutable, own-source event. Lost responses retry identical bytes; Host alone accepts
+    /// its exact receipt. This never sends a Provider operation or a caller-selected endpoint.
+    pub(crate) async fn send_execution_evidence(
+        self: &Arc<Self>,
+        admission: DesktopNativeCloudAdmission,
+        stream: DesktopExecutionEvidenceStream,
+        request_body: Vec<u8>,
+    ) -> Result<NativeCloudJsonResponse, NativeCloudRequestError> {
+        let (route, request_limit) = match stream {
+            DesktopExecutionEvidenceStream::DeviceAudit => {
+                (DataPlaneRoute::DeviceAuditIngest, 16_384)
+            }
+            DesktopExecutionEvidenceStream::ExecutionFact => {
+                (DataPlaneRoute::ExecutionFactIngest, 32_768)
+            }
+        };
+        self.send_data_plane(admission, request_body, route, request_limit, 65_536)
+            .await
     }
 
     pub(crate) async fn send_sync_push(
@@ -855,12 +1042,102 @@ impl NativeCloudSession {
     ) -> Result<NativeCloudJsonResponse, NativeCloudRequestError> {
         let (route, request_limit) = match exchange {
             DeviceSwitchExchange::Request => (DataPlaneRoute::DeviceSwitchRequest, 2 * 1024),
+            DeviceSwitchExchange::Resolve => (DataPlaneRoute::DeviceSwitchResolve, 2 * 1024),
             DeviceSwitchExchange::Status => (DataPlaneRoute::DeviceSwitchStatus, 2 * 1024),
             DeviceSwitchExchange::Cancel => (DataPlaneRoute::DeviceSwitchCancel, 2 * 1024),
             DeviceSwitchExchange::Drain => (DataPlaneRoute::DeviceSwitchDrain, 16 * 1024),
         };
-        self.send_data_plane(admission, request_body, route, request_limit, 4 * 1024)
+        let response_limit = if exchange == DeviceSwitchExchange::Resolve {
+            8 * 1024
+        } else {
+            4 * 1024
+        };
+        self.send_data_plane(
+            admission,
+            request_body,
+            route,
+            request_limit,
+            response_limit,
+        )
+        .await
+    }
+
+    /// A target may terminate its bootstrap without a business replica or Active authority.
+    /// This chain never refreshes/activates a role and never automatically resends a mutation.
+    /// A lost reply is reconciled by the coordinator's next exact-id status request.
+    pub(crate) async fn send_bootstrap_termination(
+        &self,
+        admission: DesktopNativeCloudAdmission,
+        exchange: BootstrapTerminationExchange,
+        request_body: Vec<u8>,
+        expected_credential_instance: u64,
+    ) -> Result<NativeCloudJsonResponse, NativeCloudRequestError> {
+        if request_body.is_empty() || request_body.len() > 2 * 1024 {
+            return Err(NativeCloudRequestError::ConfigurationBlocked);
+        }
+        let route = match exchange {
+            BootstrapTerminationExchange::Status => DataPlaneRoute::BootstrapStatus,
+            BootstrapTerminationExchange::Cancel => DataPlaneRoute::BootstrapCancel,
+        };
+        match self
+            .send_data_plane_attempt(
+                admission,
+                &request_body,
+                route,
+                8 * 1024,
+                Some(expected_credential_instance),
+            )
             .await
+        {
+            Ok(response) => Ok(response),
+            Err(DataPlaneAttemptError::Request(error)) => Err(error),
+            Err(DataPlaneAttemptError::AuthorizationRejected(credential)) => {
+                Err(self.invalidate_for_authorization(credential.credential_instance))
+            }
+        }
+    }
+
+    /// Serializes a target termination stage with session shutdown and credential replacement.
+    /// Custody stages use this outside the power mutex; final publication uses only a Host fast
+    /// recheck inside the power guard. Neither path activates or refreshes a role.
+    pub(crate) fn with_bootstrap_termination_session<T>(
+        &self,
+        expected_credential_instance: Option<u64>,
+        work: impl FnOnce() -> Result<T, DesktopLocalHostError>,
+    ) -> Result<(T, u64), NativeCloudRequestError> {
+        let mutation = self
+            .mutation_admission
+            .state
+            .lock()
+            .map_err(|_| NativeCloudRequestError::Unavailable)?;
+        if mutation.closed {
+            return Err(NativeCloudRequestError::Unavailable);
+        }
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| NativeCloudRequestError::Unavailable)?;
+        let credential = state.credential_instance;
+        if expected_credential_instance.is_some_and(|expected| expected != credential)
+            || state.data_plane_suspension != DataPlaneSuspension::None
+            || state
+                .access
+                .as_ref()
+                .is_none_or(|access| Instant::now() >= access.usable_until)
+        {
+            return Err(NativeCloudRequestError::AuthorizationRequired);
+        }
+        // A stale local preview is a Host refusal, not evidence of a corrupt Cloud response.
+        // Do not poison the entire session when this bounded control operation is rejected.
+        work()
+            .map(|value| (value, credential))
+            .map_err(|error| match error {
+                DesktopLocalHostError::CloudProtocolRejected => {
+                    NativeCloudRequestError::ProtocolBlocked
+                }
+                DesktopLocalHostError::AuthorityRejected => NativeCloudRequestError::AuthorityStale,
+                _ => NativeCloudRequestError::Unavailable,
+            })
     }
 
     /// Device metadata never grants execution authority. Platform and session identity stay Native.
@@ -1236,6 +1513,32 @@ impl NativeCloudSession {
     async fn fetch_and_activate_authorization(
         &self,
         access: &DesktopAccessToken,
+        expected_instance: u64,
+    ) -> Result<(), NativeOAuthError> {
+        // A valid Active publication refreshes the signed pair atomically through Host. An
+        // ordinary role exchange first would discard the old anchor before a failed refresh.
+        let mut next = AuthorizationExchangeStep::initial(self.local_host.authorization_status());
+        loop {
+            next = match next {
+                AuthorizationExchangeStep::ContextBeforeRole
+                | AuthorizationExchangeStep::ContextAfterRole => next.after_context(
+                    self.fetch_execution_context(access, expected_instance)
+                        .await?,
+                )?,
+                AuthorizationExchangeStep::Role => {
+                    self.fetch_and_activate_role(access, expected_instance)
+                        .await?;
+                    AuthorizationExchangeStep::after_role(self.local_host.authorization_status())
+                }
+                AuthorizationExchangeStep::Complete => return Ok(()),
+            };
+        }
+    }
+
+    async fn fetch_and_activate_role(
+        &self,
+        access: &DesktopAccessToken,
+        expected_instance: u64,
     ) -> Result<(), NativeOAuthError> {
         let endpoint = self.authorization_grant_endpoint()?;
         let request = access.expose(|token| {
@@ -1268,9 +1571,148 @@ impl NativeCloudSession {
             return Err(NativeOAuthError::CredentialRejected);
         }
         let bytes = read_bounded_response(&mut response, MAX_GRANT_RESPONSE_BYTES).await?;
-        self.local_host
-            .activate_authorization_grant(&bytes)
-            .map_err(|_| NativeOAuthError::CredentialRejected)
+        self.with_authorization_session(expected_instance, |_| {
+            self.local_host
+                .activate_authorization_grant(&bytes)
+                .map_err(|_| NativeOAuthError::CredentialRejected)
+        })
+    }
+
+    /// Returns false only when Cloud requires a fresh role exchange. This route is deliberately
+    /// outside `send_data_plane`'s automatic 401 retry: every time sample needs its own nonce/t0.
+    async fn fetch_execution_context(
+        &self,
+        access: &DesktopAccessToken,
+        expected_instance: u64,
+    ) -> Result<bool, NativeOAuthError> {
+        let endpoint = fixed_endpoint(self.cloud_origin.as_ref(), EXECUTION_CONTEXT_PATH)?;
+        let power = self.power.as_ref().ok_or(NativeOAuthError::Unavailable)?;
+        let epoch = power.snapshot().epoch;
+        let builder = access.expose(|token| {
+            let authorization_value = Zeroizing::new(format!("Bearer {token}"));
+            let mut authorization = header::HeaderValue::from_str(&authorization_value)
+                .map_err(|_| NativeOAuthError::CredentialRejected)?;
+            authorization.set_sensitive(true);
+            Ok::<_, NativeOAuthError>(
+                self.client
+                    .post(endpoint)
+                    .header(header::ACCEPT, "application/json")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, authorization),
+            )
+        })?;
+        let host = Arc::clone(&self.local_host);
+        let mutation = Arc::clone(&self.mutation_admission);
+        // Preparing a context reads Native custody. Keep that work outside the power mutex
+        // and await it to completion rather than detaching a custody reader on shutdown.
+        let prepared = tokio::task::spawn_blocking(move || {
+            let admission = mutation
+                .state
+                .lock()
+                .map_err(|_| NativeOAuthError::Unavailable)?;
+            if admission.closed {
+                return Err(NativeOAuthError::Unavailable);
+            }
+            host.prepare_execution_context_request()
+                .map_err(execution_context_error)
+        })
+        .await
+        .map_err(|_| NativeOAuthError::Unavailable)??;
+        let mut pending = PendingExecutionContext {
+            host: &self.local_host,
+            request: Some(prepared),
+        };
+        {
+            let _power = power
+                .hold_write_epoch(epoch)
+                .map_err(|_| NativeOAuthError::TransportRejected)?;
+            self.with_authorization_session(expected_instance, |_| Ok(()))?;
+        }
+        let request = builder.body(pending.body()?.to_vec());
+        let receive = async {
+            let mut response = request
+                .send()
+                .await
+                .map_err(|_| NativeOAuthError::TransportRejected)?;
+            if context_requires_role_exchange(response.status()) {
+                return Ok(None);
+            }
+            if response.status() != StatusCode::OK {
+                return Err(authorization_grant_response_error(response.status()));
+            }
+            if !response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(is_json_content_type)
+            {
+                return Err(NativeOAuthError::CredentialRejected);
+            }
+            read_bounded_response(&mut response, MAX_EXECUTION_CONTEXT_RESPONSE_BYTES)
+                .await
+                .map(Some)
+        };
+        let response = tokio::select! {
+            result = receive => result?,
+            _ = power.wait_for_epoch_change(epoch) => return Err(NativeOAuthError::TransportRejected),
+        };
+        let Some(bytes) = response else {
+            return Ok(false);
+        };
+        let request = pending.take_request()?;
+        let host = Arc::clone(&self.local_host);
+        // The immutable custody candidate is staged first. A changed power/role/session fence
+        // may leave it durable, but cannot publish an executable context in this attempt.
+        let staged = tokio::task::spawn_blocking(move || {
+            host.stage_execution_context_response(request, &bytes)
+        })
+        .await
+        .map_err(|_| NativeOAuthError::Unavailable)?
+        .map_err(execution_context_error)?;
+        // Final publication performs only Native clock/identity/generation and in-memory work.
+        let _power = power
+            .hold_write_epoch(epoch)
+            .map_err(|_| NativeOAuthError::TransportRejected)?;
+        self.with_authorization_session(expected_instance, |_| {
+            self.local_host
+                .publish_staged_execution_context(staged)
+                .map_err(execution_context_error)
+        })?;
+        Ok(true)
+    }
+
+    // A refresh attempt excludes competing refreshes, but a data-plane rejection can still
+    // invalidate its credential instance. Hold this exact instance through Host publication.
+    // Initial sign-in has no installed access token yet; only its unchanged session may publish.
+    fn with_authorization_session<T>(
+        &self,
+        expected_instance: u64,
+        publish: impl FnOnce(&mut NativeCloudSessionState) -> Result<T, NativeOAuthError>,
+    ) -> Result<T, NativeOAuthError> {
+        let admission = self
+            .mutation_admission
+            .state
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?;
+        if admission.closed {
+            return Err(NativeOAuthError::Unavailable);
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?;
+        if state.credential_instance != expected_instance {
+            return Err(NativeOAuthError::Busy);
+        }
+        if matches!(
+            state.data_plane_suspension,
+            DataPlaneSuspension::ProtocolBlocked
+                | DataPlaneSuspension::ConfigurationBlocked
+                | DataPlaneSuspension::AuthorizationDenied
+        ) {
+            return Err(NativeOAuthError::CredentialRejected);
+        }
+        publish(&mut state)
     }
 
     async fn send_token_request(
@@ -1347,6 +1789,7 @@ impl NativeCloudSession {
         Self::prepare(response)
     }
 
+    #[cfg(test)]
     fn commit_access(
         &self,
         credential: AccessCredential,
@@ -1357,17 +1800,7 @@ impl NativeCloudSession {
                 .state
                 .lock()
                 .map_err(|_| NativeOAuthError::Unavailable)?;
-            state.credential_instance = state
-                .credential_instance
-                .checked_add(1)
-                .ok_or(NativeOAuthError::Unavailable)?;
-            state.revalidated_credential_instance =
-                revalidated.then_some(state.credential_instance);
-            state.data_plane_suspension = DataPlaneSuspension::None;
-            state.request_cohort = Arc::new(());
-            state.completed_refresh = None;
-            state.access = Some(credential);
-            state.authorization_failure = None;
+            install_access(&mut state, credential, revalidated)?;
         }
         self.notify_successful_publication();
         Ok(())
@@ -1379,14 +1812,7 @@ impl NativeCloudSession {
         source: &CredentialRequestHandle,
         expected_instance: u64,
     ) -> Result<u64, NativeOAuthError> {
-        let target_instance = {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| NativeOAuthError::Unavailable)?;
-            if state.credential_instance != expected_instance {
-                return Err(NativeOAuthError::Busy);
-            }
+        let target_instance = self.with_authorization_session(expected_instance, |state| {
             state.credential_instance = state
                 .credential_instance
                 .checked_add(1)
@@ -1402,8 +1828,8 @@ impl NativeCloudSession {
             });
             state.access = Some(credential);
             state.authorization_failure = None;
-            target_instance
-        };
+            Ok(target_instance)
+        })?;
         self.notify_successful_publication();
         Ok(target_instance)
     }
@@ -1414,32 +1840,37 @@ impl NativeCloudSession {
         }
     }
 
-    pub(crate) fn mark_authorization_failed(
+    fn mark_authorization_failed(
         &self,
+        expected_instance: u64,
         failure: AuthorizationFailure,
         retry_access: Option<AccessCredential>,
     ) -> Result<(), NativeOAuthError> {
-        let state_result = self
-            .state
-            .lock()
-            .map_err(|_| NativeOAuthError::Unavailable)
-            .and_then(|mut state| {
-                state.credential_instance = state
-                    .credential_instance
-                    .checked_add(1)
-                    .ok_or(NativeOAuthError::Unavailable)?;
-                state.access = retry_access;
-                state.request_cohort = Arc::new(());
-                state.completed_refresh = None;
-                state.authorization_failure = Some(failure);
-                state.data_plane_suspension = match failure {
-                    AuthorizationFailure::ReauthenticationRequired => {
-                        DataPlaneSuspension::AuthorizationDenied
-                    }
-                    AuthorizationFailure::RefreshRetryable => DataPlaneSuspension::RefreshRequired,
-                };
-                Ok(())
-            });
+        self.with_authorization_session(expected_instance, |state| {
+            self.mark_authorization_failed_locked(state, failure, retry_access)
+        })
+    }
+
+    fn mark_authorization_failed_locked(
+        &self,
+        state: &mut NativeCloudSessionState,
+        failure: AuthorizationFailure,
+        retry_access: Option<AccessCredential>,
+    ) -> Result<(), NativeOAuthError> {
+        state.credential_instance = state
+            .credential_instance
+            .checked_add(1)
+            .ok_or(NativeOAuthError::Unavailable)?;
+        state.access = retry_access;
+        state.request_cohort = Arc::new(());
+        state.completed_refresh = None;
+        state.authorization_failure = Some(failure);
+        state.data_plane_suspension = match failure {
+            AuthorizationFailure::ReauthenticationRequired => {
+                DataPlaneSuspension::AuthorizationDenied
+            }
+            AuthorizationFailure::RefreshRetryable => DataPlaneSuspension::RefreshRequired,
+        };
         let refresh_result = if failure == AuthorizationFailure::ReauthenticationRequired {
             self.refresh_credentials
                 .clear()
@@ -1457,7 +1888,6 @@ impl NativeCloudSession {
             // available.
             Ok(())
         };
-        state_result?;
         refresh_result?;
         business_result?;
         Ok(())
@@ -1733,6 +2163,82 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn cached_active_context_404_refreshes_role_and_accepts_standby_without_context_retry() {
+        let first = AuthorizationExchangeStep::initial(DesktopHostAuthorizationStatus::Authorized);
+        assert_eq!(first, AuthorizationExchangeStep::ContextBeforeRole);
+        assert!(context_requires_role_exchange(StatusCode::NOT_FOUND));
+        let next = first.after_context(false).unwrap();
+        assert_eq!(next, AuthorizationExchangeStep::Role);
+        assert_eq!(
+            AuthorizationExchangeStep::after_role(DesktopHostAuthorizationStatus::Standby),
+            AuthorizationExchangeStep::Complete
+        );
+        assert!(!context_requires_role_exchange(StatusCode::UNAUTHORIZED));
+        assert!(!context_requires_role_exchange(StatusCode::CONFLICT));
+    }
+
+    #[test]
+    fn active_role_can_obtain_one_fresh_context_after_denial_but_never_loops() {
+        let next = AuthorizationExchangeStep::initial(DesktopHostAuthorizationStatus::Authorized)
+            .after_context(false)
+            .unwrap();
+        assert_eq!(next, AuthorizationExchangeStep::Role);
+        let retry =
+            AuthorizationExchangeStep::after_role(DesktopHostAuthorizationStatus::Authorized);
+        assert_eq!(retry, AuthorizationExchangeStep::ContextAfterRole);
+        assert_eq!(
+            retry.after_context(true),
+            Ok(AuthorizationExchangeStep::Complete)
+        );
+        assert_eq!(
+            retry.after_context(false),
+            Err(NativeOAuthError::CredentialRejected)
+        );
+        assert_eq!(
+            AuthorizationExchangeStep::initial(DesktopHostAuthorizationStatus::ActivationRequired),
+            AuthorizationExchangeStep::Role
+        );
+    }
+
+    #[test]
+    fn context_refresh_keeps_nonce_and_final_publication_outside_generic_request_retry() {
+        let source = include_str!("native_cloud_session.rs");
+        let start = source
+            .find("    async fn fetch_execution_context(")
+            .unwrap();
+        let end = source[start..]
+            .find("    async fn send_token_request(")
+            .unwrap()
+            + start;
+        let method = &source[start..end];
+        assert_eq!(
+            method
+                .matches(".prepare_execution_context_request()")
+                .count(),
+            1
+        );
+        assert_eq!(method.matches(".send()").count(), 1);
+        assert!(!method.contains("send_data_plane("));
+        assert!(method.contains("power.wait_for_epoch_change(epoch)"));
+        assert!(
+            method.rfind(".hold_write_epoch(epoch)").unwrap()
+                < method
+                    .find(".publish_staged_execution_context(staged)")
+                    .unwrap()
+        );
+        let stage = method
+            .find(".stage_execution_context_response(request, &bytes)")
+            .unwrap();
+        assert!(stage < method.rfind(".hold_write_epoch(epoch)").unwrap());
+        assert!(
+            method.find(".prepare_execution_context_request()").unwrap()
+                < method.find(".hold_write_epoch(epoch)").unwrap()
+        );
+        assert_eq!(MAX_EXECUTION_CONTEXT_RESPONSE_BYTES, 32_768);
+        assert_eq!(EXECUTION_CONTEXT_PATH, "/v1/devices/execution-context");
+    }
+
     struct ScriptedRefreshCredentialStore {
         events: Arc<Mutex<Vec<&'static str>>>,
         reject_store: bool,
@@ -1768,7 +2274,40 @@ mod tests {
     }
 
     fn session() -> NativeCloudSession {
-        NativeCloudSession::new(None, None, Arc::new(DesktopLocalHost::default()))
+        NativeCloudSession::new(None, None, Arc::new(DesktopLocalHost::default()), None)
+    }
+
+    #[test]
+    fn authorization_publication_rejects_invalidation_during_an_active_refresh() {
+        let session = session();
+        let _refresh = session.begin_attempt().unwrap();
+        let expected_instance = session.state.lock().unwrap().credential_instance;
+        session.invalidate_for_authorization(expected_instance);
+        assert_eq!(
+            session.with_authorization_session(expected_instance, |_| {
+                panic!("stale context must not publish Host authority")
+            }),
+            Err::<(), _>(NativeOAuthError::Busy)
+        );
+    }
+
+    #[test]
+    fn authorization_publication_holds_session_fence_and_allows_initial_sign_in() {
+        let session = session();
+        assert!(session.state.lock().unwrap().access.is_none());
+        assert_eq!(
+            session.with_authorization_session(0, |_| {
+                assert!(session.state.try_lock().is_err());
+                assert!(session.mutation_admission.state.try_lock().is_err());
+                Ok(())
+            }),
+            Ok(())
+        );
+        session.state.lock().unwrap().data_plane_suspension = DataPlaneSuspension::ProtocolBlocked;
+        assert_eq!(
+            session.with_authorization_session(0, |_| panic!("blocked context must not publish")),
+            Err::<(), _>(NativeOAuthError::CredentialRejected)
+        );
     }
 
     fn prepared_credentials() -> PreparedCredentials {
@@ -1825,10 +2364,113 @@ mod tests {
             reject_store: false,
         });
         session
-            .complete_authorization_code_exchange(prepared_credentials(), Ok(()))
+            .complete_authorization_code_exchange(prepared_credentials(), Ok(()), 0)
             .unwrap();
         assert_eq!(*events.lock().unwrap(), vec!["store"]);
         assert!(session.state.lock().unwrap().access.is_some());
+    }
+
+    #[test]
+    fn stale_initial_completion_never_stores_clears_or_revives_credentials() {
+        for authorization in [Ok(()), Err(NativeOAuthError::TransportRejected)] {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let mut session = session();
+            session.refresh_credentials = Arc::new(ScriptedRefreshCredentialStore {
+                events: Arc::clone(&events),
+                reject_store: false,
+            });
+            let _attempt = session.begin_attempt().unwrap();
+            session.invalidate_for_authorization(0);
+            assert_eq!(
+                session.complete_authorization_code_exchange(
+                    prepared_credentials(),
+                    authorization,
+                    0,
+                ),
+                Err(NativeOAuthError::Busy)
+            );
+            assert!(events.lock().unwrap().is_empty());
+            let state = session.state.lock().unwrap();
+            assert_eq!(state.credential_instance, 1);
+            assert!(state.access.is_none());
+            assert_eq!(
+                state.data_plane_suspension,
+                DataPlaneSuspension::RefreshRequired
+            );
+        }
+    }
+
+    #[test]
+    fn stale_refresh_failure_cannot_restore_retry_access_or_clear_current_custody() {
+        for failure in [
+            AuthorizationFailure::RefreshRetryable,
+            AuthorizationFailure::ReauthenticationRequired,
+        ] {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let mut session = session();
+            session.refresh_credentials = Arc::new(ScriptedRefreshCredentialStore {
+                events: Arc::clone(&events),
+                reject_store: false,
+            });
+            let _attempt = session.begin_attempt().unwrap();
+            session.invalidate_for_authorization(0);
+            assert_eq!(
+                session.mark_authorization_failed(0, failure, Some(prepared_credentials().access)),
+                Err(NativeOAuthError::Busy)
+            );
+            assert!(events.lock().unwrap().is_empty());
+            let state = session.state.lock().unwrap();
+            assert_eq!(state.credential_instance, 1);
+            assert!(state.access.is_none());
+            assert_eq!(
+                state.data_plane_suspension,
+                DataPlaneSuspension::RefreshRequired
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_completion_rechecks_shutdown_instance_and_protocol_block() {
+        for outcome in 0..3 {
+            let session = session();
+            let source = request_handle(&session);
+            let expected = match outcome {
+                0 => {
+                    session.close_mutation_admission();
+                    NativeOAuthError::Unavailable
+                }
+                1 => {
+                    session.invalidate_for_authorization(0);
+                    NativeOAuthError::Busy
+                }
+                _ => {
+                    session.block_protocol(0).unwrap();
+                    NativeOAuthError::CredentialRejected
+                }
+            };
+            assert_eq!(
+                session.commit_refreshed_access(prepared_credentials().access, &source, 0),
+                Err(expected)
+            );
+            assert!(session.state.lock().unwrap().access.is_none());
+        }
+    }
+
+    #[test]
+    fn shutdown_rejects_initial_completion_before_native_persistence() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut session = session();
+        session.refresh_credentials = Arc::new(ScriptedRefreshCredentialStore {
+            events: Arc::clone(&events),
+            reject_store: false,
+        });
+        session.mutation_admission.state.lock().unwrap().closed = true;
+        assert_eq!(
+            session.complete_authorization_code_exchange(prepared_credentials(), Ok(()), 0),
+            Err(NativeOAuthError::Unavailable)
+        );
+        assert!(events.lock().unwrap().is_empty());
+        assert!(session.state.lock().unwrap().access.is_none());
     }
 
     #[test]
@@ -1845,7 +2487,7 @@ mod tests {
             });
             assert!(
                 session
-                    .complete_authorization_code_exchange(prepared_credentials(), authorization)
+                    .complete_authorization_code_exchange(prepared_credentials(), authorization, 0)
                     .is_err()
             );
             assert_eq!(*events.lock().unwrap(), expected_events);
@@ -2112,6 +2754,7 @@ mod tests {
             Some("https://api.gooddealer.com/"),
             None,
             Arc::new(DesktopLocalHost::default()),
+            None,
         );
         session
             .commit_access(prepared_credentials().access, false)
@@ -2169,6 +2812,7 @@ mod tests {
             Some(PRODUCTION_CLOUD_ORIGIN),
             Some("device-1".to_owned()),
             Arc::new(DesktopLocalHost::default()),
+            None,
         ));
         assert!(matches!(
             session.device_directory(None).await,
@@ -2185,6 +2829,94 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_local_refusal_and_replaced_credentials_do_not_poison_other_routes() {
+        let session = NativeCloudSession::new(
+            Some("https://api.gooddealer.com/"),
+            None,
+            Arc::new(DesktopLocalHost::default()),
+            None,
+        );
+        session
+            .commit_access(prepared_credentials().access, false)
+            .unwrap();
+        let original = session.state.lock().unwrap().credential_instance;
+        assert_eq!(
+            session.with_bootstrap_termination_session(Some(original), || {
+                Err::<(), _>(DesktopLocalHostError::CloudProtocolRejected)
+            }),
+            Err(NativeCloudRequestError::ProtocolBlocked)
+        );
+        assert_eq!(
+            session.state.lock().unwrap().data_plane_suspension,
+            DataPlaneSuspension::None
+        );
+        assert!(
+            session
+                .prepare_data_plane_request(b"{}", DataPlaneRoute::DeviceList, Some(original))
+                .is_ok()
+        );
+        session
+            .commit_access(prepared_credentials().access, false)
+            .unwrap();
+        assert!(matches!(
+            session.with_bootstrap_termination_session(
+                Some(original),
+                || -> Result<(), DesktopLocalHostError> {
+                    panic!("stale session must not stage custody")
+                }
+            ),
+            Err(NativeCloudRequestError::AuthorizationRequired)
+        ));
+        assert_eq!(
+            session.state.lock().unwrap().data_plane_suspension,
+            DataPlaneSuspension::None
+        );
+        assert!(
+            session
+                .prepare_data_plane_request(b"{}", DataPlaneRoute::DeviceList, None)
+                .is_ok()
+        );
+        session.close_mutation_admission();
+        assert!(matches!(
+            session.with_bootstrap_termination_session(
+                None,
+                || -> Result<(), DesktopLocalHostError> {
+                    panic!("closed session must not stage custody")
+                }
+            ),
+            Err(NativeCloudRequestError::Unavailable)
+        ));
+    }
+
+    #[test]
+    fn bootstrap_transport_is_a_single_bounded_attempt_without_role_refresh() {
+        let source = include_str!("native_cloud_session.rs");
+        let start = source
+            .find("    pub(crate) async fn send_bootstrap_termination(")
+            .unwrap();
+        let end = source[start..]
+            .find("    pub(crate) fn with_bootstrap_termination_session")
+            .unwrap()
+            + start;
+        let method = &source[start..end];
+        assert_eq!(method.matches(".send_data_plane_attempt(").count(), 1);
+        assert!(!method.contains("refresh_for_source("));
+        assert!(!method.contains(".send_data_plane("));
+        assert!(method.contains("request_body.len() > 2 * 1024"));
+        assert!(method.contains("8 * 1024"));
+        assert!(method.contains("Some(expected_credential_instance)"));
+        assert_eq!(
+            DataPlaneRoute::BootstrapStatus.path(),
+            "/v1/device-switch/bootstrap/status"
+        );
+        assert_eq!(
+            DataPlaneRoute::BootstrapCancel.path(),
+            "/v1/device-switch/bootstrap/cancel"
+        );
+        assert!(!DataPlaneRoute::DeviceSwitchCancel.allows_standby());
+    }
+
+    #[test]
     fn standby_route_allowlist_is_exact_and_active_routes_reject_read_authority() {
         let routes = [
             DataPlaneRoute::SyncPush,
@@ -2194,10 +2926,15 @@ mod tests {
             DataPlaneRoute::SyncReceipts,
             DataPlaneRoute::DeviceList,
             DataPlaneRoute::DeviceSelfReport,
+            DataPlaneRoute::DeviceAuditIngest,
+            DataPlaneRoute::ExecutionFactIngest,
             DataPlaneRoute::DeviceSwitchRequest,
+            DataPlaneRoute::DeviceSwitchResolve,
             DataPlaneRoute::DeviceSwitchStatus,
             DataPlaneRoute::DeviceSwitchCancel,
             DataPlaneRoute::DeviceSwitchDrain,
+            DataPlaneRoute::BootstrapStatus,
+            DataPlaneRoute::BootstrapCancel,
         ];
         let allowed: Vec<_> = routes
             .iter()
@@ -2210,7 +2947,10 @@ mod tests {
                 SYNC_PULL_PATH,
                 SYNC_CHECKPOINT_PATH,
                 "/v1/devices/list",
-                DEVICE_SWITCH_STATUS_PATH
+                DEVICE_SWITCH_RESOLVE_PATH,
+                DEVICE_SWITCH_STATUS_PATH,
+                BOOTSTRAP_STATUS_PATH,
+                BOOTSTRAP_CANCEL_PATH,
             ]
         );
         for route in routes {

@@ -59,6 +59,121 @@ pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     (
+        "normal_handoff_requests",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "source_lease_epoch",
+            "idempotency_key",
+            "target_device_id",
+            "request_json",
+            "created_at",
+            "answer_json",
+            "answered_at",
+        ],
+    ),
+    (
+        "execution_evidence_receipts",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "stream",
+            "sequence",
+            "event_id",
+            "envelope_digest",
+            "outcome",
+            "receipt_json",
+        ],
+    ),
+    (
+        "execution_evidence_stream_heads",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "stream",
+            "source_installation_digest",
+            "last_sequence",
+            "rolling_digest",
+            "audit_head_hash",
+            "producer_state",
+            "admission_generation",
+        ],
+    ),
+    (
+        "workspace_device_audit_outbox",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "audit_sequence",
+            "audit_event_id",
+            "source_installation_digest",
+            "chain_id",
+            "previous_hash",
+            "event_hash",
+            "envelope_json",
+            "canonical_envelope",
+            "envelope_digest",
+        ],
+    ),
+    (
+        "afternic_delist_approvals",
+        &[
+            "workspace_id",
+            "approved_operation_id",
+            "operation_id",
+            "plan_id",
+            "plan_hash",
+            "target_count",
+            "target_set_digest",
+            "source_device_id",
+            "active_lease_epoch",
+            "credential_epoch",
+            "signing_key_id",
+            "signing_key_version",
+            "source_installation_digest",
+            "approved_at",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_delist_item_authorizations",
+        &[
+            "workspace_id",
+            "approved_operation_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "attempt_id",
+            "workflow_node_id",
+            "request_digest",
+            "envelope_json",
+            "envelope_digest",
+        ],
+    ),
+    (
+        "device_execution_fact_outbox",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "execution_fact_sequence",
+            "execution_fact_id",
+            "source_installation_digest",
+            "operation_id",
+            "item_id",
+            "attempt_number",
+            "attempt_id",
+            "audit_event_id",
+            "envelope_json",
+            "canonical_envelope",
+            "envelope_digest",
+        ],
+    ),
+    (
         "afternic_delist_reconciliations",
         &[
             "workspace_id",
@@ -76,6 +191,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "observation_json",
             "observation_digest",
             "listing_observation_id",
+            "audit_event_id",
         ],
     ),
     (
@@ -934,6 +1050,8 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "device_switch_request_id",
             "began_at",
             "active_lease_epoch",
+            "source_device_id",
+            "frozen_unresolved_count",
         ],
     ),
     (
@@ -1048,3 +1166,25 @@ pub(crate) const AFTERNIC_LISTING_MIGRATION_SQL: &str = include_str!("afternic_l
 pub(crate) const AFTERNIC_DELIST_MIGRATION_ID: i64 = 202_611_180_004;
 pub(crate) const AFTERNIC_DELIST_MIGRATION_OWNER: &str = "active-workspace/afternic-delist";
 pub(crate) const AFTERNIC_DELIST_MIGRATION_SQL: &str = include_str!("afternic_delist.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_ID: i64 = 202_611_190_001;
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_OWNER: &str = "active-workspace/execution-evidence";
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_SQL: &str = include_str!("execution_evidence.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_ID: i64 = 202_611_190_002;
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_OWNER: &str =
+    "active-workspace/execution-evidence-results";
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_SQL: &str =
+    include_str!("execution_evidence_results.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_ID: i64 = 202_611_190_003;
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_OWNER: &str =
+    "active-workspace/execution-evidence-delivery";
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_SQL: &str =
+    include_str!("execution_evidence_delivery.sql");
+
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_ID: i64 = 202_611_190_004;
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_OWNER: &str =
+    "active-workspace/normal-handoff-request";
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_SQL: &str =
+    include_str!("normal_handoff_request.sql");

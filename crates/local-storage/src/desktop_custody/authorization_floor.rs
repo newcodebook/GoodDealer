@@ -6,7 +6,7 @@ use super::DesktopProductionCustody;
 use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
-const MAX_BYTES: usize = 4096;
+const MAX_BYTES: usize = 65_536;
 const MAX_EPOCH: u64 = 9_007_199_254_740_991;
 #[cfg(all(unix, not(test)))]
 const SERVICE: &str = "com.gooddealer.desktop.workspace-authority-floor";
@@ -14,6 +14,88 @@ const SERVICE: &str = "com.gooddealer.desktop.workspace-authority-floor";
 const ACCOUNT: &str = "verified-authority-floor-v1";
 #[cfg(all(unix, not(test)))]
 const MARKER_ACCOUNT: &str = "verified-authority-established-v1";
+
+/// One Native atomic value: business backups never carry this record.
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WorkspaceAuthorizationRecord {
+    pub(crate) schema_version: u8,
+    pub(crate) floor: WorkspaceAuthorizationFloor,
+    #[serde(deserialize_with = "required_option")]
+    pub(crate) device_evidence_floor: Option<DeviceEvidenceFloor>,
+    #[serde(deserialize_with = "required_option")]
+    pub(crate) execution_anchor: Option<ExecutionAnchorRecord>,
+}
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DeviceEvidenceFloor {
+    pub(crate) credential_epoch: u64,
+    pub(crate) signing_key_id: String,
+    pub(crate) signing_key_version: u64,
+}
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ExecutionAnchorRecord {
+    pub(crate) schema_version: u8,
+    pub(crate) response_bytes: String,
+    pub(crate) nonce: String,
+    pub(crate) clock_kind: String,
+    pub(crate) boot_id: [u8; 16],
+    pub(crate) request_start_ticks: u64,
+    pub(crate) response_ticks: u64,
+    pub(crate) anchor_digest: String,
+}
+impl WorkspaceAuthorizationRecord {
+    pub(crate) fn validate(&self) -> Result<(), DesktopCustodyError> {
+        self.floor.validate()?;
+        if self.schema_version != 4
+            || self.device_evidence_floor.as_ref().is_some_and(|v| {
+                v.credential_epoch == 0
+                    || v.credential_epoch > MAX_EPOCH
+                    || v.signing_key_version == 0
+                    || v.signing_key_version > MAX_EPOCH
+                    || !valid_identifier(&v.signing_key_id)
+            })
+        {
+            return Err(DesktopCustodyError::Rejected);
+        }
+        if let Some(a) = &self.execution_anchor {
+            use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+            let canonical = |v: &str, len: usize| {
+                URL_SAFE_NO_PAD
+                    .decode(v)
+                    .is_ok_and(|bytes| bytes.len() == len && URL_SAFE_NO_PAD.encode(bytes) == v)
+            };
+            let divisor = match a.clock_kind.as_str() {
+                "windows_interrupt_100ns" => 10_000,
+                "macos_continuous_nanoseconds" | "linux_boot_nanoseconds" => 1_000_000,
+                _ => return Err(DesktopCustodyError::Rejected),
+            };
+            let delta = a
+                .response_ticks
+                .checked_sub(a.request_start_ticks)
+                .ok_or(DesktopCustodyError::Rejected)?;
+            if a.schema_version != 1
+                || self.device_evidence_floor.is_none()
+                || a.boot_id == [0; 16]
+                || a.request_start_ticks == 0
+                || delta / divisor + u64::from(delta % divisor != 0) > 30_000
+                || !canonical(&a.nonce, 32)
+                || !canonical(&a.anchor_digest, 32)
+                || !URL_SAFE_NO_PAD
+                    .decode(&a.response_bytes)
+                    .is_ok_and(|bytes| {
+                        !bytes.is_empty()
+                            && bytes.len() <= 32_768
+                            && URL_SAFE_NO_PAD.encode(bytes) == a.response_bytes
+                    })
+            {
+                return Err(DesktopCustodyError::Rejected);
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -149,7 +231,7 @@ impl WorkspaceAuthorizationFloor {
 /// Legacy records only ever authorized the historical Cloudflare permission. Migration must
 /// preserve known last-Active epochs (v2), and leave that fact unknown for v1; neither historical
 /// commercial state nor a Standby floor can synthesize an Afternic permission.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn decode_persisted_floor(
     bytes: &[u8],
 ) -> Result<WorkspaceAuthorizationFloor, DesktopCustodyError> {
@@ -223,11 +305,53 @@ fn decode_persisted_floor(
     Ok(record)
 }
 
+#[cfg(any(unix, windows))]
+pub(super) fn decode_persisted_record(
+    bytes: &[u8],
+) -> Result<WorkspaceAuthorizationRecord, DesktopCustodyError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?;
+    let record = if value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        == Some(4)
+    {
+        serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?
+    } else {
+        WorkspaceAuthorizationRecord {
+            schema_version: 4,
+            floor: decode_persisted_floor(bytes)?,
+            device_evidence_floor: None,
+            execution_anchor: None,
+        }
+    };
+    record.validate()?;
+    Ok(record)
+}
+
 #[cfg(unix)]
 impl DesktopProductionCustody {
     pub(crate) fn load_authorization_floor(
         &self,
     ) -> Result<Option<WorkspaceAuthorizationFloor>, DesktopCustodyError> {
+        Ok(self.load_authorization_record()?.map(|record| record.floor))
+    }
+    pub(crate) fn store_authorization_floor(
+        &self,
+        floor: &WorkspaceAuthorizationFloor,
+    ) -> Result<(), DesktopCustodyError> {
+        let old = self.load_authorization_record()?;
+        // A role publication cannot carry an old execution anchor across a new authority generation.
+        self.store_authorization_record(&WorkspaceAuthorizationRecord {
+            schema_version: 4,
+            floor: floor.clone(),
+            device_evidence_floor: old.and_then(|record| record.device_evidence_floor),
+            execution_anchor: None,
+        })
+    }
+    pub(crate) fn load_authorization_record(
+        &self,
+    ) -> Result<Option<WorkspaceAuthorizationRecord>, DesktopCustodyError> {
         #[cfg(not(test))]
         let bytes = super::load_native(SERVICE, ACCOUNT)?;
         #[cfg(test)]
@@ -250,10 +374,10 @@ impl DesktopProductionCustody {
         if bytes.is_empty() || bytes.len() > MAX_BYTES {
             return Err(DesktopCustodyError::Rejected);
         }
-        let record = decode_persisted_floor(&bytes)?;
+        let record = decode_persisted_record(&bytes)?;
         record.validate()?;
-        if record.installation_binding != self.installation_binding_digest()?
-            || record.device_id != self.load_device_id()?
+        if record.floor.installation_binding != self.installation_binding_digest()?
+            || record.floor.device_id != self.load_device_id()?
         {
             return Err(DesktopCustodyError::Rejected);
         }
@@ -282,13 +406,13 @@ impl DesktopProductionCustody {
             .transpose()
     }
 
-    pub(crate) fn store_authorization_floor(
+    pub(crate) fn store_authorization_record(
         &self,
-        record: &WorkspaceAuthorizationFloor,
+        record: &WorkspaceAuthorizationRecord,
     ) -> Result<(), DesktopCustodyError> {
         record.validate()?;
-        if record.installation_binding != self.installation_binding_digest()?
-            || record.device_id != self.load_device_id()?
+        if record.floor.installation_binding != self.installation_binding_digest()?
+            || record.floor.device_id != self.load_device_id()?
         {
             return Err(DesktopCustodyError::Rejected);
         }
@@ -298,7 +422,7 @@ impl DesktopProductionCustody {
         }
         // Validate the previous pair before changing either item; never repair a missing floor
         // by treating an untrusted new wire as the installation's first admission.
-        self.load_authorization_floor()?;
+        self.load_authorization_record()?;
         let marker = self.installation_binding_digest()?;
         #[cfg(not(test))]
         super::store_native(SERVICE, MARKER_ACCOUNT, &marker)?;
@@ -323,7 +447,7 @@ impl DesktopProductionCustody {
                 .lock()
                 .map_err(|_| DesktopCustodyError::StorageRejected)? = Some(bytes);
         }
-        if self.load_authorization_floor()?.as_ref() != Some(record) {
+        if self.load_authorization_record()?.as_ref() != Some(record) {
             return Err(DesktopCustodyError::StorageRejected);
         }
         Ok(())
@@ -569,5 +693,39 @@ mod tests {
             assert!(custody.load_authorization_floor().is_err());
             assert!(custody.store_authorization_floor(&record).is_err());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn v4_combines_floor_and_anchor_and_never_synthesizes_legacy_evidence() {
+        let floor = active(7);
+        let old = serde_json::to_vec(&floor).unwrap();
+        let migrated = decode_persisted_record(&old).unwrap();
+        assert!(migrated.floor == floor);
+        assert!(migrated.device_evidence_floor.is_none());
+        assert!(migrated.execution_anchor.is_none());
+        let bytes = serde_json::to_vec(&migrated).unwrap();
+        assert!(decode_persisted_record(&bytes).unwrap() == migrated);
+        for field in ["floor", "deviceEvidenceFloor", "executionAnchor"] {
+            let mut value = serde_json::to_value(&migrated).unwrap();
+            value.as_object_mut().unwrap().remove(field);
+            assert!(decode_persisted_record(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+        let duplicated = String::from_utf8(bytes).unwrap().replacen(
+            "\"executionAnchor\":null",
+            "\"executionAnchor\":null,\"executionAnchor\":null",
+            1,
+        );
+        assert!(decode_persisted_record(duplicated.as_bytes()).is_err());
+        let mut malformed = migrated.clone();
+        malformed.device_evidence_floor = Some(DeviceEvidenceFloor {
+            credential_epoch: 0,
+            signing_key_id: "key".into(),
+            signing_key_version: 1,
+        });
+        assert!(malformed.validate().is_err());
+        let mut downgrade = serde_json::to_value(&migrated).unwrap();
+        downgrade["schemaVersion"] = serde_json::json!(3);
+        assert!(decode_persisted_record(&serde_json::to_vec(&downgrade).unwrap()).is_err());
     }
 }

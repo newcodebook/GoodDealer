@@ -17,7 +17,7 @@ const service = new PostgresDeviceSwitchRequests({
 const scopeA = { accountId: "switch-account-a", workspaceId: "switch-workspace" } as const;
 const scopeB = { accountId: "switch-account-b", workspaceId: "switch-workspace" } as const;
 const source = { ...scopeA, deviceId: "device-old" } as const;
-const normal = (toDeviceId: string, idempotencyKey: string) => ({ toDeviceId, idempotencyKey });
+const normal = (toDeviceId: string, idempotencyKey: string) => ({ toDeviceId, idempotencyKey,expectedSourceLeaseEpoch:1 });
 
 beforeAll(async () => {
   await runCloudMigrations(ownerPool, cloudMigrations);
@@ -31,11 +31,13 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query(`TRUNCATE
     device_bootstrap_activation_attempts, device_bootstrap_step_nonces, device_bootstrap_authorities,
     device_bootstrap_steps, device_bootstrap_capabilities, device_drain_proofs, device_active_leases,
     device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges, device_login_challenges,
-    device_signing_keys, device_bindings, device_account_states`);
+    device_signing_keys, device_bindings, device_account_states CASCADE`);
   await ownerPool.query("DELETE FROM workspace_account_bindings");
   await ownerPool.query("DELETE FROM workspace_workspaces");
   await ownerPool.query("DELETE FROM identity_accounts");
@@ -102,13 +104,13 @@ describe("PostgreSQL device switch requests (ADR-0032 S1b)", () => {
     await expect(service.requestNormal(source, normal("device-new", "idem-revoked")))
       .resolves.toEqual({ schemaVersion: 1, accepted: false, code: "TARGET_NOT_BOUND" });
     await owner(scopeA, "UPDATE device_signing_keys SET status = 'active', retired_at = NULL WHERE device_id = 'device-new'", []);
-    await owner(scopeA, "UPDATE identity_account_security_states SET status = 'recovery_pending'", []);
-    await expect(service.requestNormal(source, normal("device-new", "idem-c")))
-      .resolves.toEqual({ schemaVersion: 1, accepted: false, code: "ACCOUNT_RECOVERY_PENDING" });
-    await owner(scopeA, "UPDATE identity_account_security_states SET status = 'normal'", []);
     await owner(scopeA, `UPDATE device_active_leases SET online_expires_at = transaction_timestamp() - interval '1 minute',
       offline_execute_until = transaction_timestamp() - interval '1 second'`, []);
     await expect(service.requestNormal(source, normal("device-new", "idem-d"))).resolves.toBeNull();
+    await owner(scopeA, "UPDATE identity_account_security_states SET status = 'recovery_pending'", []);
+    await expect(service.requestNormal(source, normal("device-new", "idem-c")))
+      .resolves.toEqual({ schemaVersion: 1, accepted: false, code: "ACCOUNT_RECOVERY_PENDING" });
+
     expect(await owner(scopeA, "SELECT count(*)::text AS count FROM device_switch_workflows", [])).toEqual([{ count: "0" }]);
   });
 

@@ -198,7 +198,7 @@ pub(crate) fn canonical_page_digest(
 /// # Errors
 ///
 /// Returns an input error for malformed objects or a digest mismatch.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn verify_rebootstrap_plan_digest(
     value: &serde_json::Value,
 ) -> Result<(), BusinessDatabaseError> {
@@ -241,7 +241,7 @@ pub fn verify_rebootstrap_plan_digest(
 /// # Errors
 ///
 /// Returns an input error for a malformed projection, malformed digest, or digest mismatch.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn verify_rebootstrap_checkpoint_digest(
     rows: &[DomainAssetProjectionRow],
     state: &serde_json::Value,
@@ -315,7 +315,7 @@ pub fn verify_rebootstrap_checkpoint_digest(
 /// # Errors
 ///
 /// Returns an input error when the row is not a canonical domain-asset projection.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn validate_rebootstrap_asset(asset: &DomainAssetWrite) -> Result<(), BusinessDatabaseError> {
     validate_domain_asset(asset)
 }
@@ -337,7 +337,7 @@ pub fn validate_rebootstrap_timestamp(value: &str) -> Result<(), BusinessDatabas
 /// # Errors
 ///
 /// Returns an input error for malformed objects or a digest mismatch.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn verify_rebootstrap_page_digest(
     value: &serde_json::Value,
 ) -> Result<(), BusinessDatabaseError> {

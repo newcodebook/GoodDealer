@@ -1,3 +1,6 @@
+import { DesktopExecutionContextIssuer, PostgresDesktopExecutionContextService, type DesktopExecutionContextSigner } from "../modules/devices/index";
+import type { DesktopExecutionContextApplicationPort } from "./ports/execution-context";
+import type { ExecutionEvidenceApplicationPort } from "./ports/execution-evidence";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
@@ -30,9 +33,22 @@ import {
   PostgresDeviceSwitchApplication,
   PostgresDeviceSwitchDrain,
   PostgresDeviceSwitchRequests,
+  PostgresDeviceSwitchRequestResolution,
+  PostgresTargetBootstrapControl,
+  PostgresExecutionEvidenceAuthority,
+  PostgresHistoricalExecutionContext,
 } from "../modules/devices/index";
-import { PostgresWorkspaceDeviceAuditDrainLedger } from "../modules/audit/index";
-import { PostgresExecutionFactDrainLedger } from "../modules/execution-ledger/index";
+import {
+  PostgresWorkspaceDeviceAuditDrainLedger,
+  PostgresDeviceAuditEvidenceReader,
+  PostgresDeviceAuditEvidenceService,
+} from "../modules/audit/index";
+import {
+  PostgresExecutionFactDrainLedger,
+  PostgresExecutionFactEvidenceReader,
+  PostgresExecutionFactEvidenceService,
+} from "../modules/execution-ledger/index";
+import { PostgresBootstrapCheckpointPort } from "../modules/workspace/checkpoints/index";
 import { PostgresWorkspaceCheckpointReader } from "../modules/workspace/checkpoints/postgres-reader";
 import { PostgresReaderCursorRepository } from "../modules/workspace/cursors/postgres-reader-cursor-repository";
 import { PostgresReaderCursorService } from "../modules/workspace/cursors/postgres-reader-cursor-service";
@@ -99,6 +115,9 @@ export interface PublicApplicationPorts {
   readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
   readonly desktopAuthorization: DesktopAuthorizationApplicationPort;
+  readonly desktopExecutionContext?: DesktopExecutionContextApplicationPort;
+  readonly deviceAuditEvidence?: ExecutionEvidenceApplicationPort;
+  readonly executionFactEvidence?: ExecutionEvidenceApplicationPort;
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
   readonly workspaceSync?: WorkspaceSyncApplicationPort;
   readonly cloudflareDnsObservation?: CloudflareDnsObservationIngressPort;
@@ -131,6 +150,7 @@ export interface PostgresCloudPublicHttpDependencies
   readonly activationSubjects: AccountActivationSubjectReaderPort;
   readonly desktopAuthorizationSigner: DesktopAuthorizationGrantSigner;
   readonly desktopStandbySigner: DesktopStandbyGrantSigner;
+  readonly desktopExecutionContextSigner: DesktopExecutionContextSigner;
   readonly activeDeviceLeaseVerifier: ActiveDeviceLeaseVerifier;
   readonly desktopAccessTokens: DesktopAccessTokenVerifierPort;
   readonly commercialCheckoutCatalog: CommercialCheckoutCatalog;
@@ -164,6 +184,7 @@ export function createPostgresCloudPublicHttp(
     activationSubjects,
     desktopAuthorizationSigner,
     desktopStandbySigner,
+    desktopExecutionContextSigner,
     activeDeviceLeaseVerifier,
     commercialCheckoutCatalog,
     commercialCheckoutGateways,
@@ -182,6 +203,18 @@ export function createPostgresCloudPublicHttp(
     : new IdentityCapabilityTransactionRunner(accountApiPool, identityCapabilityIssuerPool);
   const authenticatedTransactions = identityTransactions ?? accountTransactions;
   const workspaces = new PostgresDefaultWorkspaceTenantResolver(authenticatedTransactions);
+  const executionEvidence = identityTransactions === undefined ? undefined : (() => {
+    const authority = new PostgresExecutionEvidenceAuthority(identityTransactions, workspaces);
+    const contexts = new PostgresHistoricalExecutionContext();
+    return {
+      deviceAuditEvidence: new PostgresDeviceAuditEvidenceService(
+        authority, contexts, new PostgresExecutionFactEvidenceReader(),
+      ),
+      executionFactEvidence: new PostgresExecutionFactEvidenceService(
+        authority, contexts, new PostgresDeviceAuditEvidenceReader(),
+      ),
+    };
+  })();
   const desktopAuthorization = identityTransactions === undefined
     ? new DenyingDesktopAuthorizationApplicationPort()
     : new PostgresDesktopAuthorizationApplicationService(
@@ -245,11 +278,15 @@ export function createPostgresCloudPublicHttp(
         workspaces,
       ),
       desktopAuthorization,
+      ...executionEvidence,
+      ...(identityTransactions === undefined ? {} : { targetBootstrap: new PostgresTargetBootstrapControl(identityTransactions, workspaces, new PostgresBootstrapCheckpointPort()) }),
+      ...(identityTransactions === undefined ? {} : { desktopExecutionContext: new PostgresDesktopExecutionContextService(identityTransactions, workspaces, new DesktopAuthorizationGrantIssuer(desktopAuthorizationSigner), activeDeviceLeaseVerifier, new DesktopExecutionContextIssuer(desktopExecutionContextSigner)) }),
       commercialCheckout,
       ...(workspaceSync === undefined ? {} : { workspaceSync }),
       ...(workspaceSync === undefined || identityTransactions === undefined ? {} : {
         // Composed with the sync data plane: the switch caller is resolved exactly as a sync
         // caller is, from a Desktop session holding the workspace's current Lease.
+        deviceSwitchResolution: new PostgresDeviceSwitchRequestResolution(identityTransactions, workspaces),
         deviceSwitch: (() => {
           const tenantTransactions = new TenantTransactionRunner(pool);
           const accountSecurity = new PostgresIdentityAccountSecurityStatePort();

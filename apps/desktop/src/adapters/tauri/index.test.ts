@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { createCloudflarePort, createDeviceSwitchPort, DeviceSwitchError, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
+import { createTargetBootstrapPort, createCloudflarePort, createDeviceSwitchPort, DeviceSwitchError, createLocalBatchOperationsPort, createLocalBusinessPort, createLocalDeviceLeasePort, createLocalDnsHealthPort, createLocalHistoryPort, createLocalManualTasksPort, createLocalRenewalsPort, createLocalSalesPort, createLocalSettingsPort, LocalReadError, LocalWriteError } from "./index";
 
 describe("Desktop Tauri local-business adapter", () => {
   beforeEach(() => {
@@ -405,22 +405,22 @@ describe("Desktop Tauri local-business adapter", () => {
   });
 
   it("drives the device switch through closed steps and never sends or reads a switch id", async () => {
-    const view = (step: string, fields: Record<string, unknown> = {}) => ({ schemaVersion: 1, step, unconfirmed: null, status: null, rejection: null, ...fields });
+    const view = (step: string, fields: Record<string, unknown> = {}) => ({ schemaVersion: 1, step, unconfirmed: null, frozenUnresolved: null, status: null, rejection: null, ...fields });
     const port = createDeviceSwitchPort();
     invokeMock.mockResolvedValueOnce(view("waiting_for_sync", { unconfirmed: 3 }));
-    await expect(port.request("device-target")).resolves.toEqual({ kind: "waiting_for_sync", unconfirmed: 3 });
+    await expect(port.request("device-target")).resolves.toEqual({ frozenUnresolved: null, kind: "waiting_for_sync", unconfirmed: 3 });
     expect(invokeMock).toHaveBeenLastCalledWith("device_switch_request", { request: { schemaVersion: 1, toDeviceId: "device-target" } });
     for (const [method, command] of [["advance", "device_switch_advance"], ["status", "device_switch_status"], ["cancel", "device_switch_cancel"]] as const) {
       invokeMock.mockResolvedValueOnce(view("switch", { status: "bootstrapping" }));
-      await expect(port[method]()).resolves.toEqual({ kind: "switch", status: "bootstrapping" });
+      await expect(port[method]()).resolves.toEqual({ frozenUnresolved: null, kind: "switch", status: "bootstrapping" });
       expect(invokeMock).toHaveBeenLastCalledWith(command, undefined);
     }
     for (const [response, step] of [
-      [view("idle"), { kind: "idle" }],
-      [view("blocked"), { kind: "blocked" }],
-      [view("receipts_missing"), { kind: "receipts_missing" }],
-      [view("writes_reopened"), { kind: "writes_reopened" }],
-      [view("rejected", { rejection: "TARGET_REMOVED" }), { kind: "rejected", rejection: "TARGET_REMOVED" }],
+      [view("idle"), { frozenUnresolved: null, kind: "idle" }],
+      [view("blocked"), { frozenUnresolved: null, kind: "blocked" }],
+      [view("receipts_missing"), { frozenUnresolved: null, kind: "receipts_missing" }],
+      [view("writes_reopened"), { frozenUnresolved: null, kind: "writes_reopened" }],
+      [view("rejected", { rejection: "TARGET_REMOVED" }), { frozenUnresolved: null, kind: "rejected", rejection: "TARGET_REMOVED" }],
     ] as const) {
       invokeMock.mockResolvedValueOnce(response);
       await expect(port.status()).resolves.toEqual(step);
@@ -435,6 +435,9 @@ describe("Desktop Tauri local-business adapter", () => {
       view("waiting_for_sync"),
       view("idle", { unconfirmed: 0 }),
       view("handed_off"),
+      view("idle", { frozenUnresolved: -1 }),
+      view("idle", { frozenUnresolved: 2 ** 53 }),
+      view("idle", { frozenUnresolved: "1" }),
       { ...view("idle"), requestId: "switch-1" },
       { ...view("idle"), schemaVersion: 2 },
       null,
@@ -512,5 +515,34 @@ describe("Desktop Tauri local-business adapter", () => {
         "invalid local business",
       );
     }
+  });
+});
+
+
+describe("target bootstrap control adapter", () => {
+  beforeEach(() => invokeMock.mockReset());
+  it("sends only the exact previewed identity and parses closed state", async () => {
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, kind: "available", requestId: "original", bootstrapExpiresAt: "2026-11-19T12:00:00Z" });
+    expect(await createTargetBootstrapPort().status()).toEqual({ kind: "available", requestId: "original", bootstrapExpiresAt: "2026-11-19T12:00:00Z" });
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, kind: "pending", requestId: "original" });
+    expect(await createTargetBootstrapPort().cancel("original")).toEqual({ kind: "pending", requestId: "original" });
+    expect(invokeMock).toHaveBeenLastCalledWith("target_bootstrap_cancel", { request: { schemaVersion: 1, requestId: "original" } });
+  });
+  it("rejects malformed states, authority data, invalid dates and implicit cancellation", async () => {
+    for (const value of [
+      { schemaVersion: 1, kind: "idle", requestId: null },
+      { schemaVersion: 1, kind: "pending", requestId: "" },
+      { schemaVersion: 1, kind: "pending", requestId: "original", leaseEpoch: 9 },
+      { schemaVersion: 1, kind: "available", requestId: "original", bootstrapExpiresAt: "2026-02-31T12:00:00Z" },
+      { schemaVersion: 1, kind: "available", requestId: "original", bootstrapExpiresAt: "2026-11-19T12:00:00.000Z" },
+      { schemaVersion: 1, kind: "finished", requestId: "original", status: "active" },
+      { schemaVersion: 2, kind: "idle" }, null,
+    ]) {
+      invokeMock.mockResolvedValueOnce(value);
+      await expect(createTargetBootstrapPort().status()).rejects.toThrow(TypeError);
+    }
+    invokeMock.mockReset();
+    for (const id of ["", "a b", "x".repeat(161)]) await expect(createTargetBootstrapPort().cancel(id)).rejects.toThrow(TypeError);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

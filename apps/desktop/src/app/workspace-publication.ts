@@ -18,6 +18,8 @@ import {
 } from "@gooddealer/client-core";
 
 import type {
+  DeviceSwitchPort,
+  TargetBootstrapPort,
   LocalBusinessPort,
   LocalBusinessStatus,
   LocalConflictPort,
@@ -36,6 +38,8 @@ export interface AuthoritativeWorkspacePublication {
 export interface AuthoritativeWorkspacePorts {
   /** Cloud device metadata; absent in offline-only compositions. */
   readonly devices?: DeviceDirectorySettingsPort;
+  readonly deviceSwitch?: DeviceSwitchPort;
+  readonly targetBootstrap?: TargetBootstrapPort;
   readonly business: LocalBusinessPort;
   /** Read by the DNS route on demand; not part of the generation-stable workspace publication. */
   readonly dns: DnsHealthPort;

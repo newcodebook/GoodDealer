@@ -19,7 +19,7 @@ const view = {
     fromDeviceId: "device-old", toDeviceId: "device-new", requestedAt: "2026-11-17T00:00:00Z",
     normalHandoffReceipt: null, earliestTakeoverAt: null, bootstrapExpiresAt: null },
 };
-const switchRequest = { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1" };
+const switchRequest = { schemaVersion: 2, mode: "normal", expectedSourceLeaseEpoch: 1, toDeviceId: "device-new", idempotencyKey: "idem-1" };
 
 describe("device switch public routes", () => {
   const apps: FastifyInstance[] = [];

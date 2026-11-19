@@ -510,7 +510,7 @@ test("rejects non-test active-workspace clone and checkpoint protocol seams", (t
   mutate(
     ownershipTransfer,
     desktopBusinessRuntimePath,
-    "    #[cfg(test)]\n    pub(crate) fn into_database(",
+    "    #[cfg(all(test, unix))]\n    pub(crate) fn into_database(",
     "    pub(crate) fn into_database(",
   );
   assert.ok(rebootstrapProductionPolicyErrors({ root: ownershipTransfer }).some((error) => error.includes("into_database")));

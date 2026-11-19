@@ -1,3 +1,6 @@
+use super::DesktopLocalHost;
+#[cfg(any(not(test), unix))]
+use super::DesktopLocalHostError;
 #[cfg(all(test, unix))]
 use super::{
     BusinessDatabaseError, DesktopBusinessRuntime, DesktopRuntimeState, DesktopSyncRuntime,
@@ -5,7 +8,6 @@ use super::{
     TestRebootstrapCrashBoundary, current_unix_seconds, hex_digest, rebootstrap_binding_digest,
     rebootstrap_floor_digest,
 };
-use super::{DesktopLocalHost, DesktopLocalHostError};
 
 impl DesktopLocalHost {
     /// Applies one bounded Cloud rebootstrap plan inside the sole Local Host writer boundary.

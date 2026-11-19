@@ -26,6 +26,23 @@ async function refresh() {
   await act(async () => Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Refresh devices")!.click());
 }
 describe("device directory customer journey", () => {
+  it("composes source handoff from the actual listed target and a bounded Native port", async () => {
+    const native = {
+      status: vi.fn(async () => ({ kind: "idle" as const, frozenUnresolved: 0 })),
+      request: vi.fn(async () => ({ kind: "waiting_for_sync" as const, unconfirmed: 2, frozenUnresolved: 1 })),
+      advance: vi.fn(), cancel: vi.fn(),
+    };
+    await act(async () => root.render(<DeviceDirectoryPanel locale="en-US" port={{ read: async () => view(), reportSelf: vi.fn() }} switchPort={native} />));
+    const target = Array.from(container.querySelectorAll("button")).find(button => button.textContent?.startsWith("Hand off to "))!;
+    expect(target.textContent).toContain("ice-peer");
+    await act(async () => target.click());
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    const form = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.closest("form")!;
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(native.request).toHaveBeenCalledExactlyOnceWith("device-peer");
+    expect(container.textContent).toContain("2 records");
+    expect(native.advance).not.toHaveBeenCalled();
+  });
   it("loads Cloud metadata, saves a self name, and reads the persisted name after reopening", async () => {
     let stored = view();
     const port = { read: vi.fn(async () => stored), reportSelf: vi.fn(async (intent) => { stored = view(intent.displayName); return stored; }) } satisfies DeviceDirectorySettingsPort;
@@ -78,4 +95,17 @@ describe("device directory customer journey", () => {
     expect(current.reportSelf).not.toHaveBeenCalled();
     expect(container.querySelector("input")?.getAttribute("aria-invalid")).toBe("true");
   });
+});
+
+it("offers target termination on a read-only device even when directory metadata is unavailable", async () => {
+  const native = { status: vi.fn(async () => ({ kind: "available" as const, requestId: "original", bootstrapExpiresAt: "2026-11-19T12:00:00Z" })),
+    cancel: vi.fn(async () => ({ kind: "finished" as const, requestId: "original", status: "cancelled" as const })) };
+  const directory = { read: vi.fn(async (): Promise<DeviceDirectoryView> => { throw new Error("offline directory"); }), reportSelf: vi.fn() };
+  await act(async () => root.render(<DeviceDirectoryPanel locale="en-US" port={directory} bootstrapPort={native} readOnly />));
+  const button = (label: string) => Array.from(container.querySelectorAll("button")).find(item => item.textContent === label)!;
+  await act(async () => button("Stop this setup").click());
+  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(native.cancel).toHaveBeenCalledExactlyOnceWith("original");
+  expect(directory.reportSelf).not.toHaveBeenCalled();
 });

@@ -8,10 +8,12 @@ import {
   unsafeCodeBoundaryErrors,
 } from "./unsafe-boundary-policy.mjs";
 
-test("pins unsafe overrides to the two private OS power notification files", () => {
+test("pins unsafe overrides to the four private OS power and clock files", () => {
   assert.deepEqual(unsafeCodeAllowlist, [
     "crates/secure-host-core/src/native_power/windows.rs",
     "crates/secure-host-core/src/native_power/macos.rs",
+    "crates/secure-host-core/src/native_continuous_clock/windows.rs",
+    "crates/secure-host-core/src/native_continuous_clock/macos.rs",
   ]);
   for (const path of unsafeCodeAllowlist) {
     assert.deepEqual(unsafeCodeBoundaryErrors([{ path, source: "#![allow(unsafe_code)]" }]), []);
@@ -20,6 +22,8 @@ test("pins unsafe overrides to the two private OS power notification files", () 
     "crates/secure-host-core/src/lib.rs",
     "crates/secure-host-core/src/native_power.rs",
     "crates/secure-host-core/src/native_power/other.rs",
+    "crates/secure-host-core/src/native_continuous_clock.rs",
+    "crates/secure-host-core/src/native_continuous_clock/other.rs",
     "crates/secure-host-core/src/afternic_credentials.rs",
     "crates/local-storage/src/desktop_custody/windows.rs",
   ]) {

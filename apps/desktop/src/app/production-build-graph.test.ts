@@ -42,6 +42,9 @@ describe("Desktop production build graph", () => {
       "features/operations/operation-history/operation-history.tsx",
       "features/sync/conflict-center/conflict-center.tsx",
       "features/settings/settings-panel/settings-panel.tsx",
+      "features/settings/device-directory-panel.tsx",
+      "features/settings/device-handoff-panel.tsx",
+      "features/settings/target-bootstrap-panel.tsx",
     ]) {
       expect(modules.some((id) => id.endsWith(`/apps/desktop/src/${feature}`)), feature).toBe(true);
     }

@@ -16,12 +16,19 @@ use crate::portfolio_projection::{
 
 mod afternic;
 mod afternic_delist;
+mod execution_evidence;
+mod execution_evidence_delivery;
 pub(crate) use afternic_delist::AfternicDelistWorkSeed;
 pub use afternic_delist::{
     DesktopAfternicDelistApproveRequest, DesktopAfternicDelistPlan,
     DesktopAfternicDelistPreviewItem, DesktopAfternicDelistPreviewRequest,
     DesktopAfternicDelistStatus, DesktopAfternicDelistStatusRequest, DesktopAfternicDelistSummary,
     DesktopAfternicDelistWorkKind,
+};
+pub(crate) use execution_evidence::{EvidenceSignaturePurpose, ExecutionEvidenceContext};
+pub(crate) use execution_evidence_delivery::EvidenceUploadSeed;
+pub use execution_evidence_delivery::{
+    DesktopExecutionEvidenceDeliveryOutcome, DesktopExecutionEvidenceStream,
 };
 mod assets;
 pub(crate) use afternic::AfternicConnectionSeed;
@@ -48,7 +55,7 @@ use assets::withdraw_rejected_local_delete;
 use conflicts::merge_checkpoint_existing_asset;
 use conflicts::persist_conflict_candidate;
 use conflicts::read_local_conflict_value;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use database::append_digest_part;
 #[cfg(test)]
 use database::complete_database_digest;
@@ -68,16 +75,16 @@ pub(crate) use wire::serialize_sync_push_request;
 pub(crate) use wire::sync_payload;
 use wire::validate_cursor_token;
 use wire::validate_digest;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub use wire::validate_rebootstrap_asset;
 #[cfg(test)]
 pub use wire::validate_rebootstrap_timestamp;
 use wire::validate_sync_mutation_fields;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub use wire::verify_rebootstrap_checkpoint_digest;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub use wire::verify_rebootstrap_page_digest;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub use wire::verify_rebootstrap_plan_digest;
 
 mod cloudflare_credential;
@@ -93,10 +100,10 @@ pub(crate) use cloudflare_credential::{
 };
 pub(crate) use cloudflare_retirement::CloudflareRetirementSeed;
 pub(crate) use drain_claims::{
-    CloudMutationReceipt, DrainMutationProgress, DrainProofSchemaVersion, DrainStreamClaim,
-    HandoffDrainProofClaims, signed_handoff_proof_digest,
+    CloudMutationReceipt, DrainMutationProgress, DrainProofSchemaVersion, HandoffDrainProofClaims,
+    signed_handoff_proof_digest,
 };
-pub(crate) use normal_handoff::{NormalHandoffAttempt, NormalHandoffReceipt};
+pub(crate) use normal_handoff::{NormalHandoffAttempt, NormalHandoffReceipt, NormalHandoffRequest};
 
 /// Temporary gate on the Host create path's local re-add (ADR-0029 C2c2).
 ///
@@ -173,9 +180,14 @@ impl LocalDatabaseKey {
         Self(self.0)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) const fn custody_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn matches_custody_bytes(&self, bytes: &[u8; 32]) -> bool {
+        self.0 == *bytes
     }
 }
 

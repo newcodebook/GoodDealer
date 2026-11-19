@@ -62,12 +62,21 @@ function createFixture() {
     "local_sales_read",
     "local_settings_read",
     "local_storage_repair",
+    "target_bootstrap_status",
+    "target_bootstrap_cancel",
   ];
   writeFile(root, "apps/desktop/src-tauri/build.rs", `AppManifest::new().commands(&[${commands.map((command) => `"${command}"`).join(",")}])\n`);
   writeFile(root, "apps/desktop/src-tauri/src/main.rs", `
-let local_host = Arc::new(DesktopLocalHost::production(application_root)?);
+let local_host = Arc::new(execution_context_native::production_host(application_root, identity.clone(), &power_gate)?);
 app.manage(Arc::clone(&local_host));
 tauri::generate_handler![${commands.join(",")}]
+`);
+  writeFile(root, "apps/desktop/src-tauri/src/execution_context_native.rs", `
+pub(crate) fn production_host(root: DesktopApplicationRoot) -> Result<DesktopLocalHost, DesktopLocalHostError> {
+  let native = Arc::new(ExecutionContextNative::new(identity, power.clone()));
+  let host = DesktopLocalHost::production_with_execution_context(root, native)?;
+  Ok(host)
+}
 `);
   const ordinaryCommands = commands.filter((command) => !command.startsWith("local_backup_"));
   writeFile(root, "apps/desktop/src-tauri/src/handler.rs", `${ordinaryCommands.map((command) => `#[tauri::command]\nfn ${command}() {}`).join("\n")}
@@ -165,6 +174,25 @@ function useFixture(t) {
 
 test("the repository Desktop bridge exposes exactly the reviewed business and authentication commands", () => {
   assert.deepEqual(tauriCommandPolicyErrors(), []);
+});
+
+test("startup keeps one context-aware Host and rejects bypass or duplicate construction", () => {
+  for (const [path, before, after] of [
+    ["main.rs", "execution_context_native::production_host", "DesktopLocalHost::production"],
+    ["execution_context_native.rs", "production_with_execution_context(root, native)", "production(root)"],
+    ["execution_context_native.rs", "Ok(host)", "Ok(other_host)"],
+    ["execution_context_native.rs", "Ok(host)", "let other = DesktopLocalHost::production_with_execution_context(root, native)?; Ok(host)"],
+  ]) {
+    const root = createFixture();
+    try {
+      const file = `apps/desktop/src-tauri/src/${path}`;
+      const source = readFileSync(join(root, file), "utf8");
+      const changed = source.replace(before, after);
+      assert.notEqual(changed, source);
+      writeFile(root, file, changed);
+      assert(tauriCommandPolicyErrors({ root }).some(error => error.includes("exactly one local-host aggregate")));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
 
 test("the tracked macOS capability schema matches the generated desktop schema", () => {

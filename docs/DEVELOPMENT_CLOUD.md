@@ -47,23 +47,11 @@ Cloud 当前使用 [`apps/cloud/src/entrypoints/development-server.ts`](../apps/
 作为现有 API 组合根。它把 Identity、Desktop OAuth 与公共 Cloud route 放在同一端口，并要求普通 App、Account
 API、Identity capability issuer、Provider ingress、Provider worker 五个相互隔离的 runtime pool。独立的
 [`development-migrate.ts`](../apps/cloud/src/entrypoints/development-migrate.ts) 由 oneshot 服务以
-`gooddealer-migrator` 身份和 Owner URL 应用迁移；Owner 凭据不进入常驻 Cloud 进程。仓库当前
-greenfield catalog 当前有 40 项：M001–M017、M019 后接 M020，再依次包含
-`202609140001-sync-v2-ledger`、`202609150001-workspace-checkpoint-v2` 和
-`202609150002-cloudflare-dns-observation`、`202609210001-account-recovery`、
-`202609220001-commercial-entitlement-snapshot` 和
-`202609220002-account-default-workspace-capability-policy`，最后是 ADR-0011 的
-`202611020001-desktop-login-loopback-redirect` 与 `202611020002-desktop-code-loopback-redirect`，最后是 ADR-0019
-B1 的 `202611130001-drain-proof-schema-version`、`202611130002-mutation-drain-result-chain`、B2 的
-`202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain` 与 ADR-0029 C1a 的
-`202611130005-mutation-wire-v3`，ADR-0029 C1b–C2 的 `202611140001-replica-domain-asset-deletion`、
-`202611140002-replica-entity-generation`、`202611140003-mutation-generation-mismatch-receipt`、
-`202611140004-workspace-checkpoint-state-v3`、`202611140005-mutation-log-generation`、
-`202611140006-replica-domain-asset-re-add`，以及 ADR-0032 S1c 的 `202611170001-drain-handoff-target-key` 与 `202611170002-drain-proof-admission`。M015 已是规范化商业 baseline，不存在 M018 compatibility
-migration；M019 前必须由角色管理员运行受控 role provisioning，M020 增加 Account access challenge
-与加密邮件 outbox；后续 migration 分别增加密码恢复、challenge-bound outbox、Session 撤销、商业权威读取 façade
-和默认个人工作区 capability policy。当前 staging 数据库已通过正常 migrator 应用完整 catalog；不得通过修改 ledger
-或 checksum alias 绕过漂移检查。
+`gooddealer-migrator` 身份和 Owner URL 应用迁移；Owner 凭据不进入常驻 Cloud 进程。源码迁移的完整有序目录以
+[`apps/cloud/src/db/migrations.ts`](../apps/cloud/src/db/migrations.ts) 为准，不能用本文的历史部署数量代替。
+M015 已是规范化商业 baseline，不存在 M018 compatibility migration；M019 前必须由角色管理员运行
+受控 role provisioning。共享环境现有证据仅覆盖下文记录的部署快照，新增设备执行上下文、历史公钥与
+安全边界迁移尚不能据本地测试推导已部署；不得通过修改 ledger 或 checksum alias 绕过漂移检查。
 开发组合根已装配独立 Identity ingress、Argon2id 账号访问服务、loopback Mailpit outbox worker，以及
 Stripe 官方 SDK 的 test-mode catalog、Checkout、webhook 和退款 adapter；PayPal 保持失败关闭。
 同一 API 组合根只有在 `GOODDEALER_DEPLOYMENT_ENV=staging`、
@@ -85,10 +73,10 @@ VPS 上的配置位置只用于定位和权限审查，不能把内容输出到�
 | `/etc/gooddealer/cloud-runtime.env` | App、Account API、Identity issuer、Provider ingress、Provider worker 五个独立 PostgreSQL URL；Identity verification pepper、outbox key、独立 browser namespace HMAC key 和独立 Workspace sync cursor/confirmation HMAC key；以及非秘密文件定位和 loopback host/port。禁止 Owner URL，禁止五个 runtime 身份共用凭据；四个 key 必须分别为独立 32-byte base64url 值。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/cloud-migration.env` | 仅 Owner PostgreSQL URL；禁止 App URL 和运行时配置。 | `root:gooddealer-migrator 0640` |
 | `/etc/gooddealer/provider-worker/development.env` | 仅 Provider worker 所需 PostgreSQL URL、Provider 配置定位和有界 drain 设置。 | `root:gooddealer-provider 0640` |
-| `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并包含 Desktop Grant 唯一能力 `cloudflare:dns:observe`，否则 Cloud 启动失败。 | `root:gooddealer-provider 0640` |
+| `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并符合当前协议能力目录；Grant 只包含已配置授权能力的精确交集。Afternic 观察、写入分别需要对应授权，不由启用路由推导。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/postgres.env` | PostgreSQL 容器管理凭据。 | `root:root 0600` |
 | `/etc/gooddealer/openbao/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
-| `/etc/gooddealer/openbao/public-keys.json` | OpenBao 地址、grant/lease/standby 三个 purpose 各自的 active key/version 与 1–8 把重叠 verifier key。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao/public-keys.json` | 当前源码要求 OpenBao 地址及 grant/lease/standby/context 四个独立 purpose，各有 active key/version 与 1–8 把重叠 verifier key。Standby 和 context 仍待共享实例部署取证，详见 OpenBao 运行手册。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/openbao/ca.crt` | 开发 CA。 | `root:gooddealer 0640` |
 
 禁止执行会回显环境或秘密的命令，包括无过滤的 `systemctl show`、`docker inspect`、`env`、`printenv`、
@@ -136,12 +124,7 @@ docker exec gooddealer-postgres-development \
 capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 SQL 的预期 checksum 是
 `dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e`，M019 的预期 checksum 是
 `5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9`，其 closed purpose allowlist 包含
-`refund_request`。当前源码 catalog 应有 40 个条目：M001–M017、M019、M020、上述三个同步/观察
-migration、`202609210001-account-recovery`、`202609220001-commercial-entitlement-snapshot` 和
-`202609220002-account-default-workspace-capability-policy`、`202611020001-desktop-login-loopback-redirect` 和
-`202611020002-desktop-code-loopback-redirect`，以及 ADR-0019 B1 的 `202611130001-drain-proof-schema-version` 和
-`202611130002-mutation-drain-result-chain`、B2 的 `202611130003-mutation-result-ledger`、B3 的 `202611130004-mutation-drain-device-chain`、ADR-0029 C1a 的 `202611130005-mutation-wire-v3`、ADR-0029 C1b–C2 的 `202611140001`–`202611140006` 六项与
-ADR-0032 S1c 的 `202611170001-drain-handoff-target-key` 与 `202611170002-drain-proof-admission`；最后十五项需要新的 staging 应用证据。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
+`refund_request`。完整待应用差集必须以当前源码目录与共享数据库有序 ledger 逐项比较，不能仅比较数量。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
 roles/memberships、同步 v2 ledger/checkpoint/Cloudflare observation schema 与五个 runtime 登录身份
 取得不含业务行和秘密的结构快照。
 
@@ -246,7 +229,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 ```
 
 两项都是 Desktop 编译期信任输入。构建日志不得输出完整 registry；验证时只检查 schema version、
-三个独立 purpose（`grant_v3`、`active_device_lease_v1`、`standby_grant_v1`）、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
+四个独立 purpose（`grant_v3`、`active_device_lease_v1`、`standby_grant_v1`、`execution_context_v1`）、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
 同时含旧/新 verifier key 的配置生成 registry 并发布 Desktop，再切换对应 purpose 的 `active` 引用；
 旧 envelope 窗口结束后才从 Cloud verifier 和后续 Desktop registry 中撤旧。
 
@@ -259,7 +242,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 | Cloud 重启循环 | 先检查锁定 Node 路径、release 中 `apps/cloud/node_modules/tsx`、独立 migrator 最近结果和 OpenBao seal 状态。 | 不打印 EnvironmentFile、把 Owner URL 放回 runtime unit 或跳过 migration。 |
 | Transit 签名失败 | 检查 OpenBao active/unsealed、AppRole SecretID 是否过期、开发 CA 和固定 key version。 | 不使用 root token 运行 Cloud，不关闭 TLS 校验。 |
 | Desktop token 换取成功但仍未登录，`/v1/devices/authorization-grant` 被拒 | 账户 entitlement 的 `feature_entitlements` 缺少 `cloudflare:dns:observe` 时 Grant 返回 403。能力在支付 webhook 处理时按当时 policy 写入，修正 policy 后既有 entitlement 不会改变，需要一次新的购买或续订事件。 | 只读 entitlement 的 state、plan 和能力列表；不手改 licensing 表。 |
-| Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、三把授权 Transit key 能按固定版本签名。Active 还要求有效权益；合格的 Standby 登录不要求权益或新 Lease。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
+| Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、授权所需各用途的 Transit key 能按固定版本签名。Active 还要求有效权益；合格的 Standby 登录不要求权益或新 Lease。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
 | TLS/Cloudflare 错误 | 检查源站证书有效期、`nginx -t`、Certbot renewal 和域名 server block。 | 不修改 Cloudflare SSL 模式或 DNS，除非用户另行授权。 |
 | migration 数量/摘要漂移 | 对比 `apps/cloud/src/db/migrations.ts` 和数据库 ledger，停止发布。 | 不编辑 ledger、不强行标记 migration 已应用。 |
 

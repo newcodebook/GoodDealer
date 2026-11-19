@@ -107,12 +107,27 @@
 //! use gooddealer_local_storage::RebootstrapRuntime;
 //! ```
 
+#[cfg(windows)]
+mod windows_custody;
+#[cfg(all(test, not(windows)))]
+#[path = "windows_custody/format.rs"]
+mod windows_custody_format_tests;
+#[cfg(all(test, not(windows)))]
+#[path = "desktop_custody_windows/database_format.rs"]
+mod windows_database_format_tests;
+#[cfg(windows)]
+mod windows_private_files;
+#[cfg(all(test, not(windows)))]
+#[path = "windows_private_files/protected_acl.rs"]
+mod windows_protected_acl_tests;
+#[cfg(all(test, not(windows)))]
+#[path = "windows_private_files/sidecar_acl.rs"]
+mod windows_sidecar_acl_tests;
+
 mod active_workspace;
 mod application_root;
 mod desktop_business_runtime;
-// The custody implementation relies on descriptor-relative POSIX primitives (`openat`,
-// `renameat`, and `O_NOFOLLOW`) that do not exist on Windows. Keep that security boundary
-// explicitly fail-closed there instead of compiling a weaker path-based approximation.
+// Each OS keeps its native file/key admission private; both open the same business owner.
 #[cfg(unix)]
 mod desktop_custody;
 #[cfg(windows)]
@@ -156,7 +171,7 @@ pub use active_workspace::business::{
     DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
 };
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
     RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
     validate_rebootstrap_asset, validate_rebootstrap_timestamp,
@@ -180,7 +195,7 @@ pub use active_workspace::settings::{
 };
 pub use active_workspace::storage_repair::StorageRepairKind;
 pub use desktop_local_host::afternic::DesktopAfternicConnection;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
     AssetLibraryReadSnapshot, AssetLibraryRow, AssetLibraryWindow, DomainDetailAsset,
@@ -207,6 +222,7 @@ pub use desktop_business_runtime::{
 };
 pub use desktop_device_switch::{
     DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchRequestExchange,
+    DesktopDeviceSwitchRequestResolution, DesktopDeviceSwitchRequestResolutionOutcome,
     DesktopDeviceSwitchStart, DesktopDeviceSwitchStatus, DesktopDrainProgress,
     DesktopDrainProofDraft, DesktopDrainReceiptQuery,
 };
@@ -250,4 +266,21 @@ pub use active_workspace::business::{
 };
 pub use desktop_local_host::afternic_delist::{
     DesktopAfternicDelistClaim, DesktopAfternicDelistWork,
+};
+
+pub use desktop_local_host::execution_context::{
+    DesktopContinuousClockKind, DesktopContinuousClockReading, DesktopExecutionContextError,
+    DesktopExecutionContextNativePort, DesktopExecutionContextRequest,
+    DesktopExecutionSigningIdentity, DesktopStagedExecutionContext,
+};
+
+pub use active_workspace::business::{
+    DesktopExecutionEvidenceDeliveryOutcome, DesktopExecutionEvidenceStream,
+};
+pub use desktop_local_host::execution_evidence_delivery::DesktopExecutionEvidenceUpload;
+
+pub use desktop_local_host::target_bootstrap::{
+    DesktopTargetBootstrapCancelExchange, DesktopTargetBootstrapStatusExchange,
+    DesktopTargetBootstrapStatusOutcome, DesktopTargetBootstrapTerminalStatus,
+    DesktopTargetBootstrapView,
 };

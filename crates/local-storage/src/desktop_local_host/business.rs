@@ -372,7 +372,6 @@ impl DesktopLocalHost {
             })
             .transpose()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
-        #[cfg_attr(not(unix), cfg(any()))]
         #[cfg(test)]
         let installation_binding =
             production_installation_binding.or(self.development_installation_binding);
@@ -476,7 +475,6 @@ impl DesktopLocalHost {
         captured_epoch: u64,
         authority: &PrivateWorkspaceAuthority,
     ) -> Result<(), BusinessDatabaseError> {
-        #[cfg_attr(not(unix), cfg(any()))]
         #[cfg(test)]
         {
             let requested = self

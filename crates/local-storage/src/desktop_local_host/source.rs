@@ -2,10 +2,13 @@ use std::io::{self, Write};
 use std::ops::Deref;
 use std::path::Path;
 
+#[cfg(windows)]
+use crate::windows_private_files::PrivateSnapshotDirectory;
 use getrandom::fill as fill_random;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(not(windows))]
 use tempfile::TempDir;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -433,6 +436,10 @@ impl<'a> BackupSource<'a> {
     ) -> Result<BackupProjection, BusinessDatabaseError> {
         let workspace_id = Zeroizing::new(self.database.workspace_id().to_owned());
         let temporary = private_snapshot_directory()?;
+        #[cfg(windows)]
+        temporary
+            .verify()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let snapshot_path = temporary.path().join("active-workspace.snapshot.db");
         let mut key = Zeroizing::new([0_u8; 32]);
         fill_random(key.as_mut()).map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -443,6 +450,10 @@ impl<'a> BackupSource<'a> {
             workspace_id.as_str(),
             after_snapshot_pinned,
         )?;
+        #[cfg(windows)]
+        temporary
+            .verify()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let snapshot = crate::active_workspace::open_keyed(&snapshot_path, &key)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         let projection = project_snapshot(
@@ -452,6 +463,10 @@ impl<'a> BackupSource<'a> {
             through_server,
         )?;
         drop(snapshot);
+        #[cfg(windows)]
+        temporary
+            .verify()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         temporary
             .close()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -467,10 +482,11 @@ impl<'a> BackupSource<'a> {
 /// `0644` files inside it readable by every local user. The directory is created `0700` and then
 /// checked: the umask can only remove bits, but an owner or mode that is not this user's alone
 /// (another user's directory raced into place, an unusual filesystem) fails the snapshot closed.
-/// Outside Unix (Windows) the system temporary directory sits under the user's profile, which is
-/// that user's alone by default; no further ACL check is made there.
+#[cfg(not(windows))]
 fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    let mut builder = builder;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -481,6 +497,13 @@ fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     require_private_directory(directory.path())?;
     Ok(directory)
+}
+
+// Windows retains verified ancestor handles and a closed user-only DACL until the snapshot closes.
+// This internal scratch location does not constrain user-selected backup destinations.
+#[cfg(windows)]
+fn private_snapshot_directory() -> Result<PrivateSnapshotDirectory, BusinessDatabaseError> {
+    PrivateSnapshotDirectory::create().map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
 #[cfg(unix)]
@@ -498,7 +521,7 @@ fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn require_private_directory(path: &Path) -> Result<(), BusinessDatabaseError> {
     std::fs::symlink_metadata(path)
         .ok()
@@ -1021,6 +1044,25 @@ mod tests {
             Err(BusinessDatabaseError::StorageRejected)
         );
         assert_eq!(super::require_private_directory(directory.path()), Ok(()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_snapshot_is_pinned_private_and_rejects_hardlinked_sqlite_files() {
+        let directory = super::private_snapshot_directory().unwrap();
+        let path = directory.path().to_owned();
+        directory.verify().unwrap();
+        let database = path.join("active-workspace.snapshot.db");
+        std::fs::write(&database, b"encrypted snapshot test bytes").unwrap();
+        directory.verify().unwrap();
+        let alias = path.join("hardlink");
+        std::fs::hard_link(&database, &alias).unwrap();
+        assert!(directory.verify().is_err());
+        std::fs::remove_file(alias).unwrap();
+        directory.verify().unwrap();
+        assert!(std::fs::rename(&path, path.with_extension("moved")).is_err());
+        directory.close().unwrap();
+        assert!(!path.exists());
     }
 
     #[test]

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Mutex};
 use zeroize::{Zeroize, Zeroizing};
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const SERVICE: &str = "com.gooddealer.desktop.afternic.listing.v1";
 const MAX_ENVELOPE: usize = 4096;
 static CUSTODY: Mutex<()> = Mutex::new(());
@@ -188,11 +188,11 @@ pub fn purge_afternic_credential_guarded(
 
 pub struct AfternicCapture;
 impl AfternicCapture {
-    /// Capture is composed for macOS. Other targets remain explicitly unavailable until their
-    /// native masked-input and custody adapters are implemented and independently qualified.
+    /// Native masked-input adapters are composed for Windows and macOS. Real OS and custody
+    /// qualification is recorded separately from this source capability.
     #[must_use]
     pub const fn supported() -> bool {
-        cfg!(target_os = "macos")
+        cfg!(any(target_os = "macos", target_os = "windows"))
     }
     /// Captures API key and secret in native masked dialogs; never accepts them through IPC.
     /// # Errors
@@ -201,11 +201,35 @@ impl AfternicCapture {
         guard: &mut AfternicGuard<'_>,
     ) -> Result<AfternicCredential, AfternicError> {
         guard()?;
+        #[cfg(windows)]
+        {
+            use crate::windows_credential_capture::{CaptureError, Purpose, capture};
+            let mut guard_error = None;
+            let captured = capture(Purpose::Afternic, &mut || match guard() {
+                Ok(()) => true,
+                Err(error) => {
+                    guard_error = Some(error);
+                    false
+                }
+            });
+            if let Some(error) = guard_error {
+                return Err(error);
+            }
+            let bytes = captured.map_err(|error| match error {
+                CaptureError::Cancelled => AfternicError::CaptureCancelled,
+                CaptureError::AuthorityStale | CaptureError::Timeout => {
+                    AfternicError::AuthorityStale
+                }
+                CaptureError::Unavailable => AfternicError::CustodyUnavailable,
+            })?;
+            guard()?;
+            parse_capture(&bytes)
+        }
         #[cfg(target_os = "macos")]
         {
             capture_macos(guard)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             Err(AfternicError::CustodyUnavailable)
         }
@@ -217,7 +241,7 @@ fn valid_secret(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(super) fn parse_capture(bytes: &[u8]) -> Result<AfternicCredential, AfternicError> {
     if bytes.len() > 1026 {
         return Err(AfternicError::InputRejected);
@@ -353,17 +377,33 @@ fn native_delete(account: &str) -> Result<(), AfternicError> {
         Err(_) => Err(AfternicError::CustodyUnavailable),
     }
 }
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn native_load(_: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
     Err(AfternicError::CustodyUnavailable)
 }
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn native_store(_: &str, _: &[u8]) -> Result<(), AfternicError> {
     Err(AfternicError::CustodyUnavailable)
 }
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn native_delete(_: &str) -> Result<(), AfternicError> {
     Err(AfternicError::CustodyUnavailable)
+}
+
+#[cfg(windows)]
+fn native_load(account: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
+    crate::windows_custody::load(SERVICE, account)
+        .map(|value| value.map(Zeroizing::new))
+        .map_err(|_| AfternicError::CustodyUnavailable)
+}
+#[cfg(windows)]
+fn native_store(account: &str, bytes: &[u8]) -> Result<(), AfternicError> {
+    crate::windows_custody::store(SERVICE, account, bytes)
+        .map_err(|_| AfternicError::CustodyUnavailable)
+}
+#[cfg(windows)]
+fn native_delete(account: &str) -> Result<(), AfternicError> {
+    crate::windows_custody::delete(SERVICE, account).map_err(|_| AfternicError::CustodyUnavailable)
 }
 
 #[cfg(test)]

@@ -38,8 +38,8 @@
 
 - **Listing 真实写入闭环。** 数据库能表示绑定，不等于 Service、扫描归集、Host 绑定准入、观察关联、
   批量父计划、重启对账和客户入口已经完成。后续 Afternic 归集/下架的实际组合见 [当前实现](CURRENT_IMPLEMENTATION.md)；创建/改价/验证仍需接续，真实 Provider 证据和当前授权必须在同一拥有模块落实。
-- **Windows 原生实现。** 现有 Windows custody 仍返回 unavailable；先完成加密工作区创建、关闭重开与
-  秘密 custody，再覆盖连接及恢复。macOS 同样需要真实原生资格，Linux 单元测试不能替代。
+- **Windows 原生实现。** Windows 加密工作区、秘密 custody 与受限录入已在拥有模块中组合，并通过真实 SQLCipher/Core/Tauri 的 Windows GNU 全目标严格 Clippy；
+  源码、目标编译和实际启动/关闭重开/连接/恢复须分别验证，不能将原 unavailable 分支视为交付。macOS 同样需要真实原生资格，Linux 单元测试不能替代。
 - **两条恢复旅程。** 独立可携带业务备份、离线隔离查看/导出，以及有当前授权的换机云恢复仍待实现。
   现有安装绑定格式与测试文件后端不构成生产恢复能力。
 - **设备授权与可执行资格。** Cloud/Host Standby 角色准入已接续，继续完成目标引导/激活、强制接管与实际设备旅程；

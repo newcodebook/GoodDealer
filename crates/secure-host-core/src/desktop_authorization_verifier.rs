@@ -17,6 +17,7 @@ pub enum DesktopAuthorizationCredentialPurpose {
     GrantV3,
     ActiveDeviceLeaseV1,
     StandbyGrantV1,
+    ExecutionContextV1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +33,7 @@ pub enum AuthorizationVerificationKeyError {
 /// # Errors
 ///
 /// Rejects unknown fields, malformed keys, duplicates, oversized registries, and a registry that
-/// omits the Active Grant, Lease, or Standby Grant purpose.
+/// omits the Active Grant, Lease, Standby Grant, or Execution Context purpose.
 pub fn parse_desktop_authorization_verifier_registry(
     value: &str,
 ) -> Result<DesktopAuthorizationVerifier, AuthorizationVerificationKeyError> {
@@ -47,6 +48,7 @@ pub fn parse_desktop_authorization_verifier_registry(
     let mut has_grant = false;
     let mut has_lease = false;
     let mut has_standby = false;
+    let mut has_context = false;
     let mut keys = Vec::with_capacity(registry.keys.len());
     for wire in registry.keys {
         let purpose = match wire.purpose {
@@ -62,6 +64,10 @@ pub fn parse_desktop_authorization_verifier_registry(
                 has_standby = true;
                 DesktopAuthorizationCredentialPurpose::StandbyGrantV1
             }
+            VerificationPurposeWire::ExecutionContextV1 => {
+                has_context = true;
+                DesktopAuthorizationCredentialPurpose::ExecutionContextV1
+            }
         };
         let public_key = URL_SAFE_NO_PAD
             .decode(wire.public_key.as_bytes())
@@ -75,7 +81,7 @@ pub fn parse_desktop_authorization_verifier_registry(
             &public_key,
         )?);
     }
-    if !has_grant || !has_lease || !has_standby {
+    if !has_grant || !has_lease || !has_standby || !has_context {
         return Err(AuthorizationVerificationKeyError::RegistryRejected);
     }
     DesktopAuthorizationVerifier::new(keys)
@@ -102,6 +108,7 @@ enum VerificationPurposeWire {
     GrantV3,
     ActiveDeviceLeaseV1,
     StandbyGrantV1,
+    ExecutionContextV1,
 }
 
 impl Display for AuthorizationVerificationKeyError {
@@ -294,6 +301,40 @@ mod tests {
     }
 
     #[test]
+    fn execution_context_key_cannot_authorize_grants_leases_or_standby() {
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[0x47; 32]).unwrap();
+        let verifier =
+            DesktopAuthorizationVerifier::new([DesktopAuthorizationVerificationKey::new(
+                DesktopAuthorizationCredentialPurpose::ExecutionContextV1,
+                "context-key",
+                pair.public_key().as_ref(),
+            )
+            .unwrap()])
+            .unwrap();
+        let transcript = b"GOODDEALER-DESKTOP-EXECUTION-CONTEXT-V1";
+        let signature = URL_SAFE_NO_PAD.encode(pair.sign(transcript).as_ref());
+        assert!(verifier.verify(
+            DesktopAuthorizationCredentialPurpose::ExecutionContextV1,
+            "context-key",
+            transcript,
+            &signature
+        ));
+        for purpose in [
+            DesktopAuthorizationCredentialPurpose::GrantV3,
+            DesktopAuthorizationCredentialPurpose::ActiveDeviceLeaseV1,
+            DesktopAuthorizationCredentialPurpose::StandbyGrantV1,
+        ] {
+            assert!(!verifier.verify(purpose, "context-key", transcript, &signature));
+        }
+        assert!(!verifier.verify(
+            DesktopAuthorizationCredentialPurpose::ExecutionContextV1,
+            "context-key",
+            b"altered context",
+            &signature
+        ));
+    }
+
+    #[test]
     fn rejects_malformed_and_duplicate_key_material() {
         assert_eq!(
             DesktopAuthorizationVerificationKey::new(
@@ -354,22 +395,29 @@ mod tests {
     }
 
     #[test]
-    fn registry_requires_all_three_purposes_and_rejects_unknown_fields() {
+    fn registry_requires_all_four_purposes_and_rejects_unknown_fields() {
         let grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x41; 32]).unwrap();
         let next_grant_pair = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).unwrap();
         let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x43; 32]).unwrap();
         let next_lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x44; 32]).unwrap();
         let standby_pair = Ed25519KeyPair::from_seed_unchecked(&[0x45; 32]).unwrap();
+        let context_pair = Ed25519KeyPair::from_seed_unchecked(&[0x46; 32]).unwrap();
         let grant_public_key = URL_SAFE_NO_PAD.encode(grant_pair.public_key().as_ref());
         let next_grant_public_key = URL_SAFE_NO_PAD.encode(next_grant_pair.public_key().as_ref());
         let lease_public_key = URL_SAFE_NO_PAD.encode(lease_pair.public_key().as_ref());
         let next_lease_public_key = URL_SAFE_NO_PAD.encode(next_lease_pair.public_key().as_ref());
         let standby_public_key = URL_SAFE_NO_PAD.encode(standby_pair.public_key().as_ref());
+        let context_public_key = URL_SAFE_NO_PAD.encode(context_pair.public_key().as_ref());
         let valid = format!(
-            r#"{{"schemaVersion":1,"keys":[{{"purpose":"grant_v3","keyId":"grant-key-1","publicKey":"{grant_public_key}"}},{{"purpose":"grant_v3","keyId":"grant-key-2","publicKey":"{next_grant_public_key}"}},{{"purpose":"active_device_lease_v1","keyId":"lease-key-1","publicKey":"{lease_public_key}"}},{{"purpose":"active_device_lease_v1","keyId":"lease-key-2","publicKey":"{next_lease_public_key}"}},{{"purpose":"standby_grant_v1","keyId":"standby-key-1","publicKey":"{standby_public_key}"}}]}}"#,
+            r#"{{"schemaVersion":1,"keys":[{{"purpose":"grant_v3","keyId":"grant-key-1","publicKey":"{grant_public_key}"}},{{"purpose":"grant_v3","keyId":"grant-key-2","publicKey":"{next_grant_public_key}"}},{{"purpose":"active_device_lease_v1","keyId":"lease-key-1","publicKey":"{lease_public_key}"}},{{"purpose":"active_device_lease_v1","keyId":"lease-key-2","publicKey":"{next_lease_public_key}"}},{{"purpose":"standby_grant_v1","keyId":"standby-key-1","publicKey":"{standby_public_key}"}},{{"purpose":"execution_context_v1","keyId":"context-key-1","publicKey":"{context_public_key}"}}]}}"#,
         );
         assert!(parse_desktop_authorization_verifier_registry(&valid).is_ok());
-        for missing in ["grant_v3", "active_device_lease_v1", "standby_grant_v1"] {
+        for missing in [
+            "grant_v3",
+            "active_device_lease_v1",
+            "standby_grant_v1",
+            "execution_context_v1",
+        ] {
             let mut wire: serde_json::Value = serde_json::from_str(&valid).unwrap();
             wire["keys"]
                 .as_array_mut()

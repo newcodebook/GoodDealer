@@ -518,7 +518,7 @@ impl DesktopBusinessRuntime {
     /// Transfers the sole writer to custody after the Host has removed this runtime from its
     /// aggregate slot. Rebootstrap uses ownership, rather than a borrowed connection, so both the
     /// old and candidate `SQLite` connections can be publication-safe and closed before EXCHANGE.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn into_database(self) -> BusinessDatabase {
         self.database
     }

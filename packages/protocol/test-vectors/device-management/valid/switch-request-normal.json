@@ -1,6 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "mode": "normal",
   "toDeviceId": "device-2",
-  "idempotencyKey": "idem-1"
+  "idempotencyKey": "idem-1",
+  "expectedSourceLeaseEpoch": 1
 }

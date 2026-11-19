@@ -16,15 +16,20 @@ fn host(
     verifier: WorkspaceAuthorityVerifier,
 ) -> DesktopLocalHost {
     let root = DesktopApplicationRoot::validate(path).unwrap();
-    let custody =
-        DesktopProductionCustody::load_or_create_for_rebootstrap_test_with_store(&root, store)
-            .unwrap();
-    DesktopLocalHost {
+    let custody = DesktopProductionCustody::load_or_create_for_rebootstrap_test_with_store(
+        &root,
+        store.clone(),
+    )
+    .unwrap();
+    let mut host = DesktopLocalHost {
         application_root: Some(root),
         production_custody: Some(Mutex::new(custody)),
         authority_verifier: Some(verifier),
         ..DesktopLocalHost::default()
-    }
+    };
+    execution_context::tests::configure(&mut host, &store);
+    drop(store);
+    host
 }
 fn listing() -> DesktopAfternicListingObservation {
     DesktopAfternicListingObservation {
@@ -54,6 +59,7 @@ fn afternic_delist_host_reopens_only_for_get_and_empty_ticks_do_not_change_gener
     let (verifier, wire) = grant(2, &[OBSERVE, WRITE]);
     let local = host(&path, store.clone(), verifier);
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let _observe =
         crate::active_workspace::capability_qualification::test_qualification::qualify(OBSERVE);
     let _write =
@@ -113,6 +119,7 @@ fn afternic_delist_host_reopens_only_for_get_and_empty_ticks_do_not_change_gener
     let (verifier, wire) = grant(3, &[OBSERVE]);
     let local = host(&path, store, verifier);
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let recovered = local
         .next_afternic_delist_work(local.begin_native_cloud_run().unwrap())
         .unwrap()
@@ -144,6 +151,7 @@ fn afternic_delist_host_denies_unqualified_writes_and_stale_authority_after_clai
     let (verifier, wire) = grant(2, &[OBSERVE, WRITE]);
     let local = host(&path, TestRebootstrapKeyStore::default(), verifier);
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let _observe =
         crate::active_workspace::capability_qualification::test_qualification::qualify(OBSERVE);
     let connection = local
@@ -218,6 +226,7 @@ fn afternic_delist_host_concurrent_approvals_and_claims_issue_one_mutation_permi
     let (verifier, wire) = grant(2, &[OBSERVE, WRITE]);
     let local = Arc::new(host(&path, TestRebootstrapKeyStore::default(), verifier));
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let _observe =
         crate::active_workspace::capability_qualification::test_qualification::qualify(OBSERVE);
     let _write =
@@ -346,6 +355,7 @@ fn afternic_delist_host_drain_never_claims_empty_streams_after_provider_facts() 
     let (verifier, wire) = grant(2, &[OBSERVE, WRITE]);
     let local = host(&path, store.clone(), verifier);
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let _observe =
         crate::active_workspace::capability_qualification::test_qualification::qualify(OBSERVE);
     let _write =
@@ -379,7 +389,7 @@ fn afternic_delist_host_drain_never_claims_empty_streams_after_provider_facts() 
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_ok()
     );
     assert!(
@@ -418,11 +428,11 @@ fn afternic_delist_host_drain_never_claims_empty_streams_after_provider_facts() 
         local
             .native_device_switch_drain_progress(&admission)
             .unwrap(),
-        crate::DesktopDrainProgress::Blocked
+        crate::DesktopDrainProgress::Waiting { unconfirmed: 1 }
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_err()
     );
     local
@@ -444,37 +454,37 @@ fn afternic_delist_host_drain_never_claims_empty_streams_after_provider_facts() 
         local
             .native_device_switch_drain_progress(&admission)
             .unwrap(),
-        crate::DesktopDrainProgress::Blocked
+        crate::DesktopDrainProgress::Waiting { unconfirmed: 3 }
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_err()
     );
     let work = claim.into_reconciliation();
-    assert!(local.recheck_afternic_delist_work(&work).is_ok());
-    local.defer_afternic_delist_read(&work, None).unwrap();
+    assert!(local.recheck_afternic_delist_work(&work).is_err());
+    assert!(local.defer_afternic_delist_read(&work, None).is_err());
     assert_eq!(
         local
             .native_device_switch_drain_progress(&admission)
             .unwrap(),
-        crate::DesktopDrainProgress::Blocked
+        crate::DesktopDrainProgress::Waiting { unconfirmed: 3 }
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_err()
     );
-    local.reconcile_afternic_delist(&work, None).unwrap();
+    assert!(local.reconcile_afternic_delist(&work, None).is_err());
     assert_eq!(
         local
             .native_device_switch_drain_progress(&admission)
             .unwrap(),
-        crate::DesktopDrainProgress::Blocked
+        crate::DesktopDrainProgress::Waiting { unconfirmed: 3 }
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_err()
     );
     drop(work);
@@ -488,13 +498,86 @@ fn afternic_delist_host_drain_never_claims_empty_streams_after_provider_facts() 
         local
             .native_device_switch_drain_progress(&admission)
             .unwrap(),
-        crate::DesktopDrainProgress::Blocked
+        crate::DesktopDrainProgress::Waiting { unconfirmed: 3 }
     );
     assert!(
         local
-            .prepare_native_drain_proof(&admission, "switch", "key")
+            .prepare_native_drain_proof(&admission, "switch", "device-test-key")
             .is_err()
     );
+    // Reopening/refreshing during a long drain preserves the barrier and original evidence bytes.
+    execution_context::tests::admit(&local, &wire);
+    let stale_upload = local
+        .next_execution_evidence_upload(local.begin_native_cloud_run().unwrap())
+        .unwrap()
+        .unwrap();
+    let exact = stale_upload.request_bytes().to_vec();
+    let receipt = stale_upload.test_accepted_response("2026-11-19T00:02:00Z");
+    execution_context::tests::admit(&local, &wire);
+    assert!(
+        local
+            .record_execution_evidence_response(&stale_upload, &receipt)
+            .is_err()
+    );
+    let fresh_upload = local
+        .next_execution_evidence_upload(local.begin_native_cloud_run().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(fresh_upload.request_bytes(), exact);
+    assert!(
+        local
+            .next_afternic_delist_work(local.begin_native_cloud_run().unwrap())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        local
+            .approve_afternic_delist(
+                local.begin_native_cloud_run().unwrap(),
+                approve_request(&plan)
+            )
+            .is_err()
+    );
+    let mut uploaded = 0;
+    while let Some(upload) = local
+        .next_execution_evidence_upload(local.begin_native_cloud_run().unwrap())
+        .unwrap()
+    {
+        let response = upload.test_accepted_response("2026-11-19T00:02:00Z");
+        local
+            .record_execution_evidence_response(&upload, &response)
+            .unwrap();
+        uploaded += 1;
+    }
+    assert_eq!(uploaded, 3); // approval audit, dispatch audit, actual claim fact; frozen late responses never appended.
+    let admission = local.begin_native_cloud_run().unwrap();
+    assert_eq!(
+        local
+            .native_device_switch_frozen_unresolved_count(&admission)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        local
+            .native_device_switch_drain_progress(&admission)
+            .unwrap(),
+        crate::DesktopDrainProgress::Ready
+    );
+    assert!(
+        local
+            .prepare_native_drain_proof(&admission, "switch", "wrong-key")
+            .is_err()
+    );
+    let proof = local
+        .prepare_native_drain_proof(&admission, "switch", "device-test-key")
+        .unwrap();
+    let submission = local
+        .native_drain_submission(&proof, &"A".repeat(86))
+        .unwrap();
+    let proof: serde_json::Value = serde_json::from_slice(&submission).unwrap();
+    assert_eq!(proof["proof"]["signingKeyVersion"], 4);
+    assert_eq!(proof["proof"]["streams"][1]["lastAssignedSequence"], 1);
+    assert_eq!(proof["proof"]["streams"][2]["lastAssignedSequence"], 2);
 }
 #[test]
 #[expect(
@@ -508,6 +591,7 @@ fn afternic_delist_host_barrier_race_cannot_both_approve_and_prove_empty() {
     let (verifier, wire) = grant(2, &[OBSERVE, WRITE]);
     let local = Arc::new(host(&path, TestRebootstrapKeyStore::default(), verifier));
     local.activate_authorization_grant(&wire).unwrap();
+    execution_context::tests::admit(&local, &wire);
     let _observe =
         crate::active_workspace::capability_qualification::test_qualification::qualify(OBSERVE);
     let _write =
@@ -553,7 +637,7 @@ fn afternic_delist_host_barrier_race_cannot_both_approve_and_prove_empty() {
             .begin_native_device_switch_drain(&admission, "race")
             .unwrap();
         drain_host
-            .prepare_native_drain_proof(&admission, "race", "key")
+            .prepare_native_drain_proof(&admission, "race", "device-test-key")
             .is_ok()
     });
     barrier.wait();
@@ -597,7 +681,7 @@ fn afternic_delist_host_barrier_race_cannot_both_approve_and_prove_empty() {
             .unwrap();
         assert!(
             drain_host
-                .prepare_native_drain_proof(&admission, "race", "key")
+                .prepare_native_drain_proof(&admission, "race", "device-test-key")
                 .is_err()
         );
     });

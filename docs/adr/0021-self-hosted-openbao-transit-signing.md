@@ -8,11 +8,12 @@ GoodDealer 生产签名 KMS 统一使用自托管 OpenBao Transit。生产、预
 OpenBao 实例或严格隔离的 namespace、工作负载身份、策略、密钥和审计目标；OpenBao 不与普通
 Cloud 应用共享进程、管理员身份或持久化凭据。
 
-`DesktopAuthorizationGrantV3`、`ActiveDeviceLeaseV1`、`DesktopStandbyGrantV1`、`user_audit`、`staff_audit` 与
+`DesktopAuthorizationGrantV3`、`ActiveDeviceLeaseV1`、`DesktopStandbyGrantV1`、`DesktopExecutionContextV1`、`user_audit`、`staff_audit` 与
 `service_audit` 分别使用独立的 Ed25519 Transit key 和只允许对应 `transit/sign/<key>` 的策略。
 `DesktopAuthorizationGrantV3` 是稳定的逻辑签名用途及密钥身份，包含现有 purpose
 `gooddealer.devices.desktop-authorization-grant.v3`；它不等于当前 wire schema 版本。
 Active Grant v4 继续使用该用途，通过 v4 typ 与签名域区分协议，不因字段改版新增签名用途或共享 Lease/Standby 密钥。
+Execution Context 使用独立逻辑用途 `gooddealer.devices.desktop-execution-context.v1` 和固定签名域，绑定服务器自行签发的完整 Active Grant 摘要、Native 单次 nonce、当前设备密钥/credentialEpoch 与新鲜服务器时间；它只提供已有授权的执行证据，不分配或续租 Lease、不改变角色、不成为新的 Provider grant。
 业务工作负载不得创建、读取私钥、导出、备份、删除、配置或轮换 key；key 必须保持
 `exportable=false`、`allow_plaintext_backup=false`、`deletion_allowed=false` 且不启用派生签名。
 
@@ -44,6 +45,6 @@ OpenBao Transit 是软件 KMS 边界，不自动等价于硬件 HSM。若风险�
 前必须按 M013 追加规范的 `audit_signing_key_transition` 记录，并以
 `signing_key_transition_id` 保持审计链连续性。不存在软件私钥、测试键提升或其他回退签名器。
 
-Desktop 的 Grant、Lease 与 Standby Grant 使用互不通用的 build-pinned 公钥 allowlist。先发布包含旧、新验证材料
+Desktop 的 Grant、Lease、Standby Grant 与 Execution Context 使用互不通用的 build-pinned 公钥 allowlist。先发布包含旧、新验证材料
 的签名与公证 Desktop，再切换签名版本，最后按撤销策略移除旧 `kid`。开发配置与操作记录见
 [OpenBao 运行手册](../DEVELOPMENT_OPENBAO.md)，不作为生产授权。

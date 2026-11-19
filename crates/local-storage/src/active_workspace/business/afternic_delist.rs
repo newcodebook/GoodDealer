@@ -1,5 +1,6 @@
 //! Durable Afternic removal plans. The sole business writer owns approval and reconciliation.
 use super::afternic::random_id;
+use super::execution_evidence::{self, ApprovalTarget, EvidenceSigner, ExecutionEvidenceContext};
 use super::{
     AfternicConnectionSeed, BusinessDatabase, BusinessDatabaseError,
     DesktopAfternicListingObservation, hex_digest, is_uuid_v4, validate_domain_asset_id,
@@ -158,6 +159,7 @@ pub(crate) struct AfternicDelistWorkSeed {
     pub request_digest: String,
     pub frozen: AfternicDelistFrozenItem,
     pub kind: DesktopAfternicDelistWorkKind,
+    evidence_fence: execution_evidence::EvidenceReadFence,
 }
 type ItemReadFact = (String, Option<String>, Option<String>, Option<String>);
 struct StoredItem {
@@ -327,17 +329,19 @@ impl BusinessDatabase {
             )
             .map_err(storage)
     }
-    pub(crate) fn preview_afternic_delist<G>(
+    pub(crate) fn preview_afternic_delist_with_time<G>(
         &mut self,
         seed: &AfternicConnectionSeed,
         domains: &[String],
         at: &str,
+        authorization_time: &str,
         guard: G,
     ) -> Result<DesktopAfternicDelistPlan>
     where
         G: FnOnce() -> Result<()>,
     {
         timestamp(at)?;
+        timestamp(authorization_time)?;
         if domains.is_empty() || domains.len() > 500 || seed.publication_state != "active" {
             return Err(BusinessDatabaseError::InvalidInput);
         }
@@ -375,7 +379,9 @@ impl BusinessDatabase {
                 frozen: item,
             });
         }
-        let expires = plus_seconds(&tx, at, 900)?;
+        // Preview lifetime comes from the authenticated continuous-clock projection; wall time
+        // remains only the local business timestamp and cannot extend approval admission.
+        let expires = plus_seconds(&tx, authorization_time, 900)?;
         let hash = plan_hash(&self.workspace_id, &plan_id, at, &expires, &frozen)?;
         let sequence = next_sequence(&tx, at)?;
         tx.execute("INSERT INTO operation_plans(workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,expires_at,local_commit_sequence) VALUES(?1,?2,'afternic_delist',?3,'Afternic delisting','awaiting_approval','standard',?4,?5,?6,?7)",params![self.workspace_id,plan_id,hash,sql_integer(frozen.len())?,at,expires,sequence]).map_err(storage)?;
@@ -386,16 +392,21 @@ impl BusinessDatabase {
         tx.commit().map_err(storage)?;
         self.afternic_delist_plan(&plan_id, at)
     }
-    pub(crate) fn approve_afternic_delist<G>(
+    pub(crate) fn approve_afternic_delist_with_evidence<G>(
         &mut self,
         plan: &str,
         hash: &str,
         at: &str,
+        evidence: &ExecutionEvidenceContext,
+        signer: &mut EvidenceSigner<'_>,
         guard: G,
     ) -> Result<DesktopAfternicDelistPlan>
     where
         G: FnOnce() -> Result<()>,
     {
+        if evidence.workspace_id != self.workspace_id {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
         identifier(plan)?;
         validate_sha256_hex(hash)?;
         timestamp(at)?;
@@ -413,7 +424,7 @@ impl BusinessDatabase {
             return Err(BusinessDatabaseError::MutationStale);
         }
         if phase == "awaiting_approval" {
-            if expires.as_str() <= at {
+            if expires.as_str() <= evidence.occurred_at.as_str() {
                 return Err(BusinessDatabaseError::MutationStale);
             }
             for item in &frozen {
@@ -430,6 +441,18 @@ impl BusinessDatabase {
             for item in &frozen {
                 tx.execute("INSERT INTO operation_attempts(workspace_id,operation_id,plan_id,item_id,attempt_number,status,request_digest) VALUES(?1,?2,?3,?4,1,'queued',?5)",params![self.workspace_id,operation,plan,item.id,request_digest(&item.frozen)?]).map_err(storage)?;
             }
+            let targets = frozen
+                .iter()
+                .map(|item| {
+                    Ok(ApprovalTarget {
+                        item_id: item.id.clone(),
+                        request_digest: request_digest(&item.frozen)?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            execution_evidence::record_approval(
+                &tx, evidence, plan, &operation, hash, &targets, signer,
+            )?;
             tx.execute(
                 "UPDATE operation_plans SET phase='executing' WHERE workspace_id=?1 AND plan_id=?2",
                 params![self.workspace_id, plan],
@@ -565,10 +588,12 @@ impl BusinessDatabase {
                 .transpose()?,
         })
     }
-    pub(crate) fn next_afternic_delist_work<G>(
+    pub(crate) fn next_afternic_delist_work_with_evidence<G>(
         &mut self,
         at: &str,
         allow_write: bool,
+        evidence: &ExecutionEvidenceContext,
+        signer: &mut EvidenceSigner<'_>,
         guard: G,
     ) -> Result<Option<AfternicDelistWorkSeed>>
     where
@@ -580,6 +605,10 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
+        if !delist_write_open(&tx, &self.workspace_id)? {
+            return Ok(None);
+        }
+        let evidence_fence = execution_evidence::read_fence(&tx, evidence)?;
         let allow_write = allow_write && delist_write_open(&tx, &self.workspace_id)?;
         let mut selected = None;
         // Bound maintenance per wake so corrupt or stale histories cannot starve the application.
@@ -599,6 +628,7 @@ impl BusinessDatabase {
                 item_id,
                 request_digest: digest,
                 frozen,
+                evidence_fence: evidence_fence.clone(),
                 kind: if status == "queued" {
                     DesktopAfternicDelistWorkKind::Preflight
                 } else {
@@ -618,6 +648,8 @@ impl BusinessDatabase {
                 None,
                 None,
                 at,
+                evidence,
+                signer,
             )?;
         }
         guard()?;
@@ -628,6 +660,11 @@ impl BusinessDatabase {
         if seed.kind == DesktopAfternicDelistWorkKind::Preflight {
             self.require_afternic_delist_write_open()?;
         }
+        execution_evidence::check_read_fence(
+            self.store.raw_connection(),
+            &self.workspace_id,
+            &seed.evidence_fence,
+        )?;
         check_work(self.store.raw_connection(), &self.workspace_id, seed)?;
         if !locally_current(
             self.store.raw_connection(),
@@ -638,16 +675,21 @@ impl BusinessDatabase {
         }
         Ok(())
     }
-    pub(crate) fn claim_afternic_delist<G>(
+    pub(crate) fn claim_afternic_delist_with_evidence<G>(
         &mut self,
         seed: &AfternicDelistWorkSeed,
         observation: Option<&DesktopAfternicListingObservation>,
         at: &str,
+        evidence: &ExecutionEvidenceContext,
+        signer: &mut EvidenceSigner<'_>,
         guard: G,
     ) -> Result<bool>
     where
         G: FnOnce() -> Result<()>,
     {
+        if evidence.workspace_id != self.workspace_id {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
         if seed.kind != DesktopAfternicDelistWorkKind::Preflight {
             return Err(BusinessDatabaseError::InvalidInput);
         }
@@ -659,6 +701,7 @@ impl BusinessDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
         require_delist_write_open(&tx, &self.workspace_id)?;
+        execution_evidence::check_read_fence(&tx, &self.workspace_id, &seed.evidence_fence)?;
         check_work(&tx, &self.workspace_id, seed)?;
         if !locally_current(&tx, &self.workspace_id, &seed.frozen)? {
             return Err(BusinessDatabaseError::MutationStale);
@@ -674,6 +717,8 @@ impl BusinessDatabase {
                     None,
                     None,
                     at,
+                    evidence,
+                    signer,
                 )?;
                 false
             }
@@ -687,10 +732,20 @@ impl BusinessDatabase {
                     Some(current),
                     None,
                     at,
+                    evidence,
+                    signer,
                 )?;
                 false
             }
             Some(_) => {
+                execution_evidence::record_claim(
+                    &tx,
+                    evidence,
+                    &seed.operation_id,
+                    &seed.item_id,
+                    &seed.request_digest,
+                    signer,
+                )?;
                 let changed=tx.execute("UPDATE operation_attempts SET status='running',started_at=?5,retry_after=NULL WHERE workspace_id=?1 AND operation_id=?2 AND item_id=?3 AND request_digest=?4 AND status='queued'",params![self.workspace_id,seed.operation_id,seed.item_id,seed.request_digest,at]).map_err(storage)?;
                 if changed != 1 {
                     return Err(BusinessDatabaseError::MutationStale);
@@ -703,11 +758,25 @@ impl BusinessDatabase {
         tx.commit().map_err(storage)?;
         Ok(claim)
     }
-    pub(crate) fn reconcile_afternic_delist<G>(
+    pub(crate) fn require_afternic_delist_signed_claim(
+        &self,
+        seed: &AfternicDelistWorkSeed,
+        context: &ExecutionEvidenceContext,
+    ) -> Result<()> {
+        execution_evidence::require_claim(
+            self.store.raw_connection(),
+            context,
+            &seed.operation_id,
+            &seed.item_id,
+        )
+    }
+    pub(crate) fn reconcile_afternic_delist_with_evidence<G>(
         &mut self,
         seed: &AfternicDelistWorkSeed,
         observation: Option<&DesktopAfternicListingObservation>,
         at: &str,
+        evidence: &ExecutionEvidenceContext,
+        signer: &mut EvidenceSigner<'_>,
         guard: G,
     ) -> Result<()>
     where
@@ -723,6 +792,7 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
+        execution_evidence::check_read_fence(&tx, &self.workspace_id, &seed.evidence_fence)?;
         check_work(&tx, &self.workspace_id, seed)?;
         if !locally_current(&tx, &self.workspace_id, &seed.frozen)? {
             return Err(BusinessDatabaseError::MutationStale);
@@ -740,15 +810,19 @@ impl BusinessDatabase {
             observation,
             None,
             at,
+            evidence,
+            signer,
         )?;
         guard()?;
         tx.commit().map_err(storage)
     }
-    pub(crate) fn defer_afternic_delist_read<G>(
+    pub(crate) fn defer_afternic_delist_read_with_evidence<G>(
         &mut self,
         seed: &AfternicDelistWorkSeed,
         retry_after: Option<u32>,
         at: &str,
+        evidence: &ExecutionEvidenceContext,
+        signer: &mut EvidenceSigner<'_>,
         guard: G,
     ) -> Result<()>
     where
@@ -760,6 +834,7 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
+        execution_evidence::check_read_fence(&tx, &self.workspace_id, &seed.evidence_fence)?;
         check_work(&tx, &self.workspace_id, seed)?;
         if !locally_current(&tx, &self.workspace_id, &seed.frozen)? {
             return Err(BusinessDatabaseError::MutationStale);
@@ -773,6 +848,8 @@ impl BusinessDatabase {
             None,
             retry_after,
             at,
+            evidence,
+            signer,
         )?;
         guard()?;
         tx.commit().map_err(storage)
@@ -813,7 +890,23 @@ fn record_fact(
     observation: Option<&DesktopAfternicListingObservation>,
     retry_after: Option<u32>,
     at: &str,
+    evidence: &ExecutionEvidenceContext,
+    signer: &mut EvidenceSigner<'_>,
 ) -> Result<()> {
+    if evidence.workspace_id != workspace {
+        return Err(BusinessDatabaseError::MutationStale);
+    }
+    let audit_id = execution_evidence::record_observation(
+        c,
+        evidence,
+        &seed.evidence_fence,
+        &seed.operation_id,
+        &seed.item_id,
+        outcome,
+        reason,
+        seed.kind == DesktopAfternicDelistWorkKind::Preflight,
+        signer,
+    )?;
     let current:String=c.query_row("SELECT status FROM operation_attempts WHERE workspace_id=?1 AND operation_id=?2 AND item_id=?3",params![workspace,seed.operation_id,seed.item_id],|r|r.get(0)).map_err(storage)?;
     // A terminal unknown attempt remains immutable. Later GET facts resolve its effective
     // customer state without granting a second mutation or erasing the uncertainty history.
@@ -867,7 +960,7 @@ fn record_fact(
     } else {
         None
     };
-    c.execute("INSERT INTO afternic_delist_reconciliations(workspace_id,operation_id,plan_id,item_id,attempt_number,sequence,request_digest,stage,outcome,reason,observed_at,next_read_at,observation_json,observation_digest,listing_observation_id) VALUES(?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![workspace,seed.operation_id,seed.plan_id,seed.item_id,sequence,seed.request_digest,if seed.kind==DesktopAfternicDelistWorkKind::Preflight{"preflight"}else{"reconcile"},outcome,reason,at,next_read,observation_json,digest,listing_observation_id]).map_err(storage)?;
+    c.execute("INSERT INTO afternic_delist_reconciliations(workspace_id,operation_id,plan_id,item_id,attempt_number,sequence,request_digest,stage,outcome,reason,observed_at,next_read_at,observation_json,observation_digest,listing_observation_id,audit_event_id) VALUES(?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![workspace,seed.operation_id,seed.plan_id,seed.item_id,sequence,seed.request_digest,if seed.kind==DesktopAfternicDelistWorkKind::Preflight{"preflight"}else{"reconcile"},outcome,reason,at,next_read,observation_json,digest,listing_observation_id,audit_id]).map_err(storage)?;
     if outcome == "absent" {
         let changed=c.execute("UPDATE domain_asset_provider_bindings SET validation_status='detached',verified_at=NULL,local_commit_sequence=?7,last_observed_at=?8,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2 AND connection_id=?3 AND resource_kind='listing' AND resource_binding_digest=?4 AND binding_generation=?5 AND validation_status IN ('verified','unverified') AND observation_digest=?6",params![workspace,seed.frozen.domain,seed.frozen.connection_id,seed.frozen.binding_digest,sql_integer(seed.frozen.binding_generation)?,digest,commit_sequence,at]).map_err(storage)?;
         if changed != 1 {
@@ -904,3 +997,93 @@ fn record_absence(
 #[cfg(test)]
 #[path = "afternic_delist_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl BusinessDatabase {
+    pub(crate) fn preview_afternic_delist<G>(
+        &mut self,
+        seed: &AfternicConnectionSeed,
+        domains: &[String],
+        at: &str,
+        guard: G,
+    ) -> Result<DesktopAfternicDelistPlan>
+    where
+        G: FnOnce() -> Result<()>,
+    {
+        self.preview_afternic_delist_with_time(seed, domains, at, at, guard)
+    }
+
+    pub(crate) fn approve_afternic_delist<G>(
+        &mut self,
+        plan: &str,
+        hash: &str,
+        at: &str,
+        guard: G,
+    ) -> Result<DesktopAfternicDelistPlan>
+    where
+        G: FnOnce() -> Result<()>,
+    {
+        let (context, mut signer) = execution_evidence::test_context(&self.workspace_id, at);
+        self.approve_afternic_delist_with_evidence(plan, hash, at, &context, &mut signer, guard)
+    }
+    pub(crate) fn claim_afternic_delist<G>(
+        &mut self,
+        seed: &AfternicDelistWorkSeed,
+        observation: Option<&DesktopAfternicListingObservation>,
+        at: &str,
+        guard: G,
+    ) -> Result<bool>
+    where
+        G: FnOnce() -> Result<()>,
+    {
+        let (context, mut signer) = execution_evidence::test_context(&self.workspace_id, at);
+        self.claim_afternic_delist_with_evidence(
+            seed,
+            observation,
+            at,
+            &context,
+            &mut signer,
+            guard,
+        )
+    }
+}
+
+#[cfg(test)]
+impl BusinessDatabase {
+    pub(crate) fn next_afternic_delist_work(
+        &mut self,
+        at: &str,
+        allow_write: bool,
+        guard: impl FnOnce() -> Result<()>,
+    ) -> Result<Option<AfternicDelistWorkSeed>> {
+        let (context, mut signer) = execution_evidence::test_context(&self.workspace_id, at);
+        self.next_afternic_delist_work_with_evidence(at, allow_write, &context, &mut signer, guard)
+    }
+    pub(crate) fn reconcile_afternic_delist(
+        &mut self,
+        seed: &AfternicDelistWorkSeed,
+        observation: Option<&DesktopAfternicListingObservation>,
+        at: &str,
+        guard: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        let (context, mut signer) = execution_evidence::test_context(&self.workspace_id, at);
+        self.reconcile_afternic_delist_with_evidence(
+            seed,
+            observation,
+            at,
+            &context,
+            &mut signer,
+            guard,
+        )
+    }
+    pub(crate) fn defer_afternic_delist_read(
+        &mut self,
+        seed: &AfternicDelistWorkSeed,
+        retry: Option<u32>,
+        at: &str,
+        guard: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        let (context, mut signer) = execution_evidence::test_context(&self.workspace_id, at);
+        self.defer_afternic_delist_read_with_evidence(seed, retry, at, &context, &mut signer, guard)
+    }
+}

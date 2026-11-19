@@ -111,7 +111,7 @@ Real OpenBao provisioning and Windows/macOS double-device qualification remain e
 
 ## Normal handoff receipt
 
-The switch view is version 2; request, response wrapper and device-list versions remain 1. Every
+The switch view and creation request are version 2; response wrapper and device-list versions remain 1. Every
 view explicitly includes nullable `normalHandoffReceipt`. PostgreSQL derives a receipt in the same
 snapshot from exactly one consumed/accepted handoff proof, its normal device-switch workflow,
 matching source/epoch Lease released for `normal_handoff`, and the existing capability's exact
@@ -130,3 +130,70 @@ unique intersection of the locked Licensing featureEntitlements with the closed 
 An empty set preserves local business scopes without Provider permission; Afternic write without
 observe is rejected. The existing logical Grant signing purpose `.v3` and `grant_v3` key registry
 remain stable; the v4 wire and transcript domain distinguish the payload, not a fourth key purpose.
+
+Execution evidence now has a separate Active-only context issuer and historical verification port.
+`PostgresDesktopExecutionContextService` commits the signed Grant/context, the original device key,
+and the three Cloud public keys actually used for signature verification in one credential-bound
+transaction. The key snapshot is immutable and separate from the bounded live rotation keyring;
+removing an old key from current configuration never turns historical evidence into client-selected
+trust. Historical context rows without a complete issuance key snapshot remain unprovable.
+
+`PostgresHistoricalExecutionContext` verifies all three purpose-separated signatures and exact
+canonical bytes, then checks the event's conservative time boundary against the original Grant,
+Lease, commercial deadline, actual device/key retirement, and Identity-owned security-epoch end.
+It does not derive historical authority from `updated_at`, receipt time, or the current Lease.
+`readSourceSigningKeyForQuarantine` supplies attribution only: a known device signature can block
+a first drain seal when context authority is missing, but cannot authorize an accepted event.
+`PostgresExecutionEvidenceAuthority` holds one consumed `devices_account` transaction through
+source/default-workspace/Active admission, stream verdict, and final live-credential fence; failure
+of the final fence rolls the whole verdict back. Audit and execution-ledger retain their own records,
+verification and receipts through declared ports. No evidence operation invokes a Provider.
+
+## Recovering the first switch request
+
+A normal creation request carries `expectedSourceLeaseEpoch`, captured from Native's authority at
+confirmation. The writer compares it with the locked current source Lease before changing any
+workflow. An exact accepted idempotency replay returns its original history; a new delayed request
+cannot create a switch in a later epoch. New rows retain an immutable `source_lease_epoch`; legacy
+rows remain null and never acquire an inferred original epoch. First-device bootstrap has no source
+Lease and keeps a null epoch; another workflow purpose cannot supply a handoff source epoch.
+
+`PostgresDeviceSwitchRequestResolution` resolves an original idempotency key for the authenticated
+source alone, under the same source account-state locks as creation. Both Active and Standby may
+read it. Account, default workspace and device come from the consumed live credential, followed by
+a final session fence. The result is either authoritative `not_found` or the existing view with its
+original target key and nullable source epoch. It neither renews a Lease nor recreates the request.
+A higher-epoch `not_found` supersedes the old local intent; repeating the POST requires a new
+confirmation. A legacy null epoch grants no same-epoch barrier authority.
+
+The fixed `/v1/device-switch/requests/resolve` transport bounds requests to 2 KiB and responses to
+8 KiB. Real PostgreSQL/OAuth tests cover lost responses across a role change, stale POST rejection,
+source-only and cross-account isolation, immutable epochs, legacy rows, revocation, and resolution
+waiting for a concurrent first writer to commit.
+
+
+## Target bootstrap termination
+
+`PostgresTargetBootstrapControl` is exported from `index.ts` for the production HTTP composition
+(`../../entrypoints/http.ts`) and the fixed target status/cancel ports. It consumes one authenticated
+`devices_account` capability, derives the current device and default workspace, locks the account
+before workflow authority, and revalidates the exact session after all terminal writes. Both roles
+may inspect or cancel only their own target workflow; the source cancel application stays Active-only.
+Discovery cannot select another device, and cancellation always requires an exact request id.
+
+`terminateDeviceBootstrap` remains a same-module helper shared with `PostgresExpiredDeviceBootstrap`.
+It burns only the consistent highest pending epoch, consumes capability and active nonces, clears
+the next step and releases the checkpoint pin in the same transaction. The original receipt, proof,
+seals, source release and high-water mark remain history. It neither grants a Lease nor restores the
+source. Cancelled ids replay their original history and never affect a later bootstrap reservation.
+Real PostgreSQL/OAuth tests cover final-session expiry rollback, revoked/cross-account credentials,
+activation/step/expiry competition, duplicate cancel, failed checkpoint release and old-id replay.
+The activation signer and commercial authority used in those race tests are explicit test fixtures;
+this does not qualify production target installation or activation.
+
+The real OAuth handoff test found an older mutation drain guard that required a workspace-scoped
+allocation even though Desktop login allocations are account-scoped. Forward migration
+`202611190021-mutation-drain-login-allocation` preserves the original guard/lock order and admits
+only an activated `desktop_login` allocation through its account's exact default workspace binding.
+Unbound/nondefault workspaces, other devices/epochs, burned allocations and invalid allocation
+purposes remain refused. Existing migration SQL is unchanged.

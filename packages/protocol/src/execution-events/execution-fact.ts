@@ -1,3 +1,4 @@
+import { afternicDelistClaimPayloadSchema } from "./afternic-delist-evidence";
 import { z } from "zod";
 
 import { sha256DigestSchema } from "../workspace/index";
@@ -67,3 +68,6 @@ export function encodeExecutionFactSignatureTranscript(value: unknown): Uint8Arr
 
 export type ExecutionAuthorizationEvidence = z.infer<typeof executionAuthorizationEvidenceSchema>;
 export type ExecutionFact = z.infer<typeof executionFactSchema>;
+
+/** Concrete transport schema for the currently supported producer, preserving the execution_fact v1 fields. */
+export const afternicExecutionFactIngestSchema = executionFactSchema.extend({payloadRedacted:afternicDelistClaimPayloadSchema});

@@ -184,7 +184,7 @@ describe("runtime-mode read-only ports", () => {
     };
 
     await expect(port.requestSwitch({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "switch-attempt-1",

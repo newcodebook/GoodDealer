@@ -230,6 +230,27 @@ const expectedCatalog = [
     owner: "devices",
     checksum: "6bd4a89842ff6605a65d74b22d1404a8eb63261e387fea956df5e16fbe179892",
   },
+  { id: "202611190001-execution-context", owner: "devices", checksum: "3c1ff4be4d95aee71b28135136572585507d61d54a67be7405f80189170e91e2" },
+  { id: "202611190002-execution-context-capability", owner: "devices", checksum: "6b0ea71d62e768dcbb824c4de2cb85dd824ee7eed8ab9167f852c05179120134" },
+  { id: "202611190003-execution-context-device", owner: "identity", checksum: "77ce05dda94bfd97615258c58160621beaf4dc1535b5d6634fc296208f3a76c8" },
+  { id: "202611190004-execution-context-envelope-binding", owner: "devices", checksum: "f61be8121b8758dffaef6aeb54a7a9ac7ce9718c81a1ec06a3940fea37940162" },
+  { id: "202611190005-execution-context-device-column", owner: "identity", checksum: "0c75fb11c1b99a696a976ec775fa1e7c1bd22b05b6377a12548d268b6eee24f3" },
+  { id: "202611190006-security-epoch-end-boundaries", owner: "identity", checksum: "ae8683dce9972e564d88f20fc234f6b82e5ee04482d73c676051dc6af8c0485f" },
+  { id: "202611190007-execution-context-key-evidence", owner: "devices", checksum: "af93bbfd3133a1eef060902d95a2e48fc839828c07f4425b59158c4e370b3b62" },
+  { id: "202611190008-execution-context-key-read-policy", owner: "devices", checksum: "ec0081779f1f39e596d5436f84f4d14b219392217f9610cbf4028bc1f822ed92" },
+  { id: "202611190009-audit-execution-evidence", owner: "audit", checksum: "7992e79914fc460aa3e3bf7625cb45203b5d6f09442ecb018cf382c90e45d418" },
+  { id: "202611190010-execution-fact-evidence", owner: "execution-ledger", checksum: "6f99361c008ca5dae4ccbb2bf2a01b6c1560dab7338f09cd46a2580d132c38fd" },
+  { id: "202611190011-audit-evidence-event-identity", owner: "audit", checksum: "4108df375fe42327cab8a2290dd37c9ac256fef4769dc342b5f5fcddf1cf204b" },
+  { id: "202611190012-fact-evidence-event-identity", owner: "execution-ledger", checksum: "e9374189388c6ce42fee971e010234e889c5dc2a7ef7532a61c68060ec4e3d75" },
+  { id: "202611190013-audit-evidence-closed-shape", owner: "audit", checksum: "8d0da29195c0b813429b8b199457176345e008cd85d69276e87e5400aef24a68" },
+  { id: "202611190014-fact-evidence-closed-shape", owner: "execution-ledger", checksum: "e45640afc4fbadecaccda39365172682299c65d96f892e57d86a7f8f619d0cea" },
+  { id: "202611190015-audit-evidence-payload-projection", owner: "audit", checksum: "4c58ea54bcc83001b04efd99cda9bd57c1e8f2ae12e11f92761707c4d7a7047f" },
+  { id: "202611190016-fact-evidence-payload-projection", owner: "execution-ledger", checksum: "bc7cd5025dec78a08653524fe930989bfe282de80f60b02bc3a1924a72090db2" },
+  { id: "202611190017-fact-evidence-replay-and-seal", owner: "execution-ledger", checksum: "ab9c7da002ee36ff225849aa86f10d3c4bac71f3407c3778b7633cbbf805d33a" },
+  { id: "202611190018-audit-evidence-seal-rollback", owner: "audit", checksum: "ae2378b7a23f7d76518b9de127f60e94cd2b5785f8bd5c31b1798f178d76f7df" },
+  { id: "202611190019-switch-request-source-epoch", owner: "devices", checksum: "2756d4719c02635c61fa36a388ff571b260c49694eda23f01d642dd7456bc33f" },
+  { id: "202611190020-switch-source-epoch-purpose", owner: "devices", checksum: "b9eff59a18fe34d1f78e0623c4e091bad284144785990580d79e4d95dfd64e4d" },
+  { id: "202611190021-mutation-drain-login-allocation", owner: "workspace/mutations", checksum: "7bd11565e28e5d40ed0c15a1009b3ab554823de53a02a1ab7f11fec828b4bc11" },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -259,7 +280,7 @@ describe("Cloud migration catalog", () => {
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
       + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n"
-      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n  drainHandoffTargetKeyMigration,\n  drainProofAdmissionMigration,\n  deviceSelfReportMigration,\n  loginLeaseAllocationGuardMigration,\n];",
+      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n  drainHandoffTargetKeyMigration,\n  drainProofAdmissionMigration,\n  deviceSelfReportMigration,\n  loginLeaseAllocationGuardMigration,\n  executionContextMigration,\n  executionContextCapabilityMigration,\n  executionContextDeviceMigration,\n  executionContextEnvelopeBindingMigration,\n  executionContextDeviceColumnMigration,\n  securityEpochEndBoundariesMigration,\n  executionContextKeyEvidenceMigration,\n  executionContextKeyReadPolicyMigration,\n  auditExecutionEvidenceMigration,\n  executionFactEvidenceMigration,\n  auditEvidenceEventIdentityMigration,\n  factEvidenceEventIdentityMigration,\n  auditEvidenceClosedShapeMigration,\n  factEvidenceClosedShapeMigration,\n  auditEvidencePayloadProjectionMigration,\n  factEvidencePayloadProjectionMigration,\n  factEvidenceReplayAndSealMigration,\n  auditEvidenceSealRollbackMigration,\n  switchRequestSourceEpochMigration,\n  switchSourceEpochPurposeMigration,\n  mutationDrainLoginAllocationMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -272,7 +293,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(42);
+    expect(checkedCloudMigrationCatalog).toHaveLength(63);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

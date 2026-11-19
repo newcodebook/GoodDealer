@@ -6,7 +6,7 @@ use super::{Digest, Sha256, valid_opaque_identifier};
 use super::{DesktopBackupError, fmt};
 
 #[cfg_attr(
-    not(test),
+    not(all(test, unix)),
     allow(
         dead_code,
         reason = "read only by the private development native composition"
@@ -128,7 +128,7 @@ impl NativeBackupComposition {
 }
 
 #[cfg_attr(
-    not(test),
+    not(all(test, unix)),
     allow(dead_code, reason = "read only by the private development journal")
 )]
 pub(super) struct StagedPublication {

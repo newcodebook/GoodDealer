@@ -32,7 +32,7 @@ function fixture(options: { device?: string | null; workspace?: typeof scope | n
 describe("device switch application (ADR-0032 S1b)", () => {
   it("passes only the session-derived account, workspace, and device to the service", async () => {
     const { application, requests } = fixture();
-    const body = { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1" };
+    const body = { schemaVersion: 2, mode: "normal", expectedSourceLeaseEpoch: 1, toDeviceId: "device-new", idempotencyKey: "idem-1" };
     await expect(application.request(body, principal)).resolves.toEqual(view);
     expect(requests.requestNormal).toHaveBeenCalledWith(subject, body);
     await application.status({ schemaVersion: 1, requestId: "switch-1" }, principal);
@@ -44,13 +44,13 @@ describe("device switch application (ADR-0032 S1b)", () => {
   it("refuses forced takeover as unavailable while no target device can hold a session", async () => {
     const { application, requests } = fixture();
     await expect(application.request({
-      schemaVersion: 1, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1", reauthProofId: "reauth-1",
+      schemaVersion: 2, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1", reauthProofId: "reauth-1",
     }, principal)).resolves.toEqual({ schemaVersion: 1, accepted: false, code: "FORCED_SWITCH_UNAVAILABLE" });
     expect(requests.requestNormal).not.toHaveBeenCalled();
   });
 
   it("denies non-Desktop callers and sessions without a workspace or the current Lease", async () => {
-    const body = { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1" };
+    const body = { schemaVersion: 2, mode: "normal", expectedSourceLeaseEpoch: 1, toDeviceId: "device-new", idempotencyKey: "idem-1" };
     for (const [setup, caller] of [
       [fixture(), { ...principal, clientKind: "account_web" as never }],
       [fixture({ workspace: null }), principal],
@@ -68,9 +68,9 @@ describe("device switch application (ADR-0032 S1b)", () => {
   it("rejects caller-selected devices, accounts, and unknown fields before any read", async () => {
     const { application, requests } = fixture();
     for (const hostile of [
-      { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1", fromDeviceId: "device-x" },
-      { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1", accountId: "other" },
-      { schemaVersion: 1, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1" },
+      { schemaVersion: 2, mode: "normal", expectedSourceLeaseEpoch: 1, toDeviceId: "device-new", idempotencyKey: "idem-1", fromDeviceId: "device-x" },
+      { schemaVersion: 2, mode: "normal", expectedSourceLeaseEpoch: 1, toDeviceId: "device-new", idempotencyKey: "idem-1", accountId: "other" },
+      { schemaVersion: 2, mode: "forced", toDeviceId: "device-new", idempotencyKey: "idem-1" },
       { schemaVersion: 2, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1" },
     ]) {
       await expect(application.request(hostile, principal)).rejects.toThrow();

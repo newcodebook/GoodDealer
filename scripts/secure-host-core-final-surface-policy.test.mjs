@@ -23,14 +23,23 @@ const expectedSourceFiles = [
   "cloudflare_provider.rs",
   "desktop_authorization_verifier.rs",
   "desktop_device_identity.rs",
+  "desktop_device_identity/execution_evidence.rs",
   "desktop_device_directory.rs",
   "desktop_oauth.rs",
   "lib.rs",
   "local_workspace_binding.rs",
+  "native_continuous_clock.rs",
+  "native_continuous_clock/macos.rs",
+  "native_continuous_clock/windows.rs",
   "native_power.rs",
   "native_power/macos.rs",
   "native_power/windows.rs",
   "secret_service_custody.rs",
+  "windows_credential_capture.rs",
+  "windows_custody.rs",
+  "windows_custody/format.rs",
+  "windows_private_files.rs",
+  "windows_private_files/protected_acl.rs",
 ];
 // Fixed Afternic capability facade; no URL, request-header or credential-bytes forwarding.
 const expectedAfternicExports = [
@@ -80,6 +89,13 @@ const expectedNativePowerPublicItems = [
   ...expectedNativePowerExports,
   "start", "stop", "gate", "snapshot", "wait_for_epoch_change",
   "hold_write_epoch", "hold_reconciliation_epoch",
+];
+const expectedNativeContinuousClockExports = [
+  "NativeContinuousClockKind", "NativeContinuousClockSample", "NativeContinuousClockError",
+  "capture_native_continuous_clock",
+];
+const expectedNativeContinuousClockPublicItems = [
+  ...expectedNativeContinuousClockExports, "clock_kind", "boot_id", "ticks",
 ];
 const desktopAuthorizationSourceFile = "desktop_authorization_verifier.rs";
 const desktopDeviceIdentitySourceFile = "desktop_device_identity.rs";
@@ -204,6 +220,10 @@ const expectedLocalWorkspaceBindingPublicItems = [
 ];
 const repositoryCoreRoot = resolve(import.meta.dirname, "../crates/secure-host-core");
 const repositoryLocalStorageRoot = resolve(import.meta.dirname, "../crates/local-storage");
+const expectedExecutionContextExports = [
+  "DesktopContinuousClockKind", "DesktopContinuousClockReading", "DesktopExecutionSigningIdentity",
+  "DesktopExecutionContextNativePort", "DesktopExecutionContextRequest", "DesktopExecutionContextError", "DesktopStagedExecutionContext",
+];
 const expectedLocalStorageExportModules = [
   "active_workspace::batch_operations",
   "active_workspace::business",
@@ -228,8 +248,15 @@ const expectedLocalStorageExportModules = [
   "desktop_sync_runtime",
   "active_workspace::business",
   "desktop_local_host::afternic_delist",
+  "desktop_local_host::execution_context",
+  "active_workspace::business",
+  "desktop_local_host::execution_evidence_delivery",
+  "desktop_local_host::target_bootstrap",
 ];
 const expectedLocalStoragePublicExports = [
+  ...expectedExecutionContextExports,
+  "DesktopTargetBootstrapCancelExchange", "DesktopTargetBootstrapStatusExchange",
+  "DesktopTargetBootstrapStatusOutcome", "DesktopTargetBootstrapTerminalStatus", "DesktopTargetBootstrapView",
   "AssetLibraryReadSnapshot",
   "AssetLibraryRow",
   "AssetLibraryWindow",
@@ -291,6 +318,11 @@ const expectedLocalStoragePublicExports = [
   "DesktopDeviceSwitchOutcome",
   "DesktopDeviceSwitchRejection",
   "DesktopDeviceSwitchRequestExchange",
+  "DesktopDeviceSwitchRequestResolution",
+  "DesktopDeviceSwitchRequestResolutionOutcome",
+  "DesktopExecutionEvidenceStream",
+  "DesktopExecutionEvidenceDeliveryOutcome",
+  "DesktopExecutionEvidenceUpload",
   "DesktopDeviceSwitchStart",
   "DesktopDeviceSwitchStatus",
   "DesktopDrainProgress",
@@ -393,7 +425,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "afternic_credentials",
@@ -406,6 +438,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     "local_workspace_binding",
     "desktop_device_directory",
     "native_power",
+    "native_continuous_clock",
   ];
   if (!sameArray(exportMatches.map((match) => match[1]), expectedExportModules)) {
     errors.push("secure-host-core direct capability export blocks are missing, reordered, or duplicated");
@@ -418,6 +451,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     .sort();
   const expectedPublicExports = [
     ...expectedNativePowerExports,
+    ...expectedNativeContinuousClockExports,
     ...expectedAfternicExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
@@ -436,6 +470,11 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     errors.push("secure-host-core exposes a public item outside the exact capability export blocks");
   }
   const exactPublicItemSurfaces = [
+    ["desktop_device_identity/execution_evidence.rs", [
+      "sign_afternic_delist_approval_transcript", "sign_device_audit_event_transcript",
+      "sign_execution_fact_transcript",
+    ], "device execution evidence"],
+    ["native_continuous_clock.rs", expectedNativeContinuousClockPublicItems, "native continuous clock"],
     ["native_power.rs", expectedNativePowerPublicItems, "native power"],
     ["desktop_device_directory.rs", expectedDesktopDeviceDirectoryExports, "desktop device directory"],
     [desktopAuthorizationSourceFile, expectedDesktopAuthorizationPublicItems, "desktop authorization"],
@@ -447,6 +486,10 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     const source = readRegularFile(resolve(sourceRoot, path), errors);
     if (source !== null) {
       validateExactPublicItems(source, expected, label, errors);
+      if (path === "native_continuous_clock.rs"
+        && /\bpub\s+[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(source)) {
+        errors.push("native continuous clock must not expose public fields");
+      }
       if (path === "native_power.rs") {
         const fields = [...source.matchAll(/\bpub\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,\n]+)/gu)]
           .map((match) => `${match[1]}: ${match[2].trim()}`).sort();
@@ -499,6 +542,31 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
     .replace(singleExportPattern, "");
   if (/\bpub\s+(?:(?:(?:const|async|unsafe)\s+)*fn|use|mod|struct|enum|trait|type|const|static)\b/u.test(remainingSource)) {
     errors.push("local-storage exposes a public item outside the exact aggregate export blocks");
+  }
+  const context = readRegularFile(resolve(storageRoot, "src/desktop_local_host/execution_context.rs"), errors, storageRoot);
+  if (context !== null) {
+    // Only the constructor-installed Native port can sample time or installed identity. Runtime
+    // setters, caller-selected clocks, and mutable request fields would bypass that boundary.
+    const publicItems = [...context.matchAll(/\bpub\s+(?:(?:(?:const|async|unsafe)\s+)*fn|enum|struct|trait|type|const|static|use|mod)\s+([A-Za-z_][A-Za-z0-9_]*)/gu)]
+      .map((match) => match[1]).sort();
+    const expected = [...expectedExecutionContextExports, "from_native_parts", "from_native_parts",
+      "request_body", "production_with_execution_context", "prepare_execution_context_request",
+      "stage_execution_context_response", "cancel_execution_context_request", "stage_execution_context_restore",
+      "publish_staged_execution_context"].sort();
+    if (!sameArray(publicItems, expected) || /\bpub\s+[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(context)) {
+      errors.push("execution context public surface must remain the exact Native admission boundary");
+    }
+    const port = context.match(/pub\s+trait\s+DesktopExecutionContextNativePort\s*:\s*Send\s*\+\s*Sync\s*\{([\s\S]*?)^\}/mu)?.[1];
+    const methods = [...(port ?? "").matchAll(/fn\s+[A-Za-z_][A-Za-z0-9_]*[\s\S]*?;[\t ]*$/gmu)]
+      .map((match) => match[0].replace(/\s+/gu, ""));
+    if (!sameArray(methods, [
+      "fnsign_afternic_delist_approval(&self,transcript:&[u8])->Result<[u8;64],Error>;",
+      "fnsign_device_audit_event(&self,transcript:&[u8])->Result<[u8;64],Error>;",
+      "fnsign_execution_fact(&self,transcript:&[u8])->Result<[u8;64],Error>;",
+      "fncapture_clock(&self)->Result<DesktopContinuousClockReading,Error>;",
+      "fnsigning_identity(&self)->Result<DesktopExecutionSigningIdentity,Error>;"])) {
+      errors.push("execution context Native port must not accept caller-selected clock or identity inputs");
+    }
   }
   return errors;
 }
@@ -582,6 +650,9 @@ function useLocalStorageFixture(t) {
     join(root, "src/lib.rs"),
     readFileSync(resolve(repositoryLocalStorageRoot, "src/lib.rs"), "utf8"),
   );
+  mkdirSync(join(root, "src/desktop_local_host"), { recursive: true });
+  writeFileSync(join(root, "src/desktop_local_host/execution_context.rs"),
+    readFileSync(resolve(repositoryLocalStorageRoot, "src/desktop_local_host/execution_context.rs"), "utf8"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
@@ -717,4 +788,41 @@ test("rejects unreviewed power methods, async methods and OS-handle fields", (t)
   writeFileSync(join(rootFixture, "src/lib.rs"), "\npub async fn unexpected() {}\n", { flag: "a" });
   assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: rootFixture })
     .some((error) => error.includes("outside")));
+});
+
+
+test("rejects generic clock selectors and exposed clock state", (t) => {
+  for (const addition of [
+    "impl NativeContinuousClockSample { pub fn query_clock(_clock_id: u64) {} }",
+    "impl NativeContinuousClockSample { pub async fn query_clock_async() {} }",
+    "struct CallerSuppliedClock { pub os_clock_id: u64 }",
+  ]) {
+    const fixture = useFixture(t);
+    writeFileSync(join(fixture, "src/native_continuous_clock.rs"), `\n${addition}\n`, { flag: "a" });
+    assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: fixture })
+      .some((error) => error.includes("native continuous clock")));
+  }
+});
+
+test("rejects execution context setters, public samples and caller-selected trusted inputs", (t) => {
+  for (const addition of [
+    "impl DesktopLocalHost { pub fn set_execution_clock() {} }",
+    "impl DesktopLocalHost { pub async fn install_authorization_anchor() {} }",
+    "struct ClockOverride { pub ticks: u64 }",
+  ]) {
+    const fixture = useLocalStorageFixture(t);
+    writeFileSync(join(fixture, "src/desktop_local_host/execution_context.rs"), `\n${addition}\n`, { flag: "a" });
+    assert.ok(localStorageFinalSurfaceErrors({ storageRoot: fixture }).some((error) => error.includes("execution context public")));
+  }
+  const fixture = useLocalStorageFixture(t);
+  const path = join(fixture, "src/desktop_local_host/execution_context.rs");
+  writeFileSync(path, readFileSync(path, "utf8").replace("fn capture_clock(&self)", "fn capture_clock(&self, caller_ticks: u64)"));
+  assert.ok(localStorageFinalSurfaceErrors({ storageRoot: fixture }).some((error) => error.includes("Native port")));
+});
+
+test("rejects an arbitrary device evidence signer outside the three fixed purposes", (t) => {
+  const fixture = useFixture(t);
+  writeFileSync(join(fixture, "src/desktop_device_identity/execution_evidence.rs"),
+    "\nimpl DesktopDeviceIdentity { pub fn sign_arbitrary_bytes(&self, bytes: &[u8]) {} }\n", { flag: "a" });
+  assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: fixture }).some((error) => error.includes("device execution evidence")));
 });

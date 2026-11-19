@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DRAIN_STREAM_GENESIS_DIGEST } from "../src/execution-events/index";
-import { deviceSwitchRequestViewSchema, deviceSwitchDrainRequestSchema, deviceSwitchLookupRequestSchema, deviceSwitchResponseSchema } from "../src/devices/index";
+import { deviceSwitchRequestSchema,deviceSwitchRequestResolutionRequestSchema,deviceSwitchRequestResolutionResponseSchema,deviceSwitchRequestViewSchema, deviceSwitchDrainRequestSchema, deviceSwitchLookupRequestSchema, deviceSwitchResponseSchema } from "../src/devices/index";
 
 const request = {
   schemaVersion: 2, requestId: "switch-1", mode: "normal", status: "draining", fromDeviceId: "device-old",
@@ -9,6 +9,22 @@ const request = {
 } as const;
 
 describe("device switch transport (ADR-0032 S1b)", () => {
+  it("requires an epoch CAS for a v2 normal request and rejects the old first-POST shape",()=>{
+    const normal={schemaVersion:2,mode:"normal",toDeviceId:"device-new",idempotencyKey:"idem-1",expectedSourceLeaseEpoch:7};
+    expect(deviceSwitchRequestSchema.safeParse(normal).success).toBe(true);
+    for(const changed of [{...normal,schemaVersion:1},{...normal,expectedSourceLeaseEpoch:0},{...normal,sourceDeviceId:"chosen"}])expect(deviceSwitchRequestSchema.safeParse(changed).success).toBe(false);
+    const {expectedSourceLeaseEpoch:_epoch,...old}=normal;expect(deviceSwitchRequestSchema.safeParse(old).success).toBe(false);
+  });
+  it("resolves an unknown request using only its idempotency key and preserves unknown legacy epoch",()=>{
+    const query={schemaVersion:1,idempotencyKey:"idem-1"};
+    expect(deviceSwitchRequestResolutionRequestSchema.safeParse(query).success).toBe(true);
+    for(const selector of ["accountId","workspaceId","sourceDeviceId","expectedSourceLeaseEpoch"])expect(deviceSwitchRequestResolutionRequestSchema.safeParse({...query,[selector]:"chosen"}).success).toBe(false);
+    const found={...query,outcome:"found",request,targetSigningKeyId:"target-key",targetSigningKeyVersion:1,sourceLeaseEpoch:7};
+    expect(deviceSwitchRequestResolutionResponseSchema.safeParse(found).success).toBe(true);
+    expect(deviceSwitchRequestResolutionResponseSchema.safeParse({...found,sourceLeaseEpoch:null}).success).toBe(true);
+    expect(deviceSwitchRequestResolutionResponseSchema.safeParse({...query,outcome:"not_found"}).success).toBe(true);
+    for(const changed of [{...found,sourceLeaseEpoch:0},{...found,outcome:"not_found"},{...found,targetSigningKeyVersion:0}])expect(deviceSwitchRequestResolutionResponseSchema.safeParse(changed).success).toBe(false);
+  });
   it("names a switch by id only", () => {
     expect(deviceSwitchLookupRequestSchema.parse({ schemaVersion: 1, requestId: "switch-1" })).toEqual({ schemaVersion: 1, requestId: "switch-1" });
     for (const hostile of [

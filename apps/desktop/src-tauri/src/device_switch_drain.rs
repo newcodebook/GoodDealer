@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use gooddealer_local_storage::{
     DesktopDeviceSwitchOutcome, DesktopDeviceSwitchRejection, DesktopDeviceSwitchRequestExchange,
+    DesktopDeviceSwitchRequestResolution, DesktopDeviceSwitchRequestResolutionOutcome,
     DesktopDeviceSwitchStart, DesktopDeviceSwitchStatus, DesktopDrainProgress,
     DesktopDrainProofDraft, DesktopDrainReceiptQuery, DesktopLocalHost, DesktopLocalHostError,
     DesktopNativeCloudAdmission,
@@ -33,6 +34,8 @@ const MAX_RECEIPT_ROUNDS: usize = 64;
 pub(crate) enum DeviceSwitchStep {
     /// No switch holds this device's writes closed under its current Lease.
     Idle,
+    /// A durable initial request still needs its original Cloud outcome reconciled.
+    RequestPending,
     /// Cloud refused; local writes are as they were.
     Rejected(DesktopDeviceSwitchRejection),
     /// Writes are closed and Outbox rows still wait for a durable Cloud result; sync was woken.
@@ -77,13 +80,33 @@ struct SubmissionStatus {
 pub(crate) trait SwitchHost: Send + Sync + 'static {
     type Admission: Send + 'static;
     type Exchange: Clone + Send + Sync + 'static;
+    type Resolution: Send + 'static;
     type ReceiptQuery: Send + 'static;
     type Draft: Send + 'static;
 
     fn admit(&self) -> Result<Self::Admission, DesktopLocalHostError>;
     fn admit_read(&self) -> Result<Self::Admission, DesktopLocalHostError>;
     fn is_active(admission: &Self::Admission) -> bool;
-    fn prepare_request(target_device_id: &str) -> Result<Self::Exchange, DesktopLocalHostError>;
+    fn prepare_request(
+        &self,
+        admission: &Self::Admission,
+        target_device_id: &str,
+    ) -> Result<Self::Exchange, DesktopLocalHostError>;
+    fn pending_request(
+        &self,
+        admission: &Self::Admission,
+    ) -> Result<Option<Self::Exchange>, DesktopLocalHostError>;
+    fn prepare_resolution(
+        &self,
+        admission: &Self::Admission,
+    ) -> Result<Option<Self::Resolution>, DesktopLocalHostError>;
+    fn resolution_body(resolution: &Self::Resolution) -> Vec<u8>;
+    fn complete_resolution(
+        &self,
+        admission: &Self::Admission,
+        resolution: &Self::Resolution,
+        wire: &[u8],
+    ) -> Result<DesktopDeviceSwitchRequestResolutionOutcome, DesktopLocalHostError>;
     fn exchange_body(exchange: &Self::Exchange) -> Vec<u8>;
     fn complete_request(
         &self,
@@ -91,11 +114,6 @@ pub(crate) trait SwitchHost: Send + Sync + 'static {
         exchange: &Self::Exchange,
         wire: &[u8],
     ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError>;
-    fn begin_drain(
-        &self,
-        admission: &Self::Admission,
-        id: &str,
-    ) -> Result<(), DesktopLocalHostError>;
     fn clear_left_over(&self, admission: &Self::Admission) -> Result<bool, DesktopLocalHostError>;
     fn in_progress(
         &self,
@@ -207,9 +225,8 @@ pub(crate) struct DeviceSwitchCoordinator<H: SwitchHost, C, S> {
     signer: Arc<S>,
     fence: Arc<NativeCloudCancelFence>,
     wake_sync: Arc<dyn Fn() + Send + Sync>,
-    /// Serializes switch calls. Holds the request still unanswered after a failed exchange, so a
-    /// retry to the same target reuses its idempotency key and Cloud returns its first outcome.
-    unanswered: Mutex<Option<H::Exchange>>,
+    /// Serializes calls; request identity and state are persisted by the Host before HTTP.
+    serialized: Mutex<()>,
 }
 
 impl<H, C, S> DeviceSwitchCoordinator<H, C, S>
@@ -231,7 +248,7 @@ where
             signer,
             fence,
             wake_sync,
-            unanswered: Mutex::new(None),
+            serialized: Mutex::new(()),
         }
     }
 
@@ -244,19 +261,33 @@ where
         &self,
         target_device_id: &str,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
-        let mut unanswered = self.unanswered.lock().await;
+        let _serialized = self.serialized.lock().await;
         let admission = self.admit().await?;
-        // A barrier from an earlier Lease epoch would refuse the new switch's barrier only after
-        // Cloud accepted it; clear it before asking.
         let (admission, _) = self.run(admission, H::clear_left_over).await?;
         let (admission, open) = self.run(admission, H::in_progress).await?;
         if let Some(id) = open {
-            return self.advance_locked(admission, id).await;
+            return self.advance_locked(admission, id, true).await;
         }
-        let exchange = match unanswered.take() {
-            Some(exchange) => exchange,
-            None => H::prepare_request(target_device_id).map_err(host_error)?,
-        };
+        let (admission, pending) = self.run(admission, H::prepare_resolution).await?;
+        if let Some(resolution) = pending {
+            // Never turn a user retry or a new target selection into a second initial request.
+            return self.resolve_request(admission, resolution, true).await;
+        }
+        let target = target_device_id.to_owned();
+        let (admission, exchange) = self
+            .run(admission, move |host, admission| {
+                host.prepare_request(admission, &target)
+            })
+            .await?;
+        self.submit_request(admission, exchange, true).await
+    }
+
+    async fn submit_request(
+        &self,
+        admission: H::Admission,
+        exchange: H::Exchange,
+        wake_sync: bool,
+    ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
         let body = H::exchange_body(&exchange);
         let committed = exchange.clone();
         let started = self
@@ -266,35 +297,61 @@ where
                 body,
                 move |host, admission, wire| {
                     let start = host.complete_request(admission, &committed, wire)?;
-                    // Writes close in the same commit that accepts Cloud's id for the switch.
-                    if let DesktopDeviceSwitchStart::Accepted {
-                        device_switch_request_id,
-                        status: DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining,
-                    } = &start
-                    {
-                        host.begin_drain(admission, device_switch_request_id)?;
-                    }
                     Ok(start)
                 },
             )
             .await;
-        match started {
-            Err(error) => {
-                *unanswered = Some(exchange);
-                Err(error)
-            }
-            Ok(DesktopDeviceSwitchStart::Rejected(code)) => Ok(DeviceSwitchStep::Rejected(code)),
-            Ok(DesktopDeviceSwitchStart::Accepted {
+        self.resume_start(started?, wake_sync).await
+    }
+
+    async fn resume_start(
+        &self,
+        start: DesktopDeviceSwitchStart,
+        wake_sync: bool,
+    ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        match start {
+            DesktopDeviceSwitchStart::Rejected(code) => Ok(DeviceSwitchStep::Rejected(code)),
+            DesktopDeviceSwitchStart::Accepted {
                 device_switch_request_id,
                 status: DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining,
-            }) => {
+            } => {
                 let admission = self.admit().await?;
-                self.advance_locked(admission, device_switch_request_id)
+                self.advance_locked(admission, device_switch_request_id, wake_sync)
                     .await
             }
-            // A retry answered with a switch that already moved on: nothing was closed here.
-            Ok(DesktopDeviceSwitchStart::Accepted { status, .. }) => {
+            DesktopDeviceSwitchStart::Accepted { status, .. } => {
                 Ok(DeviceSwitchStep::Switch(status))
+            }
+        }
+    }
+
+    async fn resolve_request(
+        &self,
+        admission: H::Admission,
+        resolution: H::Resolution,
+        wake_sync: bool,
+    ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        let body = H::resolution_body(&resolution);
+        let outcome = self
+            .exchange(
+                admission,
+                SwitchCloudExchange::Switch(DeviceSwitchExchange::Resolve),
+                body,
+                move |host, admission, wire| host.complete_resolution(admission, &resolution, wire),
+            )
+            .await?;
+        match outcome {
+            DesktopDeviceSwitchRequestResolutionOutcome::Resolved(start) => {
+                self.resume_start(start, wake_sync).await
+            }
+            // A higher verified epoch consumes the old intent; a fresh preview is required to
+            // start another handoff. It must never become an automatic new POST.
+            DesktopDeviceSwitchRequestResolutionOutcome::Superseded => Ok(DeviceSwitchStep::Idle),
+            DesktopDeviceSwitchRequestResolutionOutcome::RetryCurrentRequest => {
+                let admission = self.admit().await?;
+                let (admission, pending) = self.run(admission, H::pending_request).await?;
+                let exchange = pending.ok_or(DeviceSwitchError::Blocked)?;
+                self.submit_request(admission, exchange, wake_sync).await
             }
         }
     }
@@ -302,12 +359,28 @@ where
     /// Moves this device's open switch forward: waits for sync, reads receipts, then signs and
     /// submits the drain proof.
     pub(crate) async fn advance(&self) -> Result<DeviceSwitchStep, DeviceSwitchError> {
-        let _serialized = self.unanswered.lock().await;
+        self.advance_with_wake(true).await
+    }
+
+    pub(crate) async fn advance_background(&self) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        self.advance_with_wake(false).await
+    }
+
+    async fn advance_with_wake(
+        &self,
+        wake_sync: bool,
+    ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        let _serialized = self.serialized.lock().await;
         let admission = self.admit().await?;
         let (admission, open) = self.run(admission, H::in_progress).await?;
-        match open {
-            Some(id) => self.advance_locked(admission, id).await,
-            None => Ok(DeviceSwitchStep::Idle),
+        if let Some(id) = open {
+            self.advance_locked(admission, id, wake_sync).await
+        } else {
+            let (admission, pending) = self.run(admission, H::prepare_resolution).await?;
+            match pending {
+                Some(resolution) => self.resolve_request(admission, resolution, wake_sync).await,
+                None => Ok(DeviceSwitchStep::Idle),
+            }
         }
     }
 
@@ -325,7 +398,7 @@ where
         &self,
         exchange: DeviceSwitchExchange,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
-        let _serialized = self.unanswered.lock().await;
+        let _serialized = self.serialized.lock().await;
         let admission = if exchange == DeviceSwitchExchange::Status {
             self.admit_read().await?
         } else {
@@ -333,7 +406,22 @@ where
         };
         let (admission, open) = self.run(admission, H::in_progress).await?;
         let Some(id) = open else {
-            return Ok(DeviceSwitchStep::Idle);
+            let (_, pending) = self
+                .run(admission, |host, admission| {
+                    if H::is_active(admission) {
+                        host.prepare_resolution(admission)
+                            .map(|pending| pending.is_some())
+                    } else {
+                        host.pending_request(admission)
+                            .map(|pending| pending.is_some())
+                    }
+                })
+                .await?;
+            return Ok(if pending {
+                DeviceSwitchStep::RequestPending
+            } else {
+                DeviceSwitchStep::Idle
+            });
         };
         let body = H::lookup(&id).map_err(host_error)?;
         self.settle(admission, SwitchCloudExchange::Switch(exchange), body, id)
@@ -344,6 +432,7 @@ where
         &self,
         mut admission: H::Admission,
         id: String,
+        wake_sync: bool,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
         let pending_id = id.clone();
         let (current, pending) = self
@@ -361,7 +450,9 @@ where
             let (current, progress) = self.run(admission, H::progress).await?;
             match progress {
                 DesktopDrainProgress::Waiting { unconfirmed } => {
-                    (self.wake_sync)();
+                    if wake_sync {
+                        (self.wake_sync)();
+                    }
                     return Ok(DeviceSwitchStep::WaitingForSync { unconfirmed });
                 }
                 DesktopDrainProgress::Blocked => return Ok(DeviceSwitchStep::Blocked),
@@ -647,6 +738,7 @@ const fn request_error(error: NativeCloudRequestError) -> DeviceSwitchError {
 impl SwitchHost for DesktopLocalHost {
     type Admission = DesktopNativeCloudAdmission;
     type Exchange = DesktopDeviceSwitchRequestExchange;
+    type Resolution = DesktopDeviceSwitchRequestResolution;
     type ReceiptQuery = DesktopDrainReceiptQuery;
     type Draft = DesktopDrainProofDraft;
 
@@ -662,8 +754,36 @@ impl SwitchHost for DesktopLocalHost {
         admission.is_active()
     }
 
-    fn prepare_request(target_device_id: &str) -> Result<Self::Exchange, DesktopLocalHostError> {
-        Self::prepare_native_device_switch_request(target_device_id)
+    fn prepare_request(
+        &self,
+        admission: &Self::Admission,
+        target_device_id: &str,
+    ) -> Result<Self::Exchange, DesktopLocalHostError> {
+        self.prepare_native_device_switch_request(admission, target_device_id)
+    }
+    fn pending_request(
+        &self,
+        admission: &Self::Admission,
+    ) -> Result<Option<Self::Exchange>, DesktopLocalHostError> {
+        self.pending_native_device_switch_request(admission)
+    }
+
+    fn prepare_resolution(
+        &self,
+        admission: &Self::Admission,
+    ) -> Result<Option<Self::Resolution>, DesktopLocalHostError> {
+        self.prepare_native_device_switch_request_resolution(admission)
+    }
+    fn resolution_body(resolution: &Self::Resolution) -> Vec<u8> {
+        resolution.request_body().to_vec()
+    }
+    fn complete_resolution(
+        &self,
+        admission: &Self::Admission,
+        resolution: &Self::Resolution,
+        wire: &[u8],
+    ) -> Result<DesktopDeviceSwitchRequestResolutionOutcome, DesktopLocalHostError> {
+        self.complete_native_device_switch_request_resolution(admission, resolution, wire)
     }
 
     fn exchange_body(exchange: &Self::Exchange) -> Vec<u8> {
@@ -677,14 +797,6 @@ impl SwitchHost for DesktopLocalHost {
         wire: &[u8],
     ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
         self.complete_native_device_switch_request(admission, exchange, wire)
-    }
-
-    fn begin_drain(
-        &self,
-        admission: &Self::Admission,
-        id: &str,
-    ) -> Result<(), DesktopLocalHostError> {
-        self.begin_native_device_switch_drain(admission, id)
     }
 
     fn clear_left_over(&self, admission: &Self::Admission) -> Result<bool, DesktopLocalHostError> {
@@ -852,6 +964,7 @@ mod tests {
     #[derive(Default)]
     struct HostState {
         standby: bool,
+        request_pending: Option<(String, Vec<u8>)>,
         barrier: Option<String>,
         /// A barrier from an earlier Lease epoch: invisible to `in_progress`, but it refuses a new one.
         left_over: Option<String>,
@@ -917,6 +1030,7 @@ mod tests {
     impl SwitchHost for FakeHost {
         type Admission = FakeAdmission;
         type Exchange = (String, Vec<u8>);
+        type Resolution = (String, Vec<u8>);
         type ReceiptQuery = Vec<u8>;
         type Draft = Vec<u8>;
 
@@ -937,12 +1051,57 @@ mod tests {
             admission.active
         }
 
-        fn prepare_request(target: &str) -> Result<Self::Exchange, DesktopLocalHostError> {
+        fn prepare_request(
+            &self,
+            _: &FakeAdmission,
+            target: &str,
+        ) -> Result<Self::Exchange, DesktopLocalHostError> {
+            let mut state = self.state.lock().unwrap();
+            if let Some(pending) = &state.request_pending {
+                return Ok(pending.clone());
+            }
             let key = NEXT_KEY.fetch_add(1, Ordering::Relaxed);
-            Ok((
+            let pending = (
                 target.to_owned(),
                 format!("request:{target}:key-{key}").into_bytes(),
-            ))
+            );
+            state.request_pending = Some(pending.clone());
+            Ok(pending)
+        }
+        fn pending_request(
+            &self,
+            _: &FakeAdmission,
+        ) -> Result<Option<Self::Exchange>, DesktopLocalHostError> {
+            Ok(self.state.lock().unwrap().request_pending.clone())
+        }
+
+        fn prepare_resolution(
+            &self,
+            _: &FakeAdmission,
+        ) -> Result<Option<Self::Resolution>, DesktopLocalHostError> {
+            Ok(self.state.lock().unwrap().request_pending.clone())
+        }
+        fn resolution_body(resolution: &Self::Resolution) -> Vec<u8> {
+            [b"resolve:".as_slice(), resolution.1.as_slice()].concat()
+        }
+        fn complete_resolution(
+            &self,
+            admission: &FakeAdmission,
+            resolution: &Self::Resolution,
+            wire: &[u8],
+        ) -> Result<DesktopDeviceSwitchRequestResolutionOutcome, DesktopLocalHostError> {
+            match wire {
+                b"not_found" => {
+                    Ok(DesktopDeviceSwitchRequestResolutionOutcome::RetryCurrentRequest)
+                }
+                b"superseded" => {
+                    self.state.lock().unwrap().request_pending = None;
+                    Ok(DesktopDeviceSwitchRequestResolutionOutcome::Superseded)
+                }
+                _ => self
+                    .complete_request(admission, resolution, wire)
+                    .map(DesktopDeviceSwitchRequestResolutionOutcome::Resolved),
+            }
         }
 
         fn exchange_body(exchange: &Self::Exchange) -> Vec<u8> {
@@ -955,24 +1114,28 @@ mod tests {
             _: &Self::Exchange,
             wire: &[u8],
         ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
-            Ok(match decode(wire)? {
-                (Some((status, id)), None) => DesktopDeviceSwitchStart::Accepted {
-                    device_switch_request_id: id,
-                    status,
-                },
+            let decoded = decode(wire)?;
+            let mut state = self.state.lock().unwrap();
+            let start = match decoded {
+                (Some((status, id)), None) => {
+                    if status == DesktopDeviceSwitchStatus::Draining {
+                        if state.left_over.is_some()
+                            || state.barrier.as_deref().is_some_and(|open| open != id)
+                        {
+                            return Err(DesktopLocalHostError::StorageRejected);
+                        }
+                        state.barrier = Some(id.clone());
+                    }
+                    DesktopDeviceSwitchStart::Accepted {
+                        device_switch_request_id: id,
+                        status,
+                    }
+                }
                 (None, Some(code)) => DesktopDeviceSwitchStart::Rejected(code),
                 _ => return Err(DesktopLocalHostError::CloudProtocolRejected),
-            })
-        }
-
-        fn begin_drain(&self, _: &FakeAdmission, id: &str) -> Result<(), DesktopLocalHostError> {
-            let mut state = self.state.lock().unwrap();
-            if state.left_over.is_some() || state.barrier.as_deref().is_some_and(|open| open != id)
-            {
-                return Err(DesktopLocalHostError::StorageRejected);
-            }
-            state.barrier = Some(id.to_owned());
-            Ok(())
+            };
+            state.request_pending = None;
+            Ok(start)
         }
 
         fn clear_left_over(&self, _: &FakeAdmission) -> Result<bool, DesktopLocalHostError> {
@@ -1280,6 +1443,7 @@ mod tests {
     }
 
     const REQUEST: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Request);
+    const RESOLVE: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Resolve);
     const DRAIN: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Drain);
     const CANCEL: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Cancel);
     const STATUS: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Status);
@@ -1676,7 +1840,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unanswered_request_is_retried_under_its_key_and_a_refusal_closes_nothing() {
+    async fn an_unanswered_request_resolves_before_exact_retry_and_never_changes_target() {
         let harness = harness(FakeSigner::default());
         harness
             .cloud
@@ -1685,35 +1849,126 @@ mod tests {
             harness.coordinator.request("device-target").await,
             Err(DeviceSwitchError::Retryable)
         );
+        assert_eq!(
+            harness.coordinator.status().await,
+            Ok(DeviceSwitchStep::RequestPending)
+        );
+        harness.cloud.answer(Ok(b"not_found"));
         harness.cloud.answer(Ok(b"rejected:TARGET_REMOVED"));
         assert_eq!(
-            harness.coordinator.request("device-target").await,
+            harness.coordinator.request("device-other").await,
             Ok(DeviceSwitchStep::Rejected(
                 DesktopDeviceSwitchRejection::TargetRemoved
             ))
         );
-        harness.cloud.answer(Ok(b"rejected:TARGET_REMOVED"));
-        harness.coordinator.request("device-target").await.unwrap();
         let sent = harness.cloud.sent();
+        assert_eq!(sent[1].0, RESOLVE);
         assert_eq!(
-            sent[0], sent[1],
-            "a retry reuses the unanswered request's idempotency key"
+            sent[0], sent[2],
+            "same-epoch not-found permits only original bytes and target"
         );
-        assert_ne!(sent[1], sent[2], "an answered request is never reused");
+        harness.cloud.answer(Ok(b"rejected:TARGET_REMOVED"));
+        harness.coordinator.request("device-other").await.unwrap();
+        let sent = harness.cloud.sent();
+        assert!(sent[3].1.starts_with("request:device-other:"));
+        assert_ne!(sent[0], sent[3]);
         assert_eq!(harness.host.state.lock().unwrap().barrier, None);
-        // An unanswered request is settled under its own key before any other target is asked:
-        // Cloud may already hold it open.
+    }
+
+    #[tokio::test]
+    async fn recreated_driver_resolves_a_lost_initial_response_without_another_post() {
+        let harness = harness(FakeSigner::default());
         harness
             .cloud
-            .answer(Err(NativeCloudRequestError::Retryable));
+            .answer(Err(NativeCloudRequestError::OutcomeUnknown));
+        assert_eq!(
+            harness.coordinator.request("device-target").await,
+            Err(DeviceSwitchError::Retryable)
+        );
+        let restarted = DeviceSwitchCoordinator::new(
+            Arc::clone(&harness.host),
+            Arc::clone(&harness.cloud),
+            Arc::clone(&harness.signer),
+            Arc::clone(&harness.fence),
+            Arc::new(|| panic!("background must not self-wake")),
+        );
+        harness
+            .cloud
+            .answer(Ok(b"accepted:draining:switch-original"));
+        script(
+            &harness,
+            &[DesktopDrainProgress::Waiting { unconfirmed: 2 }],
+            &[],
+        );
+        assert_eq!(
+            restarted.advance_background().await,
+            Ok(DeviceSwitchStep::WaitingForSync { unconfirmed: 2 })
+        );
+        assert_eq!(
+            harness
+                .cloud
+                .sent()
+                .iter()
+                .map(|(route, _)| *route)
+                .collect::<Vec<_>>(),
+            vec![REQUEST, RESOLVE]
+        );
+        assert_eq!(
+            harness.host.state.lock().unwrap().barrier.as_deref(),
+            Some("switch-original")
+        );
+        assert!(harness.signer.signed.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_superseded_initial_request_is_consumed_without_automatic_new_intent() {
+        let harness = harness(FakeSigner::default());
+        harness
+            .cloud
+            .answer(Err(NativeCloudRequestError::OutcomeUnknown));
         let _ = harness.coordinator.request("device-target").await;
-        harness.cloud.answer(Ok(b"rejected:TARGET_REMOVED"));
-        harness.coordinator.request("device-other").await.unwrap();
-        harness.cloud.answer(Ok(b"rejected:TARGET_REMOVED"));
-        harness.coordinator.request("device-other").await.unwrap();
+        harness.cloud.answer(Ok(b"superseded"));
+        assert_eq!(
+            harness.coordinator.request("device-other").await,
+            Ok(DeviceSwitchStep::Idle)
+        );
+        assert_eq!(
+            harness.coordinator.advance_background().await,
+            Ok(DeviceSwitchStep::Idle)
+        );
+        assert_eq!(
+            harness
+                .cloud
+                .sent()
+                .iter()
+                .map(|(route, _)| *route)
+                .collect::<Vec<_>>(),
+            vec![REQUEST, RESOLVE]
+        );
+        assert!(harness.host.state.lock().unwrap().request_pending.is_none());
+        assert!(harness.host.state.lock().unwrap().barrier.is_none());
+    }
+
+    #[tokio::test]
+    async fn unknown_resolution_remains_pending_and_cannot_create_another_request() {
+        let harness = harness(FakeSigner::default());
+        harness
+            .cloud
+            .answer(Err(NativeCloudRequestError::OutcomeUnknown));
+        let _ = harness.coordinator.request("device-target").await;
+        for _ in 0..2 {
+            harness
+                .cloud
+                .answer(Err(NativeCloudRequestError::OutcomeUnknown));
+            assert_eq!(
+                harness.coordinator.advance_background().await,
+                Err(DeviceSwitchError::Retryable)
+            );
+        }
         let sent = harness.cloud.sent();
-        assert_eq!(sent[3], sent[4]);
-        assert!(sent[5].1.starts_with("request:device-other:"));
+        assert_eq!(sent[1], sent[2]);
+        assert_eq!(sent[1].0, RESOLVE);
+        assert!(harness.host.state.lock().unwrap().request_pending.is_some());
     }
 
     #[tokio::test]

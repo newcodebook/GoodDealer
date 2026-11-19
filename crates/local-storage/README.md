@@ -21,8 +21,15 @@ Native Desktop Local Host aggregate for the authoritative encrypted workspace an
 order. Private `authorization`, `business`, `sync`, `provider`, `backup_workflow`, `native_backup`
 and `recovery` modules implement capability-specific transitions against that same state. Crypto,
 source projection, restore and continuity remain in the same private owner tree. The crate-root
-public API is unchanged; dependents cannot name these modules or obtain a writer, key or file handle.
+public API exposes only the aggregate and purpose-specific contracts; dependents cannot name these modules or obtain a writer, key or file handle.
 Test composition lives in `test_support` and cross-capability regression tests in `tests`.
+
+`desktop_local_host::target_bootstrap` owns target setup discovery, the exact confirmed termination
+intent and reconciliation. Its five crate-root `DesktopTargetBootstrap*` contracts expose only
+closed views or opaque exchanges to the Native coordinator. Fixed-purpose custody persists the
+control record even on a Standby installation without a business database; it never creates an
+empty workspace or restores execution permission. `execution_context` separately owns fresh
+signed time admission and durable evidence anchors.
 
 ## Change Guide
 

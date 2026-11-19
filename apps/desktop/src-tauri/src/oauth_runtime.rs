@@ -54,7 +54,7 @@ enum CallbackOutcome {
 
 pub(crate) struct DesktopOAuthRuntime {
     authorization_origin: Option<String>,
-    identity: Option<DesktopDeviceIdentity>,
+    identity: Option<Arc<DesktopDeviceIdentity>>,
     active: Mutex<Option<ActiveLogin>>,
     generations: AtomicU64,
     session: Arc<NativeCloudSession>,
@@ -64,7 +64,7 @@ pub(crate) struct DesktopOAuthRuntime {
 /// key; any other transcript is refused inside `secure-host-core`, and no refusal text escapes.
 impl crate::device_switch_drain::DrainProofSigner for DesktopOAuthRuntime {
     fn signing_key_id(&self) -> Option<&str> {
-        self.identity.as_ref().map(DesktopDeviceIdentity::key_id)
+        self.identity.as_deref().map(DesktopDeviceIdentity::key_id)
     }
 
     fn sign_drain_proof(&self, transcript: &[u8]) -> Option<String> {
@@ -79,14 +79,20 @@ impl DesktopOAuthRuntime {
     pub(crate) fn new(
         cloud_origin: Option<&str>,
         authorization_origin: Option<&str>,
-        identity: Option<DesktopDeviceIdentity>,
+        identity: Option<Arc<DesktopDeviceIdentity>>,
         local_host: Arc<DesktopLocalHost>,
+        power: Option<gooddealer_secure_host_core::NativePowerGate>,
     ) -> Self {
         let device_id = identity
-            .as_ref()
+            .as_deref()
             .map(DesktopDeviceIdentity::device_id)
             .map(str::to_owned);
-        let session = Arc::new(NativeCloudSession::new(cloud_origin, device_id, local_host));
+        let session = Arc::new(NativeCloudSession::new(
+            cloud_origin,
+            device_id,
+            local_host,
+            power,
+        ));
         Self {
             authorization_origin: authorization_origin
                 .filter(|origin| valid_authorization_origin(origin))
@@ -402,6 +408,7 @@ mod tests {
             Some(PRODUCTION_ACCOUNT_ORIGIN),
             None,
             Arc::new(DesktopLocalHost::default()),
+            None,
         );
         assert_eq!(runtime.status(), NativeOAuthStatus::Unavailable);
         assert_eq!(runtime.begin().err(), Some(NativeOAuthError::Unavailable));

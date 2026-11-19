@@ -51,6 +51,8 @@ const reviewedCommands = [
   "local_settings_read",
   "local_storage_repair",
   "local_sync_status",
+  "target_bootstrap_cancel",
+  "target_bootstrap_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(
   (command) => !command.startsWith("local_backup_"),
@@ -256,6 +258,7 @@ export function adapterCommands(source) {
       || command.startsWith("cloudflare_")
       || command.startsWith("afternic_")
       || command.startsWith("device_switch_")
+      || command.startsWith("target_bootstrap_")
       || command.startsWith("device_directory_")
       || command.startsWith("device_self_")));
 }
@@ -272,6 +275,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   );
   const buildSource = requiredRegularFile(root, "apps/desktop/src-tauri/build.rs", errors);
   const mainSource = requiredRegularFile(root, "apps/desktop/src-tauri/src/main.rs", errors);
+  const executionContextSource = requiredRegularFile(root, "apps/desktop/src-tauri/src/execution_context_native.rs", errors);
   const capabilitySource = requiredRegularFile(
     root,
     "apps/desktop/src-tauri/capabilities/local-app.json",
@@ -292,6 +296,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   if (
     buildSource === null ||
     mainSource === null ||
+    executionContextSource === null ||
     capabilitySource === null ||
     adapterSources.some((source) => source === null) ||
     desktopManifest === null ||
@@ -352,7 +357,11 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
 
   const rustSource = sources.join("\n");
   if (
-    mainSource.match(/DesktopLocalHost::production\s*\(/gu)?.length !== 1 ||
+    mainSource.match(/execution_context_native::production_host\s*\(/gu)?.length !== 1 ||
+    /DesktopLocalHost::production\b/u.test(rustSource) ||
+    rustSource.match(/DesktopLocalHost::production_with_execution_context\s*\(/gu)?.length !== 1 ||
+    !/let host = DesktopLocalHost::production_with_execution_context\(root, native\)\?;/u.test(executionContextSource) ||
+    !/Ok\(host\)\s*$/u.test(rustFunctionBody(executionContextSource, "production_host")) ||
     !/app\.manage\s*\(\s*Arc::clone\s*\(\s*&local_host\s*\)\s*\)/u.test(mainSource)
   ) {
     errors.push("Desktop startup must construct and manage exactly one local-host aggregate");

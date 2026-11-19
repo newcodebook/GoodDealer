@@ -182,7 +182,7 @@ impl StandbyGrant {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(in crate::desktop_local_host) fn signed_standby_for_host_test(
     floor: u64,
     security_epoch: u64,

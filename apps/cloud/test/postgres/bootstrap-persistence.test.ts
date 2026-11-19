@@ -144,6 +144,8 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
   beforeEach(async () => {
     fixture = signedFixture();
     await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
     await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
       device_bootstrap_activation_attempts, device_bootstrap_step_nonces,
       device_bootstrap_authorities, device_bootstrap_steps, device_bootstrap_capabilities,
@@ -151,6 +153,25 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
       device_account_states, workspace_revisions CASCADE`);
     await ownerPool.query("DELETE FROM identity_accounts");
     await seedBootstrap(scope, fixture);
+  });
+
+  it("keeps first-device bootstrap source-free and refuses cross-purpose source epochs", async () => {
+    const retained = await transactions.withTenant(scope, transaction => transaction.query(
+      "SELECT purpose, source_lease_epoch FROM device_switch_workflows WHERE workflow_id='switch-request-1'",
+    ));
+    expect(retained.rows).toEqual([{ purpose: "first_device", source_lease_epoch: null }]);
+    for (const [purpose, epoch] of [["device_switch", null], ["first_device", 1]] as const) {
+      await expect(transactions.withTenant(scope, transaction => transaction.query(
+        `INSERT INTO device_switch_workflows
+          (account_id,workspace_id,workflow_id,purpose,mode,request_digest,idempotency_key,status,
+           workflow_revision,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,
+           state_deadline,source_lease_epoch)
+         SELECT account_id,workspace_id,'wrong-source-purpose',$1,mode,request_digest,'wrong-source-purpose',
+           'cancelled',1,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,state_deadline,$2
+         FROM device_switch_workflows WHERE workflow_id='switch-request-1'`,
+        [purpose, epoch],
+      ))).rejects.toMatchObject({ code: "42501" });
+    }
   });
 
   it("persists pin and returns byte-identical replay after service reconstruction with zero port calls", async () => {

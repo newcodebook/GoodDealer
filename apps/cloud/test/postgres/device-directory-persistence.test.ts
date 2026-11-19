@@ -30,11 +30,13 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query(`TRUNCATE
     device_bootstrap_activation_attempts, device_bootstrap_step_nonces, device_bootstrap_authorities,
     device_bootstrap_steps, device_bootstrap_capabilities, device_drain_proofs, device_active_leases,
     device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges, device_login_challenges,
-    device_signing_keys, device_bindings, device_account_states`);
+    device_signing_keys, device_bindings, device_account_states CASCADE`);
   await ownerPool.query("DELETE FROM workspace_account_bindings");
   await ownerPool.query("DELETE FROM workspace_workspaces");
   await ownerPool.query("DELETE FROM identity_accounts");
@@ -87,7 +89,7 @@ describe("PostgreSQL device directory (ADR-0032 S3a)", () => {
     await owner("directory-account-a", "UPDATE identity_refresh_families SET state = 'active', revoked_at = NULL, revocation_reason = NULL WHERE session_id = 'directory-account-a-session-old'");
     await owner("directory-account-a", "UPDATE identity_account_security_states SET account_security_epoch = 2 WHERE account_id = 'directory-account-a'");
     await expect(directory.list(listRequest, active)).resolves.toBeNull();
-    await owner("directory-account-a", "UPDATE identity_account_security_states SET account_security_epoch = 1, status = 'recovery_pending' WHERE account_id = 'directory-account-a'");
+    await owner("directory-account-a", "UPDATE identity_account_security_states SET status = 'recovery_pending' WHERE account_id = 'directory-account-a'");
     await expect(directory.reportSelf(report("x"), active)).resolves.toBeNull();
     expect(await owner("directory-account-a",
       "SELECT count(*)::text AS reported FROM device_bindings WHERE account_id = 'directory-account-a' AND (display_name IS NOT NULL OR last_seen_at IS NOT NULL)"))

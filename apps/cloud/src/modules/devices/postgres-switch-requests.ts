@@ -4,14 +4,16 @@ import {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
   DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
   deviceSwitchRequestViewSchema,
+  deviceSwitchRequestResolutionResponseSchema,
+  type DeviceSwitchRequestResolutionResponse,
   deviceSwitchResponseSchema,
   type DeviceSwitchRejectionCode,
   type DeviceSwitchRequestView,
   type DeviceSwitchResponse,
 } from "@gooddealer/protocol/devices";
-import { identifier } from "@gooddealer/protocol/wire";
+import { identifier, safePositiveInteger } from "@gooddealer/protocol/wire";
 
-import type { TenantTransaction, TenantTransactionRunner } from "../../db/index";
+import type { AccountTransaction, TenantTransaction, TenantTransactionRunner } from "../../db/index";
 import type { IdentityAccountSecurityStatePort } from "../identity/index";
 import { DRAINING_STATE_TTL_SECONDS } from "./switch-workflow";
 
@@ -76,20 +78,37 @@ export interface DeviceSwitchSubject {
  * verify. A `null` result is an authorization denial; it never says why.
  */
 export class PostgresDeviceSwitchRequests {
-  constructor(private readonly dependencies: {
-    readonly transactions: TenantTransactionRunner;
-    readonly accountSecurity: IdentityAccountSecurityStatePort;
-  }) {}
+  constructor(
+    private readonly dependencies: {
+      readonly transactions: Pick<TenantTransactionRunner, "withTenant">;
+      readonly accountSecurity: IdentityAccountSecurityStatePort;
+    },
+  ) {}
 
   async requestNormal(
     subject: DeviceSwitchSubject,
-    request: { readonly toDeviceId: string; readonly idempotencyKey: string },
+    request: {
+      readonly toDeviceId: string;
+      readonly idempotencyKey: string;
+      readonly expectedSourceLeaseEpoch: number;
+    },
   ): Promise<DeviceSwitchResponse | null> {
     const source = parseSubject(subject);
     const toDeviceId = identifier.parse(request.toDeviceId);
     const idempotencyKey = identifier.parse(request.idempotencyKey);
+    const expectedSourceLeaseEpoch = safePositiveInteger.parse(request.expectedSourceLeaseEpoch);
     const requestDigest = createHash("sha256")
-      .update(JSON.stringify(["gd.device-switch-request.v1", "normal", source.workspaceId, source.deviceId, toDeviceId, idempotencyKey]))
+      .update(
+        JSON.stringify([
+          "gd.device-switch-request.v2",
+          "normal",
+          source.workspaceId,
+          source.deviceId,
+          toDeviceId,
+          idempotencyKey,
+          expectedSourceLeaseEpoch,
+        ]),
+      )
       .digest();
     return this.#run(source, async (transaction) => {
       const security = await this.dependencies.accountSecurity.lockCurrent(transaction);
@@ -97,27 +116,34 @@ export class PostgresDeviceSwitchRequests {
       if (security.status !== "normal") return rejected("ACCOUNT_RECOVERY_PENDING");
       const account = await transaction.query<{ current_lease_epoch: string }>(
         "SELECT current_lease_epoch FROM device_account_states WHERE account_id = $1 FOR UPDATE",
-        [source.accountId]);
+        [source.accountId],
+      );
       if (account.rows[0] === undefined) return null;
 
       // A retry with the same key returns the first outcome; any other content under it conflicts.
-      const prior = await transaction.query<WorkflowRow & { readonly request_digest: Buffer; readonly workspace_id: string }>(
+      const prior = await transaction.query<
+        WorkflowRow & { readonly request_digest: Buffer; readonly workspace_id: string }
+      >(
         `SELECT ${WORKFLOW_COLUMNS}, w.request_digest, w.workspace_id FROM ${WORKFLOW_FROM}
          WHERE w.account_id = $1 AND w.idempotency_key = $2`,
-        [source.accountId, idempotencyKey]);
+        [source.accountId, idempotencyKey],
+      );
       const priorRow = prior.rows[0];
       if (priorRow !== undefined) {
         return priorRow.workspace_id === source.workspaceId && priorRow.request_digest.equals(requestDigest)
           ? accepted(priorRow)
           : rejected("IDEMPOTENCY_CONFLICT");
       }
+      if (Number(account.rows[0].current_lease_epoch) !== expectedSourceLeaseEpoch)
+        return rejected("SOURCE_LEASE_CHANGED");
       if (toDeviceId === source.deviceId) return rejected("TARGET_IS_SOURCE");
 
       const devices = [source.deviceId, toDeviceId].sort();
       const bindings = await transaction.query<{ device_id: string; status: "bound" | "removed" }>(
         `SELECT device_id, status FROM device_bindings
          WHERE account_id = $1 AND device_id = ANY($2::text[]) ORDER BY device_id COLLATE "C" FOR UPDATE`,
-        [source.accountId, devices]);
+        [source.accountId, devices],
+      );
       const statusOf = (deviceId: string) => bindings.rows.find((row) => row.device_id === deviceId)?.status;
       if (statusOf(source.deviceId) !== "bound") return null;
       const targetStatus = statusOf(toDeviceId);
@@ -126,7 +152,8 @@ export class PostgresDeviceSwitchRequests {
       const key = await transaction.query<{ key_id: string; key_version: string }>(
         `SELECT key_id, key_version FROM device_signing_keys
          WHERE account_id = $1 AND device_id = $2 AND status = 'active' FOR UPDATE`,
-        [source.accountId, toDeviceId]);
+        [source.accountId, toDeviceId],
+      );
       const targetKey = key.rows[0];
       if (targetKey === undefined) return rejected("TARGET_NOT_BOUND");
 
@@ -134,22 +161,9 @@ export class PostgresDeviceSwitchRequests {
         `SELECT workflow_id, status, transaction_timestamp() >= state_deadline AS expired
          FROM device_switch_workflows
          WHERE account_id = $1 AND status = ANY($2::text[]) FOR UPDATE`,
-        [source.accountId, [...NONTERMINAL]]);
-      const blocking = open.rows[0];
-      if (blocking !== undefined) {
-        // A switch that never reached bootstrap and outlived its deadline fails here, so a device
-        // that lost its Lease mid-switch cannot block the account forever. Expiring a bootstrapping
-        // switch must burn its epoch and capability and stays with S1d.
-        if (!blocking.expired || !(CANCELLABLE as readonly string[]).includes(blocking.status)) {
-          return rejected("SWITCH_IN_PROGRESS");
-        }
-        await transaction.query(
-          `UPDATE device_switch_workflows
-           SET status = 'failed', workflow_revision = workflow_revision + 1, updated_at = transaction_timestamp()
-           WHERE account_id = $1 AND workflow_id = $2`,
-          [source.accountId, blocking.workflow_id]);
-      }
-
+        [source.accountId, [...NONTERMINAL]],
+      );
+      // Lock workflow before Lease, but do not expire it until current source authority is proven.
       // Re-check, under the lock, the Lease the session resolved: held by this device, current,
       // activated for this workspace and still inside its offline execution window.
       const lease = await transaction.query<{ device_id: string }>(
@@ -163,21 +177,50 @@ export class PostgresDeviceSwitchRequests {
                  AND binding.owner_kind = 'account' AND binding.role = 'default_owner' AND binding.is_default))) AND allocation.status = 'activated'
            AND lease.issued_at <= transaction_timestamp() AND lease.offline_execute_until > transaction_timestamp()
          FOR UPDATE OF lease`,
-        [source.accountId, account.rows[0].current_lease_epoch, source.workspaceId]);
+        [source.accountId, account.rows[0].current_lease_epoch, source.workspaceId],
+      );
       if (lease.rows.length !== 1 || lease.rows[0]?.device_id !== source.deviceId) return null;
+
+      const blocking = open.rows[0];
+      if (blocking !== undefined) {
+        // A switch that never reached bootstrap and outlived its deadline fails here, so a device
+        // that lost its Lease mid-switch cannot block the account forever. Expiring a bootstrapping
+        // switch must burn its epoch and capability and stays with S1d.
+        if (!blocking.expired || !(CANCELLABLE as readonly string[]).includes(blocking.status)) {
+          return rejected("SWITCH_IN_PROGRESS");
+        }
+        await transaction.query(
+          `UPDATE device_switch_workflows
+           SET status = 'failed', workflow_revision = workflow_revision + 1, updated_at = transaction_timestamp()
+           WHERE account_id = $1 AND workflow_id = $2`,
+          [source.accountId, blocking.workflow_id],
+        );
+      }
 
       const inserted = await transaction.query<WorkflowRow>(
         `INSERT INTO device_switch_workflows AS w
            (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
             workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
-            bound_account_security_epoch, state_deadline)
+            bound_account_security_epoch, state_deadline, source_lease_epoch)
          VALUES ($1, $2, $3, 'device_switch', 'normal', $4, $5, 'draining', 1, $6, $7, $8, $9, $10,
-           transaction_timestamp() + make_interval(secs => $11))
+           transaction_timestamp() + make_interval(secs => $11), $12)
          RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
            NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
-        [source.accountId, source.workspaceId, `switch-${randomUUID()}`, requestDigest, idempotencyKey,
-          source.deviceId, toDeviceId, targetKey.key_id, targetKey.key_version, security.accountSecurityEpoch,
-          DRAINING_STATE_TTL_SECONDS]);
+        [
+          source.accountId,
+          source.workspaceId,
+          `switch-${randomUUID()}`,
+          requestDigest,
+          idempotencyKey,
+          source.deviceId,
+          toDeviceId,
+          targetKey.key_id,
+          targetKey.key_version,
+          security.accountSecurityEpoch,
+          DRAINING_STATE_TTL_SECONDS,
+          expectedSourceLeaseEpoch,
+        ],
+      );
       const row = inserted.rows[0];
       if (row === undefined) throw new TypeError("switch workflow insert returned no row");
       return accepted(row);
@@ -193,7 +236,8 @@ export class PostgresDeviceSwitchRequests {
         `SELECT ${WORKFLOW_COLUMNS} FROM ${WORKFLOW_FROM}
          WHERE w.account_id = $1 AND w.workspace_id = $2 AND w.workflow_id = $3
            AND (w.from_device_id = $4 OR w.to_device_id = $4)`,
-        [device.accountId, device.workspaceId, workflowId, device.deviceId]);
+        [device.accountId, device.workspaceId, workflowId, device.deviceId],
+      );
       const row = result.rows[0];
       return row === undefined ? rejected("SWITCH_NOT_FOUND") : accepted(row);
     });
@@ -210,13 +254,16 @@ export class PostgresDeviceSwitchRequests {
       const security = await this.dependencies.accountSecurity.lockCurrent(transaction);
       if (security === null) return null;
       const account = await transaction.query(
-        "SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE", [device.accountId]);
+        "SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE",
+        [device.accountId],
+      );
       if (account.rows.length !== 1) return null;
       const current = await transaction.query<WorkflowRow>(
         `SELECT ${WORKFLOW_COLUMNS} FROM ${WORKFLOW_FROM}
          WHERE w.account_id = $1 AND w.workspace_id = $2 AND w.workflow_id = $3 AND w.from_device_id = $4
          FOR UPDATE OF w`,
-        [device.accountId, device.workspaceId, workflowId, device.deviceId]);
+        [device.accountId, device.workspaceId, workflowId, device.deviceId],
+      );
       const row = current.rows[0];
       if (row === undefined) return rejected("SWITCH_NOT_FOUND");
       if (row.status === "cancelled") return accepted(row);
@@ -227,7 +274,8 @@ export class PostgresDeviceSwitchRequests {
          WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 AND status = ANY($4::text[])
          RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
            NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
-        [device.accountId, device.workspaceId, workflowId, [...CANCELLABLE]]);
+        [device.accountId, device.workspaceId, workflowId, [...CANCELLABLE]],
+      );
       const cancelled = updated.rows[0];
       if (cancelled === undefined) throw new TypeError("locked switch workflow did not cancel");
       return accepted(cancelled);
@@ -248,6 +296,8 @@ export class PostgresDeviceSwitchRequests {
           return result === null ? null : deviceSwitchResponseSchema.parse(result);
         });
       } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "42501")
+          return null;
         // The one-nonterminal index or a serialization failure means a concurrent writer won.
         if (attempt < 2 && isRetryableTransactionError(error)) continue;
         // Idempotency keys are unique per account, but workflow rows are visible per workspace:
@@ -255,7 +305,8 @@ export class PostgresDeviceSwitchRequests {
         if (uniqueConstraint(error) === "device_switch_workflows_account_id_idempotency_key_key") {
           return rejected("IDEMPOTENCY_CONFLICT");
         }
-        if (uniqueConstraint(error) === "device_switch_workflows_one_nonterminal") return rejected("SWITCH_IN_PROGRESS");
+        if (uniqueConstraint(error) === "device_switch_workflows_one_nonterminal")
+          return rejected("SWITCH_IN_PROGRESS");
         throw error;
       }
     }
@@ -286,7 +337,8 @@ function accepted(row: WorkflowRow): DeviceSwitchResponse {
       requestedAt: canonicalTimestamp(row.created_at),
       // Only forced switches carry a takeover time; the forced writer is not implemented yet.
       earliestTakeoverAt: null,
-      bootstrapExpiresAt: row.bootstrap_expires_at === null ? null : canonicalTimestamp(row.bootstrap_expires_at),
+      bootstrapExpiresAt:
+        row.bootstrap_expires_at === null ? null : canonicalTimestamp(row.bootstrap_expires_at),
       normalHandoffReceipt: row.normal_handoff_receipt,
     }),
   };
@@ -301,10 +353,82 @@ function canonicalTimestamp(value: Date): string {
 }
 
 function isRetryableTransactionError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error.code === "40001" || error.code === "40P01");
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "40001" || error.code === "40P01")
+  );
 }
 
 function uniqueConstraint(error: unknown): string | null {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505"
-    && "constraint" in error && typeof error.constraint === "string" ? error.constraint : null;
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint" in error &&
+    typeof error.constraint === "string"
+    ? error.constraint
+    : null;
+}
+
+/** Read-only source lookup, called only inside the authenticated resolution transaction. */
+export async function readSwitchRequestResolution(
+  transaction: AccountTransaction,
+  subject: DeviceSwitchSubject,
+  idempotencyKey: string,
+): Promise<DeviceSwitchRequestResolutionResponse> {
+  const source = parseSubject(subject);
+  identifier.parse(idempotencyKey);
+  const rows = await transaction.query<
+    WorkflowRow & { bound_key_id: unknown; bound_key_version: unknown; source_lease_epoch: unknown }
+  >(
+    `SELECT ${WORKFLOW_COLUMNS},w.bound_key_id,w.bound_key_version,w.source_lease_epoch FROM ${WORKFLOW_FROM}
+   WHERE w.account_id=$1 AND w.workspace_id=$2 AND w.from_device_id=$3 AND w.idempotency_key=$4 FOR SHARE OF w`,
+    [source.accountId, source.workspaceId, source.deviceId, idempotencyKey],
+  );
+  if (rows.rows.length === 0) return { schemaVersion: 1, outcome: "not_found", idempotencyKey };
+  if (rows.rows.length !== 1) throw new TypeError("ambiguous switch request history");
+  const row = rows.rows[0]!;
+  const projected = accepted(row);
+  if (!projected.accepted) throw new TypeError("unsupported switch request history");
+  return deviceSwitchRequestResolutionResponseSchema.parse({
+    schemaVersion: 1,
+    outcome: "found",
+    idempotencyKey,
+    request: projected.request,
+    targetSigningKeyId: row.bound_key_id,
+    targetSigningKeyVersion:
+      typeof row.bound_key_version === "string" && /^[1-9][0-9]*$/u.test(row.bound_key_version)
+        ? Number(row.bound_key_version)
+        : null,
+    sourceLeaseEpoch:
+      row.source_lease_epoch === null
+        ? null
+        : typeof row.source_lease_epoch === "string" && /^[1-9][0-9]*$/u.test(row.source_lease_epoch)
+          ? Number(row.source_lease_epoch)
+          : 0,
+  });
+}
+
+/** Same-owner projection retains the original handoff receipt through target termination. */
+export async function readTargetBootstrapRequest(
+  transaction: AccountTransaction,
+  subject: DeviceSwitchSubject,
+  requestId: string | null,
+): Promise<DeviceSwitchRequestView | null> {
+  const target = parseSubject(subject);
+  if (requestId !== null) identifier.parse(requestId);
+  const rows = await transaction.query<WorkflowRow>(
+    `SELECT ${WORKFLOW_COLUMNS} FROM ${WORKFLOW_FROM}
+     WHERE w.account_id=$1 AND w.workspace_id=$2 AND w.to_device_id=$3
+       AND (($4::text IS NULL AND w.status='bootstrapping') OR w.workflow_id=$4)
+     FOR UPDATE OF w`,
+    [target.accountId,target.workspaceId,target.deviceId,requestId],
+  );
+  if (rows.rows.length === 0) return null;
+  if (rows.rows.length !== 1) throw new TypeError("ambiguous target bootstrap history");
+  const response = accepted(rows.rows[0]!);
+  if (!response.accepted) throw new TypeError("unsupported target bootstrap history");
+  return response.request;
 }

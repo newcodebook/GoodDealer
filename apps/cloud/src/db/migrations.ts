@@ -1,3 +1,24 @@
+import { mutationDrainLoginAllocationMigration } from "../modules/workspace/mutations/migrations/202611190021-mutation-drain-login-allocation";
+import { switchSourceEpochPurposeMigration } from "../modules/devices/migrations/202611190020-switch-source-epoch-purpose";
+import { switchRequestSourceEpochMigration } from "../modules/devices/migrations/202611190019-switch-request-source-epoch";
+import { auditEvidenceSealRollbackMigration } from "../modules/audit/migrations/202611190018-audit-evidence-seal-rollback";
+import { factEvidenceReplayAndSealMigration } from "../modules/execution-ledger/migrations/202611190017-fact-evidence-replay-and-seal";
+import { factEvidencePayloadProjectionMigration } from "../modules/execution-ledger/migrations/202611190016-fact-evidence-payload-projection";
+import { auditEvidencePayloadProjectionMigration } from "../modules/audit/migrations/202611190015-audit-evidence-payload-projection";
+import { factEvidenceClosedShapeMigration } from "../modules/execution-ledger/migrations/202611190014-fact-evidence-closed-shape";
+import { auditEvidenceClosedShapeMigration } from "../modules/audit/migrations/202611190013-audit-evidence-closed-shape";
+import { factEvidenceEventIdentityMigration } from "../modules/execution-ledger/migrations/202611190012-fact-evidence-event-identity";
+import { auditEvidenceEventIdentityMigration } from "../modules/audit/migrations/202611190011-audit-evidence-event-identity";
+import { auditExecutionEvidenceMigration } from "../modules/audit/migrations/202611190009-audit-execution-evidence";
+import { executionFactEvidenceMigration } from "../modules/execution-ledger/migrations/202611190010-execution-fact-evidence";
+import { executionContextKeyReadPolicyMigration } from "../modules/devices/migrations/202611190008-execution-context-key-read-policy";
+import { executionContextKeyEvidenceMigration } from "../modules/devices/migrations/202611190007-execution-context-key-evidence";
+import { securityEpochEndBoundariesMigration } from "../modules/identity/migrations/202611190006-security-epoch-end-boundaries";
+import { executionContextDeviceColumnMigration } from "../modules/identity/migrations/202611190005-execution-context-device-column";
+import { executionContextDeviceMigration } from "../modules/identity/migrations/202611190003-execution-context-device";
+import { executionContextEnvelopeBindingMigration } from "../modules/devices/migrations/202611190004-execution-context-envelope-binding";
+import { executionContextCapabilityMigration } from "../modules/devices/migrations/202611190002-execution-context-capability";
+import { executionContextMigration } from "../modules/devices/migrations/202611190001-execution-context";
 import { workspaceRevisionsMigration } from "../modules/workspace/revisions/migrations/202608200001-workspace-revisions";
 import { businessReplicaModelMigration } from "../modules/workspace/state/portfolio/migrations/202608200002-business-replica-model";
 import { identityAuthenticationMigration } from "../modules/identity/migrations/202608200003-identity-authentication";
@@ -86,6 +107,27 @@ export const cloudMigrations: readonly CloudMigration[] = [
   drainProofAdmissionMigration,
   deviceSelfReportMigration,
   loginLeaseAllocationGuardMigration,
+  executionContextMigration,
+  executionContextCapabilityMigration,
+  executionContextDeviceMigration,
+  executionContextEnvelopeBindingMigration,
+  executionContextDeviceColumnMigration,
+  securityEpochEndBoundariesMigration,
+  executionContextKeyEvidenceMigration,
+  executionContextKeyReadPolicyMigration,
+  auditExecutionEvidenceMigration,
+  executionFactEvidenceMigration,
+  auditEvidenceEventIdentityMigration,
+  factEvidenceEventIdentityMigration,
+  auditEvidenceClosedShapeMigration,
+  factEvidenceClosedShapeMigration,
+  auditEvidencePayloadProjectionMigration,
+  factEvidencePayloadProjectionMigration,
+  factEvidenceReplayAndSealMigration,
+  auditEvidenceSealRollbackMigration,
+  switchRequestSourceEpochMigration,
+  switchSourceEpochPurposeMigration,
+  mutationDrainLoginAllocationMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

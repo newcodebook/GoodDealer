@@ -1,6 +1,7 @@
 //! Thin Tauri adapters for the single Desktop local-host aggregate.
 pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
+pub(crate) mod target_bootstrap;
 
 use std::sync::Arc;
 
@@ -282,6 +283,7 @@ pub(crate) struct DeviceSwitchView {
     schema_version: u8,
     step: &'static str,
     unconfirmed: Option<u64>,
+    frozen_unresolved: Option<u64>,
     status: Option<&'static str>,
     rejection: Option<&'static str>,
 }
@@ -290,6 +292,7 @@ impl From<DeviceSwitchStep> for DeviceSwitchView {
     fn from(step: DeviceSwitchStep) -> Self {
         let (step, unconfirmed, status, rejection) = match step {
             DeviceSwitchStep::Idle => ("idle", None, None, None),
+            DeviceSwitchStep::RequestPending => ("request_pending", None, None, None),
             DeviceSwitchStep::Rejected(code) => (
                 "rejected",
                 None,
@@ -311,6 +314,7 @@ impl From<DeviceSwitchStep> for DeviceSwitchView {
         };
         Self {
             schema_version: 1,
+            frozen_unresolved: None,
             step,
             unconfirmed,
             status,
@@ -340,6 +344,7 @@ const fn device_switch_rejection_code(code: DesktopDeviceSwitchRejection) -> &'s
         DesktopDeviceSwitchRejection::TargetIsSource => "TARGET_IS_SOURCE",
         DesktopDeviceSwitchRejection::TargetNotBound => "TARGET_NOT_BOUND",
         DesktopDeviceSwitchRejection::TargetRemoved => "TARGET_REMOVED",
+        DesktopDeviceSwitchRejection::SourceLeaseChanged => "SOURCE_LEASE_CHANGED",
         DesktopDeviceSwitchRejection::AccountRecoveryPending => "ACCOUNT_RECOVERY_PENDING",
         DesktopDeviceSwitchRejection::ForcedSwitchUnavailable => "FORCED_SWITCH_UNAVAILABLE",
         DesktopDeviceSwitchRejection::DrainProofInvalid => "DRAIN_PROOF_INVALID",
@@ -362,6 +367,24 @@ fn device_switch_result(
     })
 }
 
+async fn device_switch_snapshot(
+    result: Result<DeviceSwitchStep, DeviceSwitchError>,
+    host: Arc<DesktopLocalHost>,
+) -> Result<DeviceSwitchView, String> {
+    let mut view = device_switch_result(result)?;
+    // Missing authority is unknown, never a fabricated zero. This read cannot reopen the
+    // frozen producer or grant execution capability after the source has relinquished its Lease.
+    view.frozen_unresolved = tauri::async_runtime::spawn_blocking(move || {
+        let admission = host.begin_native_cloud_read_run().ok()?;
+        host.native_device_switch_frozen_unresolved_count(&admission)
+            .ok()
+    })
+    .await
+    .ok()
+    .flatten();
+    Ok(view)
+}
+
 /// Asks Cloud for a normal switch to a bound device and starts this device's drain. The switch
 /// id comes only from Cloud's answer; the Renderer names only the target.
 #[tauri::command]
@@ -369,11 +392,16 @@ fn device_switch_result(
 pub(crate) async fn device_switch_request(
     request: DeviceSwitchRequest,
     switch: State<'_, Arc<DesktopDeviceSwitch>>,
+    host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DeviceSwitchView, String> {
     if request.schema_version != 1 {
         return Err("DEVICE_SWITCH_INVALID_REQUEST".to_owned());
     }
-    device_switch_result(switch.request(&request.to_device_id).await)
+    device_switch_snapshot(
+        switch.request(&request.to_device_id).await,
+        Arc::clone(host.inner()),
+    )
+    .await
 }
 
 /// Moves this device's open switch forward: sync, receipts, then the signed drain proof.
@@ -381,8 +409,9 @@ pub(crate) async fn device_switch_request(
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) async fn device_switch_advance(
     switch: State<'_, Arc<DesktopDeviceSwitch>>,
+    host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DeviceSwitchView, String> {
-    device_switch_result(switch.advance().await)
+    device_switch_snapshot(switch.advance().await, Arc::clone(host.inner())).await
 }
 
 /// Cloud's state of this device's open switch; writes reopen if Cloud ended it.
@@ -390,8 +419,9 @@ pub(crate) async fn device_switch_advance(
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) async fn device_switch_status(
     switch: State<'_, Arc<DesktopDeviceSwitch>>,
+    host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DeviceSwitchView, String> {
-    device_switch_result(switch.status().await)
+    device_switch_snapshot(switch.status().await, Arc::clone(host.inner())).await
 }
 
 /// Cancels this device's open switch; writes reopen once Cloud confirms.
@@ -399,8 +429,9 @@ pub(crate) async fn device_switch_status(
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) async fn device_switch_cancel(
     switch: State<'_, Arc<DesktopDeviceSwitch>>,
+    host: State<'_, Arc<DesktopLocalHost>>,
 ) -> Result<DeviceSwitchView, String> {
-    device_switch_result(switch.cancel().await)
+    device_switch_snapshot(switch.cancel().await, Arc::clone(host.inner())).await
 }
 
 #[tauri::command]
@@ -640,19 +671,19 @@ mod tests {
         let json = |step| serde_json::to_value(DeviceSwitchView::from(step)).expect("view json");
         assert_eq!(
             json(DeviceSwitchStep::WaitingForSync { unconfirmed: 3 }),
-            serde_json::json!({ "schemaVersion": 1, "step": "waiting_for_sync", "unconfirmed": 3, "status": null, "rejection": null })
+            serde_json::json!({ "schemaVersion": 1, "step": "waiting_for_sync", "unconfirmed": 3, "frozenUnresolved": null, "status": null, "rejection": null })
         );
         assert_eq!(
             json(DeviceSwitchStep::Switch(
                 DesktopDeviceSwitchStatus::WaitingExpiry
             )),
-            serde_json::json!({ "schemaVersion": 1, "step": "switch", "unconfirmed": null, "status": "waiting_expiry", "rejection": null })
+            serde_json::json!({ "schemaVersion": 1, "step": "switch", "unconfirmed": null, "frozenUnresolved": null, "status": "waiting_expiry", "rejection": null })
         );
         assert_eq!(
             json(DeviceSwitchStep::Rejected(
                 DesktopDeviceSwitchRejection::DrainStreamsIncomplete
             )),
-            serde_json::json!({ "schemaVersion": 1, "step": "rejected", "unconfirmed": null, "status": null, "rejection": "DRAIN_STREAMS_INCOMPLETE" })
+            serde_json::json!({ "schemaVersion": 1, "step": "rejected", "unconfirmed": null, "frozenUnresolved": null, "status": null, "rejection": "DRAIN_STREAMS_INCOMPLETE" })
         );
         assert_eq!(
             device_switch_result(Err(DeviceSwitchError::Cancelled)),

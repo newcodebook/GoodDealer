@@ -10,7 +10,9 @@ use tempfile::TempDir;
 
 /// Drop-in replacement for `tempfile::tempdir()` that always creates the directory as `0700`.
 pub(crate) fn tempdir() -> std::io::Result<TempDir> {
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    let mut builder = builder;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;

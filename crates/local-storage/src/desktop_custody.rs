@@ -14,7 +14,11 @@ use native_keys::{delete_native, load_device_binding_native, load_native, store_
 
 mod authorization_floor;
 mod normal_handoff_submission;
-pub(crate) use authorization_floor::{CommercialAuthorizationFloor, WorkspaceAuthorizationFloor};
+mod target_bootstrap_control;
+pub(crate) use authorization_floor::{
+    CommercialAuthorizationFloor, DeviceEvidenceFloor, ExecutionAnchorRecord,
+    WorkspaceAuthorizationFloor, WorkspaceAuthorizationRecord,
+};
 
 use std::fmt;
 use std::fs::File;
@@ -201,6 +205,10 @@ pub(crate) struct TestRebootstrapKeyStore {
     authorization_floor: Arc<Mutex<Option<Vec<u8>>>>,
     authorization_floor_marker: Arc<Mutex<Option<Vec<u8>>>>,
     normal_handoff_submission: Arc<Mutex<Option<Vec<u8>>>>,
+    target_bootstrap_control: Arc<Mutex<Option<Vec<u8>>>>,
+    target_bootstrap_marker: Arc<Mutex<Option<Vec<u8>>>>,
+    target_bootstrap_write_probe:
+        Arc<Mutex<Option<Arc<target_bootstrap_control::TargetBootstrapWriteProbe>>>>,
     device_identity: Arc<Mutex<LoadedDeviceIdentity>>,
 }
 
@@ -228,11 +236,24 @@ impl Default for TestRebootstrapKeyStore {
             authorization_floor: Arc::default(),
             authorization_floor_marker: Arc::default(),
             normal_handoff_submission: Arc::default(),
+            target_bootstrap_control: Arc::default(),
+            target_bootstrap_marker: Arc::default(),
+            target_bootstrap_write_probe: Arc::default(),
             device_identity: Arc::new(Mutex::new(LoadedDeviceIdentity {
                 device_id: "device-local".to_owned(),
                 installation_binding_digest: [0x6d; 32],
             })),
         }
+    }
+}
+
+#[cfg(test)]
+impl TestRebootstrapKeyStore {
+    pub(crate) fn set_execution_test_binding(&self, digest: [u8; 32]) {
+        self.device_identity
+            .lock()
+            .unwrap()
+            .installation_binding_digest = digest;
     }
 }
 

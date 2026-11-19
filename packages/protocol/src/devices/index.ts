@@ -113,3 +113,18 @@ export type {
   DesktopCommercialCapability,
   DesktopStandbyGrant,
 } from "./authorization-grant";
+
+export {
+  DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES, DESKTOP_EXECUTION_CONTEXT_RESPONSE_LIMIT_BYTES,
+  DESKTOP_EXECUTION_CONTEXT_MAX_ROUND_TRIP_MS, DESKTOP_EXECUTION_CONTEXT_SIGNATURE_DOMAIN,
+  desktopExecutionContextRequestSchema, desktopExecutionContextSchema, desktopExecutionContextResponseSchema,
+  encodeDesktopExecutionContextSignatureTranscript, encodeDesktopExecutionAuthorizationDigestInput,
+  encodeDesktopExecutionContextEnvelope,
+} from "./execution-context";
+export type { DesktopExecutionContextRequest, DesktopExecutionContext, DesktopExecutionContextResponse } from "./execution-context";
+
+export { DEVICE_SWITCH_REQUEST_SCHEMA_VERSION, deviceSwitchRequestResolutionRequestSchema, deviceSwitchRequestResolutionResponseSchema } from "./device-management";
+export type { DeviceSwitchRequestResolutionRequest, DeviceSwitchRequestResolutionResponse } from "./device-management";
+
+export { deviceBootstrapStatusRequestSchema, deviceBootstrapStatusResponseSchema } from "./target-bootstrap";
+export type { DeviceBootstrapStatusRequest, DeviceBootstrapStatusResponse } from "./target-bootstrap";

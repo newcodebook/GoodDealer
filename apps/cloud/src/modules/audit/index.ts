@@ -193,3 +193,5 @@ function missingSequenceRanges(records: Map<number, WorkspaceAuditRecord> | unde
   if (start !== null) ranges.push({ fromSequence: start, toSequence: highest });
   return ranges;
 }
+export { PostgresDeviceAuditEvidenceReader, PostgresDeviceAuditEvidenceService } from "./postgres-execution-evidence";
+export type { DeviceAuditEvidenceReadPort } from "./postgres-execution-evidence";

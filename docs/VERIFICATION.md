@@ -221,3 +221,23 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - Native 在可能阻塞的 Host 复核前后检查 power/cancel；休眠先原子失效旧 epoch，关闭只唤醒一次，缺失/损坏 slot 进入 remediation，暂时 custody 不可用仅退避。下架专用 guard 不能被宣称为所有既有 Provider 流程的休眠保护。
 - UI 批准严格对应当前选中计划，换计划/角色降级/工作区替换期间不能批准旧详情；丢失响应只查状态，防重复点击；summary/detail 状态与计数均严格校验。
 - 证据及修复见 [下架审查](reviews/2026-11-19-afternic-delist-review.md)。目标源码编译不替代完整应用目标构建、OS 注册/休眠/凭据实机、真实 Afternic 和发行资格；未取得这些证据时资格登记保持拒绝。
+
+
+## 执行证据与来源交接
+
+- 当前执行上下文必须包含独立签名的当前授权摘要、Native nonce、同 boot 原始连续时钟样本；错用途、串租户、旧代次、撤销、上下文过期、休眠/重开及 boot 变化都需拒绝或重新取得上下文。历史 verifier 使用签发时不可变公钥证据，不能用当前 keyring 覆盖旧证据。
+- 批量批准、item approval、claim fact 与配对审计在原业务事务提交；签名失败、撤销或最终栅栏变化全部回滚。claim 仅证明本地持久认领；前置拒绝和结果审计不得补造 Provider 成功。
+- 原 audit/fact ledger 的生产 ingest/receipt/seal 须在真实 PostgreSQL 验证：跨租户/错用途、合法签名语义隔离、无效签名不污染流、因果前项缺失不占位、精确重复返回原回执、跨 epoch 同 attempt 并发唯一约束与已封链拒绝新项。
+- 初始 request v2 保存后未发、发后响应丢失、回答与屏障提交间崩溃须从原幂等键 resolve；只有同 epoch 的 not-found 能重发原字节。更高 epoch 不自动新建，旧/未知 epoch 不建立新屏障。首次设备 bootstrap 没有来源 Lease，不得被普通交接 CAS 的数据库触发器误拒绝。
+- SQLCipher 验证真实三流折叠、冻结未决数、取消递增代次、晚到 GET 拒绝旧 producer；Native 每轮有界上传、未知 ACK 精确重传、独立退避、shutdown join 和最终 credential/Host fence。后台交接不得被快速 evidence backlog 放大为网络重试循环。
+- Renderer 从生产设置目录进入，目标名称和编号同时预览；确认一次、重开读取持久状态、待目标引导明确展示，未知/只读状态不发起新交接。无效或缺失未决计数不能显示成零。使用单一状态区域报告有意义变化，轮询不反复播报加载。
+- 以上源码/数据库证据不替代真实 OpenBao 第四用途部署、真实 Provider、双设备目标引导与 Windows/macOS 实机验收；保留完整目标中的后续旅程。
+
+
+## 目标引导终结与执行上下文发布
+
+目标 status/cancel 必须由当前绑定会话派生账户、默认工作区、设备；跨目标、撤销、错误用途及未知 wire 拒绝。真实 PostgreSQL 分别证明取消与激活、步骤及过期的竞争，两种先后赢家均不会留下可用 pending epoch、nonce 或 pin；原来源 Lease 释放/三流 seal/回执保持，旧 id 重放不触碰新工作流。登录分配的无 workspace allocation 只有同账户个人默认绑定才允许 mutation drain，其他绑定仍拒绝。
+
+Host 在没有业务数据库的 Standby 安装上也能持久确认、重开和精确对账；每个 custody 初始化前缀可恢复，已建立记录缺失/损坏拒绝。security epoch 变化要求重新确认，不能无限 pending，也不能自动重发旧确认。Native 401 不在终止链刷新或授予 Active；power/session/Host 变化阻止旧网络操作与发布。后台成功轮询和失败退避均独立于证据热循环。
+
+执行上下文的慢验签/custody/SQLCipher 阶段与短内存发布分离。测试须证明持有 custody 锁时最终 publish 仍可完成、stage 丢失不保留旧执行权威、旧/外 Host stage 和 clock/boot/generation 变化拒绝；恢复保留原 t0。上述源码/数据库测试不替代 Windows/macOS 实机或双设备 OpenBao 部署资格。

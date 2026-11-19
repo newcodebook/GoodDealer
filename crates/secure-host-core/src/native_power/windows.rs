@@ -35,7 +35,11 @@ impl Registration {
         // SAFETY: recipient points to a stable Box retained for the registration. The callback
         // is fixed, ignores both raw payload pointers, and has process-lifetime Arc state.
         let result = unsafe {
-            PowerRegisterSuspendResumeNotification(DEVICE_NOTIFY_CALLBACK, recipient, &mut handle)
+            PowerRegisterSuspendResumeNotification(
+                DEVICE_NOTIFY_CALLBACK,
+                recipient,
+                &raw mut handle,
+            )
         };
         if result != ERROR_SUCCESS || handle.is_null() {
             // Even a malformed/partial OS failure cannot leave a retained recipient pointing
@@ -55,12 +59,12 @@ impl Drop for Registration {
         // cannot reopen admission, even if the OS fails to remove the subscription.
         // SAFETY: this is precisely the successful registration handle, consumed once.
         let result = unsafe { PowerUnregisterSuspendResumeNotification(self.handle) };
-        if result != ERROR_SUCCESS {
-            if let Some(parameters) = self.parameters.take() {
-                // Retain the bounded nonsecret registration parameters if the OS may still
-                // reference them; the process-lifetime callback state is already closed.
-                let _retained_until_exit = Box::leak(parameters);
-            }
+        if result != ERROR_SUCCESS
+            && let Some(parameters) = self.parameters.take()
+        {
+            // Retain the bounded nonsecret registration parameters if the OS may still
+            // reference them; the process-lifetime callback state is already closed.
+            let _retained_until_exit = Box::leak(parameters);
         }
     }
 }

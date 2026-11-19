@@ -116,7 +116,7 @@ describe("DevicesFixtureService", () => {
     });
     service.removeDevice({ schemaVersion: 1, deviceId: "device-a", expectedCredentialEpoch: 1, expectedListRevision: 1, reauthProofId: "proof" });
     const waiting = deviceSwitchRequestViewSchema.parse(
-      service.requestSwitch({ schemaVersion: 1, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", reauthProofId: "proof" }),
+      service.requestSwitch({ schemaVersion: 2, mode: "forced", toDeviceId: "device-b", idempotencyKey: "switch-key", reauthProofId: "proof" }),
     );
     expect(waiting).toMatchObject({
       status: "waiting_expiry",
@@ -132,7 +132,7 @@ describe("DevicesFixtureService", () => {
 
   it("returns the same switch request for an idempotency replay and rejects a competing request", () => {
     const service = new DevicesFixtureService({ seedBindings: [binding("device-a", "active"), binding("device-b", "standby")] });
-    const request = { schemaVersion: 1 as const, mode: "normal" as const, toDeviceId: "device-b", idempotencyKey: "same-key" };
+    const request = { schemaVersion: 2 as const, mode: "normal" as const, expectedSourceLeaseEpoch: 1, toDeviceId: "device-b", idempotencyKey: "same-key" };
     const first = deviceSwitchRequestViewSchema.parse(service.requestSwitch(request));
     const replay = deviceSwitchRequestViewSchema.parse(service.requestSwitch(request));
     expect(replay).toEqual(first);

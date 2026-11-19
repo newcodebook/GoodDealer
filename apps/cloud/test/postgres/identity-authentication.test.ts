@@ -36,6 +36,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query(
     `TRUNCATE workspace_account_bindings, workspace_workspaces,
       identity_credential_jtis, identity_refresh_families, identity_auth_sessions,

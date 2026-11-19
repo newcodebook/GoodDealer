@@ -19,27 +19,34 @@
   设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
   Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
   保存结果未知时先刷新对账，普通业务同步不清空未保存输入。Standby 现在可读目录；本机命名仍只允许 Active，
-  角色降级立即移除改名入口，不依赖旧设置投影。交接按钮在目标引导闭环交付前不开放。
+  角色降级立即移除改名入口，不依赖旧设置投影。设置已组合来源交接：列出其他绑定 Standby，名称与编号尾号一起预览，确认一次后由 Native 后台推进；Renderer 只轮询状态，不驱动 drain。目标引导仍须接续，界面明确显示待目标设置，不能宣称完整换机已可用。
 - Desktop 登录/刷新现已在同一事务终结默认工作区的过期引导：烧毁 pending epoch、消费能力与 nonce、释放 checkpoint pin，
   再按原授权规则分配更高 epoch。未到期、孤立或不一致记录继续阻断；同事务内 Lease 签发失败时整体回滚。
-  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。引导开始后的取消和目标引导仍未完成。
+  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。目标专用 status/cancel 已组合严格协议和生产终结事务；同一事务烧毁待用 epoch、消费能力/nonce 并释放 pin，保留来源交接回执。目标安装/激活仍未组合。
+- 设置与无副本 Standby 页面已组合目标引导终止入口：预览本机当前工作流后确认停止；local-storage 固定用途 custody 先保存精确意图，后台和重开先按原 id 对账，未知响应不取消新工作流。无业务库也能工作，不创建空库；终止不触发授权刷新或授予 Active。新的 security epoch 只退回原工作流的重新确认，不复用旧批准。来源释放 Lease 后撤去来源取消按钮。
 - Desktop OAuth/刷新支持第二台已绑定设备以 Standby 登录；Cloud/Host 使用严格 v5 角色交换，Active 内层为 v4 Grant 与 v1 Lease 双签名，
   Standby 使用独立用途签名 v1。Cloud 在锁定服务器状态派生角色，签名后重查会话/撤销/期限；精确当前引导目标的 floor 为 pending−1，其余设备为 highest allocated。
 - Native custody 独立保存安装与身份绑定的 security/issuedAt/Lease/商业地板，建立标记和记录缺项均拒绝；持久读回后再发布角色，
   Active→Standby 保留本地库并原子停写。新机无副本显示 `standby_awaiting_replica`、设备目录及刷新授权，不伪造空资产库。
   有副本只读，Provider、Outbox 和业务写入均拒绝；普通交接的 Cloud 回执、持久 attempt、原 barrier 与 Native 最后本机 Active epoch 全部匹配后，专用 Inbox gate 允许只读同步。
   Cloud 响应丢失后重开先查状态；未消费且当前仍为 Active 时只恢复 Native 保存的同一签名请求。强制接管、证据缺失、旧 epoch 与 retired cursor 均保持冻结。
-  Windows 复用同一授权合同与纯地板模型并补齐接口；目标编译尚未取证，底层 custody 仍未实现，本轮不宣称双系统完整可用。
+  Windows 已组合加密工作区启动/重开、身份/授权地板与 Provider custody：使用本机 Credential Manager 和原子私有 ACL 文件；Core、真实 SQLCipher Storage、Tauri 均通过 Windows GNU 全目标严格 Clippy。尚缺恢复 reservation 和实际 OS 验收，不宣称双系统完整可用。
+- 已组合 [Host 执行上下文](../crates/local-storage/src/desktop_local_host/execution_context.rs)：
+  Native 随机 nonce、包含休眠的连续时钟和 boot 身份绑定独立签名的 Cloud 时间；授权地板与原始 t0/t1 锚合并为
+  一条 v4 custody 记录，发布仍经过原提交栅栏。同 boot 重开保留原 t0，boot 变化、晚到降级响应和超过 RTT 均拒绝。
+  新批准、claim 和最终发送要求当前上下文；角色交换失败不伪造可执行权威。context 的验签、custody 与数据库准备在电源锁外完成，返回仅能消费一次的阶段结果；最终电源/会话/Host 栅栏只发布内存权威，期间旧执行权威关闭。Windows/macOS 时钟模块已分别取得
+  原样源码目标编译证据；Windows 完整应用也已完成目标编译，macOS 完整应用与两个系统实机仍待验收。Cloud 保存签发时不可变的 Lease/Grant/context 公钥快照，历史核验不借用当前 keyring。
 - 普通交接 switch view 使用严格 v2 回执；Cloud 从唯一已消费 proof、释放原因为 normal_handoff 的来源 Lease 及匹配目标能力派生，不从工作流 status 推断成功。
   本地追加迁移 `202611180002` 保存不可变 attempt/receipt/refusal；已签完整请求只进 Native custody。Native 授权地板 v3 保存具名 capabilities，并单独记最后本机 Active epoch，旧地板升级保留所有拒绝重放信息：v1 缺失的历史 Active epoch 保持未知，v2 已记录的值保持不变；旧商业记录仅映射历史 Cloudflare observe 权限。
-  来源后台会对账和续作，但完整目标引导、移交确认界面与强制接管仍未完成，不能据此宣称双设备换机已可用。
+  初始普通请求也已由 `202611190004` 保存精确字节与幂等键，Cloud request v2 比较 Native 派生的来源 Lease epoch；未知响应先走固定 resolve，再决定只重发原请求或消解更早代次。回答和本地屏障/冻结同事务提交。
+  来源后台在原同步 lane 推进，交接与证据上传各有独立退避；已签 proof 使用当前已验签上下文中的真实密钥版本。完整目标引导、强制接管与跨机恢复仍未完成。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
 - `active_workspace/business/` 已按资产、Provider 观察、读投影、同步收发、冲突、checkpoint、wire 和修复
   拆分私有实现及测试；仍共享一个数据库 owner。Host 工作区授权与备份工件状态已明确分离，保持同一锁和 epoch。
 - Native Provider facade 已分离 Cloudflare 私有适配；Unix custody 的 OS 密钥库细节已提取私有后端。
-  Windows custody 尚未实现，仍是下一轮必须完成的原生功能。
+  Windows custody 与受限 Native 掩码录入已组合；输入在独立 Native 窗口线程中完成并清理，不经 Renderer 或子进程输出。私有目录/文件在创建时即设置 ACL，SQLCipher 临时 sidecar 只接受精确继承权限；真实 Windows 启动、关闭重开、撤销、恢复与凭据输入仍待分别验收。
 
 ## Provider
 
@@ -52,7 +59,7 @@
 - Afternic 官方 API Service 已组合进 Native 和设置：受限凭据录入/托管 → 完整分页库存扫描 → 同事务导入新资产与 Outbox、连接范围 Listing 绑定/观察 → 设置展示扫描计数；历史删除或待重新添加的资产跳过，既有用户字段保留。
   原始所有权状态保持，不把市场库存解释成注册商所有权。重开 prepared 使用当前授权加载原 incarnation/generation/proof 的凭据；缺槽进入修复，不能重新录入覆盖。
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
-  macOS 有原生掩码录入实现，Linux/macOS 有 custody 源码；Windows custody 和 Linux/Windows 录入仍待完成，实际账号与目标 OS 未验收，资格清单保持拒绝。
+  macOS/Windows 有原生掩码录入实现，Linux/macOS/Windows 有 custody 源码；Linux 录入仍未完成。实际账号与目标 OS 未验收，资格清单保持拒绝。
 - Active Grant 的 commercialAuthority v2 是精确封闭 capability 集合：Afternic observe/write、Cloudflare observe；write 必须含 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
 - 十二平台角色、能力目录和不可执行 manifest 已存在；除 Cloudflare 与 Afternic 外的实际 Service 仍需实现。
@@ -70,8 +77,12 @@
   UI 换选计划、工作区替换和角色降级撤去旧批准入口；丢失预览/批准响应只查状态。
 - 此下架 worker 与批准入口接入 Windows/macOS 系统电源通知及 epoch 栅栏：休眠/退出阻断，唤醒不得复用旧许可；注册失败禁止新写，当前授权下仍可只读对账。
   共享原 ProviderLane，每轮处理一项再接收维护/退出请求。旧连接/刷新等路径尚未统一接入此电源栅栏，不能据本切片宣称所有 Provider 操作均已满足休眠要求。
-  两个 OS 电源模块已取得原样源码目标编译证据，尚无完整应用目标构建或实机休眠证据。真实 Afternic 资格仍为空，新执行仍拒绝。
-- 已有下架尝试时，普通交接拒绝声明 execution_fact/device_audit 为空；交接屏障同时拒绝新下架预览、批准、claim 与发送，已发请求仍可只读对账。两流的真实本地来源、上传与 Cloud 确认尚未组合，此临时拒绝需在完整两流接入后移除。
+  两个 OS 电源模块已取得原样源码目标编译证据，Windows 完整应用已通过目标编译；macOS 完整应用与两个系统实机休眠仍未取证。真实 Afternic 资格仍为空，新执行仍拒绝。
+- [执行证据本地来源](../crates/local-storage/src/active_workspace/business/execution_evidence.rs)已组合批准、claim、前置拒绝与结果事务：
+  一次批量批准生成真实 item 签名批准与审计；queued→running 原事务追加唯一 claim fact、配对审计及序号，签名失败整批回滚。claim 只表示本地持久认领，不声称 HTTP 已送达或平台成功。
+  `202611190001`～`202611190003` 持久化来源、结果/冻结与精确回执。原同步 lane 逐个上传不可变事件，未知响应重发同一字节；缺因果前项先补原 fact/audit；quarantine 保留并阻止封链。
+  drain 在原业务事务关闭旧 producer 并记录真实未决数量，取消递增准入代次，旧 GET 不能写入冻结代次；界面明确未决项留在本机，不转为目标可执行队列。
+  只有实际 mutation/fact/audit 三流精确回执与连续链全部匹配才构造 proof。旧版本未签名尝试仍拒绝空证明，不补造过去的批准或事实；其升级客户路径尚须接续。
 - Afternic 创建 Listing、改价、私有所有权验证与必要 DNS 步骤继续实施；当前下架旅程源码不等于完整 Afternic 或跨市场客户闭环。
 
 ## Cloud 与 Account Web
@@ -79,7 +90,7 @@
 - [公共 HTTP 组合](../apps/cloud/src/entrypoints/http.ts)与
   [公共业务路由](../apps/cloud/src/entrypoints/routes/public/boundary.ts)包含账号激活、Desktop Grant、
   billing checkout/status/cancel/fixed-term confirm/首购退款，以及按应用端口条件组合的
-  workspace sync、Cloudflare 观察副本、设备切换和设备列表/self-report。
+  workspace sync、Cloudflare 观察副本、设备切换及原请求 resolve、设备列表/self-report、固定 Active-only execution-context，以及各自固定的 device-audit/execution-fact ingest/receipt。
   声明了 route 不代表任意环境都已配置其依赖；具体可达面由对应 composition 和运行配置决定。
 - Identity、Desktop OAuth、支付 webhook 与 worker 由各自入口组合；身份、租户范围和商业权威
   由服务器派生。设备目录读/报告锁定当前会话、刷新族、绑定与有效签名密钥，撤销或 rotated 密钥拒绝。
@@ -87,6 +98,9 @@
 - [唯一迁移目录](../apps/cloud/src/db/migrations.ts)维护迁移顺序和校验和；本文件不复制数量。
   包括后续设备交接、mutation receipt、删除/重新添加代次和设备 self-report 的追加迁移。
   数据库是否实际应用这些迁移，必须依据相应环境的运行记录。
+- execution-context 已组合独立第四签名用途、锁定事务、签后期限复核及不可变历史；普通应用角色不能通过伪造
+  租户变量读取该历史。设备审计/执行事实 ingest 复用原 ledger/封链表，以当前 Active 会话派生来源；严格核验历史时间、用途、批准与配对审计，精确重复返回原回执，已封链不接受新事件。真实签名语义拒绝可阻断首次封链，伪造签名不能污染猜测的流。
+  共享 OpenBao 的 Standby/context 用途配置和真实签发仍待部署验收。
 - Account Web 已组合账户访问和商业旅程；已有 staging 观察与其具体限制见
   [开发 Cloud](DEVELOPMENT_CLOUD.md)。这些记录不能替代生产支付、邮件或发行证据。
 

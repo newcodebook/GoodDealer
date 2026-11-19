@@ -15,6 +15,8 @@ describe("Desktop route roles", () => {
     const routes = createPublicBusinessRoutes({ ...denyingPublicApplicationPorts,
       workspaceSync: { push: unused, pull: unused, checkpoint: unused, rebootstrap: unused, receipts: unused },
       deviceDirectory: { list: unused, reportSelf: unused },
+      targetBootstrap: { status: unused, cancel: unused },
+      deviceSwitchResolution: { resolve: unused },
       deviceSwitch: { request: unused, status: unused, cancel: unused, drain: unused },
       cloudflareDnsObservation: { submit: unused },
     }).filter((route) => route.authorize(principal));
@@ -27,6 +29,9 @@ describe("Desktop route roles", () => {
       ["/v1/workspace-sync/mutations/receipts", "active"],
       ["/v1/workspace-observations/cloudflare-dns", "active"],
       ["/v1/device-switch/requests", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/status", "active_or_standby"],
+      ["/v1/device-switch/bootstrap/cancel", "active_or_standby"],
+      ["/v1/device-switch/requests/resolve", "active_or_standby"],
       ["/v1/device-switch/requests/status", "active_or_standby"],
       ["/v1/device-switch/requests/cancel", "active_or_standby"],
       ["/v1/device-switch/requests/drain", "active"],

@@ -680,3 +680,15 @@ export { DesktopStandbyGrantIssuer, DESKTOP_STANDBY_GRANT_KEY_PURPOSE, type Desk
 
 export { PostgresDesktopRouteAuthority, PostgresDesktopSyncAuthority } from "./postgres-sync-authority";
 export type { DesktopRouteAuthorityPort, DesktopSyncAuthorityPort } from "./postgres-sync-authority";
+
+export { DesktopExecutionContextIssuer, DESKTOP_EXECUTION_CONTEXT_KEY_PURPOSE } from "./execution-context-issuer";
+export type { DesktopExecutionContextSigner } from "./execution-context-issuer";
+export { PostgresDesktopExecutionContextService } from "./postgres-execution-context";
+export { PostgresHistoricalExecutionContext } from "./historical-execution-context";
+export type { HistoricalExecutionContextPort, HistoricalExecutionContextReference, HistoricalExecutionContextResult } from "./historical-execution-context";
+export { PostgresExecutionEvidenceAuthority } from "./execution-evidence-authority";
+export type { ExecutionEvidenceAuthorityPort, ExecutionEvidenceSource } from "./execution-evidence-authority";
+
+export { PostgresDeviceSwitchRequestResolution } from "./postgres-switch-request-resolution";
+
+export { PostgresTargetBootstrapControl } from "./postgres-target-bootstrap-control";

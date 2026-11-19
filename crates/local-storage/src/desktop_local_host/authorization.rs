@@ -16,7 +16,7 @@ impl DesktopLocalHost {
         self.status_snapshot().authorization
     }
 
-    /// Accepts the strict v4 role exchange. Native custody persists authority floors before
+    /// Accepts the strict v5 role exchange. Native custody persists authority floors before
     /// publication; Standby never acquires execution authority or creates an empty replica.
     ///
     /// # Errors
@@ -58,6 +58,7 @@ impl DesktopLocalHost {
             .runtime_state
             .lock()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        self.invalidate_execution_context()?;
         let custody = if let Some(custody) = self.production_custody.as_ref() {
             Some(custody.lock().map_err(|_| {
                 self.abort_transition(
@@ -79,7 +80,6 @@ impl DesktopLocalHost {
                     DesktopLocalHostError::Unavailable,
                 ));
             }
-            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             {
                 None
@@ -105,7 +105,6 @@ impl DesktopLocalHost {
                 )
             })?
         } else {
-            #[cfg_attr(not(unix), cfg(any()))]
             #[cfg(test)]
             {
                 authority
@@ -392,6 +391,21 @@ impl DesktopLocalHost {
             .runtime_state
             .lock()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        self.invalidate_execution_context()?;
+        if let Some(custody) = &self.production_custody {
+            let custody = custody
+                .lock()
+                .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+            if let Some(mut record) = custody
+                .load_authorization_record()
+                .map_err(|_| DesktopLocalHostError::StorageRejected)?
+            {
+                record.execution_anchor = None;
+                custody
+                    .store_authorization_record(&record)
+                    .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+            }
+        }
         match restriction {
             RuntimeRestriction::CommercialReadOnly => {
                 let now = current_unix_seconds().map_err(|_| {

@@ -84,6 +84,7 @@ pub(crate) struct DrainStreamClaim {
 
 impl DrainStreamClaim {
     /// An empty stream: sequence 0 at the genesis digest (ADR-0032 decision 2).
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             last_assigned_sequence: 0,
@@ -414,18 +415,60 @@ fn drain_envelope(
         .map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 
+pub(super) fn install_handoff_barrier(
+    transaction: &rusqlite::Connection,
+    workspace_id: &str,
+    device_switch_request_id: &str,
+    source_device_id: &str,
+    epoch: i64,
+    began_at: &str,
+) -> Result<(), BusinessDatabaseError> {
+    transaction
+            .execute(
+                "INSERT INTO device_handoff_barriers
+                 (workspace_id, device_switch_request_id, began_at, active_lease_epoch, source_device_id, frozen_unresolved_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, (SELECT count(*) FROM afternic_delist_effective_attempts a JOIN device_execution_fact_outbox f ON f.workspace_id=a.workspace_id AND f.operation_id=a.operation_id AND f.item_id=a.item_id AND f.attempt_number=a.attempt_number WHERE a.workspace_id=?1 AND a.effective_status IN ('running','outcome_unknown') AND f.source_device_id=?5 AND f.active_lease_epoch=?4)) ON CONFLICT (workspace_id) DO NOTHING",
+                params![workspace_id, device_switch_request_id, began_at, epoch,source_device_id],
+            )
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let held: (String, Option<i64>, Option<String>) = transaction
+            .query_row(
+                "SELECT device_switch_request_id, active_lease_epoch, source_device_id FROM device_handoff_barriers
+                 WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if held
+        != (
+            device_switch_request_id.to_owned(),
+            Some(epoch),
+            Some(source_device_id.to_owned()),
+        )
+    {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    // This transaction serializes with every synchronous producer/result transaction.
+    // Running denotes a durable claim, never proof of send; freeze retains its unresolved state.
+    transaction.execute("UPDATE execution_evidence_stream_heads SET producer_state='frozen' WHERE workspace_id=?1 AND source_device_id=?2 AND active_lease_epoch=?3 AND producer_state='open'",params![workspace_id,source_device_id,epoch]).map_err(|_|BusinessDatabaseError::StorageRejected)?;
+    Ok(())
+}
+
 impl BusinessDatabase {
     /// Closes local mutation admission for one device switch under the Lease epoch it drains
     /// (ADR-0032 S2b, S2d). Idempotent for the same switch and epoch; a barrier left by another
     /// switch must be cleared first. Writers that try to assign a device sequence or add an Outbox
     /// row afterwards fail inside SQLite.
-    pub(crate) fn begin_device_handoff_barrier(
+    pub(crate) fn begin_device_handoff_barrier_for_source(
         &mut self,
         device_switch_request_id: &str,
+        source_device_id: &str,
         active_lease_epoch: u64,
         began_at: &str,
         pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
+        super::validate_identifier(source_device_id)
+            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         if !(1..=MAX_SAFE_INTEGER).contains(&active_lease_epoch) {
             return Err(BusinessDatabaseError::InvalidInput);
         }
@@ -437,25 +480,14 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        transaction
-            .execute(
-                "INSERT INTO device_handoff_barriers
-                 (workspace_id, device_switch_request_id, began_at, active_lease_epoch)
-                 VALUES (?1, ?2, ?3, ?4) ON CONFLICT (workspace_id) DO NOTHING",
-                params![workspace_id, device_switch_request_id, began_at, epoch],
-            )
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let held: (String, Option<i64>) = transaction
-            .query_row(
-                "SELECT device_switch_request_id, active_lease_epoch FROM device_handoff_barriers
-                 WHERE workspace_id = ?1",
-                params![workspace_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if held != (device_switch_request_id.to_owned(), Some(epoch)) {
-            return Err(BusinessDatabaseError::MutationConflict);
-        }
+        install_handoff_barrier(
+            &transaction,
+            &workspace_id,
+            device_switch_request_id,
+            source_device_id,
+            epoch,
+            began_at,
+        )?;
         pre_commit_guard()?;
         transaction
             .commit()
@@ -490,9 +522,11 @@ impl BusinessDatabase {
 
     /// Reopens local mutation admission after cancellation/failure before source release.
     /// Clearing another switch's barrier is refused; clearing an absent barrier is a no-op.
-    pub(crate) fn clear_device_handoff_barrier(
+    pub(crate) fn clear_device_handoff_barrier_for_source(
         &mut self,
         device_switch_request_id: &str,
+        source_device_id: &str,
+        active_lease_epoch: u64,
         pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
         if self
@@ -506,9 +540,13 @@ impl BusinessDatabase {
             Some(held) if held.device_switch_request_id != device_switch_request_id => {
                 Err(BusinessDatabaseError::MutationConflict)
             }
-            Some(_) => {
-                self.delete_device_handoff_barrier(device_switch_request_id, pre_commit_guard)
-            }
+            Some(held) if held.active_lease_epoch == Some(active_lease_epoch) => self
+                .delete_device_handoff_barrier(
+                    device_switch_request_id,
+                    Some((source_device_id, active_lease_epoch)),
+                    pre_commit_guard,
+                ),
+            Some(_) => Err(BusinessDatabaseError::MutationConflict),
         }
     }
 
@@ -529,6 +567,7 @@ impl BusinessDatabase {
             {
                 self.delete_device_handoff_barrier(
                     &held.device_switch_request_id,
+                    None,
                     pre_commit_guard,
                 )?;
                 Ok(true)
@@ -540,6 +579,7 @@ impl BusinessDatabase {
     fn delete_device_handoff_barrier(
         &mut self,
         device_switch_request_id: &str,
+        reopen: Option<(&str, u64)>,
         pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
         let tx = self
@@ -547,8 +587,17 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if let Some((source, epoch)) = reopen {
+            let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM device_handoff_barriers b WHERE b.workspace_id=?1 AND b.device_switch_request_id=?2 AND (b.source_device_id=?3 OR (b.source_device_id IS NULL AND NOT EXISTS(SELECT 1 FROM execution_evidence_stream_heads h WHERE h.workspace_id=b.workspace_id AND h.active_lease_epoch=b.active_lease_epoch))) AND b.active_lease_epoch=?4 AND NOT EXISTS(SELECT 1 FROM normal_handoff_receipts r WHERE r.workspace_id=b.workspace_id AND r.request_id=b.device_switch_request_id))",params![self.workspace_id,device_switch_request_id,source,i64::try_from(epoch).map_err(|_|BusinessDatabaseError::InvalidInput)?],|r|r.get(0)).map_err(|_|BusinessDatabaseError::StorageRejected)?;
+            if !valid {
+                return Err(BusinessDatabaseError::MutationConflict);
+            }
+        }
         tx.execute("DELETE FROM device_handoff_barriers WHERE workspace_id=?1 AND device_switch_request_id=?2",
             params![self.workspace_id, device_switch_request_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if let Some((source, epoch)) = reopen {
+            tx.execute("UPDATE execution_evidence_stream_heads SET producer_state='open',admission_generation=admission_generation+1 WHERE workspace_id=?1 AND source_device_id=?2 AND active_lease_epoch=?3 AND producer_state='frozen'",params![self.workspace_id,source,i64::try_from(epoch).map_err(|_|BusinessDatabaseError::InvalidInput)?]).map_err(|_|BusinessDatabaseError::StorageRejected)?;
+        }
         pre_commit_guard()?;
         tx.commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)
@@ -892,16 +941,39 @@ fn load_drain_outbox_rows(
 }
 
 impl BusinessDatabase {
-    /// Temporary ADR-0032 refusal: delist attempts are durable execution/audit facts, including
-    /// queued and terminal history. Remove this refusal only when both real stream sources,
-    /// uploads and verified Cloud receipts feed the handoff proof; never substitute genesis.
+    /// Legacy unsigned attempts and any unacknowledged evidence remain a hard drain refusal.
     pub(crate) fn has_unexported_provider_handoff_facts(
         &self,
     ) -> Result<bool, BusinessDatabaseError> {
         self.store.raw_connection().query_row(
-            "SELECT EXISTS(SELECT 1 FROM operation_attempts a JOIN operation_plans p USING(workspace_id,plan_id) WHERE a.workspace_id=?1 AND p.operation_kind='afternic_delist')",
-            [&self.workspace_id], |row|row.get(0),
-        ).map_err(|_|BusinessDatabaseError::StorageRejected)
+            "SELECT EXISTS(SELECT 1 FROM operation_attempts a JOIN operation_plans p USING(workspace_id,plan_id) WHERE a.workspace_id=?1 AND p.operation_kind='afternic_delist' AND NOT EXISTS(SELECT 1 FROM afternic_delist_item_authorizations i WHERE i.workspace_id=a.workspace_id AND i.operation_id=a.operation_id AND i.item_id=a.item_id AND i.attempt_number=a.attempt_number))
+             OR EXISTS(SELECT 1 FROM workspace_device_audit_outbox a WHERE a.workspace_id=?1 AND NOT EXISTS(SELECT 1 FROM execution_evidence_receipts r WHERE r.workspace_id=a.workspace_id AND r.source_device_id=a.source_device_id AND r.active_lease_epoch=a.active_lease_epoch AND r.stream='device_audit' AND r.sequence=a.audit_sequence AND r.event_id=a.audit_event_id AND r.envelope_digest=a.envelope_digest AND r.outcome='accepted'))
+             OR EXISTS(SELECT 1 FROM device_execution_fact_outbox f WHERE f.workspace_id=?1 AND NOT EXISTS(SELECT 1 FROM execution_evidence_receipts r WHERE r.workspace_id=f.workspace_id AND r.source_device_id=f.source_device_id AND r.active_lease_epoch=f.active_lease_epoch AND r.stream='execution_fact' AND r.sequence=f.execution_fact_sequence AND r.event_id=f.execution_fact_id AND r.envelope_digest=f.envelope_digest AND r.outcome='accepted'))",
+            [&self.workspace_id],|r|r.get(0)).map_err(|_|BusinessDatabaseError::StorageRejected)
+    }
+}
+
+#[cfg(test)]
+impl BusinessDatabase {
+    pub(crate) fn begin_device_handoff_barrier(
+        &mut self,
+        request: &str,
+        epoch: u64,
+        at: &str,
+        guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<(), BusinessDatabaseError> {
+        self.begin_device_handoff_barrier_for_source(request, "device-test", epoch, at, guard)
+    }
+    pub(crate) fn clear_device_handoff_barrier(
+        &mut self,
+        request: &str,
+        guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<(), BusinessDatabaseError> {
+        let epoch = self
+            .device_handoff_barrier()?
+            .and_then(|b| b.active_lease_epoch)
+            .unwrap_or(1);
+        self.clear_device_handoff_barrier_for_source(request, "device-test", epoch, guard)
     }
 }
 

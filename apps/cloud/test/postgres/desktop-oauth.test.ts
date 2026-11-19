@@ -1,3 +1,26 @@
+import { PostgresBootstrapActivation } from "../../src/modules/devices/postgres-bootstrap-activation";
+import { PostgresDeviceCursorRepository } from "../../src/modules/workspace/cursors/index";
+import { PostgresWorkspaceRevisionRepository } from "../../src/modules/workspace/revisions/index";
+import { PostgresBootstrapStepService } from "../../src/modules/devices/postgres-bootstrap-step-service";
+import { BootstrapCapabilityVerifier, BOOTSTRAP_CAPABILITY_KEY_PURPOSE } from "../../src/modules/devices/bootstrap-capability-verifier";
+import { bootstrapStepRequestSchema, encodeBootstrapStepRequestDigestInput, encodeBootstrapCapabilitySignatureTranscript, encodeBootstrapCapabilitySignedEnvelope } from "@gooddealer/protocol/devices";
+import { PostgresDeviceSwitchDrain, PostgresDeviceDrainTransition } from "../../src/modules/devices/index";
+import { PostgresMutationDrainLedger } from "../../src/modules/workspace/mutations/index";
+import { PostgresExecutionFactDrainLedger } from "../../src/modules/execution-ledger/index";
+import { PostgresWorkspaceDeviceAuditDrainLedger } from "../../src/modules/audit/index";
+import { signedHandoffDrainProof } from "../support/drain-proof";
+import { DRAIN_STREAM_GENESIS_DIGEST } from "@gooddealer/protocol/execution-events";
+import { PostgresTargetBootstrapControl } from "../../src/modules/devices/postgres-target-bootstrap-control";
+import { PostgresDeviceSwitchRequestResolution } from "../../src/modules/devices/postgres-switch-request-resolution";
+import { PostgresExecutionEvidenceAuthority } from "../../src/modules/devices/execution-evidence-authority";
+import { PostgresDeviceAuditEvidenceReader, PostgresDeviceAuditEvidenceService } from "../../src/modules/audit/index";
+import { PostgresExecutionFactEvidenceReader, PostgresExecutionFactEvidenceService } from "../../src/modules/execution-ledger/index";
+import { encodeAfternicLocalDispatchKeyDigestInput,encodeAfternicDelistItemApprovalSignatureTranscript,encodeAfternicDelistItemApprovalEnvelope,encodeAfternicDelistItemApprovalJson,encodeDeviceAuditEventSignatureTranscript,encodeDeviceAuditEventHashInput,encodeExecutionFactSignatureTranscript,encodeWorkspaceDeviceAuditChainDomain,encodeDrainStreamEnvelope,deviceAuditIngestRequestSchema,executionFactIngestRequestSchema } from "@gooddealer/protocol/execution-events";
+import { PostgresHistoricalExecutionContext } from "../../src/modules/devices/historical-execution-context";
+import { readFileSync } from "node:fs";
+import { DesktopExecutionContextIssuer, type DesktopExecutionContextSigner } from "../../src/modules/devices/execution-context-issuer";
+import { PostgresDesktopExecutionContextService } from "../../src/modules/devices/postgres-execution-context";
+import { encodeDesktopExecutionContextSignatureTranscript, encodeDesktopExecutionAuthorizationDigestInput, encodeDesktopExecutionContextEnvelope } from "@gooddealer/protocol/devices";
 import { PostgresDesktopSyncAuthority, PostgresDesktopRouteAuthority } from "../../src/modules/devices/postgres-sync-authority";
 import { DesktopStandbyGrantIssuer, type DesktopStandbyGrantSigner } from "../../src/modules/devices/standby-grant-issuer";
 import { standbyGrantSigner } from "../support/standby-grant";
@@ -15,6 +38,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AccountTransactionRunner,
+  type AccountTransaction,
   TenantTransactionRunner,
   IdentityCapabilityTransactionRunner,
   PreAuthEmailTransactionRunner,
@@ -143,6 +167,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  await ownerPool.query("TRUNCATE workspace_device_audit_drain_records,workspace_device_audit_drain_heads,workspace_device_audit_drain_seals,audit_execution_evidence_quarantines,execution_fact_drain_records,execution_fact_drain_heads,execution_fact_drain_seals,execution_fact_evidence_quarantines CASCADE");
+  await ownerPool.query("TRUNCATE workspace_device_cursors CASCADE");
   await ownerPool.query("DELETE FROM workspace_revisions WHERE account_id = 'oauth-account'");
   await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
     identity_desktop_authorization_codes, identity_credential_jtis,
@@ -186,6 +212,620 @@ beforeEach(async () => {
 afterAll(async () => Promise.all([
   ownerPool.end(), appPool.end(), accountApiPool.end(), issuerPool.end(),
 ]));
+
+describe("PostgreSQL target bootstrap termination", () => {
+  const lookup = { schemaVersion: 1, requestId: "switch-guard" };
+  const control = (checkpoints = new PostgresBootstrapCheckpointPort()) => new PostgresTargetBootstrapControl(
+    identityTransactions, new PostgresDefaultWorkspaceTenantResolver(identityTransactions), checkpoints,
+  );
+  async function fixture(withPin = true) {
+    const source = await desktopGrantPrincipal();
+    const target = await loginStandbyDevice();
+    await seedExpiredBootstrap(withPin);
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET expires_at=clock_timestamp()+interval '1 hour'");
+    return { source, target: target.principal, service: control() };
+  }
+  const scope = {accountId:"oauth-account",workspaceId:"oauth-workspace"};
+  const canonicalTime = (at: number) => new Date(at).toISOString().replace(/\.\d{3}Z$/u,"Z");
+  function gate() {
+    let entered!: () => void; let proceed!: () => void;
+    const ready = new Promise<void>(resolve => {entered=resolve;});
+    const resumed = new Promise<void>(resolve => {proceed=resolve;});
+    return {ready,proceed,async hold(){entered();await resumed;}};
+  }
+  function blockedControl(barrier: ReturnType<typeof gate>, delayUntilExpired = false) {
+    const real=new PostgresBootstrapCheckpointPort();
+    return new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),{
+      async release(tx,id){await real.release(tx,id);if(delayUntilExpired)await tx.query("SELECT pg_sleep(0.6)");await barrier.hold();},
+    });
+  }
+  async function signedCapability() {
+    const pair=generateKeyPairSync("ed25519");
+    const issuedAt=canonicalTime(Date.now()-60000),expiresAt=canonicalTime(Date.now()+3600000);
+    const draft={schemaVersion:1 as const,typ:"gd.bootstrap-capability.v1" as const,
+      iss:"https://accounts.gooddealer.com" as const,aud:"gooddealer-desktop/bootstrap" as const,
+      kid:"target-control-test",accountId:scope.accountId,deviceId:"device-b",accountSecurityEpoch:1,
+      jti:"expiry-cap",issuedAt,expiresAt,payload:{deviceSwitchRequestId:"switch-guard"},signature:Buffer.alloc(64).toString("base64url")};
+    const envelope={...draft,signature:sign(null,encodeBootstrapCapabilitySignatureTranscript(draft),pair.privateKey).toString("base64url")};
+    const canonical=Buffer.from(encodeBootstrapCapabilitySignedEnvelope(envelope));
+    await ownerPool.query(`UPDATE device_bootstrap_capabilities SET issued_at=$1,expires_at=$2,
+      canonical_signed_envelope=$3,signed_envelope_digest=$4,signing_key_id=$5,ready_at=clock_timestamp()`,
+      [issuedAt,expiresAt,canonical,createHash("sha256").update(canonical).digest(),envelope.kid]);
+    return {envelope,expected:{accountId:scope.accountId,deviceId:"device-b",accountSecurityEpoch:1,jti:envelope.jti,
+      deviceSwitchRequestId:"switch-guard",issuedAt,expiresAt,evaluatedAt:canonicalTime(Date.now())},
+      verifier:new BootstrapCapabilityVerifier({async findVerificationKey(input){return input.purpose===BOOTSTRAP_CAPABILITY_KEY_PURPOSE&&input.kid===envelope.kid?pair.publicKey:null;}})};
+  }
+  async function activationFixture() {
+    const f=await fixture();await signedCapability();
+    await ownerPool.query(`UPDATE device_bootstrap_step_nonces SET state='consumed',consumed_at=clock_timestamp();
+      UPDATE device_bootstrap_authorities SET next_step_kind=NULL,next_nonce_digest=NULL,next_step_number=4,
+        pin_expires_at=clock_timestamp()+interval '1 hour',verified_entity_digests='verified-digests'::bytea,verified_rebuild_digest=sha256('rebuild'::bytea);
+      UPDATE workspace_checkpoint_pins SET expires_at=clock_timestamp()+interval '1 hour'`);
+    const activation=(signer=leaseSigner)=>new PostgresBootstrapActivation({transactions:new TenantTransactionRunner(appPool),
+      accountSecurity:new PostgresIdentityAccountSecurityStatePort(),
+      // Fixture commercial approval and signer exercise actual transaction effects, not production activation qualification.
+      entitlement:{async lockCurrent(){return {active:true,entitlementDeadline:canonicalTime(Date.now()+86400000)};}},
+      checkpoints:new PostgresBootstrapCheckpointPort(),cursors:new PostgresDeviceCursorRepository(),signer});
+    return {...f,activation,input:{...scope,workflowId:"switch-guard",expectedWorkflowRevision:1}};
+  }
+  it("discovers only the exact target and terminates all authority without granting a Lease", async () => {
+    const f = await fixture();
+    await expect(f.service.status({schemaVersion:1,requestId:null},f.source)).resolves.toEqual({schemaVersion:1,found:false});
+    await expect(f.service.cancel(lookup,f.source)).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_FOUND"});
+    await expect(f.service.status(lookup,{...f.target,accountId:"foreign-account"})).resolves.toBeNull();
+    await expect(f.service.status({...lookup,deviceId:"device-b"},f.target)).rejects.toThrow();
+    await expect(f.service.status({schemaVersion:1,requestId:null},f.target)).resolves.toMatchObject({found:true,request:{requestId:"switch-guard",status:"bootstrapping",toDeviceId:"device-b"}});
+    const cancelled = await f.service.cancel(lookup,f.target);
+    expect(cancelled).toMatchObject({accepted:true,request:{status:"cancelled",normalHandoffReceipt:null}});
+    expect(await expiryState()).toMatchObject({workflow:"cancelled",pending:null,revision:"2",allocation:"burned",consumed:"cancelled",highest:"2",current:"1",held:"0"});
+    expect((await ownerPool.query(`SELECT
+      (SELECT released_at IS NOT NULL FROM workspace_checkpoint_pins WHERE consumer_id='switch-guard') AS released,
+      (SELECT state FROM device_bootstrap_step_nonces WHERE workflow_id='switch-guard') AS nonce,
+      (SELECT next_step_kind FROM device_bootstrap_authorities WHERE workflow_id='switch-guard') AS next`)).rows).toEqual([{released:true,nonce:"consumed",next:null}]);
+    expect(await f.service.cancel(lookup,f.target)).toEqual(cancelled);
+    await expect(f.service.status({schemaVersion:1,requestId:null},f.target)).resolves.toEqual({schemaVersion:1,found:false});
+    await expect(f.service.status(lookup,f.target)).resolves.toMatchObject({found:true,request:{status:"cancelled"}});
+  });
+  it("preserves a real normal handoff receipt, source release and three seals after target cancellation",async()=>{
+    const sourcePrincipal=await desktopGrantPrincipal();const target=await loginStandbyDevice();
+    const txs=new TenantTransactionRunner(appPool);const security=new PostgresIdentityAccountSecurityStatePort();
+    const requests=new PostgresDeviceSwitchRequests({transactions:txs,accountSecurity:security});
+    const source={accountId:"oauth-account",workspaceId:"oauth-workspace",deviceId:"device-a"};
+    const opened=await requests.requestNormal(source,{toDeviceId:"device-b",idempotencyKey:"real-target-cancel",expectedSourceLeaseEpoch:1});
+    if(opened===null||!opened.accepted)throw new Error("switch refused");
+    const drains=new PostgresDeviceSwitchDrain({transactions:txs,requests,transition:new PostgresDeviceDrainTransition(txs,security,new PostgresMutationDrainLedger(),new PostgresExecutionFactDrainLedger(),new PostgresWorkspaceDeviceAuditDrainLedger())});
+    const now=Date.now();const stamp=(at:number)=>new Date(at).toISOString().replace(/\.\d{3}Z$/u,"Z");
+    const proof=signedHandoffDrainProof(deviceKeyPair.privateKey,{workspaceId:"oauth-workspace",sourceDeviceId:"device-a",signingKeyId:"device-key-a",deviceSwitchRequestId:opened.request.requestId,issuedAt:stamp(now),expiresAt:stamp(now+300000),streams:["mutation","execution_fact","device_audit"].map(stream=>({stream,lastAssignedSequence:0,contiguousReceivedThrough:0,pendingCount:0,rollingDigest:DRAIN_STREAM_GENESIS_DIGEST}))});
+    const handoff=await drains.submit(source,opened.request.requestId,proof);
+    expect(handoff).toMatchObject({accepted:true,request:{status:"bootstrapping",normalHandoffReceipt:{sourceLeaseEpoch:1}}});
+    if(handoff===null||!handoff.accepted)throw new Error("drain refused");
+    const query={schemaVersion:1,requestId:opened.request.requestId};
+    const service=control();const cancelled=await service.cancel(query,target.principal);
+    expect(cancelled).toMatchObject({accepted:true,request:{status:"cancelled",normalHandoffReceipt:handoff.request.normalHandoffReceipt}});
+    await expect(service.status(query,sourcePrincipal)).resolves.toEqual({schemaVersion:1,found:false});
+    expect((await ownerPool.query(`SELECT
+      (SELECT count(*) FROM mutation_drain_seals)::text AS mutations,
+      (SELECT count(*) FROM execution_fact_drain_seals)::text AS facts,
+      (SELECT count(*) FROM workspace_device_audit_drain_seals)::text AS audits,
+      (SELECT count(*) FROM device_drain_proofs WHERE consumed_at IS NOT NULL)::text AS proofs,
+      (SELECT release_reason FROM device_active_leases WHERE lease_epoch=1) AS release,
+      (SELECT highest_allocated_lease_epoch FROM device_account_states)::text AS highest`)).rows).toEqual([{mutations:"1",facts:"1",audits:"1",proofs:"1",release:"normal_handoff",highest:"2"}]);
+  });
+  it("keeps the login allocation drain exception bound to its activated default workspace and exact epoch",async()=>{
+    await desktopGrantPrincipal();
+    const txs=new TenantTransactionRunner(appPool);
+    const lock=(workspaceId="oauth-workspace",deviceId="device-a",epoch=1)=>txs.withTenant({...scope,workspaceId},tx=>tx.query("SELECT workspace_mutation_drain_lock_domain($1,$2)",[deviceId,epoch]));
+    await expect(lock()).resolves.toBeDefined();
+    await expect(lock("foreign-workspace")).rejects.toMatchObject({code:"42501"});
+    await expect(lock("oauth-workspace","device-b")).rejects.toMatchObject({code:"42501"});
+    await expect(lock("oauth-workspace","device-a",2)).rejects.toMatchObject({code:"42501"});
+    await ownerPool.query("INSERT INTO workspace_workspaces(workspace_id,account_id,kind,name) VALUES ('nondefault-workspace','oauth-account','personal','Unbound workspace')");
+    await expect(lock("nondefault-workspace")).rejects.toMatchObject({code:"42501"});
+    await ownerPool.query("UPDATE device_lease_epoch_allocations SET status='burned'");
+    await expect(lock()).rejects.toMatchObject({code:"42501"});
+    // SQL's purpose/selector constraint must still prohibit disguising a NULL-workspace switch allocation as login.
+    await expect(ownerPool.query("UPDATE device_lease_epoch_allocations SET allocation_source='device_switch'")).rejects.toMatchObject({code:"23514"});
+  });
+  it.each(["activation","cancel"] as const)("serializes activation against cancellation when %s owns the account first",async(winner)=>{
+    const f=await activationFixture();const barrier=gate();
+    if(winner==="activation"){
+      const activating=f.activation({async sign(input){await barrier.hold();return leaseSigner.sign(input);}}).activate(f.input);
+      await barrier.ready;const cancelling=f.service.cancel(lookup,f.target);barrier.proceed();
+      await expect(activating).resolves.toMatchObject({installed:true});
+      await expect(cancelling).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
+      expect(await expiryState()).toMatchObject({workflow:"completed",allocation:"activated",current:"2",highest:"2",held:"1",consumed:"activated"});
+    }else{
+      const cancelling=blockedControl(barrier).cancel(lookup,f.target);await barrier.ready;
+      const activating=f.activation().activate(f.input);barrier.proceed();
+      await expect(cancelling).resolves.toMatchObject({accepted:true,request:{status:"cancelled"}});
+      await expect(activating).resolves.toEqual({installed:false,code:"ACTIVATION_CONFLICT"});
+      expect(await expiryState()).toMatchObject({workflow:"cancelled",allocation:"burned",current:"1",highest:"2",held:"0"});
+    }
+  });
+  it.each(["expiry","cancel"] as const)("serializes expiry against cancellation when %s owns the account first",async(winner)=>{
+    const f=await fixture();await ownerPool.query(`UPDATE device_bootstrap_capabilities SET expires_at=clock_timestamp()+interval '${winner==="expiry"?"-1 second":"500 milliseconds"}'`);
+    const barrier=gate(),real=new PostgresBootstrapCheckpointPort();
+    const expirer=new PostgresExpiredDeviceBootstrap({workspaces:new PostgresDefaultWorkspaceTenantResolver(transactions),
+      checkpoints:{async release(tx,id){await real.release(tx,id);if(winner==="expiry")await barrier.hold();}}});
+    const expire=()=>transactions.withAccount(scope.accountId,async tx=>{
+      await tx.query("SELECT 1 FROM identity_account_security_states WHERE account_id=$1 FOR UPDATE",[scope.accountId]);
+      await tx.query("SELECT 1 FROM device_account_states WHERE account_id=$1 FOR UPDATE",[scope.accountId]);
+      return expirer.expireLocked(tx);
+    });
+    if(winner==="expiry"){
+      const expiring=expire();await barrier.ready;const cancelling=f.service.cancel(lookup,f.target);barrier.proceed();
+      await expect(expiring).resolves.toBe(true);await expect(cancelling).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
+    }else{
+      const cancelling=blockedControl(barrier,true).cancel(lookup,f.target);await barrier.ready;const expiring=expire();barrier.proceed();
+      await expect(cancelling).resolves.toMatchObject({accepted:true});await expect(expiring).resolves.toBe(true);
+    }
+    expect(await expiryState()).toMatchObject({workflow:winner==="expiry"?"failed":"cancelled",allocation:"burned",revision:"2",highest:"2",held:"0"});
+  });
+  it.each(["step","cancel"] as const)("serializes a valid signed bootstrap step against cancellation when %s owns the account first",async(winner)=>{
+    const f=await fixture();const capability=await signedCapability();const barrier=gate();
+    const nonce=Buffer.alloc(32,31).toString("base64url");
+    const nonceDigest=createHash("sha256").update(encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-NONCE-V1",nonce)).digest();
+    await ownerPool.query(`DELETE FROM device_bootstrap_step_nonces;
+      UPDATE device_bootstrap_authorities SET next_step_kind='pin_checkpoint',next_step_number=1,
+      pin_expires_at=clock_timestamp()+interval '1 hour'`);
+    await ownerPool.query("UPDATE device_bootstrap_authorities SET next_nonce_digest=$1",[nonceDigest]);
+    await ownerPool.query(`INSERT INTO device_bootstrap_step_nonces (nonce_digest,account_id,workspace_id,workflow_id,step_number,state)
+      VALUES ($1,'oauth-account','oauth-workspace','switch-guard',1,'active')`,[nonceDigest]);
+    const real=new PostgresBootstrapCheckpointPort();
+    const step=new PostgresBootstrapStepService({transactions:new TenantTransactionRunner(appPool),verifier:capability.verifier,
+      accountSecurity:new PostgresIdentityAccountSecurityStatePort(),revisions:new PostgresWorkspaceRevisionRepository(),
+      checkpoints:{async lockAvailableAndPin(tx,input){const pinned=await real.lockAvailableAndPin(tx,input);if(winner==="step")await barrier.hold();return pinned;},release:real.release.bind(real)},
+      mutations:{async readDensePage(){throw new Error("pin must not read mutations");}},projection:{async readEntityDigestsAt(){throw new Error("pin must not read projection");}}});
+    const draft={schemaVersion:1,deviceSwitchRequestId:"switch-guard",capabilityJti:"expiry-cap",stepNumber:1,stepNonce:nonce,
+      expectedWorkflowRevision:1,stepKind:"pin_checkpoint",stepPayload:{checkpointId:"expiry-checkpoint",checkpointThroughServerRevision:0,
+      checkpointDigest:createHash("sha256").update("checkpoint").digest("base64url")},requestDigest:Buffer.alloc(32).toString("base64url")};
+    const request=bootstrapStepRequestSchema.parse({...draft,requestDigest:createHash("sha256").update(encodeBootstrapStepRequestDigestInput(draft)).digest("base64url")});
+    const execute=()=>step.execute({scope,expectedCapability:capability.expected,capability:capability.envelope,request});
+    if(winner==="step"){
+      const stepping=execute();await barrier.ready;const cancelling=f.service.cancel(lookup,f.target);barrier.proceed();
+      await expect(stepping).resolves.toMatchObject({accepted:true,replay:false});
+      await expect(cancelling).resolves.toMatchObject({accepted:true,request:{status:"cancelled"}});
+    }else{
+      const cancelling=blockedControl(barrier).cancel(lookup,f.target);await barrier.ready;const stepping=execute();barrier.proceed();
+      await expect(cancelling).resolves.toMatchObject({accepted:true});
+      await expect(stepping).resolves.toEqual({accepted:false,code:"BOOTSTRAP_CONFLICT"});
+    }
+    await expect(execute()).resolves.toEqual({accepted:false,code:"BOOTSTRAP_CONFLICT"});
+    expect((await ownerPool.query(`SELECT
+      (SELECT count(*) FROM device_bootstrap_step_nonces WHERE state='active')::text AS active,
+      (SELECT count(*) FROM workspace_checkpoint_pins WHERE released_at IS NULL)::text AS pins,
+      (SELECT count(*) FROM device_bootstrap_steps)::text AS steps`)).rows).toEqual([{active:"0",pins:"0",steps:winner==="step"?"1":"0"}]);
+    expect(await expiryState()).toMatchObject({workflow:"cancelled",allocation:"burned",revision:winner==="step"?"3":"2",held:"0"});
+  });
+  it("replays an old cancelled id without touching a later bootstrap reservation",async()=>{
+    const f=await fixture();const cancelled=await f.service.cancel(lookup,f.target);
+    await ownerPool.query(`INSERT INTO device_switch_workflows
+      (account_id,workspace_id,workflow_id,purpose,mode,request_digest,idempotency_key,status,workflow_revision,
+       from_device_id,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,pending_lease_epoch,state_deadline)
+      SELECT account_id,workspace_id,'later-switch',purpose,mode,request_digest,'later-key','bootstrapping',1,
+       from_device_id,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,3,state_deadline
+       FROM device_switch_workflows WHERE workflow_id='switch-guard';
+      INSERT INTO device_lease_epoch_allocations (account_id,workspace_id,workflow_id,lease_epoch,status)
+       VALUES ('oauth-account','oauth-workspace','later-switch',3,'pending');
+      INSERT INTO device_bootstrap_capabilities (account_id,workspace_id,workflow_id,jti,target_device_id,issued_at,expires_at)
+       VALUES ('oauth-account','oauth-workspace','later-switch','later-cap','device-b',clock_timestamp(),clock_timestamp()+interval '1 hour');
+      UPDATE device_account_states SET highest_allocated_lease_epoch=3`);
+    await expect(f.service.cancel(lookup,f.target)).resolves.toEqual(cancelled);
+    await expect(f.service.status({schemaVersion:1,requestId:null},f.target)).resolves.toMatchObject({found:true,request:{requestId:"later-switch",status:"bootstrapping"}});
+    expect((await ownerPool.query(`SELECT w.status,a.status AS allocation,c.consumed_at FROM device_switch_workflows w
+      JOIN device_lease_epoch_allocations a USING(account_id,workspace_id,workflow_id)
+      JOIN device_bootstrap_capabilities c USING(account_id,workspace_id,workflow_id) WHERE w.workflow_id='later-switch'`)).rows).toEqual([{status:"bootstrapping",allocation:"pending",consumed_at:null}]);
+  });
+  it("refuses inconsistent pending authority without changing reservations",async()=>{
+    const f=await fixture();await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch=3");
+    await expect(f.service.cancel(lookup,f.target)).resolves.toBeNull();
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1"});
+    await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch=2; UPDATE device_bootstrap_authorities SET target_device_id='device-a'");
+    await expect(f.service.cancel(lookup,f.target)).resolves.toMatchObject({accepted:false,code:"SWITCH_NOT_CANCELLABLE"});
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1"});
+  });
+  it("rolls back the terminal write when the exact target session expires before the final fence",async()=>{
+    const f=await fixture();const real=new PostgresBootstrapCheckpointPort();
+    await ownerPool.query("UPDATE identity_auth_sessions SET expires_at=clock_timestamp()+interval '500 milliseconds' WHERE session_id=$1",[f.target.sessionId]);
+    const delayed=new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),{
+      async release(tx,id){await real.release(tx,id);await tx.query("SELECT pg_sleep(0.6)");},
+    });
+    await expect(delayed.cancel(lookup,f.target)).resolves.toBeNull();
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1"});
+    expect((await ownerPool.query("SELECT released_at FROM workspace_checkpoint_pins")).rows).toEqual([{released_at:null}]);
+  });
+  it("serializes duplicate target cancellations and never changes the terminal revision twice",async()=>{
+    const f=await fixture();const results=await Promise.all([f.service.cancel(lookup,f.target),f.service.cancel(lookup,f.target)]);
+    expect(results[0]).toMatchObject({accepted:true,request:{status:"cancelled"}});expect(results[1]).toEqual(results[0]);
+    expect(await expiryState()).toMatchObject({revision:"2",allocation:"burned",highest:"2",held:"0"});
+  });
+  it("allows the target to cancel before capability claim creates an authority row",async()=>{
+    const f=await fixture(false);
+    await expect(f.service.cancel(lookup,f.target)).resolves.toMatchObject({accepted:true,request:{status:"cancelled"}});
+    expect((await ownerPool.query("SELECT count(*) FROM device_bootstrap_authorities")).rows[0].count).toBe("0");
+  });
+  it("rolls back epoch, capability and nonce changes if checkpoint release fails",async()=>{
+    const f=await fixture();
+    const real=new PostgresBootstrapCheckpointPort();
+    const denied=new PostgresTargetBootstrapControl(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),{
+      async release(tx,id,checkpoint){await real.release(tx,id);throw new Error("fixture checkpoint failure");},
+    });
+    await expect(denied.cancel(lookup,f.target)).rejects.toThrow("fixture checkpoint failure");
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1",highest:"2",held:"0"});
+    expect((await ownerPool.query("SELECT released_at FROM workspace_checkpoint_pins")).rows).toEqual([{released_at:null}]);
+    await expect(f.service.cancel(lookup,f.target)).resolves.toMatchObject({accepted:true});
+  });
+  it("hides revoked target credentials and preserves every reservation",async()=>{
+    const f=await fixture();
+    await ownerPool.query("UPDATE identity_refresh_families SET state='revoked',revoked_at=clock_timestamp(),revocation_reason='fixture' WHERE session_id=$1",[f.target.sessionId]);
+    await expect(f.service.status(lookup,f.target)).resolves.toBeNull();
+    await expect(f.service.cancel(lookup,f.target)).resolves.toBeNull();
+    expect(await expiryState()).toMatchObject({workflow:"bootstrapping",allocation:"pending",consumed:null,revision:"1"});
+  });
+});
+
+describe("PostgreSQL execution context historical evidence", () => {
+  const contextPair = generateKeyPairSync("ed25519");
+  const contextSigner: DesktopExecutionContextSigner = { async sign(input) {
+    const draft = { ...input.claims, kid: "test-execution-context", signature: Buffer.alloc(64).toString("base64url") };
+    return { signed: true, envelope: { ...draft, signature: sign(null, encodeDesktopExecutionContextSignatureTranscript(draft), contextPair.privateKey).toString("base64url") }, verificationKey: contextPair.publicKey, receipt: Buffer.from("context-signing-receipt") };
+  } };
+  const contextService = (signer = contextSigner) => new PostgresDesktopExecutionContextService(identityTransactions,
+    new PostgresDefaultWorkspaceTenantResolver(identityTransactions), new DesktopAuthorizationGrantIssuer(grantSigner), leaseVerifier, new DesktopExecutionContextIssuer(signer));
+  const request = (n: number) => ({ schemaVersion: 1, nonce: Buffer.alloc(32,n).toString("base64url") });
+  const hash=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("base64url");
+  async function executionFixture(nonce=50){
+    if(nonce===50)await applyEntitlementState("active","evidence-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
+    const principal=await desktopGrantPrincipal();const response=await contextService().issue(request(nonce),principal);
+    if(response===null)throw new Error("context refused");const c=response.context;
+    const v=JSON.parse(readFileSync(new URL("../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json",import.meta.url),"utf8"));
+    // Distinct context fixtures retain each vector's internal UUID references without sharing event identities.
+    if(nonce!==50){
+      const replacements=new Map<string,string>();let sequence=1;
+      const remap=(value:unknown):unknown=>{
+        if(typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value)){
+          let replacement=replacements.get(value);if(replacement===undefined){replacement=`00000000-0000-4000-8000-${String(nonce*100+sequence++).padStart(12,"0")}`;replacements.set(value,replacement);}return replacement;
+        }
+        if(Array.isArray(value))return value.map(remap);
+        if(typeof value==="object"&&value!==null)return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,remap(item)]));
+        return value;
+      };
+      Object.assign(v,remap(v));
+    }
+    const base={accountId:c.accountId,workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch,credentialEpoch:c.credentialEpoch,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,trustedTimeAnchorId:hash(encodeDesktopExecutionContextEnvelope(c))};
+    const boundary=(delta:number)=>new Date(Date.parse(c.serverObservedAt)+1000+delta).toISOString().replace(".000Z","Z");
+    const approval={...v.approval,...base,authorizationHash:c.authorizationGrantDigest,approvedAt:boundary(1000)};
+    approval.deviceSignature=sign(null,encodeAfternicDelistItemApprovalSignatureTranscript(approval),deviceKeyPair.privateKey).toString("base64url");
+    const approvalDigest=hash(encodeAfternicDelistItemApprovalEnvelope(approval));
+    const audit=(draft:unknown)=>{
+      const event=deviceAuditIngestRequestSchema.parse({schemaVersion:1,event:draft}).event;
+      event.eventHash=hash(encodeDeviceAuditEventHashInput(event));event.deviceSignature=sign(null,encodeDeviceAuditEventSignatureTranscript(event),deviceKeyPair.privateKey).toString("base64url");return event;
+    };
+    const auditBase={...base,authorizationContextHash:c.authorizationGrantDigest,chainId:hash(encodeWorkspaceDeviceAuditChainDomain({workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch}))};
+    const approvalAudit=audit({...v.approvalAudit,...auditBase,occurredAt:boundary(1000)});
+    const claimAudit=audit({...v.claimAudit,...auditBase,occurredAt:boundary(2000),previousHash:approvalAudit.eventHash,payloadRedacted:{...v.claimAudit.payloadRedacted,approvalEnvelopeDigest:approvalDigest}});
+    const {accountId:_account,...factBase}=base;
+    const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash(encodeAfternicLocalDispatchKeyDigestInput({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(encodeAfternicDelistItemApprovalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
+    const signFact=(draft:typeof fact)=>({...draft,deviceSignature:sign(null,encodeExecutionFactSignatureTranscript(draft),deviceKeyPair.privateKey).toString("base64url")});
+    const authority=new PostgresExecutionEvidenceAuthority(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
+    const contexts=new PostgresHistoricalExecutionContext();
+    const audits=new PostgresDeviceAuditEvidenceService(authority,contexts,new PostgresExecutionFactEvidenceReader());
+    const facts=new PostgresExecutionFactEvidenceService(authority,contexts,new PostgresDeviceAuditEvidenceReader());
+    return {principal,response,approval,approvalAudit,claimAudit,fact:signFact(fact),audits,facts,signFact,audit,authority,contexts};
+  }
+  it("production evidence commits ordered approval/claim/fact and exact lost-response receipts",async()=>{
+    const f=await executionFixture();const upload=(event:unknown)=>f.audits.ingest({schemaVersion:1,event},f.principal);
+    const fact=()=>f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
+    await expect(fact()).resolves.toMatchObject({outcome:"pending",code:"APPROVAL_AUDIT_MISSING"});
+    await expect(upload(f.claimAudit)).resolves.toMatchObject({outcome:"pending",code:"PREDECESSOR_MISSING"});
+    await expect(upload(f.approvalAudit)).resolves.toMatchObject({outcome:"accepted"});
+    await expect(fact()).resolves.toMatchObject({outcome:"pending",code:"PAIRED_AUDIT_MISSING"});
+    await expect(upload(f.claimAudit)).resolves.toMatchObject({outcome:"accepted"});
+    const accepted=await fact();expect(accepted).toMatchObject({outcome:"accepted",receipt:{stream:"execution_fact",classification:"current"}});
+    expect(await fact()).toEqual(accepted);
+    const query={activeLeaseEpoch:f.fact.activeLeaseEpoch,sequence:f.fact.executionFactSequence,eventId:f.fact.executionFactId,envelopeDigest:hash(encodeDrainStreamEnvelope("execution_fact",f.fact))};
+    expect(await f.facts.receipts({schemaVersion:1,entries:[query,{...query,envelopeDigest:Buffer.alloc(32).toString("base64url")}]},f.principal)).toMatchObject({results:[{query,receipt:accepted?.outcome==="accepted"?accepted.receipt:null},{receipt:null}]});
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("1");
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_evidence_quarantines")).rows[0].count).toBe("0");
+  });
+  it("production evidence separates nonblocking invalid signatures from signed semantic violations",async()=>{
+    const f=await executionFixture();const invalid={...f.fact,deviceSignature:Buffer.alloc(64).toString("base64url")};
+    await expect(f.facts.ingest({schemaVersion:1,fact:invalid},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"signature"}});
+    expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:false}]);
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
+    const wrong=f.signFact({...f.fact,requestStartBoundary:f.response.context.serverObservedAt});
+    await expect(f.facts.ingest({schemaVersion:1,fact:wrong},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines ORDER BY received_at")).rows).toEqual([{domain_blocking:false},{domain_blocking:true}]);
+    await expect(appPool.query("SELECT * FROM execution_fact_drain_records")).rejects.toMatchObject({code:"42501"});
+  });
+  it("production evidence attributes a signed missing-context violation without inventing execution authority",async()=>{
+    const f=await executionFixture();const wrong=f.signFact({...f.fact,trustedTimeAnchorId:Buffer.alloc(32,7).toString("base64url")});
+    await expect(f.facts.ingest({schemaVersion:1,fact:wrong},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"epoch_unknown"}});
+    expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:true}]);
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
+  });
+  it("production evidence returns original receipt after seal and quarantines new signed bytes",async()=>{
+    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const accepted=await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
+    await ownerPool.query("INSERT INTO execution_fact_drain_seals(account_id,workspace_id,source_device_id,active_lease_epoch,last_assigned_execution_fact_sequence,rolling_digest,proof_id) SELECT account_id,workspace_id,source_device_id,active_lease_epoch,contiguous_received_through,rolling_digest,'fixture-accepted-seal' FROM execution_fact_drain_heads");
+    expect(await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).toEqual(accepted);
+    const next=f.signFact({...f.fact,executionFactSequence:2,executionFactId:"00000000-0000-4000-8000-000000000099",attemptId:"00000000-0000-4000-8000-000000000097",auditEventRef:"00000000-0000-4000-8000-000000000096"});
+    await expect(f.facts.ingest({schemaVersion:1,fact:next},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"drain_seal_violation"}});
+    expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:false}]);
+  });
+  it("production evidence refuses new fact identities reusing a durable claim across sequences and epochs",async()=>{
+    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+    const copies=[{...f.fact,executionFactSequence:2,executionFactId:"00000000-0000-4000-8000-000000000091"},{...f.fact,activeLeaseEpoch:f.fact.activeLeaseEpoch+1,executionFactId:"00000000-0000-4000-8000-000000000092"}].map(f.signFact);
+    for(const fact of copies)await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"sequence_replay"}});
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("1");
+  });
+  it("production evidence rejects a concurrent cross-epoch claim replay at the database unique fence",async()=>{
+    const first=await executionFixture();
+    await new Promise(resolve=>setTimeout(resolve,3100));
+    await releaseHeldLease();
+    await leaseManager.ensureCurrentLease({accountId:"oauth-account",deviceId:"device-a",accountSecurityEpoch:1,transactionCredential:first.principal.transactionCredential});
+    const second=await executionFixture(51);
+    expect(second.fact.activeLeaseEpoch).toBe(first.fact.activeLeaseEpoch+1);
+    second.claimAudit=second.audit({...second.claimAudit,targetRef:first.fact.attemptId,payloadRedacted:{...second.claimAudit.payloadRedacted,attemptId:first.fact.attemptId}});
+    second.fact=second.signFact({...second.fact,attemptId:first.fact.attemptId,auditEventHash:second.claimAudit.eventHash});
+    for(const fixture of [first,second])for(const event of [fixture.approvalAudit,fixture.claimAudit]){
+      await expect(fixture.audits.ingest({schemaVersion:1,event},fixture.principal)).resolves.toMatchObject({outcome:"accepted"});
+    }
+    const blocker=await ownerPool.connect();
+    let pending:Promise<unknown[]>|undefined;
+    try{
+      await blocker.query("BEGIN");
+      // Both production transactions finish semantic checks before either INSERT can win.
+      await blocker.query("LOCK TABLE execution_fact_drain_records IN SHARE MODE");
+      pending=Promise.all([first,second].map(fixture=>fixture.facts.ingest({schemaVersion:1,fact:fixture.fact},fixture.principal)));
+      let waiters=0;
+      for(let attempt=0;attempt<100;attempt++){
+        waiters=Number((await ownerPool.query("SELECT count(*) FROM pg_locks WHERE relation='execution_fact_drain_records'::regclass AND mode='RowExclusiveLock' AND NOT granted")).rows[0].count);
+        if(waiters===2)break;await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      expect(waiters).toBe(2);
+      await blocker.query("COMMIT");
+      const results=await pending;
+      expect(results).toEqual(expect.arrayContaining([
+        expect.objectContaining({outcome:"accepted"}),
+        expect.objectContaining({outcome:"quarantined",receipt:expect.objectContaining({reason:"sequence_replay"})}),
+      ]));
+      expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("1");
+      expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:true}]);
+    }finally{
+      await blocker.query("ROLLBACK");blocker.release();await pending;
+    }
+  });
+  it("production evidence commits concurrent exact retries only once and rolls back a lost transaction",async()=>{
+    const f=await executionFixture();
+    const rollback=new PostgresDeviceAuditEvidenceService({withActiveSource:async(principal,work)=>f.authority.withActiveSource(principal,async source=>{await work(source);throw new Error("fixture crash before commit");})},f.contexts,new PostgresExecutionFactEvidenceReader());
+    await expect(rollback.ingest({schemaVersion:1,event:f.approvalAudit},f.principal)).rejects.toThrow("fixture crash before commit");
+    expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("0");
+    const results=await Promise.all([1,2,3].map(()=>f.audits.ingest({schemaVersion:1,event:f.approvalAudit},f.principal)));
+    expect(results[0]).toMatchObject({outcome:"accepted"});expect(results[1]).toEqual(results[0]);expect(results[2]).toEqual(results[0]);
+    expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("1");
+  });
+  it("production evidence keeps reconciled pending until the immutable original fact exists",async()=>{
+    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const event=f.audit({...f.claimAudit,auditEventId:"00000000-0000-4000-8000-000000000098",auditSequence:3,previousHash:f.claimAudit.eventHash,eventType:"runtime_security_lifecycle",authorizationSource:"runtime_security_context",payloadRedacted:{schemaVersion:1,provider:"afternic",action:"remove",stage:"reconciled",operationId:f.fact.operationId,operationItemId:f.fact.operationItemId,attemptId:f.fact.attemptId,originalExecutionFactId:f.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",f.fact)),outcome:"absent",reason:null}});
+    await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"pending",code:"ORIGINAL_FACT_MISSING"});
+    expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("2");
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+    await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+  });
+  it("production evidence owner rejects forged scope, unknown payload keys and divergent canonical bytes",async()=>{
+    const f=await executionFixture();
+    for(const mutation of ["scope","payload","bytes"]){
+      await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+        const fact=structuredClone(f.fact);let bytes=Buffer.from(encodeDrainStreamEnvelope("execution_fact",fact));
+        if(mutation==="scope")fact.sourceDeviceId="another-device";
+        if(mutation==="payload")Object.assign(fact.payloadRedacted as object,{cookie:"unsafe"});
+        if(mutation==="bytes")bytes=Buffer.from("wrong-canonical-bytes");
+        await tx.query("SELECT public.execution_fact_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL)",[fact,bytes]);
+      })).rejects.toMatchObject({code:"42501"});
+    }
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
+    const client=await appPool.connect();try{
+      await client.query("BEGIN");await client.query("SELECT set_config('gooddealer.account_id','oauth-account',true),set_config('gooddealer.workspace_id','oauth-workspace',true)");
+      await expect(client.query("SELECT public.execution_fact_evidence_receipt(1,1,'00000000-0000-4000-8000-000000000001',decode(repeat('00',32),'hex'))")).rejects.toMatchObject({code:"42501"});
+      await client.query("ROLLBACK");
+    }finally{client.release();}
+  });
+  it("production evidence domain lock serializes a concurrent seal before a new append",async()=>{
+    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const client=await ownerPool.connect();let completed=false;
+    try{
+      await client.query("BEGIN");await client.query("SELECT set_config('gooddealer.account_id',$1,true),set_config('gooddealer.workspace_id',$2,true)",[f.principal.accountId,f.fact.workspaceId]);
+      await client.query("SELECT * FROM execution_fact_drain_recompute_head($1,$2)",[f.fact.sourceDeviceId,f.fact.activeLeaseEpoch]);
+      const pending=f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal).then(value=>{completed=true;return value;});
+      await new Promise(resolve=>setTimeout(resolve,60));expect(completed).toBe(false);
+      await client.query("INSERT INTO execution_fact_drain_seals(account_id,workspace_id,source_device_id,active_lease_epoch,last_assigned_execution_fact_sequence,rolling_digest,proof_id) SELECT account_id,workspace_id,source_device_id,active_lease_epoch,contiguous_received_through,rolling_digest,'fixture-racing-seal' FROM execution_fact_drain_heads");
+      await client.query("COMMIT");await expect(pending).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"drain_seal_violation"}});
+    }finally{await client.query("ROLLBACK");client.release();}
+  });
+  it("production evidence accepts historical signed events strictly before a real security epoch transition",async()=>{
+    const f=await executionFixture();
+    await new Promise(resolve=>setTimeout(resolve,3100));
+    const transition=await ownerPool.connect();try{
+      await transition.query("BEGIN");await transition.query("UPDATE identity_account_security_states SET account_security_epoch=2 WHERE account_id='oauth-account'");await transition.query("ROLLBACK");
+    }finally{transition.release();}
+    // A rolled-back real transition must not leave an end boundary that rejects the issued epoch.
+    await expect(f.audits.ingest({schemaVersion:1,event:f.approvalAudit},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+    await ownerPool.query("UPDATE identity_account_security_states SET account_security_epoch=2 WHERE account_id='oauth-account'");
+    // Model the already authenticated web session after reauthentication, then exercise the real
+    // Desktop OAuth exchange and new Lease issuance rather than mutating a Desktop access token.
+    await ownerPool.query("UPDATE identity_auth_sessions SET epoch_at_issue=2 WHERE account_id='oauth-account' AND session_id='web-session-live'");
+    await releaseHeldLease();const current=await desktopGrantPrincipal();
+    await expect(f.audits.ingest({schemaVersion:1,event:f.claimAudit},current)).resolves.toMatchObject({outcome:"accepted",receipt:{classification:"late"}});
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},current)).resolves.toMatchObject({outcome:"accepted",receipt:{classification:"late"}});
+    const occurredAt=new Date(Date.parse(f.response.context.serverObservedAt)+11000).toISOString().replace(".000Z","Z");
+    const after=f.signFact({...f.fact,executionFactId:"00000000-0000-4000-8000-000000000094",attemptId:"00000000-0000-4000-8000-000000000095",auditEventRef:"00000000-0000-4000-8000-000000000093",executionFactSequence:2,monotonicDeltaMs:10000,occurredAt,requestStartBoundary:occurredAt});
+    await expect(f.facts.ingest({schemaVersion:1,fact:after},current)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
+  it("commits fresh context and exact Grant/key history, refuses nonce reuse and permits a new sample", async () => {
+    const principal = await desktopGrantPrincipal();
+    const service = contextService();
+    const response = await service.issue(request(21), principal);
+    expect(response).not.toBeNull();
+    if (response === null) throw new Error("context refused");
+    expect(response.context.credentialEpoch).toBe(1);
+    expect(response.context.signingKeyId).toBe("device-key-a");
+    expect(response.context.authorizationGrantDigest).toBe(createHash("sha256").update(encodeDesktopExecutionAuthorizationDigestInput(response.grant)).digest("base64url"));
+    expect(verify(null,encodeDesktopExecutionContextSignatureTranscript(response.context),contextPair.publicKey,Buffer.from(response.context.signature,"base64url"))).toBe(true);
+    const rows = await ownerPool.query("SELECT * FROM device_execution_contexts");
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].device_public_key).toEqual(devicePublicKey);
+    expect(rows.rows[0].context_digest).toEqual(createHash("sha256").update(encodeDesktopExecutionContextEnvelope(response.context)).digest());
+    expect(rows.rows[0].signed_grant).toEqual(response.grant);
+    await expect(service.issue(request(21), principal)).resolves.toBeNull();
+    await expect(service.issue(request(22), principal)).resolves.not.toBeNull();
+    await expect(ownerPool.query("UPDATE device_execution_contexts SET device_credential_epoch=2")).rejects.toMatchObject({ code: "55000" });
+    await expect(ownerPool.query("DELETE FROM device_execution_contexts")).rejects.toMatchObject({ code: "55000" });
+    await expect(appPool.query("SELECT * FROM device_execution_contexts")).rejects.toMatchObject({ code: "42501" });
+    await expect(appPool.query("INSERT INTO device_execution_contexts(account_id) VALUES('oauth-account')")).rejects.toMatchObject({ code: "42501" });
+  });
+  it("retains immutable purpose keys and verifies history with no current keyring dependency", async () => {
+    await applyEntitlementState("active","historical-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
+    const principal=await desktopGrantPrincipal();const response=await contextService().issue(request(40),principal);
+    if(response===null)throw new Error("context refused");
+    const c=response.context;
+    const input={workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch,
+      credentialEpoch:c.credentialEpoch,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,
+      trustedTimeAnchorId:createHash("sha256").update(encodeDesktopExecutionContextEnvelope(c)).digest("base64url"),
+      authorizationHash:c.authorizationGrantDigest,monotonicDeltaMs:0,
+      occurredAt:new Date(Date.parse(c.serverObservedAt)+1000).toISOString().replace(".000Z","Z")};
+    const history=new PostgresHistoricalExecutionContext();
+    const read=(value=input)=>identityTransactions.withAccountCredential(principal.transactionCredential!,"devices_account",async tx=>{
+      await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[c.workspaceId]);return history.read(tx,value);
+    });
+    await expect(read()).resolves.toMatchObject({found:true,authorizationFailure:null});
+    await expect(read({...input,authorizationHash:Buffer.alloc(32).toString("base64url")})).resolves.toMatchObject({found:true,authorizationFailure:"authorization"});
+    await expect(read({...input,sourceDeviceId:"another-device"})).resolves.toMatchObject({found:false});
+    await expect(read({...input,monotonicDeltaMs:1})).resolves.toMatchObject({found:true,authorizationFailure:"time_unprovable"});
+    const evidence=await ownerPool.query("SELECT * FROM device_execution_context_key_evidence");
+    expect(evidence.rows).toHaveLength(1);expect(evidence.rows[0].context_public_key).toEqual(contextPair.publicKey.export({format:"der",type:"spki"}));
+    await expect(ownerPool.query("UPDATE device_execution_context_key_evidence SET context_key_id='replacement'")).rejects.toMatchObject({code:"55000"});
+    await expect(ownerPool.query("DELETE FROM device_execution_context_key_evidence")).rejects.toMatchObject({code:"55000"});
+    await expect(appPool.query("SELECT * FROM device_execution_context_key_evidence")).rejects.toMatchObject({code:"42501"});
+    // A later rotation retains an actual boundary. Verification needs neither old current-ring
+    // entries nor the new device key; only the captured key can verify the old signature.
+    await new Promise(resolve=>setTimeout(resolve,1100));
+    await ownerPool.query("UPDATE device_signing_keys SET status='rotated',retired_at=clock_timestamp() WHERE account_id='oauth-account'");
+    await expect(read()).resolves.toMatchObject({found:true,authorizationFailure:null});
+    await expect(read({...input,occurredAt:new Date(Date.parse(c.serverObservedAt)+10000).toISOString().replace(".000Z","Z"),monotonicDeltaMs:9000})).resolves.toMatchObject({found:true,authorizationFailure:"removal_boundary"});
+  });
+  it("does not issue evidence for web callers, missing credentials or substituted request selectors", async () => {
+    const principal = await desktopGrantPrincipal();
+    const service = contextService();
+    await expect(service.issue(request(23), { ...principal, clientKind: "account_web" })).resolves.toBeNull();
+    const { transactionCredential: _credential, ...missing } = principal;
+    await expect(service.issue(request(23), missing)).resolves.toBeNull();
+    await expect(service.issue({ ...request(23), workspaceId: "other" },principal)).rejects.toThrow();
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+  });
+  it("checks signer claims/signature before storing and signs no Provider operation", async () => {
+    const principal = await desktopGrantPrincipal();
+    const bad: DesktopExecutionContextSigner = { async sign(input) {
+      const signed = await contextSigner.sign(input);
+      if (!signed.signed) return signed;
+      return { ...signed, envelope: { ...(signed.envelope as Record<string,unknown>), credentialEpoch: 8 } };
+    } };
+    await expect(contextService(bad).issue(request(24),principal)).rejects.toThrow("invalid evidence");
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+    await expect(contextService({sign: async () => ({signed:false})}).issue(request(25),principal)).resolves.toBeNull();
+  });
+  it.each([
+    ["device credential epoch", "UPDATE device_bindings SET credential_epoch=credential_epoch+1 WHERE account_id='oauth-account'"],
+    ["device key revocation", "UPDATE device_signing_keys SET status='revoked' WHERE account_id='oauth-account'"],
+    ["session revocation", "UPDATE identity_auth_sessions SET revoked_at=clock_timestamp() WHERE account_id='oauth-account' AND client_kind='desktop'"],
+    ["Lease online expiry", "UPDATE device_active_leases SET issued_at=clock_timestamp()-interval '10 minutes',renew_after=clock_timestamp()-interval '5 minutes',online_expires_at=clock_timestamp()-interval '1 second' WHERE account_id='oauth-account'"],
+  ])("rejects %s after signing without committing evidence", async (_label, statement) => {
+    const principal = await desktopGrantPrincipal();
+    let current: AccountTransaction | undefined;
+    const txs: Pick<IdentityCapabilityTransactionRunner,"withAccountCredential"> = {
+      withAccountCredential: (credential,purpose,operation) => identityTransactions.withAccountCredential(credential,purpose,async tx=>{current=tx;return operation(tx);}),
+    };
+    const changed: DesktopExecutionContextSigner = { async sign(input) {
+      const result = await contextSigner.sign(input);
+      if (current === undefined) throw new Error("transaction not captured");
+      await current.query(statement);
+      return result;
+    } };
+    const service=new PostgresDesktopExecutionContextService(txs,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new DesktopAuthorizationGrantIssuer(grantSigner),leaseVerifier,new DesktopExecutionContextIssuer(changed));
+    await expect(service.issue(request(28),principal)).resolves.toBeNull();
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+  });
+  it("rejects a substituted principal despite possession of another account credential",async()=>{
+    const principal=await desktopGrantPrincipal();
+    await expect(contextService().issue(request(29),{...principal,accountId:"other-account"})).resolves.toBeNull();
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+  });
+  it("rolls back signed evidence if the enclosing transaction cannot commit",async()=>{
+    const principal=await desktopGrantPrincipal();
+    const failing: Pick<IdentityCapabilityTransactionRunner,"withAccountCredential"> = {
+      withAccountCredential:(credential,purpose,operation)=>identityTransactions.withAccountCredential(credential,purpose,async tx=>{await operation(tx);throw new Error("fixture commit aborted");}),
+    };
+    const service=new PostgresDesktopExecutionContextService(failing,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new DesktopAuthorizationGrantIssuer(grantSigner),leaseVerifier,new DesktopExecutionContextIssuer(contextSigner));
+    await expect(service.issue(request(30),principal)).rejects.toThrow("fixture commit aborted");
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+    await expect(contextService().issue(request(31),principal)).resolves.not.toBeNull();
+  });
+  it("matches the protocol golden canonical bytes in PostgreSQL",async()=>{
+    const vector=JSON.parse(readFileSync(new URL("../../../../packages/protocol/test-vectors/execution-context/valid.json",import.meta.url),"utf8"));
+    for(const [value,domain,hex] of [[vector.response.context,"GOODDEALER-DESKTOP-EXECUTION-CONTEXT-ENVELOPE-V1",vector.contextEnvelopeHex],[vector.response.grant,"GOODDEALER-DESKTOP-EXECUTION-AUTHORIZATION-V1",vector.authorizationDigestInputHex]]){
+      const encoded=await ownerPool.query("SELECT public.device_execution_context_frame('d',convert_to($1,'UTF8')) || public.device_execution_context_frame('v',public.device_execution_context_value($2::jsonb,0)) AS bytes",[domain,value]);
+      expect(encoded.rows[0].bytes.toString("hex")).toBe(hex);
+    }
+  });
+  it("rejects forged selectors and mismatched JSON/bytes even with an authentic account capability",async()=>{
+    const principal=await desktopGrantPrincipal();const result=await contextService().issue(request(32),principal);if(result===null)throw new Error("context refused");
+    for(const mutation of ["workspace","device","context-bytes","grant-bytes"]){
+      await expect(identityTransactions.withAccountCredential(principal.transactionCredential,"devices_account",async tx=>{
+        const context={...result.context};const grant=structuredClone(result.grant);
+        if(mutation==="workspace"){context.workspaceId="other-workspace";grant.workspace.workspaceId="other-workspace";}
+        if(mutation==="device"){context.deviceId="other-device";grant.activeDeviceLease.deviceId="other-device";}
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[context.workspaceId]);
+        const cb=Buffer.from(encodeDesktopExecutionContextEnvelope(context));const gb=Buffer.from(encodeDesktopExecutionAuthorizationDigestInput(grant));
+        if(mutation==="context-bytes")cb[cb.length-1]=cb[cb.length-1]!^1;if(mutation==="grant-bytes")gb[gb.length-1]=gb[gb.length-1]!^1;
+        await tx.query("SELECT public.device_execution_context_append($1::jsonb,$2::jsonb,$3::bytea,$4::bytea,$5::bytea,$6::bytea,$7::bytea)",[context,grant,cb,gb,devicePublicKey,Buffer.alloc(32),Buffer.alloc(32)]);
+      })).rejects.toMatchObject({code:"42501"});
+    }
+    const client=await appPool.connect();try{
+      await client.query("BEGIN");await client.query("SELECT set_config('gooddealer.account_id','oauth-account',true),set_config('gooddealer.workspace_id','oauth-workspace',true)");
+      await expect(client.query("SELECT * FROM device_execution_contexts")).rejects.toMatchObject({code:"42501"});
+    }finally{await client.query("ROLLBACK");client.release();}
+    await expect(accountApiPool.query("SELECT * FROM device_execution_contexts")).resolves.toMatchObject({rows:[]});
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(1);
+  });
+  it("refuses a context signer response after the real 30-second freshness window",async()=>{
+    const principal=await desktopGrantPrincipal();
+    const delayed:DesktopExecutionContextSigner={async sign(input){const signed=await contextSigner.sign(input);await new Promise(resolve=>setTimeout(resolve,30100));return signed;}};
+    await expect(contextService(delayed).issue(request(33),principal)).resolves.toBeNull();
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+  },40000);
+  it("rechecks access expiry with live time after M019 admitted the transaction",async()=>{
+    const principal=await desktopGrantPrincipal();let current:AccountTransaction|undefined;
+    const txs:Pick<IdentityCapabilityTransactionRunner,"withAccountCredential">={withAccountCredential:(credential,purpose,operation)=>identityTransactions.withAccountCredential(credential,purpose,async tx=>{current=tx;return operation(tx);})};
+    const expiring:DesktopExecutionContextSigner={async sign(input){
+      const result=await contextSigner.sign(input);if(current===undefined)throw new Error("transaction missing");
+      await current.query("UPDATE identity_credential_jtis SET expires_at=clock_timestamp()+interval '100 milliseconds' WHERE account_id='oauth-account' AND kind='access'");
+      await current.query("SELECT pg_sleep(0.2)");return result;
+    }};
+    const service=new PostgresDesktopExecutionContextService(txs,new PostgresDefaultWorkspaceTenantResolver(identityTransactions),new DesktopAuthorizationGrantIssuer(grantSigner),leaseVerifier,new DesktopExecutionContextIssuer(expiring));
+    await expect(service.issue(request(34),principal)).resolves.toBeNull();
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(0);
+  });
+  it("commits one concurrent repeated nonce and preserves immutable evidence after a lost reply", async () => {
+    const principal = await desktopGrantPrincipal();
+    const service = contextService();
+    const results = await Promise.all([service.issue(request(26),principal),service.issue(request(26),principal)]);
+    expect(results.filter(v=>v!==null)).toHaveLength(1);
+    expect((await ownerPool.query("SELECT * FROM device_execution_contexts")).rowCount).toBe(1);
+    await expect(service.issue(request(27),principal)).resolves.not.toBeNull();
+  });
+});
 
 describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
   it("resolves a public session only through the identity-owned verification function", async () => {
@@ -332,6 +972,73 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     expect(stored.rows).toEqual([{ lease_epoch: "1", allocations: "1", highest: "1" }]);
   });
 
+  it("resolves a lost first switch response by its own source key after becoming Standby",async()=>{
+    const current=await desktopGrantPrincipal();const target=await loginStandbyDevice();
+    const requests=new PostgresDeviceSwitchRequests({transactions:new TenantTransactionRunner(appPool),accountSecurity:new PostgresIdentityAccountSecurityStatePort()});
+    const resolution=new PostgresDeviceSwitchRequestResolution(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
+    const source={accountId:"oauth-account",workspaceId:"oauth-workspace",deviceId:"device-a"};
+    const input={toDeviceId:"device-b",idempotencyKey:"lost-first-response",expectedSourceLeaseEpoch:1};
+    const opened=await requests.requestNormal(source,input);if(opened===null||!opened.accepted)throw new Error("switch refused");
+    const query={schemaVersion:1,idempotencyKey:input.idempotencyKey};
+    await expect(resolution.resolve(query,current)).resolves.toMatchObject({outcome:"found",idempotencyKey:input.idempotencyKey,sourceLeaseEpoch:1,request:opened.request,targetSigningKeyVersion:1});
+    await expect(resolution.resolve(query,target.principal)).resolves.toEqual({schemaVersion:1,outcome:"not_found",idempotencyKey:input.idempotencyKey});
+    await expect(resolution.resolve(query,{...current,accountId:"other-account"})).resolves.toBeNull();
+    await expect(resolution.resolve({...query,workspaceId:"chosen"},current)).rejects.toThrow();
+    await expect(ownerPool.query("UPDATE device_switch_workflows SET source_lease_epoch=2 WHERE idempotency_key='lost-first-response'")).rejects.toMatchObject({code:"55000"});
+    await requests.cancel(source,opened.request.requestId);await releaseHeldLease();await loginStandbyDevice();
+    await expect(resolution.resolve(query,current)).resolves.toMatchObject({outcome:"found",sourceLeaseEpoch:1,request:{status:"cancelled",fromDeviceId:"device-a",toDeviceId:"device-b"}});
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:"never-created"},current)).resolves.toEqual({schemaVersion:1,outcome:"not_found",idempotencyKey:"never-created"});
+    expect((await ownerPool.query("SELECT count(*) FROM device_switch_workflows")).rows[0].count).toBe("1");
+  });
+  it("rejects a delayed first switch POST after a real new source Lease epoch and preserves authoritative absence",async()=>{
+    const current=await desktopGrantPrincipal();await loginStandbyDevice();
+    await releaseHeldLease();await leaseManager.ensureCurrentLease({accountId:"oauth-account",deviceId:"device-a",accountSecurityEpoch:1,transactionCredential:current.transactionCredential});
+    const requests=new PostgresDeviceSwitchRequests({transactions:new TenantTransactionRunner(appPool),accountSecurity:new PostgresIdentityAccountSecurityStatePort()});
+    const source={accountId:"oauth-account",workspaceId:"oauth-workspace",deviceId:"device-a"};
+    const delayed={toDeviceId:"device-b",idempotencyKey:"delayed-old-epoch",expectedSourceLeaseEpoch:1};
+    await expect(requests.requestNormal(source,delayed)).resolves.toEqual({schemaVersion:1,accepted:false,code:"SOURCE_LEASE_CHANGED"});
+    const resolution=new PostgresDeviceSwitchRequestResolution(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:delayed.idempotencyKey},current)).resolves.toEqual({schemaVersion:1,outcome:"not_found",idempotencyKey:delayed.idempotencyKey});
+    expect((await ownerPool.query("SELECT count(*) FROM device_switch_workflows")).rows[0].count).toBe("0");
+    const fresh={...delayed,idempotencyKey:"fresh-confirmed-epoch",expectedSourceLeaseEpoch:2};
+    const created=await requests.requestNormal(source,fresh);expect(created).toMatchObject({accepted:true});
+    expect(await requests.requestNormal(source,fresh)).toEqual(created);
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:fresh.idempotencyKey},current)).resolves.toMatchObject({outcome:"found",sourceLeaseEpoch:2});
+    await ownerPool.query("UPDATE device_switch_workflows SET state_deadline=created_at WHERE idempotency_key='fresh-confirmed-epoch'");
+    await expect(requests.requestNormal(source,{...delayed,idempotencyKey:"stale-cannot-expire-existing"})).resolves.toMatchObject({accepted:false,code:"SOURCE_LEASE_CHANGED"});
+    expect((await ownerPool.query("SELECT status,workflow_revision::text FROM device_switch_workflows")).rows).toEqual([{status:"draining",workflow_revision:"1"}]);
+    if(created===null||!created.accepted)throw new Error("fresh request missing");
+    const cancelled=await requests.cancel(source,created.request.requestId);
+    await releaseHeldLease();await leaseManager.ensureCurrentLease({accountId:"oauth-account",deviceId:"device-a",accountSecurityEpoch:1,transactionCredential:current.transactionCredential});
+    expect(await requests.requestNormal(source,fresh)).toEqual(cancelled);
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:fresh.idempotencyKey},current)).resolves.toMatchObject({outcome:"found",sourceLeaseEpoch:2,request:{status:"cancelled"}});
+    expect((await ownerPool.query("SELECT count(*) FROM device_switch_workflows")).rows[0].count).toBe("1");
+  });
+  it("serializes request resolution behind a first POST holding the actual source locks",async()=>{
+    const current=await desktopGrantPrincipal();await loginStandbyDevice();
+    let entered!:()=>void;let release!:()=>void;
+    const blocked=new Promise<void>(resolve=>{entered=resolve;});const gate=new Promise<void>(resolve=>{release=resolve;});
+    const real=new TenantTransactionRunner(appPool);
+    const transactions:Pick<TenantTransactionRunner,"withTenant">={withTenant:async(scope,work)=>real.withTenant(scope,async tx=>work(new Proxy(tx,{get(target,key){
+      if(key==="query")return async(sql:string,parameters:unknown[])=>{if(sql.includes("INSERT INTO device_switch_workflows")){entered();await gate;}return target.query(sql,parameters);};
+      return Reflect.get(target,key);
+    }})))};
+    const requests=new PostgresDeviceSwitchRequests({transactions,accountSecurity:new PostgresIdentityAccountSecurityStatePort()});
+    const pending=requests.requestNormal({accountId:"oauth-account",workspaceId:"oauth-workspace",deviceId:"device-a"},{toDeviceId:"device-b",idempotencyKey:"concurrent-first-response",expectedSourceLeaseEpoch:1});
+    await blocked;
+    const resolution=new PostgresDeviceSwitchRequestResolution(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
+    let completed=false;const read=resolution.resolve({schemaVersion:1,idempotencyKey:"concurrent-first-response"},current).then(value=>{completed=true;return value;});
+    await new Promise(resolve=>setTimeout(resolve,60));expect(completed).toBe(false);
+    release();await expect(pending).resolves.toMatchObject({accepted:true});
+    await expect(read).resolves.toMatchObject({outcome:"found",sourceLeaseEpoch:1,request:{status:"draining"}});
+  });
+  it("resolves owner-retained legacy switch history without inventing a source epoch",async()=>{
+    const current=await desktopGrantPrincipal();await loginStandbyDevice();await insertSwitchWorkflow("draining");
+    const resolution=new PostgresDeviceSwitchRequestResolution(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:"switch-guard-key"},current)).resolves.toMatchObject({outcome:"found",sourceLeaseEpoch:null,request:{requestId:"switch-guard"}});
+    await ownerPool.query("UPDATE identity_refresh_families SET state='revoked' WHERE account_id='oauth-account' AND session_id=$1",[current.sessionId]);
+    await expect(resolution.resolve({schemaVersion:1,idempotencyKey:"switch-guard-key"},current)).resolves.toBeNull();
+  });
   it("starts normal handoff from a real OAuth Lease only in its resolved default workspace", async () => {
     await desktopGrantPrincipal();
     await loginStandbyDevice();
@@ -339,8 +1046,8 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       accountSecurity: new PostgresIdentityAccountSecurityStatePort() });
     const source = { accountId: "oauth-account", workspaceId: "oauth-workspace", deviceId: "device-a" };
     await expect(requests.requestNormal({ ...source, workspaceId: "foreign-workspace" },
-      { toDeviceId: "device-b", idempotencyKey: "oauth-foreign-switch" })).resolves.toBeNull();
-    await expect(requests.requestNormal(source, { toDeviceId: "device-b", idempotencyKey: "oauth-normal-switch" }))
+      { toDeviceId: "device-b", idempotencyKey: "oauth-foreign-switch",expectedSourceLeaseEpoch:1 })).resolves.toBeNull();
+    await expect(requests.requestNormal(source, { toDeviceId: "device-b", idempotencyKey: "oauth-normal-switch",expectedSourceLeaseEpoch:1 }))
       .resolves.toMatchObject({ accepted: true, request: { schemaVersion: 2, fromDeviceId: "device-a", toDeviceId: "device-b",
         status: "draining", normalHandoffReceipt: null } });
   });
@@ -443,11 +1150,6 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       schemaVersion: 5, role: "active", grant: { activeDeviceLease: { accountId: "oauth-account", accountSecurityEpoch: 1 } },
     });
 
-    await ownerPool.query(
-      "UPDATE identity_account_security_states SET status = 'recovery_pending' WHERE account_id = 'oauth-account'",
-    );
-    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toBeNull();
-    await ownerPool.query("UPDATE identity_account_security_states SET status = 'normal' WHERE account_id = 'oauth-account'");
     await ownerPool.query(`UPDATE identity_auth_sessions
          SET created_at = transaction_timestamp() - interval '1 hour',
              expires_at = transaction_timestamp() - interval '1 second'
@@ -477,6 +1179,15 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
     })).resolves.toEqual({ outcome: "refused" });
+  });
+
+  it("refuses a security-ended epoch and never reopens it by restoring status", async () => {
+    const desktopPrincipal = await desktopGrantPrincipal();
+    await ownerPool.query("UPDATE identity_account_security_states SET status='recovery_pending' WHERE account_id='oauth-account'");
+    await expect(authorizationService().issue({schemaVersion:5},desktopPrincipal)).resolves.toBeNull();
+    await expect(ownerPool.query("UPDATE identity_account_security_states SET status='normal' WHERE account_id='oauth-account'")).rejects.toMatchObject({code:"42501"});
+    await ownerPool.query("UPDATE identity_account_security_states SET status='normal',account_security_epoch=2 WHERE account_id='oauth-account'");
+    await expect(ownerPool.query("UPDATE identity_account_security_states SET account_security_epoch=1 WHERE account_id='oauth-account'")).rejects.toMatchObject({code:"42501"});
   });
 
   it("derives Provider capabilities from current Licensing revisions without upgrading old rights", async () => {
@@ -1051,7 +1762,9 @@ async function desktopGrantPrincipal() {
   exchanged.credentials.consume((value) => { accessToken = value.accessToken; });
   if (accessToken.length === 0) throw new Error("desktop access credential is unavailable");
   const session = await ownerPool.query<{ session_id: string }>(
-    "SELECT session_id FROM identity_auth_sessions WHERE account_id = 'oauth-account' AND client_kind = 'desktop'",
+    `SELECT s.session_id FROM identity_auth_sessions s JOIN identity_credential_jtis j USING(account_id,session_id)
+     WHERE s.account_id='oauth-account' AND s.client_kind='desktop' AND j.jti=$1 AND j.kind='access'`,
+    [createHash("sha256").update(accessToken).digest("hex")],
   );
   const sessionId = session.rows[0]?.session_id;
   if (sessionId === undefined) throw new Error("desktop session fixture is unavailable");

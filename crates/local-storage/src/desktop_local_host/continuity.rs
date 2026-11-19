@@ -884,6 +884,13 @@ impl VerifiedLocalContinuation {
             reason = "qualified production continuity is capability-gated"
         )
     )]
+    #[cfg_attr(
+        all(test, not(unix)),
+        expect(
+            dead_code,
+            reason = "only Unix custody fixtures inspect the persisted continuation binding"
+        )
+    )]
     pub(super) fn binding(&self) -> ContinuityBinding {
         ContinuityBinding {
             installation_digest: self.receipt.installation_digest,
@@ -984,7 +991,7 @@ impl ContinuityManager {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn tamper_committed_receipt_for_test(&self) -> Result<(), ContinuityError> {
         let anchor = self
             .anchors
@@ -1280,6 +1287,7 @@ impl ContinuityManager {
     }
 }
 
+#[cfg(any(not(test), unix))]
 impl ContinuityReceiptStore for crate::desktop_custody::DesktopContinuityReceiptStore {
     fn load(&self, slot: u8) -> Result<Option<Zeroizing<Vec<u8>>>, ContinuityError> {
         crate::desktop_custody::DesktopContinuityReceiptStore::load(self, slot)
@@ -1304,6 +1312,7 @@ impl ContinuityReceiptStore for crate::desktop_custody::DesktopContinuityReceipt
         reason = "qualified production continuity is capability-gated"
     )
 )]
+#[cfg(any(not(test), unix))]
 fn map_custody_error(error: crate::desktop_custody::DesktopCustodyError) -> ContinuityError {
     match error {
         crate::desktop_custody::DesktopCustodyError::Unavailable

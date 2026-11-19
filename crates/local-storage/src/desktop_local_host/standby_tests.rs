@@ -5,19 +5,23 @@ use super::*;
 
 fn native_host(
     path: &std::path::Path,
-    store: TestRebootstrapKeyStore,
+    store: &TestRebootstrapKeyStore,
     verifier: WorkspaceAuthorityVerifier,
 ) -> DesktopLocalHost {
     let root = DesktopApplicationRoot::validate(path).unwrap();
-    let custody =
-        DesktopProductionCustody::load_or_create_for_rebootstrap_test_with_store(&root, store)
-            .unwrap();
-    DesktopLocalHost {
+    let custody = DesktopProductionCustody::load_or_create_for_rebootstrap_test_with_store(
+        &root,
+        store.clone(),
+    )
+    .unwrap();
+    let mut host = DesktopLocalHost {
         application_root: Some(root),
         production_custody: Some(Mutex::new(custody)),
         authority_verifier: Some(verifier),
         ..DesktopLocalHost::default()
-    }
+    };
+    execution_context::tests::configure(&mut host, store);
+    host
 }
 
 fn active_grant() -> Vec<u8> {
@@ -53,7 +57,7 @@ fn signed_standby_first_login_has_directory_authority_without_an_empty_replica()
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
     let (verifier, wire) = authority::signed_standby_for_host_test(0, 2);
-    let host = native_host(&path, store, verifier);
+    let host = native_host(&path, &store, verifier);
     host.activate_authorization_grant(&wire).unwrap();
     assert_eq!(
         host.authorization_status(),
@@ -88,7 +92,7 @@ fn signed_demotion_retains_real_assets_but_closes_mutations_and_active_replay() 
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let (verifier, standby) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+    let host = native_host(&path, &TestRebootstrapKeyStore::default(), verifier);
     let active = active_grant();
     host.activate_authorization_grant(&active).unwrap();
     host.create_domain_asset(create_request(&host, "retained.test"))
@@ -130,7 +134,7 @@ fn standby_native_floor_survives_close_and_reopen_and_rejects_old_active() {
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
     let (verifier, standby) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, store.clone(), verifier);
+    let host = native_host(&path, &store, verifier);
     let active = active_grant();
     host.activate_authorization_grant(&active).unwrap();
     host.create_domain_asset(create_request(&host, "reopened.test"))
@@ -139,7 +143,7 @@ fn standby_native_floor_survives_close_and_reopen_and_rejects_old_active() {
     drop(host);
 
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let restarted = native_host(&path, store.clone(), verifier);
+    let restarted = native_host(&path, &store, verifier);
     assert!(restarted.begin_native_cloud_read_run().is_err());
     assert_eq!(
         restarted.activate_authorization_grant(&active),
@@ -149,7 +153,7 @@ fn standby_native_floor_survives_close_and_reopen_and_rejects_old_active() {
     drop(restarted);
 
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let resumed = native_host(&path, store, verifier);
+    let resumed = native_host(&path, &store, verifier);
     resumed.activate_authorization_grant(&standby).unwrap();
     assert_eq!(
         resumed.business_status().state,
@@ -164,7 +168,7 @@ fn signed_role_transition_keeps_the_final_business_commit_fence() {
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let (verifier, standby) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+    let host = native_host(&path, &TestRebootstrapKeyStore::default(), verifier);
     host.activate_authorization_grant(&active_grant()).unwrap();
     let request = create_request(&host, "racing.test");
     host.publish_transition_at_next_business_commit_for_test()
@@ -181,12 +185,13 @@ fn signed_role_transition_keeps_the_final_business_commit_fence() {
     );
 }
 
-fn persist_handoff(host: &DesktopLocalHost) -> serde_json::Value {
+fn persist_handoff(host: &DesktopLocalHost, active: &[u8]) -> serde_json::Value {
+    execution_context::tests::admit(host, active);
     let admission = host.begin_native_cloud_run().unwrap();
     host.begin_native_device_switch_drain(&admission, "normal-switch")
         .unwrap();
     let draft = host
-        .prepare_native_drain_proof(&admission, "normal-switch", "device-key-host-test")
+        .prepare_native_drain_proof(&admission, "normal-switch", "device-test-key")
         .unwrap();
     host.persist_native_drain_attempt(&admission, &draft, &"A".repeat(86), "target-device")
         .unwrap();
@@ -232,14 +237,16 @@ fn normal_handoff_lost_response_reopens_to_receipt_reconciliation_then_read_only
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
-    let (verifier, standby) = authority::signed_standby_for_host_test(3, 2);
-    let host = native_host(&path, store.clone(), verifier);
-    host.activate_authorization_grant(&active_grant()).unwrap();
-    let receipt = persist_handoff(&host);
+    let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
+    let host = native_host(&path, &store, verifier);
+    let active = active_grant();
+    host.activate_authorization_grant(&active).unwrap();
+    let receipt = persist_handoff(&host, &active);
     // Cloud consumed the proof, but the source exited before reading its response.
     drop(host);
     let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
-    let host = native_host(&path, store.clone(), verifier);
+    let host = native_host(&path, &store, verifier);
+    let (_, standby) = authority::signed_standby_for_host_test(3, 2);
     host.activate_authorization_grant(&standby).unwrap();
     let admission = host.begin_native_cloud_read_run().unwrap();
     assert_eq!(
@@ -308,7 +315,7 @@ fn normal_handoff_lost_response_reopens_to_receipt_reconciliation_then_read_only
     );
     drop(host);
     let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
-    let reopened = native_host(&path, store, verifier);
+    let reopened = native_host(&path, &store, verifier);
     reopened.activate_authorization_grant(&standby).unwrap();
     let admission = reopened.begin_native_cloud_read_run().unwrap();
     assert!(reopened.prepare_native_sync_pull(&admission).is_ok());
@@ -323,10 +330,12 @@ fn normal_handoff_inbox_final_fence_rolls_back_and_later_active_epoch_refreezes_
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
-    let (verifier, standby) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, store.clone(), verifier);
-    host.activate_authorization_grant(&active_grant()).unwrap();
-    let receipt = persist_handoff(&host);
+    let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, &store, verifier);
+    let active = active_grant();
+    host.activate_authorization_grant(&active).unwrap();
+    let receipt = persist_handoff(&host, &active);
+    let (_, standby) = authority::signed_standby_for_host_test(2, 2);
     host.activate_authorization_grant(&standby).unwrap();
     let admission = host.begin_native_cloud_read_run().unwrap();
     host.complete_native_device_switch_response(
@@ -344,7 +353,7 @@ fn normal_handoff_inbox_final_fence_rolls_back_and_later_active_epoch_refreezes_
     );
     drop(host);
     let (verifier, forced) = authority::signed_standby_for_host_test(4, 2);
-    let host = native_host(&path, store, verifier);
+    let host = native_host(&path, &store, verifier);
     let (_, active) = authority::tests::long_lived_signed_grant_at_epoch(
         2,
         &"11".repeat(32),
@@ -369,10 +378,10 @@ fn normal_handoff_replay_restores_exact_native_bytes_and_refusal_survives_restar
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, store.clone(), verifier);
+    let host = native_host(&path, &store, verifier);
     let active = active_grant();
     host.activate_authorization_grant(&active).unwrap();
-    let mut status = persist_handoff(&host);
+    let mut status = persist_handoff(&host, &active);
     status["request"]["status"] = serde_json::json!("draining");
     status["request"]["normalHandoffReceipt"] = serde_json::Value::Null;
     status["request"]["bootstrapExpiresAt"] = serde_json::Value::Null;
@@ -394,7 +403,7 @@ fn normal_handoff_replay_restores_exact_native_bytes_and_refusal_survives_restar
     );
     drop(host);
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, store.clone(), verifier);
+    let host = native_host(&path, &store, verifier);
     host.activate_authorization_grant(&active).unwrap();
     let admission = host.begin_native_cloud_run().unwrap();
     assert_eq!(
@@ -415,7 +424,7 @@ fn normal_handoff_replay_restores_exact_native_bytes_and_refusal_survives_restar
     );
     drop(host);
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, store, verifier);
+    let host = native_host(&path, &store, verifier);
     host.activate_authorization_grant(&active).unwrap();
     assert!(
         host.native_pending_drain_submission(
@@ -433,13 +442,14 @@ fn normal_handoff_native_orphan_can_be_replaced_only_before_attempt_commit() {
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-    let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+    let host = native_host(&path, &TestRebootstrapKeyStore::default(), verifier);
     host.activate_authorization_grant(&active_grant()).unwrap();
+    execution_context::tests::admit(&host, &active_grant());
     let admission = host.begin_native_cloud_run().unwrap();
     host.begin_native_device_switch_drain(&admission, "normal-switch")
         .unwrap();
     let first = host
-        .prepare_native_drain_proof(&admission, "normal-switch", "key-a")
+        .prepare_native_drain_proof(&admission, "normal-switch", "device-test-key")
         .unwrap();
     let bytes = host
         .native_drain_submission(&first, &"A".repeat(86))
@@ -452,7 +462,7 @@ fn normal_handoff_native_orphan_can_be_replaced_only_before_attempt_commit() {
         .store_handoff_submission("normal-switch", &bytes)
         .unwrap();
     let replacement = host
-        .prepare_native_drain_proof(&admission, "normal-switch", "key-a")
+        .prepare_native_drain_proof(&admission, "normal-switch", "device-test-key")
         .unwrap();
     host.persist_native_drain_attempt(&admission, &replacement, &"A".repeat(86), "target-device")
         .unwrap();
@@ -467,10 +477,12 @@ fn normal_handoff_standby_refresh_revocation_and_retired_cursor_keep_inbox_close
     let directory = crate::test_tempdir::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
-    let (verifier, standby) = authority::signed_standby_for_host_test(3, 2);
-    let host = native_host(&path, store.clone(), verifier);
-    host.activate_authorization_grant(&active_grant()).unwrap();
-    let receipt = persist_handoff(&host);
+    let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
+    let host = native_host(&path, &store, verifier);
+    let active = active_grant();
+    host.activate_authorization_grant(&active).unwrap();
+    let receipt = persist_handoff(&host, &active);
+    let (_, standby) = authority::signed_standby_for_host_test(3, 2);
     host.activate_authorization_grant(&standby).unwrap();
     let old = host.begin_native_cloud_read_run().unwrap();
     host.complete_native_device_switch_response(
@@ -506,7 +518,7 @@ fn normal_handoff_standby_refresh_revocation_and_retired_cursor_keep_inbox_close
     assert!(host.prepare_native_sync_pull(&admission).is_err());
     drop(host);
     let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
-    let reopened = native_host(&path, store, verifier);
+    let reopened = native_host(&path, &store, verifier);
     reopened.activate_authorization_grant(&standby).unwrap();
     let admission = reopened.begin_native_cloud_read_run().unwrap();
     assert!(reopened.prepare_native_sync_pull(&admission).is_err());
@@ -520,7 +532,7 @@ fn normal_handoff_cancel_and_previous_epoch_cleanup_keep_final_commit_fence() {
         let directory = crate::test_tempdir::tempdir().unwrap();
         let path = directory.path().canonicalize().unwrap().join("GoodDealer");
         let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
-        let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+        let host = native_host(&path, &TestRebootstrapKeyStore::default(), verifier);
         host.activate_authorization_grant(&active_grant()).unwrap();
         let admission = host.begin_native_cloud_run().unwrap();
         host.begin_native_device_switch_drain(&admission, "cancel-race")
@@ -595,7 +607,7 @@ fn active_capabilities_survive_reopen_and_revocation_fences_provider_operations(
     let path = temp.path().canonicalize().unwrap().join("GoodDealer");
     let store = TestRebootstrapKeyStore::default();
     let (verifier, local_only) = grant(2, &"11".repeat(32), &[]);
-    let host = native_host(&path, store.clone(), verifier);
+    let host = native_host(&path, &store, verifier);
     host.activate_authorization_grant(&local_only).unwrap();
     assert_eq!(
         host.business_status().state,
@@ -634,7 +646,7 @@ fn active_capabilities_survive_reopen_and_revocation_fences_provider_operations(
     assert!(require(&host, &afternic_admission, "afternic:marketplace:write").is_err());
     drop(host);
     let (verifier, _) = grant(4, &"33".repeat(32), &[]);
-    let host = native_host(&path, store, verifier);
+    let host = native_host(&path, &store, verifier);
     assert!(host.activate_authorization_grant(&afternic).is_err());
     host.activate_authorization_grant(&revoked).unwrap();
     let admission = host.begin_native_cloud_run().unwrap();

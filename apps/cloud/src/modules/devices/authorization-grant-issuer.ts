@@ -50,7 +50,7 @@ export class DenyingDesktopAuthorizationGrantSigner implements DesktopAuthorizat
 
 export type DesktopAuthorizationGrantIssueResult =
   | { readonly issued: false; readonly code: "GRANT_SIGNING_DISABLED" }
-  | { readonly issued: true; readonly grant: DesktopAuthorizationGrant; readonly receiptDigest: string };
+  | { readonly issued: true; readonly grant: DesktopAuthorizationGrant; readonly receiptDigest: string; readonly verificationKey: KeyObject };
 
 /**
  * Builds only the personal-default V1 runtime authority. The signer owns key selection and private
@@ -131,6 +131,7 @@ export class DesktopAuthorizationGrantIssuer {
     return {
       issued: true,
       grant,
+      verificationKey: signed.verificationKey,
       receiptDigest: createHash("sha256").update(signed.receipt).digest("hex"),
     };
   }

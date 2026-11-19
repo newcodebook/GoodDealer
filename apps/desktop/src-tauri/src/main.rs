@@ -3,6 +3,7 @@
 mod backup_ipc;
 mod command_handlers;
 mod device_switch_drain;
+mod execution_context_native;
 mod native_cloud_runtime;
 mod native_cloud_session;
 mod oauth_loopback;
@@ -12,8 +13,9 @@ mod provider_credential_orchestrator;
 mod provider_ipc;
 mod provider_lane;
 mod sync_lane;
+mod target_bootstrap_termination;
 
-use gooddealer_local_storage::{DesktopApplicationRoot, DesktopLocalHost};
+use gooddealer_local_storage::DesktopApplicationRoot;
 use gooddealer_secure_host_core::load_or_create_desktop_device_identity;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -138,16 +140,24 @@ fn main() {
             // (media keys) before setup runs, under the user's umask, so that directory can be
             // group-writable on stock Linux desktops. The child is created owner-only by the root
             // validator and holds nothing the webview writes.
+            #[cfg(not(windows))]
             let app_data_root = app.path().app_data_dir()?.join("local-host");
+            #[cfg(windows)]
+            let app_data_root = app.path().app_local_data_dir()?.join("local-host");
             let application_root = DesktopApplicationRoot::validate(&app_data_root)?;
-            let local_host = Arc::new(DesktopLocalHost::production(application_root)?);
+            let identity = load_or_create_desktop_device_identity().ok().map(Arc::new);
+            let local_host = Arc::new(execution_context_native::production_host(
+                application_root,
+                identity.clone(),
+                &power_gate,
+            )?);
             app.manage(Arc::clone(&local_host));
-            let identity = load_or_create_desktop_device_identity().ok();
             let oauth = Arc::new(oauth_runtime::DesktopOAuthRuntime::new(
                 Some(native_cloud_session::PRODUCTION_CLOUD_ORIGIN),
                 Some(oauth_runtime::PRODUCTION_ACCOUNT_ORIGIN),
                 identity,
                 Arc::clone(&local_host),
+                Some(power_gate.clone()),
             ));
             let session = Arc::clone(oauth.session());
             app.manage(Arc::clone(&session));
@@ -156,14 +166,10 @@ fn main() {
                 &local_host,
                 &session,
                 &power_gate,
+                &oauth,
             );
-            app.manage(Arc::new(device_switch_drain::DesktopDeviceSwitch::new(
-                Arc::clone(&local_host),
-                Arc::clone(&session),
-                Arc::clone(&oauth),
-                cloud.cancel_fence(),
-                cloud.sync_waker(),
-            )));
+            app.manage(cloud.device_switch());
+            app.manage(cloud.target_bootstrap());
             app.manage(cloud);
             let maintenance = Arc::clone(&oauth);
             let maintenance_app = app.handle().clone();
@@ -198,6 +204,8 @@ fn main() {
             command_handlers::device_switch_advance,
             command_handlers::device_switch_status,
             command_handlers::device_switch_cancel,
+            command_handlers::target_bootstrap::target_bootstrap_status,
+            command_handlers::target_bootstrap::target_bootstrap_cancel,
             command_handlers::local_backup_restore_status,
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,

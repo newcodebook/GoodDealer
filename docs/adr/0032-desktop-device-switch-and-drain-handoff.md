@@ -32,6 +32,13 @@
   `signingKeyId`/`signingKeyVersion` 验签，签名域与登录证明分离，私钥不离开 Host custody。
 - **`execution_fact` 与 `device_audit` 两条流**：只有确实不产生对应事件时才声明空流（接收水位 0、无缺失区间、
   创世摘要），Cloud 核对其 ledger 确实为空。第一项 Provider 能力产生执行事实前必须交付两条流的本地来源。
+- Provider 执行历史通过 ADR-0019 的真实 execution_fact/device_audit 来源、签名和精确回执进入证明，不能将本地已存在的尝试声明为空流。
+  drain 屏障关闭新批准与 dispatch，等待本机在途 producer 到安全边界；远端未决结果可明确冻结为 unknown 并停止旧 epoch producer，界面显示数量与原机保留含义。
+  所有已分配事件必须获得精确 Cloud 确认后才能封链；冻结不丢弃序号、不伪造成功，也不将队列或凭据搬给目标设备。取消仅按原屏障规则恢复；成功后旧机不能继续旧 epoch 追加或重发。
+  producer 冻结与结果提交采用同一数据库锁序和事务边界：结果完整提交并进入待确认的尾部，或保留原 claim/unknown。
+  冻结后到达的 HTTP 响应不补写旧 epoch 结果。权威取消确认且仍持原 Active epoch 时可原子重开 producer；之后重新 GET
+  取得当前观察。交接成功不能重开；原机以后取得新的 Active epoch 时，同样只以新 GET 和当前上下文生成关联旧事实的
+  新观察审计，不能为先前响应补造时间或签名。
 - Cloud 接收 proof 时在 `device_drain_proofs` 保存 `proof.schemaVersion`，seal 与 Lease 释放同事务提交。
 
 ### 3. 已确认 Outbox 的提交版本核对
@@ -101,7 +108,11 @@ Standby 可调用的路由是封闭清单：
 | `POST /v1/device-switch/requests/status` | 只对本设备为来源或目标的切换可见（现有规则） |
 | `POST /v1/device-switch/requests` | 只接受 `mode: "forced"`，且 `toDeviceId` 必须等于会话设备；须满足 S5 节的重新认证 |
 | `POST /v1/device-switch/requests/cancel` | 只接受取消本设备为目标、仍处于 `waiting_expiry` 的强制接管 |
+| `POST /v1/device-switch/bootstrap/status` | 仅发现本会话设备作为目标的唯一 `bootstrapping` 工作流，或按精确 id 读取本目标历史；账户和默认工作区由服务器派生 |
+| `POST /v1/device-switch/bootstrap/cancel` | 仅终止本会话设备作为目标的精确 `bootstrapping` 工作流；未领取能力也可取消；原子烧 pending epoch、消费能力与 nonce、释放 pin，保留来源交接回执，不授予执行权限 |
 | 引导能力获取、引导步骤与激活路由 | 会话设备必须是工作流目标，且引导步骤与激活同时出示绑定该设备与工作流的引导能力 |
+
+目标停止引导的确认绑定精确工作流 id，Native 先持久化意图再发送；未知响应与重开先查同一工作流，再决定重发原取消。新工作流必须重新预览确认，历史取消不得套用到它。取消与激活、过期、步骤提交在账户/工作流锁序下串行；终结不回退最高分配 epoch，不恢复来源 Lease，也不删除既有云副本或原机数据。
 
 其余 Desktop 路由——`mutations/push`、`mutations/receipts`、`device-switch/requests/drain`、普通切换请求、来源设备取消、
 `/v1/workspace-observations/cloudflare-dns` 以及以后新增的任何路由——都要求 Active。拒绝分两层，任一层都足以拒绝：
@@ -202,6 +213,10 @@ Active Grant、Lease 与 Standby Grant 三个用途的公钥互不通用。
      不覆盖原库。
 
 ## 交接栅栏与验证
+
+初始普通切换意图也必须先落盘再发 HTTP：local-storage 在原单 writer 事务中保存不可变的幂等键、目标设备、来源设备和当前 Lease epoch，以及精确请求字节。普通请求 v2 带 `expectedSourceLeaseEpoch`，由 Native 当前准入派生；Cloud 首次创建在同一身份/账户锁与有效 Lease 事务中比较来源 epoch，变化即拒绝，不能让迟到请求变成新 epoch 的意图。既有精确幂等请求只能返回原工作流历史，不能重建。
+
+固定 `POST /v1/device-switch/requests/resolve` 仅按幂等键读取本会话设备作为来源的历史，账户和默认工作区由服务器派生，Active/Standby 都可查询。请求不接受来源、目标或 epoch 选择器。响应携带原目标签名密钥身份和 `sourceLeaseEpoch`；旧行的未知 epoch 保持 null。未知结果或重开先查询：同 epoch 确认未找到才可重发原字节；已验证更高 epoch 且未找到时原意图作废，不能自动新建；找到的当前 epoch requested/draining 在回答落盘的同一业务事务中建立屏障和冻结来源。旧 epoch 非终态或未知 epoch 不能建立当前屏障，终态只消解历史。未返回初始请求与回答/屏障之间的任何崩溃窗口都不能丢失原幂等身份。
 
 Host 写入栅栏跨重启持久化，绑定切换与 Lease epoch；取消或失败且来源尚未成功释放时可解除，交接后保留。目标引导随后失败不撤销来源已成功释放的事实。
 Cloud 的普通交接回执必须来自唯一已消费且 accepted 的 handoff proof、同一工作流的来源 Lease（normal_handoff 释放原因）和匹配目标引导能力，不能只看 status。回执在工作流完成或失败后仍可读取；强制接管不产生该回执。

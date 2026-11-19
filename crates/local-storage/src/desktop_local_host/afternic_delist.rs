@@ -109,6 +109,7 @@ impl DesktopLocalHost {
         let at = now()?;
         self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
             admitted(sync, run, true)?;
+            self.require_execution_context(run)?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -117,7 +118,17 @@ impl DesktopLocalHost {
                 .afternic_connection_seed(&request.connection_id)
                 .map_err(database_error)?;
             let plan = database
-                .preview_afternic_delist(&seed, &request.domains, &at, || guard.verify(sync, run))
+                .preview_afternic_delist_with_time(
+                    &seed,
+                    &request.domains,
+                    &at,
+                    &self.execution_evidence_context(run)?.occurred_at,
+                    || {
+                        self.require_execution_context(run)
+                            .map_err(|_| BusinessDatabaseError::MutationStale)
+                            .and_then(|()| guard.verify(sync, run))
+                    },
+                )
                 .map_err(database_error)?;
             business.advance_read_generation_after_sync_commit();
             Ok(plan)
@@ -141,18 +152,44 @@ impl DesktopLocalHost {
         let at = now()?;
         self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
             admitted(sync, run, true)?;
+            self.require_execution_context(run)?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
+            let evidence = self.execution_evidence_context(run)?;
+            let preview = business
+                .database_for_backup()
+                .afternic_delist_plan(&request.plan_ref, &at)
+                .map_err(database_error)?;
+            let approval_deadline = preview.approved_at.is_none().then_some(preview.expires_at);
+
             let before = business
                 .database_for_backup()
                 .afternic_delist_commit_sequence()
                 .map_err(database_error)?;
             let plan = business
                 .database_for_backup_mut()
-                .approve_afternic_delist(&request.plan_ref, &request.plan_hash, &at, || {
-                    guard.verify(sync, run)
-                })
+                .approve_afternic_delist_with_evidence(
+                    &request.plan_ref,
+                    &request.plan_hash,
+                    &at,
+                    &evidence,
+                    &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
+                    || {
+                        let current = self
+                            .execution_evidence_context(run)
+                            .map_err(|_| BusinessDatabaseError::MutationStale)?;
+                        if approval_deadline
+                            .as_ref()
+                            .is_some_and(|deadline| current.occurred_at >= *deadline)
+                        {
+                            return Err(BusinessDatabaseError::MutationStale);
+                        }
+                        self.require_execution_context(run)
+                            .map_err(|_| BusinessDatabaseError::MutationStale)
+                            .and_then(|()| guard.verify(sync, run))
+                    },
+                )
                 .map_err(database_error)?;
             if business
                 .database_for_backup()
@@ -213,7 +250,17 @@ impl DesktopLocalHost {
                     .map_err(database_error)?;
                 let database = business.database_for_backup_mut();
                 let next = database
-                    .next_afternic_delist_work(&at, allow_write, || guard.verify(sync, run))
+                    .next_afternic_delist_work_with_evidence(
+                        &at,
+                        allow_write,
+                        &self.execution_evidence_context(run)?,
+                        &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
+                        || {
+                            self.require_execution_context(run)
+                                .map_err(|_| BusinessDatabaseError::MutationStale)
+                                .and_then(|()| guard.verify(sync, run))
+                        },
+                    )
                     .map_err(database_error)?;
                 let next = next
                     .map(|seed| {
@@ -283,6 +330,7 @@ impl DesktopLocalHost {
             &work.connection.admission.inner,
             |sync, business, run, guard| {
                 admitted(sync, run, true)?;
+                self.require_execution_context(run)?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
@@ -291,9 +339,18 @@ impl DesktopLocalHost {
                     .admit_afternic_provider(&work.connection.seed)
                     .map_err(database_error)?;
                 let claimed = database
-                    .claim_afternic_delist(&work.seed, observation.as_ref(), &at, || {
-                        guard.verify(sync, run)
-                    })
+                    .claim_afternic_delist_with_evidence(
+                        &work.seed,
+                        observation.as_ref(),
+                        &at,
+                        &self.execution_evidence_context(run)?,
+                        &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
+                        || {
+                            self.require_execution_context(run)
+                                .map_err(|_| BusinessDatabaseError::MutationStale)
+                                .and_then(|()| guard.verify(sync, run))
+                        },
+                    )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
                 Ok(claimed)
@@ -314,8 +371,15 @@ impl DesktopLocalHost {
             |sync, database, run| {
                 let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
                 admitted(sync, run, true)?;
+                self.require_execution_context(run)?;
                 database
                     .require_afternic_delist_write_open()
+                    .map_err(database_error)?;
+                database
+                    .require_afternic_delist_signed_claim(
+                        &claim.work.seed,
+                        &self.execution_evidence_context(run)?,
+                    )
                     .map_err(database_error)?;
                 database
                     .admit_afternic_provider(&claim.work.connection.seed)
@@ -351,9 +415,18 @@ impl DesktopLocalHost {
                     .admit_afternic_provider(&work.connection.seed)
                     .map_err(database_error)?;
                 database
-                    .reconcile_afternic_delist(&work.seed, observation.as_ref(), &at, || {
-                        guard.verify(sync, run)
-                    })
+                    .reconcile_afternic_delist_with_evidence(
+                        &work.seed,
+                        observation.as_ref(),
+                        &at,
+                        &self.execution_evidence_context(run)?,
+                        &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
+                        || {
+                            self.require_execution_context(run)
+                                .map_err(|_| BusinessDatabaseError::MutationStale)
+                                .and_then(|()| guard.verify(sync, run))
+                        },
+                    )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
                 Ok(())
@@ -385,9 +458,18 @@ impl DesktopLocalHost {
                     .admit_afternic_provider(&work.connection.seed)
                     .map_err(database_error)?;
                 database
-                    .defer_afternic_delist_read(&work.seed, retry_after_seconds, &at, || {
-                        guard.verify(sync, run)
-                    })
+                    .defer_afternic_delist_read_with_evidence(
+                        &work.seed,
+                        retry_after_seconds,
+                        &at,
+                        &self.execution_evidence_context(run)?,
+                        &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
+                        || {
+                            self.require_execution_context(run)
+                                .map_err(|_| BusinessDatabaseError::MutationStale)
+                                .and_then(|()| guard.verify(sync, run))
+                        },
+                    )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
                 Ok(())

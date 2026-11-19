@@ -18,6 +18,18 @@
 
 ## 目标
 
+### 2026-11-19 执行证据与目标引导终结（源码切片完成）
+
+- 总任务全文见 [实施目标](../IMPLEMENTATION_GOAL.md)，工作包见 [执行证据 Task Frame](EXECUTION_EVIDENCE_TASK_FRAME.md) 与 [目标引导终结 Task Frame](BOOTSTRAP_TERMINATION_TASK_FRAME.md)。十二平台、双系统和双恢复范围不变。
+- 已组合真实签名 context、批准/claim/结果审计、Cloud 精确历史核验与回执、本地三流冻结/封链、初始请求持久化与 resolve-before-POST、后台来源交接及客户确认入口。
+- 已组合 Windows 本机 custody、原子私有 ACL、SQLCipher 启动/关闭重开、受限掩码录入；真实 Core/Storage/Tauri Windows GNU 全目标严格 Clippy 通过。恢复 reservation、实机权限/窗口/休眠与发行资格仍未完成。
+- 执行证据基线根 `pnpm check` exit 0（结构 213、Protocol 501、Cloud 828、Desktop 357、client-core 425、Storage 521/6 项既有 ignored、Native 106、Core 82）。此后接续目标取消和 context 分阶段发布，最终完整根检查 exit 0（结构 213、Protocol 503、Cloud 833、Desktop 366、client-core 425、Storage 539/6 项既有 ignored、Native 127、Core 82），日志 `target/root-handoff-termination-final-check.log`。
+- 目标专用 status/cancel 已贯通 Cloud、无业务库 Host custody、固定 Native 网络与后台、设置/无副本 Standby 客户入口；取消精确原工作流且不授 Active。真实 OAuth 发现 mutation seal 对 login allocation 的错误限制，追加 021 而不改旧迁移；真实 PG 175/175、root 独立目标终结 16/16。
+- 独立审查发现并修复首次 marker 前缀、security epoch 变化后永久 pending、后台过期定时器自旋、context 在 power 锁内 custody，以及最终 credential_instance 缺失。证据和限制见 [执行证据审查](../reviews/2026-11-19-execution-evidence-review.md) 与 [目标终结审查](../reviews/2026-11-19-bootstrap-termination-review.md)。
+- Native/Storage 最终回归、根检查、格式/文档链接检查和独立审查已通过；最终格式化快照 Windows Storage/Tauri 全目标严格 Clippy 通过，独立 Native session/coordinator/lane 48/48。按本节完整范围提交；目标安装/激活、强制接管、云恢复、独立跨机离线备份与其他市场按原目标继续。
+
+### Phase 0 基础目标
+
 Phase 0 建立“Cloud 控制面授权、本地 SQLCipher 执行业务、Cloud 保存脱敏同步副本”的可验证
 纵向，不以部署、Provider 资格或发行证据替代本地实现。
 

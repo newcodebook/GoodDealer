@@ -50,6 +50,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query(`TRUNCATE
     workspace_device_cursors, workspace_device_audit_drain_seals, workspace_device_audit_drain_records,
     workspace_device_audit_drain_heads, execution_fact_drain_seals, execution_fact_drain_records,
@@ -57,7 +59,8 @@ beforeEach(async () => {
     device_bootstrap_activation_attempts, device_bootstrap_step_nonces, device_bootstrap_authorities,
     device_bootstrap_steps, device_bootstrap_capabilities, device_drain_proofs, device_active_leases,
     device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges, device_login_challenges,
-    device_signing_keys, device_bindings, device_account_states`);
+    device_signing_keys, device_bindings, device_account_states,
+    audit_execution_evidence_quarantines, execution_fact_evidence_quarantines CASCADE`);
   await ownerPool.query("DELETE FROM workspace_revisions WHERE account_id = $1", [scope.accountId]);
   await ownerPool.query("DELETE FROM workspace_account_bindings");
   await ownerPool.query("DELETE FROM workspace_workspaces");
@@ -222,7 +225,7 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
 });
 
 async function openSwitch(): Promise<string> {
-  const opened = await requests.requestNormal(source, { toDeviceId: "device-new", idempotencyKey: "idem-drain" });
+  const opened = await requests.requestNormal(source, { toDeviceId: "device-new", idempotencyKey: "idem-drain",expectedSourceLeaseEpoch:1 });
   if (opened?.accepted !== true) throw new Error("fixture switch did not open");
   return opened.request.requestId;
 }

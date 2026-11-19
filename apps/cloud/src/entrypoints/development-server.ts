@@ -46,6 +46,7 @@ if (process.argv.includes("--print-desktop-registry")) {
     grantKeys: publicKeys.grant.verifierKeys,
     leaseKeys: publicKeys.lease.verifierKeys,
     standbyKeys: publicKeys.standby.verifierKeys,
+    contextKeys: publicKeys.context.verifierKeys,
   })}\n`);
 } else {
   await startDevelopmentServer();
@@ -83,6 +84,7 @@ async function startDevelopmentServer(): Promise<void> {
     grantKey: publicKeys.grant.activeKey,
     leaseKey: publicKeys.lease.activeKey,
     standbyKey: publicKeys.standby.activeKey,
+    contextKey: publicKeys.context.activeKey,
     tokenSource,
   });
   const leaseVerifier = new TrustedActiveDeviceLeaseVerifier(
@@ -144,6 +146,7 @@ async function startDevelopmentServer(): Promise<void> {
     activationSubjects: { async readActivationSubject() { return null; } },
     desktopAuthorizationSigner: signer,
     desktopStandbySigner: signer,
+    desktopExecutionContextSigner: signer,
     activeDeviceLeaseVerifier: leaseVerifier,
     desktopAccessTokens: new PostgresDesktopAccessTokenVerifier(new AccountTransactionRunner(pool)),
     commercialCheckoutCatalog: commercialProviders.checkoutCatalog,

@@ -627,6 +627,18 @@
           "markdownDescription": "Enables the local_sync_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the target_bootstrap_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-bootstrap-cancel",
+          "markdownDescription": "Enables the target_bootstrap_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the target_bootstrap_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-bootstrap-status",
+          "markdownDescription": "Enables the target_bootstrap_status command without any pre-configured scope."
+        },
+        {
           "description": "Denies the afternic_connection_connect command without any pre-configured scope.",
           "type": "string",
           "const": "deny-afternic-connection-connect",
@@ -907,6 +919,18 @@
           "type": "string",
           "const": "deny-local-sync-status",
           "markdownDescription": "Denies the local_sync_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_bootstrap_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-bootstrap-cancel",
+          "markdownDescription": "Denies the target_bootstrap_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_bootstrap_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-bootstrap-status",
+          "markdownDescription": "Denies the target_bootstrap_status command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

@@ -1,0 +1,850 @@
+//! Closed Afternic execution-evidence signing. Host still owns authorization and truth of claims.
+
+use super::{
+    DesktopDeviceIdentity, DesktopDeviceIdentityError, read_canonical_frame, read_exact_frame,
+};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::signature::{ED25519, Ed25519KeyPair, UnparsedPublicKey};
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
+
+const APPROVAL: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
+const APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
+const AUDIT: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-V1";
+const AUDIT_HASH: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-HASH-V1";
+const FACT: &str = "GOODDEALER-EXECUTION-FACT-V1";
+const MAX_TRANSCRIPT: usize = 32_768;
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+type Object = Map<String, Value>;
+
+impl DesktopDeviceIdentity {
+    /// Signs only a closed, device-bound Afternic removal item approval transcript.
+    /// # Errors
+    /// Rejects another purpose, unknown/invalid claims, or a different device/key.
+    pub fn sign_afternic_delist_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object =
+            decode(transcript, APPROVAL).ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs only the closed workspace Afternic audit events, after recomputing their hash.
+    /// # Errors
+    /// Rejects another purpose, hash/chain mismatch, invalid payload, or different device/key.
+    pub fn sign_device_audit_event_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object =
+            decode(transcript, AUDIT).ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !audit(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs only a durable local Afternic dispatch claim with its exact signed item approval.
+    /// # Errors
+    /// Rejects altered evidence, another purpose, invalid fields or mismatched device/key/item.
+    pub fn sign_execution_fact_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, FACT).ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !fact(&object, &self.public_key) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    fn owns(&self, object: &Object) -> bool {
+        text(object, "sourceDeviceId") == Some(self.device_id.as_str())
+            && text(object, "signingKeyId") == Some(self.key_id.as_str())
+    }
+
+    // Private only: every caller above has decoded and validated its own fixed purpose.
+    fn sign_validated(&self, transcript: &[u8]) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let pair = Ed25519KeyPair::from_seed_unchecked(&*self.seed)
+            .map_err(|_| DesktopDeviceIdentityError::SigningRejected)?;
+        pair.sign(transcript)
+            .as_ref()
+            .try_into()
+            .map_err(|_| DesktopDeviceIdentityError::SigningRejected)
+    }
+}
+
+fn decode(bytes: &[u8], domain: &str) -> Option<Object> {
+    if bytes.is_empty() || bytes.len() > MAX_TRANSCRIPT {
+        return None;
+    }
+    let (tag, actual, rest) = read_canonical_frame(bytes)?;
+    if tag != b'd' || actual != domain.as_bytes() {
+        return None;
+    }
+    let value = decode_value(read_exact_frame(rest, b'v')?, 0)?;
+    value.as_object().cloned()
+}
+
+fn decode_value(bytes: &[u8], depth: u8) -> Option<Value> {
+    if depth > 4 {
+        return None;
+    }
+    let (tag, payload, rest) = read_canonical_frame(bytes)?;
+    if !rest.is_empty() {
+        return None;
+    }
+    match tag {
+        b'z' if payload.is_empty() => Some(Value::Null),
+        b's' => Some(Value::String(std::str::from_utf8(payload).ok()?.to_owned())),
+        b'n' => {
+            let number: u64 = std::str::from_utf8(payload).ok()?.parse().ok()?;
+            (number <= MAX_SAFE_INTEGER && number.to_string().as_bytes() == payload)
+                .then(|| Value::from(number))
+        }
+        b'o' => {
+            let mut result = Object::new();
+            let mut remaining = payload;
+            let mut previous: Option<&[u8]> = None;
+            while !remaining.is_empty() {
+                if result.len() >= 40 {
+                    return None;
+                }
+                let (tag, entry, rest) = read_canonical_frame(remaining)?;
+                let (key_tag, key, value) = read_canonical_frame(entry)?;
+                if tag != b'e'
+                    || key_tag != b'k'
+                    || key.is_empty()
+                    || key.len() > 64
+                    || !key.is_ascii()
+                    || previous.is_some_and(|old| old >= key)
+                {
+                    return None;
+                }
+                previous = Some(key);
+                let value = decode_value(read_exact_frame(value, b'v')?, depth + 1)?;
+                result.insert(std::str::from_utf8(key).ok()?.to_owned(), value);
+                remaining = rest;
+            }
+            Some(Value::Object(result))
+        }
+        // The closed evidence schemas contain no arrays, booleans, floats or negative numbers.
+        _ => None,
+    }
+}
+
+fn frame(tag: char, payload: &[u8]) -> Vec<u8> {
+    let mut result = format!("{tag}{}:", payload.len()).into_bytes();
+    result.extend_from_slice(payload);
+    result
+}
+fn canonical(value: &Value) -> Vec<u8> {
+    match value {
+        Value::Null => b"z0:".to_vec(),
+        Value::String(value) => frame('s', value.as_bytes()),
+        Value::Number(value) => frame('n', value.to_string().as_bytes()),
+        Value::Object(value) => {
+            let mut entries = value.iter().collect::<Vec<_>>();
+            entries.sort_by_key(|(key, _)| *key);
+            let mut bytes = Vec::new();
+            for (key, value) in entries {
+                let mut entry = frame('k', key.as_bytes());
+                entry.extend(frame('v', &canonical(value)));
+                bytes.extend(frame('e', &entry));
+            }
+            frame('o', &bytes)
+        }
+        _ => Vec::new(), // unreachable after closed validation; never used on caller wire directly
+    }
+}
+fn transcript(domain: &str, object: &Object) -> Vec<u8> {
+    let mut result = frame('d', domain.as_bytes());
+    result.extend(frame('v', &canonical(&Value::Object(object.clone()))));
+    result
+}
+fn hash(domain: &str, object: &Object) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(transcript(domain, object)))
+}
+fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
+    object.get(key)?.as_str()
+}
+fn literal(object: &Object, key: &str, expected: &str) -> bool {
+    text(object, key) == Some(expected)
+}
+fn number(object: &Object, key: &str) -> Option<u64> {
+    object.get(key)?.as_u64()
+}
+fn integer(object: &Object, key: &str, minimum: u64) -> bool {
+    number(object, key).is_some_and(|value| (minimum..=MAX_SAFE_INTEGER).contains(&value))
+}
+fn keys(object: &Object, expected: &str) -> bool {
+    let expected = expected.split_ascii_whitespace().collect::<Vec<_>>();
+    object.len() == expected.len() && expected.iter().all(|key| object.contains_key(*key))
+}
+fn all(object: &Object, names: &str, valid: fn(&str) -> bool) -> bool {
+    names
+        .split_ascii_whitespace()
+        .all(|key| text(object, key).is_some_and(valid))
+}
+fn base64<const N: usize>(value: &str) -> Option<[u8; N]> {
+    if value.len() > 4 * N {
+        return None;
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(value).ok()?;
+    (URL_SAFE_NO_PAD.encode(&bytes) == value).then_some(())?;
+    bytes.try_into().ok()
+}
+fn digest(value: &str) -> bool {
+    base64::<32>(value).is_some()
+}
+fn identifier(value: &str) -> bool {
+    super::valid_identifier(value)
+}
+fn uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[14] == b'4'
+        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
+            }
+        })
+}
+fn timestamp(value: &str) -> bool {
+    let b = value.as_bytes();
+    if b.len() != 20
+        || b[19] != b'Z'
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || !b[..19]
+            .iter()
+            .enumerate()
+            .all(|(i, c)| matches!(i, 4 | 7 | 10 | 13 | 16) || c.is_ascii_digit())
+    {
+        return false;
+    }
+    let n = |start: usize, end: usize| value[start..end].parse::<u32>().unwrap_or(u32::MAX);
+    let year = n(0, 4);
+    let month = n(5, 7);
+    let day = n(8, 10);
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => 0,
+    };
+    (1..=days).contains(&day) && n(11, 13) < 24 && n(14, 16) < 60 && n(17, 19) < 60
+}
+fn common(object: &Object) -> bool {
+    number(object, "schemaVersion") == Some(1)
+        && number(object, "signatureTranscriptVersion") == Some(1)
+        && all(
+            object,
+            "sourceDeviceId workspaceId signingKeyId",
+            identifier,
+        )
+        && all(object, "trustedTimeAnchorId", digest)
+        && ["activeLeaseEpoch", "credentialEpoch", "signingKeyVersion"]
+            .iter()
+            .all(|key| integer(object, key, 1))
+        && integer(object, "monotonicDeltaMs", 0)
+}
+fn approval(object: &Object) -> bool {
+    keys(
+        object,
+        "schemaVersion typ aud approvedOperationId operationId operationItemId planId planHash targetCount targetSetDigest capability action requestDigest accountId workspaceId sourceDeviceId activeLeaseEpoch credentialEpoch signingKeyId signingKeyVersion authorizationHash trustedTimeAnchorId monotonicDeltaMs approvedAt signatureTranscriptVersion",
+    ) && common(object)
+        && literal(object, "typ", "gd.afternic-delist-item-approval.v1")
+        && literal(object, "aud", "gooddealer-cloud/execution-evidence")
+        && literal(object, "capability", "afternic:marketplace:write")
+        && literal(object, "action", "remove")
+        && all(
+            object,
+            "approvedOperationId operationId operationItemId planId",
+            uuid,
+        )
+        && all(
+            object,
+            "planHash targetSetDigest requestDigest authorizationHash",
+            digest,
+        )
+        && all(object, "accountId", identifier)
+        && all(object, "approvedAt", timestamp)
+        && number(object, "targetCount").is_some_and(|n| (1..=500).contains(&n))
+}
+fn payload_common(object: &Object) -> bool {
+    number(object, "schemaVersion") == Some(1)
+        && literal(object, "provider", "afternic")
+        && literal(object, "action", "remove")
+}
+fn audit_payload(object: &Object, event: &Object) -> bool {
+    if !payload_common(object) {
+        return false;
+    }
+    match text(object, "stage") {
+        Some("approved") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId planId planHash targetCount targetSetDigest",
+            ) && all(object, "approvedOperationId operationId planId", uuid)
+                && all(object, "planHash targetSetDigest", digest)
+                && number(object, "targetCount").is_some_and(|n| (1..=500).contains(&n))
+                && literal(event, "actorKind", "user")
+                && literal(event, "targetType", "afternic_delist_approval")
+                && object.get("approvedOperationId") == event.get("targetRef")
+                && approved_audit(event)
+        }
+        Some("dispatch_claimed") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest",
+            ) && number(object, "attemptNo") == Some(1)
+                && claim_payload_fields(object)
+                && device_attempt_audit(event, object)
+                && approved_audit(event)
+        }
+        Some("preflight_refused") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest reason",
+            ) && claim_payload_fields(object)
+                && matches!(
+                    text(object, "reason"),
+                    Some("precondition_changed" | "connection_changed" | "already_absent")
+                )
+                && device_attempt_audit(event, object)
+                && literal(event, "eventType", "runtime_security_lifecycle")
+                && literal(event, "authorizationSource", "runtime_security_context")
+        }
+        Some("reconciled") => {
+            keys(
+                object,
+                "schemaVersion provider action stage operationId operationItemId attemptId originalExecutionFactId originalExecutionFactDigest outcome reason",
+            ) && all(
+                object,
+                "operationId operationItemId attemptId originalExecutionFactId",
+                uuid,
+            ) && all(object, "originalExecutionFactDigest", digest)
+                && device_attempt_audit(event, object)
+                && literal(event, "eventType", "runtime_security_lifecycle")
+                && literal(event, "authorizationSource", "runtime_security_context")
+                && match (text(object, "outcome"), object.get("reason")) {
+                    (Some("absent"), Some(Value::Null)) => true,
+                    (Some("present"), Some(Value::String(reason))) => reason == "still_present",
+                    (Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
+                    (Some("conflict"), Some(Value::String(reason))) => matches!(
+                        reason.as_str(),
+                        "precondition_changed" | "connection_changed"
+                    ),
+                    _ => false,
+                }
+        }
+        _ => false,
+    }
+}
+fn approved_audit(event: &Object) -> bool {
+    literal(event, "eventType", "approved_operation_execution")
+        && literal(event, "authorizationSource", "approved_operation")
+}
+fn device_attempt_audit(event: &Object, payload: &Object) -> bool {
+    literal(event, "actorKind", "device_service")
+        && literal(event, "targetType", "afternic_delist_attempt")
+        && payload.get("attemptId") == event.get("targetRef")
+}
+fn claim_payload_fields(object: &Object) -> bool {
+    all(
+        object,
+        "approvedOperationId operationId operationItemId attemptId",
+        uuid,
+    ) && all(
+        object,
+        "planHash requestDigest approvalEnvelopeDigest",
+        digest,
+    )
+}
+fn audit(object: &Object) -> bool {
+    if !keys(
+        object,
+        "schemaVersion auditEventId auditEventKind eventType accountId actorKind authorizationSource targetType targetRef sourceDeviceId credentialEpoch chainId auditSequence previousHash eventHash occurredAt signingKeyId signingKeyVersion signingKeyPurpose trustedTimeAnchorId monotonicDeltaMs authorizationContextHash signatureTranscriptVersion payloadRedacted scopeKind workspaceId activeLeaseEpoch",
+    ) || !common(object)
+        || !literal(object, "auditEventKind", "device")
+        || !literal(object, "scopeKind", "workspace")
+        || !literal(object, "signingKeyPurpose", "device_identity_audit")
+        || !all(object, "auditEventId targetRef", uuid)
+        || !all(object, "accountId", identifier)
+        || !all(
+            object,
+            "chainId previousHash eventHash authorizationContextHash",
+            digest,
+        )
+        || !all(object, "occurredAt", timestamp)
+        || !integer(object, "auditSequence", 1)
+        || !object
+            .get("payloadRedacted")
+            .and_then(Value::as_object)
+            .is_some_and(|p| audit_payload(p, object))
+    {
+        return false;
+    }
+    let mut unhashed = object.clone();
+    unhashed.remove("eventHash");
+    if text(object, "eventHash") != Some(hash(AUDIT_HASH, &unhashed).as_str()) {
+        return false;
+    }
+    let chain = json!({"scope":"workspace","workspaceId":object["workspaceId"],"sourceDeviceId":object["sourceDeviceId"],"activeLeaseEpoch":object["activeLeaseEpoch"]});
+    text(object, "chainId")
+        == Some(
+            hash(
+                "GOODDEALER-DEVICE-AUDIT-CHAIN-V1",
+                chain.as_object().unwrap(),
+            )
+            .as_str(),
+        )
+        && (number(object, "auditSequence") != Some(1)
+            || text(object, "previousHash")
+                == Some(
+                    URL_SAFE_NO_PAD
+                        .encode(Sha256::digest(b"GOODDEALER-DEVICE-AUDIT-CHAIN-GENESIS-V1"))
+                        .as_str(),
+                ))
+}
+
+struct UniqueObject(Object);
+impl<'de> Deserialize<'de> for UniqueObject {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> Visitor<'de> for ObjectVisitor {
+            type Value = UniqueObject;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("one closed approval object")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut object = Object::new();
+                while let Some((key, value)) = map.next_entry::<String, Value>()? {
+                    if object.len() >= 40 || object.insert(key, value).is_some() {
+                        return Err(serde::de::Error::custom("duplicate or excess field"));
+                    }
+                }
+                Ok(UniqueObject(object))
+            }
+        }
+        deserializer.deserialize_map(ObjectVisitor)
+    }
+}
+fn fact(object: &Object, key: &[u8; 32]) -> bool {
+    if !keys(
+        object,
+        "schemaVersion executionFactId operationId operationItemId workflowNodeId attemptId attemptNo approvedOperationId planHash idempotencyKeyHash sourceDeviceId workspaceId activeLeaseEpoch executionFactSequence eventType evidenceLevel occurredAt signingKeyId signingKeyVersion credentialEpoch trustedTimeAnchorId monotonicDeltaMs requestStartBoundary authorizationHash executionAuthorizationEvidence signatureTranscriptVersion payloadRedacted auditEventRef auditEventHash",
+    ) || !common(object)
+        || !all(
+            object,
+            "executionFactId operationId operationItemId workflowNodeId attemptId approvedOperationId auditEventRef",
+            uuid,
+        )
+        || number(object, "attemptNo") != Some(1)
+        || !integer(object, "executionFactSequence", 1)
+        || !all(
+            object,
+            "planHash idempotencyKeyHash authorizationHash auditEventHash",
+            digest,
+        )
+        || !all(object, "occurredAt requestStartBoundary", timestamp)
+        || object.get("occurredAt") != object.get("requestStartBoundary")
+        || !literal(object, "eventType", "afternic_delist_dispatch_claimed")
+        || !literal(object, "evidenceLevel", "durable_local_claim")
+    {
+        return false;
+    }
+    let Some(payload) = object.get("payloadRedacted").and_then(Value::as_object) else {
+        return false;
+    };
+    if !keys(
+        payload,
+        "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest",
+    ) || !payload_common(payload)
+        || !literal(payload, "stage", "dispatch_claimed")
+        || !literal(payload, "dispatchSemantics", "local_claim_only")
+        || !literal(payload, "deduplicationScope", "local_only")
+        || !all(payload, "requestDigest approvalEnvelopeDigest", digest)
+    {
+        return false;
+    }
+    let Some(evidence) = object
+        .get("executionAuthorizationEvidence")
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    if !keys(
+        evidence,
+        "approvedOperationDigest approvedOperationEnvelope signingKeyId signingKeyVersion credentialEpoch signatureTranscriptVersion",
+    ) || number(evidence, "signatureTranscriptVersion") != Some(1)
+        || !all(evidence, "approvedOperationDigest", digest)
+        || ["signingKeyId", "signingKeyVersion", "credentialEpoch"]
+            .iter()
+            .any(|k| evidence.get(*k) != object.get(*k))
+    {
+        return false;
+    }
+    let Some((mut approved, signature)) = verified_approval(evidence, key) else {
+        return false;
+    };
+    for field in [
+        "sourceDeviceId",
+        "workspaceId",
+        "activeLeaseEpoch",
+        "credentialEpoch",
+        "signingKeyId",
+        "signingKeyVersion",
+        "approvedOperationId",
+        "operationId",
+        "operationItemId",
+        "planHash",
+    ] {
+        if approved.get(field) != object.get(field) {
+            return false;
+        }
+    }
+    if approved.get("requestDigest") != payload.get("requestDigest") {
+        return false;
+    }
+    let dispatch_key = json!({"schemaVersion":1,"operationId":object["operationId"],
+        "operationItemId":object["operationItemId"],"attemptNo":1,"localOperationKey":approved["planId"]});
+    if text(object, "idempotencyKeyHash")
+        != Some(
+            hash(
+                "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1",
+                dispatch_key.as_object().unwrap(),
+            )
+            .as_str(),
+        )
+        || text(&approved, "approvedAt") > text(object, "requestStartBoundary")
+    {
+        return false;
+    }
+    approved.insert(
+        "deviceSignature".into(),
+        Value::String(URL_SAFE_NO_PAD.encode(signature)),
+    );
+    let digest = hash(APPROVAL_ENVELOPE, &approved);
+    text(evidence, "approvedOperationDigest") == Some(digest.as_str())
+        && text(payload, "approvalEnvelopeDigest") == Some(digest.as_str())
+}
+
+fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 64])> {
+    let encoded = text(evidence, "approvedOperationEnvelope")?;
+    if encoded.is_empty() || encoded.len() > 8192 {
+        return None;
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(encoded).ok()?;
+    if bytes.len() > 6144 || URL_SAFE_NO_PAD.encode(&bytes) != encoded {
+        return None;
+    }
+    let UniqueObject(mut approved) = serde_json::from_slice::<UniqueObject>(&bytes).ok()?;
+    let signature = approved
+        .remove("deviceSignature")
+        .and_then(|v| v.as_str().and_then(base64::<64>))?;
+    if !approval(&approved)
+        || UnparsedPublicKey::new(&ED25519, key)
+            .verify(&transcript(APPROVAL, &approved), &signature)
+            .is_err()
+    {
+        return None;
+    }
+    Some((approved, signature))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json"
+        ))
+        .unwrap()
+    }
+    fn identity() -> DesktopDeviceIdentity {
+        DesktopDeviceIdentity::from_test_material("device-01", "fixture-device-key", [85; 32])
+    }
+    fn claims(name: &str) -> Object {
+        let mut object = fixture()[name].as_object().unwrap().clone();
+        object.remove("deviceSignature");
+        object
+    }
+    fn rehash(object: &mut Object) {
+        object.remove("eventHash");
+        object.insert("eventHash".into(), Value::String(hash(AUDIT_HASH, object)));
+    }
+    #[test]
+    fn signatures_match_shared_protocol_golden_vectors() {
+        let device = identity();
+        let vector = fixture();
+        assert_eq!(device.public_key_base64url(), vector["devicePublicKey"]);
+        for (name, domain) in [
+            ("approval", APPROVAL),
+            ("approvalAudit", AUDIT),
+            ("claimAudit", AUDIT),
+            ("preflightAudit", AUDIT),
+            ("reconciledAudit", AUDIT),
+            ("fact", FACT),
+        ] {
+            let bytes = transcript(domain, &claims(name));
+            let signature = match domain {
+                APPROVAL => device.sign_afternic_delist_approval_transcript(&bytes),
+                AUDIT => device.sign_device_audit_event_transcript(&bytes),
+                _ => device.sign_execution_fact_transcript(&bytes),
+            }
+            .unwrap();
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(signature),
+                vector[name]["deviceSignature"],
+                "{name}"
+            );
+            if name == "approval" {
+                let hex = vector["bytes"]["approvalTranscript"].as_str().unwrap();
+                let expected = (0..hex.len())
+                    .step_by(2)
+                    .map(|offset| u8::from_str_radix(&hex[offset..offset + 2], 16).unwrap())
+                    .collect::<Vec<_>>();
+                assert_eq!(bytes, expected);
+            }
+        }
+    }
+    #[test]
+    fn purpose_and_installed_device_key_are_not_interchangeable() {
+        let device = identity();
+        let approval = transcript(APPROVAL, &claims("approval"));
+        assert!(
+            device
+                .sign_device_audit_event_transcript(&approval)
+                .is_err()
+        );
+        assert!(device.sign_execution_fact_transcript(&approval).is_err());
+        assert!(device.sign_drain_proof_transcript(&approval).is_err());
+        for (field, value) in [
+            ("sourceDeviceId", "another-device"),
+            ("signingKeyId", "another-key"),
+            ("capability", "cloudflare:dns:write"),
+            ("action", "create"),
+        ] {
+            let mut object = claims("approval");
+            object.insert(field.into(), json!(value));
+            assert!(
+                device
+                    .sign_afternic_delist_approval_transcript(&transcript(APPROVAL, &object))
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    fn closed_fields_and_canonical_encoding_fail_closed() {
+        let device = identity();
+        let original = claims("approval");
+        let mut extra = original.clone();
+        extra.insert("secret".into(), json!("must-not-sign"));
+        assert!(
+            device
+                .sign_afternic_delist_approval_transcript(&transcript(APPROVAL, &extra))
+                .is_err()
+        );
+        for (field, value) in [
+            ("targetCount", json!(501)),
+            ("activeLeaseEpoch", json!(0)),
+            ("monotonicDeltaMs", json!(MAX_SAFE_INTEGER + 1)),
+            ("approvedAt", json!("2026-02-30T00:00:00Z")),
+            ("planId", json!("00000000-0000-1000-8000-000000000001")),
+        ] {
+            let mut object = original.clone();
+            object.insert(field.into(), value);
+            assert!(
+                device
+                    .sign_afternic_delist_approval_transcript(&transcript(APPROVAL, &object))
+                    .is_err()
+            );
+        }
+        let valid = transcript(APPROVAL, &original);
+        let mut trailing = valid.clone();
+        trailing.push(0);
+        assert!(
+            device
+                .sign_afternic_delist_approval_transcript(&trailing)
+                .is_err()
+        );
+        assert!(
+            device
+                .sign_afternic_delist_approval_transcript(&valid[..valid.len() - 1])
+                .is_err()
+        );
+        assert!(
+            device
+                .sign_afternic_delist_approval_transcript(&vec![b'x'; MAX_TRANSCRIPT + 1])
+                .is_err()
+        );
+        assert!(decode_value(b"n2:01", 0).is_none());
+        assert!(decode_value(b"n2:-1", 0).is_none());
+        assert!(decode_value(b"s1:x", 5).is_none());
+        let entry = frame('e', &[frame('k', b"a"), frame('v', b"z0:")].concat());
+        assert!(decode_value(&frame('o', &[entry.clone(), entry].concat()), 0).is_none());
+    }
+    #[test]
+    fn audit_hash_chain_scope_and_actor_are_bound() {
+        let device = identity();
+        for (field, value) in [
+            ("eventHash", json!(URL_SAFE_NO_PAD.encode([0; 32]))),
+            ("previousHash", json!(URL_SAFE_NO_PAD.encode([0; 32]))),
+            ("chainId", json!(URL_SAFE_NO_PAD.encode([0; 32]))),
+            ("actorKind", json!("device_service")),
+            ("scopeKind", json!("device")),
+            ("workspaceId", json!("other-workspace")),
+        ] {
+            let mut object = claims("approvalAudit");
+            object.insert(field.into(), value);
+            if field != "eventHash" {
+                rehash(&mut object);
+            }
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &object))
+                    .is_err(),
+                "{field}"
+            );
+        }
+    }
+    #[test]
+    fn facts_bind_signed_approval_and_cannot_claim_remote_success() {
+        let device = identity();
+        for (field, value) in [
+            ("workspaceId", json!("other-workspace")),
+            ("activeLeaseEpoch", json!(8)),
+            ("credentialEpoch", json!(8)),
+            (
+                "operationItemId",
+                json!("00000000-0000-4000-8000-000000000099"),
+            ),
+            ("evidenceLevel", json!("provider_confirmed")),
+            ("occurredAt", json!("2026-08-01T10:00:04Z")),
+        ] {
+            let mut object = claims("fact");
+            object.insert(field.into(), value);
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &object))
+                    .is_err(),
+                "{field}"
+            );
+        }
+        for field in ["requestDigest", "approvalEnvelopeDigest"] {
+            let mut object = claims("fact");
+            object["payloadRedacted"][field] = json!(URL_SAFE_NO_PAD.encode([0; 32]));
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &object))
+                    .is_err()
+            );
+        }
+        let mut object = claims("fact");
+        let mut approval = fixture()["approval"].clone();
+        approval["deviceSignature"] = json!(URL_SAFE_NO_PAD.encode([0; 64]));
+        object["executionAuthorizationEvidence"]["approvedOperationEnvelope"] =
+            json!(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&approval).unwrap()));
+        assert!(
+            device
+                .sign_execution_fact_transcript(&transcript(FACT, &object))
+                .is_err()
+        );
+    }
+    #[test]
+    fn dispatch_key_and_approval_time_are_bound() {
+        let mut object = claims("fact");
+        object.insert(
+            "idempotencyKeyHash".into(),
+            json!(URL_SAFE_NO_PAD.encode([0; 32])),
+        );
+        assert!(
+            identity()
+                .sign_execution_fact_transcript(&transcript(FACT, &object))
+                .is_err()
+        );
+        let mut early = claims("fact");
+        early.insert("occurredAt".into(), json!("2026-08-01T10:00:01Z"));
+        early.insert("requestStartBoundary".into(), json!("2026-08-01T10:00:01Z"));
+        assert!(
+            identity()
+                .sign_execution_fact_transcript(&transcript(FACT, &early))
+                .is_err()
+        );
+    }
+    #[test]
+    fn preflight_and_reconciliation_cannot_claim_user_authorization() {
+        for name in ["preflightAudit", "reconciledAudit"] {
+            let mut object = claims(name);
+            object.insert("eventType".into(), json!("approved_operation_execution"));
+            object.insert("authorizationSource".into(), json!("approved_operation"));
+            rehash(&mut object);
+            assert!(
+                identity()
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &object))
+                    .is_err()
+            );
+        }
+        let mut object = claims("reconciledAudit");
+        object["payloadRedacted"]["outcome"] = json!("present");
+        object["payloadRedacted"]["reason"] = Value::Null;
+        rehash(&mut object);
+        assert!(
+            identity()
+                .sign_device_audit_event_transcript(&transcript(AUDIT, &object))
+                .is_err()
+        );
+    }
+    #[test]
+    fn embedded_approval_duplicate_keys_are_rejected() {
+        let mut object = claims("fact");
+        let encoded = object["executionAuthorizationEvidence"]["approvedOperationEnvelope"]
+            .as_str()
+            .unwrap();
+        let bytes = URL_SAFE_NO_PAD.decode(encoded).unwrap();
+        let mut json = String::from_utf8(bytes).unwrap();
+        json.insert_str(1, "\"schemaVersion\":1,");
+        object["executionAuthorizationEvidence"]["approvedOperationEnvelope"] =
+            json!(URL_SAFE_NO_PAD.encode(json));
+        assert!(
+            identity()
+                .sign_execution_fact_transcript(&transcript(FACT, &object))
+                .is_err()
+        );
+    }
+    #[test]
+    fn refreshed_dispatch_context_preserves_original_signed_approval() {
+        let mut object = claims("fact");
+        object.insert(
+            "authorizationHash".into(),
+            json!(URL_SAFE_NO_PAD.encode([9; 32])),
+        );
+        object.insert(
+            "trustedTimeAnchorId".into(),
+            json!(URL_SAFE_NO_PAD.encode([8; 32])),
+        );
+        assert!(
+            identity()
+                .sign_execution_fact_transcript(&transcript(FACT, &object))
+                .is_ok()
+        );
+    }
+}

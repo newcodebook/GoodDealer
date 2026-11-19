@@ -42,6 +42,8 @@ fn main() {
             "device_switch_advance",
             "device_switch_status",
             "device_switch_cancel",
+            "target_bootstrap_status",
+            "target_bootstrap_cancel",
             "local_backup_restore_status",
             "local_backup_export",
             "local_backup_artifact_select",

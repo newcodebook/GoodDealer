@@ -10,12 +10,12 @@ use serde_json::{Map, Value};
 
 use crate::active_workspace::business::{
     CloudMutationReceipt, DrainMutationProgress, HandoffDrainProofClaims, NormalHandoffAttempt,
-    NormalHandoffReceipt,
+    NormalHandoffReceipt, NormalHandoffRequest,
 };
 use crate::desktop_native_cloud::{
     strict_json, validate_digest43, validate_identifier, validate_timestamp,
 };
-use crate::desktop_sync_runtime::random_uuid_v4;
+use crate::desktop_sync_runtime::{DesktopSyncError, timestamp as business_timestamp, trusted_now};
 use crate::{DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission};
 
 const DEVICE_MANAGEMENT_SCHEMA_VERSION: u64 = 1;
@@ -81,20 +81,38 @@ impl std::fmt::Debug for DesktopDrainProofDraft {
 /// idempotency key is the Host's own, so a retry of this exchange returns Cloud's first outcome.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesktopDeviceSwitchRequestExchange {
-    body: Vec<u8>,
-    target_device_id: String,
+    request: NormalHandoffRequest,
 }
 
 impl DesktopDeviceSwitchRequestExchange {
     #[must_use]
     pub fn request_body(&self) -> &[u8] {
-        &self.body
+        self.request.request_json.as_bytes()
     }
 
     #[must_use]
     pub fn target_device_id(&self) -> &str {
-        &self.target_device_id
+        &self.request.target_device_id
     }
+}
+
+/// A read-only Cloud lookup for one durably unanswered source request, including an older epoch.
+#[derive(Clone, Debug)]
+pub struct DesktopDeviceSwitchRequestResolution {
+    request: NormalHandoffRequest,
+    body: Vec<u8>,
+}
+impl DesktopDeviceSwitchRequestResolution {
+    #[must_use]
+    pub fn request_body(&self) -> &[u8] {
+        &self.body
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DesktopDeviceSwitchRequestResolutionOutcome {
+    RetryCurrentRequest,
+    Resolved(DesktopDeviceSwitchStart),
+    Superseded,
 }
 
 /// Cloud's answer to a normal switch request. The switch id comes only from Cloud's view of a
@@ -128,6 +146,7 @@ pub enum DesktopDeviceSwitchRejection {
     SwitchNotCancellable,
     IdempotencyConflict,
     TargetIsSource,
+    SourceLeaseChanged,
     TargetNotBound,
     TargetRemoved,
     AccountRecoveryPending,
@@ -144,52 +163,162 @@ pub enum DesktopDeviceSwitchOutcome {
 }
 
 impl DesktopLocalHost {
-    /// The `/v1/device-switch/requests` body for a normal switch to `target_device_id`.
-    ///
+    /// Persists the exact normal-switch intent before Native may send it; an unresolved intent is reused.
     /// # Errors
-    ///
-    /// Returns `CloudProtocolRejected` for a malformed target, or a storage error if no idempotency key
-    /// could be drawn.
+    /// Refuses malformed targets, stale authority, a different outstanding source epoch or storage failure.
     pub fn prepare_native_device_switch_request(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
         target_device_id: &str,
     ) -> Result<DesktopDeviceSwitchRequestExchange, DesktopLocalHostError> {
         validate_identifier(target_device_id, MAX_IDENTIFIER_BYTES)?;
-        let idempotency_key =
-            random_uuid_v4().map_err(|_| DesktopLocalHostError::StorageRejected)?;
-        let body = serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": DEVICE_MANAGEMENT_SCHEMA_VERSION,
-            "mode": "normal",
-            "toDeviceId": target_device_id,
-            "idempotencyKey": idempotency_key,
-        }))
-        .map_err(|_| DesktopLocalHostError::StorageRejected)?;
-        Ok(DesktopDeviceSwitchRequestExchange {
-            body,
-            target_device_id: target_device_id.to_owned(),
+        let request =
+            self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
+                let at = business_timestamp(trusted_now()?)?;
+                business
+                    .database_for_backup_mut()
+                    .prepare_normal_handoff_request(
+                        run.device_id(),
+                        run.lease_epoch(),
+                        target_device_id,
+                        &at,
+                        || guard.verify(sync, run),
+                    )
+                    .map_err(|_| DesktopSyncError::StorageRejected)
+            })?;
+        Ok(DesktopDeviceSwitchRequestExchange { request })
+    }
+    /// Recovers the same source epoch's unanswered request without creating a new idempotency key.
+    /// # Errors
+    /// A pending request from a different epoch requires read-only Cloud reconciliation before new intent.
+    pub fn pending_native_device_switch_request(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<Option<DesktopDeviceSwitchRequestExchange>, DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |_, business, run, _| {
+            business
+                .database_for_backup()
+                .pending_normal_handoff_request(run.device_id(), run.lease_epoch())
+                .map(|request| {
+                    request.map(|request| DesktopDeviceSwitchRequestExchange { request })
+                })
+                .map_err(|_| DesktopSyncError::StorageRejected)
         })
     }
-
-    /// Decodes Cloud's answer to `exchange`. An accepted view must be a normal switch from this
-    /// device to the requested target; only then is its id used.
-    ///
+    /// Decodes the exact Cloud answer and atomically records it with the source barrier/producer freeze.
     /// # Errors
-    ///
-    /// Returns `CloudProtocolRejected` for a malformed response or one about another switch.
+    /// Unknown responses, wrong targets, old epochs and failed final fences leave the request unanswered.
     pub fn complete_native_device_switch_request(
         &self,
         admission: &DesktopNativeCloudAdmission,
         exchange: &DesktopDeviceSwitchRequestExchange,
         response_wire: &[u8],
     ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
-        if !admission.is_active() {
+        if !admission.is_active()
+            || exchange.request.source_device_id != admission.inner.device_id()
+            || exchange.request.source_lease_epoch != admission.inner.lease_epoch()
+        {
             return Err(DesktopLocalHostError::AuthorityRejected);
         }
-        self.recheck_native_cloud(admission)?;
-        decode_switch_start(
+        if response_wire.is_empty() || response_wire.len() > 65536 {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        let start = decode_switch_start(
             response_wire,
-            &exchange.target_device_id,
+            &exchange.request.target_device_id,
             admission.inner.device_id(),
-        )
+        )?;
+        let drain_request = match &start {
+            DesktopDeviceSwitchStart::Accepted {
+                device_switch_request_id,
+                status: DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining,
+            } => Some(device_switch_request_id.as_str()),
+            _ => None,
+        };
+        let answer = std::str::from_utf8(response_wire)
+            .map_err(|_| DesktopLocalHostError::CloudProtocolRejected)?;
+        self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
+            let at = business_timestamp(trusted_now()?)?;
+            business
+                .database_for_backup_mut()
+                .complete_normal_handoff_request(
+                    &exchange.request,
+                    answer,
+                    drain_request,
+                    &at,
+                    || guard.verify(sync, run),
+                )
+                .map_err(|_| DesktopSyncError::StorageRejected)
+        })?;
+        Ok(start)
+    }
+
+    /// Builds a read-only idempotency lookup; it never resends an old epoch's request.
+    /// # Errors
+    /// Refuses stale admission, corrupt pending intent or a source epoch newer than current authority.
+    pub fn prepare_native_device_switch_request_resolution(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<Option<DesktopDeviceSwitchRequestResolution>, DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner,|_,business,run,_| {
+            let request=business.database_for_backup().pending_normal_handoff_request_resolution(run.device_id()).map_err(|_|DesktopSyncError::StorageRejected)?;
+            request.map(|request| {
+                if request.source_lease_epoch>run.lease_epoch() {return Err(DesktopSyncError::StaleAuthority);}
+                let body=serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"idempotencyKey":request.idempotency_key})).map_err(|_|DesktopSyncError::StorageRejected)?;
+                Ok(DesktopDeviceSwitchRequestResolution {request,body})
+            }).transpose()
+        })
+    }
+    /// Reconciles the original request; only current-epoch not-found permits an exact retry.
+    /// # Errors
+    /// Wrong keys/targets, unknown legacy source epochs and nonterminal older workflows never open a drain.
+    pub fn complete_native_device_switch_request_resolution(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        resolution: &DesktopDeviceSwitchRequestResolution,
+        response: &[u8],
+    ) -> Result<DesktopDeviceSwitchRequestResolutionOutcome, DesktopLocalHostError> {
+        if !admission.is_active()
+            || resolution.request.source_device_id != admission.inner.device_id()
+            || resolution.request.source_lease_epoch > admission.inner.lease_epoch()
+            || response.is_empty()
+            || response.len() > 8192
+        {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        let (outcome, drain_id, consume) = decode_request_resolution(
+            &resolution.request,
+            admission.inner.lease_epoch(),
+            response,
+        )?;
+        let answer = std::str::from_utf8(response)
+            .map_err(|_| DesktopLocalHostError::CloudProtocolRejected)?;
+        self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
+            let database = business.database_for_backup_mut();
+            if consume {
+                let at = business_timestamp(trusted_now()?)?;
+                database
+                    .complete_normal_handoff_request(
+                        &resolution.request,
+                        answer,
+                        drain_id.as_deref(),
+                        &at,
+                        || guard.verify(sync, run),
+                    )
+                    .map_err(|_| DesktopSyncError::StorageRejected)
+            } else {
+                let pending = database
+                    .pending_normal_handoff_request_resolution(run.device_id())
+                    .map_err(|_| DesktopSyncError::StorageRejected)?;
+                if pending.as_ref() != Some(&resolution.request) {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
+                guard
+                    .verify(sync, run)
+                    .map_err(|_| DesktopSyncError::StaleAuthority)
+            }
+        })?;
+        Ok(outcome)
     }
 
     /// The `/status` or `/cancel` body naming `device_switch_request_id`.
@@ -341,11 +470,13 @@ impl DesktopLocalHost {
         validate_identifier(signing_key_id, MAX_IDENTIFIER_BYTES)?;
         let claims =
             self.with_sync_business_write(&admission.inner, |sync, business, admission, _| {
+                let key_version = self.drain_signing_key_version(admission, signing_key_id)?;
                 sync.drain_prepare_proof(
                     business.database_for_backup_mut(),
                     admission,
                     device_switch_request_id,
                     signing_key_id,
+                    key_version,
                 )
             })?;
         let transcript = claims
@@ -627,6 +758,105 @@ impl DesktopLocalHost {
     }
 }
 
+fn decode_request_resolution(
+    request: &NormalHandoffRequest,
+    epoch: u64,
+    response: &[u8],
+) -> Result<
+    (
+        DesktopDeviceSwitchRequestResolutionOutcome,
+        Option<String>,
+        bool,
+    ),
+    DesktopLocalHostError,
+> {
+    let value: Value = strict_json(response)?;
+    let found = match value.get("outcome").and_then(Value::as_str) {
+        Some("found") => true,
+        Some("not_found") => false,
+        _ => return Err(DesktopLocalHostError::CloudProtocolRejected),
+    };
+    let fields = if found {
+        &[
+            "schemaVersion",
+            "outcome",
+            "idempotencyKey",
+            "request",
+            "targetSigningKeyId",
+            "targetSigningKeyVersion",
+            "sourceLeaseEpoch",
+        ][..]
+    } else {
+        &["schemaVersion", "outcome", "idempotencyKey"][..]
+    };
+    let object = exact_object(&value, fields)?;
+    if object["schemaVersion"] != 1
+        || identifier(&object["idempotencyKey"])? != request.idempotency_key
+    {
+        return Err(DesktopLocalHostError::CloudProtocolRejected);
+    }
+    let same_epoch = request.source_lease_epoch == epoch;
+    let (outcome, drain_id, consume) = if found {
+        identifier(&object["targetSigningKeyId"])?;
+        safe_positive(&object["targetSigningKeyVersion"])?;
+        let source_epoch = if object["sourceLeaseEpoch"].is_null() {
+            None
+        } else {
+            Some(safe_positive(&object["sourceLeaseEpoch"])?)
+        };
+        if source_epoch.is_some_and(|epoch| epoch != request.source_lease_epoch) {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        let wire = serde_json::to_vec(
+            &serde_json::json!({"schemaVersion":1,"accepted":true,"request":object["request"]}),
+        )
+        .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let start =
+            decode_switch_start(&wire, &request.target_device_id, &request.source_device_id)?;
+        let DesktopDeviceSwitchStart::Accepted {
+            device_switch_request_id,
+            status,
+        } = &start
+        else {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        };
+        let terminal = matches!(
+            status,
+            DesktopDeviceSwitchStatus::Completed
+                | DesktopDeviceSwitchStatus::Cancelled
+                | DesktopDeviceSwitchStatus::Failed
+        );
+        if (!same_epoch || source_epoch.is_none()) && !terminal {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        let drain = (same_epoch
+            && source_epoch.is_some()
+            && matches!(
+                status,
+                DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining
+            ))
+        .then(|| device_switch_request_id.clone());
+        (
+            DesktopDeviceSwitchRequestResolutionOutcome::Resolved(start),
+            drain,
+            true,
+        )
+    } else if same_epoch {
+        (
+            DesktopDeviceSwitchRequestResolutionOutcome::RetryCurrentRequest,
+            None,
+            false,
+        )
+    } else {
+        (
+            DesktopDeviceSwitchRequestResolutionOutcome::Superseded,
+            None,
+            true,
+        )
+    };
+    Ok((outcome, drain_id, consume))
+}
+
 fn exact_object<'a>(
     value: &'a Value,
     keys: &[&str],
@@ -892,6 +1122,7 @@ fn rejection(code: &str) -> Result<DesktopDeviceSwitchRejection, DesktopLocalHos
         "SWITCH_NOT_CANCELLABLE" => DesktopDeviceSwitchRejection::SwitchNotCancellable,
         "IDEMPOTENCY_CONFLICT" => DesktopDeviceSwitchRejection::IdempotencyConflict,
         "TARGET_IS_SOURCE" => DesktopDeviceSwitchRejection::TargetIsSource,
+        "SOURCE_LEASE_CHANGED" => DesktopDeviceSwitchRejection::SourceLeaseChanged,
         "TARGET_NOT_BOUND" => DesktopDeviceSwitchRejection::TargetNotBound,
         "TARGET_REMOVED" => DesktopDeviceSwitchRejection::TargetRemoved,
         "ACCOUNT_RECOVERY_PENDING" => DesktopDeviceSwitchRejection::AccountRecoveryPending,
@@ -1057,9 +1288,27 @@ mod tests {
                 .is_err()
         );
 
-        let draft = host
-            .prepare_native_drain_proof(&admission, "switch-1", "device-key-1")
-            .expect("prepare proof");
+        // This development fixture exercises the stream-folding owner; it has no authenticated
+        // context and therefore cannot use production Host proof admission.
+        assert!(
+            host.prepare_native_drain_proof(&admission, "switch-1", "device-key-1")
+                .is_err()
+        );
+        let claims = host
+            .with_sync_business_write(&admission.inner, |sync, business, run, _| {
+                sync.drain_prepare_proof(
+                    business.database_for_backup_mut(),
+                    run,
+                    "switch-1",
+                    "device-key-1",
+                    4,
+                )
+            })
+            .unwrap();
+        let draft = DesktopDrainProofDraft {
+            transcript: claims.signature_transcript().unwrap(),
+            claims,
+        };
         assert!(
             draft
                 .signature_transcript()
@@ -1087,7 +1336,7 @@ mod tests {
         assert_eq!(proof["activeLeaseEpoch"], 1);
         assert_eq!(proof["deviceSwitchRequestId"], "switch-1");
         assert_eq!(proof["signingKeyId"], "device-key-1");
-        assert_eq!(proof["signingKeyVersion"], 1);
+        assert_eq!(proof["signingKeyVersion"], 4);
         assert_eq!(proof["deviceSignature"], SIGNATURE);
         assert_eq!(proof["streams"][0]["stream"], "mutation");
         assert_eq!(proof["streams"][0]["lastAssignedSequence"], 2);
@@ -1205,6 +1454,12 @@ mod tests {
                 DesktopDeviceSwitchRejection::TargetRemoved
             ))
         );
+        assert_eq!(
+            decode(br#"{"schemaVersion":1,"accepted":false,"code":"SOURCE_LEASE_CHANGED"}"#),
+            Ok(DesktopDeviceSwitchStart::Rejected(
+                DesktopDeviceSwitchRejection::SourceLeaseChanged
+            ))
+        );
         for wire in [
             draining(&[("toDeviceId", serde_json::json!("device-other"))]),
             draining(&[("fromDeviceId", serde_json::json!("device-other"))]),
@@ -1230,9 +1485,13 @@ mod tests {
 
     #[test]
     fn switch_request_and_lookup_bodies_are_the_closed_protocol_shapes() {
-        let first = DesktopLocalHost::prepare_native_device_switch_request("device-target")
+        let (_directory, host) = drain_host();
+        let admission = host.begin_native_cloud_run().unwrap();
+        let first = host
+            .prepare_native_device_switch_request(&admission, "device-target")
             .expect("request");
-        let second = DesktopLocalHost::prepare_native_device_switch_request("device-target")
+        let second = host
+            .prepare_native_device_switch_request(&admission, "another-target")
             .expect("request");
         assert_eq!(first.target_device_id(), "device-target");
         let body: Value = serde_json::from_slice(first.request_body()).expect("request json");
@@ -1244,15 +1503,22 @@ mod tests {
             .collect();
         assert_eq!(
             keys,
-            ["idempotencyKey", "mode", "schemaVersion", "toDeviceId"]
+            [
+                "expectedSourceLeaseEpoch",
+                "idempotencyKey",
+                "mode",
+                "schemaVersion",
+                "toDeviceId"
+            ]
         );
-        assert_eq!(body["schemaVersion"], 1);
+        assert_eq!(body["schemaVersion"], 2);
+        assert_eq!(body["expectedSourceLeaseEpoch"], 1);
         assert_eq!(body["mode"], "normal");
         assert_eq!(body["toDeviceId"], "device-target");
-        // Each prepared request is a new switch; only a retry of the same exchange reuses its key.
-        assert_ne!(first.request_body(), second.request_body());
+        // A second caller cannot replace an unresolved intent, target or idempotency key.
+        assert_eq!(first.request_body(), second.request_body());
         assert_eq!(
-            DesktopLocalHost::prepare_native_device_switch_request(""),
+            host.prepare_native_device_switch_request(&admission, ""),
             Err(DesktopLocalHostError::CloudProtocolRejected)
         );
         assert_eq!(
@@ -1337,5 +1603,164 @@ mod tests {
                 String::from_utf8_lossy(&wire)
             );
         }
+    }
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one closed Host request lifecycle covers reopen, exact replay, hostile lookup and atomic drain installation"
+    )]
+    fn durable_request_reopens_and_read_only_resolution_is_exact_and_atomic() {
+        let (directory, host) = drain_host();
+        let admission = host.begin_native_cloud_run().unwrap();
+        let exchange = host
+            .prepare_native_device_switch_request(&admission, "device-target")
+            .unwrap();
+        let original = exchange.request_body().to_vec();
+        drop(host);
+        let database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6c; 32]),
+            WORKSPACE_ID,
+        )
+        .unwrap();
+        let host = DesktopLocalHost::development(
+            database,
+            directory.path().join("native-backup"),
+            "account-local",
+            WORKSPACE_ID,
+            "device-local",
+        )
+        .unwrap();
+        let admission = host.begin_native_cloud_run().unwrap();
+        let pending = host
+            .pending_native_device_switch_request(&admission)
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending.request_body(), original);
+        let resolution = host
+            .prepare_native_device_switch_request_resolution(&admission)
+            .unwrap()
+            .unwrap();
+        let query: Value = serde_json::from_slice(resolution.request_body()).unwrap();
+        let notfound=serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"outcome":"not_found","idempotencyKey":query["idempotencyKey"]})).unwrap();
+        assert_eq!(
+            host.complete_native_device_switch_request_resolution(
+                &admission,
+                &resolution,
+                &notfound
+            )
+            .unwrap(),
+            DesktopDeviceSwitchRequestResolutionOutcome::RetryCurrentRequest
+        );
+        assert_eq!(
+            host.pending_native_device_switch_request(&admission)
+                .unwrap()
+                .unwrap()
+                .request_body(),
+            original
+        );
+        let draining = view(&[
+            ("status", serde_json::json!("draining")),
+            ("bootstrapExpiresAt", Value::Null),
+        ]);
+        let mut found = serde_json::json!({"schemaVersion":1,"outcome":"found","idempotencyKey":query["idempotencyKey"],"request":draining,"targetSigningKeyId":"target-key","targetSigningKeyVersion":1,"sourceLeaseEpoch":1});
+        for field in [
+            "idempotencyKey",
+            "sourceLeaseEpoch",
+            "targetSigningKeyVersion",
+        ] {
+            let mut wrong = found.clone();
+            wrong[field] = serde_json::json!("wrong");
+            assert!(
+                host.complete_native_device_switch_request_resolution(
+                    &admission,
+                    &resolution,
+                    &serde_json::to_vec(&wrong).unwrap()
+                )
+                .is_err()
+            );
+        }
+        found["sourceLeaseEpoch"] = Value::Null;
+        assert!(
+            host.complete_native_device_switch_request_resolution(
+                &admission,
+                &resolution,
+                &serde_json::to_vec(&found).unwrap()
+            )
+            .is_err()
+        );
+        assert!(
+            host.pending_native_device_switch_request(&admission)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            host.native_device_switch_in_progress(&admission).unwrap(),
+            None
+        );
+        found["sourceLeaseEpoch"] = serde_json::json!(1);
+        assert!(matches!(
+            host.complete_native_device_switch_request_resolution(
+                &admission,
+                &resolution,
+                &serde_json::to_vec(&found).unwrap()
+            )
+            .unwrap(),
+            DesktopDeviceSwitchRequestResolutionOutcome::Resolved(
+                DesktopDeviceSwitchStart::Accepted {
+                    status: DesktopDeviceSwitchStatus::Draining,
+                    ..
+                }
+            )
+        ));
+        assert!(
+            host.pending_native_device_switch_request(&admission)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            host.native_device_switch_in_progress(&admission).unwrap(),
+            Some("switch-1".into())
+        );
+    }
+    #[test]
+    fn old_epoch_resolution_never_reposts_or_drains_and_legacy_null_only_resolves_terminal() {
+        let (_directory, host) = drain_host();
+        let admission = host.begin_native_cloud_run().unwrap();
+        let request = host
+            .prepare_native_device_switch_request(&admission, "device-target")
+            .unwrap()
+            .request;
+        let notfound=serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"outcome":"not_found","idempotencyKey":request.idempotency_key})).unwrap();
+        assert_eq!(
+            decode_request_resolution(&request, 2, &notfound).unwrap(),
+            (
+                DesktopDeviceSwitchRequestResolutionOutcome::Superseded,
+                None,
+                true
+            )
+        );
+        let mut found = serde_json::json!({"schemaVersion":1,"outcome":"found","idempotencyKey":request.idempotency_key,"request":view(&[("status",serde_json::json!("draining")),("bootstrapExpiresAt",Value::Null)]),"targetSigningKeyId":"target-key","targetSigningKeyVersion":1,"sourceLeaseEpoch":1});
+        assert!(
+            decode_request_resolution(&request, 2, &serde_json::to_vec(&found).unwrap()).is_err()
+        );
+        found["sourceLeaseEpoch"] = Value::Null;
+        assert!(
+            decode_request_resolution(&request, 1, &serde_json::to_vec(&found).unwrap()).is_err()
+        );
+        found["request"]["status"] = serde_json::json!("cancelled");
+        let (outcome, drain, consume) =
+            decode_request_resolution(&request, 2, &serde_json::to_vec(&found).unwrap()).unwrap();
+        assert!(matches!(
+            outcome,
+            DesktopDeviceSwitchRequestResolutionOutcome::Resolved(
+                DesktopDeviceSwitchStart::Accepted {
+                    status: DesktopDeviceSwitchStatus::Cancelled,
+                    ..
+                }
+            )
+        ));
+        assert!(drain.is_none());
+        assert!(consume);
     }
 }

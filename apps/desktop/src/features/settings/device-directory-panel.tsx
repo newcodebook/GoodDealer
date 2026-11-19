@@ -3,13 +3,17 @@ import { formatDate, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Banner, Button, Input, Panel } from "@gooddealer/ui";
 import { useEffect, useId, useRef, useState } from "react";
 
+import type { DeviceSwitchPort, TargetBootstrapPort } from "../../adapters/tauri";
+import { TargetBootstrapPanel } from "./target-bootstrap-panel";
+import { DeviceHandoffPanel } from "./device-handoff-panel";
+
 const platformLabels = { windows: "Windows", macos: "macOS", linux: "Linux", ios: "iOS", android: "Android" } as const;
 
 type DirectoryState = { readonly kind: "loading" | "failed" | "unknown" }
   | { readonly kind: "ready" | "saving"; readonly view: DeviceDirectoryView; readonly saved: boolean };
 
-/** Device metadata has no execution affordances: only Cloud's verified list and this device's name. */
-export function DeviceDirectoryPanel({ locale, port, readOnly = false }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort; readonly readOnly?: boolean }) {
+/** Directory metadata offers candidates; every handoff still crosses the separate Native gate. */
+export function DeviceDirectoryPanel({ locale, port, switchPort, bootstrapPort, readOnly = false }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort; readonly switchPort?: DeviceSwitchPort; readonly bootstrapPort?: TargetBootstrapPort; readonly readOnly?: boolean }) {
   const copy = getPresentationCopy(locale, "settings");
   const [state, setState] = useState<DirectoryState>({ kind: "loading" });
   const [name, setName] = useState("");
@@ -48,6 +52,7 @@ export function DeviceDirectoryPanel({ locale, port, readOnly = false }: { reado
   return <Panel title={copy.deviceExecutionTitle} actions={<Button size="sm" disabled={state.kind === "saving" || state.kind === "loading"} onClick={() => setAttempt((value) => value + 1)}>{copy.refreshDevices}</Button>}>
     {state.kind === "loading" ? <p>{copy.devicesLoading}</p> : null}
     {state.kind === "failed" || state.kind === "unknown" ? <Banner tone="warning" title={state.kind === "unknown" ? copy.deviceSaveUnknown : copy.devicesUnavailable} /> : null}
+    {bootstrapPort === undefined ? null : <TargetBootstrapPanel locale={locale} port={bootstrapPort} />}
     {ready ? <>
       <ul className="settings-device-directory" role="list">
         {state.view.devices.map((device) => <li key={device.deviceId} className="settings-device-row">
@@ -59,6 +64,7 @@ export function DeviceDirectoryPanel({ locale, port, readOnly = false }: { reado
           <Badge>{device.status === "removed" ? copy.deviceRemoved : device.role === "active" ? copy.deviceActive : device.role === "standby" ? copy.deviceStandby : copy.deviceNotAuthorized}</Badge>
         </li>)}
       </ul>
+      {switchPort === undefined ? null : <DeviceHandoffPanel locale={locale} port={switchPort} directory={state.view} readOnly={readOnly} />}
       {!readOnly && state.view.devices.some((device) => device.currentDevice && device.role === "active") ? <form aria-label={copy.deviceName} onSubmit={(event) => { event.preventDefault(); save(); }}>
         <label htmlFor={inputId}>{copy.deviceName}</label>
         <p id={`${inputId}-help`} className="gd-t-meta">{copy.deviceNameHelp}</p>

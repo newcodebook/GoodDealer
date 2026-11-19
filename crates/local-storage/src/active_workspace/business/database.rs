@@ -78,7 +78,7 @@ impl BusinessDatabase {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn open_existing_derived(
         path: &Path,
         key: &LocalDatabaseKey,

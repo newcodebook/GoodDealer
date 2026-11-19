@@ -73,8 +73,9 @@ describe("PostgreSQL account activation", () => {
           return principal.accountId === identity.accountId ? subject : null;
         },
       },
+      desktopExecutionContextSigner: { sign: async () => ({ signed: false }) },
       desktopStandbySigner: { async sign() { return { signed: false }; } },
-    desktopAuthorizationSigner: new DenyingDesktopAuthorizationGrantSigner(),
+      desktopAuthorizationSigner: new DenyingDesktopAuthorizationGrantSigner(),
       activeDeviceLeaseVerifier: new DenyingActiveDeviceLeaseVerifier(),
       desktopAccessTokens: new DenyingDesktopAccessTokenVerifier(),
       commercialCheckoutCatalog: new CommercialCheckoutCatalog([]),

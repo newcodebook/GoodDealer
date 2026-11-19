@@ -617,18 +617,18 @@ fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
         .map_err(secret_service_error)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn store_native_refresh_bytes(_value: &[u8]) -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
@@ -701,6 +701,22 @@ fn valid_refresh_request_id(value: &str) -> bool {
         && value[8..]
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+#[cfg(windows)]
+fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
+    crate::windows_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
+}
+#[cfg(windows)]
+fn store_native_refresh_bytes(value: &[u8]) -> Result<(), DesktopOAuthError> {
+    crate::windows_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
+}
+#[cfg(windows)]
+fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
+    crate::windows_custody::delete(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
 }
 
 #[cfg(test)]

@@ -1,8 +1,9 @@
 //! Signed workspace execution authority and monotonic replacement rules.
 //! Artifact admission remains in the backup workflow; it cannot grant workspace authority.
 
+pub(super) mod execution_context;
 mod standby;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) use standby::signed_standby_for_host_test;
 pub(super) use standby::{VerifiedStandbyAuthority, VerifiedWorkspaceRole};
 
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ring::signature::{ED25519, UnparsedPublicKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -27,7 +28,7 @@ const GRANT_SIGNATURE_DOMAIN: &str = "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V4"
 const MAX_OFFLINE_WINDOW_SECONDS: i64 = 86_400;
 pub(super) const MAX_SIGNED_WIRE_BYTES: usize = 16_384;
 const MAX_REGISTRY_BYTES: usize = 16_384;
-const MAX_REGISTRY_KEYS: usize = 24;
+const MAX_REGISTRY_KEYS: usize = 32;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const ED25519_PUBLIC_KEY_BYTES: usize = 32;
 const ED25519_SIGNATURE_BYTES: usize = 64;
@@ -64,6 +65,7 @@ impl fmt::Display for WorkspaceAuthorityError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum CredentialPurpose {
+    ExecutionContextV1,
     StandbyGrantV1,
     GrantV3,
     ActiveDeviceLeaseV1,
@@ -118,12 +120,17 @@ impl WorkspaceAuthorityVerifier {
         {
             return Err(WorkspaceAuthorityError::Malformed);
         }
+        let mut has_context = false;
         let mut has_standby = false;
         let mut has_grant = false;
         let mut has_lease = false;
         let mut keys = Vec::with_capacity(registry.keys.len());
         for wire in registry.keys {
             let purpose = match wire.purpose {
+                VerificationPurposeWire::ExecutionContextV1 => {
+                    has_context = true;
+                    CredentialPurpose::ExecutionContextV1
+                }
                 VerificationPurposeWire::StandbyGrantV1 => {
                     has_standby = true;
                     CredentialPurpose::StandbyGrantV1
@@ -145,10 +152,11 @@ impl WorkspaceAuthorityVerifier {
             }
             keys.push(VerificationKey::new(purpose, &wire.key_id, &decoded)?);
         }
-        if !has_grant || !has_lease || !has_standby {
+        if !has_grant || !has_lease || !has_standby || !has_context {
             return Err(WorkspaceAuthorityError::Malformed);
         }
         if [
+            CredentialPurpose::ExecutionContextV1,
             CredentialPurpose::GrantV3,
             CredentialPurpose::ActiveDeviceLeaseV1,
             CredentialPurpose::StandbyGrantV1,
@@ -217,14 +225,14 @@ impl WorkspaceAuthorityVerifier {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct VerificationRegistryWire {
     schema_version: u8,
     keys: Vec<VerificationKeyWire>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct VerificationKeyWire {
     purpose: VerificationPurposeWire,
@@ -232,9 +240,10 @@ struct VerificationKeyWire {
     public_key: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum VerificationPurposeWire {
+    ExecutionContextV1,
     StandbyGrantV1,
     GrantV3,
     ActiveDeviceLeaseV1,
@@ -647,7 +656,7 @@ impl MonotonicWorkspaceAuthority {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DesktopAuthorizationGrant {
     schema_version: u8,
@@ -664,14 +673,14 @@ struct DesktopAuthorizationGrant {
     signature: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuthorizedWorkspaceWire {
     workspace_id: String,
     kind: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CommercialAuthority {
     schema_version: u8,
@@ -682,7 +691,7 @@ struct CommercialAuthority {
     capabilities: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ActiveDeviceLeaseEnvelope {
     schema_version: u8,
@@ -700,7 +709,7 @@ struct ActiveDeviceLeaseEnvelope {
     signature: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ActiveDeviceLeasePayload {
     lease_epoch: u64,
@@ -1403,13 +1412,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn pinned_registry_requires_all_three_separate_purpose_rings() {
-        let keys: Vec<_> = ["grant_v3", "active_device_lease_v1", "standby_grant_v1"].into_iter().enumerate()
+    fn pinned_registry_requires_all_four_separate_purpose_rings() {
+        let keys: Vec<_> = ["grant_v3", "active_device_lease_v1", "standby_grant_v1", "execution_context_v1"].into_iter().enumerate()
             .map(|(index, purpose)| json!({"purpose":purpose,"keyId":format!("key-{index}"),
                 "publicKey":URL_SAFE_NO_PAD.encode(Ed25519KeyPair::from_seed_unchecked(&[u8::try_from(index + 1).unwrap();32]).unwrap().public_key().as_ref())})).collect();
         let valid = json!({"schemaVersion":1,"keys":keys});
         assert!(WorkspaceAuthorityVerifier::parse_registry(&valid.to_string()).is_ok());
-        for index in 0..3 {
+        for index in 0..4 {
             let mut missing = valid.clone();
             missing["keys"].as_array_mut().unwrap().remove(index);
             assert!(WorkspaceAuthorityVerifier::parse_registry(&missing.to_string()).is_err());

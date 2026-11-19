@@ -4,6 +4,7 @@ import {
   encodeActiveDeviceLeaseSignatureTranscript,
   encodeDesktopAuthorizationGrantSignatureTranscript,
   encodeDesktopStandbyGrantSignatureTranscript,
+  encodeDesktopExecutionContextSignatureTranscript,
 } from "@gooddealer/protocol/devices";
 import { encodeDomainSeparatedWireValue, identifier } from "@gooddealer/protocol/wire";
 
@@ -16,7 +17,7 @@ import {
   type DesktopAuthorizationGrantSigner,
 } from "../modules/devices/authorization-grant-issuer";
 
-import { DESKTOP_STANDBY_GRANT_KEY_PURPOSE, type DesktopStandbyGrantSigner } from "../modules/devices/index";
+import { DESKTOP_EXECUTION_CONTEXT_KEY_PURPOSE, type DesktopExecutionContextSigner, DESKTOP_STANDBY_GRANT_KEY_PURPOSE, type DesktopStandbyGrantSigner } from "../modules/devices/index";
 
 export interface OpenBaoTransitSigningKey {
   readonly name: string;
@@ -33,6 +34,7 @@ export interface OpenBaoTransitSignerConfiguration {
   readonly grantKey: OpenBaoTransitSigningKey;
   readonly leaseKey: OpenBaoTransitSigningKey;
   readonly standbyKey: OpenBaoTransitSigningKey;
+  readonly contextKey: OpenBaoTransitSigningKey;
   /** Supplies a short-lived, least-privilege OpenBao workload token for each request. */
   readonly tokenSource: OpenBaoTransitTokenSource;
   readonly fetch?: (url: string, init: RequestInit) => Promise<Response>;
@@ -46,7 +48,7 @@ export interface OpenBaoTransitTokenSource {
 
 type GrantSigningInput = Parameters<DesktopAuthorizationGrantSigner["sign"]>[0];
 type LeaseSigningInput = Parameters<ActiveDeviceLeaseSigner["sign"]>[0];
-type SigningInput = GrantSigningInput | LeaseSigningInput | Parameters<DesktopStandbyGrantSigner["sign"]>[0];
+type SigningInput = GrantSigningInput | LeaseSigningInput | Parameters<DesktopStandbyGrantSigner["sign"]>[0] | Parameters<DesktopExecutionContextSigner["sign"]>[0];
 type SigningResult = Awaited<ReturnType<DesktopAuthorizationGrantSigner["sign"]>>;
 
 interface PreparedKey {
@@ -66,16 +68,17 @@ export class OpenBaoTransitSigningError extends Error {
 
 /**
  * Narrow OpenBao Transit adapter for GoodDealer authority envelopes. It has no key-management
- * capability: the workload token may sign only the three configured, purpose-separated keys.
+ * capability: the workload token may sign only the four configured, purpose-separated keys.
  */
 export class OpenBaoTransitSigner
-implements DesktopAuthorizationGrantSigner, ActiveDeviceLeaseSigner, DesktopStandbyGrantSigner {
+implements DesktopAuthorizationGrantSigner, ActiveDeviceLeaseSigner, DesktopStandbyGrantSigner, DesktopExecutionContextSigner {
   readonly #origin: string;
   readonly #namespace: string | undefined;
   readonly #mount: string;
   readonly #grantKey: PreparedKey;
   readonly #leaseKey: PreparedKey;
   readonly #standbyKey: PreparedKey;
+  readonly #contextKey: PreparedKey;
   readonly #tokenSource: OpenBaoTransitTokenSource;
   readonly #fetch: (url: string, init: RequestInit) => Promise<Response>;
   readonly #requestTimeoutMs: number;
@@ -87,6 +90,10 @@ implements DesktopAuthorizationGrantSigner, ActiveDeviceLeaseSigner, DesktopStan
     this.#grantKey = prepareKey(configuration.grantKey);
     this.#leaseKey = prepareKey(configuration.leaseKey);
     this.#standbyKey = prepareKey(configuration.standbyKey);
+    this.#contextKey = prepareKey(configuration.contextKey);
+    for (const key of [this.#grantKey, this.#leaseKey, this.#standbyKey]) {
+      if (key.name === this.#contextKey.name || key.kid === this.#contextKey.kid || key.publicKeyDer.equals(this.#contextKey.publicKeyDer)) throw new TypeError("OpenBao authority keys must be purpose-separated");
+    }
     for (const key of [this.#grantKey, this.#leaseKey]) {
       if (key.name === this.#standbyKey.name || key.kid === this.#standbyKey.kid
         || key.publicKeyDer.equals(this.#standbyKey.publicKeyDer)) {
@@ -109,7 +116,7 @@ implements DesktopAuthorizationGrantSigner, ActiveDeviceLeaseSigner, DesktopStan
 
   async sign(input: SigningInput): Promise<SigningResult> {
     try {
-      const selected = selectPurpose(input, this.#grantKey, this.#leaseKey, this.#standbyKey);
+      const selected = selectPurpose(input, this.#grantKey, this.#leaseKey, this.#standbyKey, this.#contextKey);
       const unsignedEnvelope = {
         ...input.claims,
         kid: selected.key.kid,
@@ -186,7 +193,7 @@ implements DesktopAuthorizationGrantSigner, ActiveDeviceLeaseSigner, DesktopStan
   }
 }
 
-function selectPurpose(input: SigningInput, grantKey: PreparedKey, leaseKey: PreparedKey, standbyKey: PreparedKey): {
+function selectPurpose(input: SigningInput, grantKey: PreparedKey, leaseKey: PreparedKey, standbyKey: PreparedKey, contextKey: PreparedKey): {
   readonly key: PreparedKey;
   readonly transcript: (value: unknown) => Uint8Array;
 } {
@@ -196,6 +203,7 @@ function selectPurpose(input: SigningInput, grantKey: PreparedKey, leaseKey: Pre
   if (input.purpose === ACTIVE_DEVICE_LEASE_KEY_PURPOSE) {
     return { key: leaseKey, transcript: encodeActiveDeviceLeaseSignatureTranscript };
   }
+  if (input.purpose === DESKTOP_EXECUTION_CONTEXT_KEY_PURPOSE) return { key: contextKey, transcript: encodeDesktopExecutionContextSignatureTranscript };
   if (input.purpose === DESKTOP_STANDBY_GRANT_KEY_PURPOSE) {
     return { key: standbyKey, transcript: encodeDesktopStandbyGrantSignatureTranscript };
   }

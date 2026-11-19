@@ -6,6 +6,8 @@ import {
   createAfternicPort,
   createAfternicDelistPort,
   createDeviceDirectoryPort,
+  createDeviceSwitchPort,
+  createTargetBootstrapPort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
   createLocalBatchOperationsPort,
@@ -43,8 +45,11 @@ import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
 import "./app.css";
 
 const deviceDirectory = createDeviceDirectoryPort();
+const targetBootstrap = createTargetBootstrapPort();
 const workspacePorts: AuthoritativeWorkspacePorts = {
   devices: deviceDirectory,
+  targetBootstrap,
+  deviceSwitch: createDeviceSwitchPort(),
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
   dns: createLocalDnsHealthPort(),
@@ -241,7 +246,7 @@ export function App() {
           />
         );
       case "standby_awaiting_replica":
-        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} onRefreshAuthorization={refreshAuthorization} />;
+        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} bootstrapPort={targetBootstrap} onRefreshAuthorization={refreshAuthorization} />;
       case "workspace":
         if (onboarding.state === "offered" && workspace !== null) {
           return (

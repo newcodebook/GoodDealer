@@ -53,6 +53,8 @@
     "allow-device-switch-advance",
     "allow-device-switch-status",
     "allow-device-switch-cancel",
+    "allow-target-bootstrap-status",
+    "allow-target-bootstrap-cancel",
     "allow-desktop-authentication-status",
     "allow-desktop-authentication-begin",
     "allow-desktop-authentication-refresh"

@@ -23,6 +23,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query("TRUNCATE identity_private.account_transaction_capabilities");
   // Do not use cross-domain CASCADE here: Licensing deliberately owns its private
   // dependants and the ordinary migrator has no maintenance authority over them.

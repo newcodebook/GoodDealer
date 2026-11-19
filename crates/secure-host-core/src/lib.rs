@@ -15,6 +15,19 @@
 //! use gooddealer_secure_host_core::{generate_local_database_key, load_slot_key, retire_slot_key};
 //! ```
 
+#[cfg(windows)]
+mod windows_credential_capture;
+#[cfg(windows)]
+mod windows_custody;
+#[cfg(all(test, not(windows)))]
+#[path = "windows_custody/format.rs"]
+mod windows_custody_format_tests;
+#[cfg(windows)]
+mod windows_private_files;
+#[cfg(all(test, not(windows)))]
+#[path = "windows_private_files/protected_acl.rs"]
+mod windows_protected_acl_tests;
+
 mod afternic_credentials;
 mod afternic_provider;
 mod afternic_wire;
@@ -82,4 +95,10 @@ mod native_power;
 pub use native_power::{
     NativePowerCommitGuard, NativePowerGate, NativePowerMonitor, NativePowerSnapshot,
     NativePowerUnavailable,
+};
+
+mod native_continuous_clock;
+pub use native_continuous_clock::{
+    NativeContinuousClockError, NativeContinuousClockKind, NativeContinuousClockSample,
+    capture_native_continuous_clock,
 };

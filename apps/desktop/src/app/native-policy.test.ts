@@ -46,7 +46,7 @@ describe("Desktop native policy", () => {
     expect(oauth).toMatch(/fn desktop_authentication_refresh/u);
     expect(session).toMatch(/AuthorizationFailed/u);
     expect(session).toMatch(/AuthorizationRetryable/u);
-    const initialGrant = session.indexOf("fetch_and_activate_authorization(&credentials.access.token)");
+    const initialGrant = session.indexOf("fetch_and_activate_authorization(&credentials.access.token, expected_instance)");
     const initialRefreshStore = /self\s*\.refresh_credentials\s*\.store\(&credentials\.refresh\)/u.exec(session);
     expect(initialGrant).toBeGreaterThanOrEqual(0);
     expect(initialRefreshStore).not.toBeNull();
@@ -116,6 +116,8 @@ describe("Desktop native policy", () => {
       "allow-device-switch-advance",
       "allow-device-switch-status",
       "allow-device-switch-cancel",
+      "allow-target-bootstrap-status",
+      "allow-target-bootstrap-cancel",
       "allow-desktop-authentication-status",
       "allow-desktop-authentication-begin",
       "allow-desktop-authentication-refresh",

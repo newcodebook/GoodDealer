@@ -303,8 +303,10 @@ test("the production catalog covers the current repository inventory", () => {
   assert.deepEqual(localStorage.externalDependencies, [
     "base64",
     "chacha20poly1305",
+    "dirs",
     "fs2",
     "getrandom",
+    "keyring-core",
     "libc",
     "ring",
     "rustix",
@@ -315,6 +317,11 @@ test("the production catalog covers the current repository inventory", () => {
     "serde_json",
     "sha2",
     "tempfile",
+    "winapi",
+    "winapi-util",
+    "windows-native-keyring-store",
+    "windows-permissions",
+    "winsafe",
     "zeroize",
   ]);
   assert.deepEqual(
@@ -328,6 +335,7 @@ test("the production catalog covers the current repository inventory", () => {
     "crates/secure-host-core/src/cloudflare_keychain.rs",
   );
   assert.deepEqual(desktopTauriHost.externalDependencies, [
+    "base64",
     "reqwest",
     "serde",
     "serde_json",

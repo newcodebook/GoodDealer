@@ -59,8 +59,8 @@ export interface ExecutionFactIngestVerificationPort {
 }
 
 /**
- * Fact ingestion cannot succeed until a device-signature verifier is composed; see R0-06 in
- * docs/reviews/PHASE0_READINESS_REVIEW_2026-08-01.md.
+ * Safe default for the in-memory adjudication model. Production HTTP ingestion uses
+ * PostgresExecutionFactEvidenceService with immutable context/key history and exact receipts.
  */
 export class RefusingExecutionFactIngestVerification implements ExecutionFactIngestVerificationPort {
   async verifyExecutionFact(): Promise<{
@@ -251,3 +251,5 @@ function missingSequenceRanges(records: Map<number, AcceptedFactRecord> | undefi
   if (start !== null) ranges.push({ fromSequence: start, toSequence: highest });
   return ranges;
 }
+export { PostgresExecutionFactEvidenceReader, PostgresExecutionFactEvidenceService } from "./postgres-execution-evidence";
+export type { ExecutionFactEvidenceReadPort } from "./postgres-execution-evidence";

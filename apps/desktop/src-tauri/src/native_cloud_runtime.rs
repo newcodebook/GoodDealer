@@ -1,5 +1,7 @@
 //! Native lifecycle and cycle composition for the `GoodDealer` Cloud data plane.
 
+mod execution_evidence;
+
 use std::sync::{Arc, Mutex};
 
 use gooddealer_local_storage::{
@@ -48,6 +50,8 @@ impl NativeCloudCancelFence {
 
 pub(crate) struct NativeCloudCoordinator {
     sync: SyncLaneHandle,
+    device_switch: Arc<crate::device_switch_drain::DesktopDeviceSwitch>,
+    target_bootstrap: Arc<crate::target_bootstrap_termination::DesktopTargetBootstrapTermination>,
     projection: ProjectionLaneHandle,
     provider: ProviderLaneHandle,
     power: gooddealer_secure_host_core::NativePowerGate,
@@ -149,6 +153,7 @@ impl NativeCloudCoordinator {
         host: &Arc<DesktopLocalHost>,
         session: &Arc<NativeCloudSession>,
         power: &gooddealer_secure_host_core::NativePowerGate,
+        signer: &Arc<crate::oauth_runtime::DesktopOAuthRuntime>,
     ) -> Arc<Self> {
         let (sync_handle, sync_lane) = SyncLane::production();
         let (projection_handle, projection_lane) = ProjectionLane::new();
@@ -162,6 +167,26 @@ impl NativeCloudCoordinator {
             session_provider.recover();
         }));
         let cancel_fence = Arc::new(NativeCloudCancelFence::default());
+        let switch_sync = sync_handle.clone();
+        let device_switch = Arc::new(crate::device_switch_drain::DesktopDeviceSwitch::new(
+            Arc::clone(host),
+            Arc::clone(session),
+            Arc::clone(signer),
+            Arc::clone(&cancel_fence),
+            Arc::new(move || switch_sync.wake()),
+        ));
+        let bootstrap_sync = sync_handle.clone();
+        let target_bootstrap = Arc::new(
+            crate::target_bootstrap_termination::DesktopTargetBootstrapTermination::new(
+                Arc::clone(host),
+                Arc::clone(session),
+                Arc::clone(&cancel_fence),
+                Arc::new(power.clone()),
+                Arc::new(move || bootstrap_sync.wake()),
+            ),
+        );
+        let sync_bootstrap = Arc::clone(&target_bootstrap);
+        let sync_switch = Arc::clone(&device_switch);
         let sync_host = Arc::clone(host);
         let sync_session = Arc::clone(session);
         let sync_cancel_fence = Arc::clone(&cancel_fence);
@@ -174,11 +199,23 @@ impl NativeCloudCoordinator {
                     let session = Arc::clone(&sync_session);
                     let fence = Arc::clone(&sync_cancel_fence);
                     let observation = Arc::clone(&sync_transport);
+                    let switch = Arc::clone(&sync_switch);
+                    let bootstrap = Arc::clone(&sync_bootstrap);
                     async move {
                         if let Ok(mut current) = observation.lock() {
                             current.syncing = true;
                         }
-                        let result = run_sync_cycle(host, session, Arc::clone(&fence), plan).await;
+                        let mut result =
+                            run_sync_cycle(host, session, Arc::clone(&fence), plan).await;
+                        // Resume durable source handoff even when its settings panel is closed.
+                        // A waiting background advance must not wake itself into a busy loop.
+                        if plan.handoff_due && !fence.is_cancelled() {
+                            result.handoff = handoff_stage(switch.advance_background().await);
+                        }
+                        if plan.bootstrap_due && !fence.is_cancelled() {
+                            result.bootstrap =
+                                bootstrap_stage(&bootstrap.advance_background().await);
+                        }
                         publish_sync_cycle_observation(
                             &fence,
                             &observation,
@@ -271,6 +308,8 @@ impl NativeCloudCoordinator {
                 .await;
         });
         let coordinator = Arc::new(Self {
+            device_switch,
+            target_bootstrap,
             sync: sync_handle,
             projection: projection_handle,
             provider: provider_handle,
@@ -295,16 +334,20 @@ impl NativeCloudCoordinator {
         self.sync.wake();
     }
 
-    /// The commit fence a device switch shares with the native lanes: after shutdown no switch
-    /// answer is committed either.
-    pub(crate) fn cancel_fence(&self) -> Arc<NativeCloudCancelFence> {
-        Arc::clone(&self.cancel_fence)
+    /// The same coordinator is driven by both customer commands and the background sync lane.
+    pub(crate) fn device_switch(&self) -> Arc<crate::device_switch_drain::DesktopDeviceSwitch> {
+        Arc::clone(&self.device_switch)
     }
 
-    /// Wakes the sync lane, which pushes the Outbox a device switch is draining.
-    pub(crate) fn sync_waker(&self) -> Arc<dyn Fn() + Send + Sync> {
-        let sync = self.sync.clone();
-        Arc::new(move || sync.wake())
+    pub(crate) fn target_bootstrap(
+        &self,
+    ) -> Arc<crate::target_bootstrap_termination::DesktopTargetBootstrapTermination> {
+        Arc::clone(&self.target_bootstrap)
+    }
+
+    /// Shutdown and final business commits share this fence.
+    pub(crate) fn cancel_fence(&self) -> Arc<NativeCloudCancelFence> {
+        Arc::clone(&self.cancel_fence)
     }
 
     pub(crate) fn cancel(&self) {
@@ -391,7 +434,9 @@ impl Drop for NativeCloudCoordinator {
     }
 }
 
-fn aggregate_transport_state(outcomes: [SyncStageOutcome; 3]) -> Option<DesktopSyncTransportState> {
+fn aggregate_transport_state<const N: usize>(
+    outcomes: [SyncStageOutcome; N],
+) -> Option<DesktopSyncTransportState> {
     match SyncStageOutcome::aggregate(outcomes) {
         SyncStageOutcome::RecoveryRequired | SyncStageOutcome::SecurityBlocked => {
             Some(DesktopSyncTransportState::SecurityBlocked)
@@ -416,9 +461,14 @@ fn publish_sync_cycle_observation(
             return;
         };
         current.syncing = false;
-        if let Some(state) =
-            aggregate_transport_state([result.push, result.pull, result.checkpoint])
-        {
+        if let Some(state) = aggregate_transport_state([
+            result.push,
+            result.pull,
+            result.checkpoint,
+            result.evidence,
+            result.handoff,
+            result.bootstrap,
+        ]) {
             current.state = state;
             current.observed_at_unix_seconds = observed_at_unix_seconds;
         }
@@ -517,12 +567,62 @@ async fn run_provider_operation(
     projection.wake();
 }
 
+fn bootstrap_stage(
+    result: &Result<
+        gooddealer_local_storage::DesktopTargetBootstrapView,
+        crate::target_bootstrap_termination::TargetBootstrapError,
+    >,
+) -> SyncStageOutcome {
+    use crate::target_bootstrap_termination::TargetBootstrapError;
+    match result {
+        Ok(_) => SyncStageOutcome::Valid,
+        Err(TargetBootstrapError::Paused | TargetBootstrapError::Cancelled) => {
+            SyncStageOutcome::NotAttempted
+        }
+        Err(TargetBootstrapError::Retryable) => SyncStageOutcome::Retryable,
+        Err(TargetBootstrapError::AuthorizationRequired) => SyncStageOutcome::AuthorizationBlocked,
+        Err(TargetBootstrapError::Blocked) => SyncStageOutcome::SecurityBlocked,
+    }
+}
+
+fn handoff_stage(
+    result: Result<
+        crate::device_switch_drain::DeviceSwitchStep,
+        crate::device_switch_drain::DeviceSwitchError,
+    >,
+) -> SyncStageOutcome {
+    use crate::device_switch_drain::{DeviceSwitchError, DeviceSwitchStep};
+    match result {
+        Ok(
+            DeviceSwitchStep::Idle
+            | DeviceSwitchStep::RequestPending
+            | DeviceSwitchStep::WaitingForSync { .. },
+        )
+        | Err(DeviceSwitchError::Cancelled) => SyncStageOutcome::NotAttempted,
+        Ok(DeviceSwitchStep::Blocked | DeviceSwitchStep::ReceiptsMissing)
+        | Err(DeviceSwitchError::Blocked) => SyncStageOutcome::SecurityBlocked,
+        Ok(_) => SyncStageOutcome::Valid,
+        Err(DeviceSwitchError::Retryable) => SyncStageOutcome::Retryable,
+        Err(DeviceSwitchError::AuthorizationRequired) => SyncStageOutcome::AuthorizationBlocked,
+    }
+}
+
 async fn run_sync_cycle(
     host: Arc<DesktopLocalHost>,
     session: Arc<NativeCloudSession>,
     cancel_fence: Arc<NativeCloudCancelFence>,
     plan: SyncCyclePlan,
 ) -> SyncCycleResult {
+    let evidence = if plan.evidence_due && !cancel_fence.is_cancelled() {
+        execution_evidence::run(
+            Arc::clone(&host),
+            Arc::clone(&session),
+            Arc::clone(&cancel_fence),
+        )
+        .await
+    } else {
+        execution_evidence::EvidenceCycleResult::stopped(SyncStageOutcome::NotAttempted)
+    };
     let push = run_push(
         Arc::clone(&host),
         Arc::clone(&session),
@@ -545,6 +645,10 @@ async fn run_sync_cycle(
         SyncStageOutcome::NotAttempted
     };
     SyncCycleResult {
+        handoff: SyncStageOutcome::NotAttempted,
+        bootstrap: SyncStageOutcome::NotAttempted,
+        evidence: evidence.outcome,
+        evidence_more: evidence.more,
         push: push.outcome,
         pull,
         checkpoint,
@@ -1341,6 +1445,10 @@ mod tests {
         let fence = NativeCloudCancelFence::default();
         let observation = Mutex::new(TransportObservation::default());
         let result = |push, pull, checkpoint| SyncCycleResult {
+            handoff: SyncStageOutcome::NotAttempted,
+            bootstrap: SyncStageOutcome::NotAttempted,
+            evidence: SyncStageOutcome::NotAttempted,
+            evidence_more: false,
             push,
             pull,
             checkpoint,
@@ -1409,6 +1517,10 @@ mod tests {
             &fence,
             &observation,
             SyncCycleResult {
+                handoff: SyncStageOutcome::NotAttempted,
+                bootstrap: SyncStageOutcome::NotAttempted,
+                evidence: SyncStageOutcome::NotAttempted,
+                evidence_more: false,
                 push: SyncStageOutcome::NotAttempted,
                 pull: SyncStageOutcome::NotAttempted,
                 checkpoint: SyncStageOutcome::NotAttempted,
@@ -1436,6 +1548,10 @@ mod tests {
             &fence,
             &observation,
             SyncCycleResult {
+                handoff: SyncStageOutcome::NotAttempted,
+                bootstrap: SyncStageOutcome::NotAttempted,
+                evidence: SyncStageOutcome::NotAttempted,
+                evidence_more: false,
                 push: SyncStageOutcome::Valid,
                 pull: SyncStageOutcome::Valid,
                 checkpoint: SyncStageOutcome::Valid,
@@ -1646,6 +1762,10 @@ mod tests {
                 admitted.notify_one();
                 release.notified().await;
                 SyncCycleResult {
+                    handoff: SyncStageOutcome::NotAttempted,
+                    bootstrap: SyncStageOutcome::NotAttempted,
+                    evidence: SyncStageOutcome::NotAttempted,
+                    evidence_more: false,
                     push: SyncStageOutcome::Valid,
                     pull: SyncStageOutcome::Valid,
                     checkpoint: SyncStageOutcome::Valid,
