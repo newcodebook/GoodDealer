@@ -130,6 +130,7 @@ pub(crate) struct DesktopSyncRunAdmission {
     pub(crate) execute_before: i64,
     authority_snapshot_digest: String,
     pub(crate) authority_epoch: u64,
+    provider_capabilities: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -179,6 +180,7 @@ impl DesktopSyncRunAdmission {
             execute_before,
             authority_snapshot_digest,
             authority_epoch,
+            provider_capabilities: Vec::new(),
         }
     }
 
@@ -203,10 +205,15 @@ impl DesktopSyncRunAdmission {
             && self.execute_before == execute_before
             && self.authority_snapshot_digest == authority_snapshot_digest
             && self.authority_epoch == authority_epoch
+            && self.provider_capabilities.is_empty()
     }
 
     pub(crate) fn lease_epoch(&self) -> u64 {
         self.lease_epoch
+    }
+
+    pub(crate) fn authority_snapshot_digest(&self) -> &str {
+        &self.authority_snapshot_digest
     }
 
     /// The device this run acts for; derived from its verified Lease, never from a caller.
@@ -245,7 +252,7 @@ impl<'a> DesktopSyncCommitGuard<'a> {
         }
     }
 
-    fn verify(
+    pub(crate) fn verify(
         self,
         runtime: &DesktopSyncRuntime,
         admission: &DesktopSyncRunAdmission,
@@ -267,6 +274,7 @@ pub(crate) struct DesktopSyncRuntime {
     execute_before: i64,
     authority_snapshot_digest: String,
     authority_epoch: u64,
+    provider_capabilities: Vec<String>,
     next_run_sequence: AtomicU64,
     retirement_open_retries: Mutex<Option<VecDeque<CloudflareRetirementSeed>>>,
 }
@@ -278,6 +286,24 @@ impl fmt::Debug for DesktopSyncRuntime {
 }
 
 impl DesktopSyncRuntime {
+    /// Checks exact current Native authority; qualification is a separate release requirement.
+    /// A continuation or Standby admission can never derive external Provider permission.
+    pub(crate) fn require_provider_capability(
+        &self,
+        admission: &DesktopSyncRunAdmission,
+        capability: &str,
+    ) -> Result<(), DesktopSyncError> {
+        recheck_snapshot(self, admission)?;
+        if !self
+            .provider_capabilities
+            .iter()
+            .any(|value| value == capability)
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
+        Ok(())
+    }
+
     pub(crate) fn read_cloudflare_retirement_candidates(
         &self,
         database: &BusinessDatabase,
@@ -399,6 +425,7 @@ impl DesktopSyncRuntime {
         connection_hint: &str,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         database
             .cloudflare_provision_seed(connection_hint)
@@ -438,6 +465,7 @@ impl DesktopSyncRuntime {
         entity_hint: &str,
     ) -> Result<PreparedCloudflareObservationData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let credential = database
             .cloudflare_connection_observation_admission(connection_hint)
@@ -477,6 +505,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PendingCloudflareDnsProjection, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         let current = self.prepare_cloudflare_observation(
             database,
             admission,
@@ -538,6 +567,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(business.database_for_backup_mut(), admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let context = crate::desktop_business_runtime::BusinessMutationContext::new(
             admission.device_id.clone(),
@@ -576,6 +606,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PreparedCloudflareProvisionData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let seed = database
             .cloudflare_provision_seed(connection_hint)
@@ -719,8 +750,10 @@ impl DesktopSyncRuntime {
         execute_before: i64,
         authority_snapshot_digest: String,
         authority_epoch: u64,
+        provider_capabilities: Vec<String>,
     ) -> Result<Self, DesktopSyncError> {
-        if !valid_identifier(&workspace_id)
+        if !valid_provider_capabilities(&provider_capabilities)
+            || !valid_identifier(&workspace_id)
             || !valid_identifier(&device_id)
             || !(1..=MAX_SAFE_INTEGER).contains(&lease_epoch)
             || execute_before <= trusted_time_floor
@@ -742,6 +775,7 @@ impl DesktopSyncRuntime {
             execute_before,
             authority_snapshot_digest,
             authority_epoch,
+            provider_capabilities,
             next_run_sequence: AtomicU64::new(0),
             retirement_open_retries: Mutex::new(None),
         })
@@ -780,6 +814,7 @@ impl DesktopSyncRuntime {
             execute_before: self.execute_before,
             authority_snapshot_digest: self.authority_snapshot_digest.clone(),
             authority_epoch: self.authority_epoch,
+            provider_capabilities: self.provider_capabilities.clone(),
         })
     }
 
@@ -799,6 +834,7 @@ impl DesktopSyncRuntime {
             || admission.execute_before != self.execute_before
             || admission.authority_snapshot_digest != self.authority_snapshot_digest
             || admission.authority_epoch != self.authority_epoch
+            || admission.provider_capabilities != self.provider_capabilities
             || now < admission.trusted_time_floor
             || now >= admission.execute_before
         {
@@ -1445,6 +1481,7 @@ fn recheck_snapshot(
         || admission.execute_before != runtime.execute_before
         || admission.authority_snapshot_digest != runtime.authority_snapshot_digest
         || admission.authority_epoch != runtime.authority_epoch
+        || admission.provider_capabilities != runtime.provider_capabilities
         || now < admission.trusted_time_floor
         || now >= admission.execute_before
     {
@@ -1565,6 +1602,26 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     }
 }
 
+/// The signed commercial contract is a canonical closed set, including a valid empty set.
+pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
+    values.len() <= 3
+        && values.iter().all(|value| {
+            matches!(
+                value.as_str(),
+                "afternic:marketplace:observe"
+                    | "afternic:marketplace:write"
+                    | "cloudflare:dns:observe"
+            )
+        })
+        && values.windows(2).all(|pair| pair[0] < pair[1])
+        && (!values
+            .iter()
+            .any(|value| value == "afternic:marketplace:write")
+            || values
+                .iter()
+                .any(|value| value == "afternic:marketplace:observe"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1596,6 +1653,7 @@ mod tests {
             i64::MAX,
             AUTHORITY_DIGEST.to_owned(),
             1,
+            vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
         )
         .expect("construct runtime")
     }
@@ -1767,6 +1825,59 @@ mod tests {
     }
 
     #[test]
+    fn provider_permissions_are_exact_current_and_never_inferred_from_active_or_standby() {
+        let (_directory, database) = database("workspace-local");
+        let mut runtime = runtime();
+        let admitted = runtime.begin_sync_run(&database).unwrap();
+        assert!(
+            runtime
+                .require_provider_capability(&admitted, CLOUDFLARE_DNS_OBSERVE)
+                .is_ok()
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, "afternic:marketplace:observe"),
+            Err(DesktopSyncError::Blocked)
+        );
+        runtime.provider_capabilities.clear();
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+        assert!(
+            DesktopSyncCommitGuard::new(|| Ok(()))
+                .verify(&runtime, &admitted)
+                .is_err()
+        );
+        let local_only = runtime.begin_sync_run(&database).unwrap();
+        assert!(runtime.recheck_sync_run(&database, &local_only).is_ok());
+        assert_eq!(
+            runtime.require_provider_capability(&local_only, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::Blocked)
+        );
+        let _qualified =
+            crate::active_workspace::capability_qualification::test_qualification::qualify(
+                CLOUDFLARE_DNS_OBSERVE,
+            );
+        assert_eq!(
+            runtime.admit_cloudflare_activation(&database, &local_only, "any"),
+            Err(DesktopSyncError::Blocked)
+        );
+        let standby = DesktopSyncRunAdmission::standby_authority(
+            "workspace-local".into(),
+            "device-local".into(),
+            7,
+            0,
+            i64::MAX,
+            AUTHORITY_DIGEST.into(),
+            1,
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&standby, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+    }
+
+    #[test]
     fn constructor_rejects_noncanonical_or_expired_authority() {
         assert_eq!(
             DesktopSyncRuntime::new(
@@ -1777,6 +1888,7 @@ mod tests {
                 1,
                 AUTHORITY_DIGEST.to_ascii_uppercase(),
                 1,
+                vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
             )
             .unwrap_err(),
             DesktopSyncError::InvalidInput
@@ -1791,6 +1903,7 @@ mod tests {
             1,
             AUTHORITY_DIGEST.to_owned(),
             1,
+            vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
         )
         .unwrap();
         assert_eq!(

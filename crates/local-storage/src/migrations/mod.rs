@@ -1,4 +1,7 @@
 use crate::active_workspace::schema::{
+    AFTERNIC_LISTING_MIGRATION_ID, AFTERNIC_LISTING_MIGRATION_OWNER, AFTERNIC_LISTING_MIGRATION_SQL,
+};
+use crate::active_workspace::schema::{
     LISTING_PROVIDER_BINDING_MIGRATION_ID, LISTING_PROVIDER_BINDING_MIGRATION_OWNER,
     LISTING_PROVIDER_BINDING_MIGRATION_SQL,
 };
@@ -213,6 +216,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER,
         sql: NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL,
     },
+    ActiveMigration {
+        id: AFTERNIC_LISTING_MIGRATION_ID,
+        owner: AFTERNIC_LISTING_MIGRATION_OWNER,
+        sql: AFTERNIC_LISTING_MIGRATION_SQL,
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -277,6 +285,15 @@ pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), M
                     |row| row.get::<_, bool>(0),
                 )
                 .unwrap_or(false);
+            if !valid {
+                return Err(MigrationError::RebuildRequiredP007CredentialSchema);
+            }
+        }
+        if migration.id == AFTERNIC_LISTING_MIGRATION_ID {
+            let valid = connection.query_row(
+                "SELECT schema_epoch='P0_07_CREDENTIAL_SCHEMA_V4' AND schema_fingerprint='933492cff345e017590e8f52fd421ecf27048fcf51561db65a061469ed0829ed' FROM cloudflare_credential_schema_guard WHERE singleton=1",
+                [], |row| row.get::<_, bool>(0),
+            ).unwrap_or(false);
             if !valid {
                 return Err(MigrationError::RebuildRequiredP007CredentialSchema);
             }
@@ -547,7 +564,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 29);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 30);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -572,7 +589,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 56);
+        assert_eq!(table_count, 59);
         assert!(business_index_count >= 24);
 
         connection
@@ -1725,3 +1742,6 @@ mod tests {
 
 #[cfg(test)]
 mod listing_binding_tests;
+
+#[cfg(test)]
+mod afternic_listing_tests;

@@ -331,3 +331,14 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 专用 Standby Inbox gate 复用原单 writer、publication mutex、reader cursor/readGeneration 与事务最终栅栏。Outbox/Provider/checkpoint 发布/业务写仍拒绝；retired cursor 持久要求恢复，强制接管库保留冻结。
 - 独立评估：device_architecture_review 对 Cloud/protocol PASS（PG 18.6 三文件 61/61，协议 69 项、Cloud 单测 15 项）；standby_cloud 对 Host/DB/custody PASS（11 项，含真正签名角色与 SQLCipher 重开，OS custody 用 test store）。Native 协调器由 standby_native 独立 PASS（15+14）；最终 root `pnpm check` exit 0（local-storage 438/6 项既有 ignored，Native 87，Cloud 788，Desktop 326，协议 468，结构 205）。新增迁移回归 19 项和屏障清理最终栅栏回归独立通过；production build、严格 clippy、差异/链接检查通过。详见 [审查记录](../reviews/2026-11-19-normal-handoff-receipt-review.md)。
 - 本切片不交付目标安装/激活与完整交接按钮；生产 Renderer 尚未调用 device-switch adapter，不能把 IPC 或后台代码等同完整双设备旅程。Windows/macOS 真实 OS custody、实际 Cloud/OpenBao 和双设备实机、Provider 与发行资格仍未取得。Afternic Core 为独立在途工作，不混入本切片提交。
+
+
+## 2026-11-19 Afternic 连接、库存归集与具名商业授权
+
+- Task Frame：[Afternic 客户闭环](AFTERNIC_LISTING_TASK_FRAME.md)；基线 `61979a5`。完整要求保留在 [实施目标](../IMPLEMENTATION_GOAL.md)。本切片接续原独立 Afternic Core，不重复 Standby 协议。
+- 设置入口只接收连接标签；Native 受限录入/精确槽位 custody、完整分页扫描，Host 同事务导入资产、Outbox、原绑定与 Listing 观察。现有资产用户字段保留，墓碑/待重新添加/归档项跳过；空扫描只记录真实回执。
+- prepared 在新 Grant 与真正关闭重开后加载原 incarnation/generation/proof；缺槽进入修复。撤销先持久停用再清槽，确认后隐藏连接但保留历史和资产；当前平台权限撤回仍允许本地首次撤销与清理。两平台共用串行 Native lane，分别恢复准入。
+- 追加 `202611180003`，未改已应用迁移。读投影按连接/绑定代次关联，保留多连接 Listing，断连旧不存在结果变为 unknown。可见容量与 Settings 一致，retired 不占位置。
+- Active Grant v4/commercialAuthority v2、role v5；空 capability 仍允许有效本地业务，write 依赖 observe。锁定 Licensing 精确交集，Native floor v3 和运行时/最终栅栏拒绝旧权限；稳定 `.v3` 签名用途不变。
+- 独立审查各范围 PASS，发现和修复见 [审查记录](../reviews/2026-11-19-afternic-inventory-review.md)。最终根 `pnpm check` exit 0（`/tmp/gooddealer-afternic-final-passing-check.log`）：结构 205、Protocol 488、Cloud 798、Desktop 330、client-core 418、local-storage 463/6 项既有 ignored、Desktop Native 89、Core 56。Desktop production build、三个 Native crate 全 targets Clippy `-D warnings`、差异与修改文档链接检查通过。此前命令清单/迁移计数的失败记录不当作通过；修复后完整重跑。
+- 未完成：Afternic 持久父计划/整批批准/Listing 写入/未知结果对账、私有所有权验证及 DNS；其他市场按既定优先级继续；设备目标引导/强制接管/云恢复、独立跨机离线恢复、Windows 原生 custody 等总目标保留。真实账号、目标平台实机和发行资格未取得，空资格清单仍拒绝执行。

@@ -15,6 +15,10 @@ function writeFile(root, path, source) {
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "gooddealer-tauri-command-"));
   const commands = [
+    "afternic_connection_connect",
+    "afternic_connection_revoke",
+    "afternic_connection_status",
+    "afternic_inventory_refresh",
     "cloudflare_connection_activate",
     "cloudflare_connection_create",
     "cloudflare_connection_purge",
@@ -117,9 +121,15 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_"))
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_"))
       .map((command) => `"${command}"`)
       .join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic.ts",
+    commands.filter((command) => command.startsWith("afternic_"))
+      .map((command) => `"${command}"`).join("\n"),
   );
   writeFile(
     root,
@@ -199,6 +209,13 @@ test("rejects missing, symbolic-link, and adapter structural inputs", (t) => {
   const adapterRoot = useFixture(t);
   rmSync(join(adapterRoot, "apps/desktop/src/adapters/tauri/index.ts"));
   assert.ok(tauriCommandPolicyErrors({ root: adapterRoot }).some((error) => error.includes("regular file")));
+
+  const afternicRoot = useFixture(t);
+  const afternicPath = join(afternicRoot, "apps/desktop/src/adapters/tauri/afternic.ts");
+  rmSync(afternicPath);
+  assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("regular file")));
+  symlinkSync("index.ts", afternicPath);
+  assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("symlink")));
 });
 
 test("rejects every capability broadening and custom permission surface", (t) => {

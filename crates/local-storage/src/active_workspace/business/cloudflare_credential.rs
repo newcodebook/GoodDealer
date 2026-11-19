@@ -3461,6 +3461,39 @@ mod tests {
     }
 
     #[test]
+    fn retired_cloudflare_history_does_not_consume_afternic_connection_capacity() {
+        let mut database = database();
+        let first = preparation(1, stage(1));
+        prepare_and_begin_prewrite(&mut database, &first);
+        database
+            .cancel_cloudflare_prewrite_for_remediation_guarded(
+                &first.connection_incarnation_id,
+                &first.intent_id,
+                CloudflarePrewriteFailureReason::Malformed,
+                AT,
+                || Ok(()),
+            )
+            .unwrap();
+        let seed = database
+            .request_cloudflare_retirement_guarded(&first.logical_connection_id, AT, || Ok(()))
+            .unwrap();
+        database
+            .resolve_cloudflare_retirement_guarded(&seed, true, AT, || Ok(()))
+            .unwrap();
+        // Retirement retains its custody audit rows but removes it from Settings' visible set.
+        for _ in 0..crate::active_workspace::settings::MAX_CONNECTIONS {
+            database
+                .prepare_afternic_connection("Afternic", &"a".repeat(64), AT, || Ok(()))
+                .unwrap();
+        }
+        assert!(
+            database
+                .prepare_afternic_connection("Overflow", &"a".repeat(64), AT, || Ok(()))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn preparation_rejects_a_connection_label_that_a_later_read_would_reject() {
         let mut database = database();
         // 60 astral characters are exactly 120 UTF-16 units, the shared Renderer and Host limit.

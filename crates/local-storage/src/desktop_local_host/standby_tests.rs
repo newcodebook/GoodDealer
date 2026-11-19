@@ -24,7 +24,7 @@ fn active_grant() -> Vec<u8> {
     let (_, wire) =
         authority::tests::long_lived_signed_grant(2, &"11".repeat(32), "2099-12-31T23:59:59Z");
     serde_json::to_vec(&serde_json::json!({
-        "schemaVersion": 4, "role": "active",
+        "schemaVersion": 5, "role": "active",
         "grant": serde_json::from_slice::<serde_json::Value>(&wire).unwrap(),
     }))
     .unwrap()
@@ -351,7 +351,7 @@ fn normal_handoff_inbox_final_fence_rolls_back_and_later_active_epoch_refreezes_
         "2099-12-31T23:59:59Z",
         3,
     );
-    host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":4,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
+    host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":5,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
     assert!(library(&host).window.rows.is_empty());
     host.activate_authorization_grant(&forced).unwrap();
     let admission = host.begin_native_cloud_read_run().unwrap();
@@ -532,7 +532,7 @@ fn normal_handoff_cancel_and_previous_epoch_cleanup_keep_final_commit_fence() {
                 "2099-12-31T23:59:59Z",
                 3,
             );
-            host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":4,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
+            host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":5,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
         }
         let admission = host.begin_native_cloud_run().unwrap();
         host.publish_transition_at_next_business_commit_for_test()
@@ -559,4 +559,96 @@ fn normal_handoff_cancel_and_previous_epoch_cleanup_keep_final_commit_fence() {
             "cancel-race"
         );
     }
+}
+
+#[test]
+fn active_capabilities_survive_reopen_and_revocation_fences_provider_operations() {
+    fn grant(
+        revision: u64,
+        digest: &str,
+        capabilities: &[&str],
+    ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
+        let (verifier, wire) = authority::tests::long_lived_signed_grant_with_capabilities(
+            revision,
+            digest,
+            "2099-12-31T23:59:59Z",
+            2,
+            capabilities,
+        );
+        (
+            verifier,
+            serde_json::to_vec(&serde_json::json!({"schemaVersion":5,"role":"active",
+            "grant":serde_json::from_slice::<serde_json::Value>(&wire).unwrap()}))
+            .unwrap(),
+        )
+    }
+    fn require(
+        host: &DesktopLocalHost,
+        admission: &crate::DesktopNativeCloudAdmission,
+        capability: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        host.with_sync_runtime(Some(&admission.inner), |sync, _, admitted| {
+            sync.require_provider_capability(admitted.unwrap(), capability)
+        })
+    }
+    let temp = crate::test_tempdir::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap().join("GoodDealer");
+    let store = TestRebootstrapKeyStore::default();
+    let (verifier, local_only) = grant(2, &"11".repeat(32), &[]);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&local_only).unwrap();
+    assert_eq!(
+        host.business_status().state,
+        DesktopLocalBusinessState::Active
+    );
+    let admission = host.begin_native_cloud_run().unwrap();
+    assert!(require(&host, &admission, "cloudflare:dns:observe").is_err());
+    assert!(require(&host, &admission, "afternic:marketplace:observe").is_err());
+    assert!(
+        host.begin_cloudflare_recovery_scan(host.begin_native_cloud_run().unwrap())
+            .is_ok()
+    );
+    let _qualification =
+        crate::active_workspace::capability_qualification::test_qualification::qualify(
+            "cloudflare:dns:observe",
+        );
+    assert!(
+        host.create_cloudflare_connection(&crate::DesktopCloudflareConnectionCreateRequest {
+            schema_version: 1,
+            display_label: "Cloudflare".into(),
+        })
+        .is_err()
+    );
+    let (_, afternic) = grant(
+        3,
+        &"22".repeat(32),
+        &["afternic:marketplace:observe", "afternic:marketplace:write"],
+    );
+    host.activate_authorization_grant(&afternic).unwrap();
+    assert!(host.recheck_native_cloud(&admission).is_err());
+    let afternic_admission = host.begin_native_cloud_run().unwrap();
+    assert!(require(&host, &afternic_admission, "afternic:marketplace:write").is_ok());
+    assert!(require(&host, &afternic_admission, "cloudflare:dns:observe").is_err());
+    let (_, revoked) = grant(4, &"33".repeat(32), &[]);
+    host.activate_authorization_grant(&revoked).unwrap();
+    assert!(require(&host, &afternic_admission, "afternic:marketplace:write").is_err());
+    drop(host);
+    let (verifier, _) = grant(4, &"33".repeat(32), &[]);
+    let host = native_host(&path, store, verifier);
+    assert!(host.activate_authorization_grant(&afternic).is_err());
+    host.activate_authorization_grant(&revoked).unwrap();
+    let admission = host.begin_native_cloud_run().unwrap();
+    assert!(require(&host, &admission, "afternic:marketplace:write").is_err());
+    let floor = host
+        .production_custody
+        .as_ref()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .load_authorization_floor()
+        .unwrap()
+        .unwrap();
+    assert_eq!(floor.schema_version, 3);
+    assert_eq!(floor.last_active_lease_epoch, Some(2));
+    assert!(floor.commercial.unwrap().capabilities.is_empty());
 }

@@ -201,3 +201,12 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - Native/Host：已签 body→公开 attempt→HTTP 顺序的崩溃窗口；无 attempt 的 Native 孤儿清理、已登记请求精确恢复、未知先对账、确定拒绝不再发送；不可向 Renderer、日志或业务备份泄露签名请求。
 - SQLCipher：同 request/proof/target/barrier/最后本机 Active epoch 绑定；刷新/撤销/最终提交时失效全页回滚；重复页不增 readGeneration，错确认 token 拒绝，retired cursor 重开仍冻结；旧普通交接证据不得解冻后来强制接管的库。
 - 此范围的源码与 PostgreSQL PASS 不代表目标引导/完整交接界面或 Windows/macOS 双机资格。完整设备验收仍须真实系统、部署签名用途、当前会话、设备钥匙与目标激活链路逐项取证。
+
+
+## Afternic 连接、库存归集与具名商业权限
+
+- Cloud/协议：role v5、Active Grant v4/commercialAuthority v2；具名 capabilities 严格升序唯一、write 依赖 observe、空集合不授予 Provider；锁定商业快照的精确交集，不从套餐或其他平台推断。
+- Native：旧 floor 映射历史 Cloudflare 单权限并保留所有防重放/未知 lastActive 语义；相同 revision 或 digest 禁止权限/期限变化；新 revision+digest 可撤权，旧 admission 在 await/最终提交处拒绝。现有三种签名用途继续隔离。
+- 存储：只追加 `202611180003`，保留已应用 SQL/历史绑定；完整扫描资产/Outbox/观察原子提交，多连接隔离，空库存/已删除全部跳过不伪造观察；prepared 新 Grant 与真实关闭重开后恢复原 proof；revoked handle 拒绝 Provider，撤权后仍可首次撤销与 purge；最终 epoch 变化回滚所有事实。
+- 生产组合：四个严格 raw IPC、固定 Provider 端点、Native-only 凭据、共享串行 lane 与两个具名恢复准入；refresh 仅加载既存 slot；lost response 仅读取状态，queued 不表示成功；Renderer role/permission/qualification/capture 条件分别约束入口。
+- 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；持久 Listing 写计划、私有验证及 DNS 客户闭环仍须实现和单独验收。

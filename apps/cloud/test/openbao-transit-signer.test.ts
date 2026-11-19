@@ -51,8 +51,8 @@ const lease = {
 } as const;
 
 const grantClaims: Omit<DesktopAuthorizationGrant, "kid" | "signature"> = {
-  schemaVersion: 3,
-  typ: "gd.desktop-authorization-grant.v3",
+  schemaVersion: 4,
+  typ: "gd.desktop-authorization-grant.v4",
   iss: "https://accounts.gooddealer.com",
   aud: "gooddealer-desktop/local-business",
   issuedAt: lease.issuedAt,
@@ -61,12 +61,12 @@ const grantClaims: Omit<DesktopAuthorizationGrant, "kid" | "signature"> = {
   activeDeviceLease: lease,
   scopes: ["workspace:mutate", "workspace:read"],
   commercialAuthority: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entitlementRevision: 2,
     entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     state: "active",
     commercialExpiresAt: "2026-08-30T00:00:00Z",
-    capability: "cloudflare:dns:observe",
+    capabilities: ["cloudflare:dns:observe"],
   },
 };
 

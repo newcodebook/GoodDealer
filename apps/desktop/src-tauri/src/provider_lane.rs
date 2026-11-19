@@ -1,4 +1,4 @@
-//! Native-only user-triggered Cloudflare Provider lane core.
+//! One Native Provider execution slot with separate Cloudflare and Afternic recovery gates.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -19,6 +19,15 @@ const OBSERVATION_LIMIT: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProviderOperation {
+    AfternicConnect {
+        display_label: String,
+    },
+    AfternicRefresh {
+        connection_id: String,
+    },
+    AfternicRevoke {
+        connection_id: String,
+    },
     Activate {
         connection_id: String,
     },
@@ -47,8 +56,21 @@ pub(crate) enum RetirementAction {
 }
 
 impl ProviderOperation {
+    fn is_afternic(&self) -> bool {
+        matches!(
+            self,
+            Self::AfternicConnect { .. }
+                | Self::AfternicRefresh { .. }
+                | Self::AfternicRevoke { .. }
+        )
+    }
+
     fn connection_id(&self) -> &str {
         match self {
+            Self::AfternicConnect { .. } => "afternic:new-connection",
+            Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
+                connection_id
+            }
             Self::Activate { connection_id }
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
@@ -79,8 +101,23 @@ struct ConnectionRateState {
     observations: VecDeque<Instant>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ProviderRecoveryOutcome {
+    pub(crate) cloudflare: bool,
+    pub(crate) afternic: bool,
+}
+impl From<bool> for ProviderRecoveryOutcome {
+    fn from(complete: bool) -> Self {
+        Self {
+            cloudflare: complete,
+            afternic: complete,
+        }
+    }
+}
+
 struct ProviderAdmissionState {
     recovering: bool,
+    afternic_recovering: bool,
     recovery_generation: Option<u64>,
     in_flight: Option<ProviderOperation>,
     rates: HashMap<String, ConnectionRateState>,
@@ -90,6 +127,7 @@ impl Default for ProviderAdmissionState {
     fn default() -> Self {
         Self {
             recovering: true,
+            afternic_recovering: true,
             recovery_generation: Some(0),
             in_flight: None,
             rates: HashMap::new(),
@@ -109,14 +147,25 @@ impl ProviderAdmissionState {
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
         // Serial execution still drains any queued/running recovery first. Only permanent
         // retirement may pass a failed recovery gate; the Host rejects possible live writers.
+        let recovering = if operation.is_afternic() {
+            self.afternic_recovering
+        } else {
+            self.recovering
+        };
         if self.recovery_generation.is_none()
-            || (self.recovering && !matches!(operation, ProviderOperation::Purge { .. }))
+            || (recovering
+                && !matches!(
+                    operation,
+                    ProviderOperation::Purge { .. } | ProviderOperation::AfternicRevoke { .. }
+                ))
         {
             return ProviderAdmission::Busy;
         }
         if let Some(in_flight) = self.in_flight.as_ref() {
-            return if matches!(operation, ProviderOperation::Observe { .. })
-                && in_flight == operation
+            return if matches!(
+                operation,
+                ProviderOperation::Observe { .. } | ProviderOperation::AfternicRefresh { .. }
+            ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
             } else {
@@ -128,7 +177,7 @@ impl ProviderAdmissionState {
             .entry(operation.connection_id().to_owned())
             .or_default();
         match operation {
-            ProviderOperation::Activate { .. } => {
+            ProviderOperation::Activate { .. } | ProviderOperation::AfternicConnect { .. } => {
                 if rate
                     .last_activation
                     .is_some_and(|last| now.duration_since(last) < ACTIVATION_WINDOW)
@@ -137,7 +186,7 @@ impl ProviderAdmissionState {
                 }
                 rate.last_activation = Some(now);
             }
-            ProviderOperation::Observe { .. } => {
+            ProviderOperation::Observe { .. } | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
                     .observations
                     .front()
@@ -155,7 +204,9 @@ impl ProviderAdmissionState {
                 }
                 rate.observations.push_back(now);
             }
-            ProviderOperation::Revoke { .. } | ProviderOperation::Purge { .. } => {}
+            ProviderOperation::Revoke { .. }
+            | ProviderOperation::Purge { .. }
+            | ProviderOperation::AfternicRevoke { .. } => {}
         }
         self.in_flight = Some(operation.clone());
         ProviderAdmission::Enqueue
@@ -169,6 +220,7 @@ impl ProviderAdmissionState {
 
     fn begin_recovery(&mut self) {
         self.recovering = true;
+        self.afternic_recovering = true;
         self.recovery_generation = self
             .recovery_generation
             .and_then(|generation| generation.checked_add(1));
@@ -178,9 +230,10 @@ impl ProviderAdmissionState {
         self.recovery_generation
     }
 
-    fn finish_recovery(&mut self, generation: Option<u64>, complete: bool) {
-        if complete && generation.is_some() && self.recovery_generation == generation {
-            self.recovering = false;
+    fn finish_recovery(&mut self, generation: Option<u64>, complete: ProviderRecoveryOutcome) {
+        if generation.is_some() && self.recovery_generation == generation {
+            self.recovering = !complete.cloudflare;
+            self.afternic_recovering = !complete.afternic;
         }
     }
 }
@@ -195,6 +248,12 @@ pub(crate) struct ProviderLaneHandle {
 
 impl ProviderLaneHandle {
     pub(crate) fn status(&self) -> ProviderStatus {
+        self.status_for(false)
+    }
+    pub(crate) fn afternic_status(&self) -> ProviderStatus {
+        self.status_for(true)
+    }
+    fn status_for(&self, afternic: bool) -> ProviderStatus {
         let Ok(admission) = self.admission.lock() else {
             return ProviderStatus::Blocked;
         };
@@ -202,7 +261,11 @@ impl ProviderLaneHandle {
             ProviderStatus::Blocked
         } else if admission.in_flight.is_some() {
             ProviderStatus::Busy
-        } else if admission.recovering {
+        } else if if afternic {
+            admission.afternic_recovering
+        } else {
+            admission.recovering
+        } {
             ProviderStatus::Recovering
         } else {
             ProviderStatus::Ready
@@ -274,7 +337,7 @@ impl ProviderLane {
     pub(crate) async fn run<R, Recover, E, Execute>(mut self, mut recover: R, mut execute: E)
     where
         R: FnMut() -> Recover,
-        Recover: Future<Output = bool>,
+        Recover: Future<Output = ProviderRecoveryOutcome>,
         E: FnMut(ProviderOperation) -> Execute,
         Execute: Future<Output = ()>,
     {
@@ -315,6 +378,13 @@ impl ProviderLane {
                     // admitted operation before join so no effect can escape the lane lifetime.
                     execute(operation.clone()).await;
                     self.complete(&operation);
+                    if !*self.cancel.borrow()
+                        && matches!(operation, ProviderOperation::AfternicRevoke { .. })
+                    {
+                        let generation = self.recovery_generation();
+                        let complete = recover().await;
+                        self.finish_recovery(generation, complete);
+                    }
                 }
             }
             if *self.cancel.borrow() {
@@ -330,9 +400,13 @@ impl ProviderLane {
             .and_then(|admission| admission.recovery_generation())
     }
 
-    fn finish_recovery(&self, generation: Option<u64>, complete: bool) {
+    fn finish_recovery(
+        &self,
+        generation: Option<u64>,
+        complete: impl Into<ProviderRecoveryOutcome>,
+    ) {
         if let Ok(mut admission) = self.admission.lock() {
-            admission.finish_recovery(generation, complete);
+            admission.finish_recovery(generation, complete.into());
         }
     }
 
@@ -359,6 +433,56 @@ mod tests {
             connection_id: connection.to_owned(),
             entity_id: entity.to_owned(),
         }
+    }
+
+    #[test]
+    fn platform_recovery_is_independent_but_execution_is_shared() {
+        let (handle, mut lane) = ProviderLane::new();
+        let refresh = ProviderOperation::AfternicRefresh {
+            connection_id: "afternic-a".to_owned(),
+        };
+        let connect = ProviderOperation::AfternicConnect {
+            display_label: "A".to_owned(),
+        };
+        let revoke = ProviderOperation::AfternicRevoke {
+            connection_id: "afternic-a".to_owned(),
+        };
+        lane.finish_recovery(
+            Some(0),
+            ProviderRecoveryOutcome {
+                cloudflare: true,
+                afternic: false,
+            },
+        );
+        assert_eq!(handle.status(), ProviderStatus::Ready);
+        assert_eq!(handle.afternic_status(), ProviderStatus::Recovering);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Busy);
+        assert_eq!(handle.submit(&connect), ProviderSubmission::Busy);
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+        assert_eq!(
+            handle.submit(&observe("cf-a", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(lane.commands.try_recv().unwrap(), revoke);
+        lane.complete(&revoke);
+        lane.finish_recovery(
+            Some(0),
+            ProviderRecoveryOutcome {
+                cloudflare: false,
+                afternic: true,
+            },
+        );
+        assert_eq!(
+            handle.submit(&observe("cf-a", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Accepted);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Accepted);
+        assert_eq!(handle.submit(&connect), ProviderSubmission::Busy);
+        assert_eq!(lane.commands.try_recv().unwrap(), refresh);
+        lane.complete(&refresh);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::RateLimited);
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
     }
 
     #[test]
@@ -404,7 +528,7 @@ mod tests {
                 let completed = Arc::clone(&recovery_completed);
                 async move {
                     completed.notify_one();
-                    attempt > 0
+                    (attempt > 0).into()
                 }
             },
             |_| async {},
@@ -524,7 +648,7 @@ mod tests {
                 async move {
                     started.notify_one();
                     release.notified().await;
-                    false
+                    false.into()
                 }
             },
             move |_| {
@@ -600,7 +724,7 @@ mod tests {
                 let recovered = Arc::clone(&recovery_completed);
                 async move {
                     recovered.notify_one();
-                    true
+                    true.into()
                 }
             },
             move |_| {

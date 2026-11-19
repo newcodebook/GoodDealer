@@ -15,6 +15,9 @@
 //! use gooddealer_secure_host_core::{generate_local_database_key, load_slot_key, retire_slot_key};
 //! ```
 
+mod afternic_credentials;
+mod afternic_provider;
+mod afternic_wire;
 mod cloudflare_capture;
 mod cloudflare_keychain;
 mod cloudflare_provider;
@@ -26,6 +29,15 @@ mod local_workspace_binding;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;
 
+pub use afternic_credentials::{
+    AfternicCapture, AfternicCredential, AfternicCredentialPlan, load_afternic_credential_guarded,
+    publish_afternic_credential_guarded, purge_afternic_credential_guarded,
+};
+pub use afternic_provider::{
+    AfternicDomainObservation, AfternicError, AfternicGuard, AfternicListing,
+    AfternicListingFields, AfternicListingIntent, AfternicListingStatus, AfternicPortfolio,
+    AfternicProviderClient, AfternicWriteOutcome,
+};
 pub use cloudflare_capture::{CloudflareCandidate, CloudflareCapture, CloudflareCaptureError};
 pub use cloudflare_keychain::{
     CloudflareCredentialProvisionPlan, CloudflareCredentialPublicKind,

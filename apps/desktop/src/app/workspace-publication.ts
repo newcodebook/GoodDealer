@@ -1,6 +1,7 @@
 import {
   createConflictResolutionIntent,
   type DeviceDirectorySettingsPort,
+  type AfternicConnectionPort,
   type AssetLibraryViewModel,
   type BatchOperationsReadPort,
   type HistoryReadPort,
@@ -54,6 +55,7 @@ export interface AuthoritativeWorkspacePorts {
    * outcome. Onboarding also connects and revokes through it, under the Host's own gates.
    */
   readonly cloudflare: CloudflareConnectionPort;
+  readonly afternic: AfternicConnectionPort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;
   readonly sync: LocalSyncStatusPort;

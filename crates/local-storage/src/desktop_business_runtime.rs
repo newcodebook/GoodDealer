@@ -503,16 +503,8 @@ impl DesktopBusinessRuntime {
         self.bump_read_generation_after_preflight();
     }
 
-    /// Returns the owned database only to the local backup composition after it has acquired
-    /// operation, authority/publication, and writer locks in that order. The method is crate
-    /// private and never appears in the public Desktop API.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "immutable database borrowing remains reserved for the private backup evidence path"
-        )
-    )]
+    /// Borrows the single database owner after the Host acquires operation, authority and writer
+    /// locks. Used by bounded local projections and backup composition; never exposed through IPC.
     pub(crate) fn database_for_backup(&self) -> &BusinessDatabase {
         &self.database
     }

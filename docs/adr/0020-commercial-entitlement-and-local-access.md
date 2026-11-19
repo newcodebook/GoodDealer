@@ -40,6 +40,24 @@ Host 计算的有效能力是服务器签名授权、设备与 Lease 状态、�
 商业只读只包含前两项。有效离线 Lease 可继续授权本地业务修改，但不能由客户端延长；同步需要
 Cloud transport，Provider 外部操作还必须满足操作自身的最小能力和副作用协议。
 
+### 具名 Provider 权限
+
+Active Grant v4 使用 `gd.desktop-authorization-grant.v4` 和
+`GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V4` 签名域。`commercialAuthority` v2 的
+`capabilities` 是当前锁定 Licensing 权威快照 `featureEntitlements` 与封闭能力集的精确交集：
+`afternic:marketplace:observe`、`afternic:marketplace:write`、`cloudflare:dns:observe`。
+集合按 ASCII 升序、无重复，允许空集合；空集合保留有效本地商业 scopes，但没有 Provider 权限。
+Afternic write 必须同时有 observe，否则受控配置和签发均拒绝，不自动补权。
+
+不得从计划名称、旧 Cloudflare 权限、平台名录或 Active 角色推导 Afternic 权限。
+运营只能通过受控配置和可信权益对账产生新的 revision/digest，不改写历史购买事实。
+Host 在每次网络边界和最终提交同时核对当前具名权限、连接代次和对应能力的独立资格。
+`provider:execute` 是分类概念，不能仅由 Active 角色向 Renderer 宣告可执行。
+
+Native 授权地板保存已验签的能力集合。相同商业 revision 或相同投影 digest 的权限与期限必须一致；
+新 revision 与新 digest 可以增加或撤销权限。旧地板记录只保留其当时明确授予的 Cloudflare singleton，
+不能推断新增权限；所有 epoch、签发时间和最后本机 Active epoch 的未知语义保持不变。
+
 ## 商业计划、退款与 Provider
 
 首发提供同一功能权益的一档产品：USD 9.80 月付订阅、USD 98 年付订阅，以及 USD 498 的 10 年

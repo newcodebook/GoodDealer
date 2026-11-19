@@ -7,6 +7,8 @@ import {
 } from "@gooddealer/protocol/account";
 import {
   DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
+  DESKTOP_COMMERCIAL_CAPABILITIES,
+  desktopCommercialCapabilitiesSchema,
   desktopAuthorizationGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
   activeDeviceLeaseEnvelopeSchema,
@@ -18,6 +20,8 @@ import {
   identifier,
 } from "@gooddealer/protocol/wire";
 
+// This is the stable logical key identity, not the Grant wire version. The v4 transcript domain
+// separates the revised claims while deployment keeps its existing purpose-specific key.
 export const DESKTOP_AUTHORIZATION_GRANT_KEY_PURPOSE =
   "gooddealer.devices.desktop-authorization-grant.v3" as const;
 
@@ -78,17 +82,18 @@ export class DesktopAuthorizationGrantIssuer {
       snapshot.state !== "active"
       || snapshot.commercialExpiresAt === null
       || snapshot.commercialExpiresAt <= trustedNow
-      || !snapshot.featureEntitlements.includes("cloudflare:dns:observe")
     ) {
-      throw new TypeError("commercial authority does not authorize Cloudflare observation");
+      throw new TypeError("commercial authority is inactive or expired");
     }
+    const capabilities = desktopCommercialCapabilitiesSchema.parse(DESKTOP_COMMERCIAL_CAPABILITIES
+      .filter((capability) => snapshot.featureEntitlements.includes(capability)));
     const entitlementProjectionDigest = authoritativeEntitlementSnapshotDigest(
       snapshot,
       sha256,
     );
     const claims: UnsignedDesktopAuthorizationGrant = {
       schemaVersion: DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
-      typ: "gd.desktop-authorization-grant.v3",
+      typ: "gd.desktop-authorization-grant.v4",
       iss: "https://accounts.gooddealer.com",
       aud: "gooddealer-desktop/local-business",
       issuedAt: lease.issuedAt,
@@ -97,12 +102,12 @@ export class DesktopAuthorizationGrantIssuer {
       activeDeviceLease: lease,
       scopes: ["workspace:mutate", "workspace:read"],
       commercialAuthority: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         entitlementRevision: snapshot.sourceRevision,
         entitlementProjectionDigest,
         state: "active",
         commercialExpiresAt: snapshot.commercialExpiresAt,
-        capability: "cloudflare:dns:observe",
+        capabilities,
       },
     };
     const signed = await this.signer.sign({

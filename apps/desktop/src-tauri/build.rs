@@ -2,6 +2,10 @@ fn main() {
     // This manifest is the complete production IPC permission source.
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "afternic_connection_connect",
+            "afternic_connection_revoke",
+            "afternic_connection_status",
+            "afternic_inventory_refresh",
             "cloudflare_connection_activate",
             "cloudflare_connection_create",
             "cloudflare_connection_revoke",

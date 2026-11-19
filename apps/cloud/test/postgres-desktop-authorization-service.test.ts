@@ -80,6 +80,17 @@ class Ed25519GrantSigner implements DesktopAuthorizationGrantSigner {
 }
 
 describe("PostgreSQL Desktop authorization application service", () => {
+  it.each([{ schemaVersion: 4 }, { schemaVersion: 5, capabilities: ["afternic:marketplace:write"] }, null])(
+    "rejects malformed or prior-version authority requests before opening storage %#", async (request) => {
+      let queried = false;
+      const service = serviceFor(new Ed25519GrantSigner(), async () => {
+        queried = true;
+        throw new Error("must not query");
+      });
+      await expect(service.issue(request, principal)).rejects.toThrow();
+      expect(queried).toBe(false);
+    },
+  );
   it("requires a non-empty, unique Ed25519 public-key registry for persisted Leases", () => {
     expect(() => new TrustedActiveDeviceLeaseVerifier([])).toThrow("unavailable");
     expect(() => new TrustedActiveDeviceLeaseVerifier([{
@@ -106,9 +117,9 @@ describe("PostgreSQL Desktop authorization application service", () => {
       return rows([leaseRow()]);
     });
 
-    const grant = await service.issue({ schemaVersion: 4 }, principal);
+    const grant = await service.issue({ schemaVersion: 5 }, principal);
     expect(grant).toMatchObject({
-      schemaVersion: 4, role: "active", grant: {
+      schemaVersion: 5, role: "active", grant: {
         workspace: { workspaceId: "workspace-a", kind: "personal_default" },
         activeDeviceLease: { accountId: "account-a", deviceId: "device-a" },
         scopes: ["workspace:mutate", "workspace:read"],
@@ -141,7 +152,7 @@ describe("PostgreSQL Desktop authorization application service", () => {
     );
 
     await expect(service.issue(
-      { schemaVersion: 4 },
+      { schemaVersion: 5 },
       { accountId: principal.accountId, sessionId: principal.sessionId, clientKind: "desktop" },
     )).resolves.toBeNull();
     expect(opened).toBe(false);
@@ -161,7 +172,7 @@ describe("PostgreSQL Desktop authorization application service", () => {
       leaseVerifier,
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
-    await expect(rejected.issue({ schemaVersion: 4 }, principal)).resolves.toBeNull();
+    await expect(rejected.issue({ schemaVersion: 5 }, principal)).resolves.toBeNull();
 
     const unavailable = new PostgresDesktopAuthorizationApplicationService(
       {
@@ -174,7 +185,7 @@ describe("PostgreSQL Desktop authorization application service", () => {
       leaseVerifier,
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
-    await expect(unavailable.issue({ schemaVersion: 4 }, principal)).rejects.toThrow("database unavailable");
+    await expect(unavailable.issue({ schemaVersion: 5 }, principal)).rejects.toThrow("database unavailable");
     expect(signer.calls).toBe(0);
   });
 
@@ -189,12 +200,12 @@ describe("PostgreSQL Desktop authorization application service", () => {
       if (text.includes("read_authoritative_entitlement_snapshot")) return rows([commercialRow()]);
       return rows([leaseRow()]);
     });
-    await expect(service.issue({ schemaVersion: 4 }, principal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, principal)).resolves.toBeNull();
     expect(signer.calls).toBe(1);
   });
 
   it.each([
-    ["lacks the Grant capability", { feature_entitlements: ["feature:portfolio", "feature:provider-read"] }],
+    ["has writes without observation", { feature_entitlements: ["afternic:marketplace:write", "feature:portfolio"] }],
     ["is not active", { state: "revoked" }],
     ["has commercially expired", { commercial_expires_at: new Date("2026-08-29T00:00:00Z") }],
   ])("denies without signing when the entitlement %s", async (_name, override) => {
@@ -207,7 +218,7 @@ describe("PostgreSQL Desktop authorization application service", () => {
       if (text.includes("read_authoritative_entitlement_snapshot")) return rows([commercialRow(override)]);
       return rows([leaseRow()]);
     });
-    await expect(service.issue({ schemaVersion: 4 }, principal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, principal)).resolves.toBeNull();
     expect(signer.calls).toBe(0);
   });
 
@@ -240,7 +251,7 @@ describe("PostgreSQL Desktop authorization application service", () => {
       if (text.includes("identity_auth_sessions")) return rows(sessionRows);
       return text.includes("read_authoritative_entitlement_snapshot") ? rows([commercialRow()]) : rows(leaseRows);
     });
-    await expect(service.issue({ schemaVersion: 4 }, principal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, principal)).resolves.toBeNull();
     expect(signer.calls).toBe(0);
   });
 });

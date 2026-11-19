@@ -12,7 +12,8 @@ use tauri::async_runtime::JoinHandle;
 use crate::native_cloud_session::{NativeCloudRequestError, NativeCloudSession};
 use crate::projection_lane::{ProjectionCycleResult, ProjectionLane, ProjectionLaneHandle};
 use crate::provider_lane::{
-    ProviderLane, ProviderLaneHandle, ProviderOperation, ProviderStatus, ProviderSubmission,
+    ProviderLane, ProviderLaneHandle, ProviderOperation, ProviderRecoveryOutcome, ProviderStatus,
+    ProviderSubmission,
 };
 use crate::sync_lane::{
     SyncCyclePlan, SyncCycleResult, SyncLane, SyncLaneHandle, SyncStageOutcome,
@@ -218,9 +219,23 @@ impl NativeCloudCoordinator {
                         let host = Arc::clone(&provider_recovery_host);
                         let cancel_fence = Arc::clone(&provider_recovery_cancel_fence);
                         async move {
-                            crate::provider_credential_orchestrator::recover(host, cancel_fence)
+                            let cloudflare = crate::provider_credential_orchestrator::recover(
+                                Arc::clone(&host),
+                                Arc::clone(&cancel_fence),
+                            )
+                            .await
+                            .is_ok();
+                            let afternic =
+                                crate::provider_credential_orchestrator::afternic::recover(
+                                    host,
+                                    cancel_fence,
+                                )
                                 .await
-                                .is_ok()
+                                .is_ok();
+                            ProviderRecoveryOutcome {
+                                cloudflare,
+                                afternic,
+                            }
                         }
                     },
                     move |operation| {
@@ -288,6 +303,9 @@ impl NativeCloudCoordinator {
 
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
+    }
+    pub(crate) fn afternic_provider_status(&self) -> ProviderStatus {
+        self.provider.afternic_status()
     }
 
     /// The latest Provider operation's closed outcome; none after the session is cancelled.
@@ -395,6 +413,33 @@ async fn run_provider_operation(
     let authority = host.authority_identity();
     let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
+        ProviderOperation::AfternicConnect { display_label } => {
+            let result = crate::provider_credential_orchestrator::afternic::connect(
+                host,
+                display_label,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("afternic_connect", result.as_ref().map(|()| "confirmed"))
+        }
+        ProviderOperation::AfternicRefresh { connection_id } => {
+            let result = crate::provider_credential_orchestrator::afternic::refresh(
+                host,
+                connection_id,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("afternic_refresh", result.as_ref().map(|()| "confirmed"))
+        }
+        ProviderOperation::AfternicRevoke { connection_id } => {
+            let result = crate::provider_credential_orchestrator::afternic::revoke(
+                host,
+                connection_id,
+                cancel_fence,
+            )
+            .await;
+            ProviderOperationRecord::of("afternic_revoke", result.as_ref().map(|()| "confirmed"))
+        }
         ProviderOperation::Activate { connection_id } => {
             let result = crate::provider_credential_orchestrator::activate(
                 host,
@@ -1612,7 +1657,7 @@ mod tests {
                 let recovered = Arc::clone(&provider_recovered_for_cycle);
                 async move {
                     recovered.notify_one();
-                    true
+                    true.into()
                 }
             },
             move |_| {

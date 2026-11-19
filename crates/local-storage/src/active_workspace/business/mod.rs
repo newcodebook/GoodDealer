@@ -14,7 +14,13 @@ use crate::portfolio_projection::{
     validate_timestamp,
 };
 
+mod afternic;
 mod assets;
+pub(crate) use afternic::AfternicConnectionSeed;
+pub use afternic::{
+    DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
+    DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
+};
 mod checkpoint;
 mod conflicts;
 mod database;

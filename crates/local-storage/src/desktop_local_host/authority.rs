@@ -21,9 +21,9 @@ const EXPECTED_ISSUER: &str = "https://accounts.gooddealer.com";
 const EXPECTED_LEASE_TYPE: &str = "gd.active-device-lease.v1";
 const EXPECTED_LEASE_AUDIENCE: &str = "gooddealer-desktop/active-device-lease";
 const LEASE_SIGNATURE_DOMAIN: &str = "GOODDEALER-ACTIVE-DEVICE-LEASE-V1";
-const EXPECTED_GRANT_TYPE: &str = "gd.desktop-authorization-grant.v3";
+const EXPECTED_GRANT_TYPE: &str = "gd.desktop-authorization-grant.v4";
 const EXPECTED_GRANT_AUDIENCE: &str = "gooddealer-desktop/local-business";
-const GRANT_SIGNATURE_DOMAIN: &str = "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V3";
+const GRANT_SIGNATURE_DOMAIN: &str = "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V4";
 const MAX_OFFLINE_WINDOW_SECONDS: i64 = 86_400;
 pub(super) const MAX_SIGNED_WIRE_BYTES: usize = 16_384;
 const MAX_REGISTRY_BYTES: usize = 16_384;
@@ -269,7 +269,7 @@ pub(super) struct VerifiedWorkspaceAuthority {
     entitlement_revision: u64,
     entitlement_projection_digest: String,
     commercial_expires_at: String,
-    capability: String,
+    capabilities: Vec<String>,
 }
 
 /// Borrowed monotonic floor for comparing a verified replacement with the authority already
@@ -284,7 +284,7 @@ pub(super) struct WorkspaceAuthorityReplacementFloor<'a> {
     pub(super) entitlement_revision: u64,
     pub(super) entitlement_projection_digest: &'a str,
     pub(super) commercial_expires_at: &'a str,
-    pub(super) capability: &'a str,
+    pub(super) capabilities: &'a [String],
 }
 
 impl VerifiedWorkspaceAuthority {
@@ -366,7 +366,7 @@ impl VerifiedWorkspaceAuthority {
             entitlement_revision: commercial_authority.entitlement_revision,
             entitlement_projection_digest: commercial_authority.entitlement_projection_digest,
             commercial_expires_at: commercial_authority.commercial_expires_at,
-            capability: commercial_authority.capability,
+            capabilities: commercial_authority.capabilities,
         })
     }
 
@@ -402,8 +402,10 @@ impl VerifiedWorkspaceAuthority {
             if current.entitlement_revision == self.entitlement_revision {
                 current.entitlement_projection_digest == self.entitlement_projection_digest
                     && current.commercial_expires_at == self.commercial_expires_at
+                    && current.capabilities == self.capabilities
             } else if current.entitlement_projection_digest == self.entitlement_projection_digest {
                 current.commercial_expires_at == self.commercial_expires_at
+                    && current.capabilities == self.capabilities
             } else {
                 true
             };
@@ -413,7 +415,6 @@ impl VerifiedWorkspaceAuthority {
             && current.account_security_epoch <= self.account_security_epoch
             && current.lease_epoch <= self.lease_epoch
             && current.entitlement_revision <= self.entitlement_revision
-            && current.capability == self.capability
             && commercial_payload_advances
     }
 
@@ -434,7 +435,7 @@ impl VerifiedWorkspaceAuthority {
             entitlement_revision: self.entitlement_revision,
             entitlement_projection_digest: &self.entitlement_projection_digest,
             commercial_expires_at: &self.commercial_expires_at,
-            capability: &self.capability,
+            capabilities: &self.capabilities,
         }
     }
 
@@ -482,8 +483,8 @@ impl VerifiedWorkspaceAuthority {
         &self.commercial_expires_at
     }
 
-    pub(super) fn capability(&self) -> &str {
-        &self.capability
+    pub(super) fn capabilities(&self) -> &[String] {
+        &self.capabilities
     }
 
     #[expect(
@@ -524,7 +525,10 @@ impl VerifiedWorkspaceAuthority {
         digest.update(b"GOODDEALER/BACKUP-AUTHORITY-SNAPSHOT-V1\0");
         digest.update(self.authority_floor_digest());
         digest.update(self.execute_before.to_be_bytes());
-        digest.update(self.capability.as_bytes());
+        for capability in &self.capabilities {
+            digest.update(capability.len().to_be_bytes());
+            digest.update(capability.as_bytes());
+        }
         digest
             .finalize()
             .iter()
@@ -543,7 +547,7 @@ impl Drop for VerifiedWorkspaceAuthority {
         self.device_id.zeroize();
         self.entitlement_projection_digest.zeroize();
         self.commercial_expires_at.zeroize();
-        self.capability.zeroize();
+        self.capabilities.zeroize();
     }
 }
 
@@ -675,7 +679,7 @@ struct CommercialAuthority {
     entitlement_projection_digest: String,
     state: String,
     commercial_expires_at: String,
-    capability: String,
+    capabilities: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -707,7 +711,7 @@ struct ActiveDeviceLeasePayload {
 
 impl DesktopAuthorizationGrant {
     fn validate_shape(&self) -> Result<(), WorkspaceAuthorityError> {
-        if self.schema_version != 3
+        if self.schema_version != 4
             || self.typ != EXPECTED_GRANT_TYPE
             || self.iss != EXPECTED_ISSUER
             || self.aud != EXPECTED_GRANT_AUDIENCE
@@ -716,7 +720,7 @@ impl DesktopAuthorizationGrant {
             || self.workspace.kind != "personal_default"
             || !valid_identifier(&self.workspace.workspace_id)
             || self.scopes != ["workspace:mutate", "workspace:read"]
-            || self.commercial_authority.schema_version != 1
+            || self.commercial_authority.schema_version != 2
             || self.commercial_authority.entitlement_revision == 0
             || self.commercial_authority.entitlement_revision > MAX_SAFE_INTEGER
             || self
@@ -730,7 +734,9 @@ impl DesktopAuthorizationGrant {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
             || self.commercial_authority.state != "active"
-            || self.commercial_authority.capability != "cloudflare:dns:observe"
+            || !crate::desktop_sync_runtime::valid_provider_capabilities(
+                &self.commercial_authority.capabilities,
+            )
             || self.issued_at != self.active_device_lease.issued_at
             || self.expires_at != self.active_device_lease.expires_at
         {
@@ -766,8 +772,13 @@ impl DesktopAuthorizationGrant {
                 "commercialAuthority",
                 canonical_object([
                     (
-                        "capability",
-                        canonical_string(&self.commercial_authority.capability),
+                        "capabilities",
+                        canonical_array(
+                            self.commercial_authority
+                                .capabilities
+                                .iter()
+                                .map(|value| canonical_string(value)),
+                        ),
                     ),
                     (
                         "commercialExpiresAt",
@@ -956,7 +967,7 @@ fn canonical_number(value: u64) -> Vec<u8> {
     frame(b'n', value.to_string().as_bytes())
 }
 
-fn canonical_array<const N: usize>(entries: [Vec<u8>; N]) -> Vec<u8> {
+fn canonical_array(entries: impl IntoIterator<Item = Vec<u8>>) -> Vec<u8> {
     let entries = entries
         .into_iter()
         .flat_map(|value| frame(b'e', &value))
@@ -1061,7 +1072,7 @@ pub(crate) mod tests {
 
     fn signed_grant(grant_pair: &Ed25519KeyPair, lease_pair: &Ed25519KeyPair) -> Vec<u8> {
         let mut value = json!({
-            "schemaVersion":3,"typ":EXPECTED_GRANT_TYPE,"iss":EXPECTED_ISSUER,
+            "schemaVersion":4,"typ":EXPECTED_GRANT_TYPE,"iss":EXPECTED_ISSUER,
             "aud":EXPECTED_GRANT_AUDIENCE,"kid":"grant-key-1",
             "issuedAt":"2026-08-29T00:00:00Z","expiresAt":"2026-08-30T00:00:00Z",
             "workspace":{"workspaceId":"workspace-local","kind":"personal_default"},
@@ -1073,10 +1084,10 @@ pub(crate) mod tests {
                     "onlineExpiresAt":"2026-08-29T12:00:00Z","offlineExecuteUntil":"2026-08-30T00:00:00Z"},
                 "signature":"placeholder"},
             "scopes":["workspace:mutate","workspace:read"],
-            "commercialAuthority":{"schemaVersion":1,"entitlementRevision":9,
+            "commercialAuthority":{"schemaVersion":2,"entitlementRevision":9,
                 "entitlementProjectionDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "state":"active","commercialExpiresAt":"2026-08-29T23:00:00Z",
-                "capability":"cloudflare:dns:observe"},"signature":"placeholder"
+                "capabilities":["cloudflare:dns:observe"]},"signature":"placeholder"
         });
         let parsed: DesktopAuthorizationGrant = serde_json::from_value(value.clone()).unwrap();
         value["activeDeviceLease"]["signature"] = json!(
@@ -1111,6 +1122,22 @@ pub(crate) mod tests {
         commercial_expires_at: &str,
         lease_epoch: u64,
     ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
+        long_lived_signed_grant_with_capabilities(
+            entitlement_revision,
+            entitlement_projection_digest,
+            commercial_expires_at,
+            lease_epoch,
+            &["cloudflare:dns:observe"],
+        )
+    }
+
+    pub(crate) fn long_lived_signed_grant_with_capabilities(
+        entitlement_revision: u64,
+        entitlement_projection_digest: &str,
+        commercial_expires_at: &str,
+        lease_epoch: u64,
+        capabilities: &[&str],
+    ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
         let now = i64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1132,7 +1159,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let mut value = json!({
-            "schemaVersion":3,"typ":EXPECTED_GRANT_TYPE,"iss":EXPECTED_ISSUER,
+            "schemaVersion":4,"typ":EXPECTED_GRANT_TYPE,"iss":EXPECTED_ISSUER,
             "aud":EXPECTED_GRANT_AUDIENCE,"kid":"grant-key-host-test",
             "issuedAt":issued_at,"expiresAt":offline_execute_until,
             "workspace":{"workspaceId":"workspace-local","kind":"personal_default"},
@@ -1144,10 +1171,10 @@ pub(crate) mod tests {
                     "onlineExpiresAt":online_expires_at,"offlineExecuteUntil":offline_execute_until},
                 "signature":"placeholder"},
             "scopes":["workspace:mutate","workspace:read"],
-            "commercialAuthority":{"schemaVersion":1,"entitlementRevision":entitlement_revision,
+            "commercialAuthority":{"schemaVersion":2,"entitlementRevision":entitlement_revision,
                 "entitlementProjectionDigest":entitlement_projection_digest,
                 "state":"active","commercialExpiresAt":commercial_expires_at,
-                "capability":"cloudflare:dns:observe"},"signature":"placeholder"
+                "capabilities":capabilities},"signature":"placeholder"
         });
         let parsed: DesktopAuthorizationGrant = serde_json::from_value(value.clone()).unwrap();
         value["activeDeviceLease"]["signature"] = json!(
@@ -1270,10 +1297,109 @@ pub(crate) mod tests {
             entitlement_revision: 8,
             entitlement_projection_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             commercial_expires_at: "2026-08-29T22:00:00Z",
-            capability: "cloudflare:dns:observe",
+            capabilities: &["cloudflare:dns:observe".to_owned()],
         };
 
         assert!(!replacement.can_replace_floor(&current));
+    }
+
+    #[test]
+    fn grant_v4_capabilities_and_transcripts_match_protocol_corpus() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/desktop-authorization/grant-v4-corpus.json"
+        ))
+        .unwrap();
+        for case in corpus["cases"].as_array().unwrap() {
+            let parsed = serde_json::from_value::<DesktopAuthorizationGrant>(case["grant"].clone());
+            let accepted = parsed
+                .as_ref()
+                .is_ok_and(|grant| grant.validate_shape().is_ok());
+            assert_eq!(
+                accepted,
+                case["accepted"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+            if accepted {
+                let transcript = parsed.unwrap().signature_transcript();
+                assert_eq!(
+                    super::super::hex_digest(&Sha256::digest(transcript).into()),
+                    case["transcriptSha256"].as_str().unwrap(),
+                    "{}",
+                    case["name"]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replacement_permissions_require_new_revision_and_digest_and_allow_revocation() {
+        let (initial, _) = verified();
+        let (mut changed, _) = verified();
+        changed.capabilities = vec!["afternic:marketplace:observe".into()];
+        assert!(!initial.can_replace_with(&changed));
+        changed.entitlement_revision += 1;
+        assert!(!initial.can_replace_with(&changed));
+        changed.entitlement_projection_digest = "bb".repeat(32);
+        assert!(initial.can_replace_with(&changed));
+        assert_ne!(initial.snapshot_digest_hex(), changed.snapshot_digest_hex());
+        let (mut revoked, _) = verified();
+        revoked.entitlement_revision = changed.entitlement_revision + 1;
+        revoked.entitlement_projection_digest = "cc".repeat(32);
+        revoked.capabilities.clear();
+        assert!(changed.can_replace_with(&revoked));
+        assert!(!revoked.can_replace_with(&changed));
+    }
+
+    #[test]
+    fn grant_v4_domain_rejects_v3_signatures_and_capability_tampering() {
+        let (mut authority, wire) = verified();
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[0x41; 32]).unwrap();
+        let lease_pair = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).unwrap();
+        let verifier = WorkspaceAuthorityVerifier::for_test(
+            "grant-key-1",
+            pair.public_key().as_ref(),
+            "lease-key-1",
+            lease_pair.public_key().as_ref(),
+        )
+        .unwrap();
+        let binding = TrustedWorkspaceBinding {
+            account_id: Some("account-local"),
+            device_id: "device-local",
+            minimum_account_security_epoch: 4,
+            minimum_lease_epoch: 7,
+        };
+        let mut grant: DesktopAuthorizationGrant = serde_json::from_slice(&wire).unwrap();
+        let mut old_transcript = grant.signature_transcript();
+        let position = old_transcript
+            .windows(GRANT_SIGNATURE_DOMAIN.len())
+            .position(|part| part == GRANT_SIGNATURE_DOMAIN.as_bytes())
+            .unwrap();
+        old_transcript[position + GRANT_SIGNATURE_DOMAIN.len() - 1] = b'3';
+        grant.signature = URL_SAFE_NO_PAD.encode(pair.sign(&old_transcript).as_ref());
+        assert!(matches!(
+            VerifiedWorkspaceAuthority::verify_grant(
+                grant,
+                &binding,
+                parse_canonical_utc("2026-08-29T18:00:00Z").unwrap(),
+                &verifier
+            ),
+            Err(WorkspaceAuthorityError::SignatureRejected)
+        ));
+        let mut grant: DesktopAuthorizationGrant = serde_json::from_slice(&wire).unwrap();
+        grant.commercial_authority.capabilities = vec!["afternic:marketplace:observe".into()];
+        assert!(matches!(
+            VerifiedWorkspaceAuthority::verify_grant(
+                grant,
+                &binding,
+                parse_canonical_utc("2026-08-29T18:00:00Z").unwrap(),
+                &verifier
+            ),
+            Err(WorkspaceAuthorityError::SignatureRejected)
+        ));
+        let snapshot = authority.snapshot_digest_hex();
+        authority.capabilities.clear();
+        assert_ne!(snapshot, authority.snapshot_digest_hex());
     }
 
     #[test]

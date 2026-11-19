@@ -80,6 +80,7 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
     settings: { loadSettings: vi.fn(async () => settingsRead) },
+    afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
     cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
 }

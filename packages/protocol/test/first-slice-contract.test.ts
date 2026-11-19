@@ -36,8 +36,8 @@ const activeDeviceLease = {
 } as const;
 
 const desktopGrant = {
-  schemaVersion: 3,
-  typ: "gd.desktop-authorization-grant.v3",
+  schemaVersion: 4,
+  typ: "gd.desktop-authorization-grant.v4",
   iss: "https://accounts.gooddealer.com",
   aud: "gooddealer-desktop/local-business",
   kid: "grant-key-1",
@@ -47,12 +47,12 @@ const desktopGrant = {
   activeDeviceLease,
   scopes: ["workspace:mutate", "workspace:read"],
   commercialAuthority: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entitlementRevision: 9,
     entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     state: "active",
     commercialExpiresAt: "2026-08-29T23:00:00Z",
-    capability: "cloudflare:dns:observe",
+    capabilities: ["cloudflare:dns:observe"],
   },
   signature: "fixture-grant-signature",
 } as const;
@@ -74,8 +74,8 @@ const mutation = {
 
 describe("first-slice shared transport contract", () => {
   it("binds the personal default workspace to a strictly parsed active-device grant", () => {
-    expect(desktopAuthorizationGrantRoleRequestSchema.parse({ schemaVersion: 4 })).toEqual({
-      schemaVersion: 4,
+    expect(desktopAuthorizationGrantRoleRequestSchema.parse({ schemaVersion: 5 })).toEqual({
+      schemaVersion: 5,
     });
     expect(desktopAuthorizationGrantSchema.parse(desktopGrant))
       .toMatchObject({ workspace: { workspaceId: "workspace-local" } });
@@ -87,7 +87,7 @@ describe("first-slice shared transport contract", () => {
       (value, byte) => BigInt.asUintN(64, (value ^ BigInt(byte)) * 0x100000001b3n),
       0xcbf29ce484222325n,
     );
-    expect([transcript.length, hash.toString(16)]).toEqual([1562, "86a8523c3848bf9a"]);
+    expect([transcript.length, hash.toString(16)]).toEqual([1572, "1b57f5da30e4785"]);
   });
 
   it("rejects V2 and malformed commercial authority without fallback", () => {
@@ -97,10 +97,10 @@ describe("first-slice shared transport contract", () => {
   });
 
   it.each([
-    { schemaVersion: 4, accountId: "account-1" },
-    { schemaVersion: 4, workspaceId: "workspace-1" },
-    { schemaVersion: 4, deviceId: "device-1" },
-    { schemaVersion: 4, credentialRef: "secret" },
+    { schemaVersion: 5, accountId: "account-1" },
+    { schemaVersion: 5, workspaceId: "workspace-1" },
+    { schemaVersion: 5, deviceId: "device-1" },
+    { schemaVersion: 5, credentialRef: "secret" },
   ])("rejects caller-selected authorization scope %#", (value) => {
     expect(desktopAuthorizationGrantRoleRequestSchema.safeParse(value).success).toBe(false);
   });

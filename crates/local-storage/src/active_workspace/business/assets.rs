@@ -276,7 +276,6 @@ impl BusinessDatabase {
 
     #[expect(
         clippy::too_many_arguments,
-        clippy::too_many_lines,
         reason = "mutation transaction inputs are explicit authority and CAS fields"
     )]
     fn mutate_domain_asset<G>(
@@ -293,264 +292,31 @@ impl BusinessDatabase {
         pre_commit_guard: impl FnOnce(bool) -> Result<G, BusinessDatabaseError>,
         after_commit: impl FnOnce(&mut G, bool) -> Result<(), BusinessDatabaseError>,
     ) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError> {
-        let payload = if let Some(asset) = edit {
-            sync_payload(&DomainAssetProjectionRow {
-                entity_id: asset.entity_id.clone(),
-                note: asset.note.clone(),
-                portfolio_id: asset.portfolio_id.clone(),
-                tags: asset.tags.clone(),
-                target_price: asset.target_price.clone(),
-            })?
-        } else {
-            serde_json::json!({"entityId": entity_id, "operation": "delete"}).to_string()
-        };
-        let digest = hex_digest(payload.as_bytes());
         let transaction = self
             .store
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        let existing: Option<ExistingMutationRow> = transaction.query_row(
-            "SELECT entity_id,entity_kind,operation_kind,mutation_payload_sha256,local_commit_sequence,device_mutation_sequence,base_server_revision,created_at,source_device_id,active_lease_epoch,payload_schema_version,re_adds_deleted_revision FROM sync_outbox WHERE workspace_id=?1 AND mutation_id=?2",
-            params![self.workspace_id, mutation_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if let Some((
-            stored_entity,
-            kind,
-            stored_op,
-            stored_digest,
-            local_seq,
-            device_seq,
-            base_rev,
-            created,
-            source_device,
-            stored_epoch,
-            payload_schema,
-            stored_re_add_revision,
-        )) = existing
-        {
-            let expected_op = if operation == "delete" {
-                "delete"
-            } else {
-                "upsert"
-            };
-            if stored_entity != entity_id
-                || kind != "domain_asset"
-                || stored_op != expected_op
-                || stored_digest.as_deref() != Some(&digest)
-                || source_device.as_deref() != Some(device_id)
-                || payload_schema != 1
-            {
-                return Err(BusinessDatabaseError::MutationConflict);
-            }
-            let receipt = DomainAssetMutationReceipt {
-                schema_version: 1,
-                disposition: "replayed".to_owned(),
-                operation: if stored_re_add_revision.is_some() {
-                    "re_add".to_owned()
-                } else {
-                    operation.to_owned()
-                },
-                mutation_id: mutation_id.to_owned(),
-                entity_id: entity_id.to_owned(),
-                local_commit_sequence: u64::try_from(local_seq)
-                    .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-                device_mutation_sequence: u64::try_from(
-                    device_seq.ok_or(BusinessDatabaseError::StorageRejected)?,
-                )
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-                base_server_revision: u64::try_from(base_rev)
-                    .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-                active_lease_epoch: u64::try_from(
-                    stored_epoch.ok_or(BusinessDatabaseError::MutationConflict)?,
-                )
-                .map_err(|_| BusinessDatabaseError::MutationConflict)?,
-                committed_at: created,
-                read_generation: 0,
-            };
-            let mut guard = pre_commit_guard(true)?;
-            transaction
-                .commit()
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            after_commit(&mut guard, true)?;
-            return Ok(receipt);
-        }
-        if !allow_new {
-            return Err(BusinessDatabaseError::MutationStale);
-        }
-        let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        // ADR-0029 decision 4: a provisional re-add freezes its entity until Cloud answers, so a
-        // rejection has only that one Outbox row to undo. The schema refuses the write as well.
-        let frozen: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
-                 WHERE workspace_id=?1 AND entity_id=?2)",
-                params![self.workspace_id, entity_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if frozen {
-            return Err(BusinessDatabaseError::AssetReAddPending);
-        }
-        let mut re_adds: Option<(i64, i64)> = None;
-        if operation == "re_add" {
-            if expected_asset_version != 0 {
-                return Err(BusinessDatabaseError::InvalidInput);
-            }
-            match stored {
-                None => return Err(BusinessDatabaseError::AssetNotFound),
-                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
-                Some((_, Some(_))) => {}
-            }
-            re_adds = Some(check_local_re_add(
-                &transaction,
-                &self.workspace_id,
-                entity_id,
-            )?);
-        } else if operation == "create" {
-            // The entity ID is the canonical domain, so the domain is the deduplication key: adding
-            // a domain the workspace already holds, from an import or by hand, is refused rather
-            // than merged. A deleted domain keeps its tombstone until the delete has synced and
-            // been acknowledged and settled, so only the explicit re-add preconditions can
-            // advance it to the next generation.
-            if expected_asset_version != 0 {
-                return Err(BusinessDatabaseError::InvalidInput);
-            }
-            let tombstoned: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)", params![self.workspace_id, entity_id], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            match stored {
-                Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
-                // Until the re-add entry is qualified, a deleted domain answers exactly as it did
-                // before re-adding existed, so production has no executable re-add path.
-                Some((_, Some(_))) if !local_re_add_entry_open() => {
-                    return Err(BusinessDatabaseError::AssetDeleted);
-                }
-                None if tombstoned && !local_re_add_entry_open() => {
-                    return Err(BusinessDatabaseError::AssetDeleted);
-                }
-                Some((_, Some(_))) => {
-                    re_adds = Some(check_local_re_add(
-                        &transaction,
-                        &self.workspace_id,
-                        entity_id,
-                    )?);
-                }
-                None if tombstoned => return Err(BusinessDatabaseError::AssetReAddBlocked),
-                None => {}
-            }
-        } else {
-            let (current_version, deleted) = stored.ok_or(BusinessDatabaseError::AssetNotFound)?;
-            if deleted.is_some() {
-                return Err(BusinessDatabaseError::AssetDeleted);
-            }
-            if u64::try_from(current_version).ok() != Some(expected_asset_version) {
-                return Err(BusinessDatabaseError::MutationStale);
-            }
-        }
-        let (local_seq, base_rev, device_seq): (i64, i64, i64) = transaction.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1, next_device_mutation_sequence=next_device_mutation_sequence+1, updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence, applied_through_server_revision, next_device_mutation_sequence-1", [committed_at], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
-        if operation == "create" && re_adds.is_none() {
-            let asset = edit.expect("create operation carries asset");
-            let tags_json = serde_json::to_string(&asset.tags)
-                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-            let (currency, amount) = (
-                asset.target_price.as_ref().map(|money| &money.currency),
-                asset.target_price.as_ref().map(|money| &money.amount),
-            );
-            transaction.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES (?1,?2,'active',?3,?3,?4)", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at) VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, currency, amount, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            for tag in &asset.tags {
-                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![self.workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-            transaction.execute("INSERT INTO portfolio_domain_assets (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,target_price_amount,note_server_revision,portfolio_id_server_revision,tags_server_revision,target_price_server_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)", params![self.workspace_id, entity_id, asset.note, asset.portfolio_id, tags_json, currency, amount]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
-                transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6)", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-        } else if operation == "edit" {
-            let asset = edit.expect("edit operation carries asset");
-            transaction.execute("UPDATE domain_assets SET updated_at=?3, local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?3,note=?4,target_price_currency=?5,target_price_amount=?6,local_commit_sequence=?7,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, asset.portfolio_id, asset.note, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount), local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction
-                .execute(
-                    "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
-                    params![self.workspace_id, entity_id],
-                )
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            for tag in &asset.tags {
-                transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![self.workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-            transaction.execute("UPDATE portfolio_domain_assets SET note=?3,portfolio_id=?4,tags_json=?5,target_price_currency=?6,target_price_amount=?7 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, asset.note, asset.portfolio_id, serde_json::to_string(&asset.tags).map_err(|_| BusinessDatabaseError::InvalidInput)?, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount)]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
-                transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![self.workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-        } else if let Some((deleted_generation, deleted_revision)) = re_adds {
-            let asset = edit.expect("re-add operation carries asset");
-            write_local_re_add(
-                &transaction,
-                &self.workspace_id,
-                mutation_id,
-                asset,
-                (deleted_generation, deleted_revision),
-                (local_seq, base_rev),
-                committed_at,
-            )?;
-        } else {
-            transaction.execute("UPDATE domain_assets SET lifecycle_status='archived',deleted_at=?3,updated_at=?3,local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![self.workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,'lifecycleStatus',?3,?4,'pending',?5) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![self.workspace_id, entity_id, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            transaction.execute("INSERT INTO sync_tombstones (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_server_revision,deleted_at,purge_after,state,barrier_state,entity_generation) VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2),1))", params![self.workspace_id, entity_id, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        }
-        let lease_epoch =
-            i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let operation_kind = if operation == "delete" {
-            "delete"
-        } else {
-            "upsert"
-        };
-        transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state,entity_generation,re_adds_deleted_revision) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?3),1),?13)", params![self.workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest, re_adds.map(|(_, revision)| revision)]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        if operation == "create" || operation == "re_add" {
-            // The wire keeps creation an upsert; the Host-only marker lets history name it. A
-            // re-add starts a new generation, so each attempt is marked as an add of its own.
-            transaction
-                .execute(
-                    "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
-                    params![self.workspace_id, mutation_id],
-                )
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        }
-        if let Some(asset) = edit {
-            let values = [
-                ("note", serde_json::to_string(&asset.note)),
-                ("portfolioId", serde_json::to_string(&asset.portfolio_id)),
-                ("tags", serde_json::to_string(&asset.tags)),
-                ("targetPrice", serde_json::to_string(&asset.target_price)),
-            ];
-            for (ordinal, (field, value)) in values.into_iter().enumerate() {
-                let value = value.map_err(|_| BusinessDatabaseError::InvalidInput)?;
-                transaction.execute("INSERT INTO sync_outbox_fields (workspace_id,mutation_id,ordinal,field_path,field_value_json,field_value_sha256) VALUES (?1,?2,?3,?4,?5,?6)", params![self.workspace_id, mutation_id, i64::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?, field, value, hex_digest(value.as_bytes())]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            }
-        }
-        let mut guard = pre_commit_guard(false)?;
+        let receipt = mutate_domain_asset_in_transaction(
+            &transaction,
+            &self.workspace_id,
+            operation,
+            mutation_id,
+            entity_id,
+            expected_asset_version,
+            device_id,
+            active_lease_epoch,
+            committed_at,
+            edit,
+            allow_new,
+        )?;
+        let replayed = receipt.disposition == "replayed";
+        let mut guard = pre_commit_guard(replayed)?;
         transaction
             .commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-        after_commit(&mut guard, false)?;
-        Ok(DomainAssetMutationReceipt {
-            schema_version: 1,
-            disposition: "committed".to_owned(),
-            operation: if re_adds.is_some() {
-                "re_add".to_owned()
-            } else {
-                operation.to_owned()
-            },
-            mutation_id: mutation_id.to_owned(),
-            entity_id: entity_id.to_owned(),
-            local_commit_sequence: u64::try_from(local_seq)
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-            device_mutation_sequence: u64::try_from(device_seq)
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-            base_server_revision: u64::try_from(base_rev)
-                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
-            active_lease_epoch,
-            committed_at: committed_at.to_owned(),
-            read_generation: 0,
-        })
+        after_commit(&mut guard, replayed)?;
+        Ok(receipt)
     }
 
     /// Commits one validated domain mutation and its Outbox fields atomically.
@@ -1365,4 +1131,319 @@ pub(super) fn supersede_replicated_tombstone(
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     }
     Ok(())
+}
+
+// Both manual creation and a complete market scan use the asset owner's exact mutation rules.
+// The caller owns the one transaction and retains its final authorization guard through COMMIT.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "one asset mutation retains explicit identity, CAS and authorizing epoch"
+)]
+fn mutate_domain_asset_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    operation: &str,
+    mutation_id: &str,
+    entity_id: &str,
+    expected_asset_version: u64,
+    device_id: &str,
+    active_lease_epoch: u64,
+    committed_at: &str,
+    edit: Option<&DomainAssetWrite>,
+    allow_new: bool,
+) -> Result<DomainAssetMutationReceipt, BusinessDatabaseError> {
+    let payload = if let Some(asset) = edit {
+        sync_payload(&DomainAssetProjectionRow {
+            entity_id: asset.entity_id.clone(),
+            note: asset.note.clone(),
+            portfolio_id: asset.portfolio_id.clone(),
+            tags: asset.tags.clone(),
+            target_price: asset.target_price.clone(),
+        })?
+    } else {
+        serde_json::json!({"entityId": entity_id, "operation": "delete"}).to_string()
+    };
+    let digest = hex_digest(payload.as_bytes());
+    let existing: Option<ExistingMutationRow> = transaction.query_row(
+            "SELECT entity_id,entity_kind,operation_kind,mutation_payload_sha256,local_commit_sequence,device_mutation_sequence,base_server_revision,created_at,source_device_id,active_lease_epoch,payload_schema_version,re_adds_deleted_revision FROM sync_outbox WHERE workspace_id=?1 AND mutation_id=?2",
+            params![workspace_id, mutation_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if let Some((
+        stored_entity,
+        kind,
+        stored_op,
+        stored_digest,
+        local_seq,
+        device_seq,
+        base_rev,
+        created,
+        source_device,
+        stored_epoch,
+        payload_schema,
+        stored_re_add_revision,
+    )) = existing
+    {
+        let expected_op = if operation == "delete" {
+            "delete"
+        } else {
+            "upsert"
+        };
+        if stored_entity != entity_id
+            || kind != "domain_asset"
+            || stored_op != expected_op
+            || stored_digest.as_deref() != Some(&digest)
+            || source_device.as_deref() != Some(device_id)
+            || payload_schema != 1
+        {
+            return Err(BusinessDatabaseError::MutationConflict);
+        }
+        let receipt = DomainAssetMutationReceipt {
+            schema_version: 1,
+            disposition: "replayed".to_owned(),
+            operation: if stored_re_add_revision.is_some() {
+                "re_add".to_owned()
+            } else {
+                operation.to_owned()
+            },
+            mutation_id: mutation_id.to_owned(),
+            entity_id: entity_id.to_owned(),
+            local_commit_sequence: u64::try_from(local_seq)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+            device_mutation_sequence: u64::try_from(
+                device_seq.ok_or(BusinessDatabaseError::StorageRejected)?,
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+            base_server_revision: u64::try_from(base_rev)
+                .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+            active_lease_epoch: u64::try_from(
+                stored_epoch.ok_or(BusinessDatabaseError::MutationConflict)?,
+            )
+            .map_err(|_| BusinessDatabaseError::MutationConflict)?,
+            committed_at: created,
+            read_generation: 0,
+        };
+        return Ok(receipt);
+    }
+    if !allow_new {
+        return Err(BusinessDatabaseError::MutationStale);
+    }
+    let stored: Option<(i64, Option<String>)> = transaction.query_row("SELECT local_commit_sequence, deleted_at FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2", params![workspace_id, entity_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    // ADR-0029 decision 4: a provisional re-add freezes its entity until Cloud answers, so a
+    // rejection has only that one Outbox row to undo. The schema refuses the write as well.
+    let frozen: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds
+                 WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if frozen {
+        return Err(BusinessDatabaseError::AssetReAddPending);
+    }
+    let mut re_adds: Option<(i64, i64)> = None;
+    if operation == "re_add" {
+        if expected_asset_version != 0 {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        match stored {
+            None => return Err(BusinessDatabaseError::AssetNotFound),
+            Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+            Some((_, Some(_))) => {}
+        }
+        re_adds = Some(check_local_re_add(transaction, workspace_id, entity_id)?);
+    } else if operation == "create" {
+        // The entity ID is the canonical domain, so the domain is the deduplication key: adding
+        // a domain the workspace already holds, from an import or by hand, is refused rather
+        // than merged. A deleted domain keeps its tombstone until the delete has synced and
+        // been acknowledged and settled, so only the explicit re-add preconditions can
+        // advance it to the next generation.
+        if expected_asset_version != 0 {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        let tombstoned: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)", params![workspace_id, entity_id], |row| row.get(0)).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        match stored {
+            Some((_, None)) => return Err(BusinessDatabaseError::AssetExists),
+            // Until the re-add entry is qualified, a deleted domain answers exactly as it did
+            // before re-adding existed, so production has no executable re-add path.
+            Some((_, Some(_))) if !local_re_add_entry_open() => {
+                return Err(BusinessDatabaseError::AssetDeleted);
+            }
+            None if tombstoned && !local_re_add_entry_open() => {
+                return Err(BusinessDatabaseError::AssetDeleted);
+            }
+            Some((_, Some(_))) => {
+                re_adds = Some(check_local_re_add(transaction, workspace_id, entity_id)?);
+            }
+            None if tombstoned => return Err(BusinessDatabaseError::AssetReAddBlocked),
+            None => {}
+        }
+    } else {
+        let (current_version, deleted) = stored.ok_or(BusinessDatabaseError::AssetNotFound)?;
+        if deleted.is_some() {
+            return Err(BusinessDatabaseError::AssetDeleted);
+        }
+        if u64::try_from(current_version).ok() != Some(expected_asset_version) {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+    }
+    let (local_seq, base_rev, device_seq): (i64, i64, i64) = transaction.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1, next_device_mutation_sequence=next_device_mutation_sequence+1, updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence, applied_through_server_revision, next_device_mutation_sequence-1", [committed_at], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
+    if operation == "create" && re_adds.is_none() {
+        let asset = edit.expect("create operation carries asset");
+        let tags_json =
+            serde_json::to_string(&asset.tags).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let (currency, amount) = (
+            asset.target_price.as_ref().map(|money| &money.currency),
+            asset.target_price.as_ref().map(|money| &money.amount),
+        );
+        transaction.execute("INSERT INTO domain_assets (workspace_id,entity_id,lifecycle_status,created_at,updated_at,local_commit_sequence) VALUES (?1,?2,'active',?3,?3,?4)", params![workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction.execute("INSERT INTO domain_asset_desired_state (workspace_id,entity_id,portfolio_id,note,target_price_currency,target_price_amount,desired_sale_status,desired_nameservers_json,local_commit_sequence,updated_at) VALUES (?1,?2,?3,?4,?5,?6,'hold','[]',?7,?8)", params![workspace_id, entity_id, asset.portfolio_id, asset.note, currency, amount, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        for tag in &asset.tags {
+            transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+        transaction.execute("INSERT INTO portfolio_domain_assets (workspace_id,entity_id,note,portfolio_id,tags_json,target_price_currency,target_price_amount,note_server_revision,portfolio_id_server_revision,tags_server_revision,target_price_server_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,0)", params![workspace_id, entity_id, asset.note, asset.portfolio_id, tags_json, currency, amount]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+            transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6)", params![workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+    } else if operation == "edit" {
+        let asset = edit.expect("edit operation carries asset");
+        transaction.execute("UPDATE domain_assets SET updated_at=?3, local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction.execute("UPDATE domain_asset_desired_state SET portfolio_id=?3,note=?4,target_price_currency=?5,target_price_amount=?6,local_commit_sequence=?7,updated_at=?8 WHERE workspace_id=?1 AND entity_id=?2", params![workspace_id, entity_id, asset.portfolio_id, asset.note, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount), local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction
+            .execute(
+                "DELETE FROM domain_asset_tags WHERE workspace_id=?1 AND entity_id=?2",
+                params![workspace_id, entity_id],
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        for tag in &asset.tags {
+            transaction.execute("INSERT INTO domain_asset_tags (workspace_id,entity_id,tag,local_commit_sequence) VALUES (?1,?2,?3,?4)", params![workspace_id, entity_id, tag, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+        transaction.execute("UPDATE portfolio_domain_assets SET note=?3,portfolio_id=?4,tags_json=?5,target_price_currency=?6,target_price_amount=?7 WHERE workspace_id=?1 AND entity_id=?2", params![workspace_id, entity_id, asset.note, asset.portfolio_id, serde_json::to_string(&asset.tags).map_err(|_| BusinessDatabaseError::InvalidInput)?, asset.target_price.as_ref().map(|m| &m.currency), asset.target_price.as_ref().map(|m| &m.amount)]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        for field_path in ["note", "portfolioId", "tags", "targetPrice"] {
+            transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,?3,?4,?5,'pending',?6) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![workspace_id, entity_id, field_path, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+    } else if let Some((deleted_generation, deleted_revision)) = re_adds {
+        let asset = edit.expect("re-add operation carries asset");
+        write_local_re_add(
+            transaction,
+            workspace_id,
+            mutation_id,
+            asset,
+            (deleted_generation, deleted_revision),
+            (local_seq, base_rev),
+            committed_at,
+        )?;
+    } else {
+        transaction.execute("UPDATE domain_assets SET lifecycle_status='archived',deleted_at=?3,updated_at=?3,local_commit_sequence=?4 WHERE workspace_id=?1 AND entity_id=?2", params![workspace_id, entity_id, committed_at, local_seq]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction.execute("INSERT INTO domain_asset_field_versions (workspace_id,entity_id,field_path,server_revision,local_commit_sequence,sync_state,updated_at) VALUES (?1,?2,'lifecycleStatus',?3,?4,'pending',?5) ON CONFLICT(workspace_id,entity_id,field_path) DO UPDATE SET local_commit_sequence=excluded.local_commit_sequence,sync_state='pending',updated_at=excluded.updated_at", params![workspace_id, entity_id, base_rev, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        transaction.execute("INSERT INTO sync_tombstones (workspace_id,entity_kind,entity_id,deleted_local_commit_sequence,deleted_server_revision,deleted_at,purge_after,state,barrier_state,entity_generation) VALUES (?1,'domain_asset',?2,?3,NULL,?4,NULL,'pending','pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2),1))", params![workspace_id, entity_id, local_seq, committed_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    let lease_epoch =
+        i64::try_from(active_lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let operation_kind = if operation == "delete" {
+        "delete"
+    } else {
+        "upsert"
+    };
+    transaction.execute("INSERT INTO sync_outbox (workspace_id,mutation_id,entity_kind,entity_id,mutation_payload_json,created_at,workspace_schema_version,operation_kind,base_server_revision,local_commit_sequence,source_device_id,active_lease_epoch,device_mutation_sequence,payload_schema_version,mutation_payload_sha256,state,entity_generation,re_adds_deleted_revision) VALUES (?1,?2,'domain_asset',?3,?4,?5,1,?6,?7,?8,?9,?10,?11,1,?12,'pending',COALESCE((SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?3),1),?13)", params![workspace_id, mutation_id, entity_id, payload, committed_at, operation_kind, base_rev, local_seq, device_id, lease_epoch, device_seq, digest, re_adds.map(|(_, revision)| revision)]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if operation == "create" || operation == "re_add" {
+        // The wire keeps creation an upsert; the Host-only marker lets history name it. A
+        // re-add starts a new generation, so each attempt is marked as an add of its own.
+        transaction
+            .execute(
+                "INSERT INTO sync_outbox_local_creations (workspace_id,mutation_id) VALUES (?1,?2)",
+                params![workspace_id, mutation_id],
+            )
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    }
+    if let Some(asset) = edit {
+        let values = [
+            ("note", serde_json::to_string(&asset.note)),
+            ("portfolioId", serde_json::to_string(&asset.portfolio_id)),
+            ("tags", serde_json::to_string(&asset.tags)),
+            ("targetPrice", serde_json::to_string(&asset.target_price)),
+        ];
+        for (ordinal, (field, value)) in values.into_iter().enumerate() {
+            let value = value.map_err(|_| BusinessDatabaseError::InvalidInput)?;
+            transaction.execute("INSERT INTO sync_outbox_fields (workspace_id,mutation_id,ordinal,field_path,field_value_json,field_value_sha256) VALUES (?1,?2,?3,?4,?5,?6)", params![workspace_id, mutation_id, i64::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?, field, value, hex_digest(value.as_bytes())]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        }
+    }
+    Ok(DomainAssetMutationReceipt {
+        schema_version: 1,
+        disposition: "committed".to_owned(),
+        operation: if re_adds.is_some() {
+            "re_add".to_owned()
+        } else {
+            operation.to_owned()
+        },
+        mutation_id: mutation_id.to_owned(),
+        entity_id: entity_id.to_owned(),
+        local_commit_sequence: u64::try_from(local_seq)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        device_mutation_sequence: u64::try_from(device_seq)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        base_server_revision: u64::try_from(base_rev)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?,
+        active_lease_epoch,
+        committed_at: committed_at.to_owned(),
+        read_generation: 0,
+    })
+}
+
+/// Portfolio discovery never resurrects a tombstone or changes a user's existing fields.
+/// `None` means the caller must report the skipped domain without publishing a new binding.
+pub(super) fn import_market_asset(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    mutation_id: &str,
+    device_id: &str,
+    active_lease_epoch: u64,
+    committed_at: &str,
+    entity_id: &str,
+) -> Result<Option<bool>, BusinessDatabaseError> {
+    validate_identifier(mutation_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    validate_identifier(device_id).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    validate_timestamp(Some(committed_at.to_owned()))
+        .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let asset = DomainAssetWrite {
+        entity_id: entity_id.to_owned(),
+        note: None,
+        portfolio_id: None,
+        tags: Vec::new(),
+        target_price: None,
+    };
+    validate_domain_asset(&asset)?;
+    let blocked: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sync_tombstones WHERE workspace_id=?1 AND entity_kind='domain_asset' AND entity_id=?2)
+             OR EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds WHERE workspace_id=?1 AND entity_id=?2)
+             OR EXISTS(SELECT 1 FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2 AND (deleted_at IS NOT NULL OR lifecycle_status='archived'))",
+        params![workspace_id,entity_id], |row| row.get(0),
+    ).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if blocked {
+        return Ok(None);
+    }
+    let exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2)",
+            params![workspace_id, entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if exists {
+        return Ok(Some(false));
+    }
+    mutate_domain_asset_in_transaction(
+        transaction,
+        workspace_id,
+        "create",
+        mutation_id,
+        entity_id,
+        0,
+        device_id,
+        active_lease_epoch,
+        committed_at,
+        Some(&asset),
+        true,
+    )?;
+    Ok(Some(true))
 }

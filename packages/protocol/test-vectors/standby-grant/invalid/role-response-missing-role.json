@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "grant": {
     "schemaVersion": 1,
     "typ": "gd.desktop-standby-grant.v1",

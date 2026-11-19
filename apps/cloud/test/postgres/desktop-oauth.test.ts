@@ -350,8 +350,8 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     const standby = await loginStandbyDevice();
     await applyEntitlementState("suspended", "standby-no-entitlement", 2);
     const service = authorizationService();
-    await expect(service.issue({ schemaVersion: 4 }, standby.principal)).resolves.toMatchObject({
-      schemaVersion: 4, role: "standby", grant: { accountId: "oauth-account", deviceId: "device-b",
+    await expect(service.issue({ schemaVersion: 5 }, standby.principal)).resolves.toMatchObject({
+      schemaVersion: 5, role: "standby", grant: { accountId: "oauth-account", deviceId: "device-b",
         leaseEpochFloor: 1, scopes: ["workspace:read"] },
     });
     const sync = new PostgresDesktopSyncAuthority(transactions);
@@ -373,10 +373,10 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await applyEntitlementState("suspended", "standby-no-entitlement", 2);
     const caller = await desktopGrantPrincipal();
     const service = authorizationService();
-    await expect(service.issue({ schemaVersion: 4 }, caller)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 0 } });
+    await expect(service.issue({ schemaVersion: 5 }, caller)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 0 } });
     expect((await ownerPool.query("SELECT count(*)::text AS count FROM device_lease_epoch_allocations")).rows).toEqual([{ count: "0" }]);
     await ownerPool.query("UPDATE device_signing_keys SET status = 'revoked' WHERE account_id = 'oauth-account'");
-    await expect(service.issue({ schemaVersion: 4 }, caller)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, caller)).resolves.toBeNull();
   });
 
   it("rechecks a Standby session deadline after its external signer returns", async () => {
@@ -388,7 +388,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     const deadline = expires.rows[0]?.expires_at;
     if (deadline === undefined) throw new Error("session missing");
     const blocker = blockingStandbySigner();
-    const issue = authorizationService(blocker.signer).issue({ schemaVersion: 4 }, caller);
+    const issue = authorizationService(blocker.signer).issue({ schemaVersion: 5 }, caller);
     await blocker.started;
     try { await waitForDatabaseDeadline(deadline); } finally { blocker.release(); }
     await expect(issue).resolves.toBeNull();
@@ -402,14 +402,14 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     const caller = await desktopGrantPrincipal();
     const blocker = blockingStandbySigner();
     const service = authorizationService(blocker.signer);
-    const issue = service.issue({ schemaVersion: 4 }, caller);
+    const issue = service.issue({ schemaVersion: 5 }, caller);
     await blocker.started;
     const marker = `standby_${kind}_revocation`;
     const mutation = ownerPool.query(`${sql} /* ${marker} */`);
     try { await waitForBlockedQuery(marker); } finally { blocker.release(); }
     await expect(issue).resolves.toMatchObject({ role: "standby" });
     await mutation;
-    await expect(service.issue({ schemaVersion: 4 }, caller)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, caller)).resolves.toBeNull();
   });
 
   it("reserves an exact bootstrap target's pending epoch without lowering the source floor", async () => {
@@ -423,10 +423,10 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 2, 'pending');
       UPDATE device_account_states SET highest_allocated_lease_epoch = 2 WHERE account_id = 'oauth-account'`);
     const service = authorizationService();
-    await expect(service.issue({ schemaVersion: 4 }, target.principal)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 1 } });
-    await expect(service.issue({ schemaVersion: 4 }, source)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 2 } });
+    await expect(service.issue({ schemaVersion: 5 }, target.principal)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 1 } });
+    await expect(service.issue({ schemaVersion: 5 }, source)).resolves.toMatchObject({ role: "standby", grant: { leaseEpochFloor: 2 } });
     await ownerPool.query("UPDATE device_switch_workflows SET bound_key_version = 2 WHERE account_id = 'oauth-account'");
-    await expect(service.issue({ schemaVersion: 4 }, target.principal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, target.principal)).resolves.toBeNull();
   });
 
   it("revalidates final session authority and the persisted signed Lease before issuing a Grant", async () => {
@@ -439,32 +439,32 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       leaseVerifier,
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toMatchObject({
-      schemaVersion: 4, role: "active", grant: { activeDeviceLease: { accountId: "oauth-account", accountSecurityEpoch: 1 } },
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toMatchObject({
+      schemaVersion: 5, role: "active", grant: { activeDeviceLease: { accountId: "oauth-account", accountSecurityEpoch: 1 } },
     });
 
     await ownerPool.query(
       "UPDATE identity_account_security_states SET status = 'recovery_pending' WHERE account_id = 'oauth-account'",
     );
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toBeNull();
     await ownerPool.query("UPDATE identity_account_security_states SET status = 'normal' WHERE account_id = 'oauth-account'");
     await ownerPool.query(`UPDATE identity_auth_sessions
          SET created_at = transaction_timestamp() - interval '1 hour',
              expires_at = transaction_timestamp() - interval '1 second'
        WHERE account_id = 'oauth-account' AND session_id = $1`, [sessionId]);
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toBeNull();
     await ownerPool.query(`UPDATE identity_auth_sessions SET expires_at = NULL
        WHERE account_id = 'oauth-account' AND session_id = $1`, [sessionId]);
     await ownerPool.query(`UPDATE identity_refresh_families SET state = 'revoked'
        WHERE account_id = 'oauth-account' AND session_id = $1`, [sessionId]);
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toBeNull();
     await ownerPool.query(`UPDATE identity_refresh_families SET state = 'active'
        WHERE account_id = 'oauth-account' AND session_id = $1`, [sessionId]);
     await ownerPool.query(`UPDATE device_active_leases
          SET released_at = transaction_timestamp(), release_reason = 'lease_verifier_upgrade',
              wire_envelope = NULL, signer_receipt_digest = NULL
        WHERE account_id = 'oauth-account'`);
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toMatchObject({ role: "standby" });
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toMatchObject({ role: "standby" });
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
@@ -472,11 +472,47 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await ownerPool.query(`UPDATE device_active_leases
          SET wire_envelope = jsonb_set(wire_envelope, '{signature}', to_jsonb($1::text))
        WHERE account_id = 'oauth-account'`, [Buffer.alloc(64).toString("base64url")]);
-    await expect(service.issue({ schemaVersion: 4 }, desktopPrincipal)).resolves.toBeNull();
+    await expect(service.issue({ schemaVersion: 5 }, desktopPrincipal)).resolves.toBeNull();
     await expect(leaseManager.ensureCurrentLease({
       accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch: 1,
       transactionCredential: principal.transactionCredential,
     })).resolves.toEqual({ outcome: "refused" });
+  });
+
+  it("derives Provider capabilities from current Licensing revisions without upgrading old rights", async () => {
+    const principal = await desktopGrantPrincipal();
+    const service = authorizationService();
+    const first = await service.issue({ schemaVersion: 5 }, principal);
+    expect(first).toMatchObject({ role: "active", grant: { schemaVersion: 4,
+      commercialAuthority: { schemaVersion: 2, capabilities: ["cloudflare:dns:observe"] } } });
+    const capabilities = ["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"];
+    await applyEntitlementState("active", "features-expanded", 2, capabilities);
+    const expanded = await service.issue({ schemaVersion: 5 }, principal);
+    expect(expanded).toMatchObject({ role: "active", grant: { commercialAuthority: {
+      entitlementRevision: 2, capabilities,
+    } } });
+    await applyEntitlementState("active", "features-removed", 3, ["feature:portfolio"]);
+    const local = await service.issue({ schemaVersion: 5 }, principal);
+    expect(local).toMatchObject({ role: "active", grant: { commercialAuthority: {
+      entitlementRevision: 3, capabilities: [],
+    } } });
+    if (expanded?.role !== "active" || local?.role !== "active") throw new Error("expected Active Grants");
+    expect(local.grant.commercialAuthority.entitlementProjectionDigest)
+      .not.toBe(expanded.grant.commercialAuthority.entitlementProjectionDigest);
+    const owner = await ownerPool.connect();
+    try {
+      await owner.query("BEGIN");
+      await owner.query("SET LOCAL ROLE gd_licensing_owner");
+      const historical = await owner.query<{ feature_entitlements: string[] }>(
+        "SELECT feature_entitlements FROM licensing_private.commercial_rights WHERE account_id='oauth-account' AND right_id='00000000-0000-4000-8000-000000000001'",
+      );
+      expect(historical.rows[0]?.feature_entitlements).toEqual(["cloudflare:dns:observe", "workspace:mutate"]);
+    } finally {
+      await owner.query("ROLLBACK");
+      owner.release();
+    }
+    await applyEntitlementState("active", "write-without-observe", 4, ["afternic:marketplace:write"]);
+    await expect(service.issue({ schemaVersion: 5 }, principal)).resolves.toBeNull();
   });
 
   it("refuses a Grant when the Desktop session expires while the signer is blocked", async () => {
@@ -496,7 +532,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
 
-    const issue = service.issue({ schemaVersion: 4 }, desktopPrincipal);
+    const issue = service.issue({ schemaVersion: 5 }, desktopPrincipal);
     await blocker.started;
     try {
       await waitForDatabaseDeadline(deadline);
@@ -531,7 +567,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
 
-    const issue = service.issue({ schemaVersion: 4 }, desktopPrincipal);
+    const issue = service.issue({ schemaVersion: 5 }, desktopPrincipal);
     await blocker.started;
     try {
       await waitForDatabaseDeadline(window.online_expires_at);
@@ -577,7 +613,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       leaseVerifier,
       new DesktopStandbyGrantIssuer(standbyGrantSigner),
     );
-    const issue = service.issue({ schemaVersion: 4 }, desktopPrincipal);
+    const issue = service.issue({ schemaVersion: 5 }, desktopPrincipal);
     await signingStarted;
     const marker = `desktop_grant_linearization_${name.replaceAll(" ", "_")}`;
     const mutation = ownerPool.query(`${mutationSql} /* ${marker} */`);
@@ -593,7 +629,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     await mutation;
     if (waitError !== undefined) throw waitError;
     expect(grant).toMatchObject({
-      schemaVersion: 4, role: "active", grant: {
+      schemaVersion: 5, role: "active", grant: {
         workspace: { workspaceId: "oauth-workspace", kind: "personal_default" },
         activeDeviceLease: { accountId: "oauth-account", deviceId: "device-a" },
       },
@@ -1061,6 +1097,7 @@ async function applyEntitlementState(
   state: "active" | "suspended",
   sourceEventId: string,
   sourceRevision: number,
+  features: readonly string[] = ["cloudflare:dns:observe", "workspace:mutate"],
 ): Promise<void> {
   const clock = await ownerPool.query<{ now: Date }>(
     "SELECT date_trunc('second', clock_timestamp()) AS now",
@@ -1082,8 +1119,8 @@ async function applyEntitlementState(
       (account_id, right_id, provider_agreement_id, state, plan, purchase_kind,
        commercial_expires_at, feature_entitlements, source_observation_id)
     VALUES ('oauth-account', $1, $2, $3, 'pro', 'subscription', $4,
-      ARRAY['cloudflare:dns:observe', 'workspace:mutate'], $5)`,
-    [rightId, agreementId, state, commercialExpiresAt, observationId]);
+      $6::text[], $5)`,
+    [rightId, agreementId, state, commercialExpiresAt, observationId, features]);
     await fixture.query(`INSERT INTO licensing_private.commercial_authorities
       (account_id, authority_revision, provider_agreement_id, right_id, grants_access)
     VALUES ('oauth-account', $1, $2, $3, $4 = 'active')
@@ -1095,12 +1132,13 @@ async function applyEntitlementState(
       (account_id, authority_revision, right_id, state, plan, purchase_kind,
        commercial_expires_at, feature_entitlements, projection_digest)
     VALUES ('oauth-account', $1, $2, $3, 'pro', 'subscription', $4,
-      ARRAY['cloudflare:dns:observe', 'workspace:mutate'], $5)
+      $6::text[], $5)
     ON CONFLICT (account_id) DO UPDATE SET authority_revision = EXCLUDED.authority_revision,
       right_id = EXCLUDED.right_id, state = EXCLUDED.state,
       commercial_expires_at = EXCLUDED.commercial_expires_at, projection_digest = EXCLUDED.projection_digest,
+      feature_entitlements = EXCLUDED.feature_entitlements,
       updated_at = transaction_timestamp()`,
-    [sourceRevision, rightId, state, commercialExpiresAt, projectionDigest]);
+    [sourceRevision, rightId, state, commercialExpiresAt, projectionDigest, features]);
     await fixture.query("COMMIT");
   } catch (error) {
     await fixture.query("ROLLBACK");

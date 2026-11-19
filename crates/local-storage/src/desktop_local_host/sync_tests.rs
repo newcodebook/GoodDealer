@@ -14,7 +14,7 @@ fn publish_standby(host: &DesktopLocalHost) {
         entitlement_revision: 0,
         entitlement_projection_digest: String::new(),
         commercial_expires_at: String::new(),
-        capability: String::new(),
+        capabilities: Vec::new(),
         generation: 2,
         trusted_time_floor: now,
         execute_before: now + 600,

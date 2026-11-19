@@ -13,6 +13,7 @@ const ED25519_SIGNATURE_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DesktopAuthorizationCredentialPurpose {
+    // Stable key purpose; v4 grants use their new transcript domain with this same trust root.
     GrantV3,
     ActiveDeviceLeaseV1,
     StandbyGrantV1,

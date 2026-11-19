@@ -2781,6 +2781,35 @@ mod tests {
     }
 
     #[test]
+    fn cloudflare_observation_await_guard_rechecks_qualification_and_credential_generation() {
+        let (_directory, host) = credential_host();
+        let connection = host
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let prepared = host
+            .prepare_cloudflare_observation(
+                host.begin_native_cloud_run().unwrap(),
+                &connection,
+                "revoke.test",
+            )
+            .unwrap();
+        assert!(host.recheck_cloudflare_observation(&prepared).is_ok());
+        drop(qualified);
+        assert_eq!(
+            host.recheck_cloudflare_observation(&prepared),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);
+        host.prepare_cloudflare_revocation(host.begin_native_cloud_run().unwrap(), &connection)
+            .unwrap()
+            .unwrap();
+        assert!(host.recheck_cloudflare_observation(&prepared).is_err());
+    }
+
+    #[test]
     fn revocation_denies_the_credential_before_custody_and_cannot_be_replayed() {
         // Qualified for this test, so a refused observation proves revocation, not the gate.
         let _qualified = qualify(CLOUDFLARE_DNS_OBSERVE);

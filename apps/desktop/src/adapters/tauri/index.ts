@@ -887,3 +887,4 @@ export function createDeviceDirectoryPort(): DeviceDirectorySettingsPort {
     },
   };
 }
+export { createAfternicPort } from "./afternic";

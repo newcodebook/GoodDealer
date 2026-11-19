@@ -163,21 +163,16 @@ impl<'a> ActivePortfolioReader<'a> {
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {malformed_expiry}),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
-                  SELECT 1 FROM marketplace_listing_observations m
+                  SELECT 1 FROM marketplace_listing_observations_read_facts m
                   WHERE m.workspace_id = domain_assets.workspace_id AND m.entity_id = domain_assets.entity_id
-                    AND m.observation_availability = 'available'
-                    AND m.listing_status IN ('active', 'reserved') AND {confirmed_listing}
+                    AND m.connection_rank=1 AND m.binding_valid=1 AND m.binding_fresh=1
+                    AND m.observation_availability = 'available' AND m.evidence_status='confirmed'
+                    AND m.listing_status IN ('active', 'reserved')
                     AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x WHERE x.workspace_id = m.workspace_id AND x.repair_kind = 'listing_observation' AND x.row_key = m.listing_observation_id)
-                    AND NOT EXISTS (SELECT 1 FROM marketplace_listing_observations newer
-                      WHERE newer.workspace_id = m.workspace_id AND newer.entity_id = m.entity_id
-                        AND newer.marketplace_kind = m.marketplace_kind AND {confirmed_newer}
-                        AND (newer.observed_at > m.observed_at OR (newer.observed_at = m.observed_at AND newer.listing_observation_id > m.listing_observation_id)))
                 ) THEN 1 ELSE 0 END)
               FROM domain_assets WHERE {filter}",
                 expiring = super::renewals::expiring_asset("e", &today),
-                malformed_expiry = super::renewals::malformed_expiry("e"),
-                confirmed_listing = super::observation_runs::confirmed("m"),
-                confirmed_newer = super::observation_runs::confirmed("newer")),
+                malformed_expiry = super::renewals::malformed_expiry("e")),
             params![requested_workspace_id, query, upper],
             |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0), row.get::<_, Option<i64>>(3)?.unwrap_or(0))),
         ).map_err(|_| PortfolioReadError::StorageRejected)?;

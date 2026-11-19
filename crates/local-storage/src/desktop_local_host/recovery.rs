@@ -363,6 +363,7 @@ impl DesktopLocalHost {
                 current.execute_before,
                 hex_digest(&current.digest),
                 current.generation,
+                current.capabilities.clone(),
             )
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
             *runtime = Some(DesktopRuntimeState {

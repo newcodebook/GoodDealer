@@ -10,6 +10,9 @@ Cloud 应用共享进程、管理员身份或持久化凭据。
 
 `DesktopAuthorizationGrantV3`、`ActiveDeviceLeaseV1`、`DesktopStandbyGrantV1`、`user_audit`、`staff_audit` 与
 `service_audit` 分别使用独立的 Ed25519 Transit key 和只允许对应 `transit/sign/<key>` 的策略。
+`DesktopAuthorizationGrantV3` 是稳定的逻辑签名用途及密钥身份，包含现有 purpose
+`gooddealer.devices.desktop-authorization-grant.v3`；它不等于当前 wire schema 版本。
+Active Grant v4 继续使用该用途，通过 v4 typ 与签名域区分协议，不因字段改版新增签名用途或共享 Lease/Standby 密钥。
 业务工作负载不得创建、读取私钥、导出、备份、删除、配置或轮换 key；key 必须保持
 `exportable=false`、`allow_plaintext_backup=false`、`deletion_allowed=false` 且不启用派生签名。
 

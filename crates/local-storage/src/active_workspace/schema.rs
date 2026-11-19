@@ -37,9 +37,9 @@ pub(crate) const SALES_LISTING_GENERATION_MIGRATION_SQL: &str =
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
-pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V4";
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V5";
 pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_FINGERPRINT: &str =
-    "933492cff345e017590e8f52fd421ecf27048fcf51561db65a061469ed0829ed";
+    "d35d58df1f5f7d7de787372e88284d75ecae75a381eb02ff7d6acba13aae196a";
 #[cfg(test)]
 pub(crate) const CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST: &[&str] = &[
     "cloudflare_credential_intent_immutable",
@@ -58,6 +58,49 @@ pub(crate) const CLOUDFLARE_V2_MIGRATION_OWNER: &str = "active-workspace/cloudfl
 pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2.sql");
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
+    (
+        "afternic_inventory_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "credential_generation",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_deleted_json",
+            "completed_at",
+        ],
+    ),
+    (
+        "afternic_listing_details",
+        &[
+            "workspace_id",
+            "listing_observation_id",
+            "provider_status",
+            "buynow_price",
+            "floor_price",
+            "minbid_price",
+            "hidden",
+            "provider_created_at",
+            "provider_updated_at",
+        ],
+    ),
+    (
+        "afternic_connection_publications",
+        &[
+            "workspace_id",
+            "connection_id",
+            "credential_generation",
+            "connection_incarnation_id",
+            "credential_public_proof",
+            "authority_snapshot_digest",
+            "publication_state",
+            "created_at",
+            "updated_at",
+            "purged_at",
+        ],
+    ),
     (
         "active_workspace_metadata",
         &[
@@ -437,6 +480,9 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "observation_availability",
             "evidence_status",
             "confirmed",
+            "binding_connection_id",
+            "binding_resource_digest",
+            "binding_generation",
         ],
     ),
     (
@@ -974,3 +1020,7 @@ pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER: &str =
     "active-workspace/normal-handoff-receipt";
 pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL: &str =
     include_str!("normal_handoff_receipt.sql");
+
+pub(crate) const AFTERNIC_LISTING_MIGRATION_ID: i64 = 202_611_180_003;
+pub(crate) const AFTERNIC_LISTING_MIGRATION_OWNER: &str = "active-workspace/afternic-listing";
+pub(crate) const AFTERNIC_LISTING_MIGRATION_SQL: &str = include_str!("afternic_listing.sql");

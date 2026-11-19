@@ -33,7 +33,7 @@ impl DesktopLocalHost {
             entitlement_revision: 1,
             entitlement_projection_digest: "11".repeat(32),
             commercial_expires_at: "9999-12-31T23:59:59Z".to_owned(),
-            capability: "cloudflare:dns:observe".to_owned(),
+            capabilities: vec!["cloudflare:dns:observe".to_owned()],
             generation,
             trusted_time_floor: now,
             execute_before: i64::MAX,
@@ -111,6 +111,7 @@ impl DesktopLocalHost {
             authority.execute_before,
             hex_digest(&authority.digest),
             generation,
+            authority.capabilities.clone(),
         )
         .map_err(|_| DesktopBackupError::AuthorityRejected)?;
         Ok(Self {
@@ -634,6 +635,7 @@ impl DesktopLocalHost {
             current.execute_before,
             hex_digest(&current.digest),
             requested,
+            current.capabilities.clone(),
         )
         .map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
         runtime

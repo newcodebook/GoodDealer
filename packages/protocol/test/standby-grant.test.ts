@@ -40,8 +40,8 @@ const lease = {
   signature: "fixture-signature",
 } as const;
 const activeGrant = {
-  schemaVersion: 3,
-  typ: "gd.desktop-authorization-grant.v3",
+  schemaVersion: 4,
+  typ: "gd.desktop-authorization-grant.v4",
   iss: "https://accounts.gooddealer.com",
   aud: "gooddealer-desktop/local-business",
   kid: "grant-key-1",
@@ -51,12 +51,12 @@ const activeGrant = {
   activeDeviceLease: lease,
   scopes: ["workspace:mutate", "workspace:read"],
   commercialAuthority: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entitlementRevision: 9,
     entitlementProjectionDigest: "a".repeat(64),
     state: "active",
     commercialExpiresAt: "2026-08-29T23:00:00Z",
-    capability: "cloudflare:dns:observe",
+    capabilities: ["cloudflare:dns:observe"],
   },
   signature: "fixture-grant-signature",
 } as const;
@@ -96,11 +96,11 @@ describe("Desktop Standby Grant and role exchange (ADR-0032 Standby S3)", () => 
   });
 
   it("asks for a Grant without naming a role and answers only with the Grant of the stated role", () => {
-    expect(desktopAuthorizationGrantRoleRequestSchema.parse(vector("valid/role-request.json"))).toEqual({ schemaVersion: 4 });
+    expect(desktopAuthorizationGrantRoleRequestSchema.parse(vector("valid/role-request.json"))).toEqual({ schemaVersion: 5 });
     expect(desktopAuthorizationGrantRoleResponseSchema.parse(vector("valid/role-response-standby.json")))
-      .toEqual({ schemaVersion: 4, role: "standby", grant: standbyGrant });
-    expect(desktopAuthorizationGrantRoleResponseSchema.parse({ schemaVersion: 4, role: "active", grant: activeGrant }))
-      .toEqual({ schemaVersion: 4, role: "active", grant: activeGrant });
+      .toEqual({ schemaVersion: 5, role: "standby", grant: standbyGrant });
+    expect(desktopAuthorizationGrantRoleResponseSchema.parse({ schemaVersion: 5, role: "active", grant: activeGrant }))
+      .toEqual({ schemaVersion: 5, role: "active", grant: activeGrant });
     for (const name of ["role-request-names-a-role.json", "role-request-v3.json"]) {
       expect(desktopAuthorizationGrantRoleRequestSchema.safeParse(vector(`invalid/${name}`)).success, name).toBe(false);
     }
@@ -108,11 +108,11 @@ describe("Desktop Standby Grant and role exchange (ADR-0032 Standby S3)", () => 
       vector("invalid/role-response-standby-with-v3-grant.json"),
       vector("invalid/role-response-missing-role.json"),
       vector("invalid/role-response-bare-standby-grant.json"),
-      { schemaVersion: 4, role: "active", grant: standbyGrant },
-      { schemaVersion: 4, role: "standby", grant: activeGrant },
-      { schemaVersion: 4, role: "none", grant: standbyGrant },
+      { schemaVersion: 5, role: "active", grant: standbyGrant },
+      { schemaVersion: 5, role: "standby", grant: activeGrant },
+      { schemaVersion: 5, role: "none", grant: standbyGrant },
       { schemaVersion: 3, role: "standby", grant: standbyGrant },
-      { schemaVersion: 4, role: "standby", grant: standbyGrant, lease },
+      { schemaVersion: 5, role: "standby", grant: standbyGrant, lease },
       activeGrant,
     ]) {
       expect(desktopAuthorizationGrantRoleResponseSchema.safeParse(value).success).toBe(false);

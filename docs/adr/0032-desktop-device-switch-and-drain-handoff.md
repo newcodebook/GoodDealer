@@ -121,16 +121,16 @@ rebootstrap 计划重建——但长期不在线或权益已过期的 Standby �
 
 ### S3. 不含 Lease 的 Grant
 
-**Wire**：`/v1/devices/authorization-grant` 的请求升为 `schemaVersion: 4`，响应为按 `role` 区分的封闭联合：
+**Wire**：`/v1/devices/authorization-grant` 的请求升为 `schemaVersion: 5`，响应为按 `role` 区分的封闭联合：
 
 ```text
-{ schemaVersion: 4, role: "active",  grant: <desktopAuthorizationGrantSchema v3，原样> }
-{ schemaVersion: 4, role: "standby", grant: <desktopStandbyGrantSchema v1> }
+{ schemaVersion: 5, role: "active",  grant: <desktopAuthorizationGrantSchema v4> }
+{ schemaVersion: 5, role: "standby", grant: <desktopStandbyGrantSchema v1> }
 ```
 
-`desktopStandbyGrantSchema` 是独立的 strict 对象，不是 v3 Grant 的可空变体：
+`desktopStandbyGrantSchema` 是独立的 strict 对象，不是 Active Grant 的可空变体：
 
-- `typ: "gd.desktop-standby-grant.v1"`，`aud: "gooddealer-desktop/standby"`，`iss` 与 v3 相同，签名域
+- `typ: "gd.desktop-standby-grant.v1"`，`aud: "gooddealer-desktop/standby"`，`iss` 与 Active Grant 相同，签名域
   `GOODDEALER-DESKTOP-STANDBY-GRANT-V1`；
 - `kid`、`issuedAt`、`expiresAt`（至多 900 秒，与 access token 同长）、`accountId`、`deviceId`、`accountSecurityEpoch`、
   `workspace: { workspaceId, kind: "personal_default" }`；
@@ -138,20 +138,20 @@ rebootstrap 计划重建——但长期不在线或权益已过期的 Standby �
 - `scopes: ["workspace:read"]`（固定元组）；`signature`。
 - 没有 `activeDeviceLease`、`commercialAuthority` 或任何执行能力字段；strict 解析使带有这些键的对象整体被拒绝。
 
-v3 请求与 v3 裸响应一并移除，不保留兼容路径（[ORCHESTRATION](../ORCHESTRATION.md)“没有兼容或过渡路径”）。
+只接受当前版本请求和角色联合响应，其他版本均拒绝，不保留兼容路径（[ORCHESTRATION](../ORCHESTRATION.md)“没有兼容或过渡路径”）。
 
 **签名密钥**：Standby Grant 用独立用途的 OpenBao Transit 密钥签名，Desktop 的 build-pinned 公钥 allowlist 增加该用途；
-Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
+Active Grant、Lease 与 Standby Grant 三个用途的公钥互不通用。
 
 **存储**：Cloud 不为角色或 Grant 新增持久字段或表；重新认证窗口单独按 S5 节存储。会话行不记录角色；Standby Grant 与现有 Grant 一样签发后不落库，签发事务对
 安全状态、会话与刷新族、默认工作区、设备绑定与签名密钥、`device_account_states` 加锁读取，签名返回后以
-`clock_timestamp()` 复核这些状态与“本设备仍不持有 Lease”。Host 在 local-storage 的 Native custody 中持久化安装、账户、工作区、设备绑定及 security epoch、issuedAt、最大 Lease epoch、Standby floor 和最近商业 revision/digest/deadline 地板；它们不属于业务库或业务备份。持久写入和读回成功后才在原 publication mutex 内发布角色。首次建立标记与地板记录任一缺失、损坏或绑定不符均失败关闭，不能把已建立记录丢失当成首次授权；整个 OS 托管区被一起回滚的抵抗能力需要平台资格单独取证。Standby 降级不得遗忘商业地板。
+`clock_timestamp()` 复核这些状态与“本设备仍不持有 Lease”。Host 在 local-storage 的 Native custody 中持久化安装、账户、工作区、设备绑定及 security epoch、issuedAt、最大 Lease epoch、Standby floor 和最近商业 revision/digest/deadline/capabilities 地板；它们不属于业务库或业务备份。持久写入和读回成功后才在原 publication mutex 内发布角色。首次建立标记与地板记录任一缺失、损坏或绑定不符均失败关闭，不能把已建立记录丢失当成首次授权；整个 OS 托管区被一起回滚的抵抗能力需要平台资格单独取证。Standby 降级不得遗忘商业地板。
 
 **负向情形**：
 
 - **伪造 Lease 声明**：Cloud 从不接受客户端提供的 Grant、Lease 或角色——每条路由从锁定状态派生角色，客户端无从
-  “声明”Lease。Host 侧，Standby Grant 不能携带 Lease（strict 拒绝），Active 响应中的 v3 Grant 仍须分别以 Grant v3 与
-  Lease 两个用途的密钥验签；用 Standby 密钥签的 v3 形状、用 v3 密钥签的 Standby 形状、`role` 与 `grant.typ` 不符、两种
+  “声明”Lease。Host 侧，Standby Grant 不能携带 Lease（strict 拒绝），Active 响应中的 v4 Grant 仍须分别以稳定的 Desktop Grant 与
+  Lease 两个用途的密钥验签；用 Standby 密钥签的 Active Grant 形状、用 Desktop Grant 密钥签的 Standby 形状、`role` 与 `grant.typ` 不符、两种
   形状混合，全部拒绝。
 - **已撤销设备**：绑定 `removed` 或签名密钥非 `active` 时，授权码签发、换码、刷新、Grant 签发与每条 Standby 路由都在
   各自事务中拒绝；引导能力与工作流已绑定目标设备的有效密钥，撤销后引导步骤与激活同样拒绝。
@@ -166,7 +166,7 @@ Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 
 ### S4. Host 与 Renderer 如何区分 Active 与 Standby
 
-- **Host 是唯一来源**。`NativeCloudSession` 取得 v4 响应后，`activate_authorization_grant` 按 `role` 分别验证：Active 路径
+- **Host 是唯一来源**。`NativeCloudSession` 取得 v5 响应后，`activate_authorization_grant` 按 `role` 分别验证：Active 路径
   不变；Standby 路径以 Standby 用途公钥验签，核对账户、设备与本机绑定、`accountSecurityEpoch` 地板与 S3 节的单调规则，
   发布 `Standby { workspaceId, leaseEpochFloor, expiresAt }` 授权。
 - 有本地副本时 `DesktopLocalBusinessState` 为 `StandbyReadOnly`，序列化为 `standby_read_only`，能力固定 `["local:read"]`；没有副本时为 `StandbyAwaitingReplica`（`standby_awaiting_replica`），能力为空。后者只提供设备目录和刷新授权入口，不调用业务读取、不创建空业务库冒充恢复成功。Host 的 `Standby` 授权状态独立于副本是否存在；只读 Cloud 请求可持有不依赖业务库的精确角色准入。

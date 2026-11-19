@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createCloudflarePort,
+  createAfternicPort,
   createDeviceDirectoryPort,
   createDesktopAuthenticationPort,
   createDesktopWindowControlsPort,
@@ -53,6 +54,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   history: createLocalHistoryPort(),
   manualTasks: createLocalManualTasksPort(),
   cloudflare: createCloudflarePort(),
+  afternic: createAfternicPort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

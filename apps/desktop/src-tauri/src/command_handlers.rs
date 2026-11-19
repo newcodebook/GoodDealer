@@ -1,4 +1,5 @@
 //! Thin Tauri adapters for the single Desktop local-host aggregate.
+pub(crate) mod afternic;
 
 use std::sync::Arc;
 
@@ -559,6 +560,7 @@ pub(crate) fn cloudflare_connection_status(
             host.authority_identity().as_ref(),
             host.provider_connection_generation(),
         )
+        .filter(|record| !record.kind.starts_with("afternic_"))
         .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
         serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation }),

@@ -4,9 +4,12 @@ import {
   type AuthoritativeEntitlementSnapshot,
 } from "@gooddealer/protocol/account";
 import {
+  DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
+  DESKTOP_COMMERCIAL_CAPABILITIES,
+  desktopCommercialCapabilitiesSchema,
+  desktopAuthorizationGrantRoleRequestSchema,
   type ActiveDeviceLeaseEnvelope,
   type DesktopAuthorizationGrantRoleResponse,
-  type DesktopAuthorizationGrantRoleRequest,
 } from "@gooddealer/protocol/devices";
 
 import type {
@@ -38,9 +41,10 @@ implements DesktopAuthorizationApplicationPort {
   ) {}
 
   async issue(
-    _request: DesktopAuthorizationGrantRoleRequest,
+    request: unknown,
     principal: PublicPrincipal,
   ): Promise<DesktopAuthorizationGrantRoleResponse | null> {
+    desktopAuthorizationGrantRoleRequestSchema.parse(request);
     if (principal.clientKind !== "desktop") return null;
     const execute = async (transaction: AccountTransaction) => {
       // Global order: account security -> session/family -> default Workspace -> device/Lease.
@@ -68,13 +72,13 @@ implements DesktopAuthorizationApplicationPort {
         if (current === null || current.role !== "standby" || current.deviceId !== session.deviceId
           || current.accountSecurityEpoch !== session.accountSecurityEpoch || current.leaseEpochFloor !== session.leaseEpochFloor
           || time.rows[0]?.live !== true) return null;
-        return { schemaVersion: 4, role: "standby", grant } as const;
+        return { schemaVersion: DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION, role: "standby", grant } as const;
       }
       const lease = await readCurrentLease(transaction, principal.accountId, identity, this.leaseVerifier);
       if (lease === null) return null;
       const commercial = await readCurrentCommercialAuthority(transaction);
-      // An entitlement without the Grant capability is an ordinary denial, not a fault: the
-      // issuer's own check is a signer-boundary assertion and throws.
+      // The locked snapshot may authorize local business without any Provider capability. A
+      // malformed dependency (write without observation) is denied before reaching the signer.
       if (commercial === null || !authorizesGrant(commercial)) return null;
       const result = await this.issuer.issue({
         accountId: principal.accountId,
@@ -99,7 +103,7 @@ implements DesktopAuthorizationApplicationPort {
         scope.workspaceId,
         lease,
       );
-      return current ? { schemaVersion: 4, role: "active", grant: result.grant } as const : null;
+      return current ? { schemaVersion: DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION, role: "active", grant: result.grant } as const : null;
     };
     if (principal.transactionCredential === undefined) return null;
     try {
@@ -127,12 +131,13 @@ interface CommercialAuthority {
   readonly trustedNow: string;
 }
 
-/** The V1 Grant authorizes exactly one capability; see `desktopAuthorizationGrantSchema`. */
+/** Exact feature intersection; no feature aliases or implicit Provider grants. */
 function authorizesGrant({ snapshot, trustedNow }: CommercialAuthority): boolean {
   return snapshot.state === "active"
     && snapshot.commercialExpiresAt !== null
     && snapshot.commercialExpiresAt > trustedNow
-    && snapshot.featureEntitlements.includes("cloudflare:dns:observe");
+    && desktopCommercialCapabilitiesSchema.safeParse(DESKTOP_COMMERCIAL_CAPABILITIES
+      .filter((capability) => snapshot.featureEntitlements.includes(capability))).success;
 }
 
 async function readCurrentCommercialAuthority(

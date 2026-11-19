@@ -23,36 +23,27 @@ use crate::portfolio_projection::{PortfolioReadError, PortfolioReadFreshness};
 use super::launch_platforms::LAUNCH_PLATFORMS;
 use super::portfolio::{read_freshness, validate_workspace};
 
-/// Every confirmed listing observation: the run completed and this asset's target in it succeeded,
-/// which the trigger-maintained `confirmed` column records on the row itself (see
-/// `sales_listing_confirmation.sql`). Rows come newest first within each (asset, marketplace)
-/// group, in the order of the `marketplace_listing_observations_latest` index, so the walk in
-/// `for_each_latest` keeps the first row of a group without a sort. A newer observation from a run
-/// that is still running or failed never hides an older confirmed listing, because it is not a row
-/// here at all.
-///
-/// No joins: at 100k assets on 8 markets a per-row lookup of the run and target cost most of the
-/// merge. Deleted assets are dropped by `for_each_latest` from a set read once, not joined per row.
+/// The migration-owned view selects the latest fact for each connection, preferring its live
+/// binding incarnation over retained history. Legacy unbound observations remain historical facts;
+/// they cannot supply an executable binding. Settings integrity uses this identical selection.
 const CONFIRMED_LISTINGS: &str = "SELECT m.entity_id, m.marketplace_kind, m.listing_status,
         m.asking_price_currency, m.asking_price_amount, m.observation_availability,
         m.evidence_status, m.listing_observation_id,
         EXISTS (SELECT 1 FROM storage_repair_receipts x
                 WHERE x.workspace_id = m.workspace_id AND x.repair_kind = 'listing_observation'
-                  AND x.row_key = m.listing_observation_id)
-     FROM marketplace_listing_observations m
-     WHERE m.workspace_id = ?1 AND m.confirmed = 1
-     ORDER BY m.entity_id, m.marketplace_kind, m.observed_at DESC, m.listing_observation_id DESC";
+                  AND x.row_key = m.listing_observation_id),
+        m.binding_valid, m.binding_fresh
+     FROM marketplace_listing_observations_read_facts m
+     WHERE m.workspace_id = ?1 AND m.connection_rank = 1
+     ORDER BY m.entity_id, m.marketplace_kind, m.observation_connection_id";
 
 /// Deleted assets keep their observations until purged; only an archived asset can be deleted, so
 /// the lifecycle index finds them without a table scan.
 const DELETED_ASSETS: &str = "SELECT entity_id FROM domain_assets
      WHERE workspace_id = ?1 AND lifecycle_status = 'archived' AND deleted_at IS NOT NULL";
 
-/// Calls `visit` with the latest confirmed listing of every (asset, marketplace) whose state is not
-/// `unlisted`, in domain then marketplace order, with that observation's ID. Older rows of a group
-/// are skipped unread, as the window function this replaces never selected them. A latest
-/// observation a storage repair quarantined (ADR-0019) leaves its group unlisted: an older
-/// observation does not stand in for it.
+/// Visits the selected fact from every connection. Quarantining the selected row never falls back
+/// to older evidence; an explicit unlisted fact removes only that connection from the sales desk.
 fn for_each_latest(
     connection: &Connection,
     workspace_id: &str,
@@ -71,7 +62,6 @@ fn for_each_latest(
     let mut rows = statement
         .query(params![workspace_id])
         .map_err(|_| PortfolioReadError::ProjectionRejected)?;
-    let mut group: Option<(String, String)> = None;
     while let Some(row) = rows
         .next()
         .map_err(|_| PortfolioReadError::StorageRejected)?
@@ -87,13 +77,6 @@ fn for_each_latest(
                 continue;
             }
         };
-        if group
-            .as_ref()
-            .is_some_and(|(entity, market)| *entity == entity_id && *market == kind)
-        {
-            continue;
-        }
-        group = Some((entity_id.clone(), kind.clone()));
         if deleted.contains(&entity_id) {
             continue;
         }
@@ -115,9 +98,11 @@ fn for_each_latest(
                 row.get(4)?,
                 row.get(5)?,
                 row.get(6)?,
+                row.get(10)?,
+                row.get(9)?,
             ))
         })();
-        if !matches!(&listing, Ok((_, _, status, ..)) if status == "unlisted") {
+        if !matches!(&listing, Ok((_, _, status, _, _, _, _, true, true)) if status == "unlisted") {
             visit(&observation_id, listing)?;
         }
     }
@@ -177,6 +162,8 @@ type RawListing = (
     Option<String>,
     String,
     String,
+    bool,
+    bool,
 );
 
 /// A listing state as the desk keeps it: one byte instead of a string per domain.
@@ -673,8 +660,27 @@ fn money(
 }
 
 fn project_listing(raw: RawListing) -> Result<(String, MarketListing), PortfolioReadError> {
-    let (entity_id, kind, status, currency, amount, availability, evidence) = raw;
-    let status = ListingStatus::stored(&status).ok_or(PortfolioReadError::ProjectionRejected)?;
+    let (
+        entity_id,
+        kind,
+        status,
+        currency,
+        amount,
+        availability,
+        evidence,
+        binding_fresh,
+        binding_valid,
+    ) = raw;
+    if !binding_valid {
+        return Err(PortfolioReadError::ProjectionRejected);
+    }
+    // A formerly absent Listing cannot establish current absence after its binding or connection
+    // changes. Retain that historical evidence as unknown until a fresh exact observation arrives.
+    let status = if status == "unlisted" && !binding_fresh {
+        ListingStatus::Unknown
+    } else {
+        ListingStatus::stored(&status).ok_or(PortfolioReadError::ProjectionRejected)?
+    };
     let availability = closed(availability, &["available", "unavailable"])?;
     let evidence = closed(evidence, &["confirmed", "stale", "conflicted", "unknown"])?;
     let market = LAUNCH_PLATFORMS
@@ -687,7 +693,7 @@ fn project_listing(raw: RawListing) -> Result<(String, MarketListing), Portfolio
         MarketListing {
             market,
             // Unconfirmed or unavailable evidence never presents as a definite listing state.
-            status: if availability == "available" && evidence == "confirmed" {
+            status: if availability == "available" && evidence == "confirmed" && binding_fresh {
                 status
             } else {
                 ListingStatus::Unknown

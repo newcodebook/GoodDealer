@@ -81,7 +81,7 @@ are descriptive and never authorize handoff. PostgreSQL evidence lives in
 
 ## Standby authorization exchange
 
-The HTTP exchange accepts only `{schemaVersion:4}` and returns the strict `active`/`standby`
+The HTTP exchange accepts only `{schemaVersion:5}` and returns the strict `active`/`standby`
 discriminated response. `DesktopStandbyGrantIssuer` independently verifies exact claims and the
 Standby signature transcript; its OpenBao Transit keyring is required and distinct from both Active
 Grant and Lease rings. Standby lasts at most 900 seconds and carries only `workspace:read`.
@@ -124,3 +124,9 @@ match it to its own persisted attempt and latest local Active epoch before decid
 it grants no new Lease or mutation permission. The real OAuth `desktop_login` allocation is admitted
 for a new normal switch only through the account's exact personal-default binding; it cannot choose
 an arbitrary workspace. PostgreSQL coverage is beside switch request/drain persistence and OAuth.
+
+Active authorization uses Grant v4 and commercialAuthority v2. Capabilities are the strict, sorted,
+unique intersection of the locked Licensing featureEntitlements with the closed Provider set.
+An empty set preserves local business scopes without Provider permission; Afternic write without
+observe is rejected. The existing logical Grant signing purpose `.v3` and `grant_v3` key registry
+remain stable; the v4 wire and transcript domain distinguish the payload, not a fourth key purpose.

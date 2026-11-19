@@ -42,12 +42,12 @@ impl VerifiedWorkspaceRole {
             serde_json::from_slice(wire).map_err(|_| WorkspaceAuthorityError::Malformed)?;
         match value {
             RoleWire::Active {
-                schema_version: 4,
+                schema_version: 5,
                 grant,
             } => VerifiedWorkspaceAuthority::verify_grant(*grant, binding, now, verifier)
                 .map(Self::Active),
             RoleWire::Standby {
-                schema_version: 4,
+                schema_version: 5,
                 grant,
             } => grant.verify(binding, now, verifier).map(Self::Standby),
             _ => Err(WorkspaceAuthorityError::Malformed),
@@ -228,7 +228,7 @@ pub(in crate::desktop_local_host) fn signed_standby_for_host_test(
         json!(URL_SAFE_NO_PAD.encode(standby.sign(&parsed.signature_transcript()).as_ref()));
     (
         verifier,
-        serde_json::to_vec(&json!({"schemaVersion":4,"role":"standby","grant":value})).unwrap(),
+        serde_json::to_vec(&json!({"schemaVersion":5,"role":"standby","grant":value})).unwrap(),
     )
 }
 
@@ -270,7 +270,7 @@ mod tests {
             json!(URL_SAFE_NO_PAD.encode(key.sign(&parsed.signature_transcript()).as_ref()));
         (
             verifier,
-            serde_json::to_vec(&json!({"schemaVersion":4,"role":"standby","grant":grant})).unwrap(),
+            serde_json::to_vec(&json!({"schemaVersion":5,"role":"standby","grant":grant})).unwrap(),
         )
     }
     fn now() -> i64 {

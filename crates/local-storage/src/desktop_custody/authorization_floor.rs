@@ -40,6 +40,7 @@ pub(crate) struct CommercialAuthorizationFloor {
     pub(crate) revision: u64,
     pub(crate) digest: String,
     pub(crate) expires_at: String,
+    pub(crate) capabilities: Vec<String>,
 }
 
 fn valid_identifier(value: &str) -> bool {
@@ -57,7 +58,7 @@ fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 impl WorkspaceAuthorizationFloor {
     pub(crate) fn validate(&self) -> Result<(), DesktopCustodyError> {
         if (self.standby_lease_epoch_floor.is_none() && self.commercial.is_none())
-            || self.schema_version != 2
+            || self.schema_version != 3
             || !valid_identifier(&self.account_id)
             || !valid_identifier(&self.workspace_id)
             || !valid_identifier(&self.device_id)
@@ -73,7 +74,8 @@ impl WorkspaceAuthorizationFloor {
                 .standby_lease_epoch_floor
                 .is_some_and(|value| value > self.maximum_lease_epoch)
             || self.commercial.as_ref().is_some_and(|commercial| {
-                commercial.revision == 0
+                !crate::desktop_sync_runtime::valid_provider_capabilities(&commercial.capabilities)
+                    || commercial.revision == 0
                     || commercial.revision > MAX_EPOCH
                     || commercial.digest.len() != 64
                     || !commercial
@@ -132,7 +134,8 @@ impl WorkspaceAuthorizationFloor {
                 if current.revision < old_commercial.revision
                     || (current.revision == old_commercial.revision && current != old_commercial)
                     || (current.digest == old_commercial.digest
-                        && current.expires_at != old_commercial.expires_at)
+                        && (current.expires_at != old_commercial.expires_at
+                            || current.capabilities != old_commercial.capabilities))
                 {
                     return Err(DesktopCustodyError::Rejected);
                 }
@@ -143,13 +146,20 @@ impl WorkspaceAuthorizationFloor {
     }
 }
 
-/// Version 1 did not distinguish the last local Active epoch from a global Standby floor.
-/// Preserve all replay floors but keep that historical fact unknown; guessing would thaw an
-/// unsynchronized replica after a forced takeover. The next verified Active grant establishes it.
+/// Legacy records only ever authorized the historical Cloudflare permission. Migration must
+/// preserve known last-Active epochs (v2), and leave that fact unknown for v1; neither historical
+/// commercial state nor a Standby floor can synthesize an Afternic permission.
 #[cfg(unix)]
 fn decode_persisted_floor(
     bytes: &[u8],
 ) -> Result<WorkspaceAuthorizationFloor, DesktopCustodyError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct LegacyCommercial {
+        revision: u64,
+        digest: String,
+        expires_at: String,
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct LegacyFloor {
@@ -161,22 +171,38 @@ fn decode_persisted_floor(
         account_security_epoch: u64,
         issued_at: i64,
         maximum_lease_epoch: u64,
+        #[serde(default)]
+        last_active_lease_epoch: Option<u64>,
         #[serde(deserialize_with = "required_option")]
         standby_lease_epoch_floor: Option<u64>,
         #[serde(deserialize_with = "required_option")]
-        commercial: Option<CommercialAuthorizationFloor>,
+        commercial: Option<LegacyCommercial>,
     }
-    if let Ok(record) = serde_json::from_slice::<WorkspaceAuthorizationFloor>(bytes) {
+    // This look-ahead selects a version only. The typed parse below independently refuses every
+    // unknown/duplicate field, including duplicates hidden by serde_json::Value's map.
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?;
+    if value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        == Some(3)
+    {
+        let record: WorkspaceAuthorizationFloor =
+            serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?;
         record.validate()?;
         return Ok(record);
     }
     let old: LegacyFloor =
         serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?;
-    if old.schema_version != 1 {
+    let has_last_active = value.get("lastActiveLeaseEpoch").is_some();
+    if !matches!(
+        (old.schema_version, has_last_active),
+        (1, false) | (2, true)
+    ) {
         return Err(DesktopCustodyError::Rejected);
     }
     let record = WorkspaceAuthorizationFloor {
-        schema_version: 2,
+        schema_version: 3,
         installation_binding: old.installation_binding,
         account_id: old.account_id,
         workspace_id: old.workspace_id,
@@ -184,9 +210,14 @@ fn decode_persisted_floor(
         account_security_epoch: old.account_security_epoch,
         issued_at: old.issued_at,
         maximum_lease_epoch: old.maximum_lease_epoch,
-        last_active_lease_epoch: None,
+        last_active_lease_epoch: old.last_active_lease_epoch,
         standby_lease_epoch_floor: old.standby_lease_epoch_floor,
-        commercial: old.commercial,
+        commercial: old.commercial.map(|old| CommercialAuthorizationFloor {
+            revision: old.revision,
+            digest: old.digest,
+            expires_at: old.expires_at,
+            capabilities: vec!["cloudflare:dns:observe".to_owned()],
+        }),
     };
     record.validate()?;
     Ok(record)
@@ -305,7 +336,7 @@ mod tests {
 
     fn active(epoch: u64) -> WorkspaceAuthorizationFloor {
         WorkspaceAuthorizationFloor {
-            schema_version: 2,
+            schema_version: 3,
             installation_binding: [1; 32],
             account_id: "account-a".into(),
             workspace_id: "workspace-a".into(),
@@ -319,6 +350,7 @@ mod tests {
                 revision: 3,
                 digest: "ab".repeat(32),
                 expires_at: "2099-12-31T23:59:59Z".into(),
+                capabilities: vec!["cloudflare:dns:observe".to_owned()],
             }),
         }
     }
@@ -354,6 +386,10 @@ mod tests {
     fn legacy_native_floor_preserves_replay_protection_without_guessing_last_local_active() {
         let mut legacy = serde_json::to_value(active(7)).unwrap();
         legacy["schemaVersion"] = serde_json::json!(1);
+        legacy["commercial"]
+            .as_object_mut()
+            .unwrap()
+            .remove("capabilities");
         legacy
             .as_object_mut()
             .unwrap()
@@ -370,6 +406,64 @@ mod tests {
         assert_eq!(later.maximum_lease_epoch, 20);
         // Missing the new required key in version 2 is corruption, never a legacy upgrade.
         legacy["schemaVersion"] = serde_json::json!(2);
+        assert!(decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).is_err());
+    }
+
+    #[test]
+    fn commercial_permissions_can_change_only_with_new_revision_and_digest() {
+        let old = active(7);
+        let mut changed = active(8);
+        changed.commercial.as_mut().unwrap().capabilities =
+            vec!["afternic:marketplace:observe".into()];
+        assert!(changed.clone().advance(Some(&old)).is_err());
+        changed.commercial.as_mut().unwrap().revision += 1;
+        assert!(changed.clone().advance(Some(&old)).is_err());
+        changed.commercial.as_mut().unwrap().digest = "cd".repeat(32);
+        let added = changed.advance(Some(&old)).unwrap();
+        let mut revoked = added.clone();
+        let commercial = revoked.commercial.as_mut().unwrap();
+        commercial.revision += 1;
+        commercial.digest = "ef".repeat(32);
+        commercial.capabilities.clear();
+        assert!(revoked.advance(Some(&added)).is_ok());
+        for capabilities in [
+            vec!["unknown".into()],
+            vec!["afternic:marketplace:write".into()],
+            vec![
+                "cloudflare:dns:observe".into(),
+                "cloudflare:dns:observe".into(),
+            ],
+        ] {
+            let mut invalid = active(7);
+            invalid.commercial.as_mut().unwrap().capabilities = capabilities;
+            assert!(invalid.validate().is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn v2_floor_preserves_last_active_and_only_maps_historical_cloudflare() {
+        let mut legacy = serde_json::to_value(active(7)).unwrap();
+        legacy["schemaVersion"] = serde_json::json!(2);
+        legacy["commercial"]
+            .as_object_mut()
+            .unwrap()
+            .remove("capabilities");
+        let upgraded = decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(upgraded.schema_version, 3);
+        assert_eq!(upgraded.last_active_lease_epoch, Some(7));
+        assert_eq!(
+            upgraded.commercial.unwrap().capabilities,
+            ["cloudflare:dns:observe"]
+        );
+        legacy["commercial"]["capabilities"] = serde_json::json!(["afternic:marketplace:observe"]);
+        assert!(decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).is_err());
+        legacy["schemaVersion"] = serde_json::json!(3);
+        assert!(decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).is_ok());
+        legacy["commercial"]
+            .as_object_mut()
+            .unwrap()
+            .remove("capabilities");
         assert!(decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).is_err());
     }
 

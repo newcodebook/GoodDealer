@@ -21,7 +21,7 @@ Cloud replica、MutationPage 和 Checkpoint 只提供同步或恢复输入。
 | `account.billing.fixedTerm.confirm` | `billingFixedTermConfirmRequestSchema` / `billingFixedTermConfirmResponseSchema` | 以独立 GoodDealer `requestId` 和 `checkoutId` 关联 fixed-term capture；响应精确回显二者。 |
 | `account.billing.firstPurchaseRefund.request` | `billingFirstPurchaseRefundRequestSchema` / `billingFirstPurchaseRefundRequestResponseSchema` | 只提交 GoodDealer `requestId` 与 `purchaseId`；确定性资格拒绝与已接受退款聚合严格分离。 |
 | `account.billing.firstPurchaseRefund.status.read` | `billingFirstPurchaseRefundStatusReadRequestSchema` / `billingFirstPurchaseRefundStatusReadResponseSchema` | 以 GoodDealer `refundRequestId` 恢复已接受退款；unknown、retry-wait 与 manual-resolution 均保持只读且不表示已退款。 |
-| `devices.authorizationGrant.issue` | `desktopAuthorizationGrantRoleRequestSchema` / `desktopAuthorizationGrantRoleResponseSchema` | v4 角色交换：Active 包含整体签名 Grant v3 与独立签名 Lease；Standby 包含独立用途签名只读 Grant v1，不含 Lease 或商业执行权限。 |
+| `devices.authorizationGrant.issue` | `desktopAuthorizationGrantRoleRequestSchema` / `desktopAuthorizationGrantRoleResponseSchema` | v5 角色交换：Active 包含整体签名 Grant v4 与独立签名 Lease；Standby 包含独立用途签名只读 Grant v1，不含 Lease 或商业执行权限。 |
 | `workspace.sync.mutations.push` | `workspaceMutationPushRequestSchema` / `workspaceMutationPushResponseSchema` | 接收无租户字段的 Mutation，返回精确关联的 ACK 或封闭拒绝码。 |
 | `workspace.sync.mutations.pull` | `workspaceMutationPullRequestSchema` / `workspaceMutationPullResponseSchema` | 从本地已提交 revision 继续读取严格 MutationPage；cursor 由 Cloud 生成。 |
 | `workspace.sync.checkpoint.read` | `workspaceCheckpointReadRequestSchema` / `workspaceCheckpointReadResponseSchema` | 返回服务器范围内最新可用 Checkpoint，或显式 `null`。 |
@@ -81,7 +81,7 @@ Desktop Host 通过 `AccountActivationClient`、`DesktopAuthorizationClient`、`
 设备切换命令（ADR-0032 `device_switch_*`）只接收目标设备 id，只返回封闭步骤码与 Cloud 的状态或拒绝码；
 切换 id、Lease、回执、drain proof 与签名都留在 Host。
 
-`DesktopAuthorizationClient.issue()` 只验证 v4 角色 wire 形状。Standby 由 Host 独立验签、核对绑定并持久保存地板，只授予读取；没有本地副本时不创建空库。Active 的 Host 在消费 Grant v3 前必须先验证覆盖
+`DesktopAuthorizationClient.issue()` 只验证 v5 角色 wire 形状。Standby 由 Host 独立验签、核对绑定并持久保存地板，只授予读取；没有本地副本时不创建空库。Active 的 Host 在消费 Grant v4 前必须先验证覆盖
 Workspace、scope、窗口和完整嵌套 Lease 的外层目的限定签名，再独立验证 ActiveDeviceLease 的
 签名、key purpose、issuer、audience、账号/设备绑定、Epoch 和可信时间窗口。验证成功后才把
 `workspace.kind === "personal_default"` 的身份写入 OS-protected binding；该 binding 只允许过期后

@@ -14,11 +14,11 @@
 | 本地业务 | SQLCipher、业务事务、Inbox/Outbox、冲突、generation、修复与 Host 提交栅栏；Host 与 BusinessDatabase 已按能力拆分 | 为真实平台资源归集、已迁移的 Listing 绑定准入和任务执行补齐闭环，保持单一数据所有者 |
 | 多平台 | 十二平台目录、角色、读取合同与不可执行 manifest | 实际 Service、各平台凭据生命周期、可执行能力合同、原生组合与真实资格 |
 | Cloudflare | 私有只读 Service、凭据录入/撤销/清理及 Native 协调 | 资格登记仍为空；打通受控资产读取，随后补所有权验证所需 DNS 写入与复核 |
-| 设备切换 | Cloud drain/回执/切换基础、Host 停写、设备目录；v4 Standby签发/验签、持久地板、只读/无副本入口；普通交接回执、原请求崩溃续作与专用 Inbox gate | 目标引导与激活、强制接管和完整客户界面 |
+| 设备切换 | Cloud drain/回执/切换基础、Host 停写、设备目录；v5 角色交换、v1 Standby 签发/验签、持久地板、只读/无副本入口；普通交接回执、原请求崩溃续作与专用 Inbox gate | 目标引导与激活、强制接管和完整客户界面 |
 | 恢复 | 业务投影、安装绑定 GDBK v1、测试中的发布/恢复协议 | 可携带新格式、用户恢复材料、生产原生文件与秘密输入、隔离读出和云重建 |
 | 商业 | Licensing、支付与权益模块及客户路径 | 复核现有可配置边界，补真正缺失的运营能力与生产证据 |
 
-原独立 Standby Grant 协议增量已由本轮 Cloud/Host v4 接续复用；没有将协议本身当作完整设备交接。
+原独立 Standby Grant 协议增量已由 Cloud/Host 接续复用，当前角色交换为 v5；没有将协议本身当作完整设备交接。
 源码现状和验证范围见 [当前实现](CURRENT_IMPLEMENTATION.md)；目标引导、强制接管和云恢复仍需交付。
 
 ## 主线与依赖
@@ -99,3 +99,9 @@ Standby 协议、Cloud 签发、独立签名用途、Host 验证、路由清单�
   [执行台账](phase0/PHASE0_EXECUTION_PLAN.md)。旧路线图阶段不是新的技术前置；不在 ADR 中重新堆积历史日志。
 
 可直接交给下一轮对话的提示词见 [执行提示词](IMPLEMENTATION_PROMPT.md)。
+
+## 当前 Afternic 切片与下一依赖
+
+连接/完整库存扫描已接入 Native、单 writer 和设置入口：原生录入与精确 slot、原子资产/Outbox/Listing 观察、重开 prepared 续作及撤销清理。迁移 `202611180003` 复用原 Listing 绑定，读投影按连接/代次关联。当前资格清单仍为空，真实账号和双系统操作未验收。
+
+下一可实现项为同一 local-storage 拥有的持久 Listing 父计划、冻结预览/批准及每项尝试/结果；Native 只承接固定平台 I/O。写前完整扫描、写后精确 GET 对账，未知结果和遗留 running 先对账；新目标/改价/DNS 范围重新预览。不能把现有 Core POST/PATCH/DELETE 方法当作已完成的批量客户旅程。私有所有权验证的会话采样与 DNS 步骤按实际依赖接续，不等待全部注册商写能力。

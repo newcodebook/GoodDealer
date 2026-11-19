@@ -54,11 +54,20 @@ describe("Stripe test provider configuration", () => {
     })).toThrow(/strictly ascending/u);
   });
 
-  it("rejects a policy whose plans could never obtain a Desktop Grant", () => {
+  it("accepts explicit local-only and Afternic policies without inventing features", () => {
+    for (const features of [["feature:portfolio", "feature:provider-read"],
+      ["afternic:marketplace:observe", "afternic:marketplace:write"]]) {
+      expect(parseStripeTestProviderConfiguration({
+        ...configuration(), policy: { ...configuration().policy, featureEntitlements: features },
+      }).policy.featureEntitlements).toEqual(features);
+    }
+  });
+
+  it("rejects writes without their explicit observation dependency", () => {
     expect(() => parseStripeTestProviderConfiguration({
       ...configuration(), policy: { ...configuration().policy,
-        featureEntitlements: ["feature:portfolio", "feature:provider-read"] },
-    })).toThrow(/Desktop Grant capability/u);
+        featureEntitlements: ["afternic:marketplace:write", "cloudflare:dns:observe"] },
+    })).toThrow(/capability dependency/u);
   });
 
   it("accepts only namespaced lowercase capability names", () => {

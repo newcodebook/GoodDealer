@@ -13,7 +13,7 @@ pub(crate) fn decode_provider_request<T: DeserializeOwned>(
     decode_provider_body(request.body(), maximum_wire_bytes)
 }
 
-fn decode_provider_body<T: DeserializeOwned>(
+pub(crate) fn decode_provider_body<T: DeserializeOwned>(
     body: &InvokeBody,
     maximum_wire_bytes: usize,
 ) -> Result<T, String> {

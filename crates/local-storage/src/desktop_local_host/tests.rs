@@ -12,7 +12,7 @@ use tempfile::TempDir;
 
 fn active_role_wire(grant: &[u8]) -> Vec<u8> {
     let grant: serde_json::Value = serde_json::from_slice(grant).unwrap();
-    serde_json::to_vec(&serde_json::json!({"schemaVersion": 4, "role": "active", "grant": grant}))
+    serde_json::to_vec(&serde_json::json!({"schemaVersion": 5, "role": "active", "grant": grant}))
         .unwrap()
 }
 

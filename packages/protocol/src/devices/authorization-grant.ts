@@ -10,11 +10,29 @@ import {
 } from "../wire/index";
 import { activeDeviceLeaseEnvelopeSchema } from "./device-identity";
 
-export const DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION = 3 as const;
+export const DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION = 4 as const;
 export const DESKTOP_AUTHORIZATION_GRANT_SIGNATURE_DOMAIN =
-  "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V3" as const;
+  "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V4" as const;
 export const DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID =
   "devices.authorizationGrant.issue" as const;
+
+export const DESKTOP_COMMERCIAL_CAPABILITIES = [
+  "afternic:marketplace:observe",
+  "afternic:marketplace:write",
+  "cloudflare:dns:observe",
+] as const;
+export const desktopCommercialCapabilitySchema = z.enum(DESKTOP_COMMERCIAL_CAPABILITIES);
+export const desktopCommercialCapabilitiesSchema = z.array(desktopCommercialCapabilitySchema)
+  .max(DESKTOP_COMMERCIAL_CAPABILITIES.length)
+  .superRefine((capabilities, context) => {
+    if (capabilities.some((value, index) => index > 0 && capabilities[index - 1]! >= value)) {
+      context.addIssue({ code: "custom", message: "commercial capabilities must be strictly ascending" });
+    }
+    if (capabilities.includes("afternic:marketplace:write") && !capabilities.includes("afternic:marketplace:observe")) {
+      context.addIssue({ code: "custom", message: "Afternic writes require observation for reconciliation" });
+    }
+  });
+export type DesktopCommercialCapability = z.infer<typeof desktopCommercialCapabilitySchema>;
 
 /**
  * Cloud-issued authorization input for the local business runtime. Every authority-bearing outer
@@ -23,7 +41,7 @@ export const DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID =
 export const desktopAuthorizationGrantSchema = z
   .object({
     schemaVersion: z.literal(DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION),
-    typ: z.literal("gd.desktop-authorization-grant.v3"),
+    typ: z.literal("gd.desktop-authorization-grant.v4"),
     iss: z.literal("https://accounts.gooddealer.com"),
     aud: z.literal("gooddealer-desktop/local-business"),
     kid: identifier,
@@ -38,12 +56,12 @@ export const desktopAuthorizationGrantSchema = z
     activeDeviceLease: activeDeviceLeaseEnvelopeSchema,
     scopes: z.tuple([z.literal("workspace:mutate"), z.literal("workspace:read")]),
     commercialAuthority: z.object({
-      schemaVersion: z.literal(1),
+      schemaVersion: z.literal(2),
       entitlementRevision: safePositiveInteger,
       entitlementProjectionDigest: z.string().regex(/^[0-9a-f]{64}$/u),
       state: z.literal("active"),
       commercialExpiresAt: canonicalUtcTimestamp,
-      capability: z.literal("cloudflare:dns:observe"),
+      capabilities: desktopCommercialCapabilitiesSchema,
     }).strict(),
     signature: base64Url,
   })
@@ -69,16 +87,16 @@ export type DesktopCommercialAuthority = DesktopAuthorizationGrant["commercialAu
 
 /*
  * ADR-0032: a bound device that must not hold the Lease receives a Standby Grant instead. It is a
- * separate strict object with its own typ, audience, signature domain and signing key, never a v3
+ * separate strict object with its own typ, audience, signature domain and signing key, never a v4
  * Grant with an optional Lease, so a parsing slip cannot turn read-only authority into execution
- * authority. The v4 role exchange is the only request/response path; an Active role still carries
- * the separately signed v3 execution Grant and nested Lease.
+ * authority. The v5 role exchange is the only request/response path; an Active role still carries
+ * the separately signed v4 execution Grant and nested Lease.
  */
 export const DESKTOP_STANDBY_GRANT_SCHEMA_VERSION = 1 as const;
 export const DESKTOP_STANDBY_GRANT_SIGNATURE_DOMAIN = "GOODDEALER-DESKTOP-STANDBY-GRANT-V1" as const;
 /** A Standby Grant lives no longer than the access token it accompanies. */
 export const DESKTOP_STANDBY_GRANT_MAX_LIFETIME_SECONDS = 900 as const;
-export const DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION = 4 as const;
+export const DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION = 5 as const;
 
 export const desktopStandbyGrantSchema = z
   .object({

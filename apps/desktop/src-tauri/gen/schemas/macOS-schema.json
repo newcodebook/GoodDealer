@@ -345,6 +345,30 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the afternic_connection_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-connect",
+          "markdownDescription": "Enables the afternic_connection_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-revoke",
+          "markdownDescription": "Enables the afternic_connection_revoke command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-status",
+          "markdownDescription": "Enables the afternic_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-inventory-refresh",
+          "markdownDescription": "Enables the afternic_inventory_refresh command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-activate",
@@ -583,6 +607,30 @@
           "type": "string",
           "const": "allow-local-sync-status",
           "markdownDescription": "Enables the local_sync_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-connect",
+          "markdownDescription": "Denies the afternic_connection_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-revoke",
+          "markdownDescription": "Denies the afternic_connection_revoke command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-status",
+          "markdownDescription": "Denies the afternic_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-inventory-refresh",
+          "markdownDescription": "Denies the afternic_inventory_refresh command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_activate command without any pre-configured scope.",

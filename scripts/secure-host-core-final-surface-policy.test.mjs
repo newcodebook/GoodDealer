@@ -14,6 +14,10 @@ import { join, relative, resolve } from "node:path";
 import test from "node:test";
 
 const expectedSourceFiles = [
+  "afternic_credentials.rs",
+  "afternic_provider.rs",
+  "afternic_provider_tests.rs",
+  "afternic_wire.rs",
   "cloudflare_capture.rs",
   "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
@@ -24,6 +28,13 @@ const expectedSourceFiles = [
   "lib.rs",
   "local_workspace_binding.rs",
   "secret_service_custody.rs",
+];
+// Fixed Afternic capability facade; no URL, request-header or credential-bytes forwarding.
+const expectedAfternicExports = [
+  "AfternicCapture", "AfternicCredential", "AfternicCredentialPlan",
+  "load_afternic_credential_guarded", "publish_afternic_credential_guarded", "purge_afternic_credential_guarded",
+  "AfternicDomainObservation", "AfternicError", "AfternicGuard", "AfternicListing", "AfternicListingFields",
+  "AfternicListingIntent", "AfternicListingStatus", "AfternicPortfolio", "AfternicProviderClient", "AfternicWriteOutcome",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -185,6 +196,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::batch_operations",
   "active_workspace::business",
   "active_workspace::business",
+  "active_workspace::business",
   "active_workspace::dns_health",
   "active_workspace::history",
   "active_workspace::manual_tasks",
@@ -192,6 +204,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::sales",
   "active_workspace::settings",
   "active_workspace::storage_repair",
+  "desktop_local_host::afternic",
   "portfolio_projection",
   "application_root",
   "desktop_business_runtime",
@@ -207,6 +220,12 @@ const expectedLocalStoragePublicExports = [
   "AssetLibraryRow",
   "AssetLibraryWindow",
   "CloudflareDnsRecordWrite",
+  "DesktopAfternicConnection",
+  "DesktopAfternicConnectionSummary",
+  "DesktopAfternicConnectionsRead",
+  "DesktopAfternicInventoryReceipt",
+  "DesktopAfternicListingObservation",
+  "DesktopAfternicScanSummary",
   "DesktopApplicationRoot",
   "DesktopApplicationRootError",
   "DesktopAssetLibraryReadRequest",
@@ -350,10 +369,11 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
-    "cloudflare_capture",
+    "afternic_credentials",
+    "afternic_provider",    "cloudflare_capture",
     "cloudflare_keychain",
     "cloudflare_provider",
     "desktop_authorization_verifier",
@@ -372,6 +392,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     .filter(Boolean)
     .sort();
   const expectedPublicExports = [
+    ...expectedAfternicExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
     ...expectedCloudflareProviderExports,

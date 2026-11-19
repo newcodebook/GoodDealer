@@ -4,6 +4,10 @@ import { extname, resolve } from "node:path";
 const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
+  "afternic_connection_connect",
+  "afternic_connection_revoke",
+  "afternic_connection_status",
+  "afternic_inventory_refresh",
   "cloudflare_connection_activate",
   "cloudflare_connection_create",
   "cloudflare_connection_purge",
@@ -247,6 +251,7 @@ export function adapterCommands(source) {
     .filter((command) => command.startsWith("local_")
       || command.startsWith("desktop_authentication_")
       || command.startsWith("cloudflare_")
+      || command.startsWith("afternic_")
       || command.startsWith("device_switch_")
       || command.startsWith("device_directory_")
       || command.startsWith("device_self_")));
@@ -269,8 +274,10 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src-tauri/capabilities/local-app.json",
     errors,
   );
-  const adapterPath = "apps/desktop/src/adapters/tauri/index.ts";
-  const adapterSource = requiredRegularFile(root, adapterPath, errors);
+  const adapterSources = [
+    "apps/desktop/src/adapters/tauri/index.ts",
+    "apps/desktop/src/adapters/tauri/afternic.ts",
+  ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
     root,
@@ -282,7 +289,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     buildSource === null ||
     mainSource === null ||
     capabilitySource === null ||
-    adapterSource === null ||
+    adapterSources.some((source) => source === null) ||
     desktopManifest === null ||
     backupIpcSource === null ||
     errors.length > 0
@@ -311,7 +318,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     handler: handlerCommands(mainSource),
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
-    adapter: adapterCommands(adapterSource),
+    adapter: adapterCommands(adapterSources.join("\n")),
   };
   for (const [name, commands] of Object.entries(sets)) {
     const expected = name === "adapter" ? reviewedAdapterCommands : reviewedCommands;

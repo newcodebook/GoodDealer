@@ -4,6 +4,7 @@
 //! and recovery against this same state. They never own a second writer or choose another lock
 //! order. Backup cryptography and plaintext remain inside this private module tree.
 
+pub(crate) mod afternic;
 mod authority;
 mod authorization;
 mod backup_workflow;
@@ -578,7 +579,7 @@ struct PrivateWorkspaceAuthority {
     entitlement_revision: u64,
     entitlement_projection_digest: String,
     commercial_expires_at: String,
-    capability: String,
+    capabilities: Vec<String>,
     generation: u64,
     trusted_time_floor: i64,
     execute_before: i64,
@@ -621,7 +622,7 @@ impl PrivateWorkspaceAuthority {
             entitlement_revision: 0,
             entitlement_projection_digest: String::new(),
             commercial_expires_at: String::new(),
-            capability: String::new(),
+            capabilities: Vec::new(),
             generation,
             trusted_time_floor: now,
             execute_before: authority.expires_at,
@@ -650,7 +651,7 @@ impl PrivateWorkspaceAuthority {
             entitlement_revision: authority.entitlement_revision(),
             entitlement_projection_digest: authority.entitlement_projection_digest().to_owned(),
             commercial_expires_at: authority.commercial_expires_at().to_owned(),
-            capability: authority.capability().to_owned(),
+            capabilities: authority.capabilities().to_owned(),
             generation,
             trusted_time_floor: authority.trusted_time_floor(),
             execute_before: authority.execute_before(),
@@ -668,7 +669,7 @@ impl PrivateWorkspaceAuthority {
             entitlement_revision: self.entitlement_revision,
             entitlement_projection_digest: &self.entitlement_projection_digest,
             commercial_expires_at: &self.commercial_expires_at,
-            capability: &self.capability,
+            capabilities: &self.capabilities,
         })
     }
 

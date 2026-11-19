@@ -381,7 +381,27 @@ impl DesktopLocalHost {
         &self,
         prepared: &crate::PreparedCloudflareObservation,
     ) -> Result<(), DesktopLocalHostError> {
-        self.recheck_native_cloud(&prepared.admission)
+        self.with_sync_runtime(
+            Some(&prepared.admission.inner),
+            |sync, database, admitted| {
+                let current = sync.prepare_cloudflare_observation(
+                    database,
+                    admitted.ok_or(DesktopSyncError::StaleAuthority)?,
+                    &prepared.connection_id,
+                    &prepared.entity_id,
+                )?;
+                if current.connection_incarnation_id != prepared.connection_incarnation_id
+                    || current.connection_digest != prepared.connection_digest
+                    || current.generation != prepared.generation
+                    || current.scope_digest != prepared.scope_digest
+                    || current.zone_digest != prepared.zone_digest
+                    || current.public_proof != prepared.public_proof
+                {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
+                Ok(())
+            },
+        )
     }
 
     /// Commits checked Provider facts under the exact credential identity in the opaque handle.
@@ -775,6 +795,14 @@ impl DesktopLocalHost {
         let incarnation_id = crate::desktop_sync_runtime::random_uuid_v4()
             .map_err(|_| DesktopLocalHostError::StorageRejected)?;
         self.with_authorized_business(true, |runtime, authority, captured_epoch, _| {
+            if authority.kind != super::WorkspaceAuthorityKind::Active
+                || !authority
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == "cloudflare:dns:observe")
+            {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
             let created_at = format_timestamp(
                 current_unix_seconds().map_err(|_| BusinessDatabaseError::WorkspaceRejected)?,
             );

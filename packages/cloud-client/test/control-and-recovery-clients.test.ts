@@ -148,9 +148,9 @@ function responses(): Record<CloudOperationId, unknown> {
       paidThrough: "2027-08-29T10:00:00Z",
     },
     [DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID]: {
-      schemaVersion: 4, role: "active", grant: {
-      schemaVersion: 3,
-      typ: "gd.desktop-authorization-grant.v3",
+      schemaVersion: 5, role: "active", grant: {
+      schemaVersion: 4,
+      typ: "gd.desktop-authorization-grant.v4",
       iss: "https://accounts.gooddealer.com",
       aud: "gooddealer-desktop/local-business",
       kid: "grant-key-1",
@@ -160,12 +160,12 @@ function responses(): Record<CloudOperationId, unknown> {
       activeDeviceLease,
       scopes: ["workspace:mutate", "workspace:read"],
       commercialAuthority: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         entitlementRevision: 2,
         entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         state: "active",
         commercialExpiresAt: "2027-08-29T10:00:00Z",
-        capability: "cloudflare:dns:observe",
+        capabilities: ["cloudflare:dns:observe"],
       },
       signature: "c2lnbmF0dXJl",
       },
@@ -290,7 +290,7 @@ describe("Cloud control-plane and sync clients", () => {
         operationId: BILLING_SUBSCRIPTION_CANCEL_OPERATION_ID,
         payload: { schemaVersion: 1, requestId: "cancel-request-1" },
       },
-      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 4 } },
+      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 5 } },
       { operationId: WORKSPACE_SYNC_PUSH_OPERATION_ID, payload: { schemaVersion: 3, mutations: [mutation] } },
       {
         operationId: WORKSPACE_SYNC_PULL_OPERATION_ID,

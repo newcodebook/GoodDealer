@@ -152,6 +152,10 @@ pub(crate) use active_workspace::business::{
     SYNC_MUTATION_WIRE_SCHEMA_VERSION, SyncConflictCandidate, SyncMutationAcknowledgement,
     SyncPullRequestV2, SyncResolutionReceipt, serialize_sync_push_request,
 };
+pub use active_workspace::business::{
+    DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
+    DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
+};
 #[cfg(test)]
 pub(crate) use active_workspace::business::{
     RebootstrapJournalLink, RebootstrapReplayPage, RebootstrapSlotId, RebootstrapTombstone,
@@ -175,6 +179,7 @@ pub use active_workspace::settings::{
     SettingsConnection, SettingsConnectionRole, SettingsReadSnapshot,
 };
 pub use active_workspace::storage_repair::StorageRepairKind;
+pub use desktop_local_host::afternic::DesktopAfternicConnection;
 #[cfg(test)]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{
