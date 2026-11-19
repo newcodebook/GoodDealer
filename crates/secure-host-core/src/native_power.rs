@@ -1,4 +1,6 @@
 //! Closed OS power notifications. No credentials, business operations or OS handles cross this facade.
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -78,7 +80,7 @@ impl State {
         }
         self.changed.notify_waiters();
     }
-    #[cfg(any(target_os = "windows", target_os = "macos", test))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
     fn registered(&self) {
         let Ok(_commit) = self.commit.lock() else {
             self.close();
@@ -104,7 +106,7 @@ impl State {
         self.ready.store(false, Ordering::SeqCst);
         self.request(Some(true));
     }
-    #[cfg(any(target_os = "windows", target_os = "macos", test))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
     fn event(&self, paused: bool) {
         if self.closed.load(Ordering::SeqCst) {
             return;
@@ -126,6 +128,8 @@ impl State {
 /// Main-thread owner. Its private native tokens must outlive all associated callbacks.
 pub struct NativePowerMonitor {
     state: Arc<State>,
+    #[cfg(target_os = "linux")]
+    registration: Option<linux::Registration>,
     #[cfg(target_os = "macos")]
     registration: Option<macos::Registration>,
     #[cfg(target_os = "windows")]
@@ -138,6 +142,12 @@ impl NativePowerMonitor {
     #[must_use]
     pub fn start() -> Self {
         let state = State::new();
+        #[cfg(target_os = "linux")]
+        let registration = linux::Registration::start(Arc::clone(&state));
+        #[cfg(target_os = "linux")]
+        if registration.is_none() {
+            state.registration_failed();
+        }
         #[cfg(target_os = "macos")]
         let registration = macos::Registration::start(Arc::clone(&state));
         #[cfg(target_os = "windows")]
@@ -148,11 +158,11 @@ impl NativePowerMonitor {
         } else {
             state.registration_failed();
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         state.registration_failed();
         Self {
             state,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             registration,
             _main_thread: PhantomData,
         }
@@ -160,7 +170,7 @@ impl NativePowerMonitor {
     /// Closes admission before unregistering observers; call on the owning main thread at exit.
     pub fn stop(&mut self) {
         self.state.close();
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         drop(self.registration.take());
     }
     #[must_use]

@@ -401,3 +401,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 复用原 Afternic Service、固定 slot 与 Secret Service，实现 Linux GTK 掩码 API key/secret 窗口；3 秒主循环准入、120 秒输入期限、50ms 当前授权复核、晚回调取消、所有关闭清空 Entry。秘密不经 Renderer/普通 TypeScript；ADR-0025 具名扩展该条目并保留同 UID 残余风险。
 - Root/Cloud 独立源码及真实 GTK canary 5/5 通过；Core 92、public 3、doc 4、严格 Clippy 通过，GTK/logind ignored 项另外实跑。实际 GTK 测出并修复 GString 截断末字节，保留精确字节回归。详见[独立审查](../reviews/2026-11-19-linux-afternic-capture-review.md)。
 - 本增量未输入真实账号、未调用真实 Afternic；Cloud 当前授权、平台资格与实际业务旅程继续实施。Linux power 另有独立增量，Windows/macOS 实机与发行资格尚未取得。
+
+
+## 2026-11-19 Linux logind 电源监控
+
+- secure-host-core 私有 gio 适配在独立 MainContext 订阅固定系统 logind owner；真实 delay inhibitor、PreparingForSleep 握手、owner 二次检查和严格 Variant signature 后才准入。睡眠意图先撤销旧 epoch、等待原最终提交栅栏再释放 inhibitor；恢复重新取得后才继续。退出不保留订阅/FD；没有新 writer、IPC 或通用代理。
+- Root/Cloud 独立源码与实际 logind 注册释放 7/7 通过；Core 全量 92/public 3/doc 4、严格 Clippy 通过。GLib tuple 尾随成员负例已落实为精确 signature 校验。见[独立审查](../reviews/2026-11-19-linux-native-power-review.md)。
+- 未实际挂起当前开发机，故仍缺真实 sleep/wake；Windows/macOS 实机及真实 Afternic 账号不由此推导。Provider 上架/改价继续原 lane 与当前授权，不开放资格清单冒充交付。

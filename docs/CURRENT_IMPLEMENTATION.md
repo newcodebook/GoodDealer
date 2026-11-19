@@ -158,3 +158,8 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 ## Linux Afternic 原生录入增量（2026-11-19）
 
 Afternic 的固定 Native GTK 掩码窗口已接入原 Service/custody；取消、超时、授权撤回和晚回调失败关闭，秘密不进入 Renderer/普通 TypeScript。真实 GTK canary 生命周期验收及独立审查通过，见[审查记录](reviews/2026-11-19-linux-afternic-capture-review.md)。这只解除 Linux 凭据录入的源码和组件阻塞，不代表 Afternic 真实账号/写能力已资格化；Windows/macOS 仍分别验收。
+
+
+## Linux 原生电源监控增量（2026-11-19）
+
+已接入固定 logind PrepareForSleep、真实 delay inhibitor 与原 power epoch/提交栅栏；注册、owner/总线失效及恢复重新取得 inhibitor 均失败关闭。Root/Cloud 独立评审与实际 logind 注册释放测试通过，见[审查记录](reviews/2026-11-19-linux-native-power-review.md)。未触发当前主机实际挂起，sleep/wake 实机及 Windows/macOS 原生资格仍单独验收；不以注册成功代替 Provider 真实业务结果。

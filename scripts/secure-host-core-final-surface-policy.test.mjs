@@ -33,6 +33,7 @@ const expectedSourceFiles = [
   "native_continuous_clock/macos.rs",
   "native_continuous_clock/windows.rs",
   "native_power.rs",
+  "native_power/linux.rs",
   "native_power/macos.rs",
   "native_power/windows.rs",
   "secret_service_custody.rs",
