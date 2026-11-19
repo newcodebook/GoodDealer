@@ -18,15 +18,23 @@
 
 ## 目标
 
+### 2026-11-19 终止安装后接收新交接（源码切片完成）
+
+- 工作包：[重新接收 Task Frame](TARGET_INSTALLATION_RETRY_TASK_FRAME.md)。Cloud 精确 cancelled/failed 终态、可信未写库事实和新确认全部满足后，目标可接收另一交接，原始加密终态与请求证据保留。单 writer、最终提交栅栏和 Native 秘密所有权不变；无 Cloud 合同或 SQL 迁移变更。
+- Head v2 原子保存最多 8 个历史引用；文件 AAD 保持 v1，v1 journal 仅在可证明未打开数据库时升级 not_started，否则 legacy_unknown。首次 SQL open 前先落盘 started，实际 SQL 阶段再次检查原工作流终态。可能已写入/截断/授权变化/历史满全部拒绝重新接收，不删除证据或重标 Fresh。
+- 客户入口明确展示旧工作流的五类后续资格。新工作流必须新预览、勾选和确认；allowed 轮询保留合法预览但不开始，资格变化撤回预览，开始丢 ACK 仅读状态。Native 只对 Running 结果唤醒安装。
+- 独立 UI/adapter 41/41；Storage 独立安装 16、custody 11、控制 14，以及最终并发/跨租户/预算各 1，共 44 项通过。Native 独立安装及 IPC 16、终止 10，共 26 项通过。构建者 Storage 47 targeted/public 2/doc 28，Native 147/Core 84/public 3/doc 4 通过；Linux/Windows 三包全目标严格 Clippy 通过。审查修复 terminal receipt 清掉原 pending 请求和 started 落盘到 SQL 之间取消的两个缺口；详见 [审查记录](../reviews/2026-11-19-target-installation-retry-review.md)，根 `pnpm check` 最终通过：TypeScript 2378、结构策略 214、Rust 861（Storage 572；6 项规模基准 ignored），日志 `target/root-target-installation-retry-check.log`。首轮结构检查拒绝遗漏的新枚举导出，已精确补入公共清单并独立复核，未放宽规则；全仓 fmt、生成 schema 一致性、链接与 diff 检查通过。
+- Windows/macOS 实机、真实双设备、部署第五签名用途与发行资格仍待取得。后续继续强制接管、已有副本保留恢复、Afternic 上架/改价/验证及独立跨机恢复，不缩减总任务。
+
 ### 2026-11-19 目标设备首次安装与激活（源码切片）
 
-- 工作包：[目标首次安装 Task Frame](TARGET_INSTALLATION_TASK_FRAME.md)。Cloud claim/step/checkpoint/activate/receipt、第五签名用途、真实 checkpoint 与完整代次/墓碑摘要、本地 Host/SQLCipher 首次安装、Native 协调器、IPC 与客户确认入口已实现。仅准入可信 custody 证明尚未初始化的固定本机库；已有副本替换仍拒绝。首次安装到激活的源码与独立验证已通过；终止后再次接收的缺口见下。
+- 工作包：[目标首次安装 Task Frame](TARGET_INSTALLATION_TASK_FRAME.md)。Cloud claim/step/checkpoint/activate/receipt、第五签名用途、真实 checkpoint 与完整代次/墓碑摘要、本地 Host/SQLCipher 首次安装、Native 协调器、IPC 与客户确认入口已实现。仅准入可信 custody 证明尚未初始化的固定本机库；已有副本替换仍拒绝。首次安装到激活的源码与独立验证已通过；后续终止再接收的实施见上节。
 - 实际数据库暴露 v3 checkpoint 墓碑表缺少 account capability 权限，追加 023/024 修复。原 022 和先前已应用迁移保持不变。
 - 独立审查修正 capability/Lease 的独立注册表验证、journal 正常及崩溃恢复路径同步后才发布 custody head、legacy 空文件不能仅凭长度追认为 fresh，以及未知 activation 下先持久取消意图再对账的顺序。激活丢 ACK 后重开先收到 Active 时仅准入 receipt/status/cancel；原回执与新 execution context 齐备后才展示资产并持久完成。详见 [审查记录](../reviews/2026-11-19-target-installation-review.md)。
 - 真实 PostgreSQL：Cloud 完整 OAuth 99/99，root 独立目标回归 29/29（70 项未选择），checkpoint 31/31、bootstrap 14/14 另有通过证据。最终 Native 144、Core 84、public surface 3、doc 4 全过；独立最新二进制安装 13、会话 32、终止 10、verifier 7 全过。Linux/Windows 三包全目标 strict Clippy 通过。
 - UI/adapter/状态投影相关 46/46、i18n 19/19；最终 Cloud HTTP/role 15/15。根检查已通过 TypeScript 2370 项、结构策略 214 项及依赖/拓扑检查，Rust 844 项通过（Storage 558，6 项规模基准 ignored），根 `pnpm check` 完整通过，日志 `target/root-target-installation-check-final.log`。此前品牌规则把本地 confirm 函数误认作原生弹窗，已按业务语义重命名；格式、文档链接与 diff 检查通过。Windows/macOS 实机、OpenBao 第五用途部署与真实双设备仍无资格证据。
 
-- 接续核查确认一个未交付旅程：安装 journal 建立后，即使取消/过期且尚未写库，当前也不能接受另一个工作流。原终态和数据保留，但新工作流页面缺少准确说明；下个切片须先补可证明未写库时保留原终态的重新接收，已写库不得重标 Fresh。不得把此缺口当成已有副本替换或宣称完整安装重试已交付。
+- 接续核查确认一个未交付旅程：安装 journal 建立后，即使取消/过期且尚未写库，在该提交时仍不能接受另一个工作流。此发现推动上节重新接收切片；已写库不得重标 Fresh，已有副本保留恢复仍需后续交付。
 
 ### 2026-11-19 执行证据与目标引导终结（源码切片完成）
 

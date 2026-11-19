@@ -564,11 +564,25 @@ describe("target installation adapter", () => {
       { schemaVersion: 1, kind: "running", requestId: "w", phase: "executing" },
       { schemaVersion: 1, kind: "completed" }, { schemaVersion: 1, kind: "existing_replica", requestId: "" },
       { schemaVersion: 1, kind: "stopped", requestId: "w", status: "active" },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "failed" },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "failed", newWorkflow: true },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "failed", newWorkflow: "ready" },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "completed", newWorkflow: "allowed" },
+      { schemaVersion: 1, kind: "stopped", requestId: "w", status: "cancelled", newWorkflow: "allowed", history: "private" },
       { schemaVersion: 1, kind: "running", requestId: "w", phase: "activating", capability: "private" },
     ]) {
       invokeMock.mockResolvedValueOnce(value);
       await expect(createTargetInstallationPort().status()).rejects.toThrow(TypeError);
     }
+  });
+  it("preserves the stopped workflow identity and admits only the closed new-workflow decisions", async () => {
+    for (const newWorkflow of ["allowed", "requires_recovery", "awaiting_terminal", "authorization_changed", "history_full"] as const) {
+      const view = { kind: "stopped", requestId: "previous", status: "cancelled", newWorkflow } as const;
+      invokeMock.mockResolvedValueOnce({ schemaVersion: 1, ...view });
+      expect(await createTargetInstallationPort().status()).toEqual(view);
+    }
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, kind: "stopped", requestId: "previous", status: "cancelled", newWorkflow: "allowed" });
+    await expect(createTargetInstallationPort().start("next")).rejects.toThrow(TypeError);
   });
 });
 

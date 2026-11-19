@@ -204,7 +204,8 @@ export type TargetInstallationView =
   | { readonly kind: "idle" }
   | { readonly kind: "running"; readonly requestId: string; readonly phase: TargetInstallationPhase }
   | { readonly kind: "completed" | "existing_replica"; readonly requestId: string }
-  | { readonly kind: "stopped"; readonly requestId: string; readonly status: "cancelled" | "failed" | "completed" };
+  | { readonly kind: "stopped"; readonly requestId: string; readonly status: "cancelled" | "failed" | "completed";
+      readonly newWorkflow: "allowed" | "requires_recovery" | "awaiting_terminal" | "authorization_changed" | "history_full" };
 export interface TargetInstallationPort {
   /** Persists one confirmation; Native owns all subsequent work and replay. */
   start(requestId: string): Promise<TargetInstallationView>;
@@ -685,7 +686,7 @@ function parseTargetInstallationView(value: unknown): TargetInstallationView {
   const kind = (data as Record<string, unknown>)["kind"];
   const fields = kind === "idle" ? ["schemaVersion", "kind"] : kind === "running"
     ? ["schemaVersion", "kind", "requestId", "phase"] : kind === "stopped"
-      ? ["schemaVersion", "kind", "requestId", "status"] : ["schemaVersion", "kind", "requestId"];
+      ? ["schemaVersion", "kind", "requestId", "status", "newWorkflow"] : ["schemaVersion", "kind", "requestId"];
   const record = exactRecord(data, fields);
   if (record["schemaVersion"] !== 1) throw new TypeError("invalid installation version");
   if (kind === "idle") return Object.freeze({ kind });
@@ -695,7 +696,11 @@ function parseTargetInstallationView(value: unknown): TargetInstallationView {
   const phase = record["phase"];
   if (kind === "running" && (phase === "claiming" || phase === "downloading" || phase === "installing" || phase === "verifying" || phase === "activating" || phase === "authorizing")) return Object.freeze({ kind, requestId, phase });
   const status = record["status"];
-  if (kind === "stopped" && (status === "cancelled" || status === "failed" || status === "completed")) return Object.freeze({ kind, requestId, status });
+  const newWorkflow = record["newWorkflow"];
+  if (kind === "stopped" && (status === "cancelled" || status === "failed" || status === "completed")
+    && (newWorkflow === "allowed" || newWorkflow === "requires_recovery" || newWorkflow === "awaiting_terminal"
+      || newWorkflow === "authorization_changed" || newWorkflow === "history_full")
+    && !(status === "completed" && newWorkflow === "allowed")) return Object.freeze({ kind, requestId, status, newWorkflow });
   throw new TypeError("invalid installation state");
 }
 

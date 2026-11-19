@@ -158,7 +158,9 @@ where
             })
             .await?;
         self.local_check(epoch, &admission)?;
-        (self.wake)();
+        if matches!(view, DesktopTargetInstallationView::Running { .. }) {
+            (self.wake)();
+        }
         Ok(view)
     }
 
@@ -467,7 +469,8 @@ impl InstallationCloud<DesktopNativeCloudAdmission> for NativeCloudSession {
 mod tests {
     use super::*;
     use gooddealer_local_storage::{
-        DesktopTargetBootstrapTerminalStatus, DesktopTargetInstallationPhase,
+        DesktopTargetBootstrapTerminalStatus, DesktopTargetInstallationNewWorkflow,
+        DesktopTargetInstallationPhase,
     };
     use std::collections::VecDeque;
     use std::sync::{
@@ -553,6 +556,7 @@ mod tests {
                 return DesktopTargetInstallationView::Stopped {
                     request_id: "original".into(),
                     status: DesktopTargetBootstrapTerminalStatus::Cancelled,
+                    new_workflow: DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
                 };
             }
             if self.authorized {
@@ -591,6 +595,10 @@ mod tests {
         power_after_prepare: AtomicBool,
         power_after_complete: AtomicBool,
         power_after_install: AtomicBool,
+        expected_preview: StdMutex<String>,
+        reported_view: StdMutex<Option<DesktopTargetInstallationView>>,
+        start_result: StdMutex<Option<DesktopTargetInstallationView>>,
+        start_calls: AtomicU64,
     }
     impl Host {
         fn custody(&self) {
@@ -620,6 +628,9 @@ mod tests {
         ) -> Result<DesktopTargetInstallationView, DesktopLocalHostError> {
             self.custody();
             self.recheck(admission)?;
+            if let Some(view) = self.reported_view.lock().unwrap().as_ref() {
+                return Ok(view.clone());
+            }
             Ok(self.state.lock().unwrap().view())
         }
         fn start(
@@ -629,8 +640,12 @@ mod tests {
         ) -> Result<DesktopTargetInstallationView, DesktopLocalHostError> {
             self.custody();
             self.recheck(admission)?;
-            if preview != "original" {
+            self.start_calls.fetch_add(1, Ordering::SeqCst);
+            if preview != *self.expected_preview.lock().unwrap() {
                 return Err(DesktopLocalHostError::CloudProtocolRejected);
+            }
+            if let Some(view) = self.start_result.lock().unwrap().as_ref() {
+                return Ok(view.clone());
             }
             let mut state = self.state.lock().unwrap();
             if !state.started {
@@ -645,6 +660,9 @@ mod tests {
         ) -> Result<InstallationWork<Exchange>, DesktopLocalHostError> {
             self.custody();
             self.recheck(admission)?;
+            if let Some(view) = self.reported_view.lock().unwrap().as_ref() {
+                return Ok(InstallationWork::Settled(view.clone()));
+            }
             let mut state = self.state.lock().unwrap();
             if state.authorized {
                 state.finalizations += 1;
@@ -852,6 +870,10 @@ mod tests {
             power_after_prepare: AtomicBool::new(false),
             power_after_complete: AtomicBool::new(false),
             power_after_install: AtomicBool::new(false),
+            expected_preview: StdMutex::new("original".into()),
+            reported_view: StdMutex::new(None),
+            start_result: StdMutex::new(None),
+            start_calls: AtomicU64::new(0),
         });
         let fence = Arc::new(NativeCloudCancelFence::default());
         let cloud = Arc::new(Cloud {
@@ -1119,6 +1141,82 @@ mod tests {
             DesktopTargetInstallationView::Running { .. }
         ));
         assert!(!waiting.more);
+        assert!(cloud.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn stopped_and_existing_replica_answers_preserve_scope_without_waking_work() {
+        let mut views: Vec<_> = [
+            DesktopTargetInstallationNewWorkflow::Allowed,
+            DesktopTargetInstallationNewWorkflow::RequiresRecovery,
+            DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
+            DesktopTargetInstallationNewWorkflow::AuthorizationChanged,
+            DesktopTargetInstallationNewWorkflow::HistoryFull,
+        ]
+        .into_iter()
+        .map(|new_workflow| DesktopTargetInstallationView::Stopped {
+            request_id: "old-workflow".into(),
+            status: DesktopTargetBootstrapTerminalStatus::Cancelled,
+            new_workflow,
+        })
+        .collect();
+        views.push(DesktopTargetInstallationView::ExistingReplica {
+            request_id: "new-workflow".into(),
+        });
+        for view in views {
+            let (host, cloud, wakes, coordinator) = setup();
+            let (DesktopTargetInstallationView::Stopped { request_id, .. }
+            | DesktopTargetInstallationView::ExistingReplica { request_id }) = &view
+            else {
+                unreachable!();
+            };
+            *host.expected_preview.lock().unwrap() = request_id.clone();
+            *host.reported_view.lock().unwrap() = Some(view.clone());
+            *host.start_result.lock().unwrap() = Some(view.clone());
+            assert_eq!(coordinator.status().await.unwrap(), view);
+            let settled = coordinator.advance_background().await.unwrap();
+            assert_eq!(settled.view, view);
+            assert!(!settled.more);
+            assert_eq!(coordinator.start(request_id).await.unwrap(), view);
+            assert_eq!(wakes.load(Ordering::SeqCst), 0);
+            assert!(cloud.calls.lock().unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn new_workflow_requires_exact_confirmation_and_waits_for_the_cancellation_lock() {
+        let (host, cloud, wakes, coordinator) = setup();
+        let stopped = DesktopTargetInstallationView::Stopped {
+            request_id: "old-workflow".into(),
+            status: DesktopTargetBootstrapTerminalStatus::Failed,
+            new_workflow: DesktopTargetInstallationNewWorkflow::Allowed,
+        };
+        *host.reported_view.lock().unwrap() = Some(stopped.clone());
+        *host.expected_preview.lock().unwrap() = "new-workflow".into();
+        assert_eq!(coordinator.status().await.unwrap(), stopped);
+        assert!(!coordinator.advance_background().await.unwrap().more);
+        assert_eq!(host.start_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(wakes.load(Ordering::SeqCst), 0);
+        assert!(coordinator.start("old-workflow").await.is_err());
+
+        let running = DesktopTargetInstallationView::Running {
+            request_id: "new-workflow".into(),
+            phase: DesktopTargetInstallationPhase::Claiming,
+        };
+        *host.start_result.lock().unwrap() = Some(running.clone());
+        let shared = Arc::clone(&coordinator.serialized);
+        let cancellation = shared.lock().await;
+        let mut confirmation = std::pin::pin!(coordinator.start("new-workflow"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), &mut confirmation)
+                .await
+                .is_err()
+        );
+        assert_eq!(host.start_calls.load(Ordering::SeqCst), 1);
+        drop(cancellation);
+        assert_eq!(confirmation.await.unwrap(), running);
+        assert_eq!(host.start_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
         assert!(cloud.calls.lock().unwrap().is_empty());
     }
 

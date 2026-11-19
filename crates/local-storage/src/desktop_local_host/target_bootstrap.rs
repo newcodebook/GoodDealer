@@ -203,11 +203,12 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopTargetBootstrapStatusExchange, Error> {
-        self.with_target_control(admission, |record, _, next_revision, _| {
+        self.with_target_control(admission, |record, _, next_revision, custody| {
             let request_id = record
                 .pending
                 .as_ref()
-                .map(|pending| pending.request_id.clone());
+                .map(|pending| pending.request_id.clone())
+                .or(super::target_installation::installation_reconciliation_request(custody)?);
             let body =
                 serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"requestId":request_id}))
                     .map_err(|_| rejected())?;
@@ -237,7 +238,7 @@ impl DesktopLocalHost {
         self.with_target_control(admission, |record, security_epoch, next_revision, custody| {
             if exchange.authority_epoch != admission.inner.authority_epoch
                 || record.revision != exchange.revision
-                || record.pending.as_ref().map(|p| &p.request_id) != exchange.request_id.as_ref()
+                || record.pending.as_ref().is_some_and(|pending| Some(&pending.request_id) != exchange.request_id.as_ref())
             {
                 return Err(rejected());
             }
@@ -459,6 +460,20 @@ fn installation_control(
         .map(|bytes| {
             let record: Control = strict_json(&bytes)?;
             record.validate()?;
+            let floor = custody
+                .load_authorization_floor()
+                .map_err(|_| storage())?
+                .ok_or(Error::AuthorityRejected)?;
+            if record.installation
+                != custody
+                    .installation_binding_digest()
+                    .map_err(|_| storage())?
+                || record.account != floor.account_id
+                || record.workspace != floor.workspace_id
+                || record.device != floor.device_id
+            {
+                return Err(Error::AuthorityRejected);
+            }
             Ok(record)
         })
         .transpose()
@@ -491,12 +506,26 @@ pub(super) fn installation_terminal(
     request_id: &str,
 ) -> Result<Option<DesktopTargetBootstrapTerminalStatus>, Error> {
     Ok(
-        installation_control(custody)?.and_then(|record| match record.state {
-            DesktopTargetBootstrapView::Finished {
+        installation_control(custody)?.and_then(|record| match record.last_finished {
+            Some(DesktopTargetBootstrapView::Finished {
                 request_id: current,
                 status,
-            } if current == request_id => Some(status),
+            }) if current == request_id => Some(status),
             _ => None,
         }),
     )
+}
+
+pub(super) fn installation_terminal_record(
+    custody: &crate::desktop_custody::DesktopProductionCustody,
+    request_id: &str,
+) -> Result<Option<Vec<u8>>, Error> {
+    let Some(record) = installation_control(custody)? else {
+        return Ok(None);
+    };
+    if !matches!(&record.last_finished, Some(DesktopTargetBootstrapView::Finished { request_id: id, .. }) if id == request_id)
+    {
+        return Ok(None);
+    }
+    serde_json::to_vec(&record).map(Some).map_err(|_| storage())
 }

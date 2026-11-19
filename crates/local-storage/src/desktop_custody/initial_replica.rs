@@ -9,8 +9,10 @@ use sha2::{Digest as _, Sha256};
 use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use zeroize::Zeroizing;
 const MAX_STATE: usize = 32 * 1_048_576;
-const MAX_HEAD: usize = 16_384;
-const VERSION: u8 = 1;
+const MAX_HEAD: usize = 65_536;
+const VERSION: u8 = 2;
+const FILE_AAD_VERSION: u8 = 1;
+const MAX_HISTORY: usize = 8;
 static JOURNAL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +57,7 @@ enum PendingFile {
     Reserved {
         file: StateFile,
         destination: InitialReplicaPhase,
+        retain_current: bool,
     },
     Discarding {
         name: String,
@@ -73,6 +76,7 @@ struct Head {
     pending: Option<PendingFile>,
     #[serde(deserialize_with = "required_option")]
     retired: Option<StateFile>,
+    terminal_history: Vec<StateFile>,
 }
 fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
@@ -84,6 +88,11 @@ pub(crate) struct InitialReplicaState {
     pub(crate) phase: InitialReplicaPhase,
     pub(crate) scope: Option<InitialReplicaScope>,
     pub(crate) bytes: Option<Zeroizing<Vec<u8>>>,
+    pub(crate) history: Vec<InitialReplicaHistory>,
+}
+pub(crate) struct InitialReplicaHistory {
+    pub(crate) scope: InitialReplicaScope,
+    pub(crate) bytes: Zeroizing<Vec<u8>>,
 }
 fn rejected() -> Error {
     Error::Rejected
@@ -109,7 +118,11 @@ impl Head {
                 PendingFile::Allocating { name } | PendingFile::Discarding { name, .. } => {
                     validate_name(name)?;
                 }
-                PendingFile::Reserved { file, destination } => {
+                PendingFile::Reserved {
+                    file,
+                    destination,
+                    retain_current,
+                } => {
                     validate_file(file)?;
                     validate_transition(self.phase, *destination)?;
                     if file.revision
@@ -117,10 +130,19 @@ impl Head {
                             .current
                             .as_ref()
                             .map_or(1, |current| current.revision + 1)
-                        || self
-                            .current
-                            .as_ref()
-                            .is_some_and(|current| current.scope != file.scope)
+                        || if *retain_current {
+                            self.phase != InitialReplicaPhase::Installing
+                                || *destination != InitialReplicaPhase::Installing
+                                || self.terminal_history.len() >= MAX_HISTORY
+                                || self.current.as_ref().is_none_or(|current| {
+                                    !same_owner(&current.scope, &file.scope)
+                                        || current.scope.workflow == file.scope.workflow
+                                })
+                        } else {
+                            self.current
+                                .as_ref()
+                                .is_some_and(|current| current.scope != file.scope)
+                        }
                     {
                         return Err(rejected());
                     }
@@ -152,8 +174,62 @@ impl Head {
         }) {
             return Err(rejected());
         }
+        self.validate_file_references()
+    }
+    fn validate_file_references(&self) -> Result<(), Error> {
+        if self.terminal_history.len() > MAX_HISTORY {
+            return Err(rejected());
+        }
+        let mut names = std::collections::HashSet::new();
+        let mut identities = std::collections::HashSet::new();
+        let mut revisions = std::collections::HashSet::new();
+        let mut workflows = std::collections::HashSet::new();
+        let current = self.current.as_ref();
+        let mut previous_revision = 0;
+        for old in &self.terminal_history {
+            validate_file(old)?;
+            if current.is_none_or(|selected| {
+                !same_owner(&old.scope, &selected.scope)
+                    || old.scope.workflow == selected.scope.workflow
+                    || old.revision >= selected.revision
+            }) || old.revision <= previous_revision
+                || !workflows.insert(&old.scope.workflow)
+            {
+                return Err(rejected());
+            }
+            previous_revision = old.revision;
+        }
+        for file in self
+            .terminal_history
+            .iter()
+            .chain(self.current.iter())
+            .chain(self.retired.iter())
+            .chain(self.pending.iter().filter_map(|pending| match pending {
+                PendingFile::Reserved { file, .. } => Some(file),
+                _ => None,
+            }))
+        {
+            if !names.insert(&file.name)
+                || !identities.insert(file.identity)
+                || !revisions.insert(file.revision)
+            {
+                return Err(rejected());
+            }
+        }
+        if let Some(PendingFile::Allocating { name } | PendingFile::Discarding { name, .. }) =
+            &self.pending
+            && names.contains(name)
+        {
+            return Err(rejected());
+        }
         Ok(())
     }
+}
+fn same_owner(left: &InitialReplicaScope, right: &InitialReplicaScope) -> bool {
+    left.installation == right.installation
+        && left.account == right.account
+        && left.workspace == right.workspace
+        && left.device == right.device
 }
 fn validate_transition(from: InitialReplicaPhase, to: InitialReplicaPhase) -> Result<(), Error> {
     use InitialReplicaPhase::{Fresh, Initialized, Installed, Installing};
@@ -222,6 +298,16 @@ impl DesktopProductionCustody {
             phase: head.phase,
             scope: head.current.as_ref().map(|file| file.scope.clone()),
             bytes,
+            history: head
+                .terminal_history
+                .iter()
+                .map(|file| {
+                    Ok(InitialReplicaHistory {
+                        scope: file.scope.clone(),
+                        bytes: self.read_initial_file(&head, file)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()?,
         })
     }
     /// Persists an exact prepared/received operation before it can be sent or published.
@@ -232,6 +318,40 @@ impl DesktopProductionCustody {
         bytes: &[u8],
         phase: InitialReplicaPhase,
     ) -> Result<u64, Error> {
+        self.store_initial_state(expected_revision, scope, bytes, phase, false)
+    }
+    pub(crate) fn restart_initial_replica_state(
+        &self,
+        expected_revision: u64,
+        scope: &InitialReplicaScope,
+        bytes: &[u8],
+    ) -> Result<u64, Error> {
+        self.store_initial_state(
+            expected_revision,
+            scope,
+            bytes,
+            InitialReplicaPhase::Installing,
+            true,
+        )
+    }
+    pub(crate) fn initial_replica_has_history_capacity(&self) -> Result<bool, Error> {
+        let _lock = JOURNAL_LOCK.lock().map_err(|_| failed())?;
+        Ok(self.initial_head()?.terminal_history.len() < MAX_HISTORY)
+    }
+    pub(crate) fn initial_replica_database_unwritten(&self) -> Result<bool, Error> {
+        let head = self.initial_head()?;
+        Ok(head.database == self.initial_database_identity()?
+            && self.initial_database_is_empty()?
+            && self.initial_database_has_no_sidecars()?)
+    }
+    fn store_initial_state(
+        &self,
+        expected_revision: u64,
+        scope: &InitialReplicaScope,
+        bytes: &[u8],
+        phase: InitialReplicaPhase,
+        retain_current: bool,
+    ) -> Result<u64, Error> {
         if bytes.is_empty() || bytes.len() > MAX_STATE {
             return Err(rejected());
         }
@@ -241,10 +361,22 @@ impl DesktopProductionCustody {
         self.clean_initial_retired(&mut head)?;
         let revision = head.current.as_ref().map_or(0, |file| file.revision);
         if revision != expected_revision
-            || head
-                .current
-                .as_ref()
-                .is_some_and(|file| &file.scope != scope)
+            || head.current.as_ref().is_some_and(|file| {
+                if retain_current {
+                    !same_owner(&file.scope, scope) || file.scope.workflow == scope.workflow
+                } else {
+                    &file.scope != scope
+                }
+            })
+            || retain_current
+                && (head.phase != InitialReplicaPhase::Installing
+                    || head.current.is_none()
+                    || head.terminal_history.len() >= MAX_HISTORY
+                    || head
+                        .terminal_history
+                        .iter()
+                        .any(|old| old.scope.workflow == scope.workflow)
+                    || !self.initial_replica_database_unwritten()?)
             || head.phase == InitialReplicaPhase::OrdinaryOpening
             || (head.phase == InitialReplicaPhase::Initialized && head.current.is_none())
         {
@@ -284,6 +416,7 @@ impl DesktopProductionCustody {
         head.pending = Some(PendingFile::Reserved {
             file: selected.clone(),
             destination: phase,
+            retain_current,
         });
         self.write_initial_head(&head)?;
         file.write_all(&ciphertext)
@@ -292,10 +425,7 @@ impl DesktopProductionCustody {
         self.verify_initial_named_file(&selected.name, &file, identity)?;
         self.sync_initial_directory()?;
         self.read_initial_file(&head, &selected)?;
-        head.retired = head.current.take();
-        head.current = Some(selected);
-        head.pending = None;
-        head.phase = phase;
+        select_initial_file(&mut head, selected, phase, retain_current)?;
         self.write_initial_head(&head)?;
         self.clean_initial_retired(&mut head)?;
         Ok(revision + 1)
@@ -338,7 +468,7 @@ impl DesktopProductionCustody {
             }
             let value = crate::desktop_native_cloud::strict_json::<serde_json::Value>(&bytes)
                 .map_err(|_| rejected())?;
-            serde_json::from_value::<Head>(value).map_err(|_| rejected())?
+            decode_head(value)?
         } else {
             if marker {
                 return Err(rejected());
@@ -359,6 +489,7 @@ impl DesktopProductionCustody {
                 current: None,
                 pending: None,
                 retired: None,
+                terminal_history: Vec::new(),
             };
             self.write_initial_head(&head)?;
             head
@@ -461,6 +592,7 @@ impl DesktopProductionCustody {
             PendingFile::Reserved {
                 file: selected,
                 destination,
+                retain_current,
             } => {
                 let file = self.initial_state_file(&selected.name, false)?;
                 self.verify_initial_named_file(&selected.name, &file, selected.identity)?;
@@ -475,10 +607,7 @@ impl DesktopProductionCustody {
                     self.verify_initial_named_file(&selected.name, &file, selected.identity)?;
                     self.sync_initial_directory()?;
                     self.read_initial_file(head, &selected)?;
-                    head.retired = head.current.take();
-                    head.current = Some(selected);
-                    head.pending = None;
-                    head.phase = destination;
+                    select_initial_file(head, selected, destination, retain_current)?;
                     self.write_initial_head(head)?;
                 } else {
                     drop(file);
@@ -507,10 +636,53 @@ impl DesktopProductionCustody {
         Ok(())
     }
 }
+fn select_initial_file(
+    head: &mut Head,
+    selected: StateFile,
+    phase: InitialReplicaPhase,
+    retain: bool,
+) -> Result<(), Error> {
+    if retain {
+        let old = head.current.take().ok_or_else(rejected)?;
+        head.terminal_history.push(old);
+    } else {
+        head.retired = head.current.take();
+    }
+    head.current = Some(selected);
+    head.pending = None;
+    head.phase = phase;
+    Ok(())
+}
+fn decode_head(mut value: serde_json::Value) -> Result<Head, Error> {
+    if value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        == Some(1)
+    {
+        let object = value.as_object_mut().ok_or_else(rejected)?;
+        if object.contains_key("terminalHistory") {
+            return Err(rejected());
+        }
+        object.insert("terminalHistory".into(), serde_json::json!([]));
+        object.insert("schemaVersion".into(), serde_json::json!(VERSION));
+        if let Some(pending) = object
+            .get_mut("pending")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            if pending.contains_key("retain_current") {
+                return Err(rejected());
+            }
+            if pending.get("phase").and_then(serde_json::Value::as_str) == Some("reserved") {
+                pending.insert("retain_current".into(), serde_json::json!(false));
+            }
+        }
+    }
+    serde_json::from_value(value).map_err(|_| rejected())
+}
 fn initial_aad(database: [u64; 2], file: &StateFile) -> Result<Zeroizing<Vec<u8>>, Error> {
     serialize(&(
         "GOODDEALER/INITIAL-REPLICA-JOURNAL-AAD-V1",
-        VERSION,
+        FILE_AAD_VERSION,
         database,
         &file.name,
         file.identity,
@@ -709,6 +881,7 @@ mod tests {
         head.pending = Some(PendingFile::Reserved {
             file: selected,
             destination: InitialReplicaPhase::Installing,
+            retain_current: false,
         });
         owner.write_initial_head(&head).unwrap();
         // Model process loss after the entire payload write and before its sync_all.
@@ -763,6 +936,7 @@ mod tests {
                         scope: scope(),
                     },
                     destination: InitialReplicaPhase::Installing,
+                    retain_current: false,
                 });
                 owner.write_initial_head(&head).unwrap();
             } else if prefix == "discarded-missing" {
@@ -815,5 +989,212 @@ mod tests {
         *store.initial_replica_head.lock().unwrap() = None;
         *store.initial_replica_marker.lock().unwrap() = None;
         assert!(owner.initial_replica_state().is_err());
+    }
+    #[test]
+    fn terminal_history_and_successor_publish_together_across_reserved_crash_prefixes() {
+        for prefix in ["complete", "partial", "missing", "old-corrupt"] {
+            let directory = crate::test_tempdir::tempdir().unwrap();
+            let path = directory.path().join("GoodDealer");
+            let store = TestRebootstrapKeyStore::default();
+            let owner = custody(&path, &store);
+            owner
+                .store_initial_replica_state(
+                    0,
+                    &scope(),
+                    b"original-terminal",
+                    InitialReplicaPhase::Installing,
+                )
+                .unwrap();
+            let old = owner.initial_head().unwrap().current.unwrap();
+            let mut next_scope = scope();
+            next_scope.workflow = "next-workflow".into();
+            owner
+                .restart_initial_replica_state(1, &next_scope, b"new-confirmation")
+                .unwrap();
+            let mut head = owner.initial_head().unwrap();
+            let next = head.current.take().unwrap();
+            head.current = head.terminal_history.pop();
+            head.pending = Some(PendingFile::Reserved {
+                file: next.clone(),
+                destination: InitialReplicaPhase::Installing,
+                retain_current: true,
+            });
+            owner.write_initial_head(&head).unwrap();
+            let next_path = path.join("active-workspace").join(&next.name);
+            match prefix {
+                "partial" => std::fs::write(&next_path, b"partial").unwrap(),
+                "missing" => std::fs::remove_file(&next_path).unwrap(),
+                "old-corrupt" => {
+                    std::fs::write(path.join("active-workspace").join(&old.name), b"corrupt")
+                        .unwrap();
+                }
+                _ => {}
+            }
+            drop(owner);
+            let owner = custody(&path, &store);
+            match prefix {
+                "complete" => {
+                    let state = owner.initial_replica_state().unwrap();
+                    assert_eq!(state.scope.unwrap().workflow, "next-workflow");
+                    assert_eq!(state.history.len(), 1);
+                    assert_eq!(state.history[0].bytes.as_slice(), b"original-terminal");
+                    assert_eq!(state.bytes.unwrap().as_slice(), b"new-confirmation");
+                    assert!(path.join("active-workspace").join(&old.name).exists());
+                }
+                "partial" => {
+                    let state = owner.initial_replica_state().unwrap();
+                    assert_eq!(state.scope.unwrap().workflow, "workflow");
+                    assert!(state.history.is_empty());
+                    assert_eq!(state.bytes.unwrap().as_slice(), b"original-terminal");
+                    assert!(!next_path.exists());
+                }
+                _ => assert!(owner.initial_replica_state().is_err()),
+            }
+        }
+    }
+    #[test]
+    fn historical_file_missing_modified_replaced_and_reference_aliases_fail_closed() {
+        for corrupt in ["missing", "modified", "replaced", "scope", "alias"] {
+            let directory = crate::test_tempdir::tempdir().unwrap();
+            let path = directory.path().join("GoodDealer");
+            let store = TestRebootstrapKeyStore::default();
+            let owner = custody(&path, &store);
+            owner
+                .store_initial_replica_state(
+                    0,
+                    &scope(),
+                    b"terminal",
+                    InitialReplicaPhase::Installing,
+                )
+                .unwrap();
+            let mut next = scope();
+            next.workflow = "next".into();
+            owner
+                .restart_initial_replica_state(1, &next, b"new")
+                .unwrap();
+            let mut head = owner.initial_head().unwrap();
+            let old_path = path
+                .join("active-workspace")
+                .join(&head.terminal_history[0].name);
+            match corrupt {
+                "missing" => std::fs::remove_file(old_path).unwrap(),
+                "modified" => std::fs::write(old_path, b"changed").unwrap(),
+                "replaced" => {
+                    let bytes = std::fs::read(&old_path).unwrap();
+                    std::fs::rename(&old_path, old_path.with_extension("retained-for-test"))
+                        .unwrap();
+                    std::fs::write(old_path, bytes).unwrap();
+                }
+                "scope" => {
+                    head.terminal_history[0].scope.account = "foreign".into();
+                    *store.initial_replica_head.lock().unwrap() =
+                        Some(serialize(&head).unwrap().to_vec());
+                }
+                _ => {
+                    head.terminal_history[0] = head.current.clone().unwrap();
+                    *store.initial_replica_head.lock().unwrap() =
+                        Some(serialize(&head).unwrap().to_vec());
+                }
+            }
+            assert!(owner.initial_replica_state().is_err(), "{corrupt}");
+        }
+    }
+    #[test]
+    fn v1_head_upgrades_explicitly_without_reencrypting_its_selected_file() {
+        let directory = crate::test_tempdir::tempdir().unwrap();
+        let path = directory.path().join("GoodDealer");
+        let store = TestRebootstrapKeyStore::default();
+        let owner = custody(&path, &store);
+        owner
+            .store_initial_replica_state(
+                0,
+                &scope(),
+                b"v1-payload",
+                InitialReplicaPhase::Installing,
+            )
+            .unwrap();
+        let head = owner.initial_head().unwrap();
+        let selected = head.current.as_ref().unwrap();
+        let original_file =
+            std::fs::read(path.join("active-workspace").join(&selected.name)).unwrap();
+        let mut legacy = serde_json::to_value(&head).unwrap();
+        legacy["schemaVersion"] = serde_json::json!(1);
+        legacy.as_object_mut().unwrap().remove("terminalHistory");
+        *store.initial_replica_head.lock().unwrap() = Some(serde_json::to_vec(&legacy).unwrap());
+        assert_eq!(
+            owner
+                .initial_replica_state()
+                .unwrap()
+                .bytes
+                .unwrap()
+                .as_slice(),
+            b"v1-payload"
+        );
+        assert_eq!(
+            std::fs::read(path.join("active-workspace").join(&selected.name)).unwrap(),
+            original_file
+        );
+        owner
+            .store_initial_replica_state(
+                1,
+                &scope(),
+                b"v2-payload",
+                InitialReplicaPhase::Installing,
+            )
+            .unwrap();
+        let persisted: serde_json::Value =
+            serde_json::from_slice(store.initial_replica_head.lock().unwrap().as_ref().unwrap())
+                .unwrap();
+        assert_eq!(persisted["schemaVersion"], 2);
+        let mut missing = persisted;
+        missing.as_object_mut().unwrap().remove("terminalHistory");
+        assert!(decode_head(missing).is_err());
+        legacy["terminalHistory"] = serde_json::json!([]);
+        assert!(decode_head(legacy).is_err());
+    }
+    #[test]
+    fn maximum_escaped_identifiers_fit_complete_history_pending_and_retired_head() {
+        let make = |number: u64| StateFile {
+            name: format!("initial-replica-{number:032x}.sealed"),
+            identity: [u64::MAX, u64::MAX - number],
+            revision: 9_007_199_254_740_980 + number,
+            size: MAX_STATE as u64 + 16,
+            digest: [255; 32],
+            nonce: [255; 24],
+            scope: InitialReplicaScope {
+                installation: [255; 32],
+                account: "\\".repeat(160),
+                workspace: "\\".repeat(160),
+                device: "\\".repeat(160),
+                workflow: format!("{}{:02}", "\\".repeat(158), number),
+            },
+        };
+        let mut current = make(10);
+        current.scope.workflow = format!("{}10", "\\".repeat(158));
+        let mut retired = make(9);
+        retired.scope = current.scope.clone();
+        let mut pending = make(11);
+        pending.scope = current.scope.clone();
+        let head = Head {
+            schema_version: VERSION,
+            database: [u64::MAX; 2],
+            phase: InitialReplicaPhase::Installing,
+            current: Some(current),
+            retired: Some(retired),
+            pending: Some(PendingFile::Reserved {
+                file: pending,
+                destination: InitialReplicaPhase::Installing,
+                retain_current: false,
+            }),
+            terminal_history: (1..=8).map(make).collect(),
+        };
+        head.validate().unwrap();
+        let size = serialize(&head).unwrap().len();
+        assert_eq!(size, 21_101);
+        assert!(size < MAX_HEAD, "worst supported head is {size} bytes");
+        assert!(
+            size < 32_768,
+            "keep at least half the head budget available; actual {size}"
+        );
     }
 }

@@ -4,6 +4,11 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TargetBootstrapPort, TargetBootstrapView, TargetInstallationPort, TargetInstallationView } from "../../adapters/tauri";
 
 type Confirmation = { readonly requestId: string; readonly action: "start" | "cancel" };
+function canReceive(installation: TargetInstallationView | null | undefined, workflow: TargetBootstrapView | null): boolean {
+  return workflow?.kind === "available" && (installation?.kind === "idle"
+    || (installation?.kind === "stopped" && installation.newWorkflow === "allowed"
+      && installation.status !== "completed" && installation.requestId !== workflow.requestId));
+}
 /** One decision names the displayed workflow; background work and replay stay in Native. */
 export function TargetBootstrapPanel({ locale, port, installationPort }: { readonly locale: Locale; readonly port: TargetBootstrapPort; readonly installationPort?: TargetInstallationPort }) {
   const copy = getPresentationCopy(locale, "settings");
@@ -37,7 +42,9 @@ export function TargetBootstrapPanel({ locale, port, installationPort }: { reado
         setInstallation(current => next?.kind === "idle" && current?.kind === "existing_replica"
           && bootstrap.status === "fulfilled" && bootstrap.value.kind === "available"
           && bootstrap.value.requestId === current.requestId ? current : next);
-        if (next !== null && next.kind !== "idle") setPreview(current => current?.action === "start" ? null : current);
+        if (!canReceive(next, bootstrap.status === "fulfilled" ? bootstrap.value : null)) {
+          setPreview(current => current?.action === "start" ? null : current);
+        }
       } else { setUnknown(true); setPreview(null); }
     } finally { if (ticket === generation.current) inFlight.current = false; }
   }, [accept, port, installationPort]);
@@ -51,7 +58,7 @@ export function TargetBootstrapPanel({ locale, port, installationPort }: { reado
   const submitConfirmation = async () => {
     if (inFlight.current || busy || unknown || !acknowledged || view?.kind !== "available" || preview?.requestId !== view.requestId) return;
     const { requestId, action } = preview;
-    if (action === "start" && (installationPort === undefined || installation?.kind !== "idle")) return;
+    if (action === "start" && (installationPort === undefined || !canReceive(installation, view))) return;
     const ticket = generation.current;
     inFlight.current = true; setBusy(true);
     try {
@@ -62,13 +69,19 @@ export function TargetBootstrapPanel({ locale, port, installationPort }: { reado
   };
   const phaseCopy = { claiming: copy.installationClaiming, downloading: copy.installationDownloading, installing: copy.installationInstalling,
     verifying: copy.installationVerifying, activating: copy.installationActivating, authorizing: copy.installationAuthorizing };
+  const newWorkflowCopy = { allowed: copy.installationReceiveAgain, requires_recovery: copy.installationRecoveryRequired,
+    awaiting_terminal: copy.installationAwaitingTerminal, authorization_changed: copy.installationAuthorizationChanged,
+    history_full: copy.installationHistoryFull };
   const currentInstallation = installation !== null && installation.kind !== "idle"
-    && (view === null || view.kind === "idle" || installation.requestId === view.requestId) ? installation : null;
+    && (installation.kind === "stopped" || view === null || view.kind === "idle" || installation.requestId === view.requestId) ? installation : null;
+  const previousInstallation = installation !== null && installation.kind !== "idle"
+    && view?.kind === "available" && installation.requestId !== view.requestId;
   const message = unknown ? copy.bootstrapUnknown : view?.kind === "pending" ? copy.bootstrapPending
     : currentInstallation?.kind === "running" ? phaseCopy[currentInstallation.phase]
       : currentInstallation?.kind === "completed" ? copy.installationCompleted
         : currentInstallation?.kind === "existing_replica" ? copy.installationExistingReplica
-          : currentInstallation?.kind === "stopped" ? (currentInstallation.status === "cancelled" ? copy.bootstrapCancelled : currentInstallation.status === "failed" ? copy.bootstrapFailed : copy.bootstrapCompleted)
+          : currentInstallation?.kind === "stopped" ? `${currentInstallation.status === "cancelled" ? copy.bootstrapCancelled : currentInstallation.status === "failed" ? copy.bootstrapFailed : copy.bootstrapCompleted} ${newWorkflowCopy[currentInstallation.newWorkflow]}`
+            : previousInstallation ? (installation.kind === "completed" || installation.kind === "existing_replica" ? copy.installationExistingReplica : copy.installationAwaitingTerminal)
             : view === null ? "" : view.kind === "idle" ? copy.bootstrapIdle
             : view.kind === "available" ? copy.bootstrapAvailable
               : view.status === "cancelled" ? copy.bootstrapCancelled : view.status === "failed" ? copy.bootstrapFailed : copy.bootstrapCompleted;
@@ -85,7 +98,7 @@ export function TargetBootstrapPanel({ locale, port, installationPort }: { reado
         <Button type="submit" disabled={busy || !acknowledged}>{preview.action === "start" ? copy.installationConfirm : copy.bootstrapCancelConfirm}</Button>
         <Button type="button" disabled={busy} onClick={() => { setPreview(null); setAcknowledged(false); }}>{copy.handoffBack}</Button>
       </form> : <>
-        {installationPort !== undefined && installation?.kind === "idle" ? <Button size="sm" disabled={busy} onClick={() => { setPreview({ requestId: view.requestId, action: "start" }); setAcknowledged(false); }}>{copy.installationStart}</Button> : null}
+        {installationPort !== undefined && canReceive(installation, view) ? <Button size="sm" disabled={busy} onClick={() => { setPreview({ requestId: view.requestId, action: "start" }); setAcknowledged(false); }}>{copy.installationStart}</Button> : null}
         <Button size="sm" disabled={busy} onClick={() => { setPreview({ requestId: view.requestId, action: "cancel" }); setAcknowledged(false); }}>{copy.bootstrapCancel}</Button>
       </>}
     </> : null}

@@ -2,8 +2,8 @@
 use crate::target_bootstrap_termination::TargetBootstrapError;
 use crate::target_installation::DesktopTargetInstallation;
 use gooddealer_local_storage::{
-    DesktopTargetBootstrapTerminalStatus, DesktopTargetInstallationPhase,
-    DesktopTargetInstallationView,
+    DesktopTargetBootstrapTerminalStatus, DesktopTargetInstallationNewWorkflow,
+    DesktopTargetInstallationPhase, DesktopTargetInstallationView,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -54,6 +54,7 @@ pub(crate) enum TargetInstallationView {
         schema_version: u8,
         request_id: String,
         status: &'static str,
+        new_workflow: &'static str,
     },
     ExistingReplica {
         schema_version: u8,
@@ -86,13 +87,26 @@ impl From<DesktopTargetInstallationView> for TargetInstallationView {
                     request_id,
                 }
             }
-            DesktopTargetInstallationView::Stopped { request_id, status } => Self::Stopped {
+            DesktopTargetInstallationView::Stopped {
+                request_id,
+                status,
+                new_workflow,
+            } => Self::Stopped {
                 schema_version: 1,
                 request_id,
                 status: match status {
                     DesktopTargetBootstrapTerminalStatus::Cancelled => "cancelled",
                     DesktopTargetBootstrapTerminalStatus::Failed => "failed",
                     DesktopTargetBootstrapTerminalStatus::Completed => "completed",
+                },
+                new_workflow: match new_workflow {
+                    DesktopTargetInstallationNewWorkflow::Allowed => "allowed",
+                    DesktopTargetInstallationNewWorkflow::RequiresRecovery => "requires_recovery",
+                    DesktopTargetInstallationNewWorkflow::AwaitingTerminal => "awaiting_terminal",
+                    DesktopTargetInstallationNewWorkflow::AuthorizationChanged => {
+                        "authorization_changed"
+                    }
+                    DesktopTargetInstallationNewWorkflow::HistoryFull => "history_full",
                 },
             },
         }
@@ -164,5 +178,40 @@ mod tests {
             result(Err(TargetBootstrapError::Blocked)).unwrap_err(),
             "TARGET_INSTALLATION_BLOCKED"
         );
+    }
+    #[test]
+    fn stopped_projection_reports_only_the_closed_new_workflow_decision() {
+        for (new_workflow, wire) in [
+            (DesktopTargetInstallationNewWorkflow::Allowed, "allowed"),
+            (
+                DesktopTargetInstallationNewWorkflow::RequiresRecovery,
+                "requires_recovery",
+            ),
+            (
+                DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
+                "awaiting_terminal",
+            ),
+            (
+                DesktopTargetInstallationNewWorkflow::AuthorizationChanged,
+                "authorization_changed",
+            ),
+            (
+                DesktopTargetInstallationNewWorkflow::HistoryFull,
+                "history_full",
+            ),
+        ] {
+            let view = TargetInstallationView::from(DesktopTargetInstallationView::Stopped {
+                request_id: "previous".into(),
+                status: DesktopTargetBootstrapTerminalStatus::Cancelled,
+                new_workflow,
+            });
+            assert_eq!(
+                serde_json::to_value(view).unwrap(),
+                serde_json::json!({
+                    "schemaVersion": 1, "kind": "stopped", "requestId": "previous",
+                    "status": "cancelled", "newWorkflow": wire
+                })
+            );
+        }
     }
 }

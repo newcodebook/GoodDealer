@@ -147,6 +147,27 @@ impl DesktopProductionCustody {
             Ok(self.database.metadata().map_err(|_| failed())?.len() == 0)
         }
     }
+    pub(super) fn initial_database_has_no_sidecars(&self) -> Result<bool, Error> {
+        for name in ["business.db-wal", "business.db-shm", "business.db-journal"] {
+            #[cfg(unix)]
+            match rustix::fs::statat(
+                &self._active_workspace,
+                name,
+                rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+            ) {
+                Err(rustix::io::Errno::NOENT) => {}
+                Ok(_) => return Ok(false),
+                Err(_) => return Err(rejected()),
+            }
+            #[cfg(windows)]
+            match self.active.file(name, false, true) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(_) => return Ok(false),
+                Err(_) => return Err(rejected()),
+            }
+        }
+        Ok(true)
+    }
     pub(super) fn initial_state_key(
         &self,
         database: &[u64; 2],

@@ -281,8 +281,8 @@ pub use desktop_local_host::execution_evidence_delivery::DesktopExecutionEvidenc
 
 pub use desktop_local_host::target_installation::{
     DesktopTargetInstallationExchange, DesktopTargetInstallationExchangeKind,
-    DesktopTargetInstallationPhase, DesktopTargetInstallationStage, DesktopTargetInstallationView,
-    DesktopTargetInstallationWork,
+    DesktopTargetInstallationNewWorkflow, DesktopTargetInstallationPhase,
+    DesktopTargetInstallationStage, DesktopTargetInstallationView, DesktopTargetInstallationWork,
 };
 
 pub use desktop_local_host::target_bootstrap::{

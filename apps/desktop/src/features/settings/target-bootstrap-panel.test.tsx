@@ -102,7 +102,7 @@ it("never replaces an existing replica or equates stopped setup with completed i
   const native = port(); const installation = installer();
   installation.status.mockResolvedValue({ kind: "existing_replica", requestId: "workflow-original" }); await render(native, installation);
   expect(element.textContent).toContain("cannot replace it"); expect(button("Receive on this device")).toBeUndefined();
-  installation.status.mockResolvedValue({ kind: "stopped", requestId: "workflow-original", status: "failed" }); await click("Refresh setup status");
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "workflow-original", status: "failed", newWorkflow: "requires_recovery" }); await click("Refresh setup status");
   expect(element.textContent).toContain("setup has ended"); expect(element.textContent).not.toContain("Setup is complete");
 });
 it("does not publish a late result from a replaced installation port", async () => {
@@ -124,4 +124,59 @@ it("retains an existing-replica refusal during local idle polls until the workfl
   native.status.mockResolvedValue({ ...available, requestId: "next" });
   await act(async () => vi.advanceTimersByTimeAsync(5_000));
   expect(element.textContent).not.toContain("cannot replace it"); expect(button("Receive on this device")).toBeDefined();
+});
+
+it("requires a new confirmation after a stopped unwritten setup and keeps it through status polls", async () => {
+  vi.useFakeTimers(); const native = port(); const installation = installer();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "previous", status: "cancelled", newWorkflow: "allowed" });
+  await render(native, installation);
+  expect(element.textContent).toContain("Its record is preserved");
+  expect(installation.start).not.toHaveBeenCalled();
+  await click("Receive on this device");
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(element.querySelector("form")).not.toBeNull();
+  expect(button("Confirm receive and activate")!.disabled).toBe(true);
+  await act(async () => element.querySelector<HTMLInputElement>("input")!.click()); await submit();
+  expect(installation.start).toHaveBeenCalledExactlyOnceWith("workflow-original");
+  expect(native.cancel).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["requires_recovery", "Receiving another setup requires recovery"],
+  ["awaiting_terminal", "Checking the previous setup's final outcome"],
+  ["authorization_changed", "Authorization has changed"],
+  ["history_full", "storage limit"],
+] as const)("shows %s for an older setup instead of a misleading available message", async (newWorkflow, message) => {
+  const native = port(); const installation = installer();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "previous", status: "failed", newWorkflow });
+  await render(native, installation);
+  expect(element.querySelector('[role="status"]')!.textContent).toContain(message);
+  expect(button("Receive on this device")).toBeUndefined();
+  expect(button("Stop this setup")).toBeDefined();
+  expect(installation.start).not.toHaveBeenCalled();
+});
+
+it("withdraws a new receive preview when Host changes eligibility and cannot restart the old workflow", async () => {
+  vi.useFakeTimers(); const native = port(); const installation = installer();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "previous", status: "failed", newWorkflow: "allowed" });
+  await render(native, installation); await receive();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "previous", status: "failed", newWorkflow: "requires_recovery" });
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(element.querySelector("form")).toBeNull(); expect(button("Receive on this device")).toBeUndefined();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "workflow-original", status: "cancelled", newWorkflow: "allowed" });
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(button("Receive on this device")).toBeUndefined(); expect(installation.start).not.toHaveBeenCalled();
+});
+
+it("reconciles a new workflow after a lost retry-start reply without repeating the confirmation", async () => {
+  vi.useFakeTimers(); const native = port(); const installation = installer();
+  installation.status.mockResolvedValue({ kind: "stopped", requestId: "previous", status: "cancelled", newWorkflow: "allowed" });
+  installation.start.mockRejectedValue(new Error("private history"));
+  await render(native, installation); await receive(); await submit();
+  expect(element.textContent).toContain("outcome is unknown");
+  expect(element.textContent).not.toContain("private history");
+  installation.status.mockResolvedValue({ kind: "running", requestId: "workflow-original", phase: "claiming" });
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(installation.start).toHaveBeenCalledExactlyOnceWith("workflow-original");
+  expect(button("Receive on this device")).toBeUndefined();
 });

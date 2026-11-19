@@ -1,4 +1,5 @@
 mod contract;
+mod retry;
 mod wire;
 use super::{DesktopLocalHost, DesktopLocalHostError as Error};
 // First installation of this target's frozen Cloud replica. Existing replicas never enter here.
@@ -16,6 +17,15 @@ pub enum DesktopTargetInstallationPhase {
     Activating,
     Authorizing,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopTargetInstallationNewWorkflow {
+    Allowed,
+    RequiresRecovery,
+    AwaitingTerminal,
+    AuthorizationChanged,
+    HistoryFull,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DesktopTargetInstallationView {
@@ -30,6 +40,7 @@ pub enum DesktopTargetInstallationView {
     Stopped {
         request_id: String,
         status: DesktopTargetBootstrapTerminalStatus,
+        new_workflow: DesktopTargetInstallationNewWorkflow,
     },
     ExistingReplica {
         request_id: String,
@@ -115,6 +126,9 @@ struct Journal {
     local_receipt: Option<InitialReplicaReceipt>,
     #[serde(deserialize_with = "required_option")]
     activation: Option<Value>,
+    write_state: retry::WriteState,
+    #[serde(deserialize_with = "required_option")]
+    terminal_evidence: Option<Value>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -139,7 +153,7 @@ fn protected_bytes<T: Serialize>(value: &T) -> Result<Zeroizing<Vec<u8>>, Error>
 impl Journal {
     fn new(request_id: &str, security_epoch: u64) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             security_epoch,
             request_id: request_id.into(),
             view: DesktopTargetInstallationView::Running {
@@ -156,6 +170,8 @@ impl Journal {
             pending: None,
             local_receipt: None,
             activation: None,
+            write_state: retry::WriteState::NotStarted,
+            terminal_evidence: None,
         }
     }
     fn running(&mut self, phase: DesktopTargetInstallationPhase) {
@@ -165,7 +181,7 @@ impl Journal {
         };
     }
     fn validate(&self) -> Result<(), Error> {
-        if self.schema_version != 1
+        if self.schema_version != 2
             || self.security_epoch == 0
             || self.security_epoch > 9_007_199_254_740_991
             || self.next_step_number == 0
@@ -177,6 +193,7 @@ impl Journal {
             return Err(rejected());
         }
         crate::desktop_native_cloud::validate_identifier(&self.request_id, 160)?;
+        retry::validate_journal(self)?;
         if let Some(pending) = &self.pending {
             if pending.kind == DesktopTargetInstallationExchangeKind::Receipt {
                 return Err(rejected());
@@ -358,15 +375,26 @@ impl DesktopLocalHost {
         preview_request_id: &str,
     ) -> Result<DesktopTargetInstallationView, Error> {
         crate::desktop_native_cloud::validate_identifier(preview_request_id, 160)?;
+        self.reconcile_installation_terminal(admission)?;
         self.with_initial_replica(admission, |custody, current, state| {
             if let Some(journal) = load_journal(&state)? {
-                if journal.security_epoch != current.account_security_epoch {
-                    return Ok((stale_security_view(&journal), None));
+                if journal.request_id == preview_request_id {
+                    return Ok((retry::view(custody, current, &state, &journal)?, None));
                 }
-                if journal.request_id != preview_request_id {
+                if retry::eligibility(custody, current, &state, &journal)?
+                    != DesktopTargetInstallationNewWorkflow::Allowed
+                {
                     return Err(rejected());
                 }
-                return Ok((journal.view, None));
+                super::target_bootstrap::require_installation_preview(custody, preview_request_id)?;
+                if current.kind != WorkspaceAuthorityKind::Standby {
+                    return Err(Error::AuthorityRejected);
+                }
+                let next = Journal::new(preview_request_id, current.account_security_epoch);
+                return Ok((
+                    next.view.clone(),
+                    Some((next, InitialReplicaPhase::Installing)),
+                ));
             }
             super::target_bootstrap::require_installation_preview(custody, preview_request_id)?;
             if state.phase != InitialReplicaPhase::Fresh {
@@ -392,7 +420,7 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopTargetInstallationView, Error> {
-        self.with_initial_replica(admission, |_, current, state| {
+        self.with_initial_replica(admission, |custody, current, state| {
             let Some(journal) = load_journal(&state)? else {
                 return Ok((DesktopTargetInstallationView::Idle, None));
             };
@@ -414,7 +442,7 @@ impl DesktopLocalHost {
                     request_id: journal.request_id,
                 }
             } else {
-                journal.view
+                retry::view(custody, current, &state, &journal)?
             };
             Ok((view, None))
         })
@@ -430,6 +458,7 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopTargetInstallationWork, Error> {
+        self.reconcile_installation_terminal(admission)?;
         self.with_initial_replica(admission, |custody, current, state| {
             let Some(mut journal) = load_journal(&state)? else {
                 return Ok((
@@ -444,7 +473,12 @@ impl DesktopLocalHost {
                 ));
             }
             if !matches!(journal.view, DesktopTargetInstallationView::Running { .. }) {
-                return Ok((DesktopTargetInstallationWork::Settled(journal.view), None));
+                return Ok((
+                    DesktopTargetInstallationWork::Settled(retry::view(
+                        custody, current, &state, &journal,
+                    )?),
+                    None,
+                ));
             }
             if let Some(status) =
                 super::target_bootstrap::installation_terminal(custody, &journal.request_id)?
@@ -453,6 +487,7 @@ impl DesktopLocalHost {
                 journal.view = DesktopTargetInstallationView::Stopped {
                     request_id: journal.request_id.clone(),
                     status,
+                    new_workflow: DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
                 };
                 let view = journal.view.clone();
                 return Ok((
@@ -638,12 +673,18 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopTargetInstallationStage, Error> {
+        self.mark_installation_write_started(admission)?;
         self.with_initial_replica(admission, |custody, current, state| {
             let mut journal = load_journal(&state)?.ok_or_else(rejected)?;
             if journal.security_epoch != current.account_security_epoch {
                 return Err(Error::AuthorityRejected);
             }
-            if journal.pending.is_some()
+            if !matches!(journal.view, DesktopTargetInstallationView::Running { .. })
+                || journal.write_state != retry::WriteState::Started
+                || journal.terminal_evidence.is_some()
+                || super::target_bootstrap::installation_terminal(custody, &journal.request_id)?
+                    .is_some()
+                || journal.pending.is_some()
                 || journal.local_receipt.is_some()
                 || super::target_bootstrap::installation_cancel_pending(
                     custody,
@@ -778,6 +819,8 @@ impl DesktopLocalHost {
             .map_err(|_| storage())?;
         let state = custody.initial_replica_state().map_err(|_| storage())?;
         let revision = state.revision;
+        retry::validate_history(&state)?;
+        let previous_workflow = state.scope.as_ref().map(|scope| scope.workflow.clone());
         if let Some(scope) = &state.scope {
             if scope.installation
                 != custody
@@ -808,9 +851,16 @@ impl DesktopLocalHost {
             };
             self.require_business_commit_fence(epoch, current)
                 .map_err(super::map_host_database_error)?;
-            custody
-                .store_initial_replica_state(revision, &scope, &protected_bytes(&journal)?, phase)
-                .map_err(|_| storage())?;
+            let bytes = protected_bytes(&journal)?;
+            if previous_workflow
+                .as_ref()
+                .is_some_and(|old| old != &journal.request_id)
+            {
+                custody.restart_initial_replica_state(revision, &scope, &bytes)
+            } else {
+                custody.store_initial_replica_state(revision, &scope, &bytes, phase)
+            }
+            .map_err(|_| storage())?;
         }
         self.require_business_commit_fence(epoch, current)
             .map_err(super::map_host_database_error)?;
@@ -823,11 +873,7 @@ fn load_journal(
     state
         .bytes
         .as_ref()
-        .map(|bytes| {
-            let journal: Journal = serde_json::from_slice(bytes).map_err(|_| rejected())?;
-            journal.validate()?;
-            Ok(journal)
-        })
+        .map(|bytes| retry::decode_journal(bytes))
         .transpose()
 }
 
@@ -1215,11 +1261,15 @@ fn consume_receipt(
             return Err(rejected());
         }
         if status != "bootstrapping" && !(status == "completed" && kind == "activate") {
-            journal.pending = None;
             journal.view = DesktopTargetInstallationView::Stopped {
                 request_id: journal.request_id.clone(),
                 status: terminal_status(status)?,
+                new_workflow: DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
             };
+            journal.terminal_evidence = Some(Value::object([
+                ("kind", Value::string("receipt")),
+                ("response", response.clone()),
+            ]));
             return Ok(());
         }
         if operation.get(field)?.get("workflowRevision")? != workflow.get("workflowRevision")? {
@@ -1266,11 +1316,15 @@ fn consume_receipt(
                 }
             }
             "terminal" => {
-                journal.pending = None;
                 journal.view = DesktopTargetInstallationView::Stopped {
                     request_id: journal.request_id.clone(),
                     status: terminal_status(status)?,
+                    new_workflow: DesktopTargetInstallationNewWorkflow::AwaitingTerminal,
                 };
+                journal.terminal_evidence = Some(Value::object([
+                    ("kind", Value::string("receipt")),
+                    ("response", response.clone()),
+                ]));
             }
             _ => return Err(rejected()),
         }
@@ -1372,6 +1426,7 @@ fn stale_security_view(journal: &Journal) -> DesktopTargetInstallationView {
     DesktopTargetInstallationView::Stopped {
         request_id: journal.request_id.clone(),
         status: DesktopTargetBootstrapTerminalStatus::Failed,
+        new_workflow: DesktopTargetInstallationNewWorkflow::AuthorizationChanged,
     }
 }
 
@@ -1416,3 +1471,9 @@ pub(super) fn initial_authority_awaits_receipt(
 
 pub(super) type PreparedInstallationPublication =
     (std::sync::Weak<()>, u64, u64, DesktopTargetInstallationView);
+
+pub(super) fn installation_reconciliation_request(
+    custody: &DesktopProductionCustody,
+) -> Result<Option<String>, Error> {
+    retry::reconciliation_request(custody)
+}

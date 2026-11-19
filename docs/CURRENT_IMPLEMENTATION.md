@@ -14,7 +14,7 @@
 
 激活成功但回复丢失后，重开先收到 Active Grant 也只能进入 `target_installation_pending`：专用准入仅允许 receipt/status/cancel；原激活回执、匹配 Active Grant 与新鲜 execution context 全部通过后才开放资产库和正常后台。Host/SQLCipher 覆盖非空资产、代次及墓碑、网络回复丢失和关闭重开；最终整合检查与独立复审记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md) 和 [审查记录](reviews/2026-11-19-target-installation-review.md)。已有副本替换、强制接管、丢机云恢复和独立跨机备份仍须继续交付；本节不宣称真实双设备或发行资格。
 
-取消或过期后的另一轮接收尚未实现：已有安装 journal 固定原工作流，即使尚未写业务库也不能接收新的交接。原记录保留；下一切片优先补可信未写库前缀的重新接收及准确客户提示，不把可能已安装的数据库重标 Fresh。
+取消或过期后，Cloud 精确确认原工作流 cancelled/failed、Native 证明从未打开安装数据库且授权仍匹配时，现可对新工作流重新预览确认。首次 SQL open 前先持久化 started；可能写入、旧版未知证据、文件截断或授权变化都不能重标 Fresh。custody Head v2 原子保存新 journal 与最多 8 个原始加密终态文件引用，保留原请求字节；历史满明确拒绝，不删除证据。后台先按原 requestId 对账，轮询不会自动批准新交接。界面保留旧工作流的恢复/等待终态/授权变化/历史满原因，开始丢回复只读原状态。范围及验收见 [重新接收工作包](phase0/TARGET_INSTALLATION_RETRY_TASK_FRAME.md)；最终根检查和独立复审已通过，证据见 [重新接收审查](reviews/2026-11-19-target-installation-retry-review.md)。
 
 ## Desktop 与 Native Host
 

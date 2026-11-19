@@ -257,7 +257,7 @@ const expectedLocalStorageExportModules = [
 const expectedLocalStoragePublicExports = [
   ...expectedExecutionContextExports,
   "DesktopTargetInstallationExchange", "DesktopTargetInstallationExchangeKind",
-  "DesktopTargetInstallationPhase", "DesktopTargetInstallationStage",
+  "DesktopTargetInstallationNewWorkflow", "DesktopTargetInstallationPhase", "DesktopTargetInstallationStage",
   "DesktopTargetInstallationView", "DesktopTargetInstallationWork",
   "DesktopTargetBootstrapCancelExchange", "DesktopTargetBootstrapStatusExchange",
   "DesktopTargetBootstrapStatusOutcome", "DesktopTargetBootstrapTerminalStatus", "DesktopTargetBootstrapView",
