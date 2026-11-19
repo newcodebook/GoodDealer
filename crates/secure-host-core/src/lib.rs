@@ -38,6 +38,8 @@ mod desktop_authorization_verifier;
 mod desktop_device_directory;
 mod desktop_device_identity;
 mod desktop_oauth;
+#[cfg(target_os = "linux")]
+mod linux_afternic_capture;
 mod local_workspace_binding;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;

@@ -474,6 +474,8 @@ export const repositoryTopology = Object.freeze([
       "fs2",
       "futures-util",
       "getrandom",
+      // Fixed Linux Afternic masked-input window on the existing GTK main context.
+      "gtk",
       "hmac",
       "keyring-core",
       "libc",

@@ -153,3 +153,8 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 
 生产 OpenBao、托管数据库、支付/销售地区、Provider 实际行为、最终原生构件和稳定发行仍需
 各自的实现与验证。证据分类与验收见 [验证边界](VERIFICATION.md)；本文件不宣称关闭任何 Gate。
+
+
+## Linux Afternic 原生录入增量（2026-11-19）
+
+Afternic 的固定 Native GTK 掩码窗口已接入原 Service/custody；取消、超时、授权撤回和晚回调失败关闭，秘密不进入 Renderer/普通 TypeScript。真实 GTK canary 生命周期验收及独立审查通过，见[审查记录](reviews/2026-11-19-linux-afternic-capture-review.md)。这只解除 Linux 凭据录入的源码和组件阻塞，不代表 Afternic 真实账号/写能力已资格化；Windows/macOS 仍分别验收。

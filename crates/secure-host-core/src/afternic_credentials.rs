@@ -188,11 +188,15 @@ pub fn purge_afternic_credential_guarded(
 
 pub struct AfternicCapture;
 impl AfternicCapture {
-    /// Native masked-input adapters are composed for Windows and macOS. Real OS and custody
+    /// Native masked-input adapters are composed for Linux, Windows and macOS. Real OS and custody
     /// qualification is recorded separately from this source capability.
     #[must_use]
     pub const fn supported() -> bool {
-        cfg!(any(target_os = "macos", target_os = "windows"))
+        cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        ))
     }
     /// Captures API key and secret in native masked dialogs; never accepts them through IPC.
     /// # Errors
@@ -229,7 +233,13 @@ impl AfternicCapture {
         {
             capture_macos(guard)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(target_os = "linux")]
+        {
+            let bytes = crate::linux_afternic_capture::capture(guard)?;
+            guard()?;
+            parse_capture(&bytes)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             Err(AfternicError::CustodyUnavailable)
         }
@@ -241,7 +251,7 @@ fn valid_secret(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 pub(super) fn parse_capture(bytes: &[u8]) -> Result<AfternicCredential, AfternicError> {
     if bytes.len() > 1026 {
         return Err(AfternicError::InputRejected);

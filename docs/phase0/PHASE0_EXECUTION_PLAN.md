@@ -396,3 +396,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 经验已落实为实现和回归：跨运行时使用真实 raw IPC 解码；资格变化丢弃迟到预览；未知 initial POST 的 not_found 不代表取消；历史已签 Lease 上限不能只看最新行；取消领取后的 bootstrap 必须沿原取消 lane 收敛。失败的中间根检查已修复后完整重跑，不计通过。
 - 未完成：已有副本恢复、写库后恢复、无来源 Lease、独立跨机备份及 Windows/macOS 实机；真实部署的第三/第四/第五签名用途与两设备验收仍需取得。迁移 026 保守 cutover＋24h 不可被本机测试免除。
 - Provider 继续作为主线：在隔离 `afternic-listing` worktree 开发上架/改价持久父计划、真实执行证据、客户表单，Linux 原生凭据录入与真实电源通知分别验收。用户已授权 `wecin.com` 做受控上架/改价/下架，先在 Linux 跑真实业务，Windows/macOS 仍保留完整最终目标。当前仅 Cloudflare/Afternic 有适配代码；六来源完整账户归集、市场自动所有权/DNS与其余十平台仍未交付，不能从此设备切片推导完成。
+## 2026-11-19 Linux Afternic 受限 Native 录入
+
+- 复用原 Afternic Service、固定 slot 与 Secret Service，实现 Linux GTK 掩码 API key/secret 窗口；3 秒主循环准入、120 秒输入期限、50ms 当前授权复核、晚回调取消、所有关闭清空 Entry。秘密不经 Renderer/普通 TypeScript；ADR-0025 具名扩展该条目并保留同 UID 残余风险。
+- Root/Cloud 独立源码及真实 GTK canary 5/5 通过；Core 92、public 3、doc 4、严格 Clippy 通过，GTK/logind ignored 项另外实跑。实际 GTK 测出并修复 GString 截断末字节，保留精确字节回归。详见[独立审查](../reviews/2026-11-19-linux-afternic-capture-review.md)。
+- 本增量未输入真实账号、未调用真实 Afternic；Cloud 当前授权、平台资格与实际业务旅程继续实施。Linux power 另有独立增量，Windows/macOS 实机与发行资格尚未取得。
