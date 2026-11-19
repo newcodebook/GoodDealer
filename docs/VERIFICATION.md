@@ -193,3 +193,11 @@ current-DB replay 和私有测试协议，但生产 capability 统一保持 `una
 macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备前保持延期。该延期不阻止
 本地功能开发和测试；当前只把 Homebrew/用户自行下载未签名安装包作为开发分发方向，最终包仍
 须经过 Gatekeeper 实机观察并明确提示用户手动允许，不能称为已签名、已公证或正式发行。
+
+
+## 普通交接来源的回执与续作验收
+
+- Cloud：严格 v2 view、错 source/target/epoch/proof/release reason、跨账户/工作区、重复 consumed proof、forced 冒充 normal、引导完成/失败后历史仍可读；真实 OAuth 登录来源 Lease 能启动普通交接。
+- Native/Host：已签 body→公开 attempt→HTTP 顺序的崩溃窗口；无 attempt 的 Native 孤儿清理、已登记请求精确恢复、未知先对账、确定拒绝不再发送；不可向 Renderer、日志或业务备份泄露签名请求。
+- SQLCipher：同 request/proof/target/barrier/最后本机 Active epoch 绑定；刷新/撤销/最终提交时失效全页回滚；重复页不增 readGeneration，错确认 token 拒绝，retired cursor 重开仍冻结；旧普通交接证据不得解冻后来强制接管的库。
+- 此范围的源码与 PostgreSQL PASS 不代表目标引导/完整交接界面或 Windows/macOS 双机资格。完整设备验收仍须真实系统、部署签名用途、当前会话、设备钥匙与目标激活链路逐项取证。

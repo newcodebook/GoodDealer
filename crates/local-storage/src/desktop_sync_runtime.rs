@@ -205,6 +205,10 @@ impl DesktopSyncRunAdmission {
             && self.authority_epoch == authority_epoch
     }
 
+    pub(crate) fn lease_epoch(&self) -> u64 {
+        self.lease_epoch
+    }
+
     /// The device this run acts for; derived from its verified Lease, never from a caller.
     pub(crate) fn device_id(&self) -> &str {
         &self.device_id
@@ -985,16 +989,19 @@ impl DesktopSyncRuntime {
         })
     }
 
-    /// ADR-0032 S2d: reopens local writes after this switch was cancelled, failed or completed.
+    /// ADR-0032 S2d: reopens local writes after cancellation/failure before source release.
     pub(crate) fn drain_clear_barrier(
         &self,
         database: &mut BusinessDatabase,
         admission: &DesktopSyncRunAdmission,
         device_switch_request_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
         database
-            .clear_device_handoff_barrier(device_switch_request_id)
+            .clear_device_handoff_barrier(device_switch_request_id, || {
+                commit_guard.verify(self, admission)
+            })
             .map_err(map_database_error)
     }
 
@@ -1018,10 +1025,13 @@ impl DesktopSyncRuntime {
         &self,
         database: &mut BusinessDatabase,
         admission: &DesktopSyncRunAdmission,
+        commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<bool, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
         database
-            .clear_left_over_device_handoff_barrier(admission.lease_epoch)
+            .clear_left_over_device_handoff_barrier(admission.lease_epoch, || {
+                commit_guard.verify(self, admission)
+            })
             .map_err(map_database_error)
     }
 

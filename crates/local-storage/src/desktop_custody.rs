@@ -10,9 +10,10 @@ mod native_keys;
 #[path = "desktop_custody/unsupported.rs"]
 mod native_keys;
 #[cfg(not(test))]
-use native_keys::{load_device_binding_native, load_native, store_native};
+use native_keys::{delete_native, load_device_binding_native, load_native, store_native};
 
 mod authorization_floor;
+mod normal_handoff_submission;
 pub(crate) use authorization_floor::{CommercialAuthorizationFloor, WorkspaceAuthorizationFloor};
 
 use std::fmt;
@@ -199,6 +200,7 @@ pub(crate) struct TestRebootstrapKeyStore {
     active_alias: Arc<Mutex<Option<Vec<u8>>>>,
     authorization_floor: Arc<Mutex<Option<Vec<u8>>>>,
     authorization_floor_marker: Arc<Mutex<Option<Vec<u8>>>>,
+    normal_handoff_submission: Arc<Mutex<Option<Vec<u8>>>>,
     device_identity: Arc<Mutex<LoadedDeviceIdentity>>,
 }
 
@@ -225,6 +227,7 @@ impl Default for TestRebootstrapKeyStore {
             active_alias: Arc::default(),
             authorization_floor: Arc::default(),
             authorization_floor_marker: Arc::default(),
+            normal_handoff_submission: Arc::default(),
             device_identity: Arc::new(Mutex::new(LoadedDeviceIdentity {
                 device_id: "device-local".to_owned(),
                 installation_binding_digest: [0x6d; 32],

@@ -155,7 +155,7 @@ pub(crate) fn store(service: &str, account: &str, value: &[u8]) -> Result<(), Se
 #[cfg(target_os = "linux")]
 #[allow(
     dead_code,
-    reason = "local-storage never removes its items; secure-host-core does"
+    reason = "fixed-item callers differ by target and enabled custody capability"
 )]
 pub(crate) fn delete(service: &str, account: &str) -> Result<(), SecretServiceError> {
     let store = connect()?;

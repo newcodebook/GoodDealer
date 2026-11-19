@@ -39,6 +39,8 @@ S0 --> L1 --> D1 --> V1
 | **C1 Local Connector** | Cloudflare Zone/DNS 只读 Service、固定官方 origin HTTPS、Host-local Token custody、durable prewrite deny fence、ProviderLane、activation/observation Tauri 命令、bounded status/read 和本地优先结果已存在；现有资产本地资源绑定已持久化，域名能力目录和资金确认协议已定义但不可执行。 | Host 原子撤销已存在（`cloudflare_connection_revoke`：准备即拒绝凭据使用，Secure Host 以无 Token 墓碑替换 exact Active 信封）。真实受控 Zone 验证、撤销和 post-marker remediation 仍未取得生产资格；DNS 写入、DNSSEC、Registrar 和监控尚无生产执行链。 | 资产创建、绑定 UI、Grant/Lease 门禁和凭据维护入口已组合；按 ADR-0032 优先推进统一归集、交易上下架和所有权验证，逐项实现其余能力及真实资格。减少凭据持有的维护入口不以 Provider 执行资格为前置。 |
 | **V1 集成所有者** | 各底层模块已有大量局部测试和策略检查。`pnpm check:candidate` 在干净提交上分别以 umask `002` 与 `022` 运行根 `pnpm check`，生成可归因的冻结候选记录（[`docs/phase0/candidates/`](phase0/candidates/)）。 | **未完成。** 候选记录只是该提交的本地实现证据；D1+S1 的独立 PASS 是旧界面组合上的局部证据；域名合同尚未形成完整 Provider manifest 或生产执行链，全系统独立验收尚未进行。 | 阶段 2–3 完成后在新的冻结候选上执行账号/商业授权、Desktop 授权、本地业务、同步、Cloudflare、Cloud/PostgreSQL、Tauri/Rust 的全系统验收与独立复审。 |
 
+普通交接来源现已具备持久回执对账、同一签名请求的崩溃续作与 Standby 专用 Inbox；来源证据不代表目标引导、强制接管或完整移交客户界面已交付。后续设备线继续这些客户入口，平台线同时推进 Afternic 持久批量闭环。
+
 ## 当前执行顺序
 
 v1 按以下阶段推进。阶段编号只表示顺序，不是新的工作包；每个阶段写明所属的正式工作包。

@@ -726,6 +726,17 @@ async fn run_pull(
     if cancel_fence.is_cancelled() {
         return SyncStageOutcome::NotAttempted;
     }
+    // A successful handoff may have lost its HTTP response before the source restarted as
+    // Standby. Reconcile the durable attempt before asking the Host to admit Inbox application.
+    let reconciliation = reconcile_handoff(
+        Arc::clone(&host),
+        Arc::clone(&session),
+        Arc::clone(&cancel_fence),
+    )
+    .await;
+    if let Err(outcome) = reconciliation {
+        return outcome;
+    }
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
         let admission = prepared_host.begin_native_cloud_read_run()?;
@@ -773,6 +784,130 @@ async fn run_pull(
     }
 }
 
+async fn reconcile_handoff(
+    host: Arc<DesktopLocalHost>,
+    session: Arc<NativeCloudSession>,
+    cancel_fence: Arc<NativeCloudCancelFence>,
+) -> Result<(), SyncStageOutcome> {
+    let prepared_host = Arc::clone(&host);
+    let prepared = tokio::task::spawn_blocking(move || {
+        let admission = prepared_host.begin_native_cloud_read_run()?;
+        let Some(id) = prepared_host.native_device_switch_in_progress(&admission)? else {
+            return Ok(None);
+        };
+        if admission.is_active() && !prepared_host.native_drain_attempt_pending(&admission, &id)? {
+            return Ok(None);
+        }
+        if prepared_host.native_drain_attempt_succeeded(&admission, &id)? {
+            return Ok(None);
+        }
+        let body = DesktopLocalHost::native_device_switch_lookup(&id)?;
+        Ok::<_, gooddealer_local_storage::DesktopLocalHostError>(Some((admission, id, body)))
+    })
+    .await;
+    let (admission, id, body) = match prepared {
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Ok(Some(prepared))) => prepared,
+        Ok(Err(error)) => return Err(stage_from_host_error(error)),
+        Err(_) => return Err(SyncStageOutcome::Retryable),
+    };
+    let response = session
+        .send_device_switch(
+            admission,
+            crate::native_cloud_session::DeviceSwitchExchange::Status,
+            body,
+        )
+        .await
+        .map_err(stage_from_request_error)?;
+    let (admission, body, credential_instance) = response.into_parts();
+    let commit_host = Arc::clone(&host);
+    let commit_session = Arc::clone(&session);
+    let commit_fence = Arc::clone(&cancel_fence);
+    let resume = tokio::task::spawn_blocking(move || {
+        commit_fence.commit(|| {
+            commit_session.commit_response(credential_instance, || {
+                let outcome =
+                    commit_host.complete_native_device_switch_response(&admission, &id, &body)?;
+                let succeeded = commit_host.native_drain_attempt_succeeded(&admission, &id)?;
+                if admission.is_active()
+                    && !succeeded
+                    && matches!(
+                        outcome,
+                        gooddealer_local_storage::DesktopDeviceSwitchOutcome::Accepted(
+                            gooddealer_local_storage::DesktopDeviceSwitchStatus::Cancelled
+                                | gooddealer_local_storage::DesktopDeviceSwitchStatus::Failed
+                        )
+                    )
+                {
+                    commit_host.clear_native_device_switch_barrier(&admission, &id)?;
+                }
+                let replay = if admission.is_active()
+                    && matches!(
+                        outcome,
+                        gooddealer_local_storage::DesktopDeviceSwitchOutcome::Accepted(
+                            gooddealer_local_storage::DesktopDeviceSwitchStatus::Requested
+                                | gooddealer_local_storage::DesktopDeviceSwitchStatus::Draining
+                        )
+                    )
+                    && !succeeded
+                {
+                    commit_host.native_pending_drain_submission(&admission, &id, &body)?
+                } else {
+                    None
+                };
+                Ok((admission, id, replay))
+            })
+        })
+    })
+    .await;
+    let (admission, id, replay) = match resume {
+        Ok(Some(Ok(resume))) => resume,
+        Ok(Some(Err(error))) => return Err(stage_from_request_error(error)),
+        Ok(None) => return Err(SyncStageOutcome::NotAttempted),
+        Err(_) => return Err(SyncStageOutcome::Retryable),
+    };
+    let Some(replay) = replay else {
+        return Ok(());
+    };
+    submit_reconciled_handoff(host, session, cancel_fence, admission, id, replay).await
+}
+
+async fn submit_reconciled_handoff(
+    host: Arc<DesktopLocalHost>,
+    session: Arc<NativeCloudSession>,
+    cancel_fence: Arc<NativeCloudCancelFence>,
+    admission: gooddealer_local_storage::DesktopNativeCloudAdmission,
+    id: String,
+    replay: Vec<u8>,
+) -> Result<(), SyncStageOutcome> {
+    // The status read precedes replay, and custody returns only the exact original signed bytes.
+    // Cloud's proof identity/digest contract handles concurrent duplicate delivery; no new proof
+    // is created by this background lane.
+    let response = session
+        .send_device_switch(
+            admission,
+            crate::native_cloud_session::DeviceSwitchExchange::Drain,
+            replay,
+        )
+        .await
+        .map_err(stage_from_request_error)?;
+    let (admission, body, credential_instance) = response.into_parts();
+    match tokio::task::spawn_blocking(move || {
+        cancel_fence.commit(|| {
+            session.commit_response(credential_instance, || {
+                host.complete_native_device_switch_response(&admission, &id, &body)
+            })
+        })
+    })
+    .await
+    {
+        Ok(Some(Ok(_))) => Ok(()),
+        Ok(Some(Err(error))) => Err(stage_from_request_error(error)),
+        Ok(None) => Err(SyncStageOutcome::NotAttempted),
+        Err(_) => Err(SyncStageOutcome::Retryable),
+    }
+}
+
 async fn run_checkpoint(
     host: Arc<DesktopLocalHost>,
     session: Arc<NativeCloudSession>,
@@ -784,6 +919,9 @@ async fn run_checkpoint(
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
         let admission = prepared_host.begin_native_cloud_read_run()?;
+        if !admission.is_active() {
+            return Ok(None);
+        }
         if !prepared_host.native_checkpoint_due(&admission)? {
             return Ok(None);
         }

@@ -401,7 +401,8 @@ function switchView(
 ): DeviceSwitchRequestView {
   const mode = status === "waiting_expiry" ? "forced" : "normal";
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    normalHandoffReceipt: null,
     requestId: `switch-${status}`,
     mode,
     status,

@@ -1,5 +1,6 @@
 import {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
   deviceAuthorityProjectionSchema,
   deviceSwitchRequestViewSchema,
   type BootstrapStepResult,
@@ -300,7 +301,7 @@ export class DeviceSwitchWorkflow {
 
   project(): DeviceSwitchRequestView {
     return deviceSwitchRequestViewSchema.parse({
-      schemaVersion: DEVICE_MANAGEMENT_SCHEMA_VERSION,
+      schemaVersion: DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
       requestId: this.workflowId,
       mode: this.mode,
       status: this.#status,
@@ -309,6 +310,8 @@ export class DeviceSwitchWorkflow {
       requestedAt: this.requestedAt,
       earliestTakeoverAt: this.earliestTakeoverAt,
       bootstrapExpiresAt: this.#bootstrapExpiresAt,
+      // This in-memory workflow has no persisted proof/Lease join and cannot attest handoff success.
+      normalHandoffReceipt: null,
     });
   }
 

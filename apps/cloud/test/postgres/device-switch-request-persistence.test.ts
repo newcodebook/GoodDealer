@@ -71,6 +71,21 @@ describe("PostgreSQL device switch requests (ADR-0032 S1b)", () => {
     expect(await owner(scopeA, "SELECT count(*)::text AS count FROM device_switch_workflows", [])).toEqual([{ count: "1" }]);
   });
 
+  it("admits a desktop-login allocation only through the exact personal default workspace", async () => {
+    await owner(scopeA, `UPDATE device_lease_epoch_allocations SET allocation_source = 'desktop_login',
+      workspace_id = NULL, workflow_id = NULL WHERE account_id = $1`, [scopeA.accountId]);
+    // No default binding means an account-wide login Lease cannot select a workspace itself.
+    await expect(service.requestNormal(source, normal("device-new", "idem-unbound"))).resolves.toBeNull();
+    await owner(scopeA, `INSERT INTO workspace_workspaces (workspace_id, account_id, kind, name)
+      VALUES ($2, $1, 'personal', 'Personal');
+      `, [scopeA.accountId, scopeA.workspaceId]);
+    await owner(scopeA, `INSERT INTO workspace_account_bindings (account_id, workspace_id, owner_kind, role, is_default)
+      VALUES ($1, $2, 'account', 'default_owner', true)`, [scopeA.accountId, scopeA.workspaceId]);
+    await expect(service.requestNormal({ ...source, workspaceId: "foreign-workspace" }, normal("device-new", "idem-foreign"))).resolves.toBeNull();
+    await expect(service.requestNormal(source, normal("device-new", "idem-login"))).resolves.toMatchObject({ accepted: true,
+      request: { schemaVersion: 2, status: "draining", normalHandoffReceipt: null } });
+  });
+
   it("denies a caller without the current unexpired Lease and refuses ineligible targets without writing", async () => {
     await expect(service.requestNormal({ ...scopeA, deviceId: "device-new" }, normal("device-old", "idem-a"))).resolves.toBeNull();
     await expect(service.requestNormal({ ...source, workspaceId: "other-workspace" }, normal("device-new", "idem-b"))).resolves.toBeNull();

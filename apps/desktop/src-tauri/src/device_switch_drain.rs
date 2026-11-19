@@ -3,9 +3,11 @@
 //! One coordinator serializes every exchange of this device's switch. It asks Cloud for the switch
 //! and closes local writes only behind the id Cloud returned, lets the sync lane drain the Outbox,
 //! reads Cloud's receipts for legacy rows, and signs and submits the drain proof only when the
-//! Host reports the mutation stream fully confirmed. It reopens writes only when Cloud reports the
-//! switch cancelled or failed. Every Cloud answer is decoded by the Host; this module holds no
-//! wire format, credential or private key, and signs only the transcript the Host built.
+//! Host reports the mutation stream fully confirmed. It records the signed attempt before sending
+//! and reconciles any interrupted submission by status. It reopens writes only when Cloud reports
+//! the switch cancelled or failed without an accepted handoff receipt. Every Cloud answer is
+//! decoded by the Host; this module holds no wire format, credential or private key, and signs
+//! only the transcript the Host built.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -41,7 +43,7 @@ pub(crate) enum DeviceSwitchStep {
     ReceiptsMissing,
     /// Cloud's state of the switch; writes stay closed.
     Switch(DesktopDeviceSwitchStatus),
-    /// Cloud reports the switch cancelled or failed, and this device reopened its writes.
+    /// Cloud ended the switch before releasing this source, and this device reopened its writes.
     WritesReopened,
 }
 
@@ -63,6 +65,12 @@ pub(crate) enum DeviceSwitchError {
 pub(crate) enum SwitchCloudExchange {
     Receipts,
     Switch(DeviceSwitchExchange),
+}
+
+struct SubmissionStatus {
+    stopped: Option<DeviceSwitchStep>,
+    target: Option<String>,
+    replay: Option<Vec<u8>>,
 }
 
 /// The Host operations the coordinator needs. Every method may block on local storage.
@@ -115,6 +123,35 @@ pub(crate) trait SwitchHost: Send + Sync + 'static {
         signing_key_id: &str,
     ) -> Result<Self::Draft, DesktopLocalHostError>;
     fn transcript(draft: &Self::Draft) -> &[u8];
+    fn persist_attempt(
+        &self,
+        admission: &Self::Admission,
+        draft: &Self::Draft,
+        device_signature: &str,
+        target_device_id: &str,
+    ) -> Result<(), DesktopLocalHostError>;
+    fn attempt_pending(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+    ) -> Result<bool, DesktopLocalHostError>;
+    fn attempt_succeeded(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+    ) -> Result<bool, DesktopLocalHostError>;
+    fn pending_submission(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+        status_wire: &[u8],
+    ) -> Result<Option<Vec<u8>>, DesktopLocalHostError>;
+    fn response_target(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+        wire: &[u8],
+    ) -> Result<Option<String>, DesktopLocalHostError>;
     fn submission(
         &self,
         draft: &Self::Draft,
@@ -308,6 +345,16 @@ where
         mut admission: H::Admission,
         id: String,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        let pending_id = id.clone();
+        let (current, pending) = self
+            .run(admission, move |host, admission| {
+                host.attempt_pending(admission, &pending_id)
+            })
+            .await?;
+        admission = current;
+        if pending {
+            return self.resume_proof(admission, id).await;
+        }
         let mut previous_query: Option<Vec<u8>> = None;
         let mut rounds = 0;
         loop {
@@ -348,6 +395,85 @@ where
         }
     }
 
+    async fn resume_proof(
+        &self,
+        admission: H::Admission,
+        id: String,
+    ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
+        let status = self.status_before_submission(admission, &id, true).await?;
+        if let Some(step) = status.stopped {
+            return Ok(step);
+        }
+        let Some(body) = status.replay else {
+            return Ok(DeviceSwitchStep::Blocked);
+        };
+        let admission = self.admit().await?;
+        self.settle(
+            admission,
+            SwitchCloudExchange::Switch(DeviceSwitchExchange::Drain),
+            body,
+            id,
+        )
+        .await
+    }
+
+    async fn status_before_submission(
+        &self,
+        admission: H::Admission,
+        id: &str,
+        resume: bool,
+    ) -> Result<SubmissionStatus, DeviceSwitchError> {
+        // A restarted coordinator has no trusted target in memory. Only a strictly decoded,
+        // authenticated status response may supply the target recorded beside this proof.
+        let lookup_id = id.to_owned();
+        let body = H::lookup(id).map_err(host_error)?;
+        self.exchange(
+            admission,
+            SwitchCloudExchange::Switch(DeviceSwitchExchange::Status),
+            body,
+            move |host, admission, wire| {
+                let outcome = host.complete_switch(admission, &lookup_id, wire)?;
+                let target = host.response_target(admission, &lookup_id, wire)?;
+                let succeeded = host.attempt_succeeded(admission, &lookup_id)?;
+                let cleared = matches!(
+                    outcome,
+                    DesktopDeviceSwitchOutcome::Accepted(
+                        DesktopDeviceSwitchStatus::Cancelled | DesktopDeviceSwitchStatus::Failed
+                    )
+                ) && H::is_active(admission)
+                    && !succeeded;
+                if cleared {
+                    host.clear_barrier(admission, &lookup_id)?;
+                }
+                let stopped = match outcome {
+                    DesktopDeviceSwitchOutcome::Rejected(code) => {
+                        Some(DeviceSwitchStep::Rejected(code))
+                    }
+                    DesktopDeviceSwitchOutcome::Accepted(_) if cleared => {
+                        Some(DeviceSwitchStep::WritesReopened)
+                    }
+                    DesktopDeviceSwitchOutcome::Accepted(
+                        DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining,
+                    ) if H::is_active(admission) && !succeeded => None,
+                    DesktopDeviceSwitchOutcome::Accepted(status) => {
+                        Some(DeviceSwitchStep::Switch(status))
+                    }
+                };
+                let replay = if resume && stopped.is_none() {
+                    host.pending_submission(admission, &lookup_id, wire)?
+                } else {
+                    None
+                };
+                Ok(SubmissionStatus {
+                    stopped,
+                    target,
+                    replay,
+                })
+            },
+        )
+        .await
+    }
+
     async fn submit_proof(
         &self,
         admission: H::Admission,
@@ -358,6 +484,12 @@ where
             .signing_key_id()
             .ok_or(DeviceSwitchError::Blocked)?
             .to_owned();
+        let status = self.status_before_submission(admission, &id, false).await?;
+        if let Some(step) = status.stopped {
+            return Ok(step);
+        }
+        let target = status.target.ok_or(DeviceSwitchError::Blocked)?;
+        let admission = self.admit().await?;
         let proof_id = id.clone();
         let (admission, draft) = self
             .run(admission, move |host, admission| {
@@ -372,6 +504,13 @@ where
             .host
             .submission(&draft, &signature)
             .map_err(host_error)?;
+        // Once this durable intent exists, any interruption is reconciled by status. A second
+        // proof must never replace an attempt whose first submission may have reached Cloud.
+        let (admission, ()) = self
+            .run(admission, move |host, admission| {
+                host.persist_attempt(admission, &draft, &signature, &target)
+            })
+            .await?;
         self.settle(
             admission,
             SwitchCloudExchange::Switch(DeviceSwitchExchange::Drain),
@@ -381,8 +520,8 @@ where
         .await
     }
 
-    /// Sends one exchange about switch `id` and commits Cloud's outcome. Writes reopen in the
-    /// same commit only when Cloud reports the switch cancelled or failed.
+    /// Sends one exchange about switch `id` and commits Cloud's outcome. A failed target
+    /// bootstrap cannot undo an already accepted source release.
     async fn settle(
         &self,
         admission: H::Admission,
@@ -390,19 +529,28 @@ where
         body: Vec<u8>,
         id: String,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
-        self.exchange(admission, exchange, body, move |host, admission, wire| {
-            Ok(match host.complete_switch(admission, &id, wire)? {
-                DesktopDeviceSwitchOutcome::Accepted(
-                    DesktopDeviceSwitchStatus::Cancelled | DesktopDeviceSwitchStatus::Failed,
-                ) if H::is_active(admission) => {
-                    host.clear_barrier(admission, &id)?;
-                    DeviceSwitchStep::WritesReopened
-                }
-                DesktopDeviceSwitchOutcome::Accepted(status) => DeviceSwitchStep::Switch(status),
-                DesktopDeviceSwitchOutcome::Rejected(code) => DeviceSwitchStep::Rejected(code),
+        let step = self
+            .exchange(admission, exchange, body, move |host, admission, wire| {
+                Ok(match host.complete_switch(admission, &id, wire)? {
+                    DesktopDeviceSwitchOutcome::Accepted(
+                        DesktopDeviceSwitchStatus::Cancelled | DesktopDeviceSwitchStatus::Failed,
+                    ) if H::is_active(admission) && !host.attempt_succeeded(admission, &id)? => {
+                        host.clear_barrier(admission, &id)?;
+                        DeviceSwitchStep::WritesReopened
+                    }
+                    DesktopDeviceSwitchOutcome::Accepted(status) => {
+                        DeviceSwitchStep::Switch(status)
+                    }
+                    DesktopDeviceSwitchOutcome::Rejected(
+                        DesktopDeviceSwitchRejection::DrainProofInvalid
+                        | DesktopDeviceSwitchRejection::DrainProofExpired,
+                    ) => DeviceSwitchStep::Blocked,
+                    DesktopDeviceSwitchOutcome::Rejected(code) => DeviceSwitchStep::Rejected(code),
+                })
             })
-        })
-        .await
+            .await?;
+        (self.wake_sync)();
+        Ok(step)
     }
 
     async fn admit(&self) -> Result<H::Admission, DeviceSwitchError> {
@@ -590,6 +738,50 @@ impl SwitchHost for DesktopLocalHost {
         draft.signature_transcript()
     }
 
+    fn persist_attempt(
+        &self,
+        admission: &Self::Admission,
+        draft: &Self::Draft,
+        device_signature: &str,
+        target_device_id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.persist_native_drain_attempt(admission, draft, device_signature, target_device_id)
+    }
+
+    fn attempt_pending(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+    ) -> Result<bool, DesktopLocalHostError> {
+        self.native_drain_attempt_pending(admission, id)
+    }
+
+    fn attempt_succeeded(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+    ) -> Result<bool, DesktopLocalHostError> {
+        self.native_drain_attempt_succeeded(admission, id)
+    }
+
+    fn response_target(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+        wire: &[u8],
+    ) -> Result<Option<String>, DesktopLocalHostError> {
+        self.native_device_switch_response_target(admission, id, wire)
+    }
+
+    fn pending_submission(
+        &self,
+        admission: &Self::Admission,
+        id: &str,
+        status_wire: &[u8],
+    ) -> Result<Option<Vec<u8>>, DesktopLocalHostError> {
+        self.native_pending_drain_submission(admission, id, status_wire)
+    }
+
     fn submission(
         &self,
         draft: &Self::Draft,
@@ -668,6 +860,10 @@ mod tests {
         recorded_receipts: Vec<Vec<u8>>,
         prepared_proofs: Vec<(String, String)>,
         submissions: Vec<String>,
+        attempts: Vec<(String, String)>,
+        pending_body: Option<Vec<u8>>,
+        succeeded: bool,
+        reject_persistence: bool,
         cleared: Vec<String>,
     }
 
@@ -690,7 +886,7 @@ mod tests {
             std::str::from_utf8(wire).map_err(|_| DesktopLocalHostError::CloudProtocolRejected)?;
         let parts: Vec<&str> = text.split(':').collect();
         match parts.as_slice() {
-            ["accepted", status, id] => {
+            ["accepted" | "receipt", status, id] => {
                 let status = match *status {
                     "draining" => DesktopDeviceSwitchStatus::Draining,
                     "bootstrapping" => DesktopDeviceSwitchStatus::Bootstrapping,
@@ -703,6 +899,12 @@ mod tests {
             }
             ["rejected", "TARGET_REMOVED"] => {
                 Ok((None, Some(DesktopDeviceSwitchRejection::TargetRemoved)))
+            }
+            ["rejected", "DRAIN_PROOF_EXPIRED"] => {
+                Ok((None, Some(DesktopDeviceSwitchRejection::DrainProofExpired)))
+            }
+            ["rejected", "DRAIN_PROOF_INVALID"] => {
+                Ok((None, Some(DesktopDeviceSwitchRejection::DrainProofInvalid)))
             }
             ["rejected", "SWITCH_NOT_CANCELLABLE"] => Ok((
                 None,
@@ -841,6 +1043,64 @@ mod tests {
             draft
         }
 
+        fn persist_attempt(
+            &self,
+            _: &FakeAdmission,
+            draft: &Vec<u8>,
+            signature: &str,
+            target: &str,
+        ) -> Result<(), DesktopLocalHostError> {
+            let mut state = self.state.lock().unwrap();
+            if state.reject_persistence || !state.attempts.is_empty() {
+                return Err(DesktopLocalHostError::StorageRejected);
+            }
+            state
+                .attempts
+                .push((String::from_utf8(draft.clone()).unwrap(), target.to_owned()));
+            state.pending_body = Some([draft.as_slice(), b"|", signature.as_bytes()].concat());
+            Ok(())
+        }
+
+        fn pending_submission(
+            &self,
+            _: &FakeAdmission,
+            _: &str,
+            _: &[u8],
+        ) -> Result<Option<Vec<u8>>, DesktopLocalHostError> {
+            Ok(self.state.lock().unwrap().pending_body.clone())
+        }
+
+        fn attempt_pending(
+            &self,
+            _: &FakeAdmission,
+            _: &str,
+        ) -> Result<bool, DesktopLocalHostError> {
+            Ok(!self.state.lock().unwrap().attempts.is_empty())
+        }
+
+        fn attempt_succeeded(
+            &self,
+            _: &FakeAdmission,
+            _: &str,
+        ) -> Result<bool, DesktopLocalHostError> {
+            Ok(self.state.lock().unwrap().succeeded)
+        }
+
+        fn response_target(
+            &self,
+            _: &FakeAdmission,
+            id: &str,
+            wire: &[u8],
+        ) -> Result<Option<String>, DesktopLocalHostError> {
+            match decode(wire)? {
+                (Some((_, answered)), None) if answered == id => {
+                    Ok(Some("device-target".to_owned()))
+                }
+                (None, Some(_)) => Ok(None),
+                _ => Err(DesktopLocalHostError::CloudProtocolRejected),
+            }
+        }
+
         fn submission(
             &self,
             draft: &Vec<u8>,
@@ -866,9 +1126,21 @@ mod tests {
         ) -> Result<DesktopDeviceSwitchOutcome, DesktopLocalHostError> {
             Ok(match decode(wire)? {
                 (Some((status, answered)), None) if answered == id => {
+                    if wire.starts_with(b"receipt:") {
+                        self.state.lock().unwrap().succeeded = true;
+                    }
                     DesktopDeviceSwitchOutcome::Accepted(status)
                 }
-                (None, Some(code)) => DesktopDeviceSwitchOutcome::Rejected(code),
+                (None, Some(code)) => {
+                    if matches!(
+                        code,
+                        DesktopDeviceSwitchRejection::DrainProofInvalid
+                            | DesktopDeviceSwitchRejection::DrainProofExpired
+                    ) {
+                        self.state.lock().unwrap().pending_body = None;
+                    }
+                    DesktopDeviceSwitchOutcome::Rejected(code)
+                }
                 _ => return Err(DesktopLocalHostError::CloudProtocolRejected),
             })
         }
@@ -887,6 +1159,7 @@ mod tests {
         answers: StdMutex<VecDeque<Result<Vec<u8>, NativeCloudRequestError>>>,
         sent: StdMutex<Vec<(SwitchCloudExchange, Vec<u8>)>>,
         cancel_on_send: StdMutex<Option<Arc<NativeCloudCancelFence>>>,
+        downgrade_on_status: StdMutex<bool>,
     }
 
     impl FakeCloud {
@@ -910,12 +1183,15 @@ mod tests {
     impl SwitchCloud<FakeAdmission> for FakeCloud {
         fn send(
             self: &Arc<Self>,
-            admission: FakeAdmission,
+            mut admission: FakeAdmission,
             exchange: SwitchCloudExchange,
             body: Vec<u8>,
         ) -> impl Future<Output = Result<(FakeAdmission, Vec<u8>, u64), NativeCloudRequestError>> + Send
         {
             self.sent.lock().unwrap().push((exchange, body));
+            if exchange == STATUS && *self.downgrade_on_status.lock().unwrap() {
+                admission.active = false;
+            }
             if let Some(fence) = self.cancel_on_send.lock().unwrap().as_ref() {
                 fence.cancel();
             }
@@ -1085,6 +1361,7 @@ mod tests {
 
         // Legacy rows need Cloud's receipts before the fold; then the proof is signed and sent.
         harness.cloud.answer(Ok(b"receipts"));
+        harness.cloud.answer(Ok(b"accepted:draining:switch-cloud"));
         harness
             .cloud
             .answer(Ok(b"accepted:bootstrapping:switch-cloud"));
@@ -1115,7 +1392,7 @@ mod tests {
         // A handed-off switch keeps writes closed: this device is no longer Active.
         assert_eq!(state.barrier.as_deref(), Some("switch-cloud"));
         let sent = harness.cloud.sent();
-        assert_eq!(sent.len(), 3);
+        assert_eq!(sent.len(), 4);
         assert_eq!(sent[0].0, REQUEST);
         assert!(sent[0].1.starts_with("request:device-target:"));
         assert_eq!(
@@ -1123,8 +1400,216 @@ mod tests {
             (SwitchCloudExchange::Receipts, "receipts-for-a-b".to_owned())
         );
         assert_eq!(
-            sent[2],
+            sent[3],
             (DRAIN, "transcript:switch-cloud|signature".to_owned())
+        );
+        assert_eq!(sent[2], (STATUS, "lookup:switch-cloud".to_owned()));
+        assert_eq!(
+            state.attempts,
+            vec![(
+                "transcript:switch-cloud".to_owned(),
+                "device-target".to_owned()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_drain_reconciles_before_replaying_exact_bytes_without_resigning() {
+        let harness = harness(FakeSigner::default());
+        harness.host.state.lock().unwrap().barrier = Some("switch-1".to_owned());
+        harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+        harness
+            .cloud
+            .answer(Err(NativeCloudRequestError::OutcomeUnknown));
+        script(&harness, &[DesktopDrainProgress::Ready], &[]);
+        assert_eq!(
+            harness.coordinator.advance().await,
+            Err(DeviceSwitchError::Retryable)
+        );
+        assert_eq!(harness.host.state.lock().unwrap().attempts.len(), 1);
+
+        let restarted = DeviceSwitchCoordinator::new(
+            Arc::clone(&harness.host),
+            Arc::clone(&harness.cloud),
+            Arc::clone(&harness.signer),
+            Arc::clone(&harness.fence),
+            Arc::new(|| {}),
+        );
+        harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+        harness.cloud.answer(Ok(b"receipt:bootstrapping:switch-1"));
+        assert_eq!(
+            restarted.advance().await,
+            Ok(DeviceSwitchStep::Switch(
+                DesktopDeviceSwitchStatus::Bootstrapping
+            ))
+        );
+        assert_eq!(
+            harness
+                .cloud
+                .sent()
+                .iter()
+                .filter(|(kind, _)| *kind == DRAIN)
+                .count(),
+            2
+        );
+        assert_eq!(harness.signer.signed.lock().unwrap().len(), 1);
+        let sent = harness.cloud.sent();
+        assert_eq!(sent[1], sent[3]);
+        assert_eq!(sent[2].0, STATUS);
+        harness.cloud.answer(Ok(b"receipt:completed:switch-1"));
+        assert_eq!(
+            restarted.advance().await,
+            Ok(DeviceSwitchStep::Switch(
+                DesktopDeviceSwitchStatus::Completed
+            ))
+        );
+        assert_eq!(harness.cloud.sent().last().unwrap().0, STATUS);
+    }
+
+    #[tokio::test]
+    async fn persistence_failure_prevents_drain_submission() {
+        let harness = harness(FakeSigner::default());
+        {
+            let mut state = harness.host.state.lock().unwrap();
+            state.barrier = Some("switch-1".to_owned());
+            state.reject_persistence = true;
+        }
+        harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+        script(&harness, &[DesktopDrainProgress::Ready], &[]);
+        assert_eq!(
+            harness.coordinator.advance().await,
+            Err(DeviceSwitchError::Retryable)
+        );
+        assert_eq!(
+            harness.cloud.sent(),
+            vec![(STATUS, "lookup:switch-1".to_owned())]
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_advances_cannot_create_a_second_drain_attempt() {
+        let harness = harness(FakeSigner::default());
+        harness.host.state.lock().unwrap().barrier = Some("switch-1".to_owned());
+        harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+        harness
+            .cloud
+            .answer(Err(NativeCloudRequestError::OutcomeUnknown));
+        harness.cloud.answer(Ok(b"receipt:bootstrapping:switch-1"));
+        script(&harness, &[DesktopDrainProgress::Ready], &[]);
+        let (first, second) =
+            tokio::join!(harness.coordinator.advance(), harness.coordinator.advance());
+        let outcomes = [first, second];
+        assert!(outcomes.contains(&Err(DeviceSwitchError::Retryable)));
+        assert!(outcomes.contains(&Ok(DeviceSwitchStep::Switch(
+            DesktopDeviceSwitchStatus::Bootstrapping
+        ))));
+        assert_eq!(harness.host.state.lock().unwrap().attempts.len(), 1);
+        assert_eq!(
+            harness
+                .cloud
+                .sent()
+                .iter()
+                .filter(|(kind, _)| *kind == DRAIN)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_target_bootstrap_never_reopens_a_successfully_released_source() {
+        let harness = harness(FakeSigner::default());
+        {
+            let mut state = harness.host.state.lock().unwrap();
+            state.barrier = Some("switch-1".to_owned());
+        }
+        harness.cloud.answer(Ok(b"receipt:failed:switch-1"));
+        assert_eq!(
+            harness.coordinator.status().await,
+            Ok(DeviceSwitchStep::Switch(DesktopDeviceSwitchStatus::Failed))
+        );
+        assert!(harness.host.state.lock().unwrap().cleared.is_empty());
+        assert_eq!(
+            harness.host.state.lock().unwrap().barrier.as_deref(),
+            Some("switch-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn status_refresh_to_standby_never_reports_reopened_writes() {
+        for status in ["cancelled", "failed", "draining"] {
+            let harness = harness(FakeSigner::default());
+            harness.host.state.lock().unwrap().barrier = Some("switch-1".to_owned());
+            *harness.cloud.downgrade_on_status.lock().unwrap() = true;
+            harness
+                .cloud
+                .answer(Ok(format!("accepted:{status}:switch-1").as_bytes()));
+            script(&harness, &[DesktopDrainProgress::Ready], &[]);
+            assert!(matches!(
+                harness.coordinator.advance().await,
+                Ok(DeviceSwitchStep::Switch(_))
+            ));
+            assert!(harness.host.state.lock().unwrap().cleared.is_empty());
+            assert!(harness.signer.signed.lock().unwrap().is_empty());
+            assert_eq!(harness.cloud.sent().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn definitive_proof_rejection_blocks_until_cancelled_and_never_replays() {
+        for rejection in ["DRAIN_PROOF_INVALID", "DRAIN_PROOF_EXPIRED"] {
+            let harness = harness(FakeSigner::default());
+            harness.host.state.lock().unwrap().barrier = Some("switch-1".to_owned());
+            harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+            harness
+                .cloud
+                .answer(Ok(format!("rejected:{rejection}").as_bytes()));
+            script(&harness, &[DesktopDrainProgress::Ready], &[]);
+            assert_eq!(
+                harness.coordinator.advance().await,
+                Ok(DeviceSwitchStep::Blocked)
+            );
+            harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+            assert_eq!(
+                harness.coordinator.advance().await,
+                Ok(DeviceSwitchStep::Blocked)
+            );
+            assert_eq!(harness.signer.signed.lock().unwrap().len(), 1);
+            assert_eq!(harness.cloud.sent().len(), 3);
+            assert_eq!(harness.cloud.sent().last().unwrap().0, STATUS);
+            harness.cloud.answer(Ok(b"accepted:cancelled:switch-1"));
+            assert_eq!(
+                harness.coordinator.cancel().await,
+                Ok(DeviceSwitchStep::WritesReopened)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn restart_after_durable_intent_before_send_resumes_only_after_status() {
+        let harness = harness(FakeSigner::default());
+        {
+            let mut state = harness.host.state.lock().unwrap();
+            state.barrier = Some("switch-1".to_owned());
+            state
+                .attempts
+                .push(("transcript:switch-1".to_owned(), "device-target".to_owned()));
+            state.pending_body = Some(b"transcript:switch-1|signature".to_vec());
+        }
+        harness.cloud.answer(Ok(b"accepted:draining:switch-1"));
+        harness.cloud.answer(Ok(b"receipt:bootstrapping:switch-1"));
+        assert_eq!(
+            harness.coordinator.advance().await,
+            Ok(DeviceSwitchStep::Switch(
+                DesktopDeviceSwitchStatus::Bootstrapping
+            ))
+        );
+        assert!(harness.signer.signed.lock().unwrap().is_empty());
+        assert_eq!(
+            harness.cloud.sent(),
+            vec![
+                (STATUS, "lookup:switch-1".to_owned()),
+                (DRAIN, "transcript:switch-1|signature".to_owned())
+            ]
         );
     }
 

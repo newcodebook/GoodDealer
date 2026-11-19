@@ -7,9 +7,9 @@ const subject = { accountId: "account-drain", workspaceId: "workspace-drain", de
 const { privateKey, rawPublicKey } = drainProofKeyPair();
 const view = {
   schemaVersion: 1 as const, accepted: true as const,
-  request: { schemaVersion: 1 as const, requestId: "switch-1", mode: "normal" as const, status: "bootstrapping" as const,
+  request: { schemaVersion: 2 as const, requestId: "switch-1", mode: "normal" as const, status: "bootstrapping" as const,
     fromDeviceId: "device-old", toDeviceId: "device-new", requestedAt: "2026-11-17T00:00:00Z",
-    earliestTakeoverAt: null, bootstrapExpiresAt: "2026-11-17T01:00:00Z" },
+    normalHandoffReceipt: null, earliestTakeoverAt: null, bootstrapExpiresAt: "2026-11-17T01:00:00Z" },
 };
 
 function signed(overrides: Record<string, unknown> = {}, key = privateKey) {

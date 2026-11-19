@@ -9,7 +9,10 @@ fn before_listing_migration() -> Connection {
         .pragma_update(None, "foreign_keys", true)
         .unwrap();
     connection.execute_batch("CREATE TABLE gooddealer_active_migrations (id INTEGER PRIMARY KEY, owner TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;").unwrap();
-    for migration in &ACTIVE_MIGRATIONS[..ACTIVE_MIGRATIONS.len() - 1] {
+    for migration in ACTIVE_MIGRATIONS
+        .iter()
+        .take_while(|migration| migration.id != LISTING_PROVIDER_BINDING_MIGRATION_ID)
+    {
         apply_migration(&mut connection, migration).unwrap();
     }
     connection.execute("INSERT INTO active_workspace_metadata (singleton,storage_domain,workspace_id,workspace_schema_version,applied_through_server_revision,local_commit_sequence,next_device_mutation_sequence,created_at,updated_at) VALUES (1,'active_workspace','ws',1,0,1,2,?1,?1)", [TIME]).unwrap();

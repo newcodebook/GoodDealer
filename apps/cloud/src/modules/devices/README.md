@@ -108,3 +108,19 @@ Tests: `../../../test/standby-grant-issuer.test.ts`, `../../../test/desktop-sess
 `../../../test/postgres/desktop-oauth.test.ts` and the route/sync suites cover purpose substitution,
 real second-device login/refresh, entitlement-independent Standby, pending floors and write denial.
 Real OpenBao provisioning and Windows/macOS double-device qualification remain external evidence.
+
+## Normal handoff receipt
+
+The switch view is version 2; request, response wrapper and device-list versions remain 1. Every
+view explicitly includes nullable `normalHandoffReceipt`. PostgreSQL derives a receipt in the same
+snapshot from exactly one consumed/accepted handoff proof, its normal device-switch workflow,
+matching source/epoch Lease released for `normal_handoff`, and the existing capability's exact
+target and issuance time. All handoff timestamps must match; malformed or ambiguous history cannot
+assert success. Later bootstrap completion/failure preserves the receipt. Workflow status alone and
+in-memory fixtures never attest durable handoff. Forced workflows receive no normal receipt.
+
+The historical receipt carries the source Lease epoch, proof ID/digest and release time. Native must
+match it to its own persisted attempt and latest local Active epoch before deciding Inbox eligibility;
+it grants no new Lease or mutation permission. The real OAuth `desktop_login` allocation is admitted
+for a new normal switch only through the account's exact personal-default binding; it cannot choose
+an arbitrary workspace. PostgreSQL coverage is beside switch request/drain persistence and OAuth.

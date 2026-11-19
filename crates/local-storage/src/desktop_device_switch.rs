@@ -9,7 +9,8 @@
 use serde_json::{Map, Value};
 
 use crate::active_workspace::business::{
-    CloudMutationReceipt, DrainMutationProgress, HandoffDrainProofClaims,
+    CloudMutationReceipt, DrainMutationProgress, HandoffDrainProofClaims, NormalHandoffAttempt,
+    NormalHandoffReceipt,
 };
 use crate::desktop_native_cloud::{
     strict_json, validate_digest43, validate_identifier, validate_timestamp,
@@ -18,6 +19,7 @@ use crate::desktop_sync_runtime::random_uuid_v4;
 use crate::{DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission};
 
 const DEVICE_MANAGEMENT_SCHEMA_VERSION: u64 = 1;
+const DEVICE_SWITCH_VIEW_SCHEMA_VERSION: u64 = 2;
 const RECEIPT_READ_SCHEMA_VERSION: u64 = 1;
 const MAX_RECEIPT_READ_IDS: usize = 256;
 const MAX_IDENTIFIER_BYTES: usize = 160;
@@ -394,11 +396,197 @@ impl DesktopLocalHost {
         response_wire: &[u8],
     ) -> Result<DesktopDeviceSwitchOutcome, DesktopLocalHostError> {
         self.recheck_native_cloud(admission)?;
-        decode_switch_response(
-            response_wire,
-            device_switch_request_id,
-            admission.inner.device_id(),
-        )
+        match decode_switch_view(response_wire, admission.inner.device_id())? {
+            SwitchResponse::Rejected(code) => {
+                let refusal = match code {
+                    DesktopDeviceSwitchRejection::DrainProofInvalid => Some("DRAIN_PROOF_INVALID"),
+                    DesktopDeviceSwitchRejection::DrainProofExpired => Some("DRAIN_PROOF_EXPIRED"),
+                    DesktopDeviceSwitchRejection::DrainStreamsIncomplete => {
+                        Some("DRAIN_STREAMS_INCOMPLETE")
+                    }
+                    _ => None,
+                };
+                if let Some(refusal) = refusal {
+                    self.with_native_handoff_state(admission, false, |business, fence| {
+                        business
+                            .database_for_backup_mut()
+                            .refuse_normal_handoff_submission(
+                                device_switch_request_id,
+                                refusal,
+                                fence,
+                            )
+                    })?;
+                }
+                Ok(DesktopDeviceSwitchOutcome::Rejected(code))
+            }
+            SwitchResponse::Accepted(view) => {
+                if view.request_id != device_switch_request_id {
+                    return Err(DesktopLocalHostError::CloudProtocolRejected);
+                }
+                if let Some(receipt) = &view.receipt {
+                    self.with_native_handoff_state(admission, false, |business, fence| {
+                        business
+                            .database_for_backup_mut()
+                            .record_normal_handoff_receipt(
+                                &view.request_id,
+                                admission.inner.device_id(),
+                                &view.to_device_id,
+                                receipt,
+                                fence,
+                            )
+                    })?;
+                }
+                Ok(DesktopDeviceSwitchOutcome::Accepted(view.status))
+            }
+        }
+    }
+
+    /// Persists the exact signed proof before any network submission. Replacing an unresolved
+    /// attempt is rejected; response loss is recovered through status, never another proof.
+    ///
+    /// # Errors
+    /// Rejects stale authority, a mismatched barrier or a different existing attempt.
+    pub fn persist_native_drain_attempt(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        draft: &DesktopDrainProofDraft,
+        device_signature: &str,
+        target_device_id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use sha2::{Digest, Sha256};
+        validate_identifier(target_device_id, MAX_IDENTIFIER_BYTES)?;
+        let body = self.native_drain_submission(draft, device_signature)?;
+        if !admission.is_active()
+            || draft.claims.workspace_id != admission.workspace_id()
+            || draft.claims.source_device_id != admission.inner.device_id()
+            || draft.claims.active_lease_epoch != admission.inner.lease_epoch()
+        {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        let attempt = NormalHandoffAttempt {
+            request_id: draft.claims.device_switch_request_id.clone(),
+            source_device_id: draft.claims.source_device_id.clone(),
+            target_device_id: target_device_id.to_owned(),
+            source_lease_epoch: draft.claims.active_lease_epoch,
+            proof_id: draft.claims.proof_id.clone(),
+            proof_digest: URL_SAFE_NO_PAD.encode(Sha256::digest(
+                draft
+                    .claims
+                    .digest_input(device_signature)
+                    .map_err(|_| DesktopLocalHostError::StorageRejected)?,
+            )),
+            issued_at: draft.claims.issued_at.clone(),
+            expires_at: draft.claims.expires_at.clone(),
+        };
+        self.store_native_handoff_attempt(admission, &attempt, &body)
+    }
+
+    /// Restores the same signed request after an authenticated status reconciliation. Native
+    /// callers must first observe Requested/Draining without a receipt; no fresh proof is made.
+    /// # Errors
+    /// Rejects stale/Standby authority, mismatched barriers or corrupted Native material.
+    pub fn native_pending_drain_submission(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        request_id: &str,
+        status_wire: &[u8],
+    ) -> Result<Option<Vec<u8>>, DesktopLocalHostError> {
+        validate_identifier(request_id, MAX_IDENTIFIER_BYTES)?;
+        let Some((attempt, body)) = self.load_native_handoff_attempt(admission, request_id)? else {
+            return Ok(None);
+        };
+        let SwitchResponse::Accepted(status) =
+            decode_switch_view(status_wire, admission.inner.device_id())?
+        else {
+            return Ok(None);
+        };
+        if status.forced
+            || status.request_id != request_id
+            || status.to_device_id != attempt.target_device_id
+        {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        if status.receipt.is_some()
+            || !matches!(
+                status.status,
+                DesktopDeviceSwitchStatus::Requested | DesktopDeviceSwitchStatus::Draining
+            )
+        {
+            return Ok(None);
+        }
+        let wire: Value = strict_json(&body)?;
+        let request = exact_object(&wire, &["schemaVersion", "requestId", "proof"])?;
+        let proof = &request["proof"];
+        if request["schemaVersion"].as_u64() != Some(DEVICE_MANAGEMENT_SCHEMA_VERSION)
+            || identifier(&request["requestId"])? != request_id
+            || proof.get("workspaceId").and_then(Value::as_str) != Some(admission.workspace_id())
+            || proof.get("sourceDeviceId").and_then(Value::as_str)
+                != Some(admission.inner.device_id())
+            || proof.get("activeLeaseEpoch").and_then(Value::as_u64)
+                != Some(attempt.source_lease_epoch)
+            || proof.get("proofId").and_then(Value::as_str) != Some(attempt.proof_id.as_str())
+            || proof.get("deviceSwitchRequestId").and_then(Value::as_str) != Some(request_id)
+            || crate::active_workspace::business::signed_handoff_proof_digest(proof)
+                .map_err(|_| DesktopLocalHostError::CloudProtocolRejected)?
+                != attempt.proof_digest
+        {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        Ok(Some(body))
+    }
+
+    /// Checks durable submission identity before the coordinator considers another proof.
+    /// # Errors
+    /// Rejects stale authority or unavailable local evidence.
+    pub fn native_drain_attempt_pending(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        request_id: &str,
+    ) -> Result<bool, DesktopLocalHostError> {
+        validate_identifier(request_id, MAX_IDENTIFIER_BYTES)?;
+        self.with_native_handoff_state(admission, false, |business, _| {
+            Ok(business
+                .database_for_backup_mut()
+                .normal_handoff_attempt(request_id)?
+                .is_some())
+        })
+    }
+
+    /// Distinguishes source release from a later failed target bootstrap.
+    /// # Errors
+    /// Rejects stale authority or unavailable local evidence.
+    pub fn native_drain_attempt_succeeded(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        request_id: &str,
+    ) -> Result<bool, DesktopLocalHostError> {
+        validate_identifier(request_id, MAX_IDENTIFIER_BYTES)?;
+        self.with_native_handoff_state(admission, false, |business, _| {
+            Ok(business
+                .database_for_backup_mut()
+                .normal_handoff_attempt(request_id)?
+                .is_some_and(|(_, receipt)| receipt.is_some()))
+        })
+    }
+
+    /// Gets a target only from a strictly decoded response bound to this source and request.
+    /// # Errors
+    /// Rejects stale authority or malformed/cross-request Cloud responses.
+    pub fn native_device_switch_response_target(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        request_id: &str,
+        wire: &[u8],
+    ) -> Result<Option<String>, DesktopLocalHostError> {
+        self.recheck_native_cloud(admission)?;
+        match decode_switch_view(wire, admission.inner.device_id())? {
+            SwitchResponse::Rejected(_) => Ok(None),
+            SwitchResponse::Accepted(view) if !view.forced && view.request_id == request_id => {
+                Ok(Some(view.to_device_id))
+            }
+            SwitchResponse::Accepted(_) => Err(DesktopLocalHostError::CloudProtocolRejected),
+        }
     }
 
     /// Reopens local writes after `device_switch_request_id` was cancelled or failed while this
@@ -413,11 +601,12 @@ impl DesktopLocalHost {
         device_switch_request_id: &str,
     ) -> Result<(), DesktopLocalHostError> {
         validate_identifier(device_switch_request_id, MAX_IDENTIFIER_BYTES)?;
-        self.with_sync_business_write(&admission.inner, |sync, business, admission, _| {
+        self.with_sync_business_write(&admission.inner, |sync, business, admission, guard| {
             sync.drain_clear_barrier(
                 business.database_for_backup_mut(),
                 admission,
                 device_switch_request_id,
+                guard,
             )
         })
     }
@@ -432,8 +621,8 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<bool, DesktopLocalHostError> {
-        self.with_sync_business_write(&admission.inner, |sync, business, admission, _| {
-            sync.drain_clear_left_over_barrier(business.database_for_backup_mut(), admission)
+        self.with_sync_business_write(&admission.inner, |sync, business, admission, guard| {
+            sync.drain_clear_left_over_barrier(business.database_for_backup_mut(), admission, guard)
         })
     }
 }
@@ -565,6 +754,7 @@ fn decode_switch_start(
 }
 
 /// A response about this device's existing switch `device_switch_request_id`.
+#[cfg(test)]
 fn decode_switch_response(
     wire: &[u8],
     device_switch_request_id: &str,
@@ -586,6 +776,7 @@ struct SwitchView {
     forced: bool,
     status: DesktopDeviceSwitchStatus,
     to_device_id: String,
+    receipt: Option<NormalHandoffReceipt>,
 }
 
 enum SwitchResponse {
@@ -627,6 +818,7 @@ fn decode_switch_view(
             "requestedAt",
             "earliestTakeoverAt",
             "bootstrapExpiresAt",
+            "normalHandoffReceipt",
         ],
     )?;
     let status = match text(&view["status"])? {
@@ -654,7 +846,7 @@ fn decode_switch_view(
             | DesktopDeviceSwitchStatus::Failed
     );
     // The schema's refinements, then the binding to this device's own switch.
-    if view["schemaVersion"].as_u64() != Some(DEVICE_MANAGEMENT_SCHEMA_VERSION)
+    if view["schemaVersion"].as_u64() != Some(DEVICE_SWITCH_VIEW_SCHEMA_VERSION)
         || (forced && earliest_takeover_at.is_none())
         || ((status == DesktopDeviceSwitchStatus::Bootstrapping) != bootstrap_expires_at.is_some())
         || (terminal && bootstrap_expires_at.is_some())
@@ -663,11 +855,33 @@ fn decode_switch_view(
     {
         return Err(DesktopLocalHostError::CloudProtocolRejected);
     }
+    let receipt = nullable(&view["normalHandoffReceipt"], |value| {
+        let record = exact_object(
+            value,
+            &["sourceLeaseEpoch", "proofId", "proofDigest", "releasedAt"],
+        )?;
+        let released_at = timestamp(&record["releasedAt"])?;
+        let digest = text(&record["proofDigest"])?;
+        validate_digest43(digest)?;
+        if forced
+            || released_at < requested_at
+            || identifier(&view["toDeviceId"])? == source_device_id
+        {
+            return Err(DesktopLocalHostError::CloudProtocolRejected);
+        }
+        Ok(NormalHandoffReceipt {
+            source_lease_epoch: safe_positive(&record["sourceLeaseEpoch"])?,
+            proof_id: identifier(&record["proofId"])?.to_owned(),
+            proof_digest: digest.to_owned(),
+            released_at: released_at.to_owned(),
+        })
+    })?;
     Ok(SwitchResponse::Accepted(SwitchView {
         request_id: identifier(&view["requestId"])?.to_owned(),
         forced,
         status,
         to_device_id: identifier(&view["toDeviceId"])?.to_owned(),
+        receipt,
     }))
 }
 
@@ -739,7 +953,8 @@ mod tests {
 
     fn view(overrides: &[(&str, Value)]) -> Value {
         let mut view = serde_json::json!({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
+            "normalHandoffReceipt": null,
             "requestId": "switch-1",
             "mode": "normal",
             "status": "bootstrapping",
@@ -946,7 +1161,7 @@ mod tests {
                 "requestedAt",
                 serde_json::json!("2026-09-16 00:00:00"),
             )])),
-            accepted(&view(&[("schemaVersion", serde_json::json!(2))])),
+            accepted(&view(&[("schemaVersion", serde_json::json!(1))])),
             accepted(&extra),
             br#"{"schemaVersion":1,"accepted":false,"code":"SOMETHING_ELSE"}"#.to_vec(),
             br#"{"schemaVersion":1,"accepted":false,"code":"DRAIN_PROOF_EXPIRED","x":1}"#.to_vec(),

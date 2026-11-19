@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { DRAIN_STREAM_GENESIS_DIGEST } from "../src/execution-events/index";
-import { deviceSwitchDrainRequestSchema, deviceSwitchLookupRequestSchema, deviceSwitchResponseSchema } from "../src/devices/index";
+import { deviceSwitchRequestViewSchema, deviceSwitchDrainRequestSchema, deviceSwitchLookupRequestSchema, deviceSwitchResponseSchema } from "../src/devices/index";
 
 const request = {
-  schemaVersion: 1, requestId: "switch-1", mode: "normal", status: "draining", fromDeviceId: "device-old",
-  toDeviceId: "device-new", requestedAt: "2026-11-17T00:00:00Z", earliestTakeoverAt: null, bootstrapExpiresAt: null,
+  schemaVersion: 2, requestId: "switch-1", mode: "normal", status: "draining", fromDeviceId: "device-old",
+  toDeviceId: "device-new", requestedAt: "2026-11-17T00:00:00Z", earliestTakeoverAt: null, bootstrapExpiresAt: null, normalHandoffReceipt: null,
 } as const;
 
 describe("device switch transport (ADR-0032 S1b)", () => {
@@ -32,6 +32,25 @@ describe("device switch transport (ADR-0032 S1b)", () => {
     ]) {
       expect(deviceSwitchResponseSchema.safeParse(hostile).success).toBe(false);
     }
+  });
+
+  it("requires the v2 view and strict, normal-only durable handoff evidence", () => {
+    const receipt = { sourceLeaseEpoch: 7, proofId: "proof-1", proofDigest: "A".repeat(43), releasedAt: "2026-11-17T00:01:00Z" };
+    for (const status of ["bootstrapping", "completed", "failed"] as const) {
+      expect(deviceSwitchRequestViewSchema.safeParse({ ...request, status, normalHandoffReceipt: receipt,
+        bootstrapExpiresAt: status === "bootstrapping" ? "2026-11-17T01:01:00Z" : null }).success).toBe(true);
+    }
+    const { normalHandoffReceipt: _receipt, ...oldShape } = request;
+    for (const hostile of [
+      oldShape, { ...request, schemaVersion: 1 },
+      { ...request, normalHandoffReceipt: { ...receipt, extra: true } },
+      { ...request, normalHandoffReceipt: { ...receipt, sourceLeaseEpoch: 0 } },
+      { ...request, normalHandoffReceipt: { ...receipt, proofDigest: "a".repeat(64) } },
+      { ...request, normalHandoffReceipt: { ...receipt, releasedAt: "2026-11-16T00:00:00Z" } },
+      { ...request, fromDeviceId: null, normalHandoffReceipt: receipt },
+      { ...request, toDeviceId: request.fromDeviceId, normalHandoffReceipt: receipt },
+      { ...request, mode: "forced", earliestTakeoverAt: "2026-11-17T01:00:00Z", normalHandoffReceipt: receipt },
+    ]) expect(deviceSwitchRequestViewSchema.safeParse(hostile).success).toBe(false);
   });
 
   it("carries a drain proof for one switch and nothing else (S1c2)", () => {

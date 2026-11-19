@@ -15,9 +15,9 @@ import { StaticPublicSessionVerifier } from "../support/public-session";
 const principal = { accountId: "account-switch", sessionId: "session-switch", clientKind: "desktop" as const };
 const view = {
   schemaVersion: 1 as const, accepted: true as const,
-  request: { schemaVersion: 1 as const, requestId: "switch-1", mode: "normal" as const, status: "draining" as const,
+  request: { schemaVersion: 2 as const, requestId: "switch-1", mode: "normal" as const, status: "draining" as const,
     fromDeviceId: "device-old", toDeviceId: "device-new", requestedAt: "2026-11-17T00:00:00Z",
-    earliestTakeoverAt: null, bootstrapExpiresAt: null },
+    normalHandoffReceipt: null, earliestTakeoverAt: null, bootstrapExpiresAt: null },
 };
 const switchRequest = { schemaVersion: 1, mode: "normal", toDeviceId: "device-new", idempotencyKey: "idem-1" };
 

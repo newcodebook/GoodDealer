@@ -23,9 +23,8 @@ export interface DeviceSwitchApplicationPort {
 
 /**
  * Desktop device switch adapter (ADR-0032 S1b). Account, workspace and device come only from the
- * authenticated session: the caller must be the Desktop holding the workspace's current Lease.
- * Production has no session for a device without the Lease, so forced takeover, which starts on
- * the target device, is refused as unavailable until that decision is made (ADR-0032 待决).
+ * authenticated session. Status permits either eligible participant, including Standby; request,
+ * cancel and drain require Active. Forced takeover remains closed until its workflow is composed.
  */
 export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationPort {
   constructor(private readonly dependencies: {

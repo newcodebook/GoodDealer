@@ -187,7 +187,7 @@ impl DesktopLocalHost {
             let installation_binding = custody.installation_binding_digest()?;
             let candidate = match &verified_role {
                 VerifiedWorkspaceRole::Active(active) => WorkspaceAuthorizationFloor {
-                    schema_version: 1,
+                    schema_version: 2,
                     installation_binding,
                     account_id: active.account_id().to_owned(),
                     workspace_id: active.workspace_id().to_owned(),
@@ -195,6 +195,7 @@ impl DesktopLocalHost {
                     account_security_epoch: active.account_security_epoch(),
                     issued_at: active.issued_at(),
                     maximum_lease_epoch: active.lease_epoch(),
+                    last_active_lease_epoch: Some(active.lease_epoch()),
                     standby_lease_epoch_floor: None,
                     commercial: Some(CommercialAuthorizationFloor {
                         revision: active.entitlement_revision(),
@@ -203,7 +204,7 @@ impl DesktopLocalHost {
                     }),
                 },
                 VerifiedWorkspaceRole::Standby(standby) => WorkspaceAuthorizationFloor {
-                    schema_version: 1,
+                    schema_version: 2,
                     installation_binding,
                     account_id: standby.account_id.clone(),
                     workspace_id: standby.workspace_id.clone(),
@@ -211,6 +212,7 @@ impl DesktopLocalHost {
                     account_security_epoch: standby.account_security_epoch,
                     issued_at: standby.issued_at,
                     maximum_lease_epoch: standby.lease_epoch_floor,
+                    last_active_lease_epoch: None,
                     standby_lease_epoch_floor: Some(standby.lease_epoch_floor),
                     commercial: None,
                 },

@@ -840,6 +840,28 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "normal_handoff_attempts",
+        &[
+            "workspace_id",
+            "request_id",
+            "source_device_id",
+            "target_device_id",
+            "source_lease_epoch",
+            "proof_id",
+            "proof_digest",
+            "issued_at",
+            "expires_at",
+        ],
+    ),
+    (
+        "normal_handoff_refusals",
+        &["workspace_id", "request_id", "code"],
+    ),
+    (
+        "normal_handoff_receipts",
+        &["workspace_id", "request_id", "released_at"],
+    ),
+    (
         "device_handoff_barriers",
         &[
             "workspace_id",
@@ -946,3 +968,9 @@ pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_OWNER: &str =
     "active-workspace/listing-provider-binding";
 pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_SQL: &str =
     include_str!("listing_provider_binding.sql");
+
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_ID: i64 = 202_611_180_002;
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER: &str =
+    "active-workspace/normal-handoff-receipt";
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL: &str =
+    include_str!("normal_handoff_receipt.sql");

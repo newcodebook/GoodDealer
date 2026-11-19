@@ -2,6 +2,10 @@ use crate::active_workspace::schema::{
     LISTING_PROVIDER_BINDING_MIGRATION_ID, LISTING_PROVIDER_BINDING_MIGRATION_OWNER,
     LISTING_PROVIDER_BINDING_MIGRATION_SQL,
 };
+use crate::active_workspace::schema::{
+    NORMAL_HANDOFF_RECEIPT_MIGRATION_ID, NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER,
+    NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL,
+};
 use rusqlite::{Connection, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
@@ -203,6 +207,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         id: LISTING_PROVIDER_BINDING_MIGRATION_ID,
         owner: LISTING_PROVIDER_BINDING_MIGRATION_OWNER,
         sql: LISTING_PROVIDER_BINDING_MIGRATION_SQL,
+    },
+    ActiveMigration {
+        id: NORMAL_HANDOFF_RECEIPT_MIGRATION_ID,
+        owner: NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER,
+        sql: NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL,
     },
 ];
 
@@ -538,7 +547,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 28);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 29);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -563,7 +572,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 53);
+        assert_eq!(table_count, 56);
         assert!(business_index_count >= 24);
 
         connection

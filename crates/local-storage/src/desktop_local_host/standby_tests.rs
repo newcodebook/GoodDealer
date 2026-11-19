@@ -180,3 +180,383 @@ fn signed_role_transition_keeps_the_final_business_commit_fence() {
         0
     );
 }
+
+fn persist_handoff(host: &DesktopLocalHost) -> serde_json::Value {
+    let admission = host.begin_native_cloud_run().unwrap();
+    host.begin_native_device_switch_drain(&admission, "normal-switch")
+        .unwrap();
+    let draft = host
+        .prepare_native_drain_proof(&admission, "normal-switch", "device-key-host-test")
+        .unwrap();
+    host.persist_native_drain_attempt(&admission, &draft, &"A".repeat(86), "target-device")
+        .unwrap();
+    let (attempt, receipt) = host
+        .runtime_state
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .business
+        .database_for_backup_mut()
+        .normal_handoff_attempt("normal-switch")
+        .unwrap()
+        .unwrap();
+    assert!(receipt.is_none());
+    serde_json::json!({"schemaVersion":1,"accepted":true,"request":{
+        "schemaVersion":2,"requestId":"normal-switch","mode":"normal","status":"bootstrapping",
+        "fromDeviceId":"device-local","toDeviceId":"target-device","requestedAt":attempt.issued_at,
+        "earliestTakeoverAt":null,"bootstrapExpiresAt":attempt.expires_at,
+        "normalHandoffReceipt":{"sourceLeaseEpoch":attempt.source_lease_epoch,"proofId":attempt.proof_id,
+        "proofDigest":attempt.proof_digest,"releasedAt":attempt.issued_at}
+    }})
+}
+
+fn remote_replica_page() -> Vec<u8> {
+    let mut page = serde_json::json!({"schemaVersion":3,"workspaceId":"workspace-local",
+        "fromServerRevisionExclusive":0,"throughServerRevisionInclusive":1,
+        "mutations":[{"schemaVersion":3,"mutationId":"remote-after-handoff","workspaceId":"workspace-local",
+        "workspaceSchemaVersion":1,"entityType":"domain_asset","entityId":"new-on-target.test","entityGeneration":1,
+        "operationKind":"upsert","baseServerRevision":0,"changedFields":[{"fieldPath":"note","value":"from new active"}],
+        "sourceDeviceId":"target-device","activeLeaseEpoch":3,"deviceMutationSequence":1,"serverRevision":1}],
+        "returnedThroughServerRevision":1,"nextCursor":null,"pageDigest":"A".repeat(43)});
+    page["pageDigest"] =
+        serde_json::json!(crate::active_workspace::business::canonical_page_digest(&page).unwrap());
+    serde_json::to_vec(&serde_json::json!({"schemaVersion":3,"accepted":true,"page":page,"confirmedThrough":0,
+        "pendingDelivery":{"generation":1,"fromServerRevisionExclusive":0,"throughServerRevisionInclusive":1,
+        "targetServerRevision":1,"pageDigest":page["pageDigest"],"nextCursorDigest":null,
+        "predecessorConfirmationDigest":null,"expiresAt":"2099-12-31T23:59:59Z"},"confirmToken":"standby-confirm"})).unwrap()
+}
+
+#[test]
+fn normal_handoff_lost_response_reopens_to_receipt_reconciliation_then_read_only_inbox() {
+    let directory = crate::test_tempdir::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+    let store = TestRebootstrapKeyStore::default();
+    let (verifier, standby) = authority::signed_standby_for_host_test(3, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&active_grant()).unwrap();
+    let receipt = persist_handoff(&host);
+    // Cloud consumed the proof, but the source exited before reading its response.
+    drop(host);
+    let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&standby).unwrap();
+    let admission = host.begin_native_cloud_read_run().unwrap();
+    assert_eq!(
+        host.native_device_switch_in_progress(&admission)
+            .unwrap()
+            .as_deref(),
+        Some("normal-switch")
+    );
+    assert!(
+        host.native_drain_attempt_pending(&admission, "normal-switch")
+            .unwrap()
+    );
+    assert!(host.prepare_native_sync_pull(&admission).is_err());
+    for key in ["proofId", "proofDigest", "sourceLeaseEpoch"] {
+        let mut bad = receipt.clone();
+        bad["request"]["normalHandoffReceipt"][key] = match key {
+            "sourceLeaseEpoch" => serde_json::json!(3),
+            "proofDigest" => serde_json::json!("B".repeat(43)),
+            _ => serde_json::json!("other-proof"),
+        };
+        assert!(
+            host.complete_native_device_switch_response(
+                &admission,
+                "normal-switch",
+                &serde_json::to_vec(&bad).unwrap()
+            )
+            .is_err()
+        );
+        assert!(host.prepare_native_sync_pull(&admission).is_err());
+    }
+    host.complete_native_device_switch_response(
+        &admission,
+        "normal-switch",
+        &serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        host.native_drain_attempt_succeeded(&admission, "normal-switch")
+            .unwrap()
+    );
+    let exchange = host.prepare_native_sync_pull(&admission).unwrap();
+    let before = library(&host).read_generation;
+    let page = remote_replica_page();
+    host.complete_native_sync_pull(&admission, &exchange, &page)
+        .unwrap();
+    assert_eq!(library(&host).read_generation, before + 1);
+    assert_eq!(library(&host).window.rows[0].domain, "new-on-target.test");
+    host.complete_native_sync_pull(&admission, &exchange, &page)
+        .unwrap();
+    assert_eq!(library(&host).read_generation, before + 1);
+    let mut wrong_token: serde_json::Value = serde_json::from_slice(&page).unwrap();
+    wrong_token["confirmToken"] = serde_json::json!("other-token");
+    assert!(
+        host.complete_native_sync_pull(
+            &admission,
+            &exchange,
+            &serde_json::to_vec(&wrong_token).unwrap()
+        )
+        .is_err()
+    );
+    assert!(host.claim_native_sync_push(&admission).is_err());
+    assert!(host.claim_native_cloudflare_projection(&admission).is_err());
+    assert!(
+        host.create_domain_asset(create_request(&host, "cannot-write.test"))
+            .is_err()
+    );
+    drop(host);
+    let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
+    let reopened = native_host(&path, store, verifier);
+    reopened.activate_authorization_grant(&standby).unwrap();
+    let admission = reopened.begin_native_cloud_read_run().unwrap();
+    assert!(reopened.prepare_native_sync_pull(&admission).is_ok());
+    assert_eq!(
+        library(&reopened).window.rows[0].domain,
+        "new-on-target.test"
+    );
+}
+
+#[test]
+fn normal_handoff_inbox_final_fence_rolls_back_and_later_active_epoch_refreezes_old_evidence() {
+    let directory = crate::test_tempdir::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+    let store = TestRebootstrapKeyStore::default();
+    let (verifier, standby) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&active_grant()).unwrap();
+    let receipt = persist_handoff(&host);
+    host.activate_authorization_grant(&standby).unwrap();
+    let admission = host.begin_native_cloud_read_run().unwrap();
+    host.complete_native_device_switch_response(
+        &admission,
+        "normal-switch",
+        &serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    let exchange = host.prepare_native_sync_pull(&admission).unwrap();
+    host.publish_transition_at_next_business_commit_for_test()
+        .unwrap();
+    assert_eq!(
+        host.complete_native_sync_pull(&admission, &exchange, &remote_replica_page()),
+        Err(DesktopLocalHostError::AuthorityRejected)
+    );
+    drop(host);
+    let (verifier, forced) = authority::signed_standby_for_host_test(4, 2);
+    let host = native_host(&path, store, verifier);
+    let (_, active) = authority::tests::long_lived_signed_grant_at_epoch(
+        2,
+        &"11".repeat(32),
+        "2099-12-31T23:59:59Z",
+        3,
+    );
+    host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":4,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
+    assert!(library(&host).window.rows.is_empty());
+    host.activate_authorization_grant(&forced).unwrap();
+    let admission = host.begin_native_cloud_read_run().unwrap();
+    // Source epoch 2's genuine normal receipt cannot thaw an epoch 3 forced-out replica.
+    assert!(
+        host.native_drain_attempt_succeeded(&admission, "normal-switch")
+            .unwrap()
+    );
+    assert!(host.prepare_native_sync_pull(&admission).is_err());
+}
+
+#[test]
+fn normal_handoff_replay_restores_exact_native_bytes_and_refusal_survives_restart() {
+    let directory = crate::test_tempdir::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+    let store = TestRebootstrapKeyStore::default();
+    let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    let active = active_grant();
+    host.activate_authorization_grant(&active).unwrap();
+    let mut status = persist_handoff(&host);
+    status["request"]["status"] = serde_json::json!("draining");
+    status["request"]["normalHandoffReceipt"] = serde_json::Value::Null;
+    status["request"]["bootstrapExpiresAt"] = serde_json::Value::Null;
+    let wire = serde_json::to_vec(&status).unwrap();
+    let admission = host.begin_native_cloud_run().unwrap();
+    let exact = host
+        .native_pending_drain_submission(&admission, "normal-switch", &wire)
+        .unwrap()
+        .unwrap();
+    let mut changed_target = status.clone();
+    changed_target["request"]["toDeviceId"] = serde_json::json!("different-device");
+    assert!(
+        host.native_pending_drain_submission(
+            &admission,
+            "normal-switch",
+            &serde_json::to_vec(&changed_target).unwrap()
+        )
+        .is_err()
+    );
+    drop(host);
+    let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&active).unwrap();
+    let admission = host.begin_native_cloud_run().unwrap();
+    assert_eq!(
+        host.native_pending_drain_submission(&admission, "normal-switch", &wire)
+            .unwrap(),
+        Some(exact)
+    );
+    host.complete_native_device_switch_response(
+        &admission,
+        "normal-switch",
+        br#"{"schemaVersion":1,"accepted":false,"code":"DRAIN_PROOF_INVALID"}"#,
+    )
+    .unwrap();
+    assert!(
+        host.native_pending_drain_submission(&admission, "normal-switch", &wire)
+            .unwrap()
+            .is_none()
+    );
+    drop(host);
+    let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, store, verifier);
+    host.activate_authorization_grant(&active).unwrap();
+    assert!(
+        host.native_pending_drain_submission(
+            &host.begin_native_cloud_run().unwrap(),
+            "normal-switch",
+            &wire
+        )
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
+fn normal_handoff_native_orphan_can_be_replaced_only_before_attempt_commit() {
+    let directory = crate::test_tempdir::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+    let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+    let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+    host.activate_authorization_grant(&active_grant()).unwrap();
+    let admission = host.begin_native_cloud_run().unwrap();
+    host.begin_native_device_switch_drain(&admission, "normal-switch")
+        .unwrap();
+    let first = host
+        .prepare_native_drain_proof(&admission, "normal-switch", "key-a")
+        .unwrap();
+    let bytes = host
+        .native_drain_submission(&first, &"A".repeat(86))
+        .unwrap();
+    host.production_custody
+        .as_ref()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .store_handoff_submission("normal-switch", &bytes)
+        .unwrap();
+    let replacement = host
+        .prepare_native_drain_proof(&admission, "normal-switch", "key-a")
+        .unwrap();
+    host.persist_native_drain_attempt(&admission, &replacement, &"A".repeat(86), "target-device")
+        .unwrap();
+    assert!(
+        host.persist_native_drain_attempt(&admission, &first, &"A".repeat(86), "target-device")
+            .is_err()
+    );
+}
+
+#[test]
+fn normal_handoff_standby_refresh_revocation_and_retired_cursor_keep_inbox_closed() {
+    let directory = crate::test_tempdir::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+    let store = TestRebootstrapKeyStore::default();
+    let (verifier, standby) = authority::signed_standby_for_host_test(3, 2);
+    let host = native_host(&path, store.clone(), verifier);
+    host.activate_authorization_grant(&active_grant()).unwrap();
+    let receipt = persist_handoff(&host);
+    host.activate_authorization_grant(&standby).unwrap();
+    let old = host.begin_native_cloud_read_run().unwrap();
+    host.complete_native_device_switch_response(
+        &old,
+        "normal-switch",
+        &serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    let exchange = host.prepare_native_sync_pull(&old).unwrap();
+    host.activate_authorization_grant(&standby).unwrap();
+    assert!(
+        host.complete_native_sync_pull(&old, &exchange, &remote_replica_page())
+            .is_err()
+    );
+    let refreshed = host.begin_native_cloud_read_run().unwrap();
+    let exchange = host.prepare_native_sync_pull(&refreshed).unwrap();
+    host.enter_security_lock().unwrap();
+    assert!(
+        host.complete_native_sync_pull(&refreshed, &exchange, &remote_replica_page())
+            .is_err()
+    );
+    // A newly accepted current authority permits the read, but a retired Cloud cursor freezes
+    // the reader durably without granting checkpoint publication or replacing this old replica.
+    host.activate_authorization_grant(&standby).unwrap();
+    let admission = host.begin_native_cloud_read_run().unwrap();
+    let exchange = host.prepare_native_sync_pull(&admission).unwrap();
+    assert!(library(&host).window.rows.is_empty());
+    let retired = br#"{"schemaVersion":3,"accepted":false,"code":"SYNC_REBOOTSTRAP_REQUIRED","checkpoint":null,"correlationId":"retired-reader"}"#;
+    assert_eq!(
+        host.complete_native_sync_pull(&admission, &exchange, retired),
+        Ok(crate::DesktopSyncPullDisposition::RebootstrapRequired)
+    );
+    assert!(host.prepare_native_sync_pull(&admission).is_err());
+    drop(host);
+    let (verifier, _) = authority::signed_standby_for_host_test(3, 2);
+    let reopened = native_host(&path, store, verifier);
+    reopened.activate_authorization_grant(&standby).unwrap();
+    let admission = reopened.begin_native_cloud_read_run().unwrap();
+    assert!(reopened.prepare_native_sync_pull(&admission).is_err());
+    assert!(reopened.native_checkpoint_due(&admission).is_err());
+    assert!(library(&reopened).window.rows.is_empty());
+}
+
+#[test]
+fn normal_handoff_cancel_and_previous_epoch_cleanup_keep_final_commit_fence() {
+    for later_epoch in [false, true] {
+        let directory = crate::test_tempdir::tempdir().unwrap();
+        let path = directory.path().canonicalize().unwrap().join("GoodDealer");
+        let (verifier, _) = authority::signed_standby_for_host_test(2, 2);
+        let host = native_host(&path, TestRebootstrapKeyStore::default(), verifier);
+        host.activate_authorization_grant(&active_grant()).unwrap();
+        let admission = host.begin_native_cloud_run().unwrap();
+        host.begin_native_device_switch_drain(&admission, "cancel-race")
+            .unwrap();
+        if later_epoch {
+            let (_, active) = authority::tests::long_lived_signed_grant_at_epoch(
+                2,
+                &"11".repeat(32),
+                "2099-12-31T23:59:59Z",
+                3,
+            );
+            host.activate_authorization_grant(&serde_json::to_vec(&serde_json::json!({"schemaVersion":4,"role":"active", "grant":serde_json::from_slice::<serde_json::Value>(&active).unwrap()})).unwrap()).unwrap();
+        }
+        let admission = host.begin_native_cloud_run().unwrap();
+        host.publish_transition_at_next_business_commit_for_test()
+            .unwrap();
+        let result = if later_epoch {
+            host.clear_left_over_device_switch_barrier(&admission)
+                .map(|_| ())
+        } else {
+            host.clear_native_device_switch_barrier(&admission, "cancel-race")
+        };
+        assert_eq!(result, Err(DesktopLocalHostError::AuthorityRejected));
+        assert_eq!(
+            host.runtime_state
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .business
+                .database_for_backup_mut()
+                .device_handoff_barrier()
+                .unwrap()
+                .unwrap()
+                .device_switch_request_id,
+            "cancel-race"
+        );
+    }
+}

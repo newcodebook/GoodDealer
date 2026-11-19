@@ -184,7 +184,7 @@ Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 - **普通切换**（ADR-0032 决策 1）：
   1. 目标设备登录或刷新，因来源持有 Lease 而为 Standby；可轮询切换状态。
   2. 来源提交 drain proof，Cloud 在同一事务中释放来源 Lease、预分配 `pending` epoch 并创建引导能力。此后来源再取 Grant 得到 `leaseEpochFloor` ≥ `pending` 的 Standby Grant，
-     Host 按 S4 节降级；handoff 栅栏在交接后保留，Inbox 照常应用，本地库成为只读副本。
+     Host 按 S4 节降级；handoff 栅栏在交接后保留。只有已持久化的普通交接成功回执与本机原 attempt、来源/目标、proof id/digest、来源 Lease epoch、barrier 全匹配后，Inbox 才继续应用，本地库成为只读副本。
   3. 目标以 Standby 会话经能力获取路由取得绑定其设备与工作流的引导能力，依次执行 `pin_checkpoint`、
      `fetch_mutations`、`submit_rebuild_digest`；激活签发 `pending` epoch 的 Lease 给目标设备。
   4. 目标再取 Grant 即得到 Active 响应（Lease 来自激活，不来自登录分配）。
@@ -203,7 +203,11 @@ Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 
 ## 交接栅栏与验证
 
-Host 写入栅栏跨重启持久化，绑定切换与 Lease epoch；取消或失败按工作流释放，交接后保留。
+Host 写入栅栏跨重启持久化，绑定切换与 Lease epoch；取消或失败且来源尚未成功释放时可解除，交接后保留。目标引导随后失败不撤销来源已成功释放的事实。
+Cloud 的普通交接回执必须来自唯一已消费且 accepted 的 handoff proof、同一工作流的来源 Lease（normal_handoff 释放原因）和匹配目标引导能力，不能只看 status。回执在工作流完成或失败后仍可读取；强制接管不产生该回执。
+Host 单独持久化最后一次本机已接受的 Active epoch；全局 Standby floor 不能代替它。旧 Native 记录缺少该事实时必须保持未知并冻结 Inbox，不能猜测。来源成功回执只能解冻同一最后本机 Active epoch 的副本，不能让早先普通交接证据解冻后来被强制接管的库。
+已签完整请求先存 Native、再提交本地公开 attempt，最后才发 HTTP；签名材料不进入业务备份。重启或未知结果先查状态，成功则保存回执，明确尚未消费且当前仍持有同 epoch Active 授权时只可恢复原签名请求。过期或确定拒绝的 proof 不再发送；需要取消未释放的切换后重新预览发起。没有业务 attempt 的 Native 孤儿从未发出，可以清理；已有 attempt 不得用新 proof 替换。
+Standby Inbox 只经专用读取/应用 gate，并保持原 reader cursor、页原子事务、read generation 和最终授权提交栅栏；它不开放 Outbox、Provider、checkpoint 发布或业务写入。
 本设备以后取得更高 epoch 时，只能清除更早 epoch 的遗留栅栏，不能清除当前切换的栅栏。
 drain 只能由 Host 从持久结果构造、以设备密钥按专属 transcript 签名；不公开任意签名 API。
 必须验证普通交接、强制丢机接管、撤销、过期、跨租户、重放、用途混淆、切换中登录和引导崩溃路径。

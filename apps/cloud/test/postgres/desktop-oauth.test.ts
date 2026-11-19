@@ -15,6 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AccountTransactionRunner,
+  TenantTransactionRunner,
   IdentityCapabilityTransactionRunner,
   PreAuthEmailTransactionRunner,
   runCloudMigrations,
@@ -33,6 +34,8 @@ import {
 import { PostgresDesktopAuthorizationApplicationService } from "../../src/modules/devices/postgres-desktop-authorization";
 import { PostgresExpiredDeviceBootstrap } from "../../src/modules/devices/postgres-expired-device-bootstrap";
 import { PostgresBootstrapCheckpointPort } from "../../src/modules/workspace/checkpoints/index";
+import { PostgresDeviceSwitchRequests } from "../../src/modules/devices/index";
+import { PostgresIdentityAccountSecurityStatePort } from "../../src/modules/identity/index";
 import { PostgresDesktopLoginLease } from "../../src/modules/devices/postgres-desktop-login-lease";
 import {
   PostgresEntitlementDeadlineReader,
@@ -327,6 +330,19 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
       FROM device_active_leases l JOIN device_account_states s USING (account_id)
       WHERE l.account_id = 'oauth-account' AND l.released_at IS NULL`);
     expect(stored.rows).toEqual([{ lease_epoch: "1", allocations: "1", highest: "1" }]);
+  });
+
+  it("starts normal handoff from a real OAuth Lease only in its resolved default workspace", async () => {
+    await desktopGrantPrincipal();
+    await loginStandbyDevice();
+    const requests = new PostgresDeviceSwitchRequests({ transactions: new TenantTransactionRunner(appPool),
+      accountSecurity: new PostgresIdentityAccountSecurityStatePort() });
+    const source = { accountId: "oauth-account", workspaceId: "oauth-workspace", deviceId: "device-a" };
+    await expect(requests.requestNormal({ ...source, workspaceId: "foreign-workspace" },
+      { toDeviceId: "device-b", idempotencyKey: "oauth-foreign-switch" })).resolves.toBeNull();
+    await expect(requests.requestNormal(source, { toDeviceId: "device-b", idempotencyKey: "oauth-normal-switch" }))
+      .resolves.toMatchObject({ accepted: true, request: { schemaVersion: 2, fromDeviceId: "device-a", toDeviceId: "device-b",
+        status: "draining", normalHandoffReceipt: null } });
   });
 
   it("completes second-device OAuth, Standby exchange and refresh without commercial or Lease escalation", async () => {

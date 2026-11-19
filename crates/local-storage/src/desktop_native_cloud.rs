@@ -834,7 +834,11 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<DesktopSyncPullExchange, DesktopLocalHostError> {
-        let request = self.sync_pull_request(&admission.inner, 256)?;
+        let request = if admission.is_active() {
+            self.sync_pull_request(&admission.inner, 256)?
+        } else {
+            self.standby_sync_pull_request(admission)?
+        };
         let expected_after_revision = request.after_server_revision;
         let request_body =
             serde_json::to_vec(&request).map_err(|_| DesktopLocalHostError::StorageRejected)?;
@@ -865,13 +869,21 @@ impl DesktopLocalHost {
                 validate_pull_response(&response, exchange)?;
                 let page_json = serde_json::to_string(&response.page)
                     .map_err(|_| DesktopLocalHostError::CloudProtocolRejected)?;
-                self.sync_apply_page(&admission.inner, &page_json, &response.confirm_token)?;
+                if admission.is_active() {
+                    self.sync_apply_page(&admission.inner, &page_json, &response.confirm_token)?;
+                } else {
+                    self.standby_sync_apply_page(admission, &page_json, &response.confirm_token)?;
+                }
                 Ok(DesktopSyncPullDisposition::Completed)
             }
             SyncPullResponseWire::Rejected(response) => {
                 validate_pull_rejection(&response, &exchange.expected_workspace_id)?;
                 match response.code.as_str() {
                     "SYNC_REBOOTSTRAP_REQUIRED" => {
+                        if !admission.is_active() {
+                            self.standby_sync_mark_rebootstrap_required(admission)?;
+                            return Ok(DesktopSyncPullDisposition::RebootstrapRequired);
+                        }
                         if let Some(checkpoint) = response.checkpoint {
                             let descriptor = checkpoint.into_descriptor()?;
                             self.complete_checkpoint(&admission.inner, Some(&descriptor))?;

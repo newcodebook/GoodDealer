@@ -27,6 +27,8 @@ pub(crate) struct WorkspaceAuthorizationFloor {
     pub(crate) issued_at: i64,
     pub(crate) maximum_lease_epoch: u64,
     #[serde(deserialize_with = "required_option")]
+    pub(crate) last_active_lease_epoch: Option<u64>,
+    #[serde(deserialize_with = "required_option")]
     pub(crate) standby_lease_epoch_floor: Option<u64>,
     #[serde(deserialize_with = "required_option")]
     pub(crate) commercial: Option<CommercialAuthorizationFloor>,
@@ -55,7 +57,7 @@ fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 impl WorkspaceAuthorizationFloor {
     pub(crate) fn validate(&self) -> Result<(), DesktopCustodyError> {
         if (self.standby_lease_epoch_floor.is_none() && self.commercial.is_none())
-            || self.schema_version != 1
+            || self.schema_version != 2
             || !valid_identifier(&self.account_id)
             || !valid_identifier(&self.workspace_id)
             || !valid_identifier(&self.device_id)
@@ -64,6 +66,9 @@ impl WorkspaceAuthorizationFloor {
             || self.issued_at <= 0
             || self.issued_at > 253_402_300_799
             || self.maximum_lease_epoch > MAX_EPOCH
+            || self
+                .last_active_lease_epoch
+                .is_some_and(|value| value == 0 || value > self.maximum_lease_epoch)
             || self
                 .standby_lease_epoch_floor
                 .is_some_and(|value| value > self.maximum_lease_epoch)
@@ -111,6 +116,7 @@ impl WorkspaceAuthorizationFloor {
                 return Err(DesktopCustodyError::Rejected);
             }
             self.commercial.clone_from(&old.commercial);
+            self.last_active_lease_epoch = old.last_active_lease_epoch;
         } else {
             if old
                 .standby_lease_epoch_floor
@@ -135,6 +141,55 @@ impl WorkspaceAuthorizationFloor {
         }
         Ok(self)
     }
+}
+
+/// Version 1 did not distinguish the last local Active epoch from a global Standby floor.
+/// Preserve all replay floors but keep that historical fact unknown; guessing would thaw an
+/// unsynchronized replica after a forced takeover. The next verified Active grant establishes it.
+#[cfg(unix)]
+fn decode_persisted_floor(
+    bytes: &[u8],
+) -> Result<WorkspaceAuthorizationFloor, DesktopCustodyError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct LegacyFloor {
+        schema_version: u8,
+        installation_binding: [u8; 32],
+        account_id: String,
+        workspace_id: String,
+        device_id: String,
+        account_security_epoch: u64,
+        issued_at: i64,
+        maximum_lease_epoch: u64,
+        #[serde(deserialize_with = "required_option")]
+        standby_lease_epoch_floor: Option<u64>,
+        #[serde(deserialize_with = "required_option")]
+        commercial: Option<CommercialAuthorizationFloor>,
+    }
+    if let Ok(record) = serde_json::from_slice::<WorkspaceAuthorizationFloor>(bytes) {
+        record.validate()?;
+        return Ok(record);
+    }
+    let old: LegacyFloor =
+        serde_json::from_slice(bytes).map_err(|_| DesktopCustodyError::Rejected)?;
+    if old.schema_version != 1 {
+        return Err(DesktopCustodyError::Rejected);
+    }
+    let record = WorkspaceAuthorizationFloor {
+        schema_version: 2,
+        installation_binding: old.installation_binding,
+        account_id: old.account_id,
+        workspace_id: old.workspace_id,
+        device_id: old.device_id,
+        account_security_epoch: old.account_security_epoch,
+        issued_at: old.issued_at,
+        maximum_lease_epoch: old.maximum_lease_epoch,
+        last_active_lease_epoch: None,
+        standby_lease_epoch_floor: old.standby_lease_epoch_floor,
+        commercial: old.commercial,
+    };
+    record.validate()?;
+    Ok(record)
 }
 
 #[cfg(unix)]
@@ -164,8 +219,7 @@ impl DesktopProductionCustody {
         if bytes.is_empty() || bytes.len() > MAX_BYTES {
             return Err(DesktopCustodyError::Rejected);
         }
-        let record: WorkspaceAuthorizationFloor =
-            serde_json::from_slice(&bytes).map_err(|_| DesktopCustodyError::Rejected)?;
+        let record = decode_persisted_floor(&bytes)?;
         record.validate()?;
         if record.installation_binding != self.installation_binding_digest()?
             || record.device_id != self.load_device_id()?
@@ -251,7 +305,7 @@ mod tests {
 
     fn active(epoch: u64) -> WorkspaceAuthorizationFloor {
         WorkspaceAuthorizationFloor {
-            schema_version: 1,
+            schema_version: 2,
             installation_binding: [1; 32],
             account_id: "account-a".into(),
             workspace_id: "workspace-a".into(),
@@ -259,6 +313,7 @@ mod tests {
             account_security_epoch: 2,
             issued_at: 1_795_000_000,
             maximum_lease_epoch: epoch,
+            last_active_lease_epoch: Some(epoch),
             standby_lease_epoch_floor: None,
             commercial: Some(CommercialAuthorizationFloor {
                 revision: 3,
@@ -270,6 +325,7 @@ mod tests {
     fn standby(epoch: u64) -> WorkspaceAuthorizationFloor {
         WorkspaceAuthorizationFloor {
             standby_lease_epoch_floor: Some(epoch),
+            last_active_lease_epoch: None,
             commercial: None,
             ..active(epoch)
         }
@@ -291,6 +347,30 @@ mod tests {
         let mut equivocation = active(8);
         equivocation.commercial.as_mut().unwrap().digest = "cd".repeat(32);
         assert!(equivocation.advance(Some(&demoted)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_native_floor_preserves_replay_protection_without_guessing_last_local_active() {
+        let mut legacy = serde_json::to_value(active(7)).unwrap();
+        legacy["schemaVersion"] = serde_json::json!(1);
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("lastActiveLeaseEpoch");
+        let migrated = decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(migrated.maximum_lease_epoch, 7);
+        assert_eq!(migrated.last_active_lease_epoch, None);
+        let demoted = standby(10).advance(Some(&migrated)).unwrap();
+        assert_eq!(demoted.last_active_lease_epoch, None);
+        let promoted = active(11).advance(Some(&demoted)).unwrap();
+        assert_eq!(promoted.last_active_lease_epoch, Some(11));
+        let later = standby(20).advance(Some(&promoted)).unwrap();
+        assert_eq!(later.last_active_lease_epoch, Some(11));
+        assert_eq!(later.maximum_lease_epoch, 20);
+        // Missing the new required key in version 2 is corruption, never a legacy upgrade.
+        legacy["schemaVersion"] = serde_json::json!(2);
+        assert!(decode_persisted_floor(&serde_json::to_vec(&legacy).unwrap()).is_err());
     }
 
     #[test]
@@ -340,7 +420,11 @@ mod tests {
     }
     #[test]
     fn persisted_optional_floors_require_explicit_keys() {
-        for key in ["standbyLeaseEpochFloor", "commercial"] {
+        for key in [
+            "standbyLeaseEpochFloor",
+            "commercial",
+            "lastActiveLeaseEpoch",
+        ] {
             let mut value = serde_json::to_value(active(7)).unwrap();
             value.as_object_mut().unwrap().remove(key);
             assert!(serde_json::from_value::<WorkspaceAuthorizationFloor>(value).is_err());

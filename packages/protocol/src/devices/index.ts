@@ -33,6 +33,7 @@ export type {
 
 export {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
   activeDeviceLeaseStatusSchema,
   cloudScopeSchema,
   deviceAuthorityProjectionSchema,
@@ -48,6 +49,7 @@ export {
   deviceSwitchRejectionCodeSchema,
   deviceSwitchRequestSchema,
   deviceSwitchRequestViewSchema,
+  normalHandoffReceiptSchema,
   deviceSwitchResponseSchema,
 } from "./device-management";
 export type {
@@ -66,6 +68,7 @@ export type {
   DeviceSwitchRejectionCode,
   DeviceSwitchRequest,
   DeviceSwitchRequestView,
+  NormalHandoffReceipt,
   DeviceSwitchResponse,
 } from "./device-management";
 

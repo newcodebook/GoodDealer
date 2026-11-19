@@ -911,7 +911,7 @@ fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
         Err(BusinessDatabaseError::InvalidInput)
     ));
     assert!(matches!(
-        database.clear_device_handoff_barrier("switch-2"),
+        database.clear_device_handoff_barrier("switch-2", || Ok(())),
         Err(BusinessDatabaseError::MutationConflict)
     ));
     assert_eq!(
@@ -923,7 +923,11 @@ fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
     );
     // Under the epoch it drains, the barrier is a drain in progress and is never cleared as
     // left over.
-    assert!(!database.clear_left_over_device_handoff_barrier(7).unwrap());
+    assert!(
+        !database
+            .clear_left_over_device_handoff_barrier(7, || Ok(()))
+            .unwrap()
+    );
 
     // Every local writer is closed at the database: the guarded create path, a raw sequence
     // allocation, and a raw Outbox insert all fail, and the failed create leaves nothing.
@@ -990,15 +994,23 @@ fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
         DrainMutationProgress::Ready(_)
     ));
 
-    database.clear_device_handoff_barrier("switch-1").unwrap();
-    database.clear_device_handoff_barrier("switch-1").unwrap();
+    database
+        .clear_device_handoff_barrier("switch-1", || Ok(()))
+        .unwrap();
+    database
+        .clear_device_handoff_barrier("switch-1", || Ok(()))
+        .unwrap();
     assert_eq!(database.device_handoff_barrier().unwrap(), None);
     create_for_drain(&mut database, "two");
     // A barrier from an epoch this device no longer holds (or with no epoch) is left over.
     database
         .begin_device_handoff_barrier("switch-3", 7, "2026-08-28T00:07:00Z", || Ok(()))
         .unwrap();
-    assert!(database.clear_left_over_device_handoff_barrier(8).unwrap());
+    assert!(
+        database
+            .clear_left_over_device_handoff_barrier(8, || Ok(()))
+            .unwrap()
+    );
     assert_eq!(database.device_handoff_barrier().unwrap(), None);
     database
         .store
@@ -1009,8 +1021,16 @@ fn device_handoff_barrier_closes_local_writes_but_not_cloud_results() {
             [],
         )
         .unwrap();
-    assert!(database.clear_left_over_device_handoff_barrier(1).unwrap());
-    assert!(!database.clear_left_over_device_handoff_barrier(1).unwrap());
+    assert!(
+        database
+            .clear_left_over_device_handoff_barrier(1, || Ok(()))
+            .unwrap()
+    );
+    assert!(
+        !database
+            .clear_left_over_device_handoff_barrier(1, || Ok(()))
+            .unwrap()
+    );
     create_for_drain(&mut database, "three");
 }
 

@@ -11,6 +11,7 @@ mod business;
 mod container;
 pub(crate) mod continuity;
 mod native_backup;
+mod normal_handoff;
 mod provider;
 mod recovery;
 mod restore;

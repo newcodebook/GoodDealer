@@ -43,3 +43,8 @@ pub(super) fn store_native(
 ) -> Result<(), DesktopCustodyError> {
     crate::secret_service_custody::store(service, account, value).map_err(secret_service_error)
 }
+
+#[cfg(all(target_os = "linux", not(test)))]
+pub(super) fn delete_native(service: &str, account: &str) -> Result<(), DesktopCustodyError> {
+    crate::secret_service_custody::delete(service, account).map_err(secret_service_error)
+}

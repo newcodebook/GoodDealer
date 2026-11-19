@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
   deviceSwitchRequestViewSchema,
   deviceSwitchResponseSchema,
   type DeviceSwitchRejectionCode,
@@ -26,12 +27,36 @@ interface WorkflowRow {
   readonly to_device_id: string;
   readonly created_at: Date;
   readonly bootstrap_expires_at: Date | null;
+  readonly normal_handoff_receipt: unknown;
 }
 
 const WORKFLOW_COLUMNS = `w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
-  CASE WHEN w.status = 'bootstrapping' THEN c.expires_at END AS bootstrap_expires_at`;
+  CASE WHEN w.status = 'bootstrapping' THEN c.expires_at END AS bootstrap_expires_at,
+  h.normal_handoff_receipt`;
+// Read all handoff facts in the same SQL snapshot. Ambiguous or inconsistent history yields no receipt,
+// including a later workflow/capability target mismatch; bootstrap completion/failure cannot erase success.
 const WORKFLOW_FROM = `device_switch_workflows w
-  LEFT JOIN device_bootstrap_capabilities c USING (account_id, workspace_id, workflow_id)`;
+  LEFT JOIN device_bootstrap_capabilities c USING (account_id, workspace_id, workflow_id)
+  LEFT JOIN LATERAL (
+    SELECT CASE WHEN count(*) = 1 AND bool_and(
+      w.mode = 'normal' AND w.purpose = 'device_switch' AND w.from_device_id <> w.to_device_id
+      AND p.purpose = 'handoff' AND p.source_device_id = w.from_device_id
+      AND p.consumed_at IS NOT NULL AND p.accepted_at = p.consumed_at
+      AND p.consumed_transaction_id IS NOT NULL
+      AND p.issued_at <= p.consumed_at AND p.verified_at <= p.consumed_at AND p.consumed_at < p.expires_at
+      AND w.created_at <= p.consumed_at AND c.target_device_id = w.to_device_id AND c.issued_at = p.consumed_at
+      AND l.device_id = p.source_device_id AND l.release_reason = 'normal_handoff'
+      AND l.issued_at <= l.released_at AND l.released_at = p.consumed_at
+    ) THEN (jsonb_agg(jsonb_build_object(
+      'sourceLeaseEpoch', p.active_lease_epoch, 'proofId', p.proof_id,
+      'proofDigest', rtrim(translate(encode(p.proof_digest, 'base64'), '+/', '-_'), '='),
+      'releasedAt', to_char(l.released_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+    )) -> 0) END AS normal_handoff_receipt
+    FROM device_drain_proofs p
+    LEFT JOIN device_active_leases l ON l.account_id = p.account_id AND l.lease_epoch = p.active_lease_epoch
+    WHERE p.account_id = w.account_id AND p.workspace_id = w.workspace_id AND p.workflow_id = w.workflow_id
+      AND (p.consumed_at IS NOT NULL OR p.accepted_at IS NOT NULL)
+  ) h ON true`;
 
 /** The tenant a switch belongs to and the device its session resolved to; never caller-selected. */
 export interface DeviceSwitchSubject {
@@ -132,7 +157,10 @@ export class PostgresDeviceSwitchRequests {
          JOIN device_lease_epoch_allocations allocation
            ON allocation.account_id = lease.account_id AND allocation.lease_epoch = lease.lease_epoch
          WHERE lease.account_id = $1 AND lease.released_at IS NULL AND lease.lease_epoch = $2
-           AND allocation.workspace_id = $3 AND allocation.status = 'activated'
+           AND (allocation.workspace_id = $3 OR (allocation.allocation_source = 'desktop_login'
+             AND EXISTS (SELECT 1 FROM workspace_account_bindings binding
+               WHERE binding.account_id = lease.account_id AND binding.workspace_id = $3
+                 AND binding.owner_kind = 'account' AND binding.role = 'default_owner' AND binding.is_default))) AND allocation.status = 'activated'
            AND lease.issued_at <= transaction_timestamp() AND lease.offline_execute_until > transaction_timestamp()
          FOR UPDATE OF lease`,
         [source.accountId, account.rows[0].current_lease_epoch, source.workspaceId]);
@@ -146,7 +174,7 @@ export class PostgresDeviceSwitchRequests {
          VALUES ($1, $2, $3, 'device_switch', 'normal', $4, $5, 'draining', 1, $6, $7, $8, $9, $10,
            transaction_timestamp() + make_interval(secs => $11))
          RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
-           NULL::timestamptz AS bootstrap_expires_at`,
+           NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
         [source.accountId, source.workspaceId, `switch-${randomUUID()}`, requestDigest, idempotencyKey,
           source.deviceId, toDeviceId, targetKey.key_id, targetKey.key_version, security.accountSecurityEpoch,
           DRAINING_STATE_TTL_SECONDS]);
@@ -198,7 +226,7 @@ export class PostgresDeviceSwitchRequests {
          SET status = 'cancelled', workflow_revision = workflow_revision + 1, updated_at = transaction_timestamp()
          WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 AND status = ANY($4::text[])
          RETURNING w.workflow_id, w.mode, w.status, w.from_device_id, w.to_device_id, w.created_at,
-           NULL::timestamptz AS bootstrap_expires_at`,
+           NULL::timestamptz AS bootstrap_expires_at, NULL::jsonb AS normal_handoff_receipt`,
         [device.accountId, device.workspaceId, workflowId, [...CANCELLABLE]]);
       const cancelled = updated.rows[0];
       if (cancelled === undefined) throw new TypeError("locked switch workflow did not cancel");
@@ -243,20 +271,23 @@ function parseSubject(subject: DeviceSwitchSubject): DeviceSwitchSubject {
 }
 
 function accepted(row: WorkflowRow): DeviceSwitchResponse {
+  // This owner has no forced-takeover writer yet; never infer its timing or a normal receipt.
+  if (row.mode === "forced") return rejected("FORCED_SWITCH_UNAVAILABLE");
   return {
     schemaVersion: DEVICE_MANAGEMENT_SCHEMA_VERSION,
     accepted: true,
     request: deviceSwitchRequestViewSchema.parse({
-      schemaVersion: DEVICE_MANAGEMENT_SCHEMA_VERSION,
+      schemaVersion: DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
       requestId: row.workflow_id,
       mode: row.mode,
       status: row.status,
       fromDeviceId: row.from_device_id,
       toDeviceId: row.to_device_id,
       requestedAt: canonicalTimestamp(row.created_at),
-      // Only forced switches carry a takeover time, and this service creates none (ADR-0032 pause).
+      // Only forced switches carry a takeover time; the forced writer is not implemented yet.
       earliestTakeoverAt: null,
       bootstrapExpiresAt: row.bootstrap_expires_at === null ? null : canonicalTimestamp(row.bootstrap_expires_at),
+      normalHandoffReceipt: row.normal_handoff_receipt,
     }),
   };
 }

@@ -44,6 +44,7 @@ const validCases = [
   ["switch-view-waiting-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-view-bootstrapping.json", deviceSwitchRequestViewSchema],
   ["switch-view-completed.json", deviceSwitchRequestViewSchema],
+  ["switch-view-normal-receipt.json", deviceSwitchRequestViewSchema],
 ] as const;
 
 const invalidCases = [
@@ -82,6 +83,8 @@ const invalidCases = [
   ["authority-standby-with-platform-write.json", deviceAuthorityProjectionSchema],
   ["authority-none-with-scopes.json", deviceAuthorityProjectionSchema],
   ["switch-forced-without-earliest-takeover.json", deviceSwitchRequestViewSchema],
+  ["switch-forced-with-normal-receipt.json", deviceSwitchRequestViewSchema],
+  ["switch-legacy-view.json", deviceSwitchRequestViewSchema],
   ["switch-bootstrapping-without-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-completed-with-bootstrap-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-earliest-takeover-before-request.json", deviceSwitchRequestViewSchema],

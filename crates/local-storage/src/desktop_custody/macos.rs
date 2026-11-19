@@ -142,6 +142,15 @@ pub(super) fn store_native(
 }
 
 #[cfg(all(target_os = "macos", not(test)))]
+pub(super) fn delete_native(service: &str, account: &str) -> Result<(), DesktopCustodyError> {
+    verify_secret_attributes(service, account)?;
+    security_framework::passwords::delete_generic_password_options(secret_keychain_options(
+        service, account, false,
+    ))
+    .map_err(|_| DesktopCustodyError::Unavailable)
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
 fn verify_secret_attributes(service: &str, account: &str) -> Result<(), DesktopCustodyError> {
     use security_framework::item::{CloudSync, ItemClass, ItemSearchOptions, SearchResult};
 

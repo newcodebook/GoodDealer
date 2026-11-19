@@ -64,13 +64,6 @@ impl DrainProofSchemaVersion {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Cloud computes the proof digest; the Host pins it in tests"
-        )
-    )]
     fn digest_domain(self) -> &'static [u8] {
         match self {
             Self::V1 => b"GOODDEALER-DRAIN-PROOF-V1",
@@ -132,6 +125,34 @@ fn domain_separated(
     append_frame(&mut encoded, b'd', domain);
     append_frame(&mut encoded, b'v', &canonical_wire_value(value)?);
     Ok(encoded)
+}
+
+/// Recompute the exact v2 digest of Native-custodied signed proof bytes. The caller compares it
+/// to the immutable database attempt; changing any field (including an unknown one) changes it.
+pub(crate) fn signed_handoff_proof_digest(
+    proof: &serde_json::Value,
+) -> Result<String, BusinessDatabaseError> {
+    let mut claims = proof
+        .as_object()
+        .cloned()
+        .ok_or(BusinessDatabaseError::InvalidInput)?;
+    if claims.get("schemaVersion") != Some(&serde_json::json!(2)) {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    let signature = claims
+        .remove("deviceSignature")
+        .ok_or(BusinessDatabaseError::InvalidInput)?;
+    let signature = signature
+        .as_str()
+        .ok_or(BusinessDatabaseError::InvalidInput)?;
+    let mut signed = domain_separated(
+        DrainProofSchemaVersion::V2.signature_domain(),
+        &serde_json::Value::Object(claims),
+    )?;
+    append_length_prefixed(&mut signed, signature.as_bytes())?;
+    let mut input = DrainProofSchemaVersion::V2.digest_domain().to_vec();
+    append_length_prefixed(&mut input, &signed)?;
+    Ok(URL_SAFE_NO_PAD.encode(Sha256::digest(input)))
 }
 
 /// The submitted mutation's drain envelope as Cloud recorded it: the frozen wire stamped with the
@@ -467,18 +488,27 @@ impl BusinessDatabase {
             .transpose()
     }
 
-    /// Reopens local mutation admission after the named switch was cancelled, failed, or completed.
+    /// Reopens local mutation admission after cancellation/failure before source release.
     /// Clearing another switch's barrier is refused; clearing an absent barrier is a no-op.
     pub(crate) fn clear_device_handoff_barrier(
         &mut self,
         device_switch_request_id: &str,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
+        if self
+            .normal_handoff_attempt(device_switch_request_id)?
+            .is_some_and(|(_, receipt)| receipt.is_some())
+        {
+            return Err(BusinessDatabaseError::MutationConflict);
+        }
         match self.device_handoff_barrier()? {
             None => Ok(()),
             Some(held) if held.device_switch_request_id != device_switch_request_id => {
                 Err(BusinessDatabaseError::MutationConflict)
             }
-            Some(_) => self.delete_device_handoff_barrier(device_switch_request_id),
+            Some(_) => {
+                self.delete_device_handoff_barrier(device_switch_request_id, pre_commit_guard)
+            }
         }
     }
 
@@ -489,6 +519,7 @@ impl BusinessDatabase {
     pub(crate) fn clear_left_over_device_handoff_barrier(
         &mut self,
         current_lease_epoch: u64,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<bool, BusinessDatabaseError> {
         match self.device_handoff_barrier()? {
             Some(held)
@@ -496,7 +527,10 @@ impl BusinessDatabase {
                     .active_lease_epoch
                     .is_none_or(|epoch| epoch < current_lease_epoch) =>
             {
-                self.delete_device_handoff_barrier(&held.device_switch_request_id)?;
+                self.delete_device_handoff_barrier(
+                    &held.device_switch_request_id,
+                    pre_commit_guard,
+                )?;
                 Ok(true)
             }
             _ => Ok(false),
@@ -506,15 +540,17 @@ impl BusinessDatabase {
     fn delete_device_handoff_barrier(
         &mut self,
         device_switch_request_id: &str,
+        pre_commit_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<(), BusinessDatabaseError> {
-        self.store
+        let tx = self
+            .store
             .fixture_connection()
-            .execute(
-                "DELETE FROM device_handoff_barriers
-                 WHERE workspace_id = ?1 AND device_switch_request_id = ?2",
-                params![self.workspace_id, device_switch_request_id],
-            )
-            .map(|_| ())
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        tx.execute("DELETE FROM device_handoff_barriers WHERE workspace_id=?1 AND device_switch_request_id=?2",
+            params![self.workspace_id, device_switch_request_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        pre_commit_guard()?;
+        tx.commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
 
@@ -801,13 +837,6 @@ impl HandoffDrainProofClaims {
     }
 
     /// The digest input Cloud binds the proof id to: domain ‖ u32be(len) ‖ (transcript ‖ u32be(len) ‖ signature).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Cloud computes the proof digest; the Host pins it in tests"
-        )
-    )]
     pub(crate) fn digest_input(
         &self,
         device_signature: &str,

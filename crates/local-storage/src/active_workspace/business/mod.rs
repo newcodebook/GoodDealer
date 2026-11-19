@@ -69,6 +69,7 @@ pub use wire::verify_rebootstrap_plan_digest;
 mod cloudflare_credential;
 mod cloudflare_retirement;
 mod drain_claims;
+mod normal_handoff;
 pub(crate) use cloudflare_credential::{
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
     CloudflareCredentialPreparation, CloudflareCredentialPreparationDisposition,
@@ -79,8 +80,9 @@ pub(crate) use cloudflare_credential::{
 pub(crate) use cloudflare_retirement::CloudflareRetirementSeed;
 pub(crate) use drain_claims::{
     CloudMutationReceipt, DrainMutationProgress, DrainProofSchemaVersion, DrainStreamClaim,
-    HandoffDrainProofClaims,
+    HandoffDrainProofClaims, signed_handoff_proof_digest,
 };
+pub(crate) use normal_handoff::{NormalHandoffAttempt, NormalHandoffReceipt};
 
 /// Temporary gate on the Host create path's local re-add (ADR-0029 C2c2).
 ///

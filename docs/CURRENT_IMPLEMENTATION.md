@@ -1,5 +1,7 @@
 # 当前实现与源码入口
 
+恢复持续实施任务时，先读 [完整任务目标与约束](IMPLEMENTATION_GOAL.md)，再核对本页、Git 与执行台账；本页的局部实现不能缩减总任务。
+
 本文件记录开发状态，不重新定义产品范围。功能目标来自产品需求、用户决策和适用 ADR；
 营销和设计材料不构成技术指令。未实现、未组合、未取得真实环境证据是不同的交付工作，
 不能互相替代，也不能自动成为永久限制。最新需求对谈见 [产品对谈](PRODUCT_DISCOVERY.md)。
@@ -25,8 +27,12 @@
   Standby 使用独立用途签名 v1。Cloud 在锁定服务器状态派生角色，签名后重查会话/撤销/期限；精确当前引导目标的 floor 为 pending−1，其余设备为 highest allocated。
 - Native custody 独立保存安装与身份绑定的 security/issuedAt/Lease/商业地板，建立标记和记录缺项均拒绝；持久读回后再发布角色，
   Active→Standby 保留本地库并原子停写。新机无副本显示 `standby_awaiting_replica`、设备目录及刷新授权，不伪造空资产库。
-  有副本只读，Provider、Outbox 和业务写入均拒绝；当前 Standby Inbox 仍冻结，正常交接成功证据驱动的只读同步续作是下一切片。
+  有副本只读，Provider、Outbox 和业务写入均拒绝；普通交接的 Cloud 回执、持久 attempt、原 barrier 与 Native 最后本机 Active epoch 全部匹配后，专用 Inbox gate 允许只读同步。
+  Cloud 响应丢失后重开先查状态；未消费且当前仍为 Active 时只恢复 Native 保存的同一签名请求。强制接管、证据缺失、旧 epoch 与 retired cursor 均保持冻结。
   Windows 复用同一授权合同与纯地板模型并补齐接口；目标编译尚未取证，底层 custody 仍未实现，本轮不宣称双系统完整可用。
+- 普通交接 switch view 使用严格 v2 回执；Cloud 从唯一已消费 proof、释放原因为 normal_handoff 的来源 Lease 及匹配目标能力派生，不从工作流 status 推断成功。
+  本地追加迁移 `202611180002` 保存不可变 attempt/receipt/refusal；已签完整请求只进 Native custody。Native 授权地板 v2 单独记最后本机 Active epoch，旧地板升级保留所有拒绝重放信息并把历史 Active epoch 保持未知。
+  来源后台会对账和续作，但完整目标引导、移交确认界面与强制接管仍未完成，不能据此宣称双设备换机已可用。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。

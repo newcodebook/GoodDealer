@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { drainManifestSchema, encodeDrainProofDigestInput } from "@gooddealer/protocol/execution-events";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -72,7 +74,9 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
     const handed = await drains.submit(source, requestId, proof);
     expect(handed).toMatchObject({
       accepted: true,
-      request: { requestId, status: "bootstrapping", bootstrapExpiresAt: expect.stringMatching(/Z$/u) },
+      request: { schemaVersion: 2, requestId, status: "bootstrapping", bootstrapExpiresAt: expect.stringMatching(/Z$/u),
+        normalHandoffReceipt: { sourceLeaseEpoch: 1, proofId: "proof-one", releasedAt: expect.stringMatching(/Z$/u),
+          proofDigest: createHash("sha256").update(encodeDrainProofDigestInput(drainManifestSchema.parse(proof))).digest("base64url") } },
     });
     expect(await owner(`SELECT
         (SELECT count(*) FROM device_drain_proofs WHERE proof_id = 'proof-one' AND consumed_at IS NOT NULL
@@ -84,6 +88,64 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
         (SELECT highest_allocated_lease_epoch FROM device_account_states)::text AS highest_epoch`))
       .toEqual([{ consumed: "1", mutation_seals: "1", execution_seals: "1", audit_seals: "1", held_leases: "0", highest_epoch: "2" }]);
     await expect(drains.submit(source, requestId, proof)).resolves.toEqual(handed);
+  });
+
+  it.each(["completed", "failed"] as const)("keeps handoff evidence after bootstrap becomes %s", async (status) => {
+    const requestId = await openSwitch();
+    const committed = await drains.submit(source, requestId, await proofFor(requestId, "proof-history"));
+    if (!committed?.accepted) throw new Error("handoff failed");
+    await owner("UPDATE device_switch_workflows SET status = $1, pending_lease_epoch = NULL WHERE workflow_id = $2", [status, requestId]);
+    await owner("UPDATE device_bootstrap_capabilities SET consumed_at = clock_timestamp(), consumed_reason = $1 WHERE workflow_id = $2", [status === "completed" ? "activated" : "failed", requestId]);
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: true,
+      request: { status, normalHandoffReceipt: committed.request.normalHandoffReceipt } });
+    await expect(requests.read({ ...source, deviceId: "device-new" }, requestId)).resolves.toMatchObject({ accepted: true,
+      request: { normalHandoffReceipt: committed.request.normalHandoffReceipt } });
+    await expect(requests.read({ ...source, deviceId: "unrelated" }, requestId)).resolves.toMatchObject({ accepted: false, code: "SWITCH_NOT_FOUND" });
+    await expect(requests.read({ ...source, accountId: "other-account" }, requestId)).resolves.toMatchObject({ accepted: false, code: "SWITCH_NOT_FOUND" });
+    await expect(requests.read({ ...source, workspaceId: "other-workspace" }, requestId)).resolves.toMatchObject({ accepted: false, code: "SWITCH_NOT_FOUND" });
+  });
+
+  it.each([
+    ["source", "UPDATE device_drain_proofs SET source_device_id = 'device-new'"],
+    ["epoch", "UPDATE device_drain_proofs SET active_lease_epoch = 2"],
+    ["released reason", "UPDATE device_active_leases SET release_reason = 'forced_takeover'"],
+    ["unreleased Lease", "UPDATE device_active_leases SET released_at = NULL, release_reason = NULL"],
+    ["release time", "UPDATE device_active_leases SET released_at = released_at + interval '1 second'"],
+    ["acceptance time", "UPDATE device_drain_proofs SET accepted_at = accepted_at + interval '1 second'"],
+    ["target", "UPDATE device_switch_workflows SET to_device_id = 'other-target'"],
+    ["capability target", "UPDATE device_bootstrap_capabilities SET target_device_id = 'other-target'"],
+  ])("does not turn inconsistent %s history into a receipt", async (_label, sql) => {
+    const requestId = await openSwitch();
+    await drains.submit(source, requestId, await proofFor(requestId, "proof-inconsistent"));
+    await owner(sql);
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: true, request: { normalHandoffReceipt: null } });
+  });
+
+  it("does not infer handoff from bootstrapping status or an unconsumed proof", async () => {
+    const requestId = await openSwitch();
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { normalHandoffReceipt: null } });
+    await drains.submit(source, requestId, await proofFor(requestId, "proof-short", { emptyMutation: true }));
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { normalHandoffReceipt: null } });
+    await owner(`UPDATE device_switch_workflows SET status = 'bootstrapping', pending_lease_epoch = 2;
+      INSERT INTO device_bootstrap_capabilities (account_id, workspace_id, workflow_id, jti, target_device_id, issued_at, expires_at)
+      SELECT account_id, workspace_id, workflow_id, 'no-drain-cap', to_device_id, clock_timestamp(), clock_timestamp() + interval '1 hour'
+      FROM device_switch_workflows`);
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { status: "bootstrapping", normalHandoffReceipt: null } });
+  });
+
+  it("refuses ambiguous consumed proofs and never exposes a normal receipt for a forced workflow", async () => {
+    const requestId = await openSwitch();
+    await drains.submit(source, requestId, await proofFor(requestId, "proof-first"));
+    await owner(`INSERT INTO device_drain_proofs SELECT
+      account_id, workspace_id, 'proof-duplicate', proof_digest, purpose, workflow_id, source_device_id,
+      active_lease_epoch, signing_key_id, signing_key_version, issued_at, expires_at, verified_at,
+      device_mutation_sequence, mutation_digest, execution_fact_sequence, execution_fact_digest,
+      device_audit_sequence, device_audit_digest, consumed_at, accepted_at, consumed_transaction_id, proof_schema_version
+      FROM device_drain_proofs WHERE proof_id = 'proof-first'`);
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { normalHandoffReceipt: null } });
+    await owner("DELETE FROM device_drain_proofs WHERE proof_id = 'proof-duplicate'");
+    await owner("UPDATE device_switch_workflows SET mode = 'forced'");
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: false, code: "FORCED_SWITCH_UNAVAILABLE" });
   });
 
   it("terminates a real drained bootstrap when its one-hour capability expires before the old drain deadline", async () => {

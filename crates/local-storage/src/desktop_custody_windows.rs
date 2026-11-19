@@ -63,6 +63,28 @@ impl DesktopProductionCustody {
         Err(DesktopCustodyError::Unavailable)
     }
 
+    pub(crate) fn store_handoff_submission(
+        &self,
+        _request_id: &str,
+        _submission: &[u8],
+    ) -> Result<(), DesktopCustodyError> {
+        Err(DesktopCustodyError::Unavailable)
+    }
+
+    pub(crate) fn load_handoff_submission(
+        &self,
+        _request_id: &str,
+    ) -> Result<Option<Vec<u8>>, DesktopCustodyError> {
+        Err(DesktopCustodyError::Unavailable)
+    }
+
+    pub(crate) fn clear_handoff_submission(
+        &self,
+        _request_id: &str,
+    ) -> Result<(), DesktopCustodyError> {
+        Err(DesktopCustodyError::Unavailable)
+    }
+
     pub(crate) fn installation_binding_digest(&self) -> Result<[u8; 32], DesktopCustodyError> {
         Err(DesktopCustodyError::Unavailable)
     }

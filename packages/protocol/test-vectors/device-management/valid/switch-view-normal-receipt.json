@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "requestId": "switch-2",
+  "mode": "normal",
+  "status": "completed",
+  "fromDeviceId": "device-1",
+  "toDeviceId": "device-2",
+  "requestedAt": "2026-08-13T10:00:00Z",
+  "earliestTakeoverAt": null,
+  "bootstrapExpiresAt": null,
+  "normalHandoffReceipt": {
+    "sourceLeaseEpoch": 7,
+    "proofId": "handoff-proof-1",
+    "proofDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "releasedAt": "2026-08-13T10:01:00Z"
+  }
+}

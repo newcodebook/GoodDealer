@@ -1097,6 +1097,20 @@ pub(crate) mod tests {
         entitlement_projection_digest: &str,
         commercial_expires_at: &str,
     ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
+        long_lived_signed_grant_at_epoch(
+            entitlement_revision,
+            entitlement_projection_digest,
+            commercial_expires_at,
+            2,
+        )
+    }
+
+    pub(crate) fn long_lived_signed_grant_at_epoch(
+        entitlement_revision: u64,
+        entitlement_projection_digest: &str,
+        commercial_expires_at: &str,
+        lease_epoch: u64,
+    ) -> (WorkspaceAuthorityVerifier, Vec<u8>) {
         let now = i64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1126,7 +1140,7 @@ pub(crate) mod tests {
                 "aud":EXPECTED_LEASE_AUDIENCE,"kid":"lease-key-host-test","accountId":"account-local",
                 "deviceId":"device-local","accountSecurityEpoch":2,"jti":"lease-host-test",
                 "issuedAt":issued_at,"expiresAt":offline_execute_until,
-                "payload":{"leaseEpoch":2,"renewAfter":renew_after,
+                "payload":{"leaseEpoch":lease_epoch,"renewAfter":renew_after,
                     "onlineExpiresAt":online_expires_at,"offlineExecuteUntil":offline_execute_until},
                 "signature":"placeholder"},
             "scopes":["workspace:mutate","workspace:read"],

@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { canonicalUtcTimestamp, displayLabel, identifier, safePositiveInteger } from "../wire/index";
+import { sha256DigestSchema } from "../workspace/index";
 import { drainManifestSchema } from "../execution-events/drain-proof";
 
 export const DEVICE_MANAGEMENT_SCHEMA_VERSION = 1 as const;
+export const DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION = 2 as const;
 
 export const devicePlatformSchema = z.enum(["windows", "macos", "linux", "ios", "android"]);
 export const deviceRoleSchema = z.enum(["active", "standby", "none"]);
@@ -210,9 +212,17 @@ export const deviceSwitchRequestSchema = z.discriminatedUnion("mode", [
   }).strict(),
 ]);
 
+/** Persisted evidence of a consumed normal handoff, independent of later bootstrap status. */
+export const normalHandoffReceiptSchema = z.object({
+  sourceLeaseEpoch: safePositiveInteger,
+  proofId: identifier,
+  proofDigest: sha256DigestSchema,
+  releasedAt: canonicalUtcTimestamp,
+}).strict();
+
 export const deviceSwitchRequestViewSchema = z
   .object({
-    schemaVersion: z.literal(DEVICE_MANAGEMENT_SCHEMA_VERSION),
+    schemaVersion: z.literal(DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION),
     requestId: identifier,
     mode: z.enum(["normal", "forced"]),
     status: z.enum(["requested", "draining", "waiting_expiry", "bootstrapping", "completed", "cancelled", "failed"]),
@@ -221,9 +231,14 @@ export const deviceSwitchRequestViewSchema = z
     requestedAt: canonicalUtcTimestamp,
     earliestTakeoverAt: canonicalUtcTimestamp.nullable(),
     bootstrapExpiresAt: canonicalUtcTimestamp.nullable(),
+    normalHandoffReceipt: normalHandoffReceiptSchema.nullable(),
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.normalHandoffReceipt !== null && (value.mode !== "normal" || value.fromDeviceId === null
+      || value.fromDeviceId === value.toDeviceId || value.normalHandoffReceipt.releasedAt < value.requestedAt)) {
+      context.addIssue({ code: "custom", path: ["normalHandoffReceipt"], message: "normal handoff evidence requires a distinct source and a release after the request" });
+    }
     if (value.mode === "forced" && value.earliestTakeoverAt === null) {
       context.addIssue({ code: "custom", path: ["earliestTakeoverAt"], message: "forced switches require an earliest takeover" });
     }
@@ -248,7 +263,7 @@ export const deviceSwitchLookupRequestSchema = z
 
 /**
  * Closed outcomes a Desktop can act on (ADR-0032). `FORCED_SWITCH_UNAVAILABLE` stays until a
- * target device can hold a session without the Lease; Cloud then has no forced-takeover path.
+ * target bootstrap and forced-takeover operations are composed; role admission alone is insufficient.
  */
 export const deviceSwitchRejectionCodeSchema = z.enum([
   "SWITCH_IN_PROGRESS",
@@ -302,6 +317,7 @@ export type CloudScope = z.infer<typeof cloudScopeSchema>;
 export type DeviceAuthorityProjection = z.infer<typeof deviceAuthorityProjectionSchema>;
 export type DeviceRemovalRequest = z.infer<typeof deviceRemovalRequestSchema>;
 export type DeviceSwitchRequest = z.infer<typeof deviceSwitchRequestSchema>;
+export type NormalHandoffReceipt = z.infer<typeof normalHandoffReceiptSchema>;
 export type DeviceSwitchRequestView = z.infer<typeof deviceSwitchRequestViewSchema>;
 export type DeviceSwitchLookupRequest = z.infer<typeof deviceSwitchLookupRequestSchema>;
 export type DeviceSwitchRejectionCode = z.infer<typeof deviceSwitchRejectionCodeSchema>;
