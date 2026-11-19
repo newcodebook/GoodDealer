@@ -19,7 +19,7 @@ Desktop / developer
   -> per-host Nginx + Let's Encrypt sites on 207.180.208.139
   -> GoodDealer Cloud on 127.0.0.1:3100
        -> PostgreSQL 18 on 127.0.0.1:55433
-       -> OpenBao TLS on 127.0.0.1:8200
+       -> OpenBao v2 TLS on 127.0.0.1:8220
        -> Mailpit SMTP/API on 127.0.0.1:1025/8025
   -> self-hosted Provider worker (systemd, 5-second bounded drain)
 ```
@@ -33,15 +33,15 @@ Desktop / developer
 | Provider worker | `gooddealer-provider-worker-development.service`；专用 Unix/数据库身份；每 5 秒有界 drain provider operation、receipt、reconciliation、due-authority 与 release 作业。 |
 | 开发邮件 | `gooddealer-mailpit-development.service`；无持久数据库，SMTP/API 分别只监听 `127.0.0.1:1025` 与 `127.0.0.1:8025`，不经 Nginx 或 Cloudflare 暴露。 |
 | Migration 服务 | `gooddealer-cloud-development-migrate.service`；专用 `gooddealer-migrator` 用户；按发布运行的 oneshot，常态为 `inactive`。 |
-| Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 指向当前版本。 |
+| Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 当前指向 `20261119T095800Z-device-authority-v2-f872727`，完整源码提交 `f872727627ebdf4a619f5607796dae0e0d72a7b2`。 |
 | Node/pnpm | Node `26.12.1`、pnpm `12.16.1`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。systemd unit 固定调用 `/opt/gooddealer-development/runtime/node/bin/node`，该路径是指向 `runtime/node-26.12.1`（官方 tarball，按 `SHASUMS256.txt` 校验）的链接；Node 26 不再附带 corepack，pnpm 以 npm 安装在同一 runtime 内。上一版 `runtime/node-24.18.1` 保留，代码回滚到旧 release 时须同时把链接指回它。 |
 | PostgreSQL | `gooddealer-postgres-development` 容器；PostgreSQL `18.4`；只映射 `127.0.0.1:55433`。该版本低于仓库锁定的 18.6 资格版本，只是开发运行事实。 |
-| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。当前 ledger 为 25 条有序 migration，包含 account recovery、commercial entitlement snapshot 和 default-workspace capability policy；五池与对应 grant 已核验。 |
+| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。2026-11-19 当前 ledger 为 clean `f872727` 的完整 71 条，旧 27 条前缀逐项匹配后由受限 migrator 应用余下 44 条；五个 runtime 登录隔离，12 个相关角色均为 `NOSUPERUSER NOBYPASSRLS`。Afternic Listing create/update 的 030/031 不在该 release 中，尚未部署。 |
 | PostgreSQL 持久卷 | `gooddealer-postgres-development-data`；禁止因测试、发布或排障重建。 |
 | Nginx 站点 | `/etc/nginx/conf.d/api.gooddealer.com.conf`；只拥有该域名，不得修改其他站点。 |
 | Account Nginx 站点 | `/etc/nginx/conf.d/account.gooddealer.com.conf`；Cloudflare origin lock、HSTS、CSP 与 `no-store` 已启用。 |
 | TLS | `/etc/letsencrypt/live/api.gooddealer.com/`；Certbot 自动续期。 |
-| OpenBao | `openbao.service`；仅 `127.0.0.1:8200`，不经过 Nginx、不开放公网域名。 |
+| OpenBao | 当前 `openbao-dev-v2.service`，API `127.0.0.1:8220`、cluster `8221`；旧 `openbao.service` 与 `8200/8201` 独立保留。均为 loopback，不经过 Nginx。 |
 
 Cloud 当前使用 [`apps/cloud/src/entrypoints/development-server.ts`](../apps/cloud/src/entrypoints/development-server.ts)
 作为现有 API 组合根。它把 Identity、Desktop OAuth 与公共 Cloud route 放在同一端口，并要求普通 App、Account
@@ -50,8 +50,9 @@ API、Identity capability issuer、Provider ingress、Provider worker 五个相�
 `gooddealer-migrator` 身份和 Owner URL 应用迁移；Owner 凭据不进入常驻 Cloud 进程。源码迁移的完整有序目录以
 [`apps/cloud/src/db/migrations.ts`](../apps/cloud/src/db/migrations.ts) 为准，不能用本文的历史部署数量代替。
 M015 已是规范化商业 baseline，不存在 M018 compatibility migration；M019 前必须由角色管理员运行
-受控 role provisioning。共享环境现有证据仅覆盖下文记录的部署快照，新增设备执行上下文、历史公钥与
-安全边界迁移尚不能据本地测试推导已部署；不得通过修改 ledger 或 checksum alias 绕过漂移检查。
+受控 role provisioning。当前已实际部署 clean `f872727` 的设备授权、交接、引导和强制接管源码及相应迁移；
+这不代表真实设备旅程已经验收。进行中的 Listing create/update 切片与其 030/031 尚未部署；不得
+通过修改 ledger 或 checksum alias 绕过漂移检查。
 开发组合根已装配独立 Identity ingress、Argon2id 账号访问服务、loopback Mailpit outbox worker，以及
 Stripe 官方 SDK 的 test-mode catalog、Checkout、webhook 和退款 adapter；PayPal 保持失败关闭。
 同一 API 组合根只有在 `GOODDEALER_DEPLOYMENT_ENV=staging`、
@@ -75,9 +76,9 @@ VPS 上的配置位置只用于定位和权限审查，不能把内容输出到�
 | `/etc/gooddealer/provider-worker/development.env` | 仅 Provider worker 所需 PostgreSQL URL、Provider 配置定位和有界 drain 设置。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并符合当前协议能力目录；Grant 只包含已配置授权能力的精确交集。Afternic 观察、写入分别需要对应授权，不由启用路由推导。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/postgres.env` | PostgreSQL 容器管理凭据。 | `root:root 0600` |
-| `/etc/gooddealer/openbao/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
-| `/etc/gooddealer/openbao/public-keys.json` | 当前源码要求 OpenBao 地址及 grant/lease/standby/context/bootstrap 五个独立 purpose，各有 active key/version 与 1–8 把重叠 verifier key。Standby、context 和 bootstrap 仍待共享实例部署取证，详见 OpenBao 运行手册。 | `root:gooddealer 0640` |
-| `/etc/gooddealer/openbao/ca.crt` | 开发 CA。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao-dev-v2/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao-dev-v2/public-keys.json` | 当前源码要求 OpenBao 地址及 grant/lease/standby/context/bootstrap 五个独立 purpose，各有 active key/version 与 1–8 把重叠 verifier key。五种用途已通过真实生产 signer/AppRole 冒烟，旧 Grant/Lease verifier 保留；详见 OpenBao 运行手册。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao-dev-v2/ca.crt` | 开发 CA。 | `root:gooddealer 0640` |
 
 禁止执行会回显环境或秘密的命令，包括无过滤的 `systemctl show`、`docker inspect`、`env`、`printenv`、
 `cat /etc/gooddealer/*`、`set -x` 或携带连接串/Token 的命令参数。诊断日志必须在输出前对
@@ -93,20 +94,20 @@ root token、unseal key 或 `init.json`。
 
 ```sh
 systemctl is-active gooddealer-cloud-development gooddealer-provider-worker-development \
-  gooddealer-mailpit-development openbao nginx docker
+  gooddealer-mailpit-development openbao openbao-dev-v2 nginx docker
 systemctl show gooddealer-cloud-development-migrate.service --property=ActiveState,Result
 systemctl is-enabled gooddealer-cloud-development
 docker ps --filter name=^/gooddealer-postgres-development$ \
   --format '{{.Names}} {{.Status}} {{.Ports}}'
-ss -lnt | grep -E '127\.0\.0\.1:(1025|8025|3100|55433|8200)'
+ss -lnt | grep -E '127\.0\.0\.1:(1025|8025|3100|55433|8200|8201|8220|8221)'
 nginx -t
 openssl x509 \
   -in /etc/letsencrypt/live/api.gooddealer.com/fullchain.pem \
   -noout -subject -issuer -dates
 ```
 
-预期结果是六个常驻服务均为 `active`，migrator 为 `inactive` 且最近 `Result=success`，Cloud 服务为
-`enabled`，PostgreSQL 为 `healthy`，Cloud、PostgreSQL、OpenBao 和 Mailpit 的五个端口都只绑定
+预期结果是所列常驻服务均为 `active`，migrator 为 `inactive` 且最近 `Result=success`，Cloud 服务为
+`enabled`，PostgreSQL 为 `healthy`，Cloud、PostgreSQL、OpenBao 和 Mailpit 的相关端口都只绑定
 loopback，Nginx 配置测试成功，证书 SAN/有效期覆盖
 `api.gooddealer.com` 与 `account.gooddealer.com`。Nginx 现有其他站点
 可能产生 `_` default server 冲突警告；只要 `nginx -t` 成功且 `api.gooddealer.com` 精确 server block
@@ -120,8 +121,9 @@ docker exec gooddealer-postgres-development \
   -c 'SELECT count(*) FROM gooddealer_cloud_migrations'
 ```
 
-当前共享 staging 数据库的空库应用证据覆盖当时目录的 25 条 migration，并核验 Identity
-capability roles、五个 runtime 登录与 façade grants。仓库当前 M015 SQL 的预期 checksum 是
+历史空库证据覆盖当时的 25 条；2026-11-19 从精确匹配的 27 条前缀前向迁移至 clean `f872727`
+的 71 条，逐项核验 id、owner_module 与 checksum，未改写已有 ledger。已核验五个 runtime URL
+保持原值、Cloud 进程有 App URL 且无 Owner URL，以及 12 个相关角色不具超级用户或 bypass RLS。仓库当前 M015 SQL 的预期 checksum 是
 `dc59e2bf2d2b83e1f91fe3aa5ae88caf47533727a600ab8e4f879a89338ae11e`，M019 的预期 checksum 是
 `5d623459d97102796a8798de744191028a91bd12e2bcea5dc2fc8eb066b6e4b9`，其 closed purpose allowlist 包含
 `refund_request`。完整待应用差集必须以当前源码目录与共享数据库有序 ledger 逐项比较，不能仅比较数量。每次部署必须先只读核验完整有序 ledger；缺失项只能通过受限 migrator 正常应用，不能直接改 ledger。应用后还需对商业表/约束/index/policy/function/grant、M019
@@ -181,7 +183,7 @@ Cookie、session `200`、刷新后的 session discovery `200` 和退出后的旧
 `CF-Connecting-IP` 的同类请求也必须是 `403`。Cloudflare 官方 CIDR 变化时必须从官方端点更新
 `geo` 与 `set_real_ip_from` 两份完全一致的清单，经 `nginx -t` 和上述负向探针验证后才能 reload。
 
-OpenBao 正向冒烟必须验证 AppRole 登录、Lease/Active Grant/Standby Grant 三把 Transit key、固定版本和 Cloud 本地
+OpenBao 正向冒烟必须验证 AppRole 登录、Lease/Active Grant/Standby Grant/Execution Context/Bootstrap Capability 五把 Transit key、固定版本和 Cloud 本地
 Ed25519 复验，同时只输出布尔结果。不得直接输出短期 token、签名、SecretID 或完整 OpenBao wire。
 探针实现和轮换要求见[开发 OpenBao 运行手册](DEVELOPMENT_OPENBAO.md)。
 
@@ -195,19 +197,46 @@ Ed25519 复验，同时只输出布尔结果。不得直接输出短期 token、
    `.specability`、`node_modules`、`target`、本机恢复材料和所有秘密。
 4. 在新目录按 `pnpm-lock.yaml` 安装依赖，使用锁定 Node/pnpm 运行 Cloud typecheck、Desktop registry
    生成检查和 Account Web build；不得在线升级依赖版本。
-5. 只在新版本验证通过后原子切换 `current`，运行并确认
-   `gooddealer-cloud-development-migrate.service` 成功；失败时在重启 Cloud 前回退链接并停止发布。
-6. Migration 成功后重启 `gooddealer-cloud-development.service` 和
-   `gooddealer-provider-worker-development.service`，再以受限权限安装 Account Web 静态构件。确认服务 active、端口仍为
+5. 新版本验证通过后，停止 Cloud 与 Provider worker，取得受控数据库 archive、schema-only 快照及
+   摘要，并验证完整 migration 前缀。原子切换 `current`，通过
+   `gooddealer-cloud-development-migrate.service` 正常应用迁移；任何失败保持 writers 停止。
+   不因失败自动回退旧代码或改写 ledger，先核验当前 schema 与恢复代码的兼容性。
+6. Migration 目录精确核验后发布必要运行配置，以同文件系统原子目录交换发布 Account Web，
+   保留旧构件，再启动 `gooddealer-cloud-development.service` 与
+   `gooddealer-provider-worker-development.service`。确认服务 active、端口仍为
    loopback、migration catalog 一致，并以 `/proc/<pid>/environ` 的布尔检查证明存在 App URL 且
    不存在 Owner URL，再执行
    公网失败关闭与 OpenBao 正向冒烟。
 7. 不得就地修改当前 release、覆盖 `/etc/nginx/nginx.conf`、删除其他 Nginx 站点、复用其他容器端口、
-   清理未知 Docker 资源或把 OpenBao `8200` 暴露公网。
+   清理未知 Docker 资源或把 OpenBao 任一 API/cluster 端口暴露公网。
 
 代码回滚只能把 `current` 原子指回已验证的前一 release 并重启服务。数据库 migration 是前向且带
 checksum 的；只有确认旧代码与当前 schema 兼容时才能回滚代码。禁止通过删除表、migration ledger
 或 PostgreSQL volume 回滚。若 schema 不兼容，停止并制定具名恢复方案。
+
+## 2026-11-19 实际发布证据
+
+本次发布使用 clean `f872727627ebdf4a619f5607796dae0e0d72a7b2`，根 `pnpm check` 已通过；
+VPS 使用锁定 Node/pnpm 安装依赖，Cloud typecheck 与 Account Web staging build 通过。
+源码 archive SHA256 为 `e7520e0b1b7972ccdced8703b9ba797dfca99e70afe4b217283899c699547e12`。
+
+经独立审查的单次脚本保留于 VPS `/root/gooddealer-openbao-v2-ops/`；它不是仓库内通用部署工具。
+受控备份目录 `/root/gooddealer-cutover-backups/20261119T095800Z-device-authority-v2-f872727`
+为 `0700`，含旧 runtime env、数据库 `database.dump`、`schema-before.sql` 与 SHA256 metadata，
+文件为 `0600`。`pg_restore --list` 证明 archive TOC 可读，没有执行数据库恢复演练。
+
+Cloud 与 worker 在数据库快照/迁移前停止，71 条目录精确核验后仅替换四个非秘密 selector：
+`GOODDEALER_OPENBAO_PUBLIC_KEYS_FILE`、`GOODDEALER_OPENBAO_APPROLE_FILE`、
+`GOODDEALER_OPENBAO_REQUIRED_POLICY`、`NODE_EXTRA_CA_CERTS`。其余配置逐值保持，包括五个数据库
+URL。Account Web 通过 `renameat2(RENAME_EXCHANGE)` 原子替换，旧目录保留在
+`/var/www/account.gooddealer.com.previous-device-authority-v2`。未更改 Nginx、防火墙、数据库
+volume、PostgreSQL 18.4 版本或旧 OpenBao。
+
+发布后复核：Cloud/worker/新旧 OpenBao active；Cloud `3100`、数据库 `55433` 和两套 OpenBao
+端口仅监听 loopback；API `401`、畸形 OAuth token `400`、无认证 Grant `401`、Account Web `200`；
+直接源站与伪造 CF header 均 `403`。生产 signer/AppRole 以公开历史协议 fixture 完成五用途签名
+与二十次错用途拒绝，没有伪造当前账户授权。此次证据不覆盖真实账号登录/交接、Afternic Provider
+请求、030/031 Listing write evidence 迁移、PostgreSQL 18.6 升级、备份恢复演练或客户发行。
 
 ## Desktop 开发构建输入
 
@@ -218,8 +247,10 @@ https://api.gooddealer.com/（Desktop 固定 origin）
 GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON=<由公开 OpenBao 材料生成的单行 registry JSON>
 ```
 
-Standby 第三把独立 Transit key 与最小签名策略尚未取得共享实例部署证据。升级本版本前须按
-[OpenBao 运行手册](DEVELOPMENT_OPENBAO.md)补齐真实公钥与策略；两用途旧配置会失败关闭。
+五种独立 Transit 用途与最小签名策略已部署到 v2。当前公开 registry 为本机
+`/home/sean/.config/gooddealer/openbao-dev-v2/desktop-registry.json`，SHA256
+`1eabbd28707953d3d36f3f183e8602aa6c41f47c94bae430a07680918e027223`。本机与实际 VPS runtime
+配置生成摘要相同；旧两用途配置会失败关闭。恢复和轮换边界见[OpenBao 运行手册](DEVELOPMENT_OPENBAO.md)。
 
 registry 必须通过以下命令从 `public-keys.json` 确定性生成，不能从运行时网络下载，也不能手写或
 从 OpenBao 同一签名响应中取得：
@@ -241,7 +272,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 | `502` / 连接拒绝 | 检查 Cloud systemd 状态、journal 脱敏摘要、`127.0.0.1:3100` 和 PostgreSQL health。 | 不把 Cloud 改为 `0.0.0.0`。 |
 | Cloud 重启循环 | 先检查锁定 Node 路径、release 中 `apps/cloud/node_modules/tsx`、独立 migrator 最近结果和 OpenBao seal 状态。 | 不打印 EnvironmentFile、把 Owner URL 放回 runtime unit 或跳过 migration。 |
 | Transit 签名失败 | 检查 OpenBao active/unsealed、AppRole SecretID 是否过期、开发 CA 和固定 key version。 | 不使用 root token 运行 Cloud，不关闭 TLS 校验。 |
-| Desktop token 换取成功但仍未登录，`/v1/devices/authorization-grant` 被拒 | 账户 entitlement 的 `feature_entitlements` 缺少 `cloudflare:dns:observe` 时 Grant 返回 403。能力在支付 webhook 处理时按当时 policy 写入，修正 policy 后既有 entitlement 不会改变，需要一次新的购买或续订事件。 | 只读 entitlement 的 state、plan 和能力列表；不手改 licensing 表。 |
+| Desktop token 换取成功但 Grant 被拒 | 核验当前角色、设备与账户 epoch、Active Lease、有效商业期限及五用途 signer；v4 的 Provider 能力是 entitlement 与目录的交集，空能力也可形成 local-only Active Grant，不能把缺少 Cloudflare 能力当作登录失败的通用原因。Standby 使用独立只读 Grant。 | 只读权益状态与能力投影；不手改 licensing 表、不伪造 Lease 或强行扩大能力。 |
 | Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、授权所需各用途的 Transit key 能按固定版本签名。Active 还要求有效权益；合格的 Standby 登录不要求权益或新 Lease。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
 | TLS/Cloudflare 错误 | 检查源站证书有效期、`nginx -t`、Certbot renewal 和域名 server block。 | 不修改 Cloudflare SSL 模式或 DNS，除非用户另行授权。 |
 | migration 数量/摘要漂移 | 对比 `apps/cloud/src/db/migrations.ts` 和数据库 ledger，停止发布。 | 不编辑 ledger、不强行标记 migration 已应用。 |

@@ -2,194 +2,115 @@
 
 ## 适用范围
 
-本文件记录 GoodDealer 开发环境当前使用的单节点 OpenBao。它只用于 Cloud、Desktop 授权与审计
-签名的开发和集成验证，不是生产集群、HA、HSM、生产 workload identity 或发行资格证据。
+本文件拥有开发 OpenBao 的管理、签名与恢复边界。共享 Cloud 的发布和数据库由
+[共享 Cloud 开发环境运行手册](DEVELOPMENT_CLOUD.md)拥有。这里的实测是开发集成证据，
+不代表生产 HA、HSM、目标设备旅程或 Desktop 发行资格。
 
-## 当前实例
+## 当前实例与保留实例
 
-- OpenBao `2.6.2` 运行在 `207.180.208.139`，systemd 服务名为 `openbao.service`。
-- OpenBao API 仅监听服务器 `127.0.0.1:8200`，不开放公网端口；Cloud 在同机直接访问，开发者
-  人工管理时必须使用 SSH 隧道。
-- 存储是 `/opt/openbao/data` 的单节点 Raft；TLS 使用开发 CA，最低 TLS 版本为 1.2。
-- 声明式 file audit device 写入 `/var/log/openbao/audit.json`，权限为 `0600`；logrotate 每日轮换、
-  保留 14 份并在轮换后向 OpenBao 发送 `SIGHUP`。
-- 服务器重启后保持 sealed，必须由持有本机恢复材料的开发运维人员手动 unseal。开发实例使用
-  1 share / threshold 1；这便于当前开发，但不满足生产职责分离或高可用要求。
+2026-11-19，用户授权恢复遗失的开发管理密钥后，新建隔离的 OpenBao v2，未覆盖旧 Raft、
+快照、服务或公开验证材料。当前 Cloud 已切换到 v2；旧实例的 AppRole 登录实测被拒绝，
+不能把旧实例仍处于 unsealed 状态当作恢复能力。
 
-## 访问
+| 项目 | 当前 v2 | 保留旧实例 |
+| --- | --- | --- |
+| OpenBao | `2.6.2`，`openbao-dev-v2.service` | `openbao.service` |
+| Unix 用户 | `openbao-dev-v2` | 原服务用户保持 |
+| API / cluster | `127.0.0.1:8220` / `127.0.0.1:8221` | `127.0.0.1:8200` / `127.0.0.1:8201` |
+| Raft | `/opt/openbao-dev-v2/data`，`0700` | `/opt/openbao/data` 保留 |
+| 配置与 TLS | `/etc/openbao-dev-v2/` | `/opt/openbao/` 保留 |
+| file audit | `/var/log/openbao-dev-v2/audit.json`，`0600` | 原审计文件保留 |
+| Cloud 配置 | `/etc/gooddealer/openbao-dev-v2/` | `/etc/gooddealer/openbao/` 保留 |
 
-保持以下隧道会话运行：
+两套实例只监听 loopback，不经 Nginx、不开放公网。v2 复用仍有效的开发 CA/服务器证书，
+私钥仅在服务器受控目录复制，TLS 校验始终开启。v2 使用单节点 Raft、1 share / threshold 1；
+重启后须由持有恢复材料的操作者手动 unseal。旧实例不能替代 v2 的当前签名用途。
 
-```sh
-ssh -i "$HOME/documents/id_rsa" \
-  -L 8200:127.0.0.1:8200 \
-  root@207.180.208.139
+## 访问与恢复材料
+
+当前管理入口是 `root@207.180.208.139`，本机 SSH 身份文件是 `/home/sean/.ssh/id_rsa`。
+需要人工 API 管理时建立 `8220:127.0.0.1:8220` 的 SSH 隧道，使用
+`BAO_ADDR=https://127.0.0.1:8220` 与受控目录中的 `ca.crt`。不得设置 `BAO_SKIP_VERIFY`。
+这些路径用于定位，不是打印文件内容的授权。
+
+本机 `/home/sean/.config/gooddealer/openbao-dev-v2` 为 `0700`；以下文件均为 `0600`：
+
+- `init.json`：v2 root token 与 unseal material；当前响应字段为 `keys_base64`，不要套用旧字段名。
+- `initial.snap`：完成五用途与 AppRole 配置后的加密 Raft 快照。
+- `ca.crt`、`public-keys.json`、`desktop-registry.json`：公开验证材料。
+
+初始化响应和快照经 SSH 直接流入该目录的独占、拒绝符号链接文件，文件及目录均 fsync 后发布；
+没有写入仓库、普通临时文件或工具输出。VPS 不保存 root token、unseal key 或 `init.json`。
+快照检查覆盖受限 tar 成员、长度和 SHA256SUMS；没有执行恢复演练，不能据此宣称灾难恢复已验证。
+恢复材料的另一份受控加密备份和异地恢复演练仍待完成。
+
+运行时 RoleID/SecretID 仅在 VPS `/etc/gooddealer/openbao-dev-v2/authority-approle.json`，
+由 `root:gooddealer` 持有、权限 `0640`；没有下载到本机。SecretID 有效期七天，必须在到期前
+通过受控管理流程重新签发、原子替换并验证 Cloud。不要把 root token 放入环境变量、命令参数、
+日志或 Cloud 配置。unseal 或签发 SecretID 时从受控文件经 stdin 直接送到验证 TLS 的固定 API；
+不得回显响应、重定向到普通临时文件或在聊天中传递材料。
+
+## 五种用途与最小权限
+
+v2 `transit` mount 中的五把 Ed25519 key 均为 version 1、不可导出、不可明文备份、不可删除、
+非 derived。每种用途独立 name、kid 与材料：
+
+| Purpose | Transit name | 当前 kid |
+| --- | --- | --- |
+| Active Grant | `gooddealer-dev-v2-desktop-authorization-grant` | `gooddealer-dev-v2-grant-v1` |
+| Lease | `gooddealer-dev-v2-active-device-lease` | `gooddealer-dev-v2-lease-v1` |
+| Standby Grant | `gooddealer-dev-v2-desktop-standby-grant` | `gooddealer-dev-v2-standby-v1` |
+| Execution Context | `gooddealer-dev-v2-desktop-execution-context` | `gooddealer-dev-v2-context-v1` |
+| Bootstrap Capability | `gooddealer-dev-v2-bootstrap-capability` | `gooddealer-dev-v2-bootstrap-v1` |
+
+`gooddealer-dev-authority-v2` policy 只有上述五个 `transit/sign/<name>` 的 `update` 权限。
+AppRole 的 token TTL 为 900 秒、最大 3600 秒，SecretID 与 token 都限定 `127.0.0.1/32`。
+Cloud 只接受 `default` 与该 policy；实际 workload 的 key 管理、rotate、export 与 policy 管理
+capability 均实测为 deny。运行时短期 token 只在 `OpenBaoAppRoleTokenSource` 内存中缓存。
+
+`public-keys.json` 严格包含 schemaVersion、address、transitMount，以及 grant/lease/standby/context/
+bootstrap 五个 keyring。每个 keyring 的 active 精确引用 verifierKeys 中的一项。当前 verifier
+数量依次为 2/2/1/1/1：旧 Grant 与 Lease 的验证对象逐字段保留，当前签名只用 v2。
+跨用途共享 name、kid、公钥或未知字段均被源码拒绝。保留旧验证公钥不恢复旧签名能力。
+
+2026-11-19 在新 release 中，以受限 `gooddealer` 进程运行真实 `OpenBaoTransitSigner`、
+`OpenBaoAppRoleTokenSource` 和生产 keyring parser：五用途签名成功，二十次错用途公钥验签全部
+拒绝。探针使用公开历史协议 fixture claims，没有签发当前账户授权，也不替代真实登录、
+Standby 交接、引导、强制接管或业务执行的正向验收。
+
+Transit 401/403 只失效被拒绝的内存 token，重新登录并重试一次；旧请求不能清除并发新 token。
+响应错误只产生通用失败，不输出 OpenBao wire、SecretID、签名或 token。
+
+## Desktop 公开 registry 与本机开发
+
+当前公开 registry 位于本机受控目录的 `desktop-registry.json`，SHA256 为：
+
+```text
+1eabbd28707953d3d36f3f183e8602aa6c41f47c94bae430a07680918e027223
 ```
 
-另一个终端使用本机保存的开发 CA：
+从同一份公开 keyring 本机生成两次，并以 VPS 已部署 runtime 配置和 `gooddealer` 进程再生成，
+哈希一致。源码边界把 OpenBao raw base64 公钥转换为 Ed25519 SPKI，再生成 Desktop raw base64url。
+生成入口仍为 `pnpm --silent --filter @gooddealer/cloud desktop-registry`；该命令必须明确选择
+`GOODDEALER_OPENBAO_PUBLIC_KEYS_FILE`，不依赖可能指向旧实例的默认路径。输出直接写入受控文件，
+构建日志只记录摘要，不打印完整 registry。
 
-```sh
-export BAO_ADDR=https://127.0.0.1:8200
-export BAO_CACERT="$HOME/.config/gooddealer/openbao-dev/ca.crt"
-bao status
-```
+Desktop 构建输入为 `GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON` 与固定 HTTPS origin
+`https://api.gooddealer.com/`。registry 的五个 wire purpose 是 `grant_v3`、`active_device_lease_v1`、
+`standby_grant_v1`、`execution_context_v1`、`bootstrap_capability_v1`；Active Grant envelope 当前为 v4，
+registry 中既有 purpose 名称不据此改写。Desktop 不从运行时网络下载信任根。
 
-不得设置 `BAO_SKIP_VERIFY`，也不得将 root token、unseal key 或 AppRole SecretID 写入仓库、普通
-环境文件、命令参数、日志或错误信息。
+仅启动 Desktop 不需要 OpenBao AppRole 或服务器秘密。本机 Cloud 使用本机 PostgreSQL profile 和
+独立受控凭据；不得把 VPS runtime 凭据下载到 `.env.local`。使用隧道调用开发 OpenBao 时，Node
+启动前必须用 `NODE_EXTRA_CA_CERTS` 指定受控 CA，并配置独立授权的 AppRole 来源。旧两用途配置
+或默认旧路径不能作为五用途配置的兼容方案。
 
-## 恢复材料
-
-本机目录 `$HOME/.config/gooddealer/openbao-dev` 权限为 `0700`，包含：
-
-- `ca.crt` 与 `public-keys.json`：公开验证材料，权限 `0644`；
-- `init.json`：root token 与 unseal key，权限 `0600`；
-- `authority-approle.json`：开发 authority 的 AppRole RoleID/SecretID，权限 `0600`；
-- `initial.snap`：初始化后的加密 Raft 快照，权限 `0600`。
-
-VPS 不保留 `init.json`、unseal key 或 root token。开发 Cloud 运行所需的 AppRole RoleID/SecretID
-保存在 `/etc/gooddealer/openbao/authority-approle.json`，文件由 `root:gooddealer` 持有且权限为
-`0640`；systemd 服务以专用 `gooddealer` 用户读取。`init.json` 与 `initial.snap` 必须另行进入受控、
-加密的开发备份；丢失 unseal key 将无法在重启后恢复实例，泄露它、快照或 VPS 上的 SecretID
-都会破坏相应开发边界。AppRole SecretID 有效期为 7 天，到期前由 root 操作者重新签发并原子替换
-VPS 与受控本机副本，然后重启 Cloud 服务验证。
-
-服务重启后的 unseal 通过标准输入提交，避免把 key 放入进程参数：
-
-```sh
-jq -c '{key:.unseal_keys_b64[0]}' \
-  "$HOME/.config/gooddealer/openbao-dev/init.json" |
-curl --fail --silent --show-error \
-  --cacert "$HOME/.config/gooddealer/openbao-dev/ca.crt" \
-  --header 'Content-Type: application/json' \
-  --data-binary @- \
-  https://127.0.0.1:8200/v1/sys/unseal >/dev/null
-```
-
-## 密钥与最小权限
-
-Transit mount 为 `transit`。此前已记录部署的五把不可导出、不可明文备份、不可删除的 Ed25519 v1 key 分别用于：
-
-- `gooddealer-dev-desktop-authorization-grant`；
-- `gooddealer-dev-active-device-lease`；
-- `gooddealer-dev-user-audit`；
-- `gooddealer-dev-staff-audit`；
-- `gooddealer-dev-service-audit`。
-
-此前记录的 `gooddealer-dev-authority` AppRole 只可签前两把授权 key；token TTL 为 15 分钟、最大 TTL 为 1 小时，
-并绑定 `127.0.0.1/32`。登录响应的 policy 必须精确落在 `default` 与
-`gooddealer-dev-authority` allowlist 内，出现任何额外 policy 时 Cloud 失败关闭。它不能读取、创建或轮换 key，也不能签三个 audit key。Cloud 仍须通过
-`OpenBaoTransitSigner` 只使用 `public-keys.json` 为每个 purpose 明确选择的 active key/version 签名，
-同时把该 purpose 的 1–8 把 verifier key 安装到 Cloud/Desktop 验签边界。轮换期 verifier 集合同时
-保留旧/新 key，active 只指向新 key；旧 envelope 窗口结束后再从集合中撤旧。配置严格拒绝未知字段、
-缺失 active 引用、重复 `(name, version)`、`kid` 或公钥材料，以及 Active Grant/Lease/Standby Grant/Execution Context/Bootstrap Capability 跨用途共享 name、`kid` 或材料。
-Transit 返回 401/403 时，Cloud 仅失效本次被拒绝的内存 token，重新执行一次 AppRole 登录并重试；
-并发请求已取得的新 token 不会被旧请求清除。任何非成功响应体都会先取消，再重试或返回通用失败。
-
-### Standby 第三用途升级
-
-当前源码强制第三个独立授权 purpose `standby`，对应
-`gooddealer-dev-desktop-standby-grant` Ed25519 Transit key。该 key 与扩展后的 AppRole 策略尚未取得
-共享实例实际部署证据；不得把上面的五把既有 key 或本地测试签名器视作第三用途已经部署。
-
-在受控 OpenBao 管理流程中创建同样不可导出、不可明文备份、不可删除的独立 key，并只为现有
-`gooddealer-dev-authority` 策略新增 `transit/sign/gooddealer-dev-desktop-standby-grant` 的签名权限。
-AppRole 仍不能管理 key、读取秘密或签 audit key。把真实公开 key/version 安装到下列 `standby`
-keyring，并与下述第四、第五用途一起生成、发布 Desktop registry 后再启用新 Cloud 组合。缺失用途的配置会被严格
-拒绝，不以复用 Active key、测试 key 或放宽策略作为兼容路径。验证需实际签发 Standby，并确认
-Active/Lease 公钥不能验证其签名；测试环境的本地 Ed25519 证据不等于该部署验收。
-
-### 执行上下文第四用途
-
-当前源码还要求独立 `context` keyring，逻辑签名用途为
-`gooddealer.devices.desktop-execution-context.v1`，开发 Transit 名称为
-`gooddealer-dev-desktop-execution-context`。它签发与 Native 随机 nonce、完整 Active Grant 摘要、
-设备签名身份和服务器当前时间绑定的证据。固定 `/v1/devices/execution-context` 只接纳当前 Active
-设备，不续租、不批准业务操作；客户端不能指定时间、身份或授权摘要。
-
-受控升级须创建独立不可导出的 Ed25519 key，仅向现有 authority AppRole 增加对应
-`transit/sign/gooddealer-dev-desktop-execution-context` 权限，并安装真实公开材料到 Cloud 与 Desktop
-的五用途 registry。所有用途间的名称、`kid` 和公钥必须分离；旧验证 key 在历史证据仍需验证时保留。
-第三、第四、第五用途均仍缺共享实例部署和真实 Transit 验收证据。需要实际验证签名、错用途拒绝及事务提交
-后的上下文返回，不能用本地签名测试替代；源码配置已拒绝缺少任一用途的文件。
-
-### 目标引导第五用途
-
-源码要求独立 `bootstrap` keyring，对应逻辑用途 `gooddealer.devices.bootstrap-capability.v1` 和 Desktop registry 的 `bootstrap_capability_v1`。受控部署需创建独立不可导出、不可明文备份、不可删除的 Ed25519 Transit key，为 authority AppRole 仅增加该 key 的签名权限，并安装真实公钥和显式版本。不得复用 Grant、Lease、Standby 或 Context 的 key name、kid、公钥材料。
-
-此用途尚无共享实例部署及真实 Transit 资格证据。先发布包含五个独立用途的 Desktop registry，再启用匹配 Cloud 组合；分别验证真实 claim 签名、错用途拒绝、精确原回执重放以及签名失败回滚。源码签名器测试不替代部署验收。
-
-## 共享 Cloud 调用
-
-共享 Cloud 的域名、Nginx、systemd、PostgreSQL、发布、回滚、状态检查和公网冒烟统一由
-[共享 Cloud 开发环境运行手册](DEVELOPMENT_CLOUD.md)定义。本文件只拥有 OpenBao 管理和签名
-边界；不得在这里维护第二份 Cloud 部署步骤。
-
-## 本机启动授权开发闭环
-
-保持 SSH 隧道运行后，从仓库根目录先以有限生命周期入口运行 migration，再启动只监听 loopback
-的开发 Cloud。开发 CA 必须在 Node 进程启动时显式加入信任链；不得关闭 TLS 校验。常驻组合根只
-读取 App URL；AppRole 凭据从受限文件按需读取，短期 token 只缓存在内存：
-
-```sh
-pnpm --filter @gooddealer/cloud migrate:development
-
-NODE_EXTRA_CA_CERTS="$HOME/.config/gooddealer/openbao-dev/ca.crt" \
-  pnpm --filter @gooddealer/cloud start:development
-```
-
-该服务把 `/v1/desktop-oauth/*` 与公开 Grant 路由组合在同一 loopback 端口。Desktop 仍要求
-HTTPS Cloud origin；共享开发构建使用 `https://api.gooddealer.com`，纯本机端口则必须放在开发
-反向代理或受认证 tunnel 后面，不能把 HTTP origin 编入 Desktop。账号激活 subject 未配置时失败
-关闭；共享开发 Cloud 的 Stripe test-mode checkout 使用独立商业配置，不由 OpenBao 配置决定。
-
-Desktop 构建所需的 registry 由同一份公开材料确定性生成。OpenBao Transit 原生返回的 32 字节
-base64 公钥会在部署输入边界转换为 Ed25519 SPKI，再输出 Desktop 的 raw base64url 格式：
-
-```json
-{
-  "schemaVersion": 1,
-  "address": "https://127.0.0.1:8200",
-  "transitMount": "transit",
-  "grant": {
-    "active": { "name": "gooddealer-dev-desktop-authorization-grant", "version": 2, "kid": "grant-v2" },
-    "verifierKeys": [
-      { "name": "gooddealer-dev-desktop-authorization-grant", "version": 1, "kid": "grant-v1", "publicKeyPem": "<Ed25519 public key>" },
-      { "name": "gooddealer-dev-desktop-authorization-grant", "version": 2, "kid": "grant-v2", "publicKeyPem": "<Ed25519 public key>" }
-    ]
-  },
-  "lease": {
-    "active": { "name": "gooddealer-dev-active-device-lease", "version": 2, "kid": "lease-v2" },
-    "verifierKeys": [
-      { "name": "gooddealer-dev-active-device-lease", "version": 1, "kid": "lease-v1", "publicKeyPem": "<Ed25519 public key>" },
-      { "name": "gooddealer-dev-active-device-lease", "version": 2, "kid": "lease-v2", "publicKeyPem": "<Ed25519 public key>" }
-    ]
-  },
-  "standby": {
-    "active": { "name": "gooddealer-dev-desktop-standby-grant", "version": 1, "kid": "standby-v1" },
-    "verifierKeys": [
-      { "name": "gooddealer-dev-desktop-standby-grant", "version": 1, "kid": "standby-v1", "publicKeyPem": "<independently provisioned Ed25519 public key>" }
-    ]
-  },
-  "context": {
-    "active": { "name": "gooddealer-dev-desktop-execution-context", "version": 1, "kid": "context-v1" },
-    "verifierKeys": [
-      { "name": "gooddealer-dev-desktop-execution-context", "version": 1, "kid": "context-v1", "publicKeyPem": "<independently provisioned Ed25519 public key>" }
-    ]
-  }
-}
-```
-
-同一 purpose 可用同一 Transit name 的不同 version；`active` 必须精确引用 `verifierKeys` 中一项。
-
-```sh
-pnpm --silent --filter @gooddealer/cloud desktop-registry
-```
-
-把该命令的单行 JSON 输出作为 `GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON` 构建变量；Desktop
-固定使用 `https://api.gooddealer.com/`。两项都是编译期信任输入，不从运行时网络下载。
+后续轮换先生成同时包含旧/新 verifier 的 registry 并发布相应 Desktop，再切换 Cloud active。
+历史签名仍需验证时保留旧 verifier。此 v2 是用户授权的开发环境恢复；旧构建不认识新签名 key，
+使用当前环境必须重新构建并采用上述公开 registry，不能关闭验签。
 
 ## 当前限制
 
-该实例没有 HA、自动 unseal、HSM seal、第二审计设备、异地恢复演练或生产监控；PostgreSQL 和
-Cloud 也只是单机开发部署。它满足当前开发集成所需的公网 HTTPS、真实 PostgreSQL migration、
-Transit、TLS、AppRole、最小权限和审计观察，但不能原地升级为生产环境或用于客户发行。
+单 VPS、单节点、手动 unseal、七天 SecretID 均为开发运行约束；没有 HA、HSM seal、异地恢复演练、
+生产监控或第二审计设备。新实例的长期 audit 轮换与告警尚待配置验证。实际 Transit 签名已经取证，
+真实账号设备旅程、业务授权、Windows/macOS 平台资格和发行资格仍分别取证。

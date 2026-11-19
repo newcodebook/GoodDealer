@@ -408,3 +408,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - secure-host-core 私有 gio 适配在独立 MainContext 订阅固定系统 logind owner；真实 delay inhibitor、PreparingForSleep 握手、owner 二次检查和严格 Variant signature 后才准入。睡眠意图先撤销旧 epoch、等待原最终提交栅栏再释放 inhibitor；恢复重新取得后才继续。退出不保留订阅/FD；没有新 writer、IPC 或通用代理。
 - Root/Cloud 独立源码与实际 logind 注册释放 7/7 通过；Core 全量 92/public 3/doc 4、严格 Clippy 通过。GLib tuple 尾随成员负例已落实为精确 signature 校验。见[独立审查](../reviews/2026-11-19-linux-native-power-review.md)。
 - 未实际挂起当前开发机，故仍缺真实 sleep/wake；Windows/macOS 实机及真实 Afternic 账号不由此推导。Provider 上架/改价继续原 lane 与当前授权，不开放资格清单冒充交付。
+
+
+## 2026-11-19 开发 Cloud 五用途授权实际部署
+
+- 用户授权自行定位环境与恢复丢失的开发签名管理材料；隔离 OpenBao v2 已生效，旧实例、数据库卷和其他业务保留。clean `f872727` 经精确27条前缀、受控archive/schema-only备份和受限migrator应用44条至71条；Account Web 原子发布。
+- 实际生产 signer/AppRole 五用途签名/20错用途拒绝、公网401/400/401/200、源站403、五runtime隔离与12角色限制通过；公开registry两端摘要一致，秘密未下载到普通配置或输出。独立审查见[部署记录](../reviews/2026-11-19-development-cloud-authority-deployment.md)。
+- PG仍18.4，archive只验TOC未恢复演练；030/031未部署，真实登录/Provider/双设备与双系统/发行资格不能由部署推导。
