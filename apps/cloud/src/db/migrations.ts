@@ -3,6 +3,8 @@ import { forcedIntentCancellationMigration } from "../modules/devices/migrations
 import { desktopForcedReauthenticationMigration } from "../modules/identity/migrations/202611190025-desktop-forced-reauth";
 import { leaseIssuedOfflineHighWaterMigration } from "../modules/devices/migrations/202611190026-lease-issued-offline-high-water";
 import { forcedTakeoverWorkflowMigration } from "../modules/devices/migrations/202611190027-forced-takeover-workflow";
+import { auditListingWriteEvidenceMigration } from "../modules/audit/migrations/202611190030-audit-listing-write-evidence";
+import { executionListingWriteEvidenceMigration } from "../modules/execution-ledger/migrations/202611190031-execution-listing-write-evidence";
 import { bootstrapCheckpointPolicyMigration } from "../modules/workspace/checkpoints/migrations/202611190024-bootstrap-checkpoint-policy";
 import { bootstrapCheckpointCapabilityMigration } from "../modules/workspace/checkpoints/migrations/202611190023-bootstrap-checkpoint-capability";
 import { targetBootstrapInstallationMigration } from "../modules/devices/migrations/202611190022-target-bootstrap-installation";
@@ -144,6 +146,8 @@ export const cloudMigrations: readonly CloudMigration[] = [
   forcedTakeoverWorkflowMigration,
   forcedIntentCancellationMigration,
   forcedIntentCapabilityPolicyMigration,
+  auditListingWriteEvidenceMigration,
+  executionListingWriteEvidenceMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

@@ -11,7 +11,7 @@
 | 平台 | 适配源码 | 当前生产客户流程 | 真实账号验收 |
 | --- | --- | --- | --- |
 | Cloudflare | Zone/DNS 只读 Service | 单 Zone 连接/导入及维护已组合；资格尚未取得 | 未取得 |
-| Afternic | 官方库存/GET/Create/Update/Remove | 连接、完整市场库存归集、持久整批下架和重开对账已组合；上架/改价客户编排及自动验证未完成 | 未取得 |
+| Afternic | 官方库存/GET/Create/Update/Remove | 连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合；真实连接入口仍受资格与商业权限阻止，自动验证未完成 | 未取得 |
 | Spaceship | 未实现实际 Service | 账户归集及 SellerHub 旅程未实现 | 未取得 |
 | Atom | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
@@ -23,7 +23,7 @@
 | 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六资产来源目前均未完成可验收的账户级归集；Cloudflare 单 Zone 不计为账户级，Afternic 完整市场库存不计为 GoDaddy 资产归集。市场下架已有 Afternic 源码客户流程，上架/改价只有底层请求；所有市场自动所有权验证仍待实现。真实接口、Windows/macOS 实机和发行资格分别取证，目录或测试数量不改变这些事实。
+六资产来源目前均未完成可验收的账户级归集；Cloudflare 单 Zone 不计为账户级，Afternic 完整市场库存不计为 GoDaddy 资产归集。Afternic 上架/改价/下架均有持久源码客户流程；当前Linux登录为Active，但Provider连接尚不可用，不能宣称已完成真实业务。所有市场自动所有权验证仍待实现。真实接口、Windows/macOS 实机和发行资格分别取证，目录或测试数量不改变这些事实。
 
 ## 丢机强制接管与首次云恢复
 
@@ -98,7 +98,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 - Afternic 官方 API Service 已组合进 Native 和设置：受限凭据录入/托管 → 完整分页库存扫描 → 同事务导入新资产与 Outbox、连接范围 Listing 绑定/观察 → 设置展示扫描计数；历史删除或待重新添加的资产跳过，既有用户字段保留。
   原始所有权状态保持，不把市场库存解释成注册商所有权。重开 prepared 使用当前授权加载原 incarnation/generation/proof 的凭据；缺槽进入修复，不能重新录入覆盖。
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
-  macOS/Windows 有原生掩码录入实现，Linux/macOS/Windows 有 custody 源码；Linux 录入仍未完成。实际账号与目标 OS 未验收，资格清单保持拒绝。
+  Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码；Linux GTK 实际输入/清空生命周期和 logind 注册释放已独立验证。实际账号与目标 OS 未验收，资格清单保持拒绝。
 - Active Grant 的 commercialAuthority v2 是精确封闭 capability 集合：Afternic observe/write、Cloudflare observe；write 必须含 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
 - 十二平台角色、能力目录和不可执行 manifest 已存在；除 Cloudflare 与 Afternic 外的实际 Service 仍需实现。
@@ -114,7 +114,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   每项精确 GET 与冻结前像匹配后，数据库只发出一个 DELETE claim；任何写响应之后以及重开遗留 running/unknown 都先 GET，绝不自动重发 DELETE。
   精确缺席、unlisted 观察、原绑定 detach 与聚合结果同事务提交；未知/仍存在持久只读退避，完整保留合法 Retry-After。旧绑定和普通 detach 不能伪造成功。
   UI 换选计划、工作区替换和角色降级撤去旧批准入口；丢失预览/批准响应只查状态。
-- 此下架 worker 与批准入口接入 Windows/macOS 系统电源通知及 epoch 栅栏：休眠/退出阻断，唤醒不得复用旧许可；注册失败禁止新写，当前授权下仍可只读对账。
+- 下架和上架/改价 worker 与批准入口接入 Linux/Windows/macOS 系统电源通知及 epoch 栅栏：休眠/退出阻断，唤醒不得复用旧许可；注册失败禁止新写，当前授权下仍可只读对账。
   共享原 ProviderLane，每轮处理一项再接收维护/退出请求。旧连接/刷新等路径尚未统一接入此电源栅栏，不能据本切片宣称所有 Provider 操作均已满足休眠要求。
   两个 OS 电源模块已取得原样源码目标编译证据，Windows 完整应用已通过目标编译；macOS 完整应用与两个系统实机休眠仍未取证。真实 Afternic 资格仍为空，新执行仍拒绝。
 - [执行证据本地来源](../crates/local-storage/src/active_workspace/business/execution_evidence.rs)已组合批准、claim、前置拒绝与结果事务：
@@ -122,7 +122,9 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   `202611190001`～`202611190003` 持久化来源、结果/冻结与精确回执。原同步 lane 逐个上传不可变事件，未知响应重发同一字节；缺因果前项先补原 fact/audit；quarantine 保留并阻止封链。
   drain 在原业务事务关闭旧 producer 并记录真实未决数量，取消递增准入代次，旧 GET 不能写入冻结代次；界面明确未决项留在本机，不转为目标可执行队列。
   只有实际 mutation/fact/audit 三流精确回执与连续链全部匹配才构造 proof。旧版本未签名尝试仍拒绝空证明，不补造过去的批准或事实；其升级客户路径尚须接续。
-- Afternic 创建 Listing、改价、私有所有权验证与必要 DNS 步骤继续实施；当前下架旅程源码不等于完整 Afternic 或跨市场客户闭环。
+- Afternic 上架/改价已组合严格四字段 POST/所选键 PATCH、15 分钟持久预览、一次批准、单次 claim、写前/写后精确 GET 与关闭重开只读对账。批量页按连接读取历史和详情，字段匹配与平台状态分开；PENDING/ON_HOLD/UNKNOWN 保持平台等待，OWNERSHIP_* 保持待验证，SOLD/合规冲突保留失败原因。新增目标/价格/字段须新预览。
+  本地追加 `202611190006` 保留原下架签名字节及 FK，复用原批准表与唯一 Listing 绑定，新增窄 append-only 对账事实；Cloud 030/031 和 purpose 独立的 create/update 批准/事实/审计支持真实两流与 drain。屏障冻结后迟到 GET 不追加旧 epoch 证据。
+  源码及独立测试范围见 [上架/改价审查](reviews/2026-11-19-afternic-listing-write-review.md)。真实账号、私有所有权验证和必要 DNS 尚未完成，不能以此声明完整 Afternic 或跨市场闭环。
 
 ## Cloud 与 Account Web
 
@@ -139,7 +141,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   数据库是否实际应用这些迁移，必须依据相应环境的运行记录。
 - execution-context 已组合独立第四签名用途、锁定事务、签后期限复核及不可变历史；普通应用角色不能通过伪造
   租户变量读取该历史。设备审计/执行事实 ingest 复用原 ledger/封链表，以当前 Active 会话派生来源；严格核验历史时间、用途、批准与配对审计，精确重复返回原回执，已封链不接受新事件。真实签名语义拒绝可阻断首次封链，伪造签名不能污染猜测的流。
-  共享 OpenBao 的 Standby/context/bootstrap capability 用途配置和真实签发仍待部署验收。
+  共享开发 OpenBao v2 已部署五个独立用途，经生产 signer/AppRole 完成 5 次签名和 20 次错用途拒绝；本机公开 registry 与部署生成物一致。当前 VPS 为 `f872727` / 71 条迁移，不含本轮 030/031；具体环境与备份限制见 [开发 Cloud](DEVELOPMENT_CLOUD.md)。生产 custody 资格与真实双设备验收仍独立。
 - Account Web 已组合账户访问和商业旅程；已有 staging 观察与其具体限制见
   [开发 Cloud](DEVELOPMENT_CLOUD.md)。这些记录不能替代生产支付、邮件或发行证据。
 

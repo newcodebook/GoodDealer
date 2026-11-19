@@ -12,6 +12,8 @@ use sha2::{Digest as _, Sha256};
 
 const APPROVAL: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
 const APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
+const WRITE_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1";
+const WRITE_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-ENVELOPE-V1";
 const AUDIT: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-V1";
 const AUDIT_HASH: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-HASH-V1";
 const FACT: &str = "GOODDEALER-EXECUTION-FACT-V1";
@@ -30,7 +32,22 @@ impl DesktopDeviceIdentity {
     ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
         let object =
             decode(transcript, APPROVAL).ok_or(DesktopDeviceIdentityError::SigningRejected)?;
-        if !approval(&object) || !self.owns(&object) {
+        if !literal(&object, "action", "remove") || !approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs only a closed, device-bound Afternic create/update item approval transcript.
+    /// # Errors
+    /// Rejects removal or another purpose, unknown claims, or a different device/key.
+    pub fn sign_afternic_listing_write_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, WRITE_APPROVAL)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !listing_action(&object) || !approval(&object) || !self.owns(&object) {
             return Err(DesktopDeviceIdentityError::SigningRejected);
         }
         self.sign_validated(transcript)
@@ -264,15 +281,40 @@ fn common(object: &Object) -> bool {
             .all(|key| integer(object, key, 1))
         && integer(object, "monotonicDeltaMs", 0)
 }
+fn listing_action(object: &Object) -> bool {
+    matches!(text(object, "action"), Some("create" | "update"))
+}
+fn approval_domain(object: &Object) -> &'static str {
+    if listing_action(object) {
+        WRITE_APPROVAL
+    } else {
+        APPROVAL
+    }
+}
+fn envelope_domain(object: &Object) -> &'static str {
+    if listing_action(object) {
+        WRITE_APPROVAL_ENVELOPE
+    } else {
+        APPROVAL_ENVELOPE
+    }
+}
 fn approval(object: &Object) -> bool {
     keys(
         object,
         "schemaVersion typ aud approvedOperationId operationId operationItemId planId planHash targetCount targetSetDigest capability action requestDigest accountId workspaceId sourceDeviceId activeLeaseEpoch credentialEpoch signingKeyId signingKeyVersion authorizationHash trustedTimeAnchorId monotonicDeltaMs approvedAt signatureTranscriptVersion",
     ) && common(object)
-        && literal(object, "typ", "gd.afternic-delist-item-approval.v1")
+        && literal(
+            object,
+            "typ",
+            if listing_action(object) {
+                "gd.afternic-listing-write-item-approval.v1"
+            } else {
+                "gd.afternic-delist-item-approval.v1"
+            },
+        )
         && literal(object, "aud", "gooddealer-cloud/execution-evidence")
         && literal(object, "capability", "afternic:marketplace:write")
-        && literal(object, "action", "remove")
+        && matches!(text(object, "action"), Some("remove" | "create" | "update"))
         && all(
             object,
             "approvedOperationId operationId operationItemId planId",
@@ -290,7 +332,7 @@ fn approval(object: &Object) -> bool {
 fn payload_common(object: &Object) -> bool {
     number(object, "schemaVersion") == Some(1)
         && literal(object, "provider", "afternic")
-        && literal(object, "action", "remove")
+        && matches!(text(object, "action"), Some("remove" | "create" | "update"))
 }
 fn audit_payload(object: &Object, event: &Object) -> bool {
     if !payload_common(object) {
@@ -305,7 +347,15 @@ fn audit_payload(object: &Object, event: &Object) -> bool {
                 && all(object, "planHash targetSetDigest", digest)
                 && number(object, "targetCount").is_some_and(|n| (1..=500).contains(&n))
                 && literal(event, "actorKind", "user")
-                && literal(event, "targetType", "afternic_delist_approval")
+                && literal(
+                    event,
+                    "targetType",
+                    if listing_action(object) {
+                        "afternic_listing_write_approval"
+                    } else {
+                        "afternic_delist_approval"
+                    },
+                )
                 && object.get("approvedOperationId") == event.get("targetRef")
                 && approved_audit(event)
         }
@@ -323,10 +373,14 @@ fn audit_payload(object: &Object, event: &Object) -> bool {
                 object,
                 "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest reason",
             ) && claim_payload_fields(object)
-                && matches!(
-                    text(object, "reason"),
-                    Some("precondition_changed" | "connection_changed" | "already_absent")
-                )
+                && match text(object, "reason") {
+                    Some("precondition_changed" | "connection_changed") => true,
+                    Some("already_absent") => !listing_action(object),
+                    Some("already_present" | "listing_absent" | "provider_state_blocked") => {
+                        listing_action(object)
+                    }
+                    _ => false,
+                }
                 && device_attempt_audit(event, object)
                 && literal(event, "eventType", "runtime_security_lifecycle")
                 && literal(event, "authorizationSource", "runtime_security_context")
@@ -343,16 +397,30 @@ fn audit_payload(object: &Object, event: &Object) -> bool {
                 && device_attempt_audit(event, object)
                 && literal(event, "eventType", "runtime_security_lifecycle")
                 && literal(event, "authorizationSource", "runtime_security_context")
-                && match (text(object, "outcome"), object.get("reason")) {
-                    (Some("absent"), Some(Value::Null)) => true,
-                    (Some("present"), Some(Value::String(reason))) => reason == "still_present",
-                    (Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
-                    (Some("conflict"), Some(Value::String(reason))) => matches!(
-                        reason.as_str(),
-                        "precondition_changed" | "connection_changed"
-                    ),
-                    _ => false,
-                }
+                && reconciliation_outcome(object)
+        }
+        _ => false,
+    }
+}
+fn reconciliation_outcome(object: &Object) -> bool {
+    match (
+        listing_action(object),
+        text(object, "outcome"),
+        object.get("reason"),
+    ) {
+        (true, Some("matched"), Some(Value::Null)) | (false, Some("absent"), Some(Value::Null)) => {
+            true
+        }
+        (true, Some("absent" | "different"), Some(Value::String(reason))) => {
+            reason == "postcondition_pending"
+        }
+        (false, Some("present"), Some(Value::String(reason))) => reason == "still_present",
+        (_, Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
+        (_, Some("conflict"), Some(Value::String(reason))) => {
+            matches!(
+                reason.as_str(),
+                "precondition_changed" | "connection_changed"
+            ) || (listing_action(object) && reason == "provider_state_blocked")
         }
         _ => false,
     }
@@ -363,7 +431,15 @@ fn approved_audit(event: &Object) -> bool {
 }
 fn device_attempt_audit(event: &Object, payload: &Object) -> bool {
     literal(event, "actorKind", "device_service")
-        && literal(event, "targetType", "afternic_delist_attempt")
+        && literal(
+            event,
+            "targetType",
+            if listing_action(payload) {
+                "afternic_listing_write_attempt"
+            } else {
+                "afternic_delist_attempt"
+            },
+        )
         && payload.get("attemptId") == event.get("targetRef")
 }
 fn claim_payload_fields(object: &Object) -> bool {
@@ -446,6 +522,26 @@ impl<'de> Deserialize<'de> for UniqueObject {
         deserializer.deserialize_map(ObjectVisitor)
     }
 }
+fn fact_payload(payload: &Object, object: &Object) -> bool {
+    !(!keys(
+        payload,
+        "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest",
+    ) || !payload_common(payload)
+        || !literal(
+            object,
+            "eventType",
+            if listing_action(payload) {
+                "afternic_listing_write_dispatch_claimed"
+            } else {
+                "afternic_delist_dispatch_claimed"
+            },
+        )
+        || !literal(payload, "stage", "dispatch_claimed")
+        || !literal(payload, "dispatchSemantics", "local_claim_only")
+        || !literal(payload, "deduplicationScope", "local_only")
+        || !all(payload, "requestDigest approvalEnvelopeDigest", digest))
+}
+
 fn fact(object: &Object, key: &[u8; 32]) -> bool {
     if !keys(
         object,
@@ -465,7 +561,6 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
         )
         || !all(object, "occurredAt requestStartBoundary", timestamp)
         || object.get("occurredAt") != object.get("requestStartBoundary")
-        || !literal(object, "eventType", "afternic_delist_dispatch_claimed")
         || !literal(object, "evidenceLevel", "durable_local_claim")
     {
         return false;
@@ -473,15 +568,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     let Some(payload) = object.get("payloadRedacted").and_then(Value::as_object) else {
         return false;
     };
-    if !keys(
-        payload,
-        "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest",
-    ) || !payload_common(payload)
-        || !literal(payload, "stage", "dispatch_claimed")
-        || !literal(payload, "dispatchSemantics", "local_claim_only")
-        || !literal(payload, "deduplicationScope", "local_only")
-        || !all(payload, "requestDigest approvalEnvelopeDigest", digest)
-    {
+    if !fact_payload(payload, object) {
         return false;
     }
     let Some(evidence) = object
@@ -520,7 +607,9 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
             return false;
         }
     }
-    if approved.get("requestDigest") != payload.get("requestDigest") {
+    if approved.get("requestDigest") != payload.get("requestDigest")
+        || approved.get("action") != payload.get("action")
+    {
         return false;
     }
     let dispatch_key = json!({"schemaVersion":1,"operationId":object["operationId"],
@@ -541,7 +630,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
         "deviceSignature".into(),
         Value::String(URL_SAFE_NO_PAD.encode(signature)),
     );
-    let digest = hash(APPROVAL_ENVELOPE, &approved);
+    let digest = hash(envelope_domain(&approved), &approved);
     text(evidence, "approvedOperationDigest") == Some(digest.as_str())
         && text(payload, "approvalEnvelopeDigest") == Some(digest.as_str())
 }
@@ -561,7 +650,10 @@ fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 
         .and_then(|v| v.as_str().and_then(base64::<64>))?;
     if !approval(&approved)
         || UnparsedPublicKey::new(&ED25519, key)
-            .verify(&transcript(APPROVAL, &approved), &signature)
+            .verify(
+                &transcript(approval_domain(&approved), &approved),
+                &signature,
+            )
             .is_err()
     {
         return None;
@@ -845,6 +937,126 @@ mod tests {
             identity()
                 .sign_execution_fact_transcript(&transcript(FACT, &object))
                 .is_ok()
+        );
+    }
+    fn listing_fixture(action: &str) -> Value {
+        let bytes = match action {
+            "create" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/create.json"
+            ),
+            "update" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/update.json"
+            ),
+            _ => panic!("closed fixture action"),
+        };
+        serde_json::from_str(bytes).unwrap()
+    }
+    fn unsigned(vector: &Value, name: &str) -> Object {
+        let mut value = vector[name].as_object().unwrap().clone();
+        value.remove("deviceSignature");
+        value
+    }
+    #[test]
+    fn create_update_signatures_match_shared_protocol_vectors() {
+        let device = identity();
+        for action in ["create", "update"] {
+            let vector = listing_fixture(action);
+            for (name, domain) in [
+                ("approval", WRITE_APPROVAL),
+                ("approvalAudit", AUDIT),
+                ("claimAudit", AUDIT),
+                ("preflightAudit", AUDIT),
+                ("reconciledAudit", AUDIT),
+                ("fact", FACT),
+            ] {
+                let bytes = transcript(domain, &unsigned(&vector, name));
+                let signature = match domain {
+                    WRITE_APPROVAL => {
+                        device.sign_afternic_listing_write_approval_transcript(&bytes)
+                    }
+                    AUDIT => device.sign_device_audit_event_transcript(&bytes),
+                    _ => device.sign_execution_fact_transcript(&bytes),
+                }
+                .unwrap();
+                assert_eq!(
+                    URL_SAFE_NO_PAD.encode(signature),
+                    vector[name]["deviceSignature"],
+                    "{action}/{name}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn listing_approval_cannot_be_signed_or_replayed_as_another_purpose() {
+        let device = identity();
+        for action in ["create", "update"] {
+            let vector = listing_fixture(action);
+            let approved = unsigned(&vector, "approval");
+            let bytes = transcript(WRITE_APPROVAL, &approved);
+            assert!(
+                device
+                    .sign_afternic_delist_approval_transcript(&bytes)
+                    .is_err()
+            );
+            assert!(
+                device
+                    .sign_afternic_listing_write_approval_transcript(&transcript(
+                        APPROVAL, &approved
+                    ))
+                    .is_err()
+            );
+            for (field, value) in [
+                ("action", "remove"),
+                ("typ", "gd.afternic-delist-item-approval.v1"),
+                ("sourceDeviceId", "another-device"),
+                ("signingKeyId", "another-key"),
+            ] {
+                let mut altered = approved.clone();
+                altered.insert(field.into(), json!(value));
+                assert!(
+                    device
+                        .sign_afternic_listing_write_approval_transcript(&transcript(
+                            WRITE_APPROVAL,
+                            &altered
+                        ))
+                        .is_err()
+                );
+            }
+            let mut fact = unsigned(&vector, "fact");
+            fact["payloadRedacted"]["action"] = json!(if action == "create" {
+                "update"
+            } else {
+                "create"
+            });
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &fact))
+                    .is_err()
+            );
+            let mut fact = unsigned(&vector, "fact");
+            fact["eventType"] = json!("afternic_delist_dispatch_claimed");
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &fact))
+                    .is_err()
+            );
+            let mut audit = unsigned(&vector, "reconciledAudit");
+            audit["payloadRedacted"]["outcome"] = json!("absent");
+            audit["payloadRedacted"]["reason"] = Value::Null;
+            rehash(&mut audit);
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &audit))
+                    .is_err()
+            );
+        }
+        assert!(
+            device
+                .sign_afternic_listing_write_approval_transcript(&transcript(
+                    WRITE_APPROVAL,
+                    &claims("approval")
+                ))
+                .is_err()
         );
     }
 }

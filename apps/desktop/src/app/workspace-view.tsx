@@ -7,7 +7,7 @@ import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, typ
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
-import { AfternicDelistPanel, BatchList } from "../features/operations/batch-operations";
+import { AfternicDelistPanel, AfternicListingWritePanel, BatchList } from "../features/operations/batch-operations";
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
@@ -330,6 +330,7 @@ function BatchRoute({ locale, ports, readGeneration, onStale, readOnly }: {
     projectBatchOperationList, { windowSize: hostWindowSize },
   );
   return <div className="afternic-batch-route">
+    <AfternicListingWritePanel locale={locale} port={ports.afternicListingWrite} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
     <AfternicDelistPanel locale={locale} port={ports.afternicDelist} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
     <div className="afternic-batch-history">
       {state.kind === "ready" ? <BatchList locale={locale} jobs={state.value.items} creationAvailability={state.value.creationAvailability} /> : <HostRouteStatus state={state} copy={copy} onRetry={retry} />}

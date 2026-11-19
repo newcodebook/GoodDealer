@@ -5,3 +5,4 @@ export * from "./batch-operations-read";
 export * from "./history-read";
 export * from "./manual-tasks-read";
 export * from "./afternic-delist";
+export * from "./afternic-listing-write";

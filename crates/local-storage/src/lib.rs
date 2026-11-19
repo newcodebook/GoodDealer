@@ -296,3 +296,16 @@ pub use desktop_local_host::forced_takeover::{
     DesktopForcedTakeoverPreviewReason, DesktopForcedTakeoverStoppedReason,
     DesktopForcedTakeoverView, DesktopForcedTakeoverWork,
 };
+
+pub use active_workspace::business::{
+    DesktopAfternicListingWriteAction, DesktopAfternicListingWriteApproveRequest,
+    DesktopAfternicListingWriteCreateItem, DesktopAfternicListingWriteItem,
+    DesktopAfternicListingWriteObserved, DesktopAfternicListingWritePatch,
+    DesktopAfternicListingWritePlan, DesktopAfternicListingWritePreviewRequest,
+    DesktopAfternicListingWriteStatus, DesktopAfternicListingWriteStatusRequest,
+    DesktopAfternicListingWriteSummary, DesktopAfternicListingWriteUpdateItem,
+    DesktopAfternicListingWriteValues, DesktopAfternicListingWriteWorkKind,
+};
+pub use desktop_local_host::afternic_listing_write::{
+    DesktopAfternicListingWriteClaim, DesktopAfternicListingWriteWork,
+};

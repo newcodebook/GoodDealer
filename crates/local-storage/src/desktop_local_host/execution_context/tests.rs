@@ -15,6 +15,9 @@ impl Default for TestNative {
     }
 }
 impl DesktopExecutionContextNativePort for TestNative {
+    fn sign_afternic_listing_write_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
+        self.sign_afternic_delist_approval(t)
+    }
     fn sign_afternic_delist_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
         Ok(test_signature(t))
     }
@@ -214,6 +217,9 @@ fn final_fence_after_persistence_clears_anchor_and_closes_older_in_memory_author
         release: Arc<Barrier>,
     }
     impl DesktopExecutionContextNativePort for RacingNative {
+        fn sign_afternic_listing_write_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
+            self.sign_afternic_delist_approval(t)
+        }
         fn sign_afternic_delist_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
             Ok(test_signature(t))
         }

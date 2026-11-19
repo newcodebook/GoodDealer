@@ -259,6 +259,8 @@ const expectedCatalog = [
   { id: "202611190027-forced-takeover-workflow", owner: "devices", checksum: "7bd536425de39dca30f963645239dd09f243ce28f331fad93d3248afe560524f" },
   { id: "202611190028-forced-intent-cancellation", owner: "devices", checksum: "e9bae6407af605e7a49a4870aa1f237ea43e3b81ecfcfc2e977c1839d43d66bc" },
   { id: "202611190029-forced-intent-capability-policy", owner: "devices", checksum: "04340680166f2536332e5a51779c4f9a5897cb6c355ea919d3d3a267f79adee8" },
+  { id: "202611190030-audit-listing-write-evidence", owner: "audit", checksum: "af132ccc8a6274f641c5bb447b434674cee6fa1b3e01388167375e1a1be19987" },
+  { id: "202611190031-execution-listing-write-evidence", owner: "execution-ledger", checksum: "f0dd578a49275a3fa4b9fa291093e4c7796b4778d97c7d69370a3189d3a0b2b9" },
 ] as const;
 
 const expectedMigrationFiles = expectedCatalog.map(
@@ -288,7 +290,7 @@ describe("Cloud migration catalog", () => {
       + "  desktopCodeLoopbackRedirectMigration,\n  drainProofSchemaVersionMigration,\n"
       + "  mutationDrainResultChainMigration,\n  mutationResultLedgerMigration,\n"
       + "  mutationDrainDeviceChainMigration,\n  mutationWireV3Migration,\n  replicaDomainAssetDeletionMigration,\n  replicaEntityGenerationMigration,\n  mutationGenerationMismatchReceiptMigration,\n  workspaceCheckpointStateV3Migration,\n"
-      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n  drainHandoffTargetKeyMigration,\n  drainProofAdmissionMigration,\n  deviceSelfReportMigration,\n  loginLeaseAllocationGuardMigration,\n  executionContextMigration,\n  executionContextCapabilityMigration,\n  executionContextDeviceMigration,\n  executionContextEnvelopeBindingMigration,\n  executionContextDeviceColumnMigration,\n  securityEpochEndBoundariesMigration,\n  executionContextKeyEvidenceMigration,\n  executionContextKeyReadPolicyMigration,\n  auditExecutionEvidenceMigration,\n  executionFactEvidenceMigration,\n  auditEvidenceEventIdentityMigration,\n  factEvidenceEventIdentityMigration,\n  auditEvidenceClosedShapeMigration,\n  factEvidenceClosedShapeMigration,\n  auditEvidencePayloadProjectionMigration,\n  factEvidencePayloadProjectionMigration,\n  factEvidenceReplayAndSealMigration,\n  auditEvidenceSealRollbackMigration,\n  switchRequestSourceEpochMigration,\n  switchSourceEpochPurposeMigration,\n  mutationDrainLoginAllocationMigration,\n  targetBootstrapInstallationMigration,\n  bootstrapCheckpointCapabilityMigration,\n  bootstrapCheckpointPolicyMigration,\n  desktopForcedReauthenticationMigration,\n  leaseIssuedOfflineHighWaterMigration,\n  forcedTakeoverWorkflowMigration,\n  forcedIntentCancellationMigration,\n  forcedIntentCapabilityPolicyMigration,\n];",
+      + "  mutationLogGenerationMigration,\n  replicaDomainAssetReAddMigration,\n  drainHandoffTargetKeyMigration,\n  drainProofAdmissionMigration,\n  deviceSelfReportMigration,\n  loginLeaseAllocationGuardMigration,\n  executionContextMigration,\n  executionContextCapabilityMigration,\n  executionContextDeviceMigration,\n  executionContextEnvelopeBindingMigration,\n  executionContextDeviceColumnMigration,\n  securityEpochEndBoundariesMigration,\n  executionContextKeyEvidenceMigration,\n  executionContextKeyReadPolicyMigration,\n  auditExecutionEvidenceMigration,\n  executionFactEvidenceMigration,\n  auditEvidenceEventIdentityMigration,\n  factEvidenceEventIdentityMigration,\n  auditEvidenceClosedShapeMigration,\n  factEvidenceClosedShapeMigration,\n  auditEvidencePayloadProjectionMigration,\n  factEvidencePayloadProjectionMigration,\n  factEvidenceReplayAndSealMigration,\n  auditEvidenceSealRollbackMigration,\n  switchRequestSourceEpochMigration,\n  switchSourceEpochPurposeMigration,\n  mutationDrainLoginAllocationMigration,\n  targetBootstrapInstallationMigration,\n  bootstrapCheckpointCapabilityMigration,\n  bootstrapCheckpointPolicyMigration,\n  desktopForcedReauthenticationMigration,\n  leaseIssuedOfflineHighWaterMigration,\n  forcedTakeoverWorkflowMigration,\n  forcedIntentCancellationMigration,\n  forcedIntentCapabilityPolicyMigration,\n  auditListingWriteEvidenceMigration,\n  executionListingWriteEvidenceMigration,\n];",
     );
     expect(source).toContain('import { cloudflareDnsObservationMigration } from "../modules/workspace/sync/migrations/202609150002-cloudflare-dns-observation";');
     expect(source).toContain('import { accountRecoveryMigration } from "../modules/identity/migrations/202609210001-account-recovery";');
@@ -301,7 +303,7 @@ describe("Cloud migration catalog", () => {
     if (expectedM019 === undefined) throw new Error("M019 fixture is unexpectedly absent");
 
     expect(projection).toEqual(expectedCatalog);
-    expect(checkedCloudMigrationCatalog).toHaveLength(71);
+    expect(checkedCloudMigrationCatalog).toHaveLength(73);
     expect(new Set(projection.map(({ id }) => id)).size).toBe(expectedCatalog.length);
     for (const [index, migration] of projection.entries()) {
       if (index > 0) expect(migration.id > projection[index - 1]!.id).toBe(true);

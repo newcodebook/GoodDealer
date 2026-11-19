@@ -5,6 +5,10 @@ use crate::active_workspace::schema::{
     AFTERNIC_LISTING_MIGRATION_ID, AFTERNIC_LISTING_MIGRATION_OWNER, AFTERNIC_LISTING_MIGRATION_SQL,
 };
 use crate::active_workspace::schema::{
+    AFTERNIC_LISTING_WRITE_MIGRATION_ID, AFTERNIC_LISTING_WRITE_MIGRATION_OWNER,
+    AFTERNIC_LISTING_WRITE_MIGRATION_SQL,
+};
+use crate::active_workspace::schema::{
     EXECUTION_EVIDENCE_DELIVERY_MIGRATION_ID, EXECUTION_EVIDENCE_DELIVERY_MIGRATION_OWNER,
     EXECUTION_EVIDENCE_DELIVERY_MIGRATION_SQL,
 };
@@ -271,6 +275,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER,
         sql: INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL,
     },
+    ActiveMigration {
+        id: AFTERNIC_LISTING_WRITE_MIGRATION_ID,
+        owner: AFTERNIC_LISTING_WRITE_MIGRATION_OWNER,
+        sql: AFTERNIC_LISTING_WRITE_MIGRATION_SQL,
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -279,6 +288,23 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
 /// only, as SQLite's documented table-rebuild procedure requires, and must leave
 /// `foreign_key_check` empty before they commit.
 const TABLE_REBUILD_MIGRATIONS: &[i64] = &[SYNC_WIRE_V3_MIGRATION_ID];
+
+// Test diagnostics identify backend failures without exposing SQL, paths, or database values.
+// Production retains its single closed rejection and emits no diagnostic output.
+fn rejected_sql(migration_id: i64, stage: &'static str, error: &rusqlite::Error) -> MigrationError {
+    #[cfg(test)]
+    if let rusqlite::Error::SqliteFailure(code, _) = error {
+        eprintln!(
+            "migration backend rejected: id={migration_id} stage={stage} sqlite={:?} extended={}",
+            code.code, code.extended_code
+        );
+    } else {
+        eprintln!("migration backend rejected: id={migration_id} stage={stage} sqlite=unavailable");
+    }
+    #[cfg(not(test))]
+    let _ = (migration_id, stage, error);
+    MigrationError::Rejected
+}
 
 pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), MigrationError> {
     validate_catalog(ACTIVE_MIGRATIONS)?;
@@ -291,7 +317,7 @@ pub(crate) fn run_active_migrations(connection: &mut Connection) -> Result<(), M
                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
              ) STRICT;",
         )
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(0, "ledger_create", &error))?;
 
     let applied = read_applied(connection)?;
     if applied.len() > ACTIVE_MIGRATIONS.len() {
@@ -358,21 +384,21 @@ fn validate_sync_v4_legacy_rows(connection: &Connection) -> Result<(), Migration
         .query_row("SELECT count(*) FROM sync_rebootstrap_journal", [], |row| {
             row.get::<_, i64>(0)
         })
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(SYNC_V4_MIGRATION_ID, "legacy_count", &error))?;
     Ok(())
 }
 
 fn validate_sync_v3_legacy_rows(connection: &Connection) -> Result<(), MigrationError> {
     let ambiguous_conflicts: i64 = connection
         .query_row("SELECT count(*) FROM sync_conflicts", [], |row| row.get(0))
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(SYNC_V3_MIGRATION_ID, "legacy_conflicts", &error))?;
     let ambiguous_remote_tombstones: i64 = connection
         .query_row(
             "SELECT count(*) FROM sync_tombstones WHERE deleted_server_revision IS NOT NULL OR state != 'pending'",
             [],
             |row| row.get(0),
         )
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(SYNC_V3_MIGRATION_ID, "legacy_tombstones", &error))?;
     if ambiguous_conflicts != 0 || ambiguous_remote_tombstones != 0 {
         return Err(MigrationError::Rejected);
     }
@@ -400,16 +426,16 @@ fn apply_migration(
     }
     let foreign_keys: bool = connection
         .pragma_query_value(None, "foreign_keys", |row| row.get(0))
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "foreign_keys_read", &error))?;
     connection
         .pragma_update(None, "foreign_keys", false)
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "foreign_keys_disable", &error))?;
     // SQLite ignores this pragma inside an open transaction. A rebuild that ran with foreign keys
     // still on would cascade-delete the children of the dropped table without leaving any
     // violation for `foreign_key_check` to find, so it is refused before anything is written.
     let disabled = connection
         .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "foreign_keys_verify", &error))?;
     let result = if disabled {
         Err(MigrationError::Rejected)
     } else {
@@ -420,7 +446,7 @@ fn apply_migration(
     // without foreign keys; the next open sees the migration recorded and does not re-run it.
     connection
         .pragma_update(None, "foreign_keys", foreign_keys)
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "foreign_keys_restore", &error))?;
     result
 }
 
@@ -431,16 +457,16 @@ fn apply_migration_transaction(
 ) -> Result<(), MigrationError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "transaction_begin", &error))?;
     transaction
         .execute_batch(migration.sql)
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(migration.id, "execute", &error))?;
     if check_foreign_keys {
         let violations: i64 = transaction
             .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
                 row.get(0)
             })
-            .map_err(|_| MigrationError::Rejected)?;
+            .map_err(|error| rejected_sql(migration.id, "foreign_key_check", &error))?;
         if violations != 0 {
             return Err(MigrationError::Rejected);
         }
@@ -450,19 +476,21 @@ fn apply_migration_transaction(
             "INSERT INTO gooddealer_active_migrations(id, owner, checksum) VALUES (?1, ?2, ?3)",
             params![migration.id, migration.owner, checksum(migration.sql)],
         )
-        .map_err(|_| MigrationError::Rejected)?;
-    transaction.commit().map_err(|_| MigrationError::Rejected)
+        .map_err(|error| rejected_sql(migration.id, "ledger_insert", &error))?;
+    transaction
+        .commit()
+        .map_err(|error| rejected_sql(migration.id, "commit", &error))
 }
 
 fn read_applied(connection: &Connection) -> Result<Vec<(i64, String, String)>, MigrationError> {
     let mut statement = connection
         .prepare("SELECT id, owner, checksum FROM gooddealer_active_migrations ORDER BY id")
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(0, "ledger_prepare", &error))?;
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|_| MigrationError::Rejected)?;
+        .map_err(|error| rejected_sql(0, "ledger_query", &error))?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|_| MigrationError::Rejected)
+        .map_err(|error| rejected_sql(0, "ledger_collect", &error))
 }
 
 fn checksum(sql: &str) -> String {
@@ -614,7 +642,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 36);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 37);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -639,7 +667,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 68);
+        assert_eq!(table_count, 69);
         assert!(business_index_count >= 24);
 
         connection
@@ -1798,3 +1826,16 @@ mod afternic_listing_tests;
 
 #[cfg(test)]
 mod afternic_delist_tests;
+
+#[cfg(test)]
+pub(crate) fn test_pre_listing_write_connection() -> Connection {
+    let mut c = Connection::open_in_memory().unwrap();
+    c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE gooddealer_active_migrations(id INTEGER PRIMARY KEY,owner TEXT NOT NULL,checksum TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP) STRICT;").unwrap();
+    for migration in ACTIVE_MIGRATIONS
+        .iter()
+        .take_while(|m| m.id != AFTERNIC_LISTING_WRITE_MIGRATION_ID)
+    {
+        apply_migration(&mut c, migration).unwrap();
+    }
+    c
+}

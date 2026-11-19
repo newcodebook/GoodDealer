@@ -128,7 +128,7 @@ impl<'a> ActiveBatchOperationsReader<'a> {
         let plans = {
             let mut statement = transaction
                 .prepare(
-                    "SELECT plan_id, title, operation_kind, CASE WHEN operation_kind='afternic_delist' AND phase='awaiting_approval' AND expires_at<=?4 THEN 'expired' ELSE phase END, risk_level, item_count, created_at
+                    "SELECT plan_id, title, operation_kind, CASE WHEN operation_kind IN ('afternic_delist','afternic_listing_write') AND phase='awaiting_approval' AND expires_at<=?4 THEN 'expired' ELSE phase END, risk_level, item_count, created_at
                      FROM operation_plans WHERE workspace_id = ?1
                      ORDER BY created_at DESC, plan_id DESC LIMIT ?2 OFFSET ?3",
                 )
@@ -364,7 +364,7 @@ fn latest_attempts(
     let mut results = BatchResultCounts::default();
     let mut statement = connection
         .prepare(
-            "SELECT COALESCE((SELECT e.effective_status FROM afternic_delist_effective_attempts e WHERE e.workspace_id=a.workspace_id AND e.operation_id=a.operation_id AND e.item_id=a.item_id),status) AS projected_status, count(*) FROM operation_attempts a
+            "SELECT COALESCE((SELECT e.effective_status FROM (SELECT * FROM afternic_delist_effective_attempts UNION ALL SELECT * FROM afternic_listing_write_effective_attempts) e WHERE e.workspace_id=a.workspace_id AND e.operation_id=a.operation_id AND e.item_id=a.item_id),status) AS projected_status, count(*) FROM operation_attempts a
              WHERE workspace_id = ?1 AND operation_id = ?2
                AND attempt_number = (SELECT max(attempt_number) FROM operation_attempts b
                  WHERE b.workspace_id = a.workspace_id AND b.operation_id = a.operation_id
@@ -405,7 +405,11 @@ mod expiry_tests {
         let mut c = Connection::open_in_memory().unwrap();
         crate::migrations::run_active_migrations(&mut c).unwrap();
         c.execute("INSERT INTO active_workspace_metadata(singleton,storage_domain,workspace_id,workspace_schema_version,applied_through_server_revision,local_commit_sequence) VALUES(1,'active_workspace','ws',1,0,1)",[]).unwrap();
-        for (id, kind) in [("delist", "afternic_delist"), ("other", "dns_change")] {
+        for (id, kind) in [
+            ("delist", "afternic_delist"),
+            ("write", "afternic_listing_write"),
+            ("other", "dns_change"),
+        ] {
             c.execute("INSERT INTO operation_plans(workspace_id,plan_id,operation_kind,plan_hash,title,phase,risk_level,item_count,created_at,expires_at,local_commit_sequence) VALUES('ws',?1,?2,?3,?1,'awaiting_approval','standard',1,'2026-11-19T00:00:00Z','2026-11-19T00:15:00Z',1)",params![id,kind,"a".repeat(64)]).unwrap();
             c.execute("INSERT INTO operation_plan_items(workspace_id,plan_id,item_id,ordinal,capability,precondition_json,risk_level,execution_mode,inclusion_status) VALUES('ws',?1,?1,0,'test','{}','standard','manual','included')",[id]).unwrap();
         }
@@ -418,7 +422,10 @@ mod expiry_tests {
             for row in view.window.rows {
                 assert_eq!(
                     row.plan_phase,
-                    if row.operation_kind == "afternic_delist" {
+                    if matches!(
+                        row.operation_kind.as_str(),
+                        "afternic_delist" | "afternic_listing_write"
+                    ) {
                         expected
                     } else {
                         "awaiting_approval"

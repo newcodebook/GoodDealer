@@ -14,6 +14,75 @@ const APPROVAL_DOMAIN: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
 const APPROVAL_ENVELOPE_DOMAIN: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
 const AUDIT_DOMAIN: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-V1";
 const FACT_DOMAIN: &str = "GOODDEALER-EXECUTION-FACT-V1";
+const WRITE_APPROVAL_DOMAIN: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1";
+const WRITE_APPROVAL_ENVELOPE_DOMAIN: &str =
+    "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-ENVELOPE-V1";
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AfternicEvidenceAction {
+    Remove,
+    Create,
+    Update,
+}
+impl AfternicEvidenceAction {
+    fn parse(s: &str) -> Result<Self> {
+        match s {
+            "remove" => Ok(Self::Remove),
+            "create" => Ok(Self::Create),
+            "update" => Ok(Self::Update),
+            _ => Err(rejected()),
+        }
+    }
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Remove => "remove",
+            Self::Create => "create",
+            Self::Update => "update",
+        }
+    }
+    fn typ(self) -> &'static str {
+        if self == Self::Remove {
+            "gd.afternic-delist-item-approval.v1"
+        } else {
+            "gd.afternic-listing-write-item-approval.v1"
+        }
+    }
+    fn approval_domain(self) -> &'static str {
+        if self == Self::Remove {
+            APPROVAL_DOMAIN
+        } else {
+            WRITE_APPROVAL_DOMAIN
+        }
+    }
+    fn envelope_domain(self) -> &'static str {
+        if self == Self::Remove {
+            APPROVAL_ENVELOPE_DOMAIN
+        } else {
+            WRITE_APPROVAL_ENVELOPE_DOMAIN
+        }
+    }
+    fn attempt_target(self) -> &'static str {
+        if self == Self::Remove {
+            "afternic_delist_attempt"
+        } else {
+            "afternic_listing_write_attempt"
+        }
+    }
+    fn fact_event(self) -> &'static str {
+        if self == Self::Remove {
+            "afternic_delist_dispatch_claimed"
+        } else {
+            "afternic_listing_write_dispatch_claimed"
+        }
+    }
+}
+fn stored_action(
+    tx: &Connection,
+    workspace: &str,
+    operation: &str,
+) -> Result<AfternicEvidenceAction> {
+    let action: String = tx.query_row("SELECT action FROM afternic_listing_approvals WHERE workspace_id=?1 AND operation_id=?2",params![workspace,operation],|r|r.get(0)).map_err(storage)?;
+    AfternicEvidenceAction::parse(&action)
+}
 #[derive(Clone)]
 pub(crate) struct ExecutionEvidenceContext {
     pub(crate) account_id: String,
@@ -33,6 +102,7 @@ pub(crate) struct ExecutionEvidenceContext {
 #[derive(Clone, Copy)]
 pub(crate) enum EvidenceSignaturePurpose {
     AfternicDelistApproval,
+    AfternicListingWriteApproval,
     DeviceAudit,
     ExecutionFact,
 }
@@ -248,6 +318,32 @@ pub(super) fn record_approval(
     targets: &[ApprovalTarget],
     signer: &mut EvidenceSigner<'_>,
 ) -> Result<()> {
+    record_action_approval(
+        tx,
+        context,
+        plan,
+        operation,
+        plan_hash,
+        targets,
+        AfternicEvidenceAction::Remove,
+        signer,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "closed Afternic actions share the original evidence stream and transaction"
+)]
+pub(super) fn record_action_approval(
+    tx: &Connection,
+    context: &ExecutionEvidenceContext,
+    plan: &str,
+    operation: &str,
+    plan_hash: &str,
+    targets: &[ApprovalTarget],
+    action: AfternicEvidenceAction,
+    signer: &mut EvidenceSigner<'_>,
+) -> Result<()> {
     if targets.is_empty() || targets.len() > 500 {
         return Err(rejected());
     }
@@ -259,32 +355,48 @@ pub(super) fn record_approval(
         return Err(rejected());
     }
     let items=ordered.iter().map(|t|Ok(json!({"operationItemId":t.item_id,"requestDigest":hex_to_digest(&t.request_digest)?}))).collect::<Result<Vec<_>>>()?;
+    let mut target_value = json!({"schemaVersion":1,"planId":plan,"items":items});
+    if action != AfternicEvidenceAction::Remove {
+        target_value["action"] = json!(action.as_str());
+    }
     let target_set = digest(&evidence_transcript(
-        "GOODDEALER-AFTERNIC-DELIST-TARGET-SET-V1",
-        &json!({"schemaVersion":1,"planId":plan,"items":items}),
+        if action == AfternicEvidenceAction::Remove {
+            "GOODDEALER-AFTERNIC-DELIST-TARGET-SET-V1"
+        } else {
+            "GOODDEALER-AFTERNIC-LISTING-WRITE-TARGET-SET-V1"
+        },
+        &target_value,
     )?);
     let (audit_id, _) = audit(
         tx,
         context,
         "user",
-        "afternic_delist_approval",
+        if action == AfternicEvidenceAction::Remove {
+            "afternic_delist_approval"
+        } else {
+            "afternic_listing_write_approval"
+        },
         &approval_id,
-        &json!({"schemaVersion":1,"provider":"afternic","action":"remove","stage":"approved","approvedOperationId":approval_id,"operationId":operation,"planId":plan,"planHash":plan_hash,"targetCount":targets.len(),"targetSetDigest":target_set}),
+        &json!({"schemaVersion":1,"provider":"afternic","action":action.as_str(),"stage":"approved","approvedOperationId":approval_id,"operationId":operation,"planId":plan,"planHash":plan_hash,"targetCount":targets.len(),"targetSetDigest":target_set}),
         signer,
     )?;
-    tx.execute("INSERT INTO afternic_delist_approvals(workspace_id,approved_operation_id,operation_id,plan_id,plan_hash,target_count,target_set_digest,source_device_id,active_lease_epoch,credential_epoch,signing_key_id,signing_key_version,source_installation_digest,approved_at,audit_event_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![context.workspace_id,approval_id,operation,plan,plan_hash,i64::try_from(targets.len()).map_err(|_|rejected())?,target_set,context.source_device_id,sql(context.active_lease_epoch)?,sql(context.credential_epoch)?,context.signing_key_id,sql(context.signing_key_version)?,context.source_installation_digest,context.occurred_at,audit_id]).map_err(storage)?;
+    tx.execute("INSERT INTO afternic_listing_approvals(workspace_id,approved_operation_id,operation_id,plan_id,plan_hash,target_count,target_set_digest,source_device_id,active_lease_epoch,credential_epoch,signing_key_id,signing_key_version,source_installation_digest,approved_at,audit_event_id,action) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",params![context.workspace_id,approval_id,operation,plan,plan_hash,i64::try_from(targets.len()).map_err(|_|rejected())?,target_set,context.source_device_id,sql(context.active_lease_epoch)?,sql(context.credential_epoch)?,context.signing_key_id,sql(context.signing_key_version)?,context.source_installation_digest,context.occurred_at,audit_id,action.as_str()]).map_err(storage)?;
     for target in targets {
         let request_digest = hex_to_digest(&target.request_digest)?;
-        let mut approval = json!({"schemaVersion":1,"typ":"gd.afternic-delist-item-approval.v1","aud":"gooddealer-cloud/execution-evidence","approvedOperationId":approval_id,"operationId":operation,"operationItemId":target.item_id,"planId":plan,"planHash":plan_hash,"targetCount":targets.len(),"targetSetDigest":target_set,"capability":"afternic:marketplace:write","action":"remove","requestDigest":request_digest,"accountId":context.account_id,"workspaceId":context.workspace_id,"sourceDeviceId":context.source_device_id,"activeLeaseEpoch":context.active_lease_epoch,"credentialEpoch":context.credential_epoch,"signingKeyId":context.signing_key_id,"signingKeyVersion":context.signing_key_version,"authorizationHash":context.authorization_hash,"trustedTimeAnchorId":context.trusted_time_anchor_id,"monotonicDeltaMs":context.monotonic_delta_ms,"approvedAt":context.occurred_at,"signatureTranscriptVersion":1});
+        let mut approval = json!({"schemaVersion":1,"typ":action.typ(),"aud":"gooddealer-cloud/execution-evidence","approvedOperationId":approval_id,"operationId":operation,"operationItemId":target.item_id,"planId":plan,"planHash":plan_hash,"targetCount":targets.len(),"targetSetDigest":target_set,"capability":"afternic:marketplace:write","action":action.as_str(),"requestDigest":request_digest,"accountId":context.account_id,"workspaceId":context.workspace_id,"sourceDeviceId":context.source_device_id,"activeLeaseEpoch":context.active_lease_epoch,"credentialEpoch":context.credential_epoch,"signingKeyId":context.signing_key_id,"signingKeyVersion":context.signing_key_version,"authorizationHash":context.authorization_hash,"trustedTimeAnchorId":context.trusted_time_anchor_id,"monotonicDeltaMs":context.monotonic_delta_ms,"approvedAt":context.occurred_at,"signatureTranscriptVersion":1});
         sign(
             &mut approval,
-            APPROVAL_DOMAIN,
-            EvidenceSignaturePurpose::AfternicDelistApproval,
+            action.approval_domain(),
+            if action == AfternicEvidenceAction::Remove {
+                EvidenceSignaturePurpose::AfternicDelistApproval
+            } else {
+                EvidenceSignaturePurpose::AfternicListingWriteApproval
+            },
             context,
             signer,
         )?;
-        let hash = digest(&evidence_transcript(APPROVAL_ENVELOPE_DOMAIN, &approval)?);
-        tx.execute("INSERT INTO afternic_delist_item_authorizations(workspace_id,approved_operation_id,operation_id,plan_id,item_id,attempt_number,attempt_id,workflow_node_id,request_digest,envelope_json,envelope_digest) VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10)",params![context.workspace_id,approval_id,operation,plan,target.item_id,random_id()?,random_id()?,request_digest,encoded(&approval)?,hash]).map_err(storage)?;
+        let hash = digest(&evidence_transcript(action.envelope_domain(), &approval)?);
+        tx.execute("INSERT INTO afternic_listing_item_authorizations(workspace_id,approved_operation_id,operation_id,plan_id,item_id,attempt_number,attempt_id,workflow_node_id,request_digest,envelope_json,envelope_digest) VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10)",params![context.workspace_id,approval_id,operation,plan,target.item_id,random_id()?,random_id()?,request_digest,encoded(&approval)?,hash]).map_err(storage)?;
     }
     Ok(())
 }
@@ -332,16 +444,17 @@ fn verify_approval(
     approval: &str,
     plan_hash: &str,
     request_digest: &str,
+    action: AfternicEvidenceAction,
 ) -> Result<()> {
     if json.is_empty() || json.len() > 6144 {
         return Err(rejected());
     }
     let parsed: ApprovalEnvelope = serde_json::from_str(json).map_err(|_| rejected())?;
     if parsed.schema_version != 1
-        || parsed.typ != "gd.afternic-delist-item-approval.v1"
+        || parsed.typ != action.typ()
         || parsed.aud != "gooddealer-cloud/execution-evidence"
         || parsed.capability != "afternic:marketplace:write"
-        || parsed.action != "remove"
+        || parsed.action != action.as_str()
         || parsed.signature_transcript_version != 1
         || !(1..=500).contains(&parsed.target_count)
         || parsed.monotonic_delta_ms > MAX_SEQUENCE
@@ -386,7 +499,7 @@ fn verify_approval(
     }
     super::validate_timestamp(Some(parsed.approved_at.clone())).map_err(|_| rejected())?;
     let mut value = serde_json::to_value(&parsed).map_err(|_| rejected())?;
-    if digest(&evidence_transcript(APPROVAL_ENVELOPE_DOMAIN, &value)?) != expected_digest {
+    if digest(&evidence_transcript(action.envelope_domain(), &value)?) != expected_digest {
         return Err(rejected());
     }
     value
@@ -400,7 +513,10 @@ fn verify_approval(
         return Err(rejected());
     }
     UnparsedPublicKey::new(&ED25519, context.public_key)
-        .verify(&evidence_transcript(APPROVAL_DOMAIN, &value)?, &signature)
+        .verify(
+            &evidence_transcript(action.approval_domain(), &value)?,
+            &signature,
+        )
         .map_err(|_| rejected())
 }
 
@@ -416,7 +532,8 @@ pub(super) fn record_claim(
     request_digest: &str,
     signer: &mut EvidenceSigner<'_>,
 ) -> Result<()> {
-    let (approval_id,attempt_id,node_id,approval_json,approval_digest,plan_hash,local_key,source,epoch,credential,key,key_version,origin):(String,String,String,String,String,String,String,String,i64,i64,String,i64,String)=tx.query_row("SELECT a.approved_operation_id,i.attempt_id,i.workflow_node_id,i.envelope_json,i.envelope_digest,a.plan_hash,o.idempotency_key,a.source_device_id,a.active_lease_epoch,a.credential_epoch,a.signing_key_id,a.signing_key_version,a.source_installation_digest FROM afternic_delist_item_authorizations i JOIN afternic_delist_approvals a USING(workspace_id,approved_operation_id) JOIN operations o ON o.workspace_id=i.workspace_id AND o.operation_id=i.operation_id WHERE i.workspace_id=?1 AND i.operation_id=?2 AND i.item_id=?3 AND i.attempt_number=1 AND i.request_digest=?4",params![context.workspace_id,operation,item,hex_to_digest(request_digest)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?))).map_err(|_|rejected())?;
+    let action = stored_action(tx, &context.workspace_id, operation)?;
+    let (approval_id,attempt_id,node_id,approval_json,approval_digest,plan_hash,local_key,source,epoch,credential,key,key_version,origin):(String,String,String,String,String,String,String,String,i64,i64,String,i64,String)=tx.query_row("SELECT a.approved_operation_id,i.attempt_id,i.workflow_node_id,i.envelope_json,i.envelope_digest,a.plan_hash,o.idempotency_key,a.source_device_id,a.active_lease_epoch,a.credential_epoch,a.signing_key_id,a.signing_key_version,a.source_installation_digest FROM afternic_listing_item_authorizations i JOIN afternic_listing_approvals a USING(workspace_id,approved_operation_id) JOIN operations o ON o.workspace_id=i.workspace_id AND o.operation_id=i.operation_id WHERE i.workspace_id=?1 AND i.operation_id=?2 AND i.item_id=?3 AND i.attempt_number=1 AND i.request_digest=?4",params![context.workspace_id,operation,item,hex_to_digest(request_digest)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?))).map_err(|_|rejected())?;
     if source != context.source_device_id
         || epoch != sql(context.active_lease_epoch)?
         || credential != sql(context.credential_epoch)?
@@ -436,14 +553,15 @@ pub(super) fn record_claim(
         &approval_id,
         &plan_hash,
         &request_digest,
+        action,
     )?;
     let (audit_id, audit_hash) = audit(
         tx,
         context,
         "device_service",
-        "afternic_delist_attempt",
+        action.attempt_target(),
         &attempt_id,
-        &json!({"schemaVersion":1,"provider":"afternic","action":"remove","stage":"dispatch_claimed","approvedOperationId":approval_id,"operationId":operation,"operationItemId":item,"attemptId":attempt_id,"attemptNo":1,"planHash":plan_hash,"requestDigest":request_digest,"approvalEnvelopeDigest":approval_digest}),
+        &json!({"schemaVersion":1,"provider":"afternic","action":action.as_str(),"stage":"dispatch_claimed","approvedOperationId":approval_id,"operationId":operation,"operationItemId":item,"attemptId":attempt_id,"attemptNo":1,"planHash":plan_hash,"requestDigest":request_digest,"approvalEnvelopeDigest":approval_digest}),
         signer,
     )?;
     let h = head(tx, context, "execution_fact")?;
@@ -452,7 +570,7 @@ pub(super) fn record_claim(
         "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1",
         &json!({"schemaVersion":1,"operationId":operation,"operationItemId":item,"attemptNo":1,"localOperationKey":local_key}),
     )?);
-    let mut fact = json!({"schemaVersion":1,"executionFactId":fact_id,"operationId":operation,"operationItemId":item,"workflowNodeId":node_id,"attemptId":attempt_id,"attemptNo":1,"approvedOperationId":approval_id,"planHash":plan_hash,"idempotencyKeyHash":idempotency,"sourceDeviceId":context.source_device_id,"workspaceId":context.workspace_id,"activeLeaseEpoch":context.active_lease_epoch,"executionFactSequence":h.sequence+1,"eventType":"afternic_delist_dispatch_claimed","evidenceLevel":"durable_local_claim","occurredAt":context.occurred_at,"signingKeyId":context.signing_key_id,"signingKeyVersion":context.signing_key_version,"credentialEpoch":context.credential_epoch,"trustedTimeAnchorId":context.trusted_time_anchor_id,"monotonicDeltaMs":context.monotonic_delta_ms,"requestStartBoundary":context.occurred_at,"authorizationHash":context.authorization_hash,"executionAuthorizationEvidence":{"approvedOperationDigest":approval_digest,"approvedOperationEnvelope":URL_SAFE_NO_PAD.encode(approval_json.as_bytes()),"signingKeyId":key,"signingKeyVersion":key_version,"credentialEpoch":credential,"signatureTranscriptVersion":1},"signatureTranscriptVersion":1,"payloadRedacted":{"schemaVersion":1,"provider":"afternic","action":"remove","stage":"dispatch_claimed","dispatchSemantics":"local_claim_only","deduplicationScope":"local_only","requestDigest":request_digest,"approvalEnvelopeDigest":approval_digest},"auditEventRef":audit_id,"auditEventHash":audit_hash});
+    let mut fact = json!({"schemaVersion":1,"executionFactId":fact_id,"operationId":operation,"operationItemId":item,"workflowNodeId":node_id,"attemptId":attempt_id,"attemptNo":1,"approvedOperationId":approval_id,"planHash":plan_hash,"idempotencyKeyHash":idempotency,"sourceDeviceId":context.source_device_id,"workspaceId":context.workspace_id,"activeLeaseEpoch":context.active_lease_epoch,"executionFactSequence":h.sequence+1,"eventType":action.fact_event(),"evidenceLevel":"durable_local_claim","occurredAt":context.occurred_at,"signingKeyId":context.signing_key_id,"signingKeyVersion":context.signing_key_version,"credentialEpoch":context.credential_epoch,"trustedTimeAnchorId":context.trusted_time_anchor_id,"monotonicDeltaMs":context.monotonic_delta_ms,"requestStartBoundary":context.occurred_at,"authorizationHash":context.authorization_hash,"executionAuthorizationEvidence":{"approvedOperationDigest":approval_digest,"approvedOperationEnvelope":URL_SAFE_NO_PAD.encode(approval_json.as_bytes()),"signingKeyId":key,"signingKeyVersion":key_version,"credentialEpoch":credential,"signatureTranscriptVersion":1},"signatureTranscriptVersion":1,"payloadRedacted":{"schemaVersion":1,"provider":"afternic","action":action.as_str(),"stage":"dispatch_claimed","dispatchSemantics":"local_claim_only","deduplicationScope":"local_only","requestDigest":request_digest,"approvalEnvelopeDigest":approval_digest},"auditEventRef":audit_id,"auditEventHash":audit_hash});
     let envelope = sign(
         &mut fact,
         FACT_DOMAIN,
@@ -470,6 +588,7 @@ pub(super) fn require_claim(
     operation: &str,
     item: &str,
 ) -> Result<()> {
+    let action = stored_action(tx, &context.workspace_id, operation)?;
     let stored: Option<(String,Vec<u8>,String)> = tx.query_row("SELECT envelope_json,canonical_envelope,envelope_digest FROM device_execution_fact_outbox WHERE workspace_id=?1 AND operation_id=?2 AND item_id=?3 AND attempt_number=1 AND source_device_id=?4 AND active_lease_epoch=?5 AND source_installation_digest=?6",params![context.workspace_id,operation,item,context.source_device_id,sql(context.active_lease_epoch)?,context.source_installation_digest],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(storage)?;
     let (wire, envelope, hash) = stored.ok_or_else(rejected)?;
     if wire.len() > 32768 || digest(&envelope) != hash {
@@ -479,7 +598,8 @@ pub(super) fn require_claim(
     if fact.schema_version != 1
         || fact.signature_transcript_version != 1
         || fact.attempt_no != 1
-        || fact.event_type != "afternic_delist_dispatch_claimed"
+        || fact.event_type != action.fact_event()
+        || fact.payload_redacted.action != action.as_str()
         || fact.evidence_level != "durable_local_claim"
         || fact.workspace_id != context.workspace_id
         || fact.source_device_id != context.source_device_id
@@ -611,10 +731,24 @@ mod tests {
     use super::*;
     #[test]
     fn afternic_execution_evidence_matches_all_protocol_golden_transcripts_and_signatures() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json"
-        ))
-        .unwrap();
+        for wire in [
+            include_str!(
+                "../../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json"
+            ),
+            include_str!(
+                "../../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/create.json"
+            ),
+            include_str!(
+                "../../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/update.json"
+            ),
+        ] {
+            assert_evidence_fixture(wire);
+        }
+    }
+    fn assert_evidence_fixture(wire: &str) {
+        let fixture: Value = serde_json::from_str(wire).unwrap();
+        let action =
+            AfternicEvidenceAction::parse(fixture["approval"]["action"].as_str().unwrap()).unwrap();
         let hex = |bytes: &[u8]| {
             bytes.iter().fold(String::new(), |mut text, b| {
                 use std::fmt::Write as _;
@@ -624,14 +758,21 @@ mod tests {
         };
         let mut approval = fixture["approval"].clone();
         approval.as_object_mut().unwrap().remove("deviceSignature");
-        let transcript = evidence_transcript(APPROVAL_DOMAIN, &approval).unwrap();
+        let transcript = evidence_transcript(action.approval_domain(), &approval).unwrap();
         assert_eq!(hex(&transcript), fixture["bytes"]["approvalTranscript"]);
         assert_eq!(
-            hex(&evidence_transcript(APPROVAL_ENVELOPE_DOMAIN, &fixture["approval"]).unwrap()),
+            hex(&evidence_transcript(action.envelope_domain(), &fixture["approval"]).unwrap()),
             fixture["bytes"]["approvalEnvelope"]
         );
         for (key, domain) in [
-            ("targetSet", "GOODDEALER-AFTERNIC-DELIST-TARGET-SET-V1"),
+            (
+                "targetSet",
+                if action == AfternicEvidenceAction::Remove {
+                    "GOODDEALER-AFTERNIC-DELIST-TARGET-SET-V1"
+                } else {
+                    "GOODDEALER-AFTERNIC-LISTING-WRITE-TARGET-SET-V1"
+                },
+            ),
             ("dispatchKey", "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1"),
         ] {
             assert_eq!(
@@ -738,6 +879,7 @@ pub(super) fn record_observation(
     preflight: bool,
     signer: &mut EvidenceSigner<'_>,
 ) -> Result<Option<String>> {
+    let action = stored_action(tx, &context.workspace_id, operation)?;
     if fence.source != context.source_device_id || fence.epoch != context.active_lease_epoch {
         return Err(rejected());
     }
@@ -747,15 +889,22 @@ pub(super) fn record_observation(
         return Ok(None);
     }
     let payload = if preflight {
-        let (approval,attempt,plan_hash,request_digest,envelope_digest):(String,String,String,String,String)=tx.query_row("SELECT a.approved_operation_id,i.attempt_id,a.plan_hash,i.request_digest,i.envelope_digest FROM afternic_delist_item_authorizations i JOIN afternic_delist_approvals a USING(workspace_id,approved_operation_id) WHERE i.workspace_id=?1 AND i.operation_id=?2 AND i.item_id=?3 AND i.attempt_number=1",params![context.workspace_id,operation,item],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|_|rejected())?;
-        let reason = if outcome == "absent" {
+        let (approval,attempt,plan_hash,request_digest,envelope_digest):(String,String,String,String,String)=tx.query_row("SELECT a.approved_operation_id,i.attempt_id,a.plan_hash,i.request_digest,i.envelope_digest FROM afternic_listing_item_authorizations i JOIN afternic_listing_approvals a USING(workspace_id,approved_operation_id) WHERE i.workspace_id=?1 AND i.operation_id=?2 AND i.item_id=?3 AND i.attempt_number=1",params![context.workspace_id,operation,item],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|_|rejected())?;
+        let reason = if action == AfternicEvidenceAction::Remove && outcome == "absent" {
             "already_absent"
         } else {
             reason
-                .filter(|r| matches!(*r, "precondition_changed" | "connection_changed"))
+                .filter(|r| {
+                    matches!(*r, "precondition_changed" | "connection_changed")
+                        || (action != AfternicEvidenceAction::Remove
+                            && matches!(
+                                *r,
+                                "already_present" | "listing_absent" | "provider_state_blocked"
+                            ))
+                })
                 .ok_or_else(rejected)?
         };
-        json!({"schemaVersion":1,"provider":"afternic","action":"remove","stage":"preflight_refused","approvedOperationId":approval,"operationId":operation,"operationItemId":item,"attemptId":attempt,"planHash":plan_hash,"requestDigest":request_digest,"approvalEnvelopeDigest":envelope_digest,"reason":reason})
+        json!({"schemaVersion":1,"provider":"afternic","action":action.as_str(),"stage":"preflight_refused","approvedOperationId":approval,"operationId":operation,"operationItemId":item,"attemptId":attempt,"planHash":plan_hash,"requestDigest":request_digest,"approvalEnvelopeDigest":envelope_digest,"reason":reason})
     } else {
         let (id,hash,attempt,wire,envelope):(String,String,String,String,Vec<u8>)=tx.query_row("SELECT execution_fact_id,envelope_digest,attempt_id,envelope_json,canonical_envelope FROM device_execution_fact_outbox WHERE workspace_id=?1 AND operation_id=?2 AND item_id=?3 AND attempt_number=1",params![context.workspace_id,operation,item],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|_|rejected())?;
         let fact: ClaimFact = serde_json::from_str(&wire).map_err(|_| rejected())?;
@@ -765,27 +914,42 @@ pub(super) fn record_observation(
             || fact.operation_id != operation
             || fact.operation_item_id != item
             || fact.workspace_id != context.workspace_id
+            || fact.payload_redacted.action != action.as_str()
+            || fact.event_type != action.fact_event()
         {
             return Err(rejected());
         }
-        let valid = match outcome {
-            "absent" => reason.is_none(),
-            "present" => reason == Some("still_present"),
-            "read_failed" => reason == Some("read_failed"),
-            "conflict" => matches!(reason, Some("precondition_changed" | "connection_changed")),
-            _ => false,
+        let valid = if action == AfternicEvidenceAction::Remove {
+            match outcome {
+                "absent" => reason.is_none(),
+                "present" => reason == Some("still_present"),
+                "read_failed" => reason == Some("read_failed"),
+                "conflict" => matches!(reason, Some("precondition_changed" | "connection_changed")),
+                _ => false,
+            }
+        } else {
+            match outcome {
+                "matched" => reason.is_none(),
+                "absent" | "different" => reason == Some("postcondition_pending"),
+                "read_failed" => reason == Some("read_failed"),
+                "conflict" => matches!(
+                    reason,
+                    Some("precondition_changed" | "connection_changed" | "provider_state_blocked")
+                ),
+                _ => false,
+            }
         };
         if !valid {
             return Err(rejected());
         }
-        json!({"schemaVersion":1,"provider":"afternic","action":"remove","stage":"reconciled","operationId":operation,"operationItemId":item,"attemptId":attempt,"originalExecutionFactId":id,"originalExecutionFactDigest":hash,"outcome":outcome,"reason":reason})
+        json!({"schemaVersion":1,"provider":"afternic","action":action.as_str(),"stage":"reconciled","operationId":operation,"operationItemId":item,"attemptId":attempt,"originalExecutionFactId":id,"originalExecutionFactDigest":hash,"outcome":outcome,"reason":reason})
     };
     let target = payload["attemptId"].as_str().ok_or_else(rejected)?;
     let (id, _) = audit(
         tx,
         context,
         "device_service",
-        "afternic_delist_attempt",
+        action.attempt_target(),
         target,
         &payload,
         signer,

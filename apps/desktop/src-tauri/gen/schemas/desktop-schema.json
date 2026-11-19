@@ -387,6 +387,24 @@
           "markdownDescription": "Enables the afternic_inventory_refresh command without any pre-configured scope."
         },
         {
+          "description": "Enables the afternic_listing_write_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-approve",
+          "markdownDescription": "Enables the afternic_listing_write_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_write_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-preview",
+          "markdownDescription": "Enables the afternic_listing_write_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_write_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-status",
+          "markdownDescription": "Enables the afternic_listing_write_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-activate",
@@ -721,6 +739,24 @@
           "type": "string",
           "const": "deny-afternic-inventory-refresh",
           "markdownDescription": "Denies the afternic_inventory_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-approve",
+          "markdownDescription": "Denies the afternic_listing_write_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-preview",
+          "markdownDescription": "Denies the afternic_listing_write_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-status",
+          "markdownDescription": "Denies the afternic_listing_write_status command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_activate command without any pre-configured scope.",

@@ -1455,3 +1455,15 @@ use rusqlite::OptionalExtension;
 
 #[cfg(test)]
 mod tests;
+
+mod afternic_listing_write;
+pub(crate) use afternic_listing_write::AfternicListingWriteWorkSeed;
+pub use afternic_listing_write::{
+    DesktopAfternicListingWriteAction, DesktopAfternicListingWriteApproveRequest,
+    DesktopAfternicListingWriteCreateItem, DesktopAfternicListingWriteItem,
+    DesktopAfternicListingWriteObserved, DesktopAfternicListingWritePatch,
+    DesktopAfternicListingWritePlan, DesktopAfternicListingWritePreviewRequest,
+    DesktopAfternicListingWriteStatus, DesktopAfternicListingWriteStatusRequest,
+    DesktopAfternicListingWriteSummary, DesktopAfternicListingWriteUpdateItem,
+    DesktopAfternicListingWriteValues, DesktopAfternicListingWriteWorkKind,
+};

@@ -1,3 +1,4 @@
+import { afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema } from "./afternic-listing-write-evidence";
 import { afternicDelistApprovalAuditPayloadSchema, afternicDelistClaimAuditPayloadSchema, afternicDelistReconciledAuditPayloadSchema, afternicDelistPreflightRefusedAuditPayloadSchema } from "./afternic-delist-evidence";
 import { z } from "zod";
 
@@ -120,5 +121,5 @@ export function encodeDeviceAuditEventHashInput(value: unknown): Uint8Array {
 /** Fixed HTTP ingest forms remain representable as JSON Schema; the general v1 safe-value codec is unchanged. */
 export const afternicWorkspaceDeviceAuditIngestSchema = z.object({
  ...deviceAuditCommonFields,scopeKind:z.literal("workspace"),workspaceId:identifier,activeLeaseEpoch:safePositiveInteger,
- payloadRedacted:z.union([afternicDelistApprovalAuditPayloadSchema,afternicDelistClaimAuditPayloadSchema,afternicDelistReconciledAuditPayloadSchema,afternicDelistPreflightRefusedAuditPayloadSchema]),
+ payloadRedacted:z.union([afternicDelistApprovalAuditPayloadSchema,afternicDelistClaimAuditPayloadSchema,afternicDelistReconciledAuditPayloadSchema,afternicDelistPreflightRefusedAuditPayloadSchema,afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema]),
 }).strict().superRefine(enforceAuthorizationSource);

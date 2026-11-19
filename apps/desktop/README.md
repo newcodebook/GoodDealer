@@ -316,3 +316,12 @@ credential-instance fence, and removes signing metadata before IPC. Cloud owns p
 business database copy is introduced. Unknown save outcomes require a directory read before another
 save. Ordinary business replication preserves unsaved edits. The current Native admission still
 requires Active authority; this does not enable Standby login, handoff or bootstrap.
+
+
+Afternic create/update now uses the same private Service and serial Provider lane as inventory and
+delist. The batch screen stores a bounded preview, approves its immutable hash once and reads durable
+plan history. Only a single committed claim permits POST/PATCH; every uncertain response or restart
+uses authenticated GET reconciliation. Matched fields remain separate from provider review and
+ownership states. See [the current implementation](../../docs/CURRENT_IMPLEMENTATION.md) and
+[the review](../../docs/reviews/2026-11-19-afternic-listing-write-review.md) for source evidence and
+the outstanding real-account, verification/DNS and target-platform qualifications.

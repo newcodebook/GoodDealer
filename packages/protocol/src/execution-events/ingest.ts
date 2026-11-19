@@ -1,3 +1,4 @@
+import { afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingWriteClaimPayloadSchema } from "./afternic-listing-write-evidence";
 import { z } from "zod";
 import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "../wire/index";
 import { afternicWorkspaceDeviceAuditIngestSchema } from "./device-audit";
@@ -92,13 +93,13 @@ export const executionFactIngestRequestSchema = z
         if (!eventId.safeParse(fact[field]).success)
           ctx.addIssue({ code: "custom", path: [field], message: "expected opaque business UUID" });
       if (
-        fact.eventType !== "afternic_delist_dispatch_claimed" ||
+        fact.eventType !== (fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed" : "afternic_listing_write_dispatch_claimed") ||
         fact.evidenceLevel !== "durable_local_claim" ||
         fact.attemptNo !== 1 ||
         fact.signatureTranscriptVersion !== 1 ||
         !signature.safeParse(fact.deviceSignature).success ||
         !digest.safeParse(fact.trustedTimeAnchorId).success ||
-        !afternicDelistClaimPayloadSchema.safeParse(fact.payloadRedacted).success
+        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
       )
         ctx.addIssue({ code: "custom", message: "unsupported execution evidence" });
     }),
@@ -114,6 +115,7 @@ export const deviceAuditIngestRequestSchema = z
           afternicDelistClaimAuditPayloadSchema,
           afternicDelistReconciledAuditPayloadSchema,
           afternicDelistPreflightRefusedAuditPayloadSchema,
+          afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema,
         ])
         .safeParse(event.payloadRedacted);
       if (

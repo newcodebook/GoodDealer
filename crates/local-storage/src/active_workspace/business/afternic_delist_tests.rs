@@ -695,8 +695,8 @@ fn afternic_delist_signed_approval_and_claim_rollback_together_on_signer_failure
         for table in [
             "operations",
             "operation_attempts",
-            "afternic_delist_approvals",
-            "afternic_delist_item_authorizations",
+            "afternic_listing_approvals",
+            "afternic_listing_item_authorizations",
             "workspace_device_audit_outbox",
             "execution_evidence_stream_heads",
         ] {
@@ -814,8 +814,8 @@ fn afternic_delist_claim_evidence_rejects_foreign_epoch_key_origin_and_bad_signa
     assert_eq!(event["evidenceLevel"], "durable_local_claim");
     assert_eq!(event["requestStartBoundary"], event["occurredAt"]);
     for table in [
-        "afternic_delist_approvals",
-        "afternic_delist_item_authorizations",
+        "afternic_listing_approvals",
+        "afternic_listing_item_authorizations",
         "workspace_device_audit_outbox",
         "device_execution_fact_outbox",
     ] {

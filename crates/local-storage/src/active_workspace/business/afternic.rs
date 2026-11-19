@@ -321,29 +321,16 @@ impl BusinessDatabase {
                 run_inserted = true;
             }
             receipt.imported += u32::from(imported);
-            let observation_id = random_id()?;
-            let encoded =
-                serde_json::to_vec(listing).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-            let observation_digest = hex_digest(&encoded);
-            let live: Option<String> = tx.query_row("SELECT resource_binding_digest FROM domain_asset_provider_bindings WHERE workspace_id=?1 AND entity_id=?2 AND connection_id=?3 AND resource_kind='listing' AND validation_status!='detached'",params![self.workspace_id,listing.domain,seed.connection_id],|row|row.get(0)).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let (sequence,): (i64,) = tx.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1,updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence",[at],|row|Ok((row.get(0)?,))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
-            let binding_digest = if let Some(digest) = live {
-                tx.execute("UPDATE domain_asset_provider_bindings SET observation_digest=?1,binding_generation=?2,local_commit_sequence=?3,validation_status='unverified',verified_at=NULL,last_observed_at=?4,updated_at=?4 WHERE workspace_id=?5 AND entity_id=?6 AND connection_id=?7 AND resource_kind='listing' AND resource_binding_digest=?8",params![observation_digest,sql_integer(seed.credential_generation)?,sequence,at,self.workspace_id,listing.domain,seed.connection_id,digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-                digest
-            } else {
-                // This random digest is a LOCAL binding incarnation. Neither a name nor a remote
-                // timestamp is evidence of a stable Afternic resource ID or verified ownership.
-                let digest = hex_digest(random_id()?.as_bytes());
-                tx.execute("INSERT INTO domain_asset_provider_bindings(workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,last_observed_at,created_at,updated_at) VALUES (?1,?2,?3,'afternic','listing',?4,?5,?2,?6,?7,'unverified',?8,?8,?8)",params![self.workspace_id,listing.domain,seed.connection_id,digest,observation_digest,sql_integer(seed.credential_generation)?,sequence,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-                digest
-            };
-            tx.execute("INSERT INTO provider_observation_targets(workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES (?1,?2,?3,?4,'requested',?5)",params![self.workspace_id,run,listing.domain,i64::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            let amount = listing
-                .buynow_price
-                .map(|value| (value / 1_000_000).to_string());
-            tx.execute("INSERT INTO marketplace_listing_observations(workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status,binding_connection_id,binding_resource_digest,binding_generation) VALUES (?1,?2,?3,?4,'afternic',?5,?6,?7,?8,?9,'available','confirmed',?10,?11,?12)",params![self.workspace_id,observation_id,run,listing.domain,listing.listing_status()?,amount.as_ref().map(|_| "USD"),amount,at,observation_digest,seed.connection_id,binding_digest,sql_integer(seed.credential_generation)?]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            tx.execute("INSERT INTO afternic_listing_details(workspace_id,listing_observation_id,provider_status,buynow_price,floor_price,minbid_price,hidden,provider_created_at,provider_updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![self.workspace_id,observation_id,listing.status,listing.buynow_price.map(sql_integer).transpose()?,listing.floor_price.map(sql_integer).transpose()?,listing.minbid_price.map(sql_integer).transpose()?,listing.hidden,listing.created_at,listing.updated_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
-            tx.execute("UPDATE provider_observation_targets SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3 AND entity_id=?4",params![at,self.workspace_id,run,listing.domain]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+            record_listing_observation(
+                &tx,
+                &self.workspace_id,
+                &seed.connection_id,
+                seed.credential_generation,
+                listing,
+                &run,
+                ordinal,
+                at,
+            )?;
             receipt.observed += 1;
         }
         if run_inserted {
@@ -445,6 +432,46 @@ impl BusinessDatabase {
         tx.commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)
     }
+}
+
+/// Inventory and exact-write GETs publish through the same binding/observation owner.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one provider observation is inserted in its existing caller transaction"
+)]
+pub(super) fn record_listing_observation(
+    tx: &rusqlite::Connection,
+    workspace: &str,
+    connection_id: &str,
+    credential_generation: u64,
+    listing: &DesktopAfternicListingObservation,
+    run: &str,
+    ordinal: usize,
+    at: &str,
+) -> Result<String, BusinessDatabaseError> {
+    let observation_id = random_id()?;
+    let encoded = serde_json::to_vec(listing).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    let observation_digest = hex_digest(&encoded);
+    let live: Option<String> = tx.query_row("SELECT resource_binding_digest FROM domain_asset_provider_bindings WHERE workspace_id=?1 AND entity_id=?2 AND connection_id=?3 AND resource_kind='listing' AND validation_status!='detached'",params![workspace,listing.domain,connection_id],|row|row.get(0)).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let (sequence,): (i64,) = tx.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1,updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence",[at],|row|Ok((row.get(0)?,))).map_err(|_| BusinessDatabaseError::SequenceExhausted)?;
+    let binding_digest = if let Some(digest) = live {
+        tx.execute("UPDATE domain_asset_provider_bindings SET observation_digest=?1,binding_generation=?2,local_commit_sequence=?3,validation_status='unverified',verified_at=NULL,last_observed_at=?4,updated_at=?4 WHERE workspace_id=?5 AND entity_id=?6 AND connection_id=?7 AND resource_kind='listing' AND resource_binding_digest=?8",params![observation_digest,sql_integer(credential_generation)?,sequence,at,workspace,listing.domain,connection_id,digest]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        digest
+    } else {
+        // This random digest is a LOCAL binding incarnation. Neither a name nor a remote
+        // timestamp is evidence of a stable Afternic resource ID or verified ownership.
+        let digest = hex_digest(random_id()?.as_bytes());
+        tx.execute("INSERT INTO domain_asset_provider_bindings(workspace_id,entity_id,connection_id,provider_kind,resource_kind,resource_binding_digest,observation_digest,resource_label,binding_generation,local_commit_sequence,validation_status,last_observed_at,created_at,updated_at) VALUES (?1,?2,?3,'afternic','listing',?4,?5,?2,?6,?7,'unverified',?8,?8,?8)",params![workspace,listing.domain,connection_id,digest,observation_digest,sql_integer(credential_generation)?,sequence,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        digest
+    };
+    tx.execute("INSERT INTO provider_observation_targets(workspace_id,observation_run_id,entity_id,ordinal,status,requested_at) VALUES (?1,?2,?3,?4,'requested',?5)",params![workspace,run,listing.domain,i64::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    let amount = listing
+        .buynow_price
+        .map(|value| (value / 1_000_000).to_string());
+    tx.execute("INSERT INTO marketplace_listing_observations(workspace_id,listing_observation_id,observation_run_id,entity_id,marketplace_kind,listing_status,asking_price_currency,asking_price_amount,observed_at,provider_version_token,observation_availability,evidence_status,binding_connection_id,binding_resource_digest,binding_generation) VALUES (?1,?2,?3,?4,'afternic',?5,?6,?7,?8,?9,'available','confirmed',?10,?11,?12)",params![workspace,observation_id,run,listing.domain,listing.listing_status()?,amount.as_ref().map(|_| "USD"),amount,at,observation_digest,connection_id,binding_digest,sql_integer(credential_generation)?]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    tx.execute("INSERT INTO afternic_listing_details(workspace_id,listing_observation_id,provider_status,buynow_price,floor_price,minbid_price,hidden,provider_created_at,provider_updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![workspace,observation_id,listing.status,listing.buynow_price.map(sql_integer).transpose()?,listing.floor_price.map(sql_integer).transpose()?,listing.minbid_price.map(sql_integer).transpose()?,listing.hidden,listing.created_at,listing.updated_at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    tx.execute("UPDATE provider_observation_targets SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3 AND entity_id=?4",params![at,workspace,run,listing.domain]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(observation_id)
 }
 
 #[cfg(test)]

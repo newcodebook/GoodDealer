@@ -4,3 +4,5 @@ export { BatchList } from "./batch-list";
 export type { BatchListProps } from "./batch-list";
 export * from "./batch-operations-contract";
 export { AfternicDelistPanel } from "./afternic-delist-panel";
+
+export { AfternicListingWritePanel } from "./afternic-listing-write-panel";

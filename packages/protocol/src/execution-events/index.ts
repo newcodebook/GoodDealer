@@ -80,3 +80,4 @@ export { afternicDelistReconciledAuditPayloadSchema, afternicDelistPreflightRefu
 export type { AfternicDelistReconciledAuditPayload, AfternicDelistPreflightRefusedAuditPayload } from "./afternic-delist-evidence";
 export { executionEvidenceReceiptQuerySchema, executionEvidenceAcceptedReceiptSchema, executionEvidenceQuarantinedReceiptSchema, executionEvidenceReceiptSchema, executionEvidenceQuarantineReasonSchema, executionEvidenceIngestResponseSchema, executionFactIngestRequestSchema, deviceAuditIngestRequestSchema, executionEvidenceReceiptsRequestSchema, executionEvidenceReceiptsResponseSchema } from "./ingest";
 export type { ExecutionEvidenceReceipt, ExecutionEvidenceAcceptedReceipt, ExecutionEvidenceQuarantineReason, ExecutionEvidenceIngestResponse, ExecutionEvidenceReceiptsRequest, ExecutionEvidenceReceiptsResponse } from "./ingest";
+export * from "./afternic-listing-write-evidence";

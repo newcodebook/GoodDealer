@@ -208,7 +208,7 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - Native：旧 floor 映射历史 Cloudflare 单权限并保留所有防重放/未知 lastActive 语义；相同 revision 或 digest 禁止权限/期限变化；新 revision+digest 可撤权，旧 admission 在 await/最终提交处拒绝。现有三种签名用途继续隔离。
 - 存储：只追加 `202611180003`，保留已应用 SQL/历史绑定；完整扫描资产/Outbox/观察原子提交，多连接隔离，空库存/已删除全部跳过不伪造观察；prepared 新 Grant 与真实关闭重开后恢复原 proof；revoked handle 拒绝 Provider，撤权后仍可首次撤销与 purge；最终 epoch 变化回滚所有事实。
 - 生产组合：四个严格 raw IPC、固定 Provider 端点、Native-only 凭据、共享串行 lane 与两个具名恢复准入；refresh 仅加载既存 slot；lost response 仅读取状态，queued 不表示成功；Renderer role/permission/qualification/capture 条件分别约束入口。
-- 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；下架计划的本地验收见下一节，创建 Listing、改价、私有验证及 DNS 客户闭环仍须实现和单独验收。
+- 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；下架计划和上架/改价的本地验收见下文，私有验证及 DNS 客户闭环仍须实现；真实接口与目标系统另行验收。
 
 
 ## Afternic 整批下架、后台执行与重开对账
@@ -217,7 +217,7 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - 同一预览重复/真正并发批准只产生一个 operation；并发 claim 只发出一个非序列化许可。发送前后崩溃及 SQLCipher 关闭重开仅恢复 GET，跨新计划/新绑定不能绕过未决同域名请求。
 - 精确缺席和 detach 同事务/最终栅栏提交，普通撤销/新 incarnation 不能借旧回执伪装成功；原 unknown 尝试保持不可变。混合已解决/未解决 unknown 的通用批量计数必须各归其类。
 - 失败 GET/仍存在持久只读退避，普通指数延迟封顶 900 秒，合法完整 u32 Retry-After 可延长；不提前调度。空轮询和重复批准不推进 readGeneration。
-- 交接 progress 与 proof 独立拒绝已有下架尝试的虚假空流；并发批准与屏障/签证不能同时成功。屏障拒绝新预览/批准/claim/发送，queued/running/unknown/终结历史和重开均覆盖；已发 GET 对账仍允许。完整两流接入前不能据此宣称有执行历史的普通交接可用。
+- 交接 progress 与 proof 独立拒绝已有下架尝试的虚假空流；并发批准与屏障/签证不能同时成功。屏障拒绝新预览/批准/claim/发送，queued/running/unknown/终结历史和重开均覆盖；屏障冻结来源流后迟到 GET 不能追加旧 epoch 观察或审计。原机以后重新取得执行权时须重新 GET，以新上下文关联原事实，不能补造旧响应证据。
 - Native 在可能阻塞的 Host 复核前后检查 power/cancel；休眠先原子失效旧 epoch，关闭只唤醒一次，缺失/损坏 slot 进入 remediation，暂时 custody 不可用仅退避。下架专用 guard 不能被宣称为所有既有 Provider 流程的休眠保护。
 - UI 批准严格对应当前选中计划，换计划/角色降级/工作区替换期间不能批准旧详情；丢失响应只查状态，防重复点击；summary/detail 状态与计数均严格校验。
 - 证据及修复见 [下架审查](reviews/2026-11-19-afternic-delist-review.md)。目标源码编译不替代完整应用目标构建、OS 注册/休眠/凭据实机、真实 Afternic 和发行资格；未取得这些证据时资格登记保持拒绝。
@@ -261,3 +261,13 @@ SQLCipher 与 Native 验收必须覆盖 journal 每个持久前缀、请求发�
 Host/SQLCipher 验证 claim 前持久安装资格、v3 forced origin、原请求/receipt 丢 ACK 和重启、取消与领取竞争后沿原 bootstrap lane 终止、未知激活先对账、终态证据跨 scope/代次拒绝。Native 复用目标 mutex 并在唤醒安装前释放；独立等待/退避不随 evidence 热唤醒转为循环。Renderer 和 IPC 必须使用相同真实 raw wire，严格拒绝 JSON 包装、重复键及未知选择器，资格变化丢弃迟到预览。
 
 部署迁移 026 前核对历史 Lease；保守回填以锁后切换时刻加 24 小时为最低上限，可能导致额外等待。它不能撤销已经发出的离线权威或修复历史重叠。源码、真实本机 PG/SQLCipher、Linux/Windows 目标严格检查与独立审查记录在 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md)；实际部署、双设备、macOS/Windows 实机和发行资格仍单独验收。
+
+## Afternic 持久上架、改价与平台等待
+
+- 四字段 create 与非空所选键 update 从 unknown 严格解析；拒绝重复域名/键、未知字段、null、非整美元、浮点和越界，保留明确的 0/false。预览从完整库存与当前代次冻结，变更目标/连接/价格/所选字段必须重新预览。
+- 真正并发批准只创建一次父执行，queued→running 事务唯一领取 POST/PATCH；发送前持久签名批准、配对审计和 fact。任何 HTTP 响应、提交失败或重开遗留 running/unknown 均先 GET，不重新写入。
+- create 已存在、update 缺席、前像漂移和跨 create/update/remove 未决冲突拒绝；最终栅栏同时回滚结果、绑定、观察与审计。原下架签名与 FK 在追加迁移后保持原样。
+- `fieldsMatched` 只表示批准字段匹配。OWNERSHIP_* 持久待验证、PENDING/INACTIVE/ON_HOLD/UNKNOWN 持久平台等待，真实状态与指数只读退避保留；SOLD/合规/所有权冲突不能显示完成上架。
+- Cloud 030/031 直调 append 同样验证 purpose/action/event/target、签名、跨租户、历史 epoch、配对 audit、并发与封链；旧 remove 领域不变。
+- 三个 raw IPC、原 ProviderLane、客户表单/历史/详情及工作区发布版本边界分别验证。交接冻结后迟到响应不追加旧来源流。
+- 独立记录见 [上架/改价审查](reviews/2026-11-19-afternic-listing-write-review.md)。源码/真实 PostgreSQL 与 SQLCipher 通过不替代 Linux 真实账号、Windows/macOS 实机或发行资格；私有所有权验证/DNS 仍未实现。

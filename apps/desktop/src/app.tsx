@@ -5,6 +5,7 @@ import {
   createCloudflarePort,
   createAfternicPort,
   createAfternicDelistPort,
+  createAfternicListingWritePort,
   createDeviceDirectoryPort,
   createDeviceSwitchPort,
   createTargetBootstrapPort,
@@ -68,6 +69,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   cloudflare: createCloudflarePort(),
   afternic: createAfternicPort(),
   afternicDelist: createAfternicDelistPort(),
+  afternicListingWrite: createAfternicListingWritePort(),
   conflicts: createLocalConflictPort(),
   sync: createLocalSyncStatusPort(),
 };

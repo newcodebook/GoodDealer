@@ -337,6 +337,12 @@ impl NativeCloudCoordinator {
                                 {
                                     wake.wake_delist();
                                 }
+                            } else if matches!(operation, ProviderOperation::AfternicListingWriteStep) {
+                                if crate::provider_credential_orchestrator::afternic_listing_write::step(
+                                    host, cancel, power,
+                                ).await.unwrap_or(false) {
+                                    wake.wake_listing_write();
+                                }
                             } else {
                                 run_provider_operation(host, cancel, projection, record, operation)
                                     .await;
@@ -415,6 +421,9 @@ impl NativeCloudCoordinator {
     }
     pub(crate) fn wake_afternic_delist(&self) {
         self.provider.wake_delist();
+    }
+    pub(crate) fn wake_afternic_listing_write(&self) {
+        self.provider.wake_listing_write();
     }
     pub(crate) fn afternic_execution_available(&self) -> bool {
         let power = self.power.snapshot();
@@ -546,7 +555,9 @@ async fn run_provider_operation(
     let authority = host.authority_identity();
     let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
-        ProviderOperation::AfternicDelistStep => return,
+        ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep => {
+            return;
+        }
         ProviderOperation::AfternicConnect { display_label } => {
             let result = afternic::connect(host, display_label, cancel_fence).await;
             ProviderOperationRecord::of("afternic_connect", result.as_ref().map(|()| "confirmed"))

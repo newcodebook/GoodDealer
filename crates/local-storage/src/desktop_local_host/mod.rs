@@ -1071,3 +1071,5 @@ fn valid_opaque_identifier(value: &str) -> bool {
             .iter()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
+
+pub(crate) mod afternic_listing_write;

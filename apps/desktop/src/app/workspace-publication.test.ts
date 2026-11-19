@@ -114,6 +114,7 @@ function ports(readGeneration: number) {
     history: { loadHistory: vi.fn() },
     manualTasks: { loadManualTasks: vi.fn() },
     afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
     afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
     cloudflare: { status: vi.fn(), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   };

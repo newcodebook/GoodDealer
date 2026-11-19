@@ -21,6 +21,7 @@ const OBSERVATION_LIMIT: usize = 4;
 pub(crate) enum ProviderOperation {
     /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
     AfternicDelistStep,
+    AfternicListingWriteStep,
     AfternicConnect {
         display_label: String,
     },
@@ -62,6 +63,7 @@ impl ProviderOperation {
         matches!(
             self,
             Self::AfternicDelistStep
+                | Self::AfternicListingWriteStep
                 | Self::AfternicConnect { .. }
                 | Self::AfternicRefresh { .. }
                 | Self::AfternicRevoke { .. }
@@ -71,6 +73,7 @@ impl ProviderOperation {
     fn connection_id(&self) -> &str {
         match self {
             Self::AfternicDelistStep => "afternic:delist",
+            Self::AfternicListingWriteStep => "afternic:listing-write",
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
@@ -176,7 +179,10 @@ impl ProviderAdmissionState {
                 ProviderAdmission::Busy
             };
         }
-        if matches!(operation, ProviderOperation::AfternicDelistStep) {
+        if matches!(
+            operation,
+            ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep
+        ) {
             self.in_flight = Some(operation.clone());
             return ProviderAdmission::Enqueue;
         }
@@ -213,6 +219,7 @@ impl ProviderAdmissionState {
                 rate.observations.push_back(now);
             }
             ProviderOperation::AfternicDelistStep
+            | ProviderOperation::AfternicListingWriteStep
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
@@ -303,6 +310,10 @@ impl ProviderLaneHandle {
     }
 
     pub(crate) fn wake_delist(&self) {
+        self.delist_wake.notify_one();
+    }
+
+    pub(crate) fn wake_listing_write(&self) {
         self.delist_wake.notify_one();
     }
 
@@ -421,13 +432,23 @@ impl ProviderLane {
                 }
                 Work::Delist => {
                     idle_due = Instant::now() + Duration::from_secs(30);
-                    let operation = ProviderOperation::AfternicDelistStep;
-                    let admitted = self.admission.lock().is_ok_and(|mut admission| {
-                        admission.admit(&operation, Instant::now()) == ProviderAdmission::Enqueue
-                    });
-                    if admitted {
-                        execute(operation.clone()).await;
-                        self.complete(&operation);
+                    // Each wake gives both durable capabilities a turn in the one slot;
+                    // a hot delist backlog cannot starve an approved create/update plan.
+                    for operation in [
+                        ProviderOperation::AfternicDelistStep,
+                        ProviderOperation::AfternicListingWriteStep,
+                    ] {
+                        if *self.cancel.borrow() {
+                            return;
+                        }
+                        let admitted = self.admission.lock().is_ok_and(|mut admission| {
+                            admission.admit(&operation, Instant::now())
+                                == ProviderAdmission::Enqueue
+                        });
+                        if admitted {
+                            execute(operation.clone()).await;
+                            self.complete(&operation);
+                        }
                     }
                 }
                 Work::Recover => {
@@ -533,9 +554,10 @@ mod tests {
                     tokio::task::yield_now().await;
                     let mut items = record.lock().unwrap();
                     items.push(operation);
-                    if items.len() < 4 {
-                        wake.wake_delist();
+                    if items.len() < 5 {
+                        wake.wake_listing_write();
                     } else {
+                        wake.cancel();
                         done.notify_one();
                     }
                 }
@@ -552,8 +574,9 @@ mod tests {
             vec![
                 revoke,
                 ProviderOperation::AfternicDelistStep,
+                ProviderOperation::AfternicListingWriteStep,
                 ProviderOperation::AfternicDelistStep,
-                ProviderOperation::AfternicDelistStep
+                ProviderOperation::AfternicListingWriteStep
             ]
         );
     }

@@ -130,6 +130,10 @@ pub trait DesktopExecutionContextNativePort: Send + Sync {
     /// # Errors
     /// Refuses wrong purpose, device, key or malformed transcript.
     fn sign_afternic_delist_approval(&self, transcript: &[u8]) -> Result<[u8; 64], Error>;
+    /// Signs only the listing-write item approval transcript.
+    /// # Errors
+    /// Rejects the wrong purpose or unavailable Native identity key.
+    fn sign_afternic_listing_write_approval(&self, transcript: &[u8]) -> Result<[u8; 64], Error>;
     /// Signs only the fixed device audit transcript.
     /// # Errors
     /// Refuses wrong purpose, device, key or malformed transcript.
@@ -860,6 +864,9 @@ impl DesktopLocalHost {
             .as_ref()
             .ok_or(BusinessDatabaseError::MutationStale)?;
         match purpose {
+            EvidenceSignaturePurpose::AfternicListingWriteApproval => {
+                native.sign_afternic_listing_write_approval(transcript)
+            }
             EvidenceSignaturePurpose::AfternicDelistApproval => {
                 native.sign_afternic_delist_approval(transcript)
             }

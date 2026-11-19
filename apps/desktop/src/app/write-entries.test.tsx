@@ -86,6 +86,7 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
       totalRows: 0, window: { startIndex: 0, size: 200, rows: [] },
     })) },
     afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
     afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
     cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
@@ -146,14 +147,21 @@ describe("write entries follow the presentation gate", () => {
     vi.mocked(workspacePorts.afternicDelist.status).mockResolvedValue({
       schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
     });
+    vi.mocked(workspacePorts.afternicListingWrite.status).mockResolvedValue({
+      schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
+    });
     await render(state, [...capabilities], workspacePorts);
     await clickButton("Batch operations");
     expect(workspacePorts.afternicDelist.status).toHaveBeenCalledWith({ schemaVersion: 1, planRef: null });
     expect(workspacePorts.afternic.status).toHaveBeenCalled();
     expect(container.textContent).toContain("Afternic");
     expect(container.querySelector('.afternic-delist textarea') !== null).toBe(writable);
+    expect(container.querySelector('.afternic-listing-write textarea') !== null).toBe(writable);
+    expect(workspacePorts.afternicListingWrite.status).toHaveBeenCalledWith({ schemaVersion: 1, planRef: null });
     expect(workspacePorts.afternicDelist.preview).not.toHaveBeenCalled();
     expect(workspacePorts.afternicDelist.approve).not.toHaveBeenCalled();
+    expect(workspacePorts.afternicListingWrite.preview).not.toHaveBeenCalled();
+    expect(workspacePorts.afternicListingWrite.approve).not.toHaveBeenCalled();
   });
 
   it("removes self naming immediately when Host demotes Active while settings reads remain stale", async () => {

@@ -1,4 +1,5 @@
 import { leaseIssuedOfflineHighWaterMigration } from "../../src/modules/devices/migrations/202611190026-lease-issued-offline-high-water";
+import { encodeAfternicListingWriteItemApprovalSignatureTranscript, encodeAfternicListingWriteItemApprovalEnvelope, encodeAfternicListingWriteItemApprovalJson } from "@gooddealer/protocol/execution-events";
 import { submittedSyncMutationSchema, computeWorkspaceCheckpointEntityDigests, encodeCheckpointEntityDigestsInput } from "@gooddealer/protocol/workspace";
 import { PostgresWorkspaceMutationRepository } from "../../src/modules/workspace/mutations/index";
 import { PostgresPortfolioRepository } from "../../src/modules/workspace/state/portfolio/index";
@@ -492,11 +493,14 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect(await contextService().issue(request(78),active)).toBeNull();
     expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_execution_contexts")).rows).toEqual([{count:1}]);
   });
-  async function executionFixture(nonce=50){
+  async function executionFixture(nonce=50, action:"remove"|"create"|"update"="remove"){
+    const approvalTranscript=action==="remove"?encodeAfternicDelistItemApprovalSignatureTranscript:encodeAfternicListingWriteItemApprovalSignatureTranscript;
+    const approvalEnvelope=action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
+    const approvalJson=action==="remove"?encodeAfternicDelistItemApprovalJson:encodeAfternicListingWriteItemApprovalJson;
     if(nonce===50)await applyEntitlementState("active","evidence-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
     const principal=await desktopGrantPrincipal();const response=await contextService().issue(request(nonce),principal);
     if(response===null)throw new Error("context refused");const c=response.context;
-    const v=JSON.parse(readFileSync(new URL("../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json",import.meta.url),"utf8"));
+    const v=JSON.parse(readFileSync(new URL(action==="remove"?"../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json":`../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/${action}.json`,import.meta.url),"utf8"));
     // Distinct context fixtures retain each vector's internal UUID references without sharing event identities.
     if(nonce!==50){
       const replacements=new Map<string,string>();let sequence=1;
@@ -513,8 +517,8 @@ describe("PostgreSQL execution context historical evidence", () => {
     const base={accountId:c.accountId,workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch,credentialEpoch:c.credentialEpoch,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,trustedTimeAnchorId:hash(encodeDesktopExecutionContextEnvelope(c))};
     const boundary=(delta:number)=>new Date(Date.parse(c.serverObservedAt)+1000+delta).toISOString().replace(".000Z","Z");
     const approval={...v.approval,...base,authorizationHash:c.authorizationGrantDigest,approvedAt:boundary(1000)};
-    approval.deviceSignature=sign(null,encodeAfternicDelistItemApprovalSignatureTranscript(approval),deviceKeyPair.privateKey).toString("base64url");
-    const approvalDigest=hash(encodeAfternicDelistItemApprovalEnvelope(approval));
+    approval.deviceSignature=sign(null,approvalTranscript(approval),deviceKeyPair.privateKey).toString("base64url");
+    const approvalDigest=hash(approvalEnvelope(approval));
     const audit=(draft:unknown)=>{
       const event=deviceAuditIngestRequestSchema.parse({schemaVersion:1,event:draft}).event;
       event.eventHash=hash(encodeDeviceAuditEventHashInput(event));event.deviceSignature=sign(null,encodeDeviceAuditEventSignatureTranscript(event),deviceKeyPair.privateKey).toString("base64url");return event;
@@ -523,7 +527,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     const approvalAudit=audit({...v.approvalAudit,...auditBase,occurredAt:boundary(1000)});
     const claimAudit=audit({...v.claimAudit,...auditBase,occurredAt:boundary(2000),previousHash:approvalAudit.eventHash,payloadRedacted:{...v.claimAudit.payloadRedacted,approvalEnvelopeDigest:approvalDigest}});
     const {accountId:_account,...factBase}=base;
-    const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash(encodeAfternicLocalDispatchKeyDigestInput({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(encodeAfternicDelistItemApprovalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
+    const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash(encodeAfternicLocalDispatchKeyDigestInput({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(approvalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
     const signFact=(draft:typeof fact)=>({...draft,deviceSignature:sign(null,encodeExecutionFactSignatureTranscript(draft),deviceKeyPair.privateKey).toString("base64url")});
     const authority=new PostgresExecutionEvidenceAuthority(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
     const contexts=new PostgresHistoricalExecutionContext();
@@ -531,8 +535,71 @@ describe("PostgreSQL execution context historical evidence", () => {
     const facts=new PostgresExecutionFactEvidenceService(authority,contexts,new PostgresDeviceAuditEvidenceReader());
     return {principal,response,approval,approvalAudit,claimAudit,fact:signFact(fact),audits,facts,signFact,audit,authority,contexts};
   }
+  describe.each(["remove","create","update"] as const)("Afternic %s production stream",action=>{
+  it("production evidence rejects a signed batch action substituted across the same opaque references",async()=>{
+    const f=await executionFixture(50,action);
+    const other=action==="create"?"update":"create";
+    const event=f.audit({...f.approvalAudit,targetType:"afternic_listing_write_approval",payloadRedacted:{...f.approvalAudit.payloadRedacted,action:other}});
+    await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+    const claim=f.audit({...f.claimAudit,previousHash:event.eventHash});
+    await expect(f.audits.ingest({schemaVersion:1,event:claim},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
+  it("production evidence rejects substituted signed item action and legacy signature purpose",async()=>{
+    const f=await executionFixture(50,action);
+    const changed={...f.approval,action:action==="create"?"update":"create",typ:"gd.afternic-listing-write-item-approval.v1"};
+    changed.deviceSignature=sign(null,encodeAfternicListingWriteItemApprovalSignatureTranscript(changed),deviceKeyPair.privateKey).toString("base64url");
+    const digest=hash(encodeAfternicListingWriteItemApprovalEnvelope(changed));
+    const fact=f.signFact({...f.fact,payloadRedacted:{...f.fact.payloadRedacted,approvalEnvelopeDigest:digest},executionAuthorizationEvidence:{...f.fact.executionAuthorizationEvidence,approvedOperationDigest:digest,approvedOperationEnvelope:Buffer.from(encodeAfternicListingWriteItemApprovalJson(changed)).toString("base64url")}});
+    await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
+  it("production evidence rejects a mathematically valid signature in another approval domain",async()=>{
+    const f=await executionFixture(50,action);
+    const {deviceSignature:_signature,...claims}=f.approval;
+    const domain=action==="remove"?"GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1":"GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
+    const changed={...f.approval,deviceSignature:sign(null,encodeDomainSeparatedWireValue(domain,claims),deviceKeyPair.privateKey).toString("base64url")};
+    const encodeEnvelope=action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
+    const encodeJson=action==="remove"?encodeAfternicDelistItemApprovalJson:encodeAfternicListingWriteItemApprovalJson;
+    const digest=hash(encodeEnvelope(changed));
+    const fact=f.signFact({...f.fact,payloadRedacted:{...f.fact.payloadRedacted,approvalEnvelopeDigest:digest},executionAuthorizationEvidence:{...f.fact.executionAuthorizationEvidence,approvedOperationDigest:digest,approvedOperationEnvelope:Buffer.from(encodeJson(changed)).toString("base64url")}});
+    await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
+  it("production evidence prevents caller-selected account workspace and source",async()=>{
+    const f=await executionFixture(50,action);
+    await expect(f.audits.ingest({schemaVersion:1,event:f.audit({...f.approvalAudit,accountId:"another-account"})},f.principal)).resolves.toBeNull();
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.signFact({...f.fact,workspaceId:"another-workspace"})},f.principal)).resolves.toBeNull();
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.signFact({...f.fact,sourceDeviceId:"another-device"})},f.principal)).resolves.toBeNull();
+    expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
+  });
+  it("production evidence rejects reconciliation borrowed from another action",async()=>{
+    const f=await executionFixture(50,action);
+    for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+    const other=action==="create"?"update":"create";
+    const event=f.audit({...f.claimAudit,auditEventId:"00000000-0000-4000-8000-000000000096",auditSequence:3,previousHash:f.claimAudit.eventHash,eventType:"runtime_security_lifecycle",authorizationSource:"runtime_security_context",targetType:"afternic_listing_write_attempt",payloadRedacted:{schemaVersion:1,provider:"afternic",action:other,stage:"reconciled",operationId:f.fact.operationId,operationItemId:f.fact.operationItemId,attemptId:f.fact.attemptId,originalExecutionFactId:f.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",f.fact)),outcome:"matched",reason:null}});
+    await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
+  it("production role directly rejects wrong action event purpose and private payload fields",async()=>{
+    const f=await executionFixture(50,action);
+    for(const mutation of ["action","event","private"]){
+      await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+        const fact=structuredClone(f.fact);
+        if(mutation==="action")Object.assign(fact.payloadRedacted,{action:"buy"});
+        if(mutation==="event")fact.eventType="unapproved_execution";
+        if(mutation==="private")Object.assign(fact.payloadRedacted,{domain:"wecin.com"});
+        const bytes=Buffer.from(encodeDrainStreamEnvelope("execution_fact",fact));
+        await tx.query("SELECT public.execution_fact_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL)",[fact,bytes]);
+      })).rejects.toMatchObject({code:"42501"});
+    }
+    await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+      await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+      const event={...f.approvalAudit,targetType:"unapproved_target"};
+      await tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL)",[event,Buffer.from(encodeDrainStreamEnvelope("device_audit",event))]);
+    })).rejects.toMatchObject({code:"42501"});
+  });
   it("production evidence commits ordered approval/claim/fact and exact lost-response receipts",async()=>{
-    const f=await executionFixture();const upload=(event:unknown)=>f.audits.ingest({schemaVersion:1,event},f.principal);
+    const f=await executionFixture(50,action);const upload=(event:unknown)=>f.audits.ingest({schemaVersion:1,event},f.principal);
     const fact=()=>f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
     await expect(fact()).resolves.toMatchObject({outcome:"pending",code:"APPROVAL_AUDIT_MISSING"});
     await expect(upload(f.claimAudit)).resolves.toMatchObject({outcome:"pending",code:"PREDECESSOR_MISSING"});
@@ -547,7 +614,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect((await ownerPool.query("SELECT count(*) FROM execution_fact_evidence_quarantines")).rows[0].count).toBe("0");
   });
   it("production evidence separates nonblocking invalid signatures from signed semantic violations",async()=>{
-    const f=await executionFixture();const invalid={...f.fact,deviceSignature:Buffer.alloc(64).toString("base64url")};
+    const f=await executionFixture(50,action);const invalid={...f.fact,deviceSignature:Buffer.alloc(64).toString("base64url")};
     await expect(f.facts.ingest({schemaVersion:1,fact:invalid},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"signature"}});
     expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:false}]);
     expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
@@ -557,13 +624,13 @@ describe("PostgreSQL execution context historical evidence", () => {
     await expect(appPool.query("SELECT * FROM execution_fact_drain_records")).rejects.toMatchObject({code:"42501"});
   });
   it("production evidence attributes a signed missing-context violation without inventing execution authority",async()=>{
-    const f=await executionFixture();const wrong=f.signFact({...f.fact,trustedTimeAnchorId:Buffer.alloc(32,7).toString("base64url")});
+    const f=await executionFixture(50,action);const wrong=f.signFact({...f.fact,trustedTimeAnchorId:Buffer.alloc(32,7).toString("base64url")});
     await expect(f.facts.ingest({schemaVersion:1,fact:wrong},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"epoch_unknown"}});
     expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:true}]);
     expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("0");
   });
   it("production evidence returns original receipt after seal and quarantines new signed bytes",async()=>{
-    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const f=await executionFixture(50,action);for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
     const accepted=await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
     await ownerPool.query("INSERT INTO execution_fact_drain_seals(account_id,workspace_id,source_device_id,active_lease_epoch,last_assigned_execution_fact_sequence,rolling_digest,proof_id) SELECT account_id,workspace_id,source_device_id,active_lease_epoch,contiguous_received_through,rolling_digest,'fixture-accepted-seal' FROM execution_fact_drain_heads");
     expect(await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).toEqual(accepted);
@@ -572,18 +639,18 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect((await ownerPool.query("SELECT domain_blocking FROM execution_fact_evidence_quarantines")).rows).toEqual([{domain_blocking:false}]);
   });
   it("production evidence refuses new fact identities reusing a durable claim across sequences and epochs",async()=>{
-    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const f=await executionFixture(50,action);for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
     await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"accepted"});
     const copies=[{...f.fact,executionFactSequence:2,executionFactId:"00000000-0000-4000-8000-000000000091"},{...f.fact,activeLeaseEpoch:f.fact.activeLeaseEpoch+1,executionFactId:"00000000-0000-4000-8000-000000000092"}].map(f.signFact);
     for(const fact of copies)await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"sequence_replay"}});
     expect((await ownerPool.query("SELECT count(*) FROM execution_fact_drain_records")).rows[0].count).toBe("1");
   });
   it("production evidence rejects a concurrent cross-epoch claim replay at the database unique fence",async()=>{
-    const first=await executionFixture();
+    const first=await executionFixture(50,action);
     await new Promise(resolve=>setTimeout(resolve,3100));
     await releaseHeldLease();
     await leaseManager.ensureCurrentLease({accountId:"oauth-account",deviceId:"device-a",accountSecurityEpoch:1,transactionCredential:first.principal.transactionCredential});
-    const second=await executionFixture(51);
+    const second=await executionFixture(51,action);
     expect(second.fact.activeLeaseEpoch).toBe(first.fact.activeLeaseEpoch+1);
     second.claimAudit=second.audit({...second.claimAudit,targetRef:first.fact.attemptId,payloadRedacted:{...second.claimAudit.payloadRedacted,attemptId:first.fact.attemptId}});
     second.fact=second.signFact({...second.fact,attemptId:first.fact.attemptId,auditEventHash:second.claimAudit.eventHash});
@@ -616,7 +683,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     }
   });
   it("production evidence commits concurrent exact retries only once and rolls back a lost transaction",async()=>{
-    const f=await executionFixture();
+    const f=await executionFixture(50,action);
     const rollback=new PostgresDeviceAuditEvidenceService({withActiveSource:async(principal,work)=>f.authority.withActiveSource(principal,async source=>{await work(source);throw new Error("fixture crash before commit");})},f.contexts,new PostgresExecutionFactEvidenceReader());
     await expect(rollback.ingest({schemaVersion:1,event:f.approvalAudit},f.principal)).rejects.toThrow("fixture crash before commit");
     expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("0");
@@ -625,15 +692,15 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("1");
   });
   it("production evidence keeps reconciled pending until the immutable original fact exists",async()=>{
-    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
-    const event=f.audit({...f.claimAudit,auditEventId:"00000000-0000-4000-8000-000000000098",auditSequence:3,previousHash:f.claimAudit.eventHash,eventType:"runtime_security_lifecycle",authorizationSource:"runtime_security_context",payloadRedacted:{schemaVersion:1,provider:"afternic",action:"remove",stage:"reconciled",operationId:f.fact.operationId,operationItemId:f.fact.operationItemId,attemptId:f.fact.attemptId,originalExecutionFactId:f.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",f.fact)),outcome:"absent",reason:null}});
+    const f=await executionFixture(50,action);for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const event=f.audit({...f.claimAudit,auditEventId:"00000000-0000-4000-8000-000000000098",auditSequence:3,previousHash:f.claimAudit.eventHash,eventType:"runtime_security_lifecycle",authorizationSource:"runtime_security_context",payloadRedacted:{schemaVersion:1,provider:"afternic",action,stage:"reconciled",operationId:f.fact.operationId,operationItemId:f.fact.operationItemId,attemptId:f.fact.attemptId,originalExecutionFactId:f.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",f.fact)),outcome:action==="remove"?"absent":"matched",reason:null}});
     await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"pending",code:"ORIGINAL_FACT_MISSING"});
     expect((await ownerPool.query("SELECT count(*) FROM workspace_device_audit_drain_records")).rows[0].count).toBe("2");
     await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"accepted"});
     await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"accepted"});
   });
   it("production evidence owner rejects forged scope, unknown payload keys and divergent canonical bytes",async()=>{
-    const f=await executionFixture();
+    const f=await executionFixture(50,action);
     for(const mutation of ["scope","payload","bytes"]){
       await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
         await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
@@ -652,7 +719,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     }finally{client.release();}
   });
   it("production evidence domain lock serializes a concurrent seal before a new append",async()=>{
-    const f=await executionFixture();for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+    const f=await executionFixture(50,action);for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
     const client=await ownerPool.connect();let completed=false;
     try{
       await client.query("BEGIN");await client.query("SELECT set_config('gooddealer.account_id',$1,true),set_config('gooddealer.workspace_id',$2,true)",[f.principal.accountId,f.fact.workspaceId]);
@@ -664,7 +731,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     }finally{await client.query("ROLLBACK");client.release();}
   });
   it("production evidence accepts historical signed events strictly before a real security epoch transition",async()=>{
-    const f=await executionFixture();
+    const f=await executionFixture(50,action);
     await new Promise(resolve=>setTimeout(resolve,3100));
     const transition=await ownerPool.connect();try{
       await transition.query("BEGIN");await transition.query("UPDATE identity_account_security_states SET account_security_epoch=2 WHERE account_id='oauth-account'");await transition.query("ROLLBACK");
@@ -681,6 +748,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     const occurredAt=new Date(Date.parse(f.response.context.serverObservedAt)+11000).toISOString().replace(".000Z","Z");
     const after=f.signFact({...f.fact,executionFactId:"00000000-0000-4000-8000-000000000094",attemptId:"00000000-0000-4000-8000-000000000095",auditEventRef:"00000000-0000-4000-8000-000000000093",executionFactSequence:2,monotonicDeltaMs:10000,occurredAt,requestStartBoundary:occurredAt});
     await expect(f.facts.ingest({schemaVersion:1,fact:after},current)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+  });
   });
   it("commits fresh context and exact Grant/key history, refuses nonce reuse and permits a new sample", async () => {
     const principal = await desktopGrantPrincipal();

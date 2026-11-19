@@ -4,6 +4,8 @@ import {
   executionEvidenceIngestResponseSchema,
   executionEvidenceReceiptsRequestSchema,
   executionEvidenceReceiptsResponseSchema,
+  afternicListingWriteClaimPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteApprovalAuditPayloadSchema,
+  decodeAfternicListingWriteItemApprovalJson, encodeAfternicListingWriteItemApprovalEnvelope, encodeAfternicListingWriteItemApprovalSignatureTranscript,
   afternicDelistClaimPayloadSchema,
   afternicDelistClaimAuditPayloadSchema,
   afternicDelistApprovalAuditPayloadSchema,
@@ -146,18 +148,22 @@ export class PostgresExecutionFactEvidenceService {
     });
     if (!signed) return verdict("signature");
     if (context.authorizationFailure !== null) return verdict(context.authorizationFailure);
-    const evidence = fact.executionAuthorizationEvidence,
-      payload = afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
+    const evidence = fact.executionAuthorizationEvidence;
+    const writePayload = afternicListingWriteClaimPayloadSchema.safeParse(fact.payloadRedacted);
+    const payload = writePayload.success ? writePayload.data : afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
+    const encodeApproval = writePayload.success ? encodeAfternicListingWriteItemApprovalEnvelope : encodeAfternicDelistItemApprovalEnvelope;
+    const encodeApprovalSignature = writePayload.success ? encodeAfternicListingWriteItemApprovalSignatureTranscript : encodeAfternicDelistItemApprovalSignatureTranscript;
     let approval;
     try {
-      approval = decodeAfternicDelistItemApprovalJson(
+      approval = (writePayload.success ? decodeAfternicListingWriteItemApprovalJson : decodeAfternicDelistItemApprovalJson)(
         Buffer.from(evidence.approvedOperationEnvelope, "base64url"),
       );
     } catch {
       return verdict("authorization");
     }
-    const approvalDigest = hash(encodeAfternicDelistItemApprovalEnvelope(approval));
+    const approvalDigest = hash(encodeApproval(approval));
     if (
+      approval.action !== payload.action ||
       approval.accountId !== source.transaction.accountId ||
       approval.workspaceId !== fact.workspaceId ||
       approval.sourceDeviceId !== fact.sourceDeviceId ||
@@ -206,7 +212,7 @@ export class PostgresExecutionFactEvidenceService {
     if (
       !verify(
         null,
-        encodeAfternicDelistItemApprovalSignatureTranscript(approval),
+        encodeApprovalSignature(approval),
         original.devicePublicKey,
         Buffer.from(approval.deviceSignature, "base64url"),
       )
@@ -214,8 +220,11 @@ export class PostgresExecutionFactEvidenceService {
       return verdict("authorization");
     const approvedAudit = await this.audits.approval(source.transaction, fact, fact.approvedOperationId);
     if (approvedAudit === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-    const batch = afternicDelistApprovalAuditPayloadSchema.parse(approvedAudit.payloadRedacted);
+    const batchResult = writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
+    if (!batchResult.success) return verdict("authorization");
+    const batch = batchResult.data;
     if (
+      batch.action !== approval.action ||
       batch.planId !== approval.planId ||
       batch.planHash !== approval.planHash ||
       batch.operationId !== approval.operationId ||
@@ -232,11 +241,12 @@ export class PostgresExecutionFactEvidenceService {
       return verdict("authorization");
     const audit = await this.audits.event(source.transaction, fact, fact.auditEventRef);
     if (audit === null) return verdict(null, "PAIRED_AUDIT_MISSING");
-    const paired = afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
+    const paired = writePayload.success ? afternicListingWriteClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
     if (!paired.success) return verdict("authorization");
     const p = paired.data;
     return verdict(
-      audit.eventHash === fact.auditEventHash &&
+      p.action === approval.action &&
+        audit.eventHash === fact.auditEventHash &&
         audit.occurredAt === fact.occurredAt &&
         audit.monotonicDeltaMs === fact.monotonicDeltaMs &&
         audit.trustedTimeAnchorId === fact.trustedTimeAnchorId &&

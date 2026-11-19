@@ -4,6 +4,9 @@ import {
   executionEvidenceIngestResponseSchema,
   executionEvidenceReceiptsRequestSchema,
   executionEvidenceReceiptsResponseSchema,
+  afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema,
+  afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema,
+  afternicDelistClaimPayloadSchema, afternicListingWriteClaimPayloadSchema,
   afternicDelistApprovalAuditPayloadSchema,
   afternicDelistClaimAuditPayloadSchema,
   afternicDelistReconciledAuditPayloadSchema,
@@ -182,32 +185,38 @@ export class PostgresDeviceAuditEvidenceService {
       ) !== event.chainId
     )
       return verdict("audit_chain");
-    const approved = afternicDelistApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const legacyApproved = afternicDelistApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const approved = legacyApproved.success ? legacyApproved : afternicListingWriteApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
     if (approved.success)
       return verdict(
         event.actorKind === "user" &&
           event.eventType === "approved_operation_execution" &&
-          event.targetType === "afternic_delist_approval" &&
+          event.targetType === (approved.data.action === "remove" ? "afternic_delist_approval" : "afternic_listing_write_approval") &&
           event.targetRef === approved.data.approvedOperationId
           ? null
           : "authorization",
       );
-    const claim = afternicDelistClaimAuditPayloadSchema.safeParse(event.payloadRedacted);
-    const preflight = afternicDelistPreflightRefusedAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const legacyClaim = afternicDelistClaimAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const claim = legacyClaim.success ? legacyClaim : afternicListingWriteClaimAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const legacyPreflight = afternicDelistPreflightRefusedAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const preflight = legacyPreflight.success ? legacyPreflight : afternicListingWritePreflightRefusedAuditPayloadSchema.safeParse(event.payloadRedacted);
     if (claim.success || preflight.success) {
       const p = claim.success ? claim.data : preflight.data!;
       if (
         event.actorKind !== "device_service" ||
-        event.targetType !== "afternic_delist_attempt" ||
+        event.targetType !== (p.action === "remove" ? "afternic_delist_attempt" : "afternic_listing_write_attempt") ||
         event.targetRef !== p.attemptId ||
         event.eventType !== (claim.success ? "approved_operation_execution" : "runtime_security_lifecycle")
       )
         return verdict("authorization");
       const original = await this.audits.approval(source.transaction, event, p.approvedOperationId);
       if (original === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-      const batch = afternicDelistApprovalAuditPayloadSchema.parse(original.payloadRedacted);
+      const batchResult = p.action === "remove" ? afternicDelistApprovalAuditPayloadSchema.safeParse(original.payloadRedacted) : afternicListingWriteApprovalAuditPayloadSchema.safeParse(original.payloadRedacted);
+      if (!batchResult.success) return verdict("authorization");
+      const batch = batchResult.data;
       return verdict(
-        batch.operationId === p.operationId &&
+        batch.action === p.action &&
+          batch.operationId === p.operationId &&
           batch.planHash === p.planHash &&
           original.occurredAt <= event.occurredAt &&
           original.credentialEpoch === event.credentialEpoch &&
@@ -217,16 +226,19 @@ export class PostgresDeviceAuditEvidenceService {
           : "authorization",
       );
     }
-    const reconciled = afternicDelistReconciledAuditPayloadSchema.parse(event.payloadRedacted);
+    const legacyReconciled = afternicDelistReconciledAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const reconciled = legacyReconciled.success ? legacyReconciled.data : afternicListingWriteReconciledAuditPayloadSchema.parse(event.payloadRedacted);
     if (
       event.actorKind !== "device_service" ||
       event.eventType !== "runtime_security_lifecycle" ||
-      event.targetType !== "afternic_delist_attempt" ||
+      event.targetType !== (reconciled.action === "remove" ? "afternic_delist_attempt" : "afternic_listing_write_attempt") ||
       event.targetRef !== reconciled.attemptId
     )
       return verdict("authorization");
     const original = await this.facts.event(source.transaction, event, reconciled.originalExecutionFactId);
     if (original === null) return verdict(null, "ORIGINAL_FACT_MISSING");
+    const originalPayload = reconciled.action === "remove" ? afternicDelistClaimPayloadSchema.safeParse(original.payloadRedacted) : afternicListingWriteClaimPayloadSchema.safeParse(original.payloadRedacted);
+    if (!originalPayload.success || originalPayload.data.action !== reconciled.action) return verdict("authorization");
     return verdict(
       hash(encodeDrainStreamEnvelope("execution_fact", original)) ===
         reconciled.originalExecutionFactDigest &&

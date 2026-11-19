@@ -257,6 +257,8 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::target_installation",
   "desktop_local_host::target_bootstrap",
   "desktop_local_host::forced_takeover",
+  "active_workspace::business",
+  "desktop_local_host::afternic_listing_write",
 ];
 const expectedLocalStoragePublicExports = [
   "DesktopForcedTakeoverExchange", "DesktopForcedTakeoverExchangeKind",
@@ -288,6 +290,22 @@ const expectedLocalStoragePublicExports = [
   "DesktopAfternicDelistSummary",
   "DesktopAfternicDelistWork",
   "DesktopAfternicDelistWorkKind",
+  "DesktopAfternicListingWriteAction",
+  "DesktopAfternicListingWritePatch",
+  "DesktopAfternicListingWriteValues",
+  "DesktopAfternicListingWriteCreateItem",
+  "DesktopAfternicListingWriteUpdateItem",
+  "DesktopAfternicListingWritePreviewRequest",
+  "DesktopAfternicListingWriteApproveRequest",
+  "DesktopAfternicListingWriteStatusRequest",
+  "DesktopAfternicListingWriteObserved",
+  "DesktopAfternicListingWriteItem",
+  "DesktopAfternicListingWritePlan",
+  "DesktopAfternicListingWriteSummary",
+  "DesktopAfternicListingWriteStatus",
+  "DesktopAfternicListingWriteWorkKind",
+  "DesktopAfternicListingWriteWork",
+  "DesktopAfternicListingWriteClaim",
   "DesktopApplicationRoot",
   "DesktopApplicationRootError",
   "DesktopAssetLibraryReadRequest",
@@ -482,7 +500,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   }
   const exactPublicItemSurfaces = [
     ["desktop_device_identity/execution_evidence.rs", [
-      "sign_afternic_delist_approval_transcript", "sign_device_audit_event_transcript",
+      "sign_afternic_delist_approval_transcript", "sign_afternic_listing_write_approval_transcript", "sign_device_audit_event_transcript",
       "sign_execution_fact_transcript",
     ], "device execution evidence"],
     ["native_continuous_clock.rs", expectedNativeContinuousClockPublicItems, "native continuous clock"],
@@ -572,6 +590,7 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
       .map((match) => match[0].replace(/\s+/gu, ""));
     if (!sameArray(methods, [
       "fnsign_afternic_delist_approval(&self,transcript:&[u8])->Result<[u8;64],Error>;",
+      "fnsign_afternic_listing_write_approval(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fnsign_device_audit_event(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fnsign_execution_fact(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fncapture_clock(&self)->Result<DesktopContinuousClockReading,Error>;",

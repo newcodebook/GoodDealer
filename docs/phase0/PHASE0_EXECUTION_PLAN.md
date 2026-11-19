@@ -415,3 +415,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 用户授权自行定位环境与恢复丢失的开发签名管理材料；隔离 OpenBao v2 已生效，旧实例、数据库卷和其他业务保留。clean `f872727` 经精确27条前缀、受控archive/schema-only备份和受限migrator应用44条至71条；Account Web 原子发布。
 - 实际生产 signer/AppRole 五用途签名/20错用途拒绝、公网401/400/401/200、源站403、五runtime隔离与12角色限制通过；公开registry两端摘要一致，秘密未下载到普通配置或输出。独立审查见[部署记录](../reviews/2026-11-19-development-cloud-authority-deployment.md)。
 - PG仍18.4，archive只验TOC未恢复演练；030/031未部署，真实登录/Provider/双设备与双系统/发行资格不能由部署推导。
+
+
+## 2026-11-19 Afternic 持久上架、改价与严格结果状态
+
+- Task Frame：[上架与改价](AFTERNIC_LISTING_WRITE_TASK_FRAME.md)；在Provider隔离工作区完成，不混强制接管。沿原连接/绑定、唯一writer、ProviderLane与两条真实证据流，交付四字段create/所选键update、15分钟持久预览、整批一次批准、单次claim、精确GET前后复核及重开未知结果只读对账。
+- 本地追加006、Cloud030/031；不改已有迁移。字段匹配与ACTIVE/隐藏、待验证、待平台和冲突状态分开；不能把请求成功或字段相等当作上市/所有权证明。客户批量入口、历史、详情与严格合同已组合。
+- 独立接受见[审查记录](../reviews/2026-11-19-afternic-listing-write-review.md)：实际PG18.6三动作51/51、实际Host输出84/84严格client解析、Native153、Storage专项70默认12线程及UI/adapter/i18n复验通过；新鲜根pnpm check exit0。此前4项fixture开库SchemaRejected后未复现，原因未确定；测试专用脱敏诊断保留，整合最终源码再完整检查。
+- 当前Linux恢复已有登录并显示Active，但Provider连接仍不可用：生产资格为空且开发Cloud商业catalog缺Afternic observe/write。不是账号登录问题；下一完整切片解决具名有限真实取证和可信商业重新观察，不伪造资格/receipt或直接改权益。wecin.com真实读写、私有验证/DNS、双系统实机和发行资格尚未取得。

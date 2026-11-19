@@ -131,7 +131,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "afternic_delist_approvals",
+        "afternic_listing_approvals",
         &[
             "workspace_id",
             "approved_operation_id",
@@ -148,10 +148,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "source_installation_digest",
             "approved_at",
             "audit_event_id",
+            "action",
         ],
     ),
     (
-        "afternic_delist_item_authorizations",
+        "afternic_listing_item_authorizations",
         &[
             "workspace_id",
             "approved_operation_id",
@@ -198,6 +199,29 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "stage",
             "outcome",
             "reason",
+            "observed_at",
+            "next_read_at",
+            "observation_json",
+            "observation_digest",
+            "listing_observation_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_listing_write_reconciliations",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "request_digest",
+            "stage",
+            "outcome",
+            "reason",
+            "item_state",
+            "fields_matched",
             "observed_at",
             "next_read_at",
             "observation_json",
@@ -1206,3 +1230,9 @@ pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER: &str =
     "active-workspace/initial-replica-installation";
 pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL: &str =
     include_str!("initial_replica_installation.sql");
+
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_ID: i64 = 202_611_190_006;
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_OWNER: &str =
+    "active-workspace/afternic-listing-write";
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_SQL: &str =
+    include_str!("afternic_listing_write.sql");
