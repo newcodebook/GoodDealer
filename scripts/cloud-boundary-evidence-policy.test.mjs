@@ -179,7 +179,7 @@ test("public business-route allowlist is exact and rejects an undeclared ninth r
       billingFirstPurchaseRefundStatusReadRequestSchema,
       billingFirstPurchaseRefundStatusReadResponseSchema,
     } from "@gooddealer/protocol/account";
-    import { desktopAuthorizationGrantRequestSchema, desktopAuthorizationGrantSchema } from "@gooddealer/protocol/devices";
+    import { desktopAuthorizationGrantRoleRequestSchema, desktopAuthorizationGrantRoleResponseSchema } from "@gooddealer/protocol/devices";
     export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
     export const DESKTOP_AUTHORIZATION_GRANT_ROUTE = "/v1/devices/authorization-grant" as const;
     export const BILLING_CHECKOUT_ROUTE = "/v1/account/billing/checkout" as const;
@@ -197,12 +197,12 @@ test("public business-route allowlist is exact and rejects an undeclared ninth r
         invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
       };
       const desktopAuthorizationRoute: PublicRoute<
-        DesktopAuthorizationGrantRequest,
-        DesktopAuthorizationGrant
+        DesktopAuthorizationGrantRoleRequest,
+        DesktopAuthorizationGrantRoleResponse
       > = {
         path: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
-        request: desktopAuthorizationGrantRequestSchema,
-        response: desktopAuthorizationGrantSchema,
+        request: desktopAuthorizationGrantRoleRequestSchema,
+        response: desktopAuthorizationGrantRoleResponseSchema,
         authorize: (principal) => principal.clientKind === "desktop",
         invoke: async (request, principal) => ports.desktopAuthorization.issue(request, principal),
       };

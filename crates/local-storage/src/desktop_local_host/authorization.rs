@@ -1,12 +1,13 @@
+use super::authority::VerifiedWorkspaceRole;
 use super::{
     BarrierReason, DesktopAuthorityIdentity, DesktopBusinessRuntime, DesktopDeviceLease,
     DesktopHostAuthorizationStatus, DesktopLocalBusinessState, DesktopLocalBusinessStatus,
     DesktopLocalHost, DesktopLocalHostError, DesktopRuntimeState, DesktopStatusSnapshot,
     DesktopSyncRuntime, HostOperationState, MAX_SAFE_INTEGER, Ordering, PrivateWorkspaceAuthority,
-    RuntimeRestriction, TrustedWorkspaceBinding, VerifiedWorkspaceAuthority,
-    WorkspaceAuthorityKind, WorkspaceAuthorityState, clear_operation_state, closed_business_status,
-    current_unix_seconds, format_timestamp,
+    RuntimeRestriction, TrustedWorkspaceBinding, WorkspaceAuthorityKind, WorkspaceAuthorityState,
+    clear_operation_state, closed_business_status, current_unix_seconds, format_timestamp,
 };
+use crate::desktop_custody::{CommercialAuthorizationFloor, WorkspaceAuthorizationFloor};
 
 impl DesktopLocalHost {
     /// Returns a closed authorization state without exposing identity, epochs, or deadlines.
@@ -15,8 +16,8 @@ impl DesktopLocalHost {
         self.status_snapshot().authorization
     }
 
-    /// Accepts only the complete server-signed Grant+Lease wire. Verification remains private;
-    /// until production trust-root and custody composition is available this method denies.
+    /// Accepts the strict v4 role exchange. Native custody persists authority floors before
+    /// publication; Standby never acquires execution authority or creates an empty replica.
     ///
     /// # Errors
     ///
@@ -148,8 +149,7 @@ impl DesktopLocalHost {
                 .as_ref()
                 .map_or(0, |value| value.lease_epoch),
         };
-        let Ok(verified_authority) =
-            VerifiedWorkspaceAuthority::verify(signed_wire, &binding, now, verifier)
+        let Ok(verified_role) = VerifiedWorkspaceRole::verify(signed_wire, &binding, now, verifier)
         else {
             return Err(self.abort_transition(
                 &mut authority,
@@ -159,10 +159,11 @@ impl DesktopLocalHost {
                 DesktopLocalHostError::AuthorityRejected,
             ));
         };
-        if authority
-            .authority
-            .as_ref()
-            .is_some_and(|current| !current.can_replace_with(&verified_authority))
+        // Reject an incompatible in-memory replacement before persisting its durable floor.
+        if let VerifiedWorkspaceRole::Active(active) = &verified_role
+            && authority.authority.as_ref().is_some_and(|current| {
+                current.kind != WorkspaceAuthorityKind::Standby && !current.can_replace_with(active)
+            })
         {
             return Err(self.abort_transition(
                 &mut authority,
@@ -181,6 +182,102 @@ impl DesktopLocalHost {
                 DesktopLocalHostError::Unavailable,
             )
         })?;
+        let floor_result = (|| {
+            let old = custody.load_authorization_floor()?;
+            let installation_binding = custody.installation_binding_digest()?;
+            let candidate = match &verified_role {
+                VerifiedWorkspaceRole::Active(active) => WorkspaceAuthorizationFloor {
+                    schema_version: 1,
+                    installation_binding,
+                    account_id: active.account_id().to_owned(),
+                    workspace_id: active.workspace_id().to_owned(),
+                    device_id: active.device_id().to_owned(),
+                    account_security_epoch: active.account_security_epoch(),
+                    issued_at: active.issued_at(),
+                    maximum_lease_epoch: active.lease_epoch(),
+                    standby_lease_epoch_floor: None,
+                    commercial: Some(CommercialAuthorizationFloor {
+                        revision: active.entitlement_revision(),
+                        digest: active.entitlement_projection_digest().to_owned(),
+                        expires_at: active.commercial_expires_at().to_owned(),
+                    }),
+                },
+                VerifiedWorkspaceRole::Standby(standby) => WorkspaceAuthorizationFloor {
+                    schema_version: 1,
+                    installation_binding,
+                    account_id: standby.account_id.clone(),
+                    workspace_id: standby.workspace_id.clone(),
+                    device_id: standby.device_id.clone(),
+                    account_security_epoch: standby.account_security_epoch,
+                    issued_at: standby.issued_at,
+                    maximum_lease_epoch: standby.lease_epoch_floor,
+                    standby_lease_epoch_floor: Some(standby.lease_epoch_floor),
+                    commercial: None,
+                },
+            };
+            let advanced = candidate.advance(old.as_ref())?;
+            custody.store_authorization_floor(&advanced)
+        })();
+        if floor_result.is_err() {
+            return Err(self.abort_transition(
+                &mut authority,
+                &mut runtime,
+                &mut operation,
+                requested,
+                DesktopLocalHostError::AuthorityRejected,
+            ));
+        }
+        let verified_authority = match verified_role {
+            VerifiedWorkspaceRole::Active(active) => active,
+            VerifiedWorkspaceRole::Standby(standby) => {
+                // Durable continuation authority cannot resurrect the superseded Active Lease.
+                if let (Some(manager), Some(continuation)) =
+                    (&authority.continuity, &authority.verified_continuation)
+                    && manager
+                        .barrier_continuation(continuation, BarrierReason::Security)
+                        .is_err()
+                {
+                    return Err(self.abort_transition(
+                        &mut authority,
+                        &mut runtime,
+                        &mut operation,
+                        requested,
+                        DesktopLocalHostError::StorageRejected,
+                    ));
+                }
+                if runtime.is_none() {
+                    match custody.open_existing_workspace(&standby.workspace_id) {
+                        Ok(Some(database)) => {
+                            *runtime = Some(DesktopRuntimeState {
+                                business: DesktopBusinessRuntime::new(database),
+                                sync: None,
+                            });
+                        }
+                        Ok(None) => {}
+                        Err(_) => {
+                            return Err(self.abort_transition(
+                                &mut authority,
+                                &mut runtime,
+                                &mut operation,
+                                requested,
+                                DesktopLocalHostError::StorageRejected,
+                            ));
+                        }
+                    }
+                }
+                if let Some(runtime) = runtime.as_mut() {
+                    runtime.sync = None;
+                }
+                authority.authority = Some(PrivateWorkspaceAuthority::from_standby(
+                    &standby, requested, now,
+                ));
+                authority.verified_continuation = None;
+                authority.applied_authority_epoch = requested;
+                authority.restriction = RuntimeRestriction::Standby;
+                clear_operation_state(&mut operation);
+                return Ok(());
+            }
+        };
         let mut database = custody
             .open_workspace(verified_authority.workspace_id())
             .map_err(|_| {
@@ -357,7 +454,9 @@ impl DesktopLocalHost {
                 authority.verified_continuation = None;
                 *runtime = None;
             }
-            RuntimeRestriction::ActivationRequired | RuntimeRestriction::Active => {
+            RuntimeRestriction::ActivationRequired
+            | RuntimeRestriction::Active
+            | RuntimeRestriction::Standby => {
                 return Err(DesktopLocalHostError::AuthorityRejected);
             }
         }
@@ -417,11 +516,18 @@ impl DesktopLocalHost {
     pub fn business_status(&self) -> DesktopLocalBusinessStatus {
         let snapshot = self.status_snapshot();
         match snapshot.business {
-            DesktopLocalBusinessState::ActivationRequired
+            DesktopLocalBusinessState::StandbyAwaitingReplica
+            | DesktopLocalBusinessState::ActivationRequired
             | DesktopLocalBusinessState::SecurityLocked
             | DesktopLocalBusinessState::RetryableLocked => {
                 closed_business_status(snapshot.business, snapshot.read_generation)
             }
+            DesktopLocalBusinessState::StandbyReadOnly => DesktopLocalBusinessStatus {
+                schema_version: 2,
+                state: DesktopLocalBusinessState::StandbyReadOnly,
+                capabilities: vec!["local:read"],
+                read_generation: snapshot.read_generation,
+            },
             DesktopLocalBusinessState::CommercialReadOnly => DesktopLocalBusinessStatus {
                 schema_version: 2,
                 state: DesktopLocalBusinessState::CommercialReadOnly,
@@ -545,6 +651,23 @@ impl DesktopLocalHost {
             },
             RuntimeRestriction::SecurityLocked => {
                 DesktopStatusSnapshot::security_locked(read_generation)
+            }
+            RuntimeRestriction::Standby => {
+                if authority.authority.as_ref().is_some_and(|current| {
+                    current.kind == WorkspaceAuthorityKind::Standby && current.is_current_at(now)
+                }) {
+                    DesktopStatusSnapshot {
+                        authorization: DesktopHostAuthorizationStatus::Standby,
+                        business: if runtime.is_some() {
+                            DesktopLocalBusinessState::StandbyReadOnly
+                        } else {
+                            DesktopLocalBusinessState::StandbyAwaitingReplica
+                        },
+                        read_generation,
+                    }
+                } else {
+                    DesktopStatusSnapshot::security_locked(read_generation)
+                }
             }
             RuntimeRestriction::Active => {
                 let valid = runtime.is_some()

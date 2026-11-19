@@ -19,6 +19,8 @@ mod restore;
     reason = "backup projection accessors await production native composition"
 )]
 mod source;
+#[cfg(all(test, unix))]
+mod standby_tests;
 mod sync;
 #[cfg(all(test, unix))]
 mod test_support;
@@ -36,8 +38,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-#[cfg_attr(not(unix), cfg(any()))]
-#[cfg(test)]
 use sha2::{Digest, Sha256};
 
 use crate::BusinessDatabase;
@@ -135,6 +135,7 @@ pub enum DesktopHostAuthorizationStatus {
     RetryableLocked,
     SecurityLocked,
     Authorized,
+    Standby,
     Continuation,
 }
 
@@ -145,6 +146,8 @@ pub enum DesktopLocalBusinessState {
     SecurityLocked,
     RetryableLocked,
     CommercialReadOnly,
+    StandbyReadOnly,
+    StandbyAwaitingReplica,
     Active,
 }
 
@@ -524,6 +527,7 @@ impl Default for WorkspaceAuthorityState {
 enum RuntimeRestriction {
     ActivationRequired,
     Active,
+    Standby,
     CommercialReadOnly,
     RetryableLocked,
     SecurityLocked,
@@ -536,6 +540,7 @@ enum RuntimeRestriction {
 )]
 enum WorkspaceAuthorityKind {
     Active,
+    Standby,
     VerifiedLocalContinuation,
     Unavailable,
 }
@@ -544,6 +549,7 @@ impl WorkspaceAuthorityKind {
     const fn wire(self) -> &'static str {
         match self {
             Self::Active => "active",
+            Self::Standby => "standby",
             Self::VerifiedLocalContinuation => "verified_local_continuation",
             Self::Unavailable => "unavailable",
         }
@@ -585,6 +591,42 @@ impl fmt::Debug for PrivateWorkspaceAuthority {
 }
 
 impl PrivateWorkspaceAuthority {
+    fn from_standby(
+        authority: &authority::VerifiedStandbyAuthority,
+        generation: u64,
+        now: i64,
+    ) -> Self {
+        let mut digest = Sha256::new();
+        digest.update(b"GOODDEALER/HOST-STANDBY-AUTHORITY-V1\0");
+        for value in [
+            &authority.account_id,
+            &authority.workspace_id,
+            &authority.device_id,
+        ] {
+            digest.update(value.len().to_be_bytes());
+            digest.update(value.as_bytes());
+        }
+        digest.update(authority.account_security_epoch.to_be_bytes());
+        digest.update(authority.lease_epoch_floor.to_be_bytes());
+        digest.update(authority.issued_at.to_be_bytes());
+        digest.update(authority.expires_at.to_be_bytes());
+        Self {
+            kind: WorkspaceAuthorityKind::Standby,
+            account_id: authority.account_id.clone(),
+            workspace_id: authority.workspace_id.clone(),
+            device_id: authority.device_id.clone(),
+            lease_epoch: authority.lease_epoch_floor,
+            account_security_epoch: authority.account_security_epoch,
+            entitlement_revision: 0,
+            entitlement_projection_digest: String::new(),
+            commercial_expires_at: String::new(),
+            capability: String::new(),
+            generation,
+            trusted_time_floor: now,
+            execute_before: authority.expires_at,
+            digest: digest.finalize().into(),
+        }
+    }
     fn from_verified(authority: &VerifiedWorkspaceAuthority, generation: u64) -> Self {
         let snapshot_digest = authority.snapshot_digest_hex();
         let mut digest = [0_u8; 32];

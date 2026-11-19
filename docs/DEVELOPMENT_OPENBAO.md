@@ -67,7 +67,7 @@ curl --fail --silent --show-error \
 
 ## 密钥与最小权限
 
-Transit mount 为 `transit`。五把不可导出、不可明文备份、不可删除的 Ed25519 v1 key 分别用于：
+Transit mount 为 `transit`。此前已记录部署的五把不可导出、不可明文备份、不可删除的 Ed25519 v1 key 分别用于：
 
 - `gooddealer-dev-desktop-authorization-grant`；
 - `gooddealer-dev-active-device-lease`；
@@ -75,15 +75,28 @@ Transit mount 为 `transit`。五把不可导出、不可明文备份、不可�
 - `gooddealer-dev-staff-audit`；
 - `gooddealer-dev-service-audit`。
 
-`gooddealer-dev-authority` AppRole 只可签前两把授权 key；token TTL 为 15 分钟、最大 TTL 为 1 小时，
+此前记录的 `gooddealer-dev-authority` AppRole 只可签前两把授权 key；token TTL 为 15 分钟、最大 TTL 为 1 小时，
 并绑定 `127.0.0.1/32`。登录响应的 policy 必须精确落在 `default` 与
 `gooddealer-dev-authority` allowlist 内，出现任何额外 policy 时 Cloud 失败关闭。它不能读取、创建或轮换 key，也不能签三个 audit key。Cloud 仍须通过
 `OpenBaoTransitSigner` 只使用 `public-keys.json` 为每个 purpose 明确选择的 active key/version 签名，
 同时把该 purpose 的 1–8 把 verifier key 安装到 Cloud/Desktop 验签边界。轮换期 verifier 集合同时
 保留旧/新 key，active 只指向新 key；旧 envelope 窗口结束后再从集合中撤旧。配置严格拒绝未知字段、
-缺失 active 引用、重复 `(name, version)`、`kid` 或公钥材料，以及 Grant/Lease 共享 name、`kid` 或材料。
+缺失 active 引用、重复 `(name, version)`、`kid` 或公钥材料，以及 Active Grant/Lease/Standby Grant 跨用途共享 name、`kid` 或材料。
 Transit 返回 401/403 时，Cloud 仅失效本次被拒绝的内存 token，重新执行一次 AppRole 登录并重试；
 并发请求已取得的新 token 不会被旧请求清除。任何非成功响应体都会先取消，再重试或返回通用失败。
+
+### Standby 第三用途升级
+
+当前源码强制第三个独立授权 purpose `standby`，对应
+`gooddealer-dev-desktop-standby-grant` Ed25519 Transit key。该 key 与扩展后的 AppRole 策略尚未取得
+共享实例实际部署证据；不得把上面的五把既有 key 或本地测试签名器视作第三用途已经部署。
+
+在受控 OpenBao 管理流程中创建同样不可导出、不可明文备份、不可删除的独立 key，并只为现有
+`gooddealer-dev-authority` 策略新增 `transit/sign/gooddealer-dev-desktop-standby-grant` 的签名权限。
+AppRole 仍不能管理 key、读取秘密或签 audit key。把真实公开 key/version 安装到下列 `standby`
+keyring，生成并发布含三用途的 Desktop registry 后再启用新 Cloud 组合。旧两用途配置会被严格
+拒绝，不以复用 Active key、测试 key 或放宽策略作为兼容路径。验证需实际签发 Standby，并确认
+Active/Lease 公钥不能验证其签名；测试环境的本地 Ed25519 证据不等于该部署验收。
 
 ## 共享 Cloud 调用
 
@@ -129,6 +142,12 @@ base64 公钥会在部署输入边界转换为 Ed25519 SPKI，再输出 Desktop 
     "verifierKeys": [
       { "name": "gooddealer-dev-active-device-lease", "version": 1, "kid": "lease-v1", "publicKeyPem": "<Ed25519 public key>" },
       { "name": "gooddealer-dev-active-device-lease", "version": 2, "kid": "lease-v2", "publicKeyPem": "<Ed25519 public key>" }
+    ]
+  },
+  "standby": {
+    "active": { "name": "gooddealer-dev-desktop-standby-grant", "version": 1, "kid": "standby-v1" },
+    "verifierKeys": [
+      { "name": "gooddealer-dev-desktop-standby-grant", "version": 1, "kid": "standby-v1", "publicKeyPem": "<independently provisioned Ed25519 public key>" }
     ]
   }
 }

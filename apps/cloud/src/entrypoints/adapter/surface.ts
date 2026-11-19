@@ -34,6 +34,8 @@ export interface RouteAdapter<S extends Surface, TAuth, TIn, TOut> {
   readonly request: RouteSchema<TIn>;
   readonly response: RouteSchema<TOut>;
   readonly requiredScope: string | null;
+  readonly deviceRole: "active" | "active_or_standby" | null;
+  readonly authorizeDeviceRole?: (principal: TAuth, role: "active" | "active_or_standby") => Promise<boolean>;
   readonly authorize: (principal: TAuth) => boolean;
   readonly invoke: (input: TIn, principal: TAuth) => Promise<TOut | AccountRejection>;
   readonly bodyLimit?: number;
@@ -144,7 +146,8 @@ function registerRoutes<S extends Surface, TAuth>(
             ? sendTransportRejection(request, reply, 401, "UNAUTHENTICATED")
             : sendNotFound(request, reply);
         }
-        if (!route.authorize(principal)) {
+        if (!route.authorize(principal) || (route.deviceRole !== null
+          && (route.authorizeDeviceRole === undefined || !await route.authorizeDeviceRole(principal, route.deviceRole)))) {
           return sendNotFound(request, reply);
         }
 

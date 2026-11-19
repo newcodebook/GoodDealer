@@ -47,7 +47,7 @@ export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationP
 
   async status(value: unknown, principal: PublicPrincipal): Promise<DeviceSwitchResponse | null> {
     const request = deviceSwitchLookupRequestSchema.parse(value);
-    const subject = await this.#subject(principal);
+    const subject = await this.#subject(principal, true);
     return subject === null ? null : this.dependencies.requests.read(subject, request.requestId);
   }
 
@@ -64,11 +64,12 @@ export class PostgresDeviceSwitchApplication implements DeviceSwitchApplicationP
     return subject === null ? null : this.dependencies.drains.submit(subject, request.requestId, request.proof);
   }
 
-  async #subject(principal: PublicPrincipal) {
+  async #subject(principal: PublicPrincipal, allowStandby = false) {
     if (principal.clientKind !== "desktop") return null;
     const scope = await this.dependencies.workspaces.resolve(principal);
     if (scope === null) return null;
-    const deviceId = await this.dependencies.authority.resolveActiveDevice(principal, scope.workspaceId);
+    const session = await this.dependencies.authority.resolveSessionDevice(principal, scope.workspaceId);
+    const deviceId = session !== null && (allowStandby || session.role === "active") ? session.deviceId : null;
     return deviceId === null ? null : { accountId: scope.accountId, workspaceId: scope.workspaceId, deviceId };
   }
 }

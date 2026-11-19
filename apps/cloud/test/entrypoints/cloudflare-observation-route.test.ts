@@ -46,6 +46,7 @@ describe("Cloudflare observation public route", () => {
       correlationIds: () => "observation-route-correlation",
       ports: {
         ...denyingPublicApplicationPorts,
+        desktopRouteAuthority: { async authorize() { return true; } },
         cloudflareDnsObservation: { submit },
       },
     });

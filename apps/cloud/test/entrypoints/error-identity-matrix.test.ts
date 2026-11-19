@@ -388,6 +388,7 @@ describe("the observed 16-row error identity matrix", () => {
         request: boundaryEmptyRequestSchema,
         response: boundaryAcceptedResponseSchema,
         requiredScope: "admin:boundary:read",
+        deviceRole: null,
         authorize: (principal: { readonly scopes: ReadonlySet<string> }) =>
           principal.scopes.has("admin:boundary:read"),
         invoke: async () => ({ accepted: true as const }),

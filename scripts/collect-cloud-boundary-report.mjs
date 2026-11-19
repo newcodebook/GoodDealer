@@ -223,8 +223,8 @@ export function sourceDefinesSafeAccountActivationRoute(source) {
 export function sourceDefinesSafeDesktopAuthorizationRoute(source) {
   const cleanSource = withoutComments(source);
   return /from\s+["']@gooddealer\/protocol\/devices["']/.test(cleanSource)
-    && /request:\s*desktopAuthorizationGrantRequestSchema\b/.test(cleanSource)
-    && /response:\s*desktopAuthorizationGrantSchema\b/.test(cleanSource)
+    && /request:\s*desktopAuthorizationGrantRoleRequestSchema\b/.test(cleanSource)
+    && /response:\s*desktopAuthorizationGrantRoleResponseSchema\b/.test(cleanSource)
     && /path:\s*DESKTOP_AUTHORIZATION_GRANT_ROUTE\b/.test(cleanSource)
     && /DESKTOP_AUTHORIZATION_GRANT_ROUTE\s*=\s*["']\/v1\/devices\/authorization-grant["']/.test(cleanSource)
     && /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*["']desktop["']/.test(cleanSource)

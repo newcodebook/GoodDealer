@@ -2,8 +2,12 @@ use super::{
     BusinessDatabase, DesktopBusinessRuntime, DesktopLocalHost, DesktopLocalHostError,
     DesktopRuntimeState, DesktopSyncCommitGuard, DesktopSyncError, DesktopSyncRejectBatch,
     DesktopSyncRejectDisposition, DesktopSyncRunAdmission, DesktopSyncRuntime, Ordering,
-    RuntimeRestriction, current_unix_seconds, map_sync_error,
+    RuntimeRestriction, WorkspaceAuthorityKind, current_unix_seconds, map_sync_error,
 };
+
+#[cfg(test)]
+#[path = "sync_tests.rs"]
+mod tests;
 
 impl DesktopLocalHost {
     /// Reads the durable sync snapshot under the same authority gate as business reads.
@@ -15,13 +19,16 @@ impl DesktopLocalHost {
         &self,
     ) -> Result<crate::DesktopSyncSnapshotView, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
-            let source = if restriction == RuntimeRestriction::CommercialReadOnly {
-                "local_continuation"
-            } else {
-                "active_local"
+            let source = match restriction {
+                RuntimeRestriction::CommercialReadOnly => "local_continuation",
+                RuntimeRestriction::Standby => "standby_cloud",
+                _ => "active_local",
             };
-            let blocked_reason =
-                (restriction == RuntimeRestriction::CommercialReadOnly).then_some("authorization");
+            let blocked_reason = match restriction {
+                RuntimeRestriction::CommercialReadOnly => Some("authorization"),
+                RuntimeRestriction::Standby => Some("standby"),
+                _ => None,
+            };
             runtime.read_sync_snapshot(source, blocked_reason)
         })
     }
@@ -40,6 +47,53 @@ impl DesktopLocalHost {
     ) -> Result<crate::DesktopNativeCloudAdmission, DesktopLocalHostError> {
         self.begin_sync_run()
             .map(|inner| crate::DesktopNativeCloudAdmission { inner })
+    }
+
+    /// Admits a purpose-bounded Cloud read. A Standby device needs no business database to
+    /// inspect its device directory or the progress of a handoff.
+    ///
+    /// # Errors
+    ///
+    /// Rejects expired, revoked or superseded authority and continuation-only workspaces.
+    pub fn begin_native_cloud_read_run(
+        &self,
+    ) -> Result<crate::DesktopNativeCloudAdmission, DesktopLocalHostError> {
+        let operation = self
+            .operation_selection
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let authority = self
+            .authority_publication
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        if authority.restriction == RuntimeRestriction::Active {
+            drop(authority);
+            drop(operation);
+            return self.begin_native_cloud_run();
+        }
+        let current = authority
+            .authority
+            .as_ref()
+            .ok_or(DesktopLocalHostError::AuthorityRejected)?;
+        let epoch = authority.applied_authority_epoch;
+        let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
+        if authority.restriction != RuntimeRestriction::Standby
+            || current.kind != WorkspaceAuthorityKind::Standby
+            || self.transition_requested_epoch.load(Ordering::Acquire) != epoch
+            || !current.is_current_at(now)
+        {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        let inner = DesktopSyncRunAdmission::standby_authority(
+            current.workspace_id.clone(),
+            current.device_id.clone(),
+            current.lease_epoch,
+            current.trusted_time_floor,
+            current.execute_before,
+            super::hex_digest(&current.digest),
+            epoch,
+        );
+        Ok(crate::DesktopNativeCloudAdmission { inner })
     }
 
     /// Lock-free prompt cancellation check. Exact identity and final commit authorization remain
@@ -72,7 +126,75 @@ impl DesktopLocalHost {
         &self,
         admission: &crate::DesktopNativeCloudAdmission,
     ) -> Result<(), DesktopLocalHostError> {
-        self.recheck_sync_run(&admission.inner)
+        if admission.is_active() {
+            return self.recheck_sync_run(&admission.inner);
+        }
+        self.with_standby_cloud_read(admission, || Ok(()))
+    }
+
+    fn with_standby_cloud_read<T>(
+        &self,
+        admission: &crate::DesktopNativeCloudAdmission,
+        read: impl FnOnce() -> Result<T, DesktopLocalHostError>,
+    ) -> Result<T, DesktopLocalHostError> {
+        let _operation = self
+            .operation_selection
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let authority = self
+            .authority_publication
+            .lock()
+            .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+        let current = authority
+            .authority
+            .as_ref()
+            .ok_or(DesktopLocalHostError::AuthorityRejected)?;
+        let epoch = authority.applied_authority_epoch;
+        let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
+        if authority.restriction != RuntimeRestriction::Standby
+            || current.kind != WorkspaceAuthorityKind::Standby
+            || self.transition_requested_epoch.load(Ordering::Acquire) != epoch
+            || !current.is_current_at(now)
+            || !admission.inner.matches_standby_authority(
+                &current.workspace_id,
+                &current.device_id,
+                current.lease_epoch,
+                current.trusted_time_floor,
+                current.execute_before,
+                &super::hex_digest(&current.digest),
+                epoch,
+            )
+        {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        let result = read()?;
+        if self.transition_requested_epoch.load(Ordering::Acquire) != epoch {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn standby_device_switch_in_progress(
+        &self,
+        admission: &crate::DesktopNativeCloudAdmission,
+    ) -> Result<Option<String>, DesktopLocalHostError> {
+        self.with_standby_cloud_read(admission, || {
+            let mut runtime = self
+                .runtime_state
+                .lock()
+                .map_err(|_| DesktopLocalHostError::StorageRejected)?;
+            let Some(runtime) = runtime.as_mut() else {
+                return Ok(None);
+            };
+            let database = runtime.business.database_for_backup_mut();
+            if database.workspace_id() != admission.workspace_id() {
+                return Err(DesktopLocalHostError::AuthorityRejected);
+            }
+            database
+                .device_handoff_barrier()
+                .map(|barrier| barrier.map(|barrier| barrier.device_switch_request_id))
+                .map_err(super::map_host_database_error)
+        })
     }
 
     /// Rechecks the exact opaque run after a network await without exposing authority fields.
@@ -264,7 +386,8 @@ impl DesktopLocalHost {
             || self.transition_requested_epoch.load(Ordering::Acquire)
                 != authority.applied_authority_epoch
             || authority.authority.as_ref().is_none_or(|current| {
-                current_unix_seconds().map_or(true, |now| !current.is_current_at(now))
+                current.kind != WorkspaceAuthorityKind::Active
+                    || current_unix_seconds().map_or(true, |now| !current.is_current_at(now))
             })
         {
             return Err(DesktopLocalHostError::AuthorityRejected);
@@ -332,6 +455,7 @@ impl DesktopLocalHost {
         let captured_epoch = authority.applied_authority_epoch;
         let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
         if authority.restriction != RuntimeRestriction::Active
+            || current.kind != WorkspaceAuthorityKind::Active
             || self.transition_requested_epoch.load(Ordering::Acquire) != captured_epoch
             || !current.is_current_at(now)
         {

@@ -45,6 +45,7 @@ if (process.argv.includes("--print-desktop-registry")) {
   process.stdout.write(`${serializeDesktopAuthorizationVerifierRegistry({
     grantKeys: publicKeys.grant.verifierKeys,
     leaseKeys: publicKeys.lease.verifierKeys,
+    standbyKeys: publicKeys.standby.verifierKeys,
   })}\n`);
 } else {
   await startDevelopmentServer();
@@ -81,6 +82,7 @@ async function startDevelopmentServer(): Promise<void> {
     mount: publicKeys.transitMount,
     grantKey: publicKeys.grant.activeKey,
     leaseKey: publicKeys.lease.activeKey,
+    standbyKey: publicKeys.standby.activeKey,
     tokenSource,
   });
   const leaseVerifier = new TrustedActiveDeviceLeaseVerifier(
@@ -141,6 +143,7 @@ async function startDevelopmentServer(): Promise<void> {
     identity,
     activationSubjects: { async readActivationSubject() { return null; } },
     desktopAuthorizationSigner: signer,
+    desktopStandbySigner: signer,
     activeDeviceLeaseVerifier: leaseVerifier,
     desktopAccessTokens: new PostgresDesktopAccessTokenVerifier(new AccountTransactionRunner(pool)),
     commercialCheckoutCatalog: commercialProviders.checkoutCatalog,

@@ -78,6 +78,7 @@ describe("workspace sync public routes", () => {
       now: () => new Date("2026-09-14T00:00:00Z"),
       correlationIds: () => "sync-route-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate: async () => null },
         desktopAuthorization: { issue: async () => null },
         commercialCheckout: {

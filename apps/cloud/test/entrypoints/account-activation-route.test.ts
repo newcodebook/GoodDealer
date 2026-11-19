@@ -47,6 +47,7 @@ describe("account activation HTTP route", () => {
       now: () => new Date("2026-08-29T00:00:00Z"),
       correlationIds: () => "activation-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate },
         desktopAuthorization: { issue: async () => null },
         commercialCheckout: {

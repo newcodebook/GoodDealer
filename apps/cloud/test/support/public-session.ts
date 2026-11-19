@@ -8,6 +8,7 @@ import {
 } from "../../src/entrypoints/ports/public-session";
 
 export const denyingPublicApplicationPorts: PublicApplicationPorts = {
+  desktopRouteAuthority: { async authorize() { return false; } },
   accountActivation: {
     async activate() {
       return null;

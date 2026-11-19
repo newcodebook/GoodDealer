@@ -304,7 +304,6 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           [input.accountId],
         );
         if (account.rows.length !== 1) refuse();
-        const reserved = await allocationReserved(transaction);
         const held = await transaction.query<{
           lease_epoch: string;
           device_id: string;
@@ -327,9 +326,8 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
         const existing = held.rows[0];
         if (existing !== undefined && existing.device_id !== input.deviceId) return STANDBY;
         if (existing === undefined) {
-          // Login allocates before it issues a code; no holder now is Standby only if something
-          // still reserves the Lease, otherwise the login lapsed and must start again.
-          return account.rows[0]?.unblocked === false || reserved ? STANDBY : REFUSED;
+          // Eligible devices without a Lease may read even when no commercial entitlement permits allocation.
+          return STANDBY;
         }
         if (!existing.online) refuse();
         const parsed = this.dependencies.verifier.verify(existing.wire_envelope);

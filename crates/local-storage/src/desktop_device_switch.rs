@@ -179,6 +179,10 @@ impl DesktopLocalHost {
         exchange: &DesktopDeviceSwitchRequestExchange,
         response_wire: &[u8],
     ) -> Result<DesktopDeviceSwitchStart, DesktopLocalHostError> {
+        if !admission.is_active() {
+            return Err(DesktopLocalHostError::AuthorityRejected);
+        }
+        self.recheck_native_cloud(admission)?;
         decode_switch_start(
             response_wire,
             &exchange.target_device_id,
@@ -211,6 +215,9 @@ impl DesktopLocalHost {
         &self,
         admission: &DesktopNativeCloudAdmission,
     ) -> Result<Option<String>, DesktopLocalHostError> {
+        if !admission.is_active() {
+            return self.standby_device_switch_in_progress(admission);
+        }
         self.with_sync_business_write(&admission.inner, |sync, business, admission, _| {
             sync.drain_current_barrier(business.database_for_backup_mut(), admission)
         })
@@ -386,6 +393,7 @@ impl DesktopLocalHost {
         device_switch_request_id: &str,
         response_wire: &[u8],
     ) -> Result<DesktopDeviceSwitchOutcome, DesktopLocalHostError> {
+        self.recheck_native_cloud(admission)?;
         decode_switch_response(
             response_wire,
             device_switch_request_id,
@@ -393,8 +401,8 @@ impl DesktopLocalHost {
         )
     }
 
-    /// Reopens local writes after `device_switch_request_id` was cancelled or failed, or after its
-    /// handoff completed.
+    /// Reopens local writes after `device_switch_request_id` was cancelled or failed while this
+    /// device still holds Active authority. A completed handoff never reopens source writes.
     ///
     /// # Errors
     ///

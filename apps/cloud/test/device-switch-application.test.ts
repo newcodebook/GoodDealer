@@ -22,7 +22,7 @@ function fixture(options: { device?: string | null; workspace?: typeof scope | n
   const drains = { submit: vi.fn(async () => view) };
   const application = new PostgresDeviceSwitchApplication({
     workspaces: { resolve: vi.fn(async () => (options.workspace === undefined ? scope : options.workspace)) },
-    authority: { resolveActiveDevice: vi.fn(async () => (options.device === undefined ? "device-old" : options.device)) },
+    authority: { resolveSessionDevice: vi.fn(async () => options.device === null ? null : ({ deviceId: options.device ?? "device-old", role: "active" as const })), resolveActiveDevice: vi.fn(async () => (options.device === undefined ? "device-old" : options.device)) },
     requests,
     drains,
   });

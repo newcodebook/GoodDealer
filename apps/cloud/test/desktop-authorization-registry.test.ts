@@ -16,13 +16,24 @@ function signingKey(kid: string, type: "ed25519" | "rsa" = "ed25519") {
 }
 
 describe("Desktop authorization verifier registry", () => {
+  it("rejects a Standby key reusing an Active purpose's ID or material", () => {
+    const grant = signingKey("grant-v3");
+    const lease = signingKey("lease-v1");
+    for (const active of [grant, lease]) {
+      expect(() => createDesktopAuthorizationVerifierRegistry({ grantKeys: [grant], leaseKeys: [lease], standbyKeys: [{ ...signingKey("standby-v1"), kid: active.kid }] })).toThrow("IDs must be purpose-separated");
+      expect(() => createDesktopAuthorizationVerifierRegistry({ grantKeys: [grant], leaseKeys: [lease], standbyKeys: [{ ...active, kid: "standby-v1" }] })).toThrow("public keys must be purpose-separated");
+    }
+  });
+
   it("converts purpose-separated Ed25519 PEM keys into the strict Desktop registry", () => {
     const oldGrantKey = signingKey("grant-key-v2");
     const grantKey = signingKey("grant-key-v3");
     const oldLeaseKey = signingKey("lease-key-v4");
     const leaseKey = signingKey("lease-key-v5");
 
+    const standbyKey = signingKey("standby-key-v1");
     const input = {
+      standbyKeys: [standbyKey],
       grantKeys: [oldGrantKey, grantKey],
       leaseKeys: [oldLeaseKey, leaseKey],
     };
@@ -43,6 +54,7 @@ describe("Desktop authorization verifier registry", () => {
           keyId: "lease-key-v5",
           publicKey: leaseKey.raw.toString("base64url"),
         },
+        { purpose: "standby_grant_v1", keyId: standbyKey.kid, publicKey: standbyKey.raw.toString("base64url") },
       ],
     });
     expect(JSON.parse(serializeDesktopAuthorizationVerifierRegistry(input))).toEqual(registry);
@@ -52,21 +64,27 @@ describe("Desktop authorization verifier registry", () => {
     const grantKey = signingKey("grant-key-v1");
     const leaseKey = signingKey("lease-key-v1");
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [signingKey("rsa-key", "rsa")], leaseKeys: [leaseKey],
     })).toThrow("must be Ed25519");
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [grantKey], leaseKeys: [{ ...leaseKey, kid: grantKey.kid }],
     })).toThrow("IDs must be purpose-separated");
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [grantKey], leaseKeys: [{ ...grantKey, kid: leaseKey.kid }],
     })).toThrow("public keys must be purpose-separated");
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [{ ...grantKey, kid: "bad key" }], leaseKeys: [leaseKey],
     })).toThrow();
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [grantKey, grantKey], leaseKeys: [leaseKey],
     })).toThrow("duplicated");
     expect(() => createDesktopAuthorizationVerifierRegistry({
+      standbyKeys: [signingKey("standby-test")],
       grantKeys: [], leaseKeys: [leaseKey],
     })).toThrow("invalid");
   });

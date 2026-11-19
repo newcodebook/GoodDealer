@@ -43,6 +43,16 @@ describe("device directory customer journey", () => {
     await render(port);
     expect(container.querySelector("input")?.value).toBe("Studio");
   });
+  it("reads and refreshes the Standby directory without exposing a name mutation", async () => {
+    const standby = view();
+    const port = { read: vi.fn(async () => standby), reportSelf: vi.fn() };
+    await act(async () => root.render(<DeviceDirectoryPanel locale="en-US" port={port} readOnly />));
+    expect(container.textContent).toContain("Desk");
+    expect(container.querySelector("form")).toBeNull();
+    await refresh();
+    expect(port.read).toHaveBeenCalledTimes(2);
+    expect(port.reportSelf).not.toHaveBeenCalled();
+  });
   it("requires reconciliation after an unknown save result instead of repeating the write", async () => {
     let stored = view();
     const port = { read: vi.fn(async () => stored), reportSelf: vi.fn(async (intent) => { stored = view(intent.displayName); throw new Error("private transport data"); }) } satisfies DeviceDirectorySettingsPort;

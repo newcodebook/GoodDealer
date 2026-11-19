@@ -10,6 +10,12 @@ use base64::Engine as _;
 use std::io::Write as _;
 use tempfile::TempDir;
 
+fn active_role_wire(grant: &[u8]) -> Vec<u8> {
+    let grant: serde_json::Value = serde_json::from_slice(grant).unwrap();
+    serde_json::to_vec(&serde_json::json!({"schemaVersion": 4, "role": "active", "grant": grant}))
+        .unwrap()
+}
+
 const OPERATION_ID: &str = "operation-opaque-0001";
 
 #[test]
@@ -286,7 +292,7 @@ fn activate_recovered_host(
         panic!("fresh Grant verification failed for {name}/{boundary:?}: {error:?}")
     });
     host.authority_verifier = Some(verifier);
-    host.activate_authorization_grant(&signed_wire)
+    host.activate_authorization_grant(&active_role_wire(&signed_wire))
         .unwrap_or_else(|error| panic!("fresh Grant failed for {name}/{boundary:?}: {error:?}"));
     assert_eq!(
         host.business_status().state,
@@ -515,7 +521,7 @@ fn activate_recovered_host_and_assert_empty_business(host: &mut DesktopLocalHost
     )
     .unwrap();
     host.authority_verifier = Some(verifier);
-    host.activate_authorization_grant(&signed_wire)
+    host.activate_authorization_grant(&active_role_wire(&signed_wire))
         .unwrap_or_else(|error| panic!("fresh Grant failed for {name}: {error:?}"));
     assert_eq!(
         host.business_status().state,
@@ -1864,7 +1870,7 @@ fn quarantined_restart_retains_exclusive_process_lock_and_rejects_fresh_grant() 
     quarantined.authority_verifier = Some(verifier);
     assert!(
         quarantined
-            .activate_authorization_grant(&signed_wire)
+            .activate_authorization_grant(&active_role_wire(&signed_wire))
             .is_err()
     );
     assert_eq!(
@@ -1922,7 +1928,7 @@ fn hostile_quarantine_concurrently_rejects_grant_read_sync_and_mutation_without_
     let grant_barrier = std::sync::Arc::clone(&barrier);
     let grant = std::thread::spawn(move || {
         grant_barrier.wait();
-        grant_host.activate_authorization_grant(&signed_wire)
+        grant_host.activate_authorization_grant(&active_role_wire(&signed_wire))
     });
     let read_host = std::sync::Arc::clone(&host);
     let read_barrier = std::sync::Arc::clone(&barrier);
@@ -2084,7 +2090,7 @@ fn fresh_grant_read_and_sync_admission_linearize_after_recovery() {
     let grant_barrier = std::sync::Arc::clone(&barrier);
     let grant = std::thread::spawn(move || {
         grant_barrier.wait();
-        grant_host.activate_authorization_grant(&signed_wire)
+        grant_host.activate_authorization_grant(&active_role_wire(&signed_wire))
     });
     let read_host = std::sync::Arc::clone(&host);
     let read_barrier = std::sync::Arc::clone(&barrier);
@@ -3645,7 +3651,7 @@ fn valid_signed_incompatible_replacement_fails_closed_and_clears_all_runtime_sta
     let before = host.transition_requested_epoch.load(Ordering::Acquire);
 
     assert_eq!(
-        host.activate_authorization_grant(&signed_wire),
+        host.activate_authorization_grant(&active_role_wire(&signed_wire)),
         Err(DesktopLocalHostError::AuthorityRejected)
     );
 

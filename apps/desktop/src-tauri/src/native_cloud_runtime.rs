@@ -519,6 +519,13 @@ async fn run_push(
     if cancel_fence.is_cancelled() {
         return PushCycleResult::new(SyncStageOutcome::NotAttempted, None);
     }
+    let role_host = Arc::clone(&host);
+    if matches!(tokio::task::spawn_blocking(move || role_host.begin_native_cloud_read_run()).await,
+        Ok(Ok(admission)) if !admission.is_active())
+    {
+        // Standby leaves the Outbox untouched; a role refresh cannot restart old-device work.
+        return PushCycleResult::new(SyncStageOutcome::NotAttempted, None);
+    }
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
         let admission = prepared_host.begin_native_cloud_run()?;
@@ -721,7 +728,7 @@ async fn run_pull(
     }
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
-        let admission = prepared_host.begin_native_cloud_run()?;
+        let admission = prepared_host.begin_native_cloud_read_run()?;
         let exchange = prepared_host.prepare_native_sync_pull(&admission)?;
         Ok::<_, gooddealer_local_storage::DesktopLocalHostError>((admission, exchange))
     })
@@ -776,7 +783,7 @@ async fn run_checkpoint(
     }
     let prepared_host = Arc::clone(&host);
     let prepared = tokio::task::spawn_blocking(move || {
-        let admission = prepared_host.begin_native_cloud_run()?;
+        let admission = prepared_host.begin_native_cloud_read_run()?;
         if !prepared_host.native_checkpoint_due(&admission)? {
             return Ok(None);
         }

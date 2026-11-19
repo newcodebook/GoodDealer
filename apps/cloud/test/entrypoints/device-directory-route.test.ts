@@ -34,6 +34,7 @@ describe("device directory public routes (ADR-0032 S3a)", () => {
       now: () => new Date("2026-11-18T02:00:00Z"),
       correlationIds: () => "devices-route-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate: async () => null },
         desktopAuthorization: { issue: async () => null },
         commercialCheckout: {

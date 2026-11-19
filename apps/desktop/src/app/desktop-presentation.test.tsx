@@ -77,6 +77,13 @@ describe("desktop presentation adjudication", () => {
     expect(adjudicateDesktopPresentation(false, required, "authenticated")).toEqual({ view: "sign_in", signIn: "establishing" });
   });
 
+  it("shows a bound Standby without a replica without fabricating business projections", () => {
+    const empty = publication("standby_awaiting_replica", [], { portfolio: null, conflicts: null, sync: null });
+    expect(adjudicateDesktopPresentation(false, empty, "authenticated")).toEqual({ view: "standby_awaiting_replica" });
+    expect(adjudicateDesktopPresentation(false, { ...empty, portfolio }, "authenticated")).toEqual({ view: "host_unavailable" });
+    expect(adjudicateDesktopPresentation(false, { ...empty, status: { ...empty.status, capabilities: ["local:read"] } }, "authenticated")).toEqual({ view: "host_unavailable" });
+  });
+
   it("keeps locked states route-free", () => {
     expect(adjudicateDesktopPresentation(false, publication("security_locked", []), "authenticated"))
       .toEqual({ view: "locked", reason: "security_locked" });

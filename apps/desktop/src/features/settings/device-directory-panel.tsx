@@ -9,7 +9,7 @@ type DirectoryState = { readonly kind: "loading" | "failed" | "unknown" }
   | { readonly kind: "ready" | "saving"; readonly view: DeviceDirectoryView; readonly saved: boolean };
 
 /** Device metadata has no execution affordances: only Cloud's verified list and this device's name. */
-export function DeviceDirectoryPanel({ locale, port }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort }) {
+export function DeviceDirectoryPanel({ locale, port, readOnly = false }: { readonly locale: Locale; readonly port: DeviceDirectorySettingsPort; readonly readOnly?: boolean }) {
   const copy = getPresentationCopy(locale, "settings");
   const [state, setState] = useState<DirectoryState>({ kind: "loading" });
   const [name, setName] = useState("");
@@ -30,7 +30,7 @@ export function DeviceDirectoryPanel({ locale, port }: { readonly locale: Locale
   }, [port, attempt]);
 
   const save = () => {
-    if (state.kind !== "ready") return;
+    if (readOnly || state.kind !== "ready" || !state.view.devices.some((device) => device.currentDevice && device.role === "active")) return;
     const intent = deviceSelfNameIntentSchema.safeParse({ schemaVersion: 1, displayName: name });
     if (!intent.success) { setInvalid(true); document.getElementById(inputId)?.focus(); return; }
     const ticket = ++request.current;
@@ -59,7 +59,7 @@ export function DeviceDirectoryPanel({ locale, port }: { readonly locale: Locale
           <Badge>{device.status === "removed" ? copy.deviceRemoved : device.role === "active" ? copy.deviceActive : device.role === "standby" ? copy.deviceStandby : copy.deviceNotAuthorized}</Badge>
         </li>)}
       </ul>
-      <form aria-label={copy.deviceName} onSubmit={(event) => { event.preventDefault(); save(); }}>
+      {!readOnly && state.view.devices.some((device) => device.currentDevice && device.role === "active") ? <form aria-label={copy.deviceName} onSubmit={(event) => { event.preventDefault(); save(); }}>
         <label htmlFor={inputId}>{copy.deviceName}</label>
         <p id={`${inputId}-help`} className="gd-t-meta">{copy.deviceNameHelp}</p>
         {/* HTML counts UTF-16 units; the strict schema below counts at most 64 Unicode code points. */}
@@ -69,7 +69,7 @@ export function DeviceDirectoryPanel({ locale, port }: { readonly locale: Locale
         {invalid ? <p id={`${inputId}-error`} role="alert">{copy.deviceNameInvalid}</p> : null}
         <Button type="submit" disabled={state.kind === "saving"}>{state.kind === "saving" ? copy.deviceSaving : copy.saveDeviceName}</Button>
         <p role="status">{state.saved ? copy.deviceSaved : ""}</p>
-      </form>
+      </form> : null}
     </> : null}
   </Panel>;
 }

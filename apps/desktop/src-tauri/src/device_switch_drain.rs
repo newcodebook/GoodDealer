@@ -73,6 +73,8 @@ pub(crate) trait SwitchHost: Send + Sync + 'static {
     type Draft: Send + 'static;
 
     fn admit(&self) -> Result<Self::Admission, DesktopLocalHostError>;
+    fn admit_read(&self) -> Result<Self::Admission, DesktopLocalHostError>;
+    fn is_active(admission: &Self::Admission) -> bool;
     fn prepare_request(target_device_id: &str) -> Result<Self::Exchange, DesktopLocalHostError>;
     fn exchange_body(exchange: &Self::Exchange) -> Vec<u8>;
     fn complete_request(
@@ -277,7 +279,7 @@ where
         self.lookup(DeviceSwitchExchange::Cancel).await
     }
 
-    /// Reads Cloud's state of this device's open switch, reopening writes if Cloud ended it.
+    /// Reads the open switch; only an Active device may reopen writes when Cloud ends it.
     pub(crate) async fn status(&self) -> Result<DeviceSwitchStep, DeviceSwitchError> {
         self.lookup(DeviceSwitchExchange::Status).await
     }
@@ -287,7 +289,11 @@ where
         exchange: DeviceSwitchExchange,
     ) -> Result<DeviceSwitchStep, DeviceSwitchError> {
         let _serialized = self.unanswered.lock().await;
-        let admission = self.admit().await?;
+        let admission = if exchange == DeviceSwitchExchange::Status {
+            self.admit_read().await?
+        } else {
+            self.admit().await?
+        };
         let (admission, open) = self.run(admission, H::in_progress).await?;
         let Some(id) = open else {
             return Ok(DeviceSwitchStep::Idle);
@@ -388,7 +394,7 @@ where
             Ok(match host.complete_switch(admission, &id, wire)? {
                 DesktopDeviceSwitchOutcome::Accepted(
                     DesktopDeviceSwitchStatus::Cancelled | DesktopDeviceSwitchStatus::Failed,
-                ) => {
+                ) if H::is_active(admission) => {
                     host.clear_barrier(admission, &id)?;
                     DeviceSwitchStep::WritesReopened
                 }
@@ -405,6 +411,17 @@ where
         }
         let host = Arc::clone(&self.host);
         tokio::task::spawn_blocking(move || host.admit())
+            .await
+            .map_err(|_| DeviceSwitchError::Retryable)?
+            .map_err(host_error)
+    }
+
+    async fn admit_read(&self) -> Result<H::Admission, DeviceSwitchError> {
+        if self.fence.is_cancelled() {
+            return Err(DeviceSwitchError::Cancelled);
+        }
+        let host = Arc::clone(&self.host);
+        tokio::task::spawn_blocking(move || host.admit_read())
             .await
             .map_err(|_| DeviceSwitchError::Retryable)?
             .map_err(host_error)
@@ -487,6 +504,14 @@ impl SwitchHost for DesktopLocalHost {
 
     fn admit(&self) -> Result<Self::Admission, DesktopLocalHostError> {
         self.begin_native_cloud_run()
+    }
+
+    fn admit_read(&self) -> Result<Self::Admission, DesktopLocalHostError> {
+        self.begin_native_cloud_read_run()
+    }
+
+    fn is_active(admission: &Self::Admission) -> bool {
+        admission.is_active()
     }
 
     fn prepare_request(target_device_id: &str) -> Result<Self::Exchange, DesktopLocalHostError> {
@@ -628,10 +653,13 @@ mod tests {
 
     use super::*;
 
-    struct FakeAdmission;
+    struct FakeAdmission {
+        active: bool,
+    }
 
     #[derive(Default)]
     struct HostState {
+        standby: bool,
         barrier: Option<String>,
         /// A barrier from an earlier Lease epoch: invisible to `in_progress`, but it refuses a new one.
         left_over: Option<String>,
@@ -691,7 +719,20 @@ mod tests {
         type Draft = Vec<u8>;
 
         fn admit(&self) -> Result<FakeAdmission, DesktopLocalHostError> {
-            Ok(FakeAdmission)
+            if self.state.lock().unwrap().standby {
+                return Err(DesktopLocalHostError::AuthorityRejected);
+            }
+            Ok(FakeAdmission { active: true })
+        }
+
+        fn admit_read(&self) -> Result<FakeAdmission, DesktopLocalHostError> {
+            Ok(FakeAdmission {
+                active: !self.state.lock().unwrap().standby,
+            })
+        }
+
+        fn is_active(admission: &FakeAdmission) -> bool {
+            admission.active
         }
 
         fn prepare_request(target: &str) -> Result<Self::Exchange, DesktopLocalHostError> {
@@ -966,6 +1007,61 @@ mod tests {
     const DRAIN: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Drain);
     const CANCEL: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Cancel);
     const STATUS: SwitchCloudExchange = SwitchCloudExchange::Switch(DeviceSwitchExchange::Status);
+
+    #[tokio::test]
+    async fn standby_reads_handoff_status_without_reopening_writes_or_mutating_cloud() {
+        for (wire, status) in [
+            (
+                "accepted:bootstrapping:switch-1",
+                DesktopDeviceSwitchStatus::Bootstrapping,
+            ),
+            (
+                "accepted:completed:switch-1",
+                DesktopDeviceSwitchStatus::Completed,
+            ),
+            (
+                "accepted:failed:switch-1",
+                DesktopDeviceSwitchStatus::Failed,
+            ),
+            (
+                "accepted:cancelled:switch-1",
+                DesktopDeviceSwitchStatus::Cancelled,
+            ),
+        ] {
+            let harness = harness(FakeSigner::default());
+            {
+                let mut state = harness.host.state.lock().unwrap();
+                state.standby = true;
+                state.barrier = Some("switch-1".to_owned());
+            }
+            harness.cloud.answer(Ok(wire.as_bytes()));
+            assert_eq!(
+                harness.coordinator.status().await,
+                Ok(DeviceSwitchStep::Switch(status))
+            );
+            assert_eq!(
+                harness.coordinator.cancel().await,
+                Err(DeviceSwitchError::AuthorizationRequired)
+            );
+            assert_eq!(
+                harness.coordinator.advance().await,
+                Err(DeviceSwitchError::AuthorizationRequired)
+            );
+            assert_eq!(
+                harness.coordinator.request("device-target").await,
+                Err(DeviceSwitchError::AuthorizationRequired)
+            );
+            let state = harness.host.state.lock().unwrap();
+            assert_eq!(state.barrier.as_deref(), Some("switch-1"));
+            assert!(state.cleared.is_empty());
+            assert!(state.prepared_proofs.is_empty());
+            assert!(harness.signer.signed.lock().unwrap().is_empty());
+            assert_eq!(
+                harness.cloud.sent(),
+                vec![(STATUS, "lookup:switch-1".to_owned())]
+            );
+        }
+    }
 
     #[tokio::test]
     async fn a_switch_closes_writes_behind_cloud_s_id_and_signs_only_once_confirmed() {

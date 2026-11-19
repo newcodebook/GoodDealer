@@ -16,7 +16,7 @@ export interface PresentationCopyInventoryEntry {
  */
 export const presentationCopyInventory = {
   // The shell also owns the kit's shared controls (controls.jsx), such as pagination labels.
-  shell: { source: ["Shell.jsx", "controls.jsx"], typedBoundary: "DesktopShellViewModel", localeKeyCount: 74, exactBrandCopyKeys: 30 },
+  shell: { source: ["Shell.jsx", "controls.jsx"], typedBoundary: "DesktopShellViewModel", localeKeyCount: 77, exactBrandCopyKeys: 30 },
   assetLibrary: { source: "AssetLibrary.jsx", typedBoundary: "AssetLibraryViewModel", localeKeyCount: 58, exactBrandCopyKeys: 38 },
   batchOperation: { source: "BatchPreview.jsx", typedBoundary: "BatchOperationViewModel", localeKeyCount: 145, exactBrandCopyKeys: 79 },
   conflictCenter: { source: "ConflictCenter.jsx", typedBoundary: "ConflictCenterViewModel", localeKeyCount: 28, exactBrandCopyKeys: 19 },
@@ -32,6 +32,6 @@ export const presentationCopyInventory = {
 } as const satisfies Record<DesktopPresentation, PresentationCopyInventoryEntry>;
 
 export const reconciledPresentationCount = 13 as const;
-export const reconciledLocaleKeyCount = 949 as const;
+export const reconciledLocaleKeyCount = 952 as const;
 export const reconciledExactBrandCopyKeyCount = 504 as const;
 export const reconciledExactEnUSBrandCopyKeyCount = 8 as const;

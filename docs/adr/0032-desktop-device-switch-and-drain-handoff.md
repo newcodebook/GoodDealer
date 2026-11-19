@@ -96,7 +96,8 @@ Standby 可调用的路由是封闭清单：
 | `POST /v1/workspace-sync/mutations/pull` | 只读取同步副本，不写入业务数据；按会话设备打开并推进 reader cursor（Cloud 状态写入，见下文） |
 | `POST /v1/workspace-sync/checkpoint` | 只读 |
 | `POST /v1/workspace-sync/rebootstrap` | 只读，返回重建计划 |
-| 设备列表与本设备读取（`/v1/devices/list`、`/v1/devices/self`） | 只读；只要求已绑定的 Desktop 会话 |
+| 设备列表（`/v1/devices/list`） | 只读；只要求已绑定的 Desktop 会话 |
+| 本设备名称上报（`/v1/devices/self`） | 属于设备元数据写入，要求 Active；Standby 通过列表读取本设备，不显示改名入口 |
 | `POST /v1/device-switch/requests/status` | 只对本设备为来源或目标的切换可见（现有规则） |
 | `POST /v1/device-switch/requests` | 只接受 `mode: "forced"`，且 `toDeviceId` 必须等于会话设备；须满足 S5 节的重新认证 |
 | `POST /v1/device-switch/requests/cancel` | 只接受取消本设备为目标、仍处于 `waiting_expiry` 的强制接管 |
@@ -133,7 +134,7 @@ rebootstrap 计划重建——但长期不在线或权益已过期的 Standby �
   `GOODDEALER-DESKTOP-STANDBY-GRANT-V1`；
 - `kid`、`issuedAt`、`expiresAt`（至多 900 秒，与 access token 同长）、`accountId`、`deviceId`、`accountSecurityEpoch`、
   `workspace: { workspaceId, kind: "personal_default" }`；
-- `leaseEpochFloor`：签发事务中读到的 `highest_allocated_lease_epoch`（安全非负整数，含 `pending` 分配）；
+- `leaseEpochFloor`：通常为签发事务中读到的 `highest_allocated_lease_epoch`（安全非负整数，含 `pending` 分配）。唯一例外是**当前有效引导工作流的精确目标设备**：Cloud 在同一锁定事务确认唯一 pending 分配、`pending = highest > current`、工作区与账户一致、工作流仍为 bootstrapping、当前 security epoch、目标有效绑定与精确签名密钥、未消费且未过期的同工作流引导能力后，签发 `pending - 1`。该目标稍后才能接受预留 epoch 的 Active Lease；其余设备仍使用 highest，任何不一致状态拒绝签发。客户端不能选择此例外；
 - `scopes: ["workspace:read"]`（固定元组）；`signature`。
 - 没有 `activeDeviceLease`、`commercialAuthority` 或任何执行能力字段；strict 解析使带有这些键的对象整体被拒绝。
 
@@ -144,8 +145,7 @@ Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 
 **存储**：Cloud 不为角色或 Grant 新增持久字段或表；重新认证窗口单独按 S5 节存储。会话行不记录角色；Standby Grant 与现有 Grant 一样签发后不落库，签发事务对
 安全状态、会话与刷新族、默认工作区、设备绑定与签名密钥、`device_account_states` 加锁读取，签名返回后以
-`clock_timestamp()` 复核这些状态与“本设备仍不持有 Lease”。Host 把已接受的 Standby 授权与 `leaseEpochFloor` 持久化在
-现有授权地板旁（`minimum_lease_epoch`），作为单调地板。
+`clock_timestamp()` 复核这些状态与“本设备仍不持有 Lease”。Host 在 local-storage 的 Native custody 中持久化安装、账户、工作区、设备绑定及 security epoch、issuedAt、最大 Lease epoch、Standby floor 和最近商业 revision/digest/deadline 地板；它们不属于业务库或业务备份。持久写入和读回成功后才在原 publication mutex 内发布角色。首次建立标记与地板记录任一缺失、损坏或绑定不符均失败关闭，不能把已建立记录丢失当成首次授权；整个 OS 托管区被一起回滚的抵抗能力需要平台资格单独取证。Standby 降级不得遗忘商业地板。
 
 **负向情形**：
 
@@ -169,8 +169,8 @@ Grant v3、Lease 与 Standby Grant 三个用途的公钥互不通用。
 - **Host 是唯一来源**。`NativeCloudSession` 取得 v4 响应后，`activate_authorization_grant` 按 `role` 分别验证：Active 路径
   不变；Standby 路径以 Standby 用途公钥验签，核对账户、设备与本机绑定、`accountSecurityEpoch` 地板与 S3 节的单调规则，
   发布 `Standby { workspaceId, leaseEpochFloor, expiresAt }` 授权。
-- `DesktopLocalBusinessState` 增加 `StandbyReadOnly`，序列化为 Renderer 已接受的 `standby_read_only`，能力固定
-  `["local:read"]`；Host 不为 Standby 发布写入准入，所有本地业务写入命令在 Host 内拒绝。Standby 授权过期后与现有
+- 有本地副本时 `DesktopLocalBusinessState` 为 `StandbyReadOnly`，序列化为 `standby_read_only`，能力固定 `["local:read"]`；没有副本时为 `StandbyAwaitingReplica`（`standby_awaiting_replica`），能力为空。后者只提供设备目录和刷新授权入口，不调用业务读取、不创建空业务库冒充恢复成功。Host 的 `Standby` 授权状态独立于副本是否存在；只读 Cloud 请求可持有不依赖业务库的精确角色准入。
+  Host 不为 Standby 发布执行准入，所有本地业务写入命令在 Host 内拒绝。Standby 授权过期后与现有
   授权过期相同处理：可锁定入口，不改写本地库（ADR-0032）。
 - **Host 数据面的角色表**：`DataPlaneRoute` 增加与 Cloud S2 节同一集合的 Standby 允许表；Standby 时其余路由在发出
   请求前本地拒绝（不联网）。Cloud 的拒绝仍是最终边界，本地表只是失败关闭的早拒绝，两侧由同一金清单测试钉住。

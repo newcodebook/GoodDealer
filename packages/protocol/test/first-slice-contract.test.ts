@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  desktopAuthorizationGrantRequestSchema,
+  desktopAuthorizationGrantRoleRequestSchema,
   desktopAuthorizationGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
 } from "../src/devices/index";
@@ -74,8 +74,8 @@ const mutation = {
 
 describe("first-slice shared transport contract", () => {
   it("binds the personal default workspace to a strictly parsed active-device grant", () => {
-    expect(desktopAuthorizationGrantRequestSchema.parse({ schemaVersion: 3 })).toEqual({
-      schemaVersion: 3,
+    expect(desktopAuthorizationGrantRoleRequestSchema.parse({ schemaVersion: 4 })).toEqual({
+      schemaVersion: 4,
     });
     expect(desktopAuthorizationGrantSchema.parse(desktopGrant))
       .toMatchObject({ workspace: { workspaceId: "workspace-local" } });
@@ -97,12 +97,12 @@ describe("first-slice shared transport contract", () => {
   });
 
   it.each([
-    { schemaVersion: 3, accountId: "account-1" },
-    { schemaVersion: 3, workspaceId: "workspace-1" },
-    { schemaVersion: 3, deviceId: "device-1" },
-    { schemaVersion: 3, credentialRef: "secret" },
+    { schemaVersion: 4, accountId: "account-1" },
+    { schemaVersion: 4, workspaceId: "workspace-1" },
+    { schemaVersion: 4, deviceId: "device-1" },
+    { schemaVersion: 4, credentialRef: "secret" },
   ])("rejects caller-selected authorization scope %#", (value) => {
-    expect(desktopAuthorizationGrantRequestSchema.safeParse(value).success).toBe(false);
+    expect(desktopAuthorizationGrantRoleRequestSchema.safeParse(value).success).toBe(false);
   });
 
   it("freezes tenant-neutral push, pull, checkpoint, and recovery operation names", () => {

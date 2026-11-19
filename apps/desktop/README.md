@@ -180,7 +180,7 @@ Account, subscription/entitlement, device binding, and ActiveDeviceLease/Epoch r
 plane facts. Invalid authorization keeps the runtime locked. A valid cached grant may permit local
 business work only for its defined offline window; Desktop cannot extend that window itself.
 
-The Host strictly consumes signed `DesktopAuthorizationGrant` v3 and separately verifies its nested
+The Host strictly consumes the v4 role exchange. Active carries signed `DesktopAuthorizationGrant` v3 and the Host separately verifies its nested
 ActiveDeviceLease. The outer purpose-specific signature covers Workspace, exact read/mutate scopes,
 window and the complete signed Lease; the nested signature covers account, device, Account Security
 Epoch and Lease Epoch. Parsing never proves either signature. DomainAsset writes recheck the trusted
@@ -197,11 +197,14 @@ fsyncs the directory, so a crash preserves either the complete old marker or the
 Successful verified activation clears both barriers in order.
 
 After each code exchange or refresh, Native uses the memory-only Bearer access token to POST the
-fixed `{ "schemaVersion": 3 }` request to `/v1/devices/authorization-grant`, accepts at most 16 KiB
-of JSON, verifies both signatures, enforces device/account and monotonic Epoch floors, persists the
-verified binding, and only then activates the same `DesktopLocalHost` aggregate. Production builds use the
+fixed `{ "schemaVersion": 4 }` request to `/v1/devices/authorization-grant`, accepts at most 16 KiB
+of JSON, parses the strict role envelope, verifies the role-specific signatures and enforces device/account
+and monotonic security/Lease floors before installing authority in the same `DesktopLocalHost` aggregate.
+Active has both Grant and Lease signatures; Standby has its independent read-only signature and never
+activates execution. Production builds use the
 embedded `https://api.gooddealer.com/` origin and must embed a strict `GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON` registry containing
-one to eight globally purpose-separated keys for both `grant_v3` and `active_device_lease_v1`.
+one to eight globally purpose-separated keys for each of `grant_v3`, `active_device_lease_v1` and
+`standby_grant_v1`. All three purpose rings are mandatory.
 Duplicate key IDs or public material fail closed. Rotation publishes an overlapping registry
 in a signed/notarized Desktop release before Cloud changes the OpenBao signing version; removal from
 the registry is revocation by omission.

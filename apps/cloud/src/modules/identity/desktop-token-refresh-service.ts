@@ -102,9 +102,9 @@ export class DesktopTokenRefreshService {
     } finally {
       transactionCredential.fill(0);
     }
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
-    // Desktop cannot activate a Grant for would only fail later as a credential error.
-    if (leased.outcome !== "active") return { rotated: false, reason: "authorization_unavailable" };
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    if (leased.outcome === "refused") return { rotated: false, reason: "authorization_unavailable" };
     const generation = prepared.preparation.expectedGeneration + 1;
     const access = deriveDesktopRefreshResultToken(
       "access", identified.accountId, input.refreshToken, requestId.data, generation,

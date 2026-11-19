@@ -5,8 +5,8 @@ import {
 } from "@gooddealer/protocol/account";
 import {
   type ActiveDeviceLeaseEnvelope,
-  type DesktopAuthorizationGrant,
-  type DesktopAuthorizationGrantRequest,
+  type DesktopAuthorizationGrantRoleResponse,
+  type DesktopAuthorizationGrantRoleRequest,
 } from "@gooddealer/protocol/devices";
 
 import type {
@@ -16,6 +16,8 @@ import type {
 import type { DesktopAuthorizationApplicationPort } from "../../entrypoints/ports/desktop-authorization";
 import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
 import type { LockedDefaultWorkspaceAuthorityPort } from "../workspace/default-workspace/index";
+import { readDesktopSessionAuthority } from "./desktop-session-authority";
+import { DesktopStandbyGrantIssuer } from "./standby-grant-issuer";
 import { DesktopAuthorizationGrantIssuer } from "./authorization-grant-issuer";
 import type { ActiveDeviceLeaseVerifier } from "./active-device-lease-verifier";
 
@@ -32,12 +34,13 @@ implements DesktopAuthorizationApplicationPort {
     private readonly workspaces: LockedDefaultWorkspaceAuthorityPort,
     private readonly issuer: DesktopAuthorizationGrantIssuer,
     private readonly leaseVerifier: ActiveDeviceLeaseVerifier,
+    private readonly standbyIssuer: DesktopStandbyGrantIssuer,
   ) {}
 
   async issue(
-    _request: DesktopAuthorizationGrantRequest,
+    _request: DesktopAuthorizationGrantRoleRequest,
     principal: PublicPrincipal,
-  ): Promise<DesktopAuthorizationGrant | null> {
+  ): Promise<DesktopAuthorizationGrantRoleResponse | null> {
     if (principal.clientKind !== "desktop") return null;
     const execute = async (transaction: AccountTransaction) => {
       // Global order: account security -> session/family -> default Workspace -> device/Lease.
@@ -45,6 +48,28 @@ implements DesktopAuthorizationApplicationPort {
       if (identity === null) return null;
       const scope = await this.workspaces.resolveLocked(transaction);
       if (scope === null || scope.accountId !== principal.accountId) return null;
+      const session = await readDesktopSessionAuthority(transaction, principal, scope.workspaceId);
+      if (session === null) return null;
+      if (session.role === "standby") {
+        const clock = await transaction.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+        const now = clock.rows[0]?.now;
+        if (!(now instanceof Date)) return null;
+        const grant = await this.standbyIssuer.issue({
+          schemaVersion: 1, typ: "gd.desktop-standby-grant.v1", iss: "https://accounts.gooddealer.com",
+          aud: "gooddealer-desktop/standby", issuedAt: canonicalSecond(now),
+          expiresAt: canonicalSecond(new Date(now.getTime() + 900_000)),
+          accountId: principal.accountId, deviceId: session.deviceId,
+          accountSecurityEpoch: session.accountSecurityEpoch, leaseEpochFloor: session.leaseEpochFloor,
+          workspace: { workspaceId: scope.workspaceId, kind: "personal_default" }, scopes: ["workspace:read"],
+        });
+        if (grant === null) return null;
+        const current = await readDesktopSessionAuthority(transaction, principal, scope.workspaceId);
+        const time = await transaction.query<{ live: boolean }>("SELECT clock_timestamp() < $1::timestamptz AS live", [grant.expiresAt]);
+        if (current === null || current.role !== "standby" || current.deviceId !== session.deviceId
+          || current.accountSecurityEpoch !== session.accountSecurityEpoch || current.leaseEpochFloor !== session.leaseEpochFloor
+          || time.rows[0]?.live !== true) return null;
+        return { schemaVersion: 4, role: "standby", grant } as const;
+      }
       const lease = await readCurrentLease(transaction, principal.accountId, identity, this.leaseVerifier);
       if (lease === null) return null;
       const commercial = await readCurrentCommercialAuthority(transaction);
@@ -74,7 +99,7 @@ implements DesktopAuthorizationApplicationPort {
         scope.workspaceId,
         lease,
       );
-      return current ? result.grant : null;
+      return current ? { schemaVersion: 4, role: "active", grant: result.grant } as const : null;
     };
     if (principal.transactionCredential === undefined) return null;
     try {

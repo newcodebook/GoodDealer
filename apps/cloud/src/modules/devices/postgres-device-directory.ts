@@ -36,7 +36,8 @@ interface DeviceRow {
 /**
  * The account's device list and a Desktop's report of itself (ADR-0032 S3a). Account and device
  * come only from the authenticated Desktop session, which must name a bound device; holding the
- * Lease is not required to read the list or report. Removing, renaming another device, or
+ * Lease is not required to read the list; self-report requires the current Active Lease.
+ * Removing, renaming another device, or
  * choosing a role is not possible here.
  */
 export class PostgresDeviceDirectory implements DeviceDirectoryApplicationPort {
@@ -62,6 +63,12 @@ export class PostgresDeviceDirectory implements DeviceDirectoryApplicationPort {
       await lockDirectoryAuthority(transaction, principal.accountId);
       const deviceId = await sessionDevice(transaction, principal);
       if (deviceId === null) return null;
+      const active = await transaction.query(
+        `SELECT 1 FROM device_active_leases l JOIN device_account_states s USING (account_id)
+         WHERE l.account_id = $1 AND l.device_id = $2 AND l.lease_epoch = s.current_lease_epoch
+           AND l.released_at IS NULL AND clock_timestamp() >= l.issued_at AND clock_timestamp() < l.online_expires_at`,
+        [principal.accountId, deviceId]);
+      if (active.rows.length !== 1) return null;
       const updated = await transaction.query<{ renamed: boolean }>(
         `WITH previous AS (
            SELECT platform, display_name FROM device_bindings

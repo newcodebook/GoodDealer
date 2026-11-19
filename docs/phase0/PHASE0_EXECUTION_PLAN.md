@@ -308,3 +308,15 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 引导步骤/激活增加外部 I/O 后的当前时钟期限复核，防止等待或签名跨期后仍提交。
 - 验证：PostgreSQL 18.6 UTF8 三文件 48/48 通过，独立评估复跑 48/48 并 PASS；最终根 `pnpm check` 通过（结构 205、local-storage 408/6 项既有 ignored、Desktop Native 78、secure-host-core 41）。差异与五份文档本地链接检查通过。
 - 引导开始后的取消、Standby、目标引导安装和云恢复尚未完成；不声明真实 Cloud 或双系统发行资格。
+
+## 2026-11-18 Standby 授权、无副本入口与只读降级
+
+- Task Frame：[Standby 授权客户切片](STANDBY_AUTHORIZATION_TASK_FRAME.md)；持续目标与全部约束见 [实施目标](../IMPLEMENTATION_GOAL.md)。
+- 原有独立 Standby 协议已单独保存为 `981804d`；本切片接续它，同时切换 Cloud/Native/client 到唯一 v4 角色交换，删除 v3 请求与裸响应路径。
+- 第二设备 OAuth/刷新、三用途签名与 verifier registry、锁定角色推导、严格路由清单及签名后撤销/期限复查已组合。只有精确有效 pending bootstrap 目标获得 pending−1 地板，避免阻断其随后激活；其他设备使用 highest allocated。
+- Host 验签后在 Native custody 写入并读回安装/租户/设备绑定的安全、时间、Lease 与商业地板，再在原 publication mutex 内发布角色；缺失键、标记/记录损坏或缺项拒绝。Active→Standby 保留真实 SQLCipher 资产、原子关闭业务/Provider/Outbox 执行，旧 Active 重放在重启后仍拒绝。
+- 首次 Standby 没有副本时显示明确待副本页面及真实设备目录/刷新授权，不创建空业务库。已有副本呈只读；降级立即隐藏本机命名，普通业务同步仍保留未提交输入。
+- 独立评估：[完整审查记录](../reviews/2026-11-18-standby-authorization-review.md)，Cloud 与 Host/Native/Renderer 均 PASS。最终拒绝顺序调整另经独立回归 1/1 与 Standby 13/13 复验。
+- 验证：完整 PostgreSQL 18.6 UTF8 22 文件 344/344、协议 26 文件 464/464、修复后的设置入口 23/23、Desktop production build、三个 Native crate 的 clippy（含 all-targets / -D warnings）通过。新鲜根 `pnpm check` 通过：结构 205 项、Desktop 326 项、Cloud 788 项、local-storage 425 项（6 项既有 ignored）、Desktop Native 80 项、secure-host-core 42 项。最后一轮采用修复后的完整源码；之前失败的运行不计通过。
+- 经验落实：nullable 持久字段仍须严格要求键出现；双角色切换不仅检查新角色，还须保留旧角色的单调地板；条件编译接口和原地 UI 降级都要单独审查。签名正确但不兼容的 Active 替换应在写入地板前拒绝。
+- 仍未完成：正常交接成功证据驱动的 Standby Inbox、目标引导/强制接管/云恢复、Afternic 与其余平台实作、独立跨机恢复、Windows custody。Standby Inbox 当前冻结；真实第三用途 OpenBao key/策略未部署，Windows/macOS 目标编译/实机与发行资格未取得。

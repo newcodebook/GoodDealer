@@ -69,11 +69,11 @@ describe("PostgreSQL device directory (ADR-0032 S3a)", () => {
     expect(reported?.devices.find(({ deviceId }) => deviceId === "device-new")).toMatchObject({ platform: null, displayName: null });
     await expect(directory.reportSelf(report("Studio PC"), active)).resolves.toMatchObject({ listRevision: 2 });
     await expect(directory.reportSelf(report("Studio PC", "windows"), active)).resolves.toMatchObject({ listRevision: 3 });
-    // A Standby device reports too; holding the Lease is not required.
-    await expect(directory.reportSelf(report("Laptop", "macos"), standby)).resolves.toMatchObject({ listRevision: 4 });
+    // Listing is read-only; self-report is a mutation and requires the current Active Lease.
+    await expect(directory.reportSelf(report("Laptop", "macos"), standby)).resolves.toBeNull();
     expect(await owner("directory-account-a",
       "SELECT device_id, last_seen_at = date_trunc('hour', last_seen_at, 'UTC') AS whole_hour FROM device_bindings WHERE account_id = 'directory-account-a' AND last_seen_at IS NOT NULL ORDER BY device_id"))
-      .toEqual([{ device_id: "device-new", whole_hour: true }, { device_id: "device-old", whole_hour: true }]);
+      .toEqual([{ device_id: "device-old", whole_hour: true }]);
   });
 
   it("denies web sessions, revoked or stale sessions, removed devices, and recovery without writing", async () => {
@@ -158,7 +158,7 @@ describe("PostgreSQL device directory (ADR-0032 S3a)", () => {
     const settled = await Promise.allSettled(work);
     expect(settled.filter(({ status }) => status === "rejected")).toEqual([]);
     expect(await owner("directory-account-a", "SELECT binding_list_revision FROM device_account_states WHERE account_id = 'directory-account-a'"))
-      .toEqual([{ binding_list_revision: String(1 + 6 + 6) }]);
+      .toEqual([{ binding_list_revision: String(1 + 6 + 3) }]);
   });
 
   it("rejects a report naming a device or carrying an invalid name before touching the database", async () => {

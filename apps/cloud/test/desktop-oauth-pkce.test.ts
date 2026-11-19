@@ -48,7 +48,7 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
     expect(inserts.flat()).toContain("device-a");
   });
 
-  it("issues no code while the device is only eligible for Standby (ADR-0032 Standby S1/S3)", async () => {
+  it("issues a code for an eligible Standby without allocating a Lease", async () => {
     const service = serviceFor(async (text) => {
       if (text.includes("SELECT account_security_epoch")) {
         return rows([{ account_security_epoch: "4", status: "normal" }]);
@@ -58,10 +58,10 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
       }
       return rows([]);
     }, undefined, { ensure: "standby", require: "standby" });
-    await expect(authorizeWithProof(service)).resolves.toEqual({ authorized: false });
+    await expect(authorizeWithProof(service)).resolves.toMatchObject({ authorized: true });
   });
 
-  it("creates no session when the exchange finds the device only eligible for Standby", async () => {
+  it("creates a session when the exchange finds the device eligible for Standby", async () => {
     const issueInitial = vi.fn<InitialIssuer>(async () => "issued");
     const service = serviceFor(async (text, values) => {
       if (text.includes("SELECT account_security_epoch")) {
@@ -80,8 +80,8 @@ describe("Desktop OAuth Authorization Code with PKCE", () => {
       clientId: DESKTOP_OAUTH_CLIENT_ID,
       redirectUri: LOOPBACK_REDIRECT_URI,
       evaluatedAt: new Date("2026-09-01T00:01:00Z"),
-    })).resolves.toEqual({ exchanged: false });
-    expect(issueInitial).not.toHaveBeenCalled();
+    })).resolves.toMatchObject({ exchanged: true });
+    expect(issueInitial).toHaveBeenCalledTimes(1);
   });
 
   it("exchanges the code only with the exact S256 verifier and stores token digests", async () => {

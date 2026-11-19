@@ -24,7 +24,6 @@ import {
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/index";
 import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
 import { PostgresMutationAuthority } from "../modules/devices/postgres-mutation-authority";
-import { PostgresDesktopSyncAuthority } from "../modules/devices/postgres-sync-authority";
 import {
   PostgresDeviceDrainTransition,
   PostgresDeviceDirectory,
@@ -73,6 +72,11 @@ import {
 } from "./ports/desktop-authorization";
 import {
   DesktopAuthorizationGrantIssuer,
+  PostgresDesktopRouteAuthority,
+  PostgresDesktopSyncAuthority,
+  type DesktopRouteAuthorityPort,
+  DesktopStandbyGrantIssuer,
+  type DesktopStandbyGrantSigner,
   PostgresDesktopAuthorizationApplicationService,
   type ActiveDeviceLeaseVerifier,
   type DesktopAuthorizationGrantSigner,
@@ -92,6 +96,7 @@ import {
 } from "./routes/public/boundary";
 
 export interface PublicApplicationPorts {
+  readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
   readonly desktopAuthorization: DesktopAuthorizationApplicationPort;
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
@@ -125,6 +130,7 @@ export interface PostgresCloudPublicHttpDependencies
   readonly allowSelectorOnlyIdentityTestHarness?: true;
   readonly activationSubjects: AccountActivationSubjectReaderPort;
   readonly desktopAuthorizationSigner: DesktopAuthorizationGrantSigner;
+  readonly desktopStandbySigner: DesktopStandbyGrantSigner;
   readonly activeDeviceLeaseVerifier: ActiveDeviceLeaseVerifier;
   readonly desktopAccessTokens: DesktopAccessTokenVerifierPort;
   readonly commercialCheckoutCatalog: CommercialCheckoutCatalog;
@@ -157,6 +163,7 @@ export function createPostgresCloudPublicHttp(
     allowSelectorOnlyIdentityTestHarness,
     activationSubjects,
     desktopAuthorizationSigner,
+    desktopStandbySigner,
     activeDeviceLeaseVerifier,
     commercialCheckoutCatalog,
     commercialCheckoutGateways,
@@ -182,6 +189,7 @@ export function createPostgresCloudPublicHttp(
       workspaces,
       new DesktopAuthorizationGrantIssuer(desktopAuthorizationSigner),
       activeDeviceLeaseVerifier,
+      new DesktopStandbyGrantIssuer(desktopStandbySigner),
     );
   let commercialCheckout: CommercialCheckoutApplicationPort = denyingCommercialCheckout;
   if (identityTransactions !== undefined && providerWorkerPool !== undefined) {
@@ -230,6 +238,7 @@ export function createPostgresCloudPublicHttp(
   return createCloudPublicHttp({
     ...http,
     ports: {
+      desktopRouteAuthority: new PostgresDesktopRouteAuthority(workspaces, new PostgresDesktopSyncAuthority(accountTransactions)),
       accountActivation: new AccountActivationApplicationService(
         pool,
         activationSubjects,
@@ -263,8 +272,7 @@ export function createPostgresCloudPublicHttp(
           });
         })(),
       }),
-      // The device list and self-report need only a bound Desktop session, not the Lease, so a
-      // Standby device can read them too.
+      // Standby may list bound devices; the directory independently requires Active for self-report.
       ...(identityTransactions === undefined ? {} : { deviceDirectory: new PostgresDeviceDirectory(accountTransactions) }),
       ...(identityTransactions === undefined ? {} : {
         cloudflareDnsObservation: new PostgresCloudflareDnsObservationIngress({

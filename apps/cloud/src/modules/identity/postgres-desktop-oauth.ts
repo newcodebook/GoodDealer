@@ -8,7 +8,7 @@ import type {
   IdentityCapabilityTransactionRunner,
 } from "../../db/index";
 import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
-import type { DesktopOAuthLeasePort } from "../devices/postgres-desktop-login-lease";
+import type { DesktopOAuthLeasePort } from "../devices/index";
 import type { DeviceLoginChallenge, DeviceLoginProofPort } from "../devices/ports";
 import {
   inspectDesktopBearerToken,
@@ -195,9 +195,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       accountSecurityEpoch: result.accountSecurityEpoch,
       transactionCredential,
     });
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
-    // Desktop cannot activate a Grant for would only fail later as a credential error.
-    return leased.outcome === "active"
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    return leased.outcome !== "refused"
       ? { authorized: true, code: result.code }
       : { authorized: false };
   }
@@ -247,9 +247,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       deviceId: reserved.device_id,
       accountSecurityEpoch: epoch,
     });
-    // A Standby outcome is refused until a Standby Grant can be issued (ADR-0032 Standby S3): a session the
-    // Desktop cannot activate a Grant for would only fail later as a credential error.
-    if (leased.outcome !== "active") return { exchanged: false };
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    if (leased.outcome === "refused") return { exchanged: false };
 
     const access = issueDesktopBearerToken("access", code.accountId);
     const refresh = issueDesktopBearerToken("refresh", code.accountId);

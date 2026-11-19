@@ -148,6 +148,7 @@ function responses(): Record<CloudOperationId, unknown> {
       paidThrough: "2027-08-29T10:00:00Z",
     },
     [DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID]: {
+      schemaVersion: 4, role: "active", grant: {
       schemaVersion: 3,
       typ: "gd.desktop-authorization-grant.v3",
       iss: "https://accounts.gooddealer.com",
@@ -167,6 +168,7 @@ function responses(): Record<CloudOperationId, unknown> {
         capability: "cloudflare:dns:observe",
       },
       signature: "c2lnbmF0dXJl",
+      },
     },
     [WORKSPACE_SYNC_PUSH_OPERATION_ID]: {
       schemaVersion: 3,
@@ -288,7 +290,7 @@ describe("Cloud control-plane and sync clients", () => {
         operationId: BILLING_SUBSCRIPTION_CANCEL_OPERATION_ID,
         payload: { schemaVersion: 1, requestId: "cancel-request-1" },
       },
-      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 3 } },
+      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 4 } },
       { operationId: WORKSPACE_SYNC_PUSH_OPERATION_ID, payload: { schemaVersion: 3, mutations: [mutation] } },
       {
         operationId: WORKSPACE_SYNC_PULL_OPERATION_ID,

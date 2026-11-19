@@ -1,6 +1,11 @@
 //! Signed workspace execution authority and monotonic replacement rules.
 //! Artifact admission remains in the backup workflow; it cannot grant workspace authority.
 
+mod standby;
+#[cfg(test)]
+pub(super) use standby::signed_standby_for_host_test;
+pub(super) use standby::{VerifiedStandbyAuthority, VerifiedWorkspaceRole};
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -22,7 +27,7 @@ const GRANT_SIGNATURE_DOMAIN: &str = "GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V3"
 const MAX_OFFLINE_WINDOW_SECONDS: i64 = 86_400;
 pub(super) const MAX_SIGNED_WIRE_BYTES: usize = 16_384;
 const MAX_REGISTRY_BYTES: usize = 16_384;
-const MAX_REGISTRY_KEYS: usize = 16;
+const MAX_REGISTRY_KEYS: usize = 24;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const ED25519_PUBLIC_KEY_BYTES: usize = 32;
 const ED25519_SIGNATURE_BYTES: usize = 64;
@@ -59,6 +64,7 @@ impl fmt::Display for WorkspaceAuthorityError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum CredentialPurpose {
+    StandbyGrantV1,
     GrantV3,
     ActiveDeviceLeaseV1,
 }
@@ -112,11 +118,16 @@ impl WorkspaceAuthorityVerifier {
         {
             return Err(WorkspaceAuthorityError::Malformed);
         }
+        let mut has_standby = false;
         let mut has_grant = false;
         let mut has_lease = false;
         let mut keys = Vec::with_capacity(registry.keys.len());
         for wire in registry.keys {
             let purpose = match wire.purpose {
+                VerificationPurposeWire::StandbyGrantV1 => {
+                    has_standby = true;
+                    CredentialPurpose::StandbyGrantV1
+                }
                 VerificationPurposeWire::GrantV3 => {
                     has_grant = true;
                     CredentialPurpose::GrantV3
@@ -134,7 +145,17 @@ impl WorkspaceAuthorityVerifier {
             }
             keys.push(VerificationKey::new(purpose, &wire.key_id, &decoded)?);
         }
-        if !has_grant || !has_lease {
+        if !has_grant || !has_lease || !has_standby {
+            return Err(WorkspaceAuthorityError::Malformed);
+        }
+        if [
+            CredentialPurpose::GrantV3,
+            CredentialPurpose::ActiveDeviceLeaseV1,
+            CredentialPurpose::StandbyGrantV1,
+        ]
+        .iter()
+        .any(|purpose| keys.iter().filter(|key| key.purpose == *purpose).count() > 8)
+        {
             return Err(WorkspaceAuthorityError::Malformed);
         }
         Self::from_keys(keys)
@@ -214,6 +235,7 @@ struct VerificationKeyWire {
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum VerificationPurposeWire {
+    StandbyGrantV1,
     GrantV3,
     ActiveDeviceLeaseV1,
 }
@@ -234,6 +256,7 @@ pub(super) struct VerifiedWorkspaceAuthority {
     account_security_epoch: u64,
     lease_epoch: u64,
     execute_before: i64,
+    issued_at: i64,
     admitted_not_before: i64,
     #[cfg_attr(
         not(test),
@@ -265,6 +288,7 @@ pub(super) struct WorkspaceAuthorityReplacementFloor<'a> {
 }
 
 impl VerifiedWorkspaceAuthority {
+    #[cfg(test)]
     pub(super) fn verify(
         wire: &[u8],
         binding: &TrustedWorkspaceBinding<'_>,
@@ -280,6 +304,15 @@ impl VerifiedWorkspaceAuthority {
         deserializer
             .end()
             .map_err(|_| WorkspaceAuthorityError::Malformed)?;
+        Self::verify_grant(grant, binding, now, verifier)
+    }
+
+    fn verify_grant(
+        grant: DesktopAuthorizationGrant,
+        binding: &TrustedWorkspaceBinding<'_>,
+        now: i64,
+        verifier: &WorkspaceAuthorityVerifier,
+    ) -> Result<Self, WorkspaceAuthorityError> {
         grant.validate_shape()?;
         if !verifier.verify(
             CredentialPurpose::GrantV3,
@@ -325,6 +358,7 @@ impl VerifiedWorkspaceAuthority {
             account_security_epoch: lease.account_security_epoch,
             lease_epoch: lease.payload.lease_epoch,
             execute_before: effective_deadline,
+            issued_at,
             admitted_not_before: now,
             monotonic_deadline: Instant::now()
                 .checked_add(Duration::from_secs(remaining))
@@ -422,6 +456,10 @@ impl VerifiedWorkspaceAuthority {
 
     pub(super) const fn lease_epoch(&self) -> u64 {
         self.lease_epoch
+    }
+
+    pub(super) const fn issued_at(&self) -> i64 {
+        self.issued_at
     }
 
     pub(super) const fn execute_before(&self) -> i64 {
@@ -1222,6 +1260,25 @@ pub(crate) mod tests {
         };
 
         assert!(!replacement.can_replace_floor(&current));
+    }
+
+    #[test]
+    fn pinned_registry_requires_all_three_separate_purpose_rings() {
+        let keys: Vec<_> = ["grant_v3", "active_device_lease_v1", "standby_grant_v1"].into_iter().enumerate()
+            .map(|(index, purpose)| json!({"purpose":purpose,"keyId":format!("key-{index}"),
+                "publicKey":URL_SAFE_NO_PAD.encode(Ed25519KeyPair::from_seed_unchecked(&[u8::try_from(index + 1).unwrap();32]).unwrap().public_key().as_ref())})).collect();
+        let valid = json!({"schemaVersion":1,"keys":keys});
+        assert!(WorkspaceAuthorityVerifier::parse_registry(&valid.to_string()).is_ok());
+        for index in 0..3 {
+            let mut missing = valid.clone();
+            missing["keys"].as_array_mut().unwrap().remove(index);
+            assert!(WorkspaceAuthorityVerifier::parse_registry(&missing.to_string()).is_err());
+        }
+        for field in ["keyId", "publicKey"] {
+            let mut reused = valid.clone();
+            reused["keys"][2][field] = valid["keys"][0][field].clone();
+            assert!(WorkspaceAuthorityVerifier::parse_registry(&reused.to_string()).is_err());
+        }
     }
 
     #[test]

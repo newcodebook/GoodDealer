@@ -209,6 +209,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               locale={locale}
               ports={ports}
               writable={readOnly === null}
+              standby={readOnly === "standby"}
               revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
               onRepaired={onRefresh}
               onLocaleChange={onLocaleChange}
@@ -249,11 +250,12 @@ type SettingsState =
  * pull cadence and build facts have no Host source yet, so
  * the panel shows those as unavailable instead of placeholder values.
  */
-function SettingsRoute({ locale, ports, revisionBase, writable, onRepaired, onLocaleChange, onRunOnboarding }: {
+function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepaired, onLocaleChange, onRunOnboarding }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly revisionBase: number | null;
   readonly writable: boolean;
+  readonly standby: boolean;
   /** A repair may advance the read generation, so the workspace publication is read again. */
   readonly onRepaired: () => void;
   readonly onLocaleChange: (locale: Locale) => void;
@@ -292,7 +294,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, onRepaired, onLo
       connections={state.connections}
       connectionMaintenance={writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
       devices={null}
-      {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} /> })}
+      {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} readOnly={standby} /> })}
       license="unavailable"
       sync={null}
       about={{ version: null, dataDirectory: null, revisionBase, storageIntegrity: state.storageIntegrity }}

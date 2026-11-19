@@ -16,11 +16,6 @@ export const DESKTOP_AUTHORIZATION_GRANT_SIGNATURE_DOMAIN =
 export const DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID =
   "devices.authorizationGrant.issue" as const;
 
-/** The authenticated session and bound device are the only request authority sources. */
-export const desktopAuthorizationGrantRequestSchema = z
-  .object({ schemaVersion: z.literal(DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION) })
-  .strict();
-
 /**
  * Cloud-issued authorization input for the local business runtime. Every authority-bearing outer
  * field is covered by its own purpose-specific signature; the nested Lease is verified separately.
@@ -68,9 +63,6 @@ export function encodeDesktopAuthorizationGrantSignatureTranscript(value: unknow
   );
 }
 
-export type DesktopAuthorizationGrantRequest = z.infer<
-  typeof desktopAuthorizationGrantRequestSchema
->;
 export type DesktopAuthorizationGrant = z.infer<typeof desktopAuthorizationGrantSchema>;
 
 export type DesktopCommercialAuthority = DesktopAuthorizationGrant["commercialAuthority"];
@@ -79,8 +71,8 @@ export type DesktopCommercialAuthority = DesktopAuthorizationGrant["commercialAu
  * ADR-0032: a bound device that must not hold the Lease receives a Standby Grant instead. It is a
  * separate strict object with its own typ, audience, signature domain and signing key, never a v3
  * Grant with an optional Lease, so a parsing slip cannot turn read-only authority into execution
- * authority. The role exchange below wraps either Grant; the v3 request and bare v3 response are
- * removed when Cloud issuance (T2b) and Host parsing (T3) switch to it together.
+ * authority. The v4 role exchange is the only request/response path; an Active role still carries
+ * the separately signed v3 execution Grant and nested Lease.
  */
 export const DESKTOP_STANDBY_GRANT_SCHEMA_VERSION = 1 as const;
 export const DESKTOP_STANDBY_GRANT_SIGNATURE_DOMAIN = "GOODDEALER-DESKTOP-STANDBY-GRANT-V1" as const;
@@ -107,7 +99,9 @@ export const desktopStandbyGrantSchema = z
       })
       .strict(),
     /**
-     * The highest epoch Cloud had allocated, pending ones included, when it signed. The Host keeps
+     * The highest allocated epoch, including pending allocations. Only the exact valid bootstrap
+     * target receives its uniquely reserved pending epoch minus one, preserving promotion into
+     * that reservation (ADR-0032 S3). All other devices receive the highest epoch. The Host keeps
      * it as a monotonic floor: a replayed older Standby Grant cannot demote a device that has since
      * become Active, and no Active Grant at or below it is accepted.
      */

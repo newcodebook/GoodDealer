@@ -15,7 +15,7 @@ import {
 import { randomUUID } from "node:crypto";
 
 import type { PublicPrincipal } from "../../../entrypoints/ports/public-session";
-import type { DesktopSyncAuthorityPort } from "../../devices/postgres-sync-authority";
+import type { DesktopSyncAuthorityPort } from "../../devices/index";
 import type { WorkspaceCheckpointReaderPort } from "../checkpoints/postgres-reader";
 import type { DefaultWorkspaceTenantResolverPort } from "../default-workspace/index";
 import type { MutationIngestRejectionCode } from "../mutations/index";
@@ -48,7 +48,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     if (principal.clientKind !== "desktop") return rejectedPush("SYNC_AUTHORIZATION_REJECTED");
     const request = workspaceMutationPushRequestSchema.safeParse(value);
     if (!request.success) return rejectedPush("SYNC_INPUT_REJECTED");
-    const context = await this.context(principal);
+    const context = await this.context(principal, "active");
     if (context === null || request.data.mutations.some((mutation) => mutation.sourceDeviceId !== context.deviceId)) {
       return rejectedPush("SYNC_AUTHORIZATION_REJECTED");
     }
@@ -66,7 +66,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     if (principal.clientKind !== "desktop") return rejectedPull("SYNC_AUTHORIZATION_REJECTED");
     const request = workspaceMutationPullRequestSchema.safeParse(value);
     if (!request.success) return rejectedPull("SYNC_INPUT_REJECTED");
-    const context = await this.context(principal);
+    const context = await this.context(principal, "active_or_standby");
     if (context === null) return rejectedPull("SYNC_AUTHORIZATION_REJECTED");
     let result = await this.dependencies.readers.pullV2(context.scope, context.deviceId, request.data);
     if (!result.accepted && result.code === "READER_CURSOR_UNKNOWN") {
@@ -94,7 +94,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
   async checkpoint(value: unknown, principal: PublicPrincipal): Promise<unknown> {
     if (principal.clientKind !== "desktop") return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: null };
     workspaceCheckpointReadRequestSchema.parse(value);
-    const context = await this.context(principal);
+    const context = await this.context(principal, "active_or_standby");
     if (context === null) return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: null };
     return { schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION, checkpoint: await this.dependencies.checkpoints.readLatestAvailable(context.scope) };
   }
@@ -102,7 +102,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
   async rebootstrap(value: unknown, principal: PublicPrincipal): Promise<unknown> {
     if (principal.clientKind !== "desktop") return null;
     workspaceRebootstrapRequestSchema.parse(value);
-    const context = await this.context(principal);
+    const context = await this.context(principal, "active_or_standby");
     if (context === null) return null;
     return this.dependencies.checkpoints.readRebootstrapPlan?.(context.scope) ?? null;
   }
@@ -114,7 +114,7 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
   async receipts(value: unknown, principal: PublicPrincipal): Promise<WorkspaceMutationReceiptReadResponse | null> {
     if (principal.clientKind !== "desktop" || this.dependencies.receipts === undefined) return null;
     const request = workspaceMutationReceiptReadRequestSchema.parse(value);
-    const context = await this.context(principal);
+    const context = await this.context(principal, "active");
     if (context === null) return null;
     const receipts = await this.dependencies.receipts.readOwn(context.scope, context.deviceId, request.mutationIds);
     return workspaceMutationReceiptReadResponseSchema.parse({
@@ -123,10 +123,11 @@ export class PostgresWorkspaceSyncApplication implements WorkspaceSyncApplicatio
     });
   }
 
-  private async context(principal: PublicPrincipal): Promise<{ scope: WorkspaceTenantScope; deviceId: string } | null> {
+  private async context(principal: PublicPrincipal, role: "active" | "active_or_standby"): Promise<{ scope: WorkspaceTenantScope; deviceId: string } | null> {
     const scope = await this.dependencies.workspaces.resolve(principal);
     if (scope === null) return null;
-    const deviceId = await this.dependencies.authority.resolveActiveDevice(principal, scope.workspaceId);
+    const device = await this.dependencies.authority.resolveSessionDevice(principal, scope.workspaceId);
+    const deviceId = device !== null && (role === "active_or_standby" || device.role === "active") ? device.deviceId : null;
     return deviceId === null ? null : { scope, deviceId };
   }
 

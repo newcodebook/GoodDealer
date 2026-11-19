@@ -662,7 +662,8 @@ impl DesktopLocalHost {
             .ok_or(DesktopLocalHostError::StorageRejected)?;
         Self::native_sync_push_claim(
             schedule.claimed,
-            crate::desktop_sync_runtime::delivery_owner(&admission.inner),
+            crate::desktop_sync_runtime::delivery_owner(&admission.inner)
+                .map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
             retry_after,
         )
         .map(DesktopSyncPushWork::Ready)
@@ -968,7 +969,8 @@ impl DesktopLocalHost {
         Ok(DesktopCloudflareProjectionWork::Ready(
             DesktopCloudflareProjectionClaim {
                 claimed,
-                delivery_owner: crate::desktop_sync_runtime::delivery_owner(&admission.inner),
+                delivery_owner: crate::desktop_sync_runtime::delivery_owner(&admission.inner)
+                    .map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
                 request_body,
                 retry_after,
             },

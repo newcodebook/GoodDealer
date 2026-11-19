@@ -27,12 +27,14 @@ describe("OpenBao authority key rollover", () => {
     const registry = createDesktopAuthorizationVerifierRegistry({
       grantKeys: configuration.grant.verifierKeys,
       leaseKeys: configuration.lease.verifierKeys,
+      standbyKeys: configuration.standby.verifierKeys,
     });
     expect(registry.keys.map((key) => [key.purpose, key.keyId])).toEqual([
       ["grant_v3", "grant-v1"],
       ["grant_v3", "grant-v2"],
       ["active_device_lease_v1", "lease-v1"],
       ["active_device_lease_v1", "lease-v2"],
+      ["standby_grant_v1", "standby-v1"],
     ]);
 
     const claims = leaseClaims();
@@ -46,6 +48,7 @@ describe("OpenBao authority key rollover", () => {
       mount: configuration.transitMount,
       grantKey: configuration.grant.activeKey,
       leaseKey: configuration.lease.activeKey,
+      standbyKey: configuration.standby.activeKey,
       tokenSource: { token: async () => "short-lived-token", invalidate: () => undefined },
       fetch: async (url, init) => {
         const request = JSON.parse(String(init.body)) as { input: string; key_version: number };
@@ -147,7 +150,9 @@ function configurationWire(input: {
   readonly leaseKeys: readonly FixtureSigningKey[];
   readonly activeLease: FixtureSigningKey;
 }) {
+  const standby = signingKey("standby", 1, "standby-v1");
   return {
+    standby: { active: { name: standby.wire.name, version: standby.wire.version, kid: standby.wire.kid }, verifierKeys: [standby.wire] },
     schemaVersion: 1,
     address: "https://openbao.internal",
     transitMount: "transit",

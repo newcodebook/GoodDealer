@@ -1,6 +1,6 @@
 import {
-  desktopAuthorizationGrantRequestSchema,
-  desktopAuthorizationGrantSchema,
+  desktopAuthorizationGrantRoleRequestSchema,
+  desktopAuthorizationGrantRoleResponseSchema,
   deviceBindingListSchema,
   deviceListRequestSchema,
   deviceSelfReportSchema,
@@ -8,8 +8,8 @@ import {
   deviceSwitchLookupRequestSchema,
   deviceSwitchRequestSchema,
   deviceSwitchResponseSchema,
-  type DesktopAuthorizationGrant,
-  type DesktopAuthorizationGrantRequest,
+  type DesktopAuthorizationGrantRoleResponse,
+  type DesktopAuthorizationGrantRoleRequest,
 } from "@gooddealer/protocol/devices";
 import {
   billingCheckoutCreateRequestSchema,
@@ -85,6 +85,7 @@ import {
 import type { AccountActivationApplicationPort } from "../../ports/account-activation";
 import type { DesktopAuthorizationApplicationPort } from "../../ports/desktop-authorization";
 import type { PublicPrincipal } from "../../ports/public-session";
+import type { DesktopRouteAuthorityPort } from "../../../modules/devices/index";
 import type { DeviceDirectoryApplicationPort, DeviceSwitchApplicationPort } from "../../../modules/devices/index";
 import type { CommercialCheckoutApplicationPort } from "../../../modules/licensing/index";
 import type {
@@ -101,6 +102,7 @@ const identityRoute: PublicRoute<BoundaryEmptyRequest, PublicBoundaryIdentityRes
   request: boundaryEmptyRequestSchema,
   response: publicBoundaryIdentityResponseSchema,
   requiredScope: null,
+  deviceRole: null,
   authorize: () => true,
   invoke: async () => ({ surface: "public", authenticated: true }),
 };
@@ -112,6 +114,7 @@ const validateRoute: PublicRoute<BoundaryValidateRequest, BoundaryAcceptedRespon
   request: boundaryValidateRequestSchema,
   response: boundaryAcceptedResponseSchema,
   requiredScope: null,
+  deviceRole: null,
   authorize: () => true,
   invoke: async () => ({ accepted: true }),
 };
@@ -145,6 +148,7 @@ export const DEVICE_SELF_REPORT_ROUTE = "/v1/devices/self" as const;
 export class PublicRouteAuthorizationError extends Error {}
 
 export interface PublicBusinessRoutePorts {
+  readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
   readonly desktopAuthorization: DesktopAuthorizationApplicationPort;
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
@@ -164,6 +168,7 @@ export function createPublicBusinessRoutes(
     request: accountActivationRequestSchema,
     response: accountActivationResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.accountActivation.activate(request, principal);
@@ -172,15 +177,17 @@ export function createPublicBusinessRoutes(
     },
   };
   const desktopAuthorizationRoute: PublicRoute<
-    DesktopAuthorizationGrantRequest,
-    DesktopAuthorizationGrant
+    DesktopAuthorizationGrantRoleRequest,
+    DesktopAuthorizationGrantRoleResponse
   > = {
     surface: PUBLIC_SURFACE,
     method: "POST",
     path: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
-    request: desktopAuthorizationGrantRequestSchema,
-    response: desktopAuthorizationGrantSchema,
+    request: desktopAuthorizationGrantRoleRequestSchema,
+    response: desktopAuthorizationGrantRoleResponseSchema,
     requiredScope: null,
+    deviceRole: "active_or_standby",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
     authorize: (principal) => principal.clientKind === "desktop",
     invoke: async (request, principal) => {
       const response = await ports.desktopAuthorization.issue(request, principal);
@@ -195,6 +202,7 @@ export function createPublicBusinessRoutes(
     request: billingCheckoutCreateRequestSchema,
     response: billingCheckoutCreateResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.commercialCheckout.createCheckout(request, principal);
@@ -209,6 +217,7 @@ export function createPublicBusinessRoutes(
     request: billingStatusReadRequestSchema,
     response: billingStatusReadResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (_request, principal) => {
       const response = await ports.commercialCheckout.readStatus(principal);
@@ -226,6 +235,7 @@ export function createPublicBusinessRoutes(
     request: billingSubscriptionCancelRequestSchema,
     response: billingSubscriptionCancelResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.commercialCheckout.cancelSubscription(request, principal);
@@ -243,6 +253,7 @@ export function createPublicBusinessRoutes(
     request: billingFixedTermConfirmRequestSchema,
     response: billingFixedTermConfirmResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.commercialCheckout.confirmFixedTerm(request, principal);
@@ -260,6 +271,7 @@ export function createPublicBusinessRoutes(
     request: billingFirstPurchaseRefundRequestSchema,
     response: billingFirstPurchaseRefundRequestResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.commercialCheckout.requestFirstPurchaseRefund(request, principal);
@@ -277,6 +289,7 @@ export function createPublicBusinessRoutes(
     request: billingFirstPurchaseRefundStatusReadRequestSchema,
     response: billingFirstPurchaseRefundStatusReadResponseSchema,
     requiredScope: null,
+    deviceRole: null,
     authorize: (principal) => principal.clientKind === "account_web",
     invoke: async (request, principal) => {
       const response = await ports.commercialCheckout.readFirstPurchaseRefundStatus(request, principal);
@@ -292,6 +305,8 @@ export function createPublicBusinessRoutes(
       request: workspaceMutationPushRequestSchema,
       response: workspaceMutationPushResponseSchema,
       requiredScope: null,
+      deviceRole: "active",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: (request: WorkspaceMutationPushRequest, principal: PublicPrincipal) =>
         ports.workspaceSync!.push(request, principal),
@@ -304,6 +319,8 @@ export function createPublicBusinessRoutes(
       request: workspaceMutationPullRequestSchema,
       response: workspaceMutationPullResponseSchema,
       requiredScope: null,
+      deviceRole: "active_or_standby",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: (request: WorkspaceMutationPullRequest, principal: PublicPrincipal) =>
         ports.workspaceSync!.pull(request, principal),
@@ -316,6 +333,8 @@ export function createPublicBusinessRoutes(
       request: workspaceCheckpointReadRequestSchema,
       response: workspaceCheckpointReadResponseSchema,
       requiredScope: null,
+      deviceRole: "active_or_standby",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: (request: WorkspaceCheckpointReadRequest, principal: PublicPrincipal) =>
         ports.workspaceSync!.checkpoint(request, principal) as Promise<WorkspaceCheckpointReadResponse>,
@@ -328,6 +347,8 @@ export function createPublicBusinessRoutes(
       request: workspaceRebootstrapRequestSchema,
       response: rebootstrapPlanSchema.nullable(),
       requiredScope: null,
+      deviceRole: "active_or_standby",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: (request: WorkspaceRebootstrapRequest, principal: PublicPrincipal) =>
         ports.workspaceSync!.rebootstrap?.(request, principal) ?? Promise.resolve(null),
@@ -340,6 +361,8 @@ export function createPublicBusinessRoutes(
       request: workspaceMutationReceiptReadRequestSchema,
       response: workspaceMutationReceiptReadResponseSchema,
       requiredScope: null,
+      deviceRole: "active",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: async (request: WorkspaceMutationReceiptReadRequest, principal: PublicPrincipal) => {
         const response = await ports.workspaceSync!.receipts!(request, principal);
@@ -360,6 +383,8 @@ export function createPublicBusinessRoutes(
       request: cloudflareDnsProjectionRequestSchema,
       response: cloudflareDnsProjectionAckSchema,
       requiredScope: null,
+      deviceRole: "active",
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
       authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
       invoke: async (request: CloudflareDnsProjectionRequest, principal: PublicPrincipal) => {
         const response = await ports.cloudflareDnsObservation!.submit(request, principal);
@@ -372,6 +397,7 @@ export function createPublicBusinessRoutes(
   const deviceSwitch = ports.deviceSwitch;
   const deviceSwitchRoute = (
     path: string,
+    deviceRole: "active" | "active_or_standby",
     request: typeof deviceSwitchRequestSchema | typeof deviceSwitchLookupRequestSchema | typeof deviceSwitchDrainRequestSchema,
     invoke: (port: DeviceSwitchApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceSwitchApplicationPort["request"]>,
     // Request, status and cancel carry at most three identifiers of 160 printable characters,
@@ -384,6 +410,8 @@ export function createPublicBusinessRoutes(
     request,
     response: deviceSwitchResponseSchema,
     requiredScope: null,
+    deviceRole,
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
     authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
     invoke: async (value: unknown, principal: PublicPrincipal) => {
       const response = await invoke(deviceSwitch!, value, principal);
@@ -393,11 +421,12 @@ export function createPublicBusinessRoutes(
     bodyLimit,
   });
   const deviceSwitchRoutes: readonly PublicRoute<any, any>[] = deviceSwitch === undefined ? [] : [
-    deviceSwitchRoute(DEVICE_SWITCH_REQUEST_ROUTE, deviceSwitchRequestSchema, (port, value, principal) => port.request(value, principal)),
-    deviceSwitchRoute(DEVICE_SWITCH_STATUS_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.status(value, principal)),
-    deviceSwitchRoute(DEVICE_SWITCH_CANCEL_ROUTE, deviceSwitchLookupRequestSchema, (port, value, principal) => port.cancel(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_REQUEST_ROUTE, "active_or_standby", deviceSwitchRequestSchema, (port, value, principal) => port.request(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_STATUS_ROUTE, "active_or_standby", deviceSwitchLookupRequestSchema, (port, value, principal) => port.status(value, principal)),
+    deviceSwitchRoute(DEVICE_SWITCH_CANCEL_ROUTE, "active_or_standby", deviceSwitchLookupRequestSchema, (port, value, principal) => port.cancel(value, principal)),
     ...(deviceSwitch.drain === undefined ? [] : [deviceSwitchRoute(
       DEVICE_SWITCH_DRAIN_ROUTE,
+      "active",
       deviceSwitchDrainRequestSchema,
       (port, value, principal) => port.drain!(value, principal),
       // A handoff manifest: about twenty fields of at most 200 printable characters, three stream
@@ -409,6 +438,7 @@ export function createPublicBusinessRoutes(
   const deviceDirectory = ports.deviceDirectory;
   const deviceDirectoryRoute = (
     path: string,
+    deviceRole: "active" | "active_or_standby",
     request: typeof deviceListRequestSchema | typeof deviceSelfReportSchema,
     invoke: (port: DeviceDirectoryApplicationPort, value: unknown, principal: PublicPrincipal) => ReturnType<DeviceDirectoryApplicationPort["list"]>,
   ): PublicRoute<any, any> => ({
@@ -418,6 +448,8 @@ export function createPublicBusinessRoutes(
     request,
     response: deviceBindingListSchema,
     requiredScope: null,
+    deviceRole,
+    authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
     authorize: (principal: PublicPrincipal) => principal.clientKind === "desktop",
     invoke: async (value: unknown, principal: PublicPrincipal) => {
       const response = await invoke(deviceDirectory!, value, principal);
@@ -430,8 +462,8 @@ export function createPublicBusinessRoutes(
     bodyLimit: 1024,
   });
   const deviceDirectoryRoutes: readonly PublicRoute<any, any>[] = deviceDirectory === undefined ? [] : [
-    deviceDirectoryRoute(DEVICE_LIST_ROUTE, deviceListRequestSchema, (port, value, principal) => port.list(value, principal)),
-    deviceDirectoryRoute(DEVICE_SELF_REPORT_ROUTE, deviceSelfReportSchema, (port, value, principal) => port.reportSelf(value, principal)),
+    deviceDirectoryRoute(DEVICE_LIST_ROUTE, "active_or_standby", deviceListRequestSchema, (port, value, principal) => port.list(value, principal)),
+    deviceDirectoryRoute(DEVICE_SELF_REPORT_ROUTE, "active", deviceSelfReportSchema, (port, value, principal) => port.reportSelf(value, principal)),
   ];
   return [
     accountActivationRoute,

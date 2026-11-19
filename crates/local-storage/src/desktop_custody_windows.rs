@@ -5,6 +5,12 @@
 //! qualified. Keeping this module explicit makes the native target compile while preserving the
 //! fail-closed production contract.
 
+// The record and replacement rules are identical across targets. Windows admission remains
+// unavailable until its existing file/custody backend is implemented and qualified.
+#[path = "desktop_custody/authorization_floor.rs"]
+mod authorization_floor;
+pub(crate) use authorization_floor::{CommercialAuthorizationFloor, WorkspaceAuthorizationFloor};
+
 use zeroize::Zeroizing;
 
 use crate::{BusinessDatabase, BusinessDatabaseError, DesktopApplicationRoot};
@@ -31,6 +37,26 @@ impl DesktopProductionCustody {
         _workspace_id: &str,
     ) -> Result<BusinessDatabase, BusinessDatabaseError> {
         Err(BusinessDatabaseError::StorageRejected)
+    }
+
+    pub(crate) fn open_existing_workspace(
+        &self,
+        _workspace_id: &str,
+    ) -> Result<Option<BusinessDatabase>, BusinessDatabaseError> {
+        Err(BusinessDatabaseError::StorageRejected)
+    }
+
+    pub(crate) fn load_authorization_floor(
+        &self,
+    ) -> Result<Option<WorkspaceAuthorizationFloor>, DesktopCustodyError> {
+        Err(DesktopCustodyError::Unavailable)
+    }
+
+    pub(crate) fn store_authorization_floor(
+        &self,
+        _record: &WorkspaceAuthorizationFloor,
+    ) -> Result<(), DesktopCustodyError> {
+        Err(DesktopCustodyError::Unavailable)
     }
 
     pub(crate) fn load_device_id(&self) -> Result<String, DesktopCustodyError> {

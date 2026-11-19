@@ -12,6 +12,9 @@ mod native_keys;
 #[cfg(not(test))]
 use native_keys::{load_device_binding_native, load_native, store_native};
 
+mod authorization_floor;
+pub(crate) use authorization_floor::{CommercialAuthorizationFloor, WorkspaceAuthorizationFloor};
+
 use std::fmt;
 use std::fs::File;
 #[cfg(test)]
@@ -194,6 +197,8 @@ enum RebootstrapCapability {
 pub(crate) struct TestRebootstrapKeyStore {
     records: Arc<Mutex<std::collections::BTreeMap<u8, Vec<u8>>>>,
     active_alias: Arc<Mutex<Option<Vec<u8>>>>,
+    authorization_floor: Arc<Mutex<Option<Vec<u8>>>>,
+    authorization_floor_marker: Arc<Mutex<Option<Vec<u8>>>>,
     device_identity: Arc<Mutex<LoadedDeviceIdentity>>,
 }
 
@@ -218,6 +223,8 @@ impl Default for TestRebootstrapKeyStore {
         Self {
             records: Arc::default(),
             active_alias: Arc::default(),
+            authorization_floor: Arc::default(),
+            authorization_floor_marker: Arc::default(),
             device_identity: Arc::new(Mutex::new(LoadedDeviceIdentity {
                 device_id: "device-local".to_owned(),
                 installation_binding_digest: [0x6d; 32],
@@ -4811,6 +4818,31 @@ impl DesktopProductionCustody {
             #[cfg(test)]
             rebootstrap_test_store,
         })
+    }
+
+    /// An uninitialized first-run file is not a recovered business replica.
+    pub(crate) fn open_existing_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<crate::BusinessDatabase>, crate::BusinessDatabaseError> {
+        {
+            let active = self
+                .active_database
+                .lock()
+                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
+            ensure_file_identity(&active.file, active.identity)
+                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?;
+            if active
+                .file
+                .metadata()
+                .map_err(|_| crate::BusinessDatabaseError::StorageRejected)?
+                .len()
+                == 0
+            {
+                return Ok(None);
+            }
+        }
+        self.open_workspace(workspace_id).map(Some)
     }
 
     pub(crate) fn open_workspace(

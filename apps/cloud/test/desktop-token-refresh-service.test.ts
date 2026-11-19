@@ -180,9 +180,9 @@ describe("Desktop refresh token rotation", () => {
   });
 
   it.each(["refused", "standby"] as const)(
-    "does not consume the current refresh token when the Lease step answers %s", async (outcome) => {
+    "rotates only eligible credentials when the Lease step answers %s", async (outcome) => {
     const presented = issueDesktopBearerToken("refresh", "account-a");
-    const commitRefresh = vi.fn();
+    const commitRefresh = vi.fn(async () => ({ status: "rotated" as const, generation: 3 }));
     const service = new DesktopTokenRefreshService({
       identifyRefreshCredential: async () => ({
         accountId: "account-a",
@@ -200,7 +200,6 @@ describe("Desktop refresh token rotation", () => {
       commitRefresh,
       recoverRefresh: async () => null,
     }, {
-      // Standby is refused until a Standby Grant exists (ADR-0032 Standby S3).
       ensureCurrentLease: async () => ({ outcome }),
     });
     await expect(service.rotate({
@@ -209,8 +208,8 @@ describe("Desktop refresh token rotation", () => {
       requestId: "refresh-request-a",
       evaluatedAt,
     }))
-      .resolves.toEqual({ rotated: false, reason: "authorization_unavailable" });
-    expect(commitRefresh).not.toHaveBeenCalled();
+      .resolves.toMatchObject(outcome === "standby" ? { rotated: true } : { rotated: false, reason: "authorization_unavailable" });
+    expect(commitRefresh).toHaveBeenCalledTimes(outcome === "standby" ? 1 : 0);
   },
   );
 

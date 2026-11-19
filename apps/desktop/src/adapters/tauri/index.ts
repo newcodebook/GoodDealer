@@ -72,6 +72,7 @@ export interface LocalBusinessStatus {
     | "security_locked"
     | "retryable_locked"
     | "commercial_read_only"
+    | "standby_awaiting_replica"
     | "standby_read_only"
     | "active";
   readonly capabilities: readonly ("local:read" | "workspace:mutate")[];
@@ -364,7 +365,7 @@ export function createLocalDnsHealthPort(): DnsHealthPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseDnsHealthRead(await invoke(commands.readDnsHealth, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -381,7 +382,7 @@ export function createLocalBatchOperationsPort(): BatchOperationsReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseBatchOperationsRead(await invoke(commands.readBatchOperations, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -398,7 +399,7 @@ export function createLocalHistoryPort(): HistoryReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseHistoryRead(await invoke(commands.readHistory, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -415,7 +416,7 @@ export function createLocalManualTasksPort(): ManualTasksReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseManualTasksRead(await invoke(commands.readManualTasks, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -432,7 +433,7 @@ export function createLocalRenewalsPort(): RenewalsReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseRenewalsRead(await invoke(commands.readRenewals, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -449,7 +450,7 @@ export function createLocalSalesPort(): SalesReadPort {
       catch { throw new LocalReadError("LOCAL_WINDOW_REJECTED"); }
       try {
         const value = parseSalesRead(await invoke(commands.readSales, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -463,7 +464,7 @@ export function createLocalSettingsPort(): SettingsReadPort {
     async loadSettings(): Promise<SettingsRead> {
       try {
         const value = parseSettingsRead(await invoke(commands.readSettings));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -496,7 +497,7 @@ export function createLocalPortfolioPresentationPort(): ValidatedPortfolioPresen
       }
       try {
         const value = parseAssetLibraryViewModel(await invoke(commands.readAssetLibrary, { request: validatedRequest }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -507,7 +508,7 @@ export function createLocalPortfolioPresentationPort(): ValidatedPortfolioPresen
       catch { throw new LocalReadError("LOCAL_QUERY_REJECTED"); }
       try {
         const value = parseDomainDetailViewModel(await invoke(commands.readDomainDetail, { request: { entityId: validatedEntityId } }));
-        if (value.freshness.source !== "active_local") throw new TypeError("local read provenance is invalid");
+        if ((value.freshness.source === "standby_cloud") !== (value.freshness.readOnlyReason === "standby")) throw new TypeError("local read provenance is invalid");
         return value;
       }
       catch (error) { throw mapLocalReadError(error); }
@@ -676,6 +677,7 @@ function parseStatus(value: unknown): LocalBusinessStatus {
     "security_locked",
     "retryable_locked",
     "commercial_read_only",
+    "standby_awaiting_replica",
     "standby_read_only",
     "active",
   ] as const;

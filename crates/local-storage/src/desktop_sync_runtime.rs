@@ -119,8 +119,10 @@ pub(crate) struct PreparedCloudflareRecoveryData {
 /// The fields are intentionally private and this type does not implement `Serialize`; a
 /// Renderer can only return the handle to the Host that created it.
 pub(crate) struct DesktopSyncRunAdmission {
-    runtime_nonce: [u8; 16],
-    run_sequence: u64,
+    role: NativeCloudRole,
+    /// `None` is a verified Standby authority without any admitted database runtime.
+    runtime_nonce: Option<[u8; 16]>,
+    run_sequence: Option<u64>,
     workspace_id: String,
     device_id: String,
     lease_epoch: u64,
@@ -130,19 +132,79 @@ pub(crate) struct DesktopSyncRunAdmission {
     pub(crate) authority_epoch: u64,
 }
 
-/// Opaque Native-only admission. It cannot be cloned, serialized, deserialized, constructed, or
-/// inspected by a dependent crate; callers may only return it to `DesktopLocalHost` methods.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeCloudRole {
+    Active,
+    Standby,
+}
+
+/// Opaque Native-only admission. Dependent crates may inspect its role and return it to
+/// `DesktopLocalHost`, but cannot clone, serialize, deserialize or construct its authority.
 pub struct DesktopNativeCloudAdmission {
     pub(crate) inner: DesktopSyncRunAdmission,
 }
 
 impl DesktopNativeCloudAdmission {
+    /// Whether this admission carries Active execution authority. Read authority never grants
+    /// Provider, Outbox or business mutation access.
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        matches!(self.inner.role, NativeCloudRole::Active)
+    }
+
     pub(crate) fn workspace_id(&self) -> &str {
         &self.inner.workspace_id
     }
 }
 
 impl DesktopSyncRunAdmission {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn standby_authority(
+        workspace_id: String,
+        device_id: String,
+        lease_epoch_floor: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: String,
+        authority_epoch: u64,
+    ) -> Self {
+        Self {
+            role: NativeCloudRole::Standby,
+            runtime_nonce: None,
+            run_sequence: None,
+            workspace_id,
+            device_id,
+            lease_epoch: lease_epoch_floor,
+            trusted_time_floor,
+            execute_before,
+            authority_snapshot_digest,
+            authority_epoch,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn matches_standby_authority(
+        &self,
+        workspace_id: &str,
+        device_id: &str,
+        lease_epoch_floor: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: &str,
+        authority_epoch: u64,
+    ) -> bool {
+        self.role == NativeCloudRole::Standby
+            && self.runtime_nonce.is_none()
+            && self.run_sequence.is_none()
+            && self.workspace_id == workspace_id
+            && self.device_id == device_id
+            && self.lease_epoch == lease_epoch_floor
+            && self.trusted_time_floor == trusted_time_floor
+            && self.execute_before == execute_before
+            && self.authority_snapshot_digest == authority_snapshot_digest
+            && self.authority_epoch == authority_epoch
+    }
+
     /// The device this run acts for; derived from its verified Lease, never from a caller.
     pub(crate) fn device_id(&self) -> &str {
         &self.device_id
@@ -704,8 +766,9 @@ impl DesktopSyncRuntime {
             .checked_add(1)
             .ok_or(DesktopSyncError::StorageRejected)?;
         Ok(DesktopSyncRunAdmission {
-            runtime_nonce: self.runtime_nonce,
-            run_sequence,
+            role: NativeCloudRole::Active,
+            runtime_nonce: Some(self.runtime_nonce),
+            run_sequence: Some(run_sequence),
             workspace_id: self.workspace_id.clone(),
             device_id: self.device_id.clone(),
             lease_epoch: self.lease_epoch,
@@ -722,7 +785,8 @@ impl DesktopSyncRuntime {
         admission: &DesktopSyncRunAdmission,
     ) -> Result<(), DesktopSyncError> {
         let now = trusted_now()?;
-        if admission.runtime_nonce != self.runtime_nonce
+        if admission.role != NativeCloudRole::Active
+            || admission.runtime_nonce != Some(self.runtime_nonce)
             || database.workspace_id() != self.workspace_id
             || admission.workspace_id != self.workspace_id
             || admission.device_id != self.device_id
@@ -769,7 +833,7 @@ impl DesktopSyncRuntime {
         let expires = checked_timestamp(now, SYNC_LEASE_SECONDS)?;
         let claimed = database
             .claim_sync_mutations_v2_guarded(
-                &owner(admission),
+                &owner(admission)?,
                 &timestamp(now)?,
                 &expires,
                 256,
@@ -1123,7 +1187,7 @@ impl DesktopSyncRuntime {
         let now = timestamp(now_seconds)?;
         let expires = checked_timestamp(now_seconds, PROJECTION_LEASE_SECONDS)?;
         let claimed = database
-            .claim_cloudflare_dns_projections_guarded(&owner(admission), &now, &expires, 1, || {
+            .claim_cloudflare_dns_projections_guarded(&owner(admission)?, &now, &expires, 1, || {
                 commit_guard.verify(self, admission)
             })
             .map_err(map_database_error)?
@@ -1325,20 +1389,30 @@ fn cloudflare_connection_digest(workspace_id: &str, connection_incarnation_id: &
     )
 }
 
-pub(crate) fn delivery_owner(admission: &DesktopSyncRunAdmission) -> String {
+pub(crate) fn delivery_owner(
+    admission: &DesktopSyncRunAdmission,
+) -> Result<String, DesktopSyncError> {
     owner(admission)
 }
 
-fn owner(admission: &DesktopSyncRunAdmission) -> String {
-    let nonce =
-        admission.runtime_nonce[..8]
-            .iter()
-            .fold(String::with_capacity(16), |mut output, byte| {
-                use std::fmt::Write as _;
-                write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
-                output
-            });
-    format!("desktop-sync-{nonce}-{}", admission.run_sequence)
+fn owner(admission: &DesktopSyncRunAdmission) -> Result<String, DesktopSyncError> {
+    if admission.role != NativeCloudRole::Active {
+        return Err(DesktopSyncError::StaleAuthority);
+    }
+    let runtime_nonce = admission
+        .runtime_nonce
+        .ok_or(DesktopSyncError::StaleAuthority)?;
+    let run_sequence = admission
+        .run_sequence
+        .ok_or(DesktopSyncError::StaleAuthority)?;
+    let nonce = runtime_nonce[..8]
+        .iter()
+        .fold(String::with_capacity(16), |mut output, byte| {
+            use std::fmt::Write as _;
+            write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
+            output
+        });
+    Ok(format!("desktop-sync-{nonce}-{run_sequence}"))
 }
 
 fn valid_identifier(value: &str) -> bool {
@@ -1352,7 +1426,8 @@ fn recheck_snapshot(
     admission: &DesktopSyncRunAdmission,
 ) -> Result<(), DesktopSyncError> {
     let now = trusted_now()?;
-    if admission.runtime_nonce != runtime.runtime_nonce
+    if admission.role != NativeCloudRole::Active
+        || admission.runtime_nonce != Some(runtime.runtime_nonce)
         || admission.workspace_id != runtime.workspace_id
         || admission.device_id != runtime.device_id
         || admission.lease_epoch != runtime.lease_epoch

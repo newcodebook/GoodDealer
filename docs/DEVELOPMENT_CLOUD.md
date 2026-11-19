@@ -88,7 +88,7 @@ VPS 上的配置位置只用于定位和权限审查，不能把内容输出到�
 | `/etc/gooddealer/commercial/development.json` | Stripe test-mode API/webhook secrets 与 catalog ID；PayPal 未配置。`policy.featureEntitlements` 必须严格升序并包含 Desktop Grant 唯一能力 `cloudflare:dns:observe`，否则 Cloud 启动失败。 | `root:gooddealer-provider 0640` |
 | `/etc/gooddealer/postgres.env` | PostgreSQL 容器管理凭据。 | `root:root 0600` |
 | `/etc/gooddealer/openbao/authority-approle.json` | 开发 AppRole RoleID/SecretID。 | `root:gooddealer 0640` |
-| `/etc/gooddealer/openbao/public-keys.json` | OpenBao 地址、每 purpose 的 active key/version 与 1–8 把重叠 verifier key。 | `root:gooddealer 0640` |
+| `/etc/gooddealer/openbao/public-keys.json` | OpenBao 地址、grant/lease/standby 三个 purpose 各自的 active key/version 与 1–8 把重叠 verifier key。 | `root:gooddealer 0640` |
 | `/etc/gooddealer/openbao/ca.crt` | 开发 CA。 | `root:gooddealer 0640` |
 
 禁止执行会回显环境或秘密的命令，包括无过滤的 `systemctl show`、`docker inspect`、`env`、`printenv`、
@@ -198,7 +198,7 @@ Cookie、session `200`、刷新后的 session discovery `200` 和退出后的旧
 `CF-Connecting-IP` 的同类请求也必须是 `403`。Cloudflare 官方 CIDR 变化时必须从官方端点更新
 `geo` 与 `set_real_ip_from` 两份完全一致的清单，经 `nginx -t` 和上述负向探针验证后才能 reload。
 
-OpenBao 正向冒烟必须验证 AppRole 登录、Lease/Grant 两把 Transit key、固定版本和 Cloud 本地
+OpenBao 正向冒烟必须验证 AppRole 登录、Lease/Active Grant/Standby Grant 三把 Transit key、固定版本和 Cloud 本地
 Ed25519 复验，同时只输出布尔结果。不得直接输出短期 token、签名、SecretID 或完整 OpenBao wire。
 探针实现和轮换要求见[开发 OpenBao 运行手册](DEVELOPMENT_OPENBAO.md)。
 
@@ -235,6 +235,9 @@ https://api.gooddealer.com/（Desktop 固定 origin）
 GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON=<由公开 OpenBao 材料生成的单行 registry JSON>
 ```
 
+Standby 第三把独立 Transit key 与最小签名策略尚未取得共享实例部署证据。升级本版本前须按
+[OpenBao 运行手册](DEVELOPMENT_OPENBAO.md)补齐真实公钥与策略；两用途旧配置会失败关闭。
+
 registry 必须通过以下命令从 `public-keys.json` 确定性生成，不能从运行时网络下载，也不能手写或
 从 OpenBao 同一签名响应中取得：
 
@@ -243,7 +246,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 ```
 
 两项都是 Desktop 编译期信任输入。构建日志不得输出完整 registry；验证时只检查 schema version、
-两个独立 purpose、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
+三个独立 purpose（`grant_v3`、`active_device_lease_v1`、`standby_grant_v1`）、每个 purpose 至少一把 key、全局唯一 `kid` 与 Ed25519 公钥。轮换构建必须先从
 同时含旧/新 verifier key 的配置生成 registry 并发布 Desktop，再切换对应 purpose 的 `active` 引用；
 旧 envelope 窗口结束后才从 Cloud verifier 和后续 Desktop registry 中撤旧。
 
@@ -256,7 +259,7 @@ pnpm --silent --filter @gooddealer/cloud desktop-registry
 | Cloud 重启循环 | 先检查锁定 Node 路径、release 中 `apps/cloud/node_modules/tsx`、独立 migrator 最近结果和 OpenBao seal 状态。 | 不打印 EnvironmentFile、把 Owner URL 放回 runtime unit 或跳过 migration。 |
 | Transit 签名失败 | 检查 OpenBao active/unsealed、AppRole SecretID 是否过期、开发 CA 和固定 key version。 | 不使用 root token 运行 Cloud，不关闭 TLS 校验。 |
 | Desktop token 换取成功但仍未登录，`/v1/devices/authorization-grant` 被拒 | 账户 entitlement 的 `feature_entitlements` 缺少 `cloudflare:dns:observe` 时 Grant 返回 403。能力在支付 webhook 处理时按当时 policy 写入，修正 policy 后既有 entitlement 不会改变，需要一次新的购买或续订事件。 | 只读 entitlement 的 state、plan 和能力列表；不手改 licensing 表。 |
-| Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、两把 Transit key 能按固定版本签名，再确认账户有 active entitlement。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
+| Desktop 登录第二段 authorize 返回 403、没有 Lease 行 | Lease 签名失败只表现为拒绝。先只读确认 OpenBao `sys/seal-status` 为 unsealed（VPS 重启后保持 sealed，须按 OpenBao 运行手册手动 unseal）、AppRole 用 `authority-approle.json` 能登录（SecretID 7 天到期）、三把授权 Transit key 能按固定版本签名。Active 还要求有效权益；合格的 Standby 登录不要求权益或新 Lease。 | 不打印 SecretID、token 或签名；不用 root token 运行 Cloud。 |
 | TLS/Cloudflare 错误 | 检查源站证书有效期、`nginx -t`、Certbot renewal 和域名 server block。 | 不修改 Cloudflare SSL 模式或 DNS，除非用户另行授权。 |
 | migration 数量/摘要漂移 | 对比 `apps/cloud/src/db/migrations.ts` 和数据库 ledger，停止发布。 | 不编辑 ledger、不强行标记 migration 已应用。 |
 

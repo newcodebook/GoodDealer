@@ -675,3 +675,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export { PostgresExpiredDeviceBootstrap } from "./postgres-expired-device-bootstrap";
+
+export { DesktopStandbyGrantIssuer, DESKTOP_STANDBY_GRANT_KEY_PURPOSE, type DesktopStandbyGrantSigner } from "./standby-grant-issuer";
+
+export { PostgresDesktopRouteAuthority, PostgresDesktopSyncAuthority } from "./postgres-sync-authority";
+export type { DesktopRouteAuthorityPort, DesktopSyncAuthorityPort } from "./postgres-sync-authority";

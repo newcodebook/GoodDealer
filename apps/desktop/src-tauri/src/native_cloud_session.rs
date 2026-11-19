@@ -112,6 +112,34 @@ enum DataPlaneRoute {
 }
 
 impl DataPlaneRoute {
+    /// Only routes with a composed Standby application path may use read authority. The
+    /// self-report is a metadata write; forced requests/cancellation await their own admission.
+    const fn allows_standby(self) -> bool {
+        matches!(
+            self,
+            Self::SyncPull | Self::SyncCheckpoint | Self::DeviceList | Self::DeviceSwitchStatus
+        )
+    }
+
+    fn admit(
+        self,
+        host: &DesktopLocalHost,
+    ) -> Result<DesktopNativeCloudAdmission, DesktopLocalHostError> {
+        if self.allows_standby() {
+            host.begin_native_cloud_read_run()
+        } else {
+            host.begin_native_cloud_run()
+        }
+    }
+
+    fn require_role(self, active: bool) -> Result<(), NativeCloudRequestError> {
+        if active || self.allows_standby() {
+            Ok(())
+        } else {
+            Err(NativeCloudRequestError::AuthorityStale)
+        }
+    }
+
     const fn path(self) -> &'static str {
         match self {
             Self::SyncPush => SYNC_PUSH_PATH,
@@ -856,7 +884,7 @@ impl NativeCloudSession {
             .device_id
             .clone()
             .ok_or(NativeCloudRequestError::Unavailable)?;
-        let admission = tokio::task::spawn_blocking(move || host.begin_native_cloud_run())
+        let admission = tokio::task::spawn_blocking(move || route.admit(&host))
             .await
             .map_err(|_| NativeCloudRequestError::Unavailable)?
             .map_err(|_| NativeCloudRequestError::AuthorityStale)?;
@@ -905,11 +933,10 @@ impl NativeCloudSession {
                     .await
                     .map_err(map_refresh_request_error)?;
                 let host = Arc::clone(&self.local_host);
-                let fresh_admission =
-                    tokio::task::spawn_blocking(move || host.begin_native_cloud_run())
-                        .await
-                        .map_err(|_| NativeCloudRequestError::Unavailable)?
-                        .map_err(|_| NativeCloudRequestError::AuthorityStale)?;
+                let fresh_admission = tokio::task::spawn_blocking(move || route.admit(&host))
+                    .await
+                    .map_err(|_| NativeCloudRequestError::Unavailable)?
+                    .map_err(|_| NativeCloudRequestError::AuthorityStale)?;
                 match self
                     .send_data_plane_attempt(
                         fresh_admission,
@@ -938,6 +965,9 @@ impl NativeCloudSession {
         maximum_response_bytes: usize,
         expected_credential_instance: Option<u64>,
     ) -> Result<NativeCloudJsonResponse, DataPlaneAttemptError> {
+        // An admission retained across a refresh cannot lend Standby read authority to an
+        // Active-only route, even when the caller supplied it through an internal Native API.
+        route.require_role(admission.is_active())?;
         let (credential, request) =
             self.prepare_data_plane_request(request_body, route, expected_credential_instance)?;
         self.local_host
@@ -1528,6 +1558,7 @@ pub(crate) fn startup_authorization_failure(
         }
         DesktopHostAuthorizationStatus::ActivationRequired
         | DesktopHostAuthorizationStatus::Authorized
+        | DesktopHostAuthorizationStatus::Standby
         | DesktopHostAuthorizationStatus::Continuation => None,
     }
 }
@@ -2043,7 +2074,7 @@ mod tests {
             .unwrap();
         let send = &source[send_start..attempt_start];
         assert_eq!(send.matches(".send_data_plane_attempt(").count(), 2);
-        assert_eq!(send.matches("begin_native_cloud_run()").count(), 1);
+        assert_eq!(send.matches("route.admit(&host)").count(), 1);
         assert_eq!(send.matches("&request_body").count(), 2);
 
         let prepare_start = source.find("    fn prepare_data_plane_request(").unwrap();
@@ -2051,6 +2082,12 @@ mod tests {
         let execute = attempt
             .find(".client\n            .execute(request)")
             .unwrap();
+        assert!(
+            attempt
+                .find("route.require_role(admission.is_active())")
+                .unwrap()
+                < execute
+        );
         let post_response = &attempt[execute..];
         let status = post_response
             .find("let status = response.status()")
@@ -2145,6 +2182,46 @@ mod tests {
                 .await,
             Err(NativeCloudRequestError::ConfigurationBlocked)
         ));
+    }
+
+    #[test]
+    fn standby_route_allowlist_is_exact_and_active_routes_reject_read_authority() {
+        let routes = [
+            DataPlaneRoute::SyncPush,
+            DataPlaneRoute::SyncPull,
+            DataPlaneRoute::SyncCheckpoint,
+            DataPlaneRoute::CloudflareProjection,
+            DataPlaneRoute::SyncReceipts,
+            DataPlaneRoute::DeviceList,
+            DataPlaneRoute::DeviceSelfReport,
+            DataPlaneRoute::DeviceSwitchRequest,
+            DataPlaneRoute::DeviceSwitchStatus,
+            DataPlaneRoute::DeviceSwitchCancel,
+            DataPlaneRoute::DeviceSwitchDrain,
+        ];
+        let allowed: Vec<_> = routes
+            .iter()
+            .filter(|route| route.allows_standby())
+            .map(|route| route.path())
+            .collect();
+        assert_eq!(
+            allowed,
+            [
+                SYNC_PULL_PATH,
+                SYNC_CHECKPOINT_PATH,
+                "/v1/devices/list",
+                DEVICE_SWITCH_STATUS_PATH
+            ]
+        );
+        for route in routes {
+            assert_eq!(route.require_role(true), Ok(()));
+            assert_eq!(
+                route.require_role(false).is_ok(),
+                route.allows_standby(),
+                "{}",
+                route.path()
+            );
+        }
     }
 
     #[test]

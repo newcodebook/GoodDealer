@@ -92,7 +92,6 @@ export {
   DESKTOP_STANDBY_GRANT_MAX_LIFETIME_SECONDS,
   DESKTOP_STANDBY_GRANT_SCHEMA_VERSION,
   DESKTOP_STANDBY_GRANT_SIGNATURE_DOMAIN,
-  desktopAuthorizationGrantRequestSchema,
   desktopAuthorizationGrantRoleRequestSchema,
   desktopAuthorizationGrantRoleResponseSchema,
   desktopAuthorizationGrantSchema,
@@ -102,7 +101,6 @@ export {
 } from "./authorization-grant";
 export type {
   DesktopAuthorizationGrant,
-  DesktopAuthorizationGrantRequest,
   DesktopAuthorizationGrantRoleRequest,
   DesktopAuthorizationGrantRoleResponse,
   DesktopCommercialAuthority,

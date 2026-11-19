@@ -12,6 +12,7 @@ type BrowserSignInPresentation = BrowserSignInState;
 export type DesktopPresentation =
   | { readonly view: "opening" }
   | { readonly view: "host_unavailable" }
+  | { readonly view: "standby_awaiting_replica" }
   | { readonly view: "sign_in"; readonly signIn: BrowserSignInPresentation }
   | { readonly view: "locked"; readonly reason: "security_locked" | "retryable_locked" }
   | {
@@ -57,6 +58,9 @@ export function adjudicateDesktopPresentation(
     case "security_locked":
     case "retryable_locked":
       return { view: "locked", reason: status.state };
+    case "standby_awaiting_replica":
+      return status.capabilities.length === 0 && workspace.portfolio === null && workspace.conflicts === null && workspace.sync === null
+        ? { view: "standby_awaiting_replica" } : { view: "host_unavailable" };
     case "commercial_read_only":
     case "standby_read_only":
     case "active": {

@@ -184,9 +184,12 @@ describe("Desktop Tauri local-business adapter", () => {
     invokeMock.mockResolvedValueOnce(read);
     await expect(port.loadDnsHealth({ startIndex: 0, size: 200, query: "exa" })).resolves.toEqual(read);
     expect(invokeMock).toHaveBeenCalledWith("local_dns_health_read", { request: { startIndex: 0, size: 200, query: "exa" } });
+    const standby = { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } };
+    invokeMock.mockResolvedValueOnce(standby);
+    await expect(port.loadDnsHealth({ startIndex: 0, size: 200, query: "exa" })).resolves.toEqual(standby);
     for (const hostile of [
       { ...read, token: "canary" },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -218,7 +221,7 @@ describe("Desktop Tauri local-business adapter", () => {
     expect(invokeMock).toHaveBeenCalledWith("local_batch_operations_read", { request: { startIndex: 0, size: 200 } });
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...row, planId: "canary" }] } },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -249,7 +252,7 @@ describe("Desktop Tauri local-business adapter", () => {
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...row, mutationId: "canary" }] } },
       { ...read, window: { ...read.window, rows: [{ ...row, sourceDeviceId: "canary" }] } },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -280,7 +283,7 @@ describe("Desktop Tauri local-business adapter", () => {
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...row, operationId: "canary" }] } },
       { ...read, window: { ...read.window, rows: [{ ...row, remoteBrowserSession: "canary" }] } },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -308,7 +311,7 @@ describe("Desktop Tauri local-business adapter", () => {
     expect(invokeMock).toHaveBeenCalledWith("local_renewals_read", { request: { startIndex: 0, size: 200 } });
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...read.window.rows[0], observationId: "canary" }] } },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -335,7 +338,7 @@ describe("Desktop Tauri local-business adapter", () => {
     expect(invokeMock).toHaveBeenCalledWith("local_sales_read", { request: { startIndex: 0, size: 200 } });
     for (const hostile of [
       { ...read, window: { ...read.window, rows: [{ ...read.window.rows[0], listingObservationId: "canary" }] } },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);
@@ -364,7 +367,7 @@ describe("Desktop Tauri local-business adapter", () => {
     expect(invokeMock).toHaveBeenCalledWith("local_settings_read");
     for (const hostile of [
       { ...read, connections: [{ ...read.connections[0], connectionId: "canary" }] },
-      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: false } },
+      { ...read, freshness: { ...read.freshness, source: "standby_cloud", readOnlyReason: "standby", canEdit: true } },
       "LOCAL_READ_AUTHORIZATION_REQUIRED",
     ]) {
       if (typeof hostile === "string") invokeMock.mockRejectedValueOnce(hostile);

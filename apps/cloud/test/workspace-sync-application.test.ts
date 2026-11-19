@@ -28,7 +28,7 @@ const mutation = {
 };
 const pullRequest = { schemaVersion: 3 as const, afterServerRevision: 0, cursor: null, confirm: null, pageLimit: 256 };
 
-function fixture(pullResults: unknown[], receipts?: { readOwn: ReturnType<typeof vi.fn> }, activeDevice: string | null = "device-sync") {
+function fixture(pullResults: unknown[], receipts?: { readOwn: ReturnType<typeof vi.fn> }, activeDevice: string | null = "device-sync", role: "active" | "standby" = "active") {
   const ingest = vi.fn(async () => ({ accepted: true as const, assignments: [{
     mutationId: mutation.mutationId, deviceMutationSequence: 1, serverRevision: 1, duplicate: false,
   }], headRevision: 1 }));
@@ -36,7 +36,7 @@ function fixture(pullResults: unknown[], receipts?: { readOwn: ReturnType<typeof
   const pullV2 = vi.fn(async () => pullResults.shift() as never);
   const readLatestAvailable = vi.fn(async () => checkpoint);
   const application = new PostgresWorkspaceSyncApplication({
-    authority: { resolveActiveDevice: vi.fn(async () => activeDevice) },
+    authority: { resolveSessionDevice: vi.fn(async () => activeDevice === null ? null : ({ deviceId: activeDevice, role })), resolveActiveDevice: vi.fn(async () => activeDevice) },
     workspaces: { resolve: vi.fn(async () => scope) },
     mutations: { ingest },
     readers: { open, pullV2 },
@@ -47,6 +47,18 @@ function fixture(pullResults: unknown[], receipts?: { readOwn: ReturnType<typeof
 }
 
 describe("workspace sync authenticated application", () => {
+  it("allows Standby checkpoint and pull while rejecting push and own receipts", async () => {
+    const readOwn = vi.fn(async () => []);
+    const subject = fixture([{ accepted: false, code: "READER_CURSOR_RETIRED" }], { readOwn }, "device-sync", "standby");
+    await expect(subject.application.checkpoint({ schemaVersion: 3 }, principal)).resolves.toEqual({ schemaVersion: 3, checkpoint });
+    await expect(subject.application.pull(pullRequest, principal)).resolves.toMatchObject({ code: "SYNC_REBOOTSTRAP_REQUIRED" });
+    expect(subject.pullV2).toHaveBeenCalled();
+    await expect(subject.application.push({ schemaVersion: 3, mutations: [mutation] }, principal)).resolves.toMatchObject({ code: "SYNC_AUTHORIZATION_REJECTED" });
+    await expect(subject.application.receipts({ schemaVersion: 1, mutationIds: [mutation.mutationId] }, principal)).resolves.toBeNull();
+    expect(subject.ingest).not.toHaveBeenCalled();
+    expect(readOwn).not.toHaveBeenCalled();
+  });
+
   it("rejects a mutation provenance device that differs from the server-derived session device", async () => {
     const subject = fixture([]);
     const result = await subject.application.push({ schemaVersion: 3, mutations: [{

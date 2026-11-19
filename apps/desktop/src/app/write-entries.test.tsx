@@ -129,6 +129,19 @@ async function openDetail() {
 }
 
 describe("write entries follow the presentation gate", () => {
+  it("removes self naming immediately when Host demotes Active while settings reads remain stale", async () => {
+    const directory = { schemaVersion: 1 as const, listRevision: 1, devices: [{ deviceId: "self", displayName: "Desk", platform: "macos" as const, status: "bound" as const, role: "active" as const, currentDevice: true, lastSeenAt: null }] };
+    const workspacePorts = { ...ports(), devices: { read: vi.fn(async () => directory), reportSelf: vi.fn(async () => directory) } };
+    await render("active", ["local:read", "workspace:mutate"], workspacePorts);
+    await clickButton("Settings");
+    await clickButton("Devices & runtime");
+    expect(container.querySelector('input[name="displayName"]')).not.toBeNull();
+    await render("standby_read_only", ["local:read"], workspacePorts, vi.fn(), generation + 1);
+    expect(container.querySelector('input[name="displayName"]')).toBeNull();
+    expect(workspacePorts.devices.read).toHaveBeenCalledTimes(1);
+    expect(workspacePorts.devices.reportSelf).not.toHaveBeenCalled();
+  });
+
   it("keeps an unsaved device name when ordinary synchronization advances the business generation", async () => {
     const directory = { schemaVersion: 1 as const, listRevision: 1, devices: [{ deviceId: "self", displayName: "Desk", platform: "macos" as const, status: "bound" as const, role: "active" as const, currentDevice: true, lastSeenAt: null }] };
     const workspacePorts = { ...ports(), devices: { read: vi.fn(async () => directory), reportSelf: vi.fn(async () => directory) } };

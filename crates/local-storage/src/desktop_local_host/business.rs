@@ -25,10 +25,7 @@ impl DesktopLocalHost {
     ) -> Result<crate::BatchOperationsReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_batch_operations(request.start_index, request.size)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -49,10 +46,7 @@ impl DesktopLocalHost {
     ) -> Result<crate::ManualTasksReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_manual_tasks(request.start_index, request.size)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -77,10 +71,7 @@ impl DesktopLocalHost {
                 request.size,
                 (&request.today_from, &request.today_until),
             )?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -100,10 +91,7 @@ impl DesktopLocalHost {
     ) -> Result<crate::RenewalsReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_renewals(request.start_index, request.size)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -124,10 +112,7 @@ impl DesktopLocalHost {
     ) -> Result<crate::SalesReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_sales(request.start_index, request.size)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -143,10 +128,7 @@ impl DesktopLocalHost {
     pub fn read_settings(&self) -> Result<crate::SettingsReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_settings()?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -170,10 +152,7 @@ impl DesktopLocalHost {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot =
                 runtime.read_dns_health(request.start_index, request.size, &request.query)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -194,10 +173,7 @@ impl DesktopLocalHost {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot =
                 runtime.read_asset_library(request.start_index, request.size, &request.query)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -217,10 +193,7 @@ impl DesktopLocalHost {
     ) -> Result<crate::DomainDetailReadSnapshot, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut snapshot = runtime.read_domain_detail(&request.entity_id)?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                snapshot.freshness.can_edit = false;
-                snapshot.freshness.read_only_reason = Some("commercial".to_owned());
-            }
+            apply_read_restriction(&mut snapshot.freshness, restriction);
             Ok(snapshot)
         })
     }
@@ -357,8 +330,15 @@ impl DesktopLocalHost {
     pub fn read_conflict_center(&self) -> Result<DesktopConflictCenterView, DesktopLocalHostError> {
         self.with_authorized_business(false, |runtime, _, _, restriction| {
             let mut view = runtime.read_conflict_center()?;
-            if restriction == RuntimeRestriction::CommercialReadOnly {
-                view.freshness.source = "local_continuation";
+            if matches!(
+                restriction,
+                RuntimeRestriction::CommercialReadOnly | RuntimeRestriction::Standby
+            ) {
+                view.freshness.source = if restriction == RuntimeRestriction::Standby {
+                    "standby_cloud"
+                } else {
+                    "local_continuation"
+                };
                 for conflict in &mut view.conflicts {
                     conflict.resolution_admission = serde_json::json!({"state":"unavailable"});
                 }
@@ -450,6 +430,9 @@ impl DesktopLocalHost {
         let now = current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
         let restriction_authorizes = match authority.restriction {
             RuntimeRestriction::Active => current.kind == WorkspaceAuthorityKind::Active,
+            RuntimeRestriction::Standby => {
+                !mutable && current.kind == WorkspaceAuthorityKind::Standby
+            }
             RuntimeRestriction::CommercialReadOnly => {
                 !mutable
                     && current.kind == WorkspaceAuthorityKind::VerifiedLocalContinuation
@@ -511,5 +494,23 @@ impl DesktopLocalHost {
             return Err(BusinessDatabaseError::MutationStale);
         }
         Ok(())
+    }
+}
+
+fn apply_read_restriction(
+    freshness: &mut crate::PortfolioReadFreshness,
+    restriction: RuntimeRestriction,
+) {
+    match restriction {
+        RuntimeRestriction::Standby => {
+            "standby_cloud".clone_into(&mut freshness.source);
+            freshness.can_edit = false;
+            freshness.read_only_reason = Some("standby".to_owned());
+        }
+        RuntimeRestriction::CommercialReadOnly => {
+            freshness.can_edit = false;
+            freshness.read_only_reason = Some("commercial".to_owned());
+        }
+        _ => {}
     }
 }

@@ -33,10 +33,10 @@ import {
 } from "@gooddealer/protocol/account";
 import {
   DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID,
-  DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
-  desktopAuthorizationGrantRequestSchema,
-  desktopAuthorizationGrantSchema,
-  type DesktopAuthorizationGrant,
+  DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
+  desktopAuthorizationGrantRoleRequestSchema,
+  desktopAuthorizationGrantRoleResponseSchema,
+  type DesktopAuthorizationGrantRoleResponse,
 } from "@gooddealer/protocol/devices";
 import {
   DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID,
@@ -213,11 +213,11 @@ export class BillingClient {
 export class DesktopAuthorizationClient {
   public constructor(private readonly transport: CloudTransport) {}
 
-  public async issue(): Promise<DesktopAuthorizationGrant> {
-    const request = desktopAuthorizationGrantRequestSchema.parse({
-      schemaVersion: DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
+  public async issue(): Promise<DesktopAuthorizationGrantRoleResponse> {
+    const request = desktopAuthorizationGrantRoleRequestSchema.parse({
+      schemaVersion: DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
     });
-    return desktopAuthorizationGrantSchema.parse(
+    return desktopAuthorizationGrantRoleResponseSchema.parse(
       await this.transport.send(DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, request),
     );
   }

@@ -16,11 +16,17 @@
   与 [WebView capability](../apps/desktop/src-tauri/capabilities/local-app.json)定义命令面。
   设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
   Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
-  保存结果未知时先刷新对账，普通业务同步不清空未保存输入。当前 Native 目录仍要求 Active 授权；
-  交接按钮在 Standby 与目标引导闭环交付前不开放。
+  保存结果未知时先刷新对账，普通业务同步不清空未保存输入。Standby 现在可读目录；本机命名仍只允许 Active，
+  角色降级立即移除改名入口，不依赖旧设置投影。交接按钮在目标引导闭环交付前不开放。
 - Desktop 登录/刷新现已在同一事务终结默认工作区的过期引导：烧毁 pending epoch、消费能力与 nonce、释放 checkpoint pin，
   再按原授权规则分配更高 epoch。未到期、孤立或不一致记录继续阻断；同事务内 Lease 签发失败时整体回滚。
-  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。引导开始后的取消、Standby 登录与目标引导仍未完成。
+  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。引导开始后的取消和目标引导仍未完成。
+- Desktop OAuth/刷新支持第二台已绑定设备以 Standby 登录；Cloud/Host 使用严格 v4 角色交换，Active 内层保持双签名 v3 Grant/Lease，
+  Standby 使用独立用途签名 v1。Cloud 在锁定服务器状态派生角色，签名后重查会话/撤销/期限；精确当前引导目标的 floor 为 pending−1，其余设备为 highest allocated。
+- Native custody 独立保存安装与身份绑定的 security/issuedAt/Lease/商业地板，建立标记和记录缺项均拒绝；持久读回后再发布角色，
+  Active→Standby 保留本地库并原子停写。新机无副本显示 `standby_awaiting_replica`、设备目录及刷新授权，不伪造空资产库。
+  有副本只读，Provider、Outbox 和业务写入均拒绝；当前 Standby Inbox 仍冻结，正常交接成功证据驱动的只读同步续作是下一切片。
+  Windows 复用同一授权合同与纯地板模型并补齐接口；目标编译尚未取证，底层 custody 仍未实现，本轮不宣称双系统完整可用。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。

@@ -35,12 +35,14 @@ import {
   type AuthoritativeWorkspacePorts,
   type AuthoritativeWorkspacePublication,
 } from "./app/workspace-publication";
+import { StandbyAwaitingReplica } from "./app/standby-awaiting-replica";
 import { WorkspaceView } from "./app/workspace-view";
 import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
 import "./app.css";
 
+const deviceDirectory = createDeviceDirectoryPort();
 const workspacePorts: AuthoritativeWorkspacePorts = {
-  devices: createDeviceDirectoryPort(),
+  devices: deviceDirectory,
   business: createLocalBusinessPort(),
   portfolio: createLocalPortfolioPresentationPort(),
   dns: createLocalDnsHealthPort(),
@@ -234,6 +236,8 @@ export function App() {
             onRetry={refreshAuthorization}
           />
         );
+      case "standby_awaiting_replica":
+        return <StandbyAwaitingReplica locale={locale} windowFrame={windowFrame} port={deviceDirectory} onRefreshAuthorization={refreshAuthorization} />;
       case "workspace":
         if (onboarding.state === "offered" && workspace !== null) {
           return (

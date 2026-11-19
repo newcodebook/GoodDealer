@@ -37,6 +37,7 @@ describe("device switch public routes", () => {
       now: () => new Date("2026-11-17T00:00:00Z"),
       correlationIds: () => "switch-route-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate: async () => null },
         desktopAuthorization: { issue: async () => null },
         commercialCheckout: {

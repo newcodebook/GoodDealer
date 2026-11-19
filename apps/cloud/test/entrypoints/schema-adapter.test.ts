@@ -49,6 +49,7 @@ describe("the built-in Zod JSON Schema adapter", () => {
       request: accountRejectionSchema,
       response: publicBoundaryIdentityResponseSchema,
       requiredScope: null,
+      deviceRole: null,
       authorize: () => true,
       invoke,
     };
