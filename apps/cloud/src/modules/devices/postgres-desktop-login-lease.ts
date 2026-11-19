@@ -8,6 +8,7 @@ import {
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
 import type { AccountTransactionRunner } from "../../db/index";
+import type { ExpiredDeviceBootstrapPort } from "./postgres-expired-device-bootstrap";
 import type { ActiveDeviceLeaseVerifier } from "./active-device-lease-verifier";
 import {
   ACTIVE_DEVICE_LEASE_KEY_PURPOSE,
@@ -69,6 +70,7 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
     readonly entitlement: DesktopLoginLeaseEntitlementPort;
     readonly signer: ActiveDeviceLeaseSigner;
     readonly verifier: ActiveDeviceLeaseVerifier;
+    readonly bootstrapExpiry: ExpiredDeviceBootstrapPort;
   }) {}
 
   async ensureCurrentLease(input: {
@@ -120,6 +122,8 @@ export class PostgresDesktopLoginLease implements DesktopLoginLeasePort {
           [input.accountId, input.deviceId],
         );
         if (subject.rows.length !== 1 || subject.rows[0]?.active !== true) refuse();
+        // Reconcile expired bootstrap authority atomically with the next Lease allocation.
+        if (!await this.dependencies.bootstrapExpiry.expireLocked(transaction)) refuse();
         // Switch writers lock security first, so under that lock this answer cannot go stale.
         const reserved = await allocationReserved(transaction);
         const held = await transaction.query<{

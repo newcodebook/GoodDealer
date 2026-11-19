@@ -8,10 +8,13 @@ import {
 } from "../db/index";
 import {
   PostgresDesktopLoginLease,
+  PostgresExpiredDeviceBootstrap,
   PostgresDeviceLoginProof,
   type ActiveDeviceLeaseSigner,
   type ActiveDeviceLeaseVerifier,
 } from "../modules/devices/index";
+import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
+import { PostgresBootstrapCheckpointPort } from "../modules/workspace/checkpoints/index";
 import { PostgresEntitlementDeadlineReader } from "../modules/licensing/index";
 import {
   DESKTOP_OAUTH_CLIENT_ID,
@@ -79,6 +82,10 @@ export function createPostgresDesktopOAuthHttp(
     entitlement: new PostgresEntitlementDeadlineReader(authenticatedTransactions),
     signer: deps.activeDeviceLeaseSigner,
     verifier: deps.activeDeviceLeaseVerifier,
+    bootstrapExpiry: new PostgresExpiredDeviceBootstrap({
+      workspaces: new PostgresDefaultWorkspaceTenantResolver(transactions),
+      checkpoints: new PostgresBootstrapCheckpointPort(),
+    }),
   });
   return createDesktopOAuthHttp({
     sessions: new CloudPublicSessionVerifier(new IdentityAccountSessionVerifier(deps.identity)),

@@ -17,6 +17,7 @@ import {
 } from "@gooddealer/protocol/workspace";
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
+import { bootstrapDeadlineIsLive } from "./bootstrap-deadline";
 import { type TenantTransaction, type TenantTransactionRunner } from "../../db/index";
 import {
   BootstrapCapabilityVerifier,
@@ -141,7 +142,7 @@ export class PostgresBootstrapStepService {
     }>(
       `SELECT jti, target_device_id, issued_at, expires_at, consumed_at,
               canonical_signed_envelope, signed_envelope_digest, ready_at,
-              transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at AS live
+              clock_timestamp() >= issued_at AND clock_timestamp() < expires_at AS live
        FROM device_bootstrap_capabilities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, request.deviceSwitchRequestId],
@@ -176,6 +177,7 @@ export class PostgresBootstrapStepService {
         !stored.rows[0].canonical_request.equals(canonicalRequest)) refuse();
       const result = bootstrapStepResultSchema.parse(decodeCanonicalJson(stored.rows[0].canonical_result));
       if (!stored.rows[0].canonical_result.equals(canonicalResultBytes(result))) refuse();
+      if (!await bootstrapDeadlineIsLive(transaction, request.deviceSwitchRequestId)) refuse();
       return { accepted: true, result, replay: true };
     }
     if (request.stepNumber !== parseInteger(authorityRow.next_step_number) ||
@@ -260,6 +262,7 @@ export class PostgresBootstrapStepService {
     );
     if (workflowUpdate.rowCount !== 1) refuse();
     this.dependencies.fault?.("before_commit");
+    if (!await bootstrapDeadlineIsLive(transaction, request.deviceSwitchRequestId)) refuse();
     return { accepted: true, result, replay: false };
   }
 

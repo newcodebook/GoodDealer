@@ -3,6 +3,7 @@
 2026-11-18 产品决策：按 [ADR-0027](../adr/0027-multi-platform-domain-providers-and-marketplaces.md) 与 [ADR-0023](../adr/0023-business-backup-and-recovery.md)
 交付十二平台、非资金整批一次确认、Windows/macOS 完整能力与两条恢复旅程。
 下文已勾选的八平台与逐项确认项保留当时证据，不代表新目标完成；后续待办按新决策执行。
+实施顺序以 [落地策略](../IMPLEMENTATION_STRATEGY.md) 的实际依赖为准；旧阶段 4 的汇合验收不再阻止市场、设备和恢复实现。
 
 ## 2026-11-18 工程结构整合
 
@@ -36,7 +37,7 @@ ADR-0028 → ADR-0019 → ADR-0029 的批次、所有者、前置与验收条件
 | A1 | Cloud identity/devices | 账号、Session、Subscription/Entitlement、Device、Lease/Epoch。 | 签发、验证、续期、吊销和离线期限测试。 |
 | D1 | Desktop | 授权门禁后组合本地 Repository 和业务 UI；独立 `sync.conflicts` 路由只在 Active/Standby workspace surface 暴露。 | Cloud transport 全失败时，有效授权下本地读写成功；商业只读/Standby 仅查看且 resolve 不可用；locked、retryable、security、recovery surface route-free。 |
 | S1 | Sync | secret-free Push/Pull、ACK/Cursor、冲突和恢复副本；客户状态由持久化 `SyncSnapshot` 与 Native transport observation 组成。 | 不同步 Provider 账号；Pull 先本地合并；Cloud 空副本不删除；snapshot 暴露 durable pending/open-conflict/rejected counts 和 applied revision，transport 仅为 `checking`、`reachable`、`offline`、`blocked`。重启从 `checking` 开始；内部复制诊断不属于客户状态。 |
-| C1 | Local Connector | 按 ADR-0027 逐平台、逐项接入 8 个首发平台的域名能力，先以 Cloudflare 抽象共用框架；当前只有最小 Token 的 Cloudflare Host-local Zone/DNS API read 与现有资产本地绑定，其余写入、Registrar、交易市场、获取与其他平台仍不可执行。 | Provider 账号与凭据只本地；每项新能力具名授权、计划/确认、对账和本地优先结果通过负向测试，真实执行另需对应 Q-CF 或 Q-PROV 资格。 |
+| C1 | Local Connector | 按 ADR-0027 接入十二平台，先交付资产归集与 Afternic，再由两个平台的真实需求验证复用面；当前只有最小 Token 的 Cloudflare Host-local Zone/DNS API read 与现有资产本地绑定，其余写入、Registrar、交易市场、获取与其他平台仍不可执行。 | Provider 账号与凭据只本地；每项新能力具名授权、计划/确认、对账和本地优先结果通过负向测试，真实执行另需对应 Q-CF 或 Q-PROV 资格。 |
 | V1 | 集成所有者 | 本地业务、授权、同步和秘密边界汇合。 | 聚焦测试、根 `pnpm check`、术语扫描和 `git diff --check`。 |
 
 ## 依赖
@@ -89,7 +90,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [x] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）（暂停：依赖阶段 5的平台角色模型；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）（待实现；复用现有角色目录，随平台客户切片补齐）
 - [x] 连接标签长度限制在写入与各读取之间对齐：统一为 1–120 个 UTF-16 单元、拒绝 Cc/Cf 字符，写入与设置、DNS 健康、人工任务读取共用同一规则（此前写入 512 字节、设置读取 120 字节；开发库中超出新规则的已存标签会使这些读取失败关闭） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取补 65 条上限、未知 Provider 与已删除连接排除的 Rust 负向测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取（Rust 与 Zod）接受 ADR-0027 的 8 个平台，须在首个非 Cloudflare 连接写入之前完成（当前非 Cloudflare 连接会使整个设置读取失败关闭）（8 个平台均列出、每个角色仍不可用；清单外平台使读取失败关闭；非 Cloudflare 的接入方式为未知，不臆测） https://github.com/newcodebook/GoodDealer/pull/53
@@ -144,27 +145,27 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [x] 资产库到期计数在搜索过滤下与续费页列表口径一致（到期计数不随搜索前缀过滤，始终是续费页将列出的整个工作区行数；其余指标仍随搜索） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 搜索生效时资产库到期指标标明为工作区范围（与随搜索的其余指标区分）；`EXPIRING_ASSET` 改为带表别名，避免在连接查询中绑定到其他表的同名列（别名部分已完成：`expiring_asset(alias)`；剩余 UI 标明范围）（UI 已完成：搜索生效时到期指标的说明行显示“全工作区”，与去续费入口按 kit 的“ · ”连接，并写入按钮的无障碍名称；en-US/zh-CN 文案与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 续费、销售、批量、历史、人工任务路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 批量父计划生成、计划详情读取、非资金整批一次确认及资金逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）（暂停：依赖阶段 5的能力 manifest 与首个批量能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] 批量父计划生成、计划详情读取、非资金整批一次确认及资金逐项确认（随首个批量操作能力资格认证；认证前新建与执行保持不可用）（随首个市场的持久计划、执行与对账切片实施；真实执行资格另行取证）
 - [x] 历史页“今日变更”改为 Host 侧计数（当前只统计已加载的最新 500 条）（Renderer 在读取请求中给出本地日的规范 UTC 起止时刻（起含止不含，23–25 小时），Host 校验后与总数同一次扫描计数全账本；同一次读取的各窗口计数须一致） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 历史页跨过本地午夜后自动重新读取“今日变更”（当前保留上次计数直到重新读取）（`useLocalHistoryDay` 持有本地日并在其结束时按时钟重新计算；本地日作为读取的重启键，因此同一次读取的各窗口不会跨两天，翻日或窗口在新的一天回到前台时重新读取，并保留上次结果直到新结果到达；DOM 测试用假时钟跨过午夜） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Outbox 写入时校验 `created_at` 为规范 UTC 时刻（“今日变更”按字符串比较计数，依赖规范格式）（新迁移 `outbox_integrity.sql` 的插入与更新触发器只接受 `YYYY-MM-DDTHH:MM:SSZ` 且小时不超过 23，与 Host `validate_timestamp` 一致；历史读取在同一次聚合中发现任何迁移前的非规范时间即整体拒绝，而不是按错误的日期计数） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `local-storage` 业务测试数据库随测试结束删除（原 `tempdir().keep()` 每次运行在临时目录残留上万个目录，耗尽配额；改为 `TestDatabase` 持有目录） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）（暂停：依赖阶段 5的首个可撤销能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
-- [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）（暂停：依赖阶段 5的对账任务模型与能力资格认证；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] 历史回滚：撤销计划命令与高风险确认（随首个可撤销操作能力资格认证；认证前回滚与导出保持不可用）（随具体平台可撤销操作的合同与对账实施）
+- [ ] 人工任务对账：打开平台、标记完成与重新检查后由 Host 重新观察平台状态完成对账（随对应能力资格认证；认证前保持不可用）（随首个平台客户旅程实施）
 - [x] 人工任务等待时间改用 `manual_action_required` 结果的观察时间，而非尝试开始时间（每项取最新尝试最早的 `manual_action_required` 结果观察时间，结果尚未记录时退回尝试开始时间；任务按其中最早者排序） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 人工任务读取每任务域名样本收窄（当前每任务最多 10,000 个，单窗口载荷过大）（Host 只发送收件箱显示的前 3 个域名（字节序），`domainCount` 仍精确；读取与视图合同共用 `manualTaskDomainSampleLimit` 并拒绝其他样本大小，Desktop 测试固定它与 Host 的 `DOMAIN_LIMIT` 相等；等待起点不早于尝试开始） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照，并记录各 WebView 的 NumberFormat v3 探测结果与超大金额的显示（当前只有源码与打包依赖图层面的证据）（暂停：待决事项——工作区页面只有在真实账号经浏览器 PKCE 登录、取得商业授权与 Active Lease 后才可达，登录须由用户本人输入凭据；三种 WebView 分别只在 macOS（WKWebView）、Windows（WebView2）与 Linux（WebKitGTK）上存在，当前执行环境只有 Linux 且不能操作原生窗口。影响：阶段 2 验收“每个设计页面在真实构件中可达”与阶段 4 的真实构件证据都依赖此项。可选方案：①用户在三种系统的打包构件上登录，按页面清单逐屏截图并运行内置 NumberFormat 探测，由执行方对照 kit 记录偏差并修复；②在 Linux 上经用户批准安装 `tauri-driver` 与 WebKitWebDriver 做 WebKitGTK 的自动逐屏对照（登录仍由用户完成），macOS 与 Windows 仍按①；③先只取 Linux 证据，macOS/Windows 推迟到阶段 11 的最终候选。推荐②+①：Linux 部分可重复，其余两种系统一次人工对照）
 - [x] 历史与人工任务等显示文本的长度口径在 Rust 与 Zod 之间对齐（核实：Zod 4 的 `max` 按码点计数，与 Rust 字符数一致，无需改动；需要 UTF-16 上限的 Zod 校验须显式比较 `length`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役（已对齐：`providerKind` 改用唯一的 `launchPlatformKindSchema`，移除 `registrar_dns`/`custom`；注册商自带 DNS 即该注册商平台；补每个首发平台接受与旧值拒绝测试） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）（暂停：依赖阶段 5的平台角色模型（Host 尚无按平台的角色报告）；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）（待核对当前角色目录并收窄具名合同）
 - [x] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）（已完成：存储完整性迁移在写入时拒绝平台不一致的绑定，并禁止已绑定连接改变平台；业务写入路径本就只接受 Cloudflare 连接） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）（改为说明 Standby 不做修改，且 DNS 修复与所有权重新验证尚未在任何设备上取得资格；en-US/zh-CN 与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] DNS 修复或所有权重新验证在 Cloudflare 阶段取得资格时，同步改写 DNS `readOnlyNotice`（届时说明这些操作只在 Active 设备上执行；Active 上 `canEdit: false` 时也显示只读说明，与续费按 `!canEdit` 判断一致）（暂停：依赖阶段 5的 Cloudflare DNS 写入资格；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] DNS 修复或所有权重新验证在 Cloudflare 阶段取得资格时，同步改写 DNS `readOnlyNotice`（届时说明这些操作只在 Active 设备上执行；Active 上 `canEdit: false` 时也显示只读说明，与续费按 `!canEdit` 判断一致）（随已批准范围的 DNS 写入与所有权验证切片实施）
 - [x] Host 路由读取的重试接线测试：重试按钮已测试会调用 `retry`；`useHostRouteRead` 由 `attempt` 驱动重新读取仍缺 hook 级测试（需要渲染环境）（同一测试：首读失败后点击“重新读取”，从同一页起点重新读取） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页 DNSSEC 各状态与 en-US 渲染测试（当前只覆盖 zh-CN 的“未知”）（四种状态 en-US 与 zh-CN 均有渲染测试；已观察的 Zone 读取契约必带状态，未观察的行不显示 DNSSEC 标签并有测试） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `read_cloudflare_connection` 返回的连接标签改用统一标签规则（当前 Host 不校验，适配器允许 256 个单元且只拒绝 C0/DEL；随 `features/connections` 进入生产导航）（Host 读取对标签应用与其他读取相同的 `valid_connection_label`，不经创建路径写入的违规标签让读取失败关闭；适配器的状态、创建回执与创建输入都改用 client-core 的 `connectionLabelSchema`（至多 120 个 UTF-16 单元，拒绝控制与格式字符），违规输入在 IPC 之前拒绝；Host 与适配器测试覆盖零宽字符、控制字符与超长标签） — https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）（暂停：依赖阶段 5的 Cloudflare Registrar 能力；阶段 5 以阶段 4 为进入条件，阶段 4 暂停于本清单第 4 节所列待决事项，随之等待）
+- [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）（随资产来源平台的注册商观察接入；不限定 Cloudflare）
 - [x] 设置“关于”报告让其他读取失败关闭或变慢的存储坏行计数：非法到期日期（资产库与续费）、非法注册商名称的可用观察（续费变慢，显示时失败）、DNS 绑定或观察无效的资产、无效挂牌观察（销售）、时间非规范的 Outbox 行（历史）；每项计数复用对应读取的校验谓词，设置读取本身不因坏行失败；修复尚不可用并如实说明 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取每次全量运行完整性计数（含销售挂牌合并查询，10 万资产约 0.5–2 s）：改为复用销售按数据代缓存或仅在打开“关于”时计数，并纳入 10 万基准计时（同一数据代已有合并成功的销售台面时不再扫描挂牌，提交落在读取期间则不用缓存重读；10 万基准：2 市场冷读 0.72 s、缓存后 0.22 s，8 市场冷读 2.1 s、缓存后 0.23 s；8 市场写入后首次读取与销售首次合并同属下一项的预算问题） https://github.com/newcodebook/GoodDealer/pull/53
 
@@ -206,16 +207,16 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [x] 确定性的推送拒绝不应无限重试：`sync/http-service.ts` 的 `mapPushCode` 把 `MUTATION_FIELD_STALE`、`MUTATION_BASE_REVISION_AHEAD` 与 `MUTATION_ENTITY_UNKNOWN` 都映射为 `SYNC_STORAGE_REJECTED`，Desktop 把它视为可重试，所以真正的冲突让 Outbox 头永久重试、阻塞其后全部同步（`mapPushCode` 改为对 ingest 拒绝码的穷举映射；新增推送拒绝码 `SYNC_MUTATION_CONFLICT`，覆盖字段过期与墓碑实体，协议 schema、wire 语料（生成）与 Rust 严格校验同时更新；Desktop 对多项批次先隔离，单项把 Outbox 行终止为 `conflicted`、`last_error_code='sync_mutation_conflict'`，保留行与字段，其后 Outbox 继续发送；字段 `sync_state` 不变，拉取到对方写入时进入冲突中心而不覆盖本地值。`MUTATION_BASE_REVISION_AHEAD` 只在 Cloud 状态回退时出现，与 `MUTATION_DRAIN_SEALED`、`MUTATION_WORKSPACE_MISMATCH` 一同保持可重试以保住本地编辑。Cloud 应用层逐码测试、Rust 业务层与推送处置测试。被拒绝序号在 drain 中的缺口拆为下一项） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 被确定性拒绝的 mutation 序号在设备切换 drain 中留下缺口：Cloud ingest 接受序号缺口，但 drain 验证（`devices/drain-verification.ts`）要求 `mutation` 流连续接收水位等于最后分配序号、无缺失区间且 rolling digest 一致，否则 `DRAIN_STREAM_GAP`；本地 `sync_outbox_fields_v2_immutable_delete` 禁止删除已认领行，不能靠丢弃 Outbox 行解决；Desktop 目前尚不生成 drain proof，所以在设备切换交付前须解决。ADR-0029 的经同步重新添加以本项为前置（决策已接受：产品负责人于 2026-11-13 接受原子拒绝回执、全局设备序号身份及独立有版本的 drain 结果摘要，待实现与资格验证。见 [ADR-0019](../adr/0019-complete-local-business-schema-and-cloud-replica-model.md)（Accepted，2026-11-13；实现中：B1 的结果 envelope、drain proof v2 与 PostgreSQL v2 seal 重建，B2 的结果联合 ledger 与单项业务拒绝同事务记账，以及 B3 的客户端 v2 结果链合同与跨 Lease epoch 的全局 v2 seal 已交付；设备切换端到端串通见下一项））（已交付 Cloud 原子拒绝回执、v2 结果链与 seal 及客户端合同；设备切换端到端串通在第 191 行，暂停中） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 设备切换端到端串通 ADR-0019 v2 drain：Host 按序读取 Outbox 的持久 Cloud 结果（`acknowledged` 与 `conflicted`/`sync_mutation_conflict`），用 client-core `foldPersistedMutationResults` 与 `buildDrainProofClaims`（v2）生成声明并签名，Cloud 接收 proof 写入 `device_drain_proofs` 时保存 `proof.schemaVersion`；端到端覆盖拒绝后后续同步与 drain 成功、Lease 轮换后 drain 成功；跨 ADR-0029 C1a 升级的行须能确定 Cloud 记录的是 v2 还是 v3 提交 envelope（本地目前只记 v2 编码摘要，升级前认领、升级后 ACK 的行两者皆有可能），C1c2b 之后新记录的行以版本 3 记录、可判别，此前记录为版本 2 的行由本项给出 Cloud 接受版本的判别（产品负责人 2026-11-16 决定纳入 v1；仓库尚无 Desktop 设备切换流程与 Cloud proof 接收路径，须先写 Task Frame）（决策已接受：产品负责人于 2026-11-17 按建议接受 [ADR-0032](../adr/0032-desktop-device-switch-and-drain-handoff.md)——普通切换在 Active 设备发起、强制接管在目标设备发起并纳入 v1；`execution_fact`/`device_audit` 以空流声明，交付两条流是第一项 Provider 能力资格化的前置；drain proof 以 ADR-0011 设备签名密钥签名；跨 C1a 的版本 2 行以 Cloud 本设备回执查询判别；新设备不迁移本地专有数据。实施分 S1 Cloud 路由与回执查询、S2 Host 停写/折叠/签名与 rebootstrap 进入生产、S3 Desktop 界面、S4 端到端）。S1a（本设备回执查询：`/v1/workspace-sync/mutations/receipts`，设备由会话派生、不接受调用方指定，返回 Cloud 记录的 wire 版本与摘要；协议、应用、路由与 PostgreSQL 负向测试）已交付 831edd4（https://github.com/newcodebook/GoodDealer/pull/53；PostgreSQL 用例由 CI 18.6 运行）。S1b 普通部分（`/v1/device-switch/requests` 发起、状态、取消：仅当前 Lease 持有设备发起，进入 `draining`，绑定目标设备有效密钥，幂等重放、单一未结束切换、过期未引导的切换在下次发起时失败、跨租户隔离与并发 PostgreSQL 测试；强制接管返回 `FORCED_SWITCH_UNAVAILABLE`）已实现，随本 PR 提交（https://github.com/newcodebook/GoodDealer/pull/53；PostgreSQL 用例由 CI 18.6 运行）；S1c1（drain 交接与引导统一以目标设备有效密钥为工作流绑定密钥：迁移 `202611170001` 替换 `device_consume_drain_proof`，TypeScript 交接同步，夹具与漂移探针更新）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交（PostgreSQL 用例由 CI 18.6 运行）；S1c2（`/v1/device-switch/requests/drain`：以来源设备有效密钥验 drain proof 签名，所有者例程 `device_record_drain_proof`（迁移 `202611170002`）复核工作流、密钥、Lease 与时间窗后写入 `device_drain_proofs` 并保存 `proof.schemaVersion`，交接事务 seal 三条流、空流以创世摘要声明，失败整体回滚）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交（PostgreSQL 用例由 CI 18.6 运行）；S2a（Host 以 Rust 复现 v2 结果链折叠、提交 envelope 与 handoff proof 的 transcript/摘要输入，与协议测试钉住同一组金摘要）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2b（本地迁移 `202611170001` 的持久停写栅栏：触发器在栅栏存在时拒绝推进设备序号与插入 Outbox，Cloud 结果照常落盘；Host 在一个快照中读取 Outbox 并折叠出可签名、等待或失败关闭的 drain 进度）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2c 本地部分（本地迁移 `202611170002` 的不可变 Cloud 记录版本；版本 2 行在 Cloud 回执的 epoch、序号、结果与摘要等于本地按 v2 或 v3 重建的候选后才记录，任一不符整批不写，drain 进度在记录前报告需要回执）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；回执查询的发送与解析随 S2d；S2d1（设备身份只签逐帧校验为本机 handoff drain proof 的 transcript，不暴露任意签名）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2d2a（本地迁移 `202611170003`：停写栅栏记录所排空的 Lease epoch，本设备以更新 epoch 持有 Lease 时遗留栅栏可识别并清除）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2d2b（Host 端栅栏、进度、回执查询与严格解码、proof 构建与 drain 请求体、切换响应严格解码）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2d3a（Host 普通切换请求体与切换 id 只取自 Cloud 视图（须为本设备发往所请求目标的普通切换）、当前 epoch 栅栏读取；Tauri 协调器：Cloud 接受后同一提交内关闭写入，推送等待中唤醒同步、回执缺失失败关闭、仅在 mutation 流完全确认后以设备密钥签名并提交，Cloud 报告取消或失败才重新开放写入，未获答复的请求在获答复前以同一幂等键与原目标重试；发起切换与每次推送前清除更早 epoch 的遗留栅栏）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；S2d3b（Tauri 命令 `device_switch_request`/`advance`/`status`/`cancel` 接入协调器，权限清单与生成的 schema、命令策略与适配器 `createDeviceSwitchPort`：Renderer 只发送目标设备 id，只接收封闭步骤码与 Cloud 状态或拒绝码，严格解析、未知字段与值一律拒绝）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交；设备界面入口随 S3。决定（产品负责人 2026-11-18）：采用下述方案 A。原待决事项——S3 Active 设备一侧（设置“设备”列表与移交确认）需要设备名称、平台与最近在线时间：brand 设计稿 `SettingsPanel.jsx` 的设备列表与移交对话框按名称显示设备（如“MacBook Pro（本机）”）并显示最近在线，协议 `deviceBindingSummarySchema` 也要求 `platform`、`displayName`、`lastSeenAt`，但 Cloud `device_bindings` 只存设备 id、状态、凭据纪元与绑定/移除时间，没有任何来源，也没有设备列表路由。影响：S3 Active 设备界面无法按设计稿交付；Host、Tauri 命令与协调器（S2d）不受影响。方案 A（推荐）：Desktop 在绑定与每次登录时报告平台（Host 从操作系统取得的封闭枚举）与用户可改的显示名称（默认取操作系统主机名、按 `displayLabel` 规则截断），Cloud 迁移为 `device_bindings` 加列并在会话活动时更新最近在线（按小时取整以减少精度），新增只读 `/v1/devices/list` 路由（仅本账户、脱敏）；方案 B：不收集名称，列表与对话框只显示平台与设备 id 的短后缀，偏离设计稿；方案 C：名称只存在每台设备本地，列表只能显示本机名称，另一台设备显示为“另一台设备”。S3a1（Cloud 设备列表与自报告：协议请求 schema 与可空的平台/名称/最近在线、迁移 `202611180001` 加列与整点约束、`/v1/devices/list` 与 `/v1/devices/self` 只认已绑定设备的有效 Desktop 会话且不要求 Lease、报告只写本设备并在名称或平台变化时推进列表修订、路由与 PostgreSQL 负向与跨租户测试）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交（PostgreSQL 用例由 CI 18.6 运行）；S3a2/S3a3 设备目录与本机命名已在本轮源码组合，验收记录见文末；当前 Native 仍要求 Active，交接入口待目标引导及 pending epoch 终结。S1b 强制部分、S1d、S2d 其余部分、S3、S4 待完成。暂停：待决事项——生产中没有 Standby Desktop 会话。Desktop OAuth 换码（`requireCurrentLease`）与登录 Lease 签发在另一台设备持有 Lease 时一律拒绝，所以目标设备无法登录去发起强制接管、执行引导步骤，旧设备在交接后也无法作为 Standby 跟随（ADR-0032 决策 1、4、5 都以此为前提，但没有 ADR 规定无 Lease 的会话）。影响：S1b 强制接管、S1d、S3 目标设备界面与 S4 无法交付；Active 设备一侧的普通切换发起、drain 提交与 Host drain（S1b 普通部分、S1c、S2）不受影响。决定（产品负责人 2026-11-17）：采用方案 A——新增 ADR：已绑定且密钥有效的设备可取得无 Lease 的 Standby 会话与不含 Lease 的 Grant，只能调用只读同步、切换状态、强制接管发起与持引导能力的引导步骤，push/drain/续租仍要求 Lease。该 ADR 已起草为 [ADR-0032](../adr/0032-desktop-device-switch-and-drain-handoff.md)，产品负责人于 2026-11-18 接受，五项待决均按建议（Standby 不要求有效权益；Standby Grant 使用独立用途签名密钥；强制接管以新登录记录单次五分钟重新认证窗口并移除 `reauthProofId`；目标设备只在 `waiting_expiry` 期间可取消自己的强制接管；强制接管后旧设备停止应用 Inbox、保留原库为只读快照并可按 Cloud 当前状态新建 Standby 副本）。S1b 强制部分、S1d、S3 目标设备界面与 S4 依赖下一项 ADR-0032 实施。
-- [ ] 实施 [ADR-0032](../adr/0032-desktop-device-switch-and-drain-handoff.md) 无 Lease 的 Standby Desktop 会话与 Grant（产品负责人 2026-11-18 接受）：T1 协议（Standby Grant schema 与签名 transcript、Grant 请求 v4 与按角色区分的响应、强制切换请求按决定 3 调整、金 transcript 向量）；T2 Cloud（T2a 登录、换码与刷新返回 `active`/`standby`/`refused` 且切换中绝不分配 Lease，先交付并含 PostgreSQL 负向测试；T2b 按角色签发 Grant 与 Standby 用途签名端口；T2c 路由准入的 Standby 清单；T2d 强制接管请求、重新认证窗口与目标取消；T2e 与 ADR-0032 S1d 合并的引导能力、步骤与激活路由）；T3 Host（Standby Grant 验证与单调地板、`StandbyReadOnly` 状态、降级提交、数据面角色表、rebootstrap 进入生产组合）；T4 Desktop 界面并入 ADR-0032 S3；T5 每层负向测试与 ADR-0032 S4 端到端。Standby Grant 独立签名密钥的 OpenBao 生产密钥是外部资格项，本地测试不构成该资格。T2a1（登录、换码与刷新的 Lease 步骤返回 `active`/`standby`/`refused`：无人持有 Lease 时，未结束的切换工作流、`pending` 的 epoch 分配或执行封锁使结果为 Standby 而绝不分配，另一台设备持有时为 Standby；迁移 `202611180002` 的所有者例程 `device_lease_allocation_reserved()` 只为调用者账户读取按工作区隔离的工作流；调用方暂把 Standby 当作拒绝，签发 Standby 会话（T2a2）随 T2b 的 Standby Grant 交付；例程显式归 `gooddealer_cloud_owner` 所有并拒绝以其他身份运行；PostgreSQL 负向测试覆盖三种切换状态、引导中与遗留的 pending 分配、封锁、跨账户与例程所有者，由 CI 18.6 运行）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交。注意：进入 `bootstrapping` 后被放弃的切换会留下 `pending` 分配而无人持有 Lease，两台设备此后都不能登录，直到 ADR-0032 S1d 的引导过期与烧掉 epoch 交付；S1d 必须先于启用设置“设备”的切换入口（S3）交付（当前 Renderer 尚无切换入口，用户不可达）。T1a（协议：Standby Grant schema 与分域签名 transcript、请求 v4 与按角色区分的响应、与设备权限投影一致的 scope 测试、金 transcript 向量与负向向量）源码增量已存在；本轮以 `b5bcee2` 核实时仍为独立未提交工作，保留且不混入设备目录提交；v3 请求与裸响应保留到 T2b 与 T3 一起切换，强制切换请求移除 `reauthProofId` 随 T2d。
+- [ ] 实施 [ADR-0032](../adr/0032-desktop-device-switch-and-drain-handoff.md) 无 Lease 的 Standby Desktop 会话与 Grant（产品负责人 2026-11-18 接受）：T1 协议（Standby Grant schema 与签名 transcript、Grant 请求 v4 与按角色区分的响应、强制切换请求按决定 3 调整、金 transcript 向量）；T2 Cloud（T2a 登录、换码与刷新返回 `active`/`standby`/`refused` 且切换中绝不分配 Lease，先交付并含 PostgreSQL 负向测试；T2b 按角色签发 Grant 与 Standby 用途签名端口；T2c 路由准入的 Standby 清单；T2d 强制接管请求、重新认证窗口与目标取消；T2e 与 ADR-0032 S1d 合并的引导能力、步骤与激活路由）；T3 Host（Standby Grant 验证与单调地板、`StandbyReadOnly` 状态、降级提交、数据面角色表、rebootstrap 进入生产组合）；T4 Desktop 界面并入 ADR-0032 S3；T5 每层负向测试与 ADR-0032 S4 端到端。Standby Grant 独立签名密钥的 OpenBao 生产密钥是外部资格项，本地测试不构成该资格。T2a1（登录、换码与刷新的 Lease 步骤返回 `active`/`standby`/`refused`：无人持有 Lease 时，未结束的切换工作流、`pending` 的 epoch 分配或执行封锁使结果为 Standby 而绝不分配，另一台设备持有时为 Standby；迁移 `202611180002` 的所有者例程 `device_lease_allocation_reserved()` 只为调用者账户读取按工作区隔离的工作流；调用方暂把 Standby 当作拒绝，签发 Standby 会话（T2a2）随 T2b 的 Standby Grant 交付；例程显式归 `gooddealer_cloud_owner` 所有并拒绝以其他身份运行；PostgreSQL 负向测试覆盖三种切换状态、引导中与遗留的 pending 分配、封锁、跨账户与例程所有者，由 CI 18.6 运行）已实现，随 https://github.com/newcodebook/GoodDealer/pull/53 提交。进入 `bootstrapping` 后被放弃的切换，其过期回收现已接入登录/刷新事务（见本文“引导到期后的重新登录恢复”）；能力期限到达后原子烧毁 pending epoch，再按原规则取得更高 epoch。未到期或不一致状态继续阻断。引导开始后的客户取消及目标引导闭环仍未完成，设置“设备”尚不开放切换。T1a（协议：Standby Grant schema 与分域签名 transcript、请求 v4 与按角色区分的响应、与设备权限投影一致的 scope 测试、金 transcript 向量与负向向量）源码增量已存在；本轮以 `b5bcee2` 核实时仍为独立未提交工作，保留且不混入设备目录提交；v3 请求与裸响应保留到 T2b 与 T3 一起切换，强制切换请求移除 `reauthProofId` 随 T2d。
 
 ### 4. 当前范围全系统 V1 汇合验收
 
-- [ ] 在同一冻结候选上，为 v1 详细垂直验收表的每一行取得新鲜证据（暂停：依赖阶段 2 的打包构件逐屏对照（真实账号登录由用户完成，三种 WebView 分属三种系统）与阶段 3 的 ADR-0028/0029 实现与 ADR-0019 实现（8 市场写入后首读已降到 1 s 内并纳入基准断言，不再待决）。阶段 5–11 以本阶段为进入条件，随之等待；是否允许阶段 5 框架源码先行由用户决定）
+- [ ] 在同一冻结候选上，为 v1 详细垂直验收表的每一行取得新鲜证据（暂停：依赖阶段 2 的打包构件逐屏对照（真实账号登录由用户完成，三种 WebView 分属三种系统）与阶段 3 的 ADR-0028/0029 实现与 ADR-0019 实现（8 市场写入后首读已降到 1 s 内并纳入基准断言，不再待决）。该汇合验收不阻止后续实际能力实现，按当前落地策略推进）
 - [ ] 独立复审 PASS（暂停：随上一项）
 
 ### 5. 多平台共用框架与 Cloudflare 全能力
 
-本阶段以阶段 4 V1 汇合验收为进入条件（ROADMAP「当前执行顺序」）。产品负责人于 2026-11-16 修订：框架源码（第 206–212 行）可先于阶段 4 进行，全部能力不可执行、不具资格，见 [阶段 5 框架 Task Frame](PHASE5_FRAMEWORK_PLAN.md)；Cloudflare 能力（第 213–217 行）与阶段 6–11 仍随阶段 4 暂停。
+按 [落地策略](../IMPLEMENTATION_STRATEGY.md) 的实际依赖推进具体能力；旧框架工作证据见 [阶段 5 框架 Task Frame](PHASE5_FRAMEWORK_PLAN.md)。资产归集与 Afternic 不等待完整 Cloudflare 写能力或阶段 4 汇合验收；资格限制真实执行声明，不替代本地实现。
 
 - [x] 平台连接与角色模型（registrar、dns、marketplace、acquisition）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。F1：平台连接 = 平台 + 角色集合（`local_provider_connections.provider_kind` 与 `capabilities_json`），Host 设置读取接受四种角色、对其他角色或重复角色失败关闭、每个角色在资格认证前不可用；client-core 角色取自协议 `domainProviderRoleSchema`，设置界面始终列出四种角色。按 manifest 与凭据实际权限派生角色须平台事实，随第 6–10 阶段各平台交付） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] binding 增加 `listing` 资源类型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
@@ -224,51 +225,51 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] 逐笔资金确认组件（含出价）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [ ] Cloudflare Registrar 能力（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] Cloudflare DNS 写入与 DNSSEC（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] Cloudflare 监控（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 核对 Cloudflare 平台事实并更新快照（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] Cloudflare Registrar 能力（待实现；按当前策略的能力依赖推进）
+- [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（待实现；按当前策略的能力依赖推进）
+- [ ] Cloudflare DNS 写入与 DNSSEC（待实现；按当前策略的能力依赖推进）
+- [ ] Cloudflare 监控（待实现；按当前策略的能力依赖推进）
+- [ ] 核对 Cloudflare 平台事实并更新快照（待实现；按当前策略的能力依赖推进）
 
 ### 6. Porkbun
 
-- [ ] 核对官方文档并更新平台事实快照（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 能力清单映射到四种角色（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 私有 Service、合同与负向测试（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 证明框架核心模型未改动（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] 核对官方文档并更新平台事实快照（待实现；按当前策略的能力依赖推进）
+- [ ] 能力清单映射到四种角色（待实现；按当前策略的能力依赖推进）
+- [ ] 私有 Service、合同与负向测试（待实现；按当前策略的能力依赖推进）
+- [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
+- [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
 
 ### 7. Spaceship（含 SellerHub）
 
-- [ ] 核对官方文档并更新平台事实快照（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 能力清单映射到四种角色（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 私有 Service、合同与负向测试（凭据 scope 和资格按角色隔离）（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 逐项能力资格证据（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] 核对官方文档并更新平台事实快照（待实现；按当前策略的能力依赖推进）
+- [ ] 能力清单映射到四种角色（待实现；按当前策略的能力依赖推进）
+- [ ] 私有 Service、合同与负向测试（凭据 scope 和资格按角色隔离）（待实现；按当前策略的能力依赖推进）
+- [ ] 逐项能力资格证据（待实现；按当前策略的能力依赖推进）
 
 ### 8. Dynadot、Namecheap
 
-- [ ] Dynadot：核对事实、列出能力清单、实现 Service 与测试（HMAC 密钥只在 Host custody）、取得资格证据（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] Namecheap：核对事实、列出能力清单、实现 Service 与测试（IP 白名单不满足时失败关闭并说明如何修复）、取得资格证据（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] Dynadot：核对事实、列出能力清单、实现 Service 与测试（HMAC 密钥只在 Host custody）、取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] Namecheap：核对事实、列出能力清单、实现 Service 与测试（IP 白名单不满足时失败关闭并说明如何修复）、取得资格证据（待实现；按当前策略的能力依赖推进）
 
 ### 9. GoDaddy、Afternic
 
-- [ ] GoDaddy：核对事实、列出能力清单、实现 Service 与测试、取得资格证据（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] GoDaddy：核对事实、列出能力清单、实现 Service 与测试、取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（待实现；按当前策略的能力依赖推进）
 
 ### 10. Atom（含 AtomRegistrar）
 
-- [ ] 核对官方文档和准入门槛，更新平台事实快照（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] Listing、逐笔确认的出价、AtomRegistrar 的 Service 与负向测试（query-string token 不进入日志、错误或 URL 记录）（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 逐项能力资格证据，或者带原因标记为不可执行（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] 核对官方文档和准入门槛，更新平台事实快照（待实现；按当前策略的能力依赖推进）
+- [ ] Listing、逐笔确认的出价、AtomRegistrar 的 Service 与负向测试（query-string token 不进入日志、错误或 URL 记录）（待实现；按当前策略的能力依赖推进）
+- [ ] 逐项能力资格证据，或者带原因标记为不可执行（待实现；按当前策略的能力依赖推进）
 
 ### 11. 1.0 资格与发行
 
-- [ ] 关闭 Q-CF（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 关闭 Q-PROV（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 关闭 Q-OPS、Q-AUDIT、支付与销售资格（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 关闭 Q-NATIVE、Q-REL；`pnpm gate:validate` 通过（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 在最终候选上重新通过阶段 4 的 V1 验收（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
-- [ ] 取得 `1.0.0` / `stable` 批准（暂停：阶段 5–11 依次以阶段 4 V1 汇合验收为进入条件，阶段 4 暂停中，见第 5 节说明）
+- [ ] 关闭 Q-CF（待实现；按当前策略的能力依赖推进）
+- [ ] 关闭 Q-PROV（待实现；按当前策略的能力依赖推进）
+- [ ] 关闭 Q-OPS、Q-AUDIT、支付与销售资格（待实现；按当前策略的能力依赖推进）
+- [ ] 关闭 Q-NATIVE、Q-REL；`pnpm gate:validate` 通过（待实现；按当前策略的能力依赖推进）
+- [ ] 在最终候选上重新通过阶段 4 的 V1 验收（待实现；按当前策略的能力依赖推进）
+- [ ] 取得 `1.0.0` / `stable` 批准（待实现；按当前策略的能力依赖推进）
 
 ### 并行补强
 
@@ -296,3 +297,14 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
   client-core 2 项、设备 DOM/IPC、真实 WorkspaceView 输入保留回归通过。独立评估 `device_architecture_review` 已复跑以上范围并 PASS。
 - 最终根 `pnpm check` 通过（结构 205 项、local-storage 408 项/6 项既有 ignored、Desktop Native 78 项、secure-host-core 41 项）；Desktop production build、相关 Native clippy 与格式检查通过。Windows/macOS 构件、实际 Cloud 部署和发行资格尚未验证；本地测试不授予这些声明。
 - 未完成：Standby Cloud/Host v4、持久授权地板、目标引导/强制接管/云恢复；本切片不开放交接，不代表上述能力完成。
+
+
+## 2026-11-18 引导到期后的重新登录恢复
+
+- Task Frame：[过期引导后的重新登录恢复](BOOTSTRAP_EXPIRY_TASK_FRAME.md)；基线 `6e81e57`。
+- 已接入现有 Desktop OAuth 登录/刷新：从已验证账户的默认工作区读取过期引导，在同一事务终结能力、nonce、pending allocation 与工作流，并经 checkpoints 端口释放 pin。
+  保留旧 Lease、drain proof、步骤历史和 epoch 上界；原 allocation guard 继续拒绝未到期或孤立 pending。
+- 无新增表或迁移；复用已有 burned/expired/failed 字段。严格核对 pending 与 current/highest、已存在 Lease、能力与目标绑定。
+- 引导步骤/激活增加外部 I/O 后的当前时钟期限复核，防止等待或签名跨期后仍提交。
+- 验证：PostgreSQL 18.6 UTF8 三文件 48/48 通过，独立评估复跑 48/48 并 PASS；最终根 `pnpm check` 通过（结构 205、local-storage 408/6 项既有 ignored、Desktop Native 78、secure-host-core 41）。差异与五份文档本地链接检查通过。
+- 引导开始后的取消、Standby、目标引导安装和云恢复尚未完成；不声明真实 Cloud 或双系统发行资格。

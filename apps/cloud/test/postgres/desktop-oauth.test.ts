@@ -28,6 +28,8 @@ import {
   type DesktopAuthorizationGrantSigner,
 } from "../../src/modules/devices/authorization-grant-issuer";
 import { PostgresDesktopAuthorizationApplicationService } from "../../src/modules/devices/postgres-desktop-authorization";
+import { PostgresExpiredDeviceBootstrap } from "../../src/modules/devices/postgres-expired-device-bootstrap";
+import { PostgresBootstrapCheckpointPort } from "../../src/modules/workspace/checkpoints/index";
 import { PostgresDesktopLoginLease } from "../../src/modules/devices/postgres-desktop-login-lease";
 import {
   PostgresEntitlementDeadlineReader,
@@ -98,11 +100,16 @@ const grantSigner: DesktopAuthorizationGrantSigner = {
     };
   },
 };
+const bootstrapExpiry = new PostgresExpiredDeviceBootstrap({
+  workspaces: new PostgresDefaultWorkspaceTenantResolver(transactions),
+  checkpoints: new PostgresBootstrapCheckpointPort(),
+});
 const leaseManager = new PostgresDesktopLoginLease({
   transactions,
   entitlement: new PostgresEntitlementDeadlineReader(identityTransactions),
   signer: leaseSigner,
   verifier: leaseVerifier,
+  bootstrapExpiry,
 });
 const oauth = new PostgresDesktopOAuthAuthorizationService(
   transactions,
@@ -129,6 +136,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  await ownerPool.query("DELETE FROM workspace_revisions WHERE account_id = 'oauth-account'");
   await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
     identity_desktop_authorization_codes, identity_credential_jtis,
     identity_refresh_families, identity_auth_sessions, device_signing_keys, device_bindings,
@@ -492,6 +500,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
         entitlement: new PostgresEntitlementDeadlineReader(identityTransactions),
         signer: { async sign() { return { signed: false }; } },
         verifier: leaseVerifier,
+        bootstrapExpiry,
       }),
       identityTransactions,
     );
@@ -656,6 +665,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     // A bootstrapping switch reserves its pending epoch; a login must not take the next one.
     await ownerPool.query("DELETE FROM device_switch_workflows WHERE account_id = 'oauth-account'");
     await insertSwitchWorkflow("bootstrapping", 2);
+    await insertBootstrapCapability(false);
     await ownerPool.query(`INSERT INTO device_lease_epoch_allocations
         (account_id, workspace_id, workflow_id, lease_epoch, status)
       VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 2, 'pending');
@@ -684,6 +694,81 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     expect(allocated).toMatchObject({ outcome: "active", lease: { payload: { leaseEpoch: 3 } } });
   });
 
+  it("reclaims an expired bootstrap during real OAuth login and never reuses its burned epoch", async () => {
+    await seedExpiredBootstrap();
+    const code = await authorize(new Date());
+    await expect(oauth.exchange(exchangeInput(code, verifier))).resolves.toMatchObject({ exchanged: true });
+    expect(await expiryState()).toMatchObject({ workflow: "failed", pending: null, revision: "2",
+      allocation: "burned", consumed: "expired", highest: "3", current: "3", held: "1" });
+    // A lost successful response can be retried: no fourth epoch and no second terminal revision.
+    await expect(ensureLease()).resolves.toMatchObject({ outcome: "active", lease: { payload: { leaseEpoch: 3 } } });
+    expect(await expiryState()).toMatchObject({ revision: "2", highest: "3", held: "1" });
+  });
+
+  it("preserves live or inconsistent bootstrap reservations and rejects revoked or stale login subjects", async () => {
+    await seedExpiredBootstrap();
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '1 hour'");
+    await expect(ensureLease()).resolves.toEqual({ outcome: "standby" });
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", allocation: "pending", consumed: null });
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() - interval '1 second'");
+    await expect(ensureLease(2)).resolves.toEqual({ outcome: "refused" });
+    await ownerPool.query("UPDATE device_signing_keys SET status = 'revoked', retired_at = clock_timestamp()");
+    await expect(ensureLease()).resolves.toEqual({ outcome: "refused" });
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", allocation: "pending", consumed: null });
+    await ownerPool.query("UPDATE device_signing_keys SET status = 'active', retired_at = NULL");
+    await ownerPool.query("UPDATE device_bootstrap_capabilities SET target_device_id = 'wrong-device'");
+    await expect(ensureLease()).resolves.toEqual({ outcome: "refused" });
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", allocation: "pending", consumed: null });
+  });
+
+  it.each(["current", "high", "lease"])("refuses inconsistent pending epoch authority: %s", async (shape) => {
+    await seedExpiredBootstrap();
+    if (shape === "current") await ownerPool.query("UPDATE device_account_states SET current_lease_epoch = 2");
+    if (shape === "high") await ownerPool.query("UPDATE device_account_states SET highest_allocated_lease_epoch = 3");
+    if (shape === "lease") await ownerPool.query("UPDATE device_active_leases SET lease_epoch = 2");
+    await expect(ensureLease()).resolves.toEqual({ outcome: "refused" });
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", allocation: "pending", consumed: null });
+  });
+
+  it("serializes two login recoveries into one burned epoch and one new Lease", async () => {
+    await seedExpiredBootstrap();
+    const results = await Promise.all([ensureLease(), ensureLease()]);
+    expect(results).toHaveLength(2);
+    for (const result of results) expect(result).toMatchObject({ outcome: "active", lease: { payload: { leaseEpoch: 3 } } });
+    expect(await expiryState()).toMatchObject({ revision: "2", highest: "3", current: "3", held: "1" });
+  });
+
+  it("rolls back expiry, nonce consumption and pin release when a later part of login fails", async () => {
+    await seedExpiredBootstrap(true);
+    const denied = new PostgresDesktopLoginLease({ transactions, bootstrapExpiry,
+      entitlement: new PostgresEntitlementDeadlineReader(identityTransactions),
+      verifier: leaseVerifier, signer: { async sign() { return { signed: false }; } },
+    });
+    await expect(ensureLease(1, denied)).resolves.toEqual({ outcome: "refused" });
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", pending: "2", revision: "1",
+      allocation: "pending", consumed: null, highest: "2", current: "1", held: "0" });
+    const stillPinned = async () => (await ownerPool.query(`SELECT
+      (SELECT released_at IS NULL FROM workspace_checkpoint_pins WHERE consumer_id = 'switch-guard') AS pinned,
+      (SELECT state FROM device_bootstrap_step_nonces WHERE workflow_id = 'switch-guard') AS nonce,
+      (SELECT next_step_kind FROM device_bootstrap_authorities WHERE workflow_id = 'switch-guard') AS next`)).rows[0];
+    expect(await stillPinned()).toEqual({ pinned: true, nonce: "active", next: "fetch_mutations" });
+    await expect(ensureLease()).resolves.toMatchObject({ outcome: "active" });
+    expect(await stillPinned()).toEqual({ pinned: false, nonce: "consumed", next: null });
+  });
+
+  it("does not reclaim an expired bootstrap from another account", async () => {
+    await seedExpiredBootstrap();
+    await ownerPool.query(`INSERT INTO identity_accounts
+      (account_id, email_normalized, password_policy_id, password_hash_phc)
+      VALUES ('other-expiry', 'other-expiry@example.test', 'argon2id-v1', repeat('x', 80));
+      INSERT INTO workspace_workspaces (workspace_id, account_id, kind, name)
+      VALUES ('other-workspace', 'other-expiry', 'personal', 'Other');
+      INSERT INTO workspace_account_bindings (account_id, workspace_id, owner_kind, role, is_default)
+      VALUES ('other-expiry', 'other-workspace', 'account', 'default_owner', true)`);
+    await transactions.withAccount("other-expiry", (transaction) => bootstrapExpiry.expireLocked(transaction));
+    expect(await expiryState()).toMatchObject({ workflow: "bootstrapping", allocation: "pending", consumed: null });
+  });
+
   it("keeps the allocation guard to the caller's own resolved account", async () => {
     await ownerPool.query(`INSERT INTO identity_accounts
         (account_id, email_normalized, email_verified_at, password_policy_id, password_hash_phc)
@@ -707,6 +792,63 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     }]);
   });
 });
+
+async function insertBootstrapCapability(expired: boolean) {
+  await ownerPool.query(`INSERT INTO device_bootstrap_capabilities
+    (account_id, workspace_id, workflow_id, jti, target_device_id, issued_at, expires_at)
+    VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 'expiry-cap', 'device-b',
+      clock_timestamp() - interval '1 hour', clock_timestamp() + make_interval(secs => $1))`, [expired ? -1 : 3600]);
+}
+
+async function ensureLease(accountSecurityEpoch = 1, manager = leaseManager) {
+  return manager.ensureCurrentLease({ accountId: "oauth-account", deviceId: "device-a", accountSecurityEpoch,
+    transactionCredential: principal.transactionCredential });
+}
+
+async function expiryState() {
+  return (await ownerPool.query(`SELECT w.status AS workflow, w.pending_lease_epoch AS pending,
+    w.workflow_revision AS revision, a.status AS allocation, c.consumed_reason AS consumed,
+    s.highest_allocated_lease_epoch AS highest, s.current_lease_epoch AS current,
+    (SELECT count(*)::text FROM device_active_leases WHERE account_id = w.account_id AND released_at IS NULL) AS held
+    FROM device_switch_workflows w JOIN device_lease_epoch_allocations a USING (account_id, workspace_id, workflow_id)
+    JOIN device_bootstrap_capabilities c USING (account_id, workspace_id, workflow_id)
+    JOIN device_account_states s USING (account_id) WHERE w.account_id = 'oauth-account'`)).rows[0];
+}
+
+async function seedExpiredBootstrap(withPin = false) {
+  await authorize(new Date());
+  await releaseHeldLease();
+  await insertSwitchWorkflow("bootstrapping", 2);
+  await ownerPool.query(`INSERT INTO device_lease_epoch_allocations
+    (account_id, workspace_id, workflow_id, lease_epoch, status)
+    VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 2, 'pending');
+    UPDATE device_account_states SET highest_allocated_lease_epoch = 2 WHERE account_id = 'oauth-account';
+    INSERT INTO device_bootstrap_capabilities
+    (account_id, workspace_id, workflow_id, jti, target_device_id, issued_at, expires_at)
+    VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 'expiry-cap', 'device-b',
+      clock_timestamp() - interval '1 hour', clock_timestamp() - interval '1 second')`);
+  if (!withPin) return;
+  await ownerPool.query(`INSERT INTO workspace_revisions (account_id, workspace_id, workspace_schema_version)
+    VALUES ('oauth-account', 'oauth-workspace', 1) ON CONFLICT DO NOTHING;
+    INSERT INTO workspace_checkpoints (account_id, workspace_id, checkpoint_id, schema_version,
+      workspace_schema_version, through_server_revision, checkpoint_digest, capture_codec, capture_schema_version,
+      status, verified_at, published_at)
+    VALUES ('oauth-account', 'oauth-workspace', 'expiry-checkpoint', 3, 1, 0, sha256('checkpoint'::bytea),
+      'workspace-checkpoint-state-v3', 3, 'available', clock_timestamp(), clock_timestamp());
+    INSERT INTO workspace_checkpoint_pins (account_id, workspace_id, checkpoint_id, consumer_kind, consumer_id,
+      expected_through_server_revision, expected_checkpoint_digest, created_at, expires_at)
+    VALUES ('oauth-account', 'oauth-workspace', 'expiry-checkpoint', 'bootstrap', 'switch-guard',
+      0, sha256('checkpoint'::bytea), clock_timestamp() - interval '1 hour', clock_timestamp() - interval '1 second');
+    INSERT INTO device_bootstrap_authorities (account_id, workspace_id, workflow_id, capability_jti,
+      target_device_id, account_security_epoch, pending_lease_epoch, next_step_number, next_step_kind,
+      next_nonce_digest, pinned_checkpoint_id, pinned_checkpoint_through_server_revision, pinned_checkpoint_digest,
+      pin_expires_at, target_server_revision, target_schema_version, row_version)
+    VALUES ('oauth-account', 'oauth-workspace', 'switch-guard', 'expiry-cap', 'device-b', 1, 2, 2,
+      'fetch_mutations', sha256('expiry-nonce'::bytea), 'expiry-checkpoint', 0, sha256('checkpoint'::bytea),
+      clock_timestamp() - interval '1 second', 0, 1, 1);
+    INSERT INTO device_bootstrap_step_nonces (nonce_digest, account_id, workspace_id, workflow_id, step_number, state)
+    VALUES (sha256('expiry-nonce'::bytea), 'oauth-account', 'oauth-workspace', 'switch-guard', 2, 'active')`);
+}
 
 async function releaseHeldLease(): Promise<void> {
   await ownerPool.query(`UPDATE device_active_leases

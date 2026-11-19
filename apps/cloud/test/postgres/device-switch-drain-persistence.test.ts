@@ -1,14 +1,17 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { runCloudMigrations, TenantTransactionRunner } from "../../src/db/index";
+import { AccountTransactionRunner, runCloudMigrations, TenantTransactionRunner } from "../../src/db/index";
 import { cloudMigrations } from "../../src/db/migrations";
 import { PostgresWorkspaceDeviceAuditDrainLedger } from "../../src/modules/audit/index";
 import {
   PostgresDeviceDrainTransition,
+  PostgresExpiredDeviceBootstrap,
   PostgresDeviceSwitchDrain,
   PostgresDeviceSwitchRequests,
 } from "../../src/modules/devices/index";
+import { PostgresDefaultWorkspaceTenantResolver } from "../../src/modules/workspace/default-workspace/index";
+import { PostgresBootstrapCheckpointPort } from "../../src/modules/workspace/checkpoints/index";
 import { PostgresExecutionFactDrainLedger } from "../../src/modules/execution-ledger/index";
 import { PostgresIdentityAccountSecurityStatePort } from "../../src/modules/identity/index";
 import { PostgresMutationDrainLedger } from "../../src/modules/workspace/mutations/index";
@@ -81,6 +84,34 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
         (SELECT highest_allocated_lease_epoch FROM device_account_states)::text AS highest_epoch`))
       .toEqual([{ consumed: "1", mutation_seals: "1", execution_seals: "1", audit_seals: "1", held_leases: "0", highest_epoch: "2" }]);
     await expect(drains.submit(source, requestId, proof)).resolves.toEqual(handed);
+  });
+
+  it("terminates a real drained bootstrap when its one-hour capability expires before the old drain deadline", async () => {
+    const requestId = await openSwitch();
+    await expect(drains.submit(source, requestId, await proofFor(requestId, "proof-expiry")))
+      .resolves.toMatchObject({ accepted: true, request: { status: "bootstrapping" } });
+    await owner(`INSERT INTO workspace_workspaces (workspace_id, account_id, kind, name)
+      VALUES ($2, $1, 'personal', 'Drain expiry')`, [scope.accountId, scope.workspaceId]);
+    await owner(`INSERT INTO workspace_account_bindings (account_id, workspace_id, owner_kind, role, is_default)
+      VALUES ($1, $2, 'account', 'default_owner', true)`, [scope.accountId, scope.workspaceId]);
+    await owner(`UPDATE device_bootstrap_capabilities SET issued_at = clock_timestamp() - interval '1 hour',
+      expires_at = clock_timestamp() - interval '1 second' WHERE workflow_id = $1`, [requestId]);
+    const accounts = new AccountTransactionRunner(appPool);
+    const expiry = new PostgresExpiredDeviceBootstrap({
+      workspaces: new PostgresDefaultWorkspaceTenantResolver(accounts), checkpoints: new PostgresBootstrapCheckpointPort(),
+    });
+    const expired = await accounts.withAccount(scope.accountId, async (transaction) => {
+      await transaction.query("SELECT 1 FROM identity_account_security_states WHERE account_id = $1 FOR UPDATE", [scope.accountId]);
+      await transaction.query("SELECT 1 FROM device_account_states WHERE account_id = $1 FOR UPDATE", [scope.accountId]);
+      return expiry.expireLocked(transaction);
+    });
+    expect(expired).toBe(true);
+    expect(await owner(`SELECT w.status, w.pending_lease_epoch, a.status AS allocation, c.consumed_reason,
+      (SELECT highest_allocated_lease_epoch FROM device_account_states) AS highest,
+      (SELECT count(*)::text FROM device_drain_proofs WHERE consumed_at IS NOT NULL) AS drain_proofs
+      FROM device_switch_workflows w JOIN device_lease_epoch_allocations a USING (account_id, workspace_id, workflow_id)
+      JOIN device_bootstrap_capabilities c USING (account_id, workspace_id, workflow_id)`))
+      .toEqual([{ status: "failed", pending_lease_epoch: null, allocation: "burned", consumed_reason: "expired", highest: "2", drain_proofs: "1" }]);
   });
 
   it("refuses a forged, expired, or stale-stream proof and leaves the switch draining for a corrected one", async () => {

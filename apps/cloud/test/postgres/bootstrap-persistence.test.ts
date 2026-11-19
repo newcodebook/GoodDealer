@@ -210,6 +210,27 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
     expect(stored.rows[0]).toEqual({ steps: "0", nonce_state: "active", workflow_revision: "4", next_step: "1" });
   });
 
+  it("rolls back a bootstrap step when workspace I/O crosses the capability deadline", async () => {
+    await transactions.withTenant(scope, (transaction) => transaction.query(
+      "UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '300 milliseconds'"));
+    const ports = new TestBootstrapPorts(scope.workspaceId);
+    const pin = ports.lockAvailableAndPin.bind(ports);
+    ports.lockAvailableAndPin = async (transaction, input) => {
+      await transaction.query("SELECT pg_sleep(0.4)");
+      return pin(transaction, input);
+    };
+    const service = createStepService(fixture, ports);
+    await expect(service.execute({ scope, expectedCapability: fixture.expected,
+      capability: fixture.envelope, request: pinRequest(fixture.envelope.jti, fixture.nonce) }))
+      .resolves.toEqual({ accepted: false, code: "BOOTSTRAP_CONFLICT" });
+    const state = await transactions.withTenant(scope, (transaction) => transaction.query(`SELECT
+      (SELECT count(*)::text FROM device_bootstrap_steps) AS steps,
+      (SELECT state FROM device_bootstrap_step_nonces WHERE step_number = 1) AS nonce,
+      (SELECT workflow_revision FROM device_switch_workflows) AS revision,
+      (SELECT pinned_checkpoint_id FROM device_bootstrap_authorities) AS pin`));
+    expect(state.rows).toEqual([{ steps: "0", nonce: "active", revision: "4", pin: null }]);
+  });
+
   it("production Lease signing denial changes zero rows and never reaches cursor or pin release ports", async () => {
     await terminalizeAuthority(scope);
     const cursorPinCalls = { lock: 0, retire: 0, insert: 0, release: 0 };
@@ -289,6 +310,30 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
       { device_id: "device-target", cursor_generation: "1", status: "active", retirement_reason: null },
     ]);
     expect(releases).toBe(1);
+  });
+
+  it("refuses activation when its signer crosses the bootstrap deadline and rolls back every write", async () => {
+    await terminalizeAuthority(scope, true);
+    await transactions.withTenant(scope, (transaction) => transaction.query(
+      "UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '300 milliseconds'"));
+    const signer = fixtureLeaseSigner(fixture);
+    const service = new PostgresBootstrapActivation({
+      transactions, accountSecurity: new PostgresIdentityAccountSecurityStatePort(),
+      entitlement: activeEntitlement(), signer: { async sign(input) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return signer.sign(input);
+      } },
+      checkpoints: { async lockAvailableAndPin() { throw new Error("unreachable"); }, async release() {} },
+      cursors: new PostgresDeviceCursorRepository(),
+    });
+    await expect(service.activate({ ...scope, workflowId: "switch-request-1", expectedWorkflowRevision: 4 }))
+      .resolves.toEqual({ installed: false, code: "ACTIVATION_CONFLICT" });
+    const state = await transactions.withTenant(scope, (transaction) => transaction.query(`SELECT
+      (SELECT status FROM device_lease_epoch_allocations WHERE lease_epoch = 2) AS allocation,
+      (SELECT status FROM device_switch_workflows) AS workflow,
+      (SELECT consumed_at FROM device_bootstrap_capabilities) AS consumed,
+      (SELECT count(*)::text FROM device_active_leases) AS leases`));
+    expect(state.rows).toEqual([{ allocation: "pending", workflow: "bootstrapping", consumed: null, leases: "0" }]);
   });
 
   it("fixture activation fault rolls back Lease Epoch capability workflow attempt pin and cursors together", async () => {

@@ -7,6 +7,7 @@ import {
 } from "@gooddealer/protocol/devices";
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
+import { bootstrapDeadlineIsLive } from "./bootstrap-deadline";
 import type { TenantTransaction, TenantTransactionRunner } from "../../db/index";
 import type {
   ActiveEntitlementDeadlinePort,
@@ -132,7 +133,7 @@ export class PostgresBootstrapActivation {
       jti: string; consumed_at: Date | null; ready_at: Date | null; live: boolean;
     }>(
       `SELECT jti, consumed_at, ready_at,
-              transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at AS live
+              clock_timestamp() >= issued_at AND clock_timestamp() < expires_at AS live
        FROM device_bootstrap_capabilities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, input.workflowId],
@@ -145,7 +146,7 @@ export class PostgresBootstrapActivation {
     }>(
       `SELECT target_server_revision, target_schema_version, pinned_checkpoint_id, pin_expires_at,
               verified_entity_digests, verified_rebuild_digest, next_step_kind,
-              pin_expires_at > transaction_timestamp() AS pin_live
+              pin_expires_at > clock_timestamp() AS pin_live
        FROM device_bootstrap_authorities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, input.workflowId],
@@ -163,7 +164,7 @@ export class PostgresBootstrapActivation {
       [transaction.scope.accountId],
     );
     if (held.rowCount !== 0) refuse();
-    const clock = await transaction.query<{ now: Date }>("SELECT transaction_timestamp() AS now");
+    const clock = await transaction.query<{ now: Date }>("SELECT clock_timestamp() AS now");
     const issuedAt = clock.rows[0] === undefined ? undefined : canonicalSecond(clock.rows[0].now);
     if (issuedAt === undefined) refuse();
     const onlineExpiresAt = minimumTimestamp([addSeconds(issuedAt, 900), entitlement.entitlementDeadline]);
@@ -197,6 +198,8 @@ export class PostgresBootstrapActivation {
       signed.verificationKey.asymmetricKeyType !== "ed25519" ||
       !verify(null, encodeActiveDeviceLeaseSignatureTranscript(envelope), signed.verificationKey,
         Buffer.from(envelope.signature, "base64url"))) refuse();
+
+    if (!await bootstrapDeadlineIsLive(transaction, input.workflowId)) refuse();
 
     const canonicalEnvelope = Buffer.from(encodeDomainSeparatedWireValue(
       "GOODDEALER-ACTIVE-DEVICE-LEASE-ENVELOPE-V1", envelope,
@@ -256,6 +259,7 @@ export class PostgresBootstrapActivation {
         createHash("sha256").update(signed.receipt).digest(), createHash("sha256").update(canonicalEnvelope).digest()],
     );
     this.dependencies.fault?.("before_activation_commit");
+    if (!await bootstrapDeadlineIsLive(transaction, input.workflowId)) refuse();
     return { installed: true, lease: envelope, cursorGeneration };
   }
 }

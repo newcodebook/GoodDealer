@@ -17,7 +17,10 @@
   设备切换 request/advance/status/cancel 已组合 Native 协调器。设置“设备”已组合真实目录读取与本机命名：
   Native 固定 list/self 路由、按本机构建目标报告平台、校验当前设备并移除签名元数据；名称持久化于 Cloud。
   保存结果未知时先刷新对账，普通业务同步不清空未保存输入。当前 Native 目录仍要求 Active 授权；
-  交接按钮在目标引导与 pending epoch 终结交付前不开放。
+  交接按钮在 Standby 与目标引导闭环交付前不开放。
+- Desktop 登录/刷新现已在同一事务终结默认工作区的过期引导：烧毁 pending epoch、消费能力与 nonce、释放 checkpoint pin，
+  再按原授权规则分配更高 epoch。未到期、孤立或不一致记录继续阻断；同事务内 Lease 签发失败时整体回滚。
+  引导步骤与激活在外部 I/O 后以数据库当前时钟复核期限。引导开始后的取消、Standby 登录与目标引导仍未完成。
 - `local-storage` 的 [desktop_local_host](../crates/local-storage/src/desktop_local_host/mod.rs)
   是唯一数据库与事务聚合所有者，内部按授权、业务、同步、Provider 协调和恢复拆分。
   私有实现与数据库、密钥、文件 handle 不成为跨 crate API。
