@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import type { AfternicConnectionPort, AfternicListingWritePlan, AfternicListingWritePort, AfternicListingWritePreviewRequest } from "@gooddealer/client-core";
+import type { AfternicConnectionPort, AfternicListingPlan, AfternicListingPlanPort, AfternicListingWritePlan, AfternicListingWritePort, AfternicListingWritePreviewRequest } from "@gooddealer/client-core";
 import { AfternicListingWritePanel } from "./afternic-listing-write-panel";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const id = "aa000000-0000-4000-8000-000000000001";
@@ -43,8 +43,9 @@ function ports(initial: AfternicListingWritePlan | null = null) {
   };
   return { port, connections, setSaved(value: AfternicListingWritePlan) { saved = value; }, setAvailable(value: boolean) { available = value; } };
 }
-async function mount(native: ReturnType<typeof ports>, readOnly = false) {
-  await act(async () => root.render(<AfternicListingWritePanel locale="en-US" port={native.port} connectionsPort={native.connections} readOnly={readOnly} onChanged={vi.fn()} />));
+async function mount(native: ReturnType<typeof ports>, readOnly = false, planPort?: AfternicListingPlanPort) {
+  await act(async () => root.render(<AfternicListingWritePanel locale="en-US" port={native.port} {...(planPort ? { planPort } : {})}
+    connectionsPort={native.connections} readOnly={readOnly} onChanged={vi.fn()} />));
 }
 function button(text: string) {
   const result = [...element.querySelectorAll("button")].find(entry => entry.textContent === text);
@@ -63,6 +64,67 @@ async function check(name: string) { await act(async () => element.querySelector
 async function submit() { await act(async () => element.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))); }
 async function prepare(domains = "wecin.com", action = "create") { await select("connectionId", id); await select("action", action); await setInput("domains", domains); await submit(); }
 async function openHistory() { await act(async () => element.querySelector<HTMLButtonElement>(".afternic-listing-write-history button")!.click()); }
+
+function reviewPorts(available = true) {
+  const native = ports();
+  const { items: [sample], ...base } = preview();
+  const { domain: _domain, ...listingWrite } = sample!;
+  const draft = { state: "preview", latest: null, reason: null, claimedAt: null, retryAt: null, retryNotBefore: null } as const;
+  let saved: AfternicListingPlan | null = null;
+  const planPort: AfternicListingPlanPort = {
+    preview: vi.fn<AfternicListingPlanPort["preview"]>(async request => {
+      const items: AfternicListingPlan["items"] = request.action === "reactivate_ownership_review"
+        ? request.items.map(({ domain }) => ({ domain, listingWrite: null, ownershipReview: draft }))
+        : request.items.map(item => ({ domain: item.domain, listingWrite: {
+          ...listingWrite, changes: "values" in item ? item.values : item.patch,
+        }, ownershipReview: item.ownershipReview ? draft : null }));
+      saved = { ...base, schemaVersion: 2, action: request.action, items: items.sort((a, b) => a.domain.localeCompare(b.domain)) };
+      return saved;
+    }),
+    approve: vi.fn(async () => {
+      if (saved === null) throw new Error("missing preview");
+      saved = { ...saved, state: "executing", approvedAt: createdAt, items: saved.items.map(item => ({
+        ...item, listingWrite: item.listingWrite === null ? null : { ...item.listingWrite, state: "queued" },
+        ownershipReview: item.ownershipReview === null ? null : { ...item.ownershipReview, state: item.listingWrite === null ? "queued" : "waiting_parent" },
+      })) };
+      return saved;
+    }),
+    status: vi.fn<AfternicListingPlanPort["status"]>(async ({ planRef }) => ({ schemaVersion: 2, controlledAcceptance: null,
+      writeQualified: true, writeEntitled: true, executionAvailable: true, ownershipReviewQualified: true,
+      ownershipReviewExecutionAvailable: available, plans: [], detail: planRef === null ? null : saved })),
+  };
+  return { native, planPort };
+}
+
+it("freezes the optional review per domain and approves the mixed batch once", async () => {
+  const { native, planPort } = reviewPorts();
+  await mount(native, false, planPort); await prepare("wecin.com\nexample.com");
+  const choice = element.querySelector<HTMLInputElement>('[name="0-ownership-review"]')!;
+  expect(choice.checked).toBe(false);
+  expect(choice.labels?.[0]?.textContent).toContain("wecin.com");
+  await check("0-ownership-review"); await submit();
+  expect(planPort.preview).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 2, connectionId: id, action: "create", items: [
+    { domain: "wecin.com", values, ownershipReview: { mode: "reactivate_once_if_review" } },
+    { domain: "example.com", values, ownershipReview: null },
+  ] });
+  expect(native.port.preview).not.toHaveBeenCalled();
+  expect(element.textContent).toContain("Ownership rechecks in this batch (1)");
+  await act(async () => { button("Confirm batch (2 selected)").click(); button("Confirm batch (2 selected)").click(); });
+  expect(planPort.approve).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 2, planRef: id, planHash: "a".repeat(64) });
+  expect(element.textContent).toContain("Waiting for listing changes to be confirmed");
+  expect(native.port.approve).not.toHaveBeenCalled();
+});
+
+it("previews a standalone review without price controls and disables approval when the Host cannot run it", async () => {
+  const { native, planPort } = reviewPorts(false);
+  await mount(native, false, planPort); await prepare("example.com", "reactivate_ownership_review");
+  expect(planPort.preview).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 2, connectionId: id,
+    action: "reactivate_ownership_review", items: [{ domain: "example.com" }] });
+  expect(element.textContent).toContain("One recheck if required");
+  expect(element.textContent).not.toContain("Settings to apply");
+  expect(button("Confirm batch (1 selected)").disabled).toBe(true);
+  expect(planPort.approve).not.toHaveBeenCalled();
+});
 
 it("supports distinct per-domain create settings, preserves zero/false and approves the exact saved batch once", async () => {
   const native = ports(); await mount(native); await prepare("WECIN.com\nexample.com");

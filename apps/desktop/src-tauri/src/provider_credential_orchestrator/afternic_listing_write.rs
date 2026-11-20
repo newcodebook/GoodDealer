@@ -5,9 +5,11 @@ use super::{
 };
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
-    DesktopAfternicListingObservation, DesktopAfternicListingWriteAction,
-    DesktopAfternicListingWriteClaim, DesktopAfternicListingWritePatch,
-    DesktopAfternicListingWriteWork, DesktopAfternicListingWriteWorkKind, DesktopLocalHost,
+    DesktopAfternicConnection, DesktopAfternicListingObservation, DesktopAfternicListingPlanAction,
+    DesktopAfternicListingPlanClaim, DesktopAfternicListingPlanWork,
+    DesktopAfternicListingWriteAction, DesktopAfternicListingWriteClaim,
+    DesktopAfternicListingWritePatch, DesktopAfternicListingWriteWork,
+    DesktopAfternicListingWriteWorkKind, DesktopLocalHost,
 };
 use gooddealer_secure_host_core::{
     AfternicCredential, AfternicError, AfternicListingFields, AfternicListingIntent,
@@ -16,6 +18,85 @@ use gooddealer_secure_host_core::{
 use std::sync::Arc;
 
 type Result<T> = std::result::Result<T, ProviderCredentialError>;
+
+#[derive(Clone, Copy, Default)]
+pub(crate) enum ListingTurn {
+    #[default]
+    ListingWrite,
+    ListingPlan,
+}
+impl ListingTurn {
+    const fn other(self) -> Self {
+        match self {
+            Self::ListingWrite => Self::ListingPlan,
+            Self::ListingPlan => Self::ListingWrite,
+        }
+    }
+
+    pub(crate) fn take(&mut self) -> Self {
+        let turn = *self;
+        *self = turn.other();
+        turn
+    }
+
+    fn select<T, E>(
+        self,
+        mut read: impl FnMut(Self) -> std::result::Result<Option<T>, E>,
+    ) -> std::result::Result<Option<T>, E> {
+        if let Some(work) = read(self)? {
+            return Ok(Some(work));
+        }
+        read(self.other())
+    }
+}
+
+enum Work {
+    ListingWrite(DesktopAfternicListingWriteWork),
+    ListingPlan(DesktopAfternicListingPlanWork),
+}
+impl Work {
+    fn kind(&self) -> DesktopAfternicListingWriteWorkKind {
+        match self {
+            Self::ListingWrite(work) => work.kind(),
+            Self::ListingPlan(work) => work.kind(),
+        }
+    }
+    fn connection(&self) -> &DesktopAfternicConnection {
+        match self {
+            Self::ListingWrite(work) => work.connection(),
+            Self::ListingPlan(work) => work.connection(),
+        }
+    }
+    fn domain(&self) -> &str {
+        match self {
+            Self::ListingWrite(work) => work.domain(),
+            Self::ListingPlan(work) => work.domain(),
+        }
+    }
+}
+
+enum Claim {
+    ListingWrite(DesktopAfternicListingWriteClaim),
+    ListingPlan(DesktopAfternicListingPlanClaim),
+}
+impl Claim {
+    fn intent(&self) -> Option<AfternicListingIntent> {
+        match self {
+            Self::ListingWrite(claim) => Some(approved_intent(
+                claim.action(),
+                claim.domain(),
+                claim.fields(),
+            )),
+            Self::ListingPlan(claim) => plan_intent(claim.action(), claim.domain(), claim.fields()),
+        }
+    }
+    fn into_reconciliation(self) -> Work {
+        match self {
+            Self::ListingWrite(claim) => Work::ListingWrite(claim.into_reconciliation()),
+            Self::ListingPlan(claim) => Work::ListingPlan(claim.into_reconciliation()),
+        }
+    }
+}
 
 struct Run {
     host: Arc<DesktopLocalHost>,
@@ -31,25 +112,29 @@ impl Run {
     {
         hold_current_power(&self.power, &self.cancel, self.epoch, write)
     }
-    fn work_guard(
-        &self,
-        work: &DesktopAfternicListingWriteWork,
-    ) -> std::result::Result<(), AfternicError> {
+    fn work_guard(&self, work: &Work) -> std::result::Result<(), AfternicError> {
         recheck_with_power(
             &self.power,
             &self.cancel,
             self.epoch,
             matches!(work.kind(), DesktopAfternicListingWriteWorkKind::Preflight),
-            || self.host.recheck_afternic_listing_write_work(work),
+            || match work {
+                Work::ListingWrite(work) => self.host.recheck_afternic_listing_write_work(work),
+                Work::ListingPlan(work) => self.host.recheck_afternic_listing_plan_work(work),
+            },
         )
     }
-    fn claim_guard(
-        &self,
-        claim: &DesktopAfternicListingWriteClaim,
-    ) -> std::result::Result<(), AfternicError> {
-        recheck_with_power(&self.power, &self.cancel, self.epoch, true, || {
-            self.host.recheck_afternic_listing_write_claim(claim)
-        })
+    fn claim_guard(&self, claim: &Claim) -> std::result::Result<(), AfternicError> {
+        recheck_with_power(
+            &self.power,
+            &self.cancel,
+            self.epoch,
+            true,
+            || match claim {
+                Claim::ListingWrite(claim) => self.host.recheck_afternic_listing_write_claim(claim),
+                Claim::ListingPlan(claim) => self.host.recheck_afternic_listing_plan_claim(claim),
+            },
+        )
     }
 }
 fn hold_current_power<'a>(
@@ -93,6 +178,7 @@ pub(crate) async fn step(
     host: Arc<DesktopLocalHost>,
     cancel: Arc<NativeCloudCancelFence>,
     power: NativePowerGate,
+    turn: ListingTurn,
 ) -> Result<bool> {
     let epoch = power.snapshot().epoch;
     let run = Arc::new(Run {
@@ -109,8 +195,19 @@ pub(crate) async fn step(
         prepare
             .cancel
             .commit(|| {
-                let admission = prepare.host.begin_native_cloud_run()?;
-                prepare.host.next_afternic_listing_write_work(admission)
+                turn.select(|version| {
+                    let admission = prepare.host.begin_native_cloud_run()?;
+                    match version {
+                        ListingTurn::ListingWrite => prepare
+                            .host
+                            .next_afternic_listing_write_work(admission)
+                            .map(|work| work.map(Work::ListingWrite)),
+                        ListingTurn::ListingPlan => prepare
+                            .host
+                            .next_afternic_listing_plan_work(admission)
+                            .map(|work| work.map(Work::ListingPlan)),
+                    }
+                })
             })
             .ok_or(ProviderCredentialError::Host)?
             .map_err(|_| ProviderCredentialError::Host)
@@ -156,11 +253,7 @@ pub(crate) async fn step(
 const fn requires_credential_remediation(error: AfternicError) -> bool {
     matches!(error, AfternicError::CustodyMismatch)
 }
-async fn credential_failure(
-    run: Arc<Run>,
-    work: DesktopAfternicListingWriteWork,
-    error: AfternicError,
-) -> Result<()> {
+async fn credential_failure(run: Arc<Run>, work: Work, error: AfternicError) -> Result<()> {
     if !requires_credential_remediation(error) {
         return defer(run, work, error).await;
     }
@@ -181,7 +274,7 @@ async fn credential_failure(
 
 async fn preflight_and_write(
     run: Arc<Run>,
-    work: DesktopAfternicListingWriteWork,
+    work: Work,
     provider: &mut AfternicProviderClient,
     credential: &AfternicCredential,
 ) -> Result<()> {
@@ -196,7 +289,16 @@ async fn preflight_and_write(
             .map_err(|_| ProviderCredentialError::Host)?;
         claim_run
             .cancel
-            .commit(|| claim_run.host.claim_afternic_listing_write(work, observed))
+            .commit(|| match work {
+                Work::ListingWrite(work) => claim_run
+                    .host
+                    .claim_afternic_listing_write(work, observed)
+                    .map(|claim| claim.map(Claim::ListingWrite)),
+                Work::ListingPlan(work) => claim_run
+                    .host
+                    .claim_afternic_listing_plan(work, observed)
+                    .map(|claim| claim.map(Claim::ListingPlan)),
+            })
             .ok_or(ProviderCredentialError::Host)?
             .map_err(|_| ProviderCredentialError::Host)
     })
@@ -205,17 +307,40 @@ async fn preflight_and_write(
     let Some(claim) = claim else {
         return Ok(());
     };
-    let intent = approved_intent(claim.action(), claim.domain(), claim.fields());
-    let mut guard = || run.claim_guard(&claim);
-    // Every response, including a rejected/unknown write, becomes GET reconciliation. A power
-    // event may drop this HTTP future; the durable claim then survives for GET on resume.
-    let _outcome = tokio::select! {
-        biased;
-        _ = run.power.wait_for_epoch_change(run.epoch) => Err(AfternicError::AuthorityStale),
-        result = provider.execute(credential, &intent, &mut guard) => result,
-    };
+    if let Some(intent) = claim.intent() {
+        let mut guard = || run.claim_guard(&claim);
+        // Every response, including a rejected/unknown write, becomes GET reconciliation. A power
+        // event may drop this HTTP future; the durable claim then survives for GET on resume.
+        let _outcome = tokio::select! {
+            biased;
+            _ = run.power.wait_for_epoch_change(run.epoch) => Err(AfternicError::AuthorityStale),
+            result = provider.execute(credential, &intent, &mut guard) => result,
+        };
+    }
     let work = claim.into_reconciliation();
     reconcile(run, work, provider, credential).await
+}
+
+fn plan_intent(
+    action: DesktopAfternicListingPlanAction,
+    domain: &str,
+    patch: Option<&DesktopAfternicListingWritePatch>,
+) -> Option<AfternicListingIntent> {
+    let intent = match (action, patch) {
+        (DesktopAfternicListingPlanAction::Create, Some(patch)) => {
+            approved_intent(DesktopAfternicListingWriteAction::Create, domain, patch)
+        }
+        (DesktopAfternicListingPlanAction::Update, Some(patch)) => {
+            approved_intent(DesktopAfternicListingWriteAction::Update, domain, patch)
+        }
+        (DesktopAfternicListingPlanAction::ReactivateOwnershipReview, None) => {
+            AfternicListingIntent::ReactivateOwnershipReview {
+                domain: domain.to_owned(),
+            }
+        }
+        _ => return None,
+    };
+    Some(intent)
 }
 
 fn approved_intent(
@@ -243,7 +368,7 @@ fn approved_intent(
 
 async fn exact_get(
     run: &Run,
-    work: &DesktopAfternicListingWriteWork,
+    work: &Work,
     provider: &mut AfternicProviderClient,
     credential: &AfternicCredential,
 ) -> std::result::Result<Option<DesktopAfternicListingObservation>, AfternicError> {
@@ -266,7 +391,7 @@ async fn exact_get(
 
 async fn reconcile(
     run: Arc<Run>,
-    work: DesktopAfternicListingWriteWork,
+    work: Work,
     provider: &mut AfternicProviderClient,
     credential: &AfternicCredential,
 ) -> Result<()> {
@@ -279,18 +404,19 @@ async fn reconcile(
             .power_guard(false)
             .map_err(|_| ProviderCredentialError::Host)?;
         run.cancel
-            .commit(|| run.host.reconcile_afternic_listing_write(&work, observed))
+            .commit(|| match &work {
+                Work::ListingWrite(work) => {
+                    run.host.reconcile_afternic_listing_write(work, observed)
+                }
+                Work::ListingPlan(work) => run.host.reconcile_afternic_listing_plan(work, observed),
+            })
             .ok_or(ProviderCredentialError::Host)?
             .map_err(|_| ProviderCredentialError::Host)
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
 }
-async fn defer(
-    run: Arc<Run>,
-    work: DesktopAfternicListingWriteWork,
-    error: AfternicError,
-) -> Result<()> {
+async fn defer(run: Arc<Run>, work: Work, error: AfternicError) -> Result<()> {
     let retry = if let AfternicError::RateLimited {
         retry_after_seconds,
     } = error
@@ -304,7 +430,10 @@ async fn defer(
             .power_guard(false)
             .map_err(|_| ProviderCredentialError::Host)?;
         run.cancel
-            .commit(|| run.host.defer_afternic_listing_write_read(&work, retry))
+            .commit(|| match &work {
+                Work::ListingWrite(work) => run.host.defer_afternic_listing_write_read(work, retry),
+                Work::ListingPlan(work) => run.host.defer_afternic_listing_plan_read(work, retry),
+            })
             .ok_or(ProviderCredentialError::Host)?
             .map_err(|_| ProviderCredentialError::Host)
     })
@@ -315,6 +444,45 @@ async fn defer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hot_v1_backlog_cannot_starve_v2_in_the_same_lane() {
+        let mut turn = ListingTurn::default();
+        let mut reads = Vec::new();
+        for _ in 0..4 {
+            let claimed = turn.take().select(|version| {
+                let is_v2 = matches!(version, ListingTurn::ListingPlan);
+                reads.push(is_v2);
+                Ok::<_, ()>(Some(is_v2))
+            });
+            assert_eq!(claimed, Ok(reads.last().copied()));
+        }
+        assert_eq!(reads, [false, true, false, true]);
+        assert_eq!(
+            turn.take().select(|version| Ok::<_, ()>(
+                matches!(version, ListingTurn::ListingPlan).then_some(2)
+            )),
+            Ok(Some(2))
+        );
+    }
+
+    #[test]
+    fn only_a_review_claim_without_listing_fields_can_send_reactivate() {
+        let domain = "example.com";
+        let patch = DesktopAfternicListingWritePatch {
+            buynow_price_micro_usd: None,
+            floor_price_micro_usd: None,
+            minbid_price_micro_usd: None,
+            hidden: Some(false),
+        };
+        let action = DesktopAfternicListingPlanAction::ReactivateOwnershipReview;
+        assert!(
+            matches!(plan_intent(action, domain, None), Some(AfternicListingIntent::ReactivateOwnershipReview { domain: value }) if value == domain)
+        );
+        assert!(plan_intent(action, domain, Some(&patch)).is_none());
+        assert!(plan_intent(DesktopAfternicListingPlanAction::Create, domain, None).is_none());
+        assert!(plan_intent(DesktopAfternicListingPlanAction::Update, domain, None).is_none());
+    }
+
     #[test]
     fn missing_or_malformed_slot_requires_remediation_but_locked_custody_remains_retryable() {
         assert!(requires_credential_remediation(

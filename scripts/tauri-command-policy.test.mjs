@@ -21,6 +21,9 @@ function createFixture() {
     "afternic_delist_approve",
     "afternic_delist_preview",
     "afternic_delist_status",
+    "afternic_listing_plan_approve",
+    "afternic_listing_plan_preview",
+    "afternic_listing_plan_status",
     "afternic_listing_write_approve",
     "afternic_listing_write_preview",
     "afternic_listing_write_status",
@@ -152,7 +155,7 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/afternic.ts",
-    commands.filter((command) => command.startsWith("afternic_") && !command.startsWith("afternic_delist_") && !command.startsWith("afternic_listing_write_"))
+    commands.filter((command) => command.startsWith("afternic_") && !command.startsWith("afternic_delist_") && !command.startsWith("afternic_listing_"))
       .map((command) => `"${command}"`).join("\n"),
   );
   writeFile(
@@ -160,6 +163,12 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     "apps/desktop/src/adapters/tauri/afternic-delist.ts",
     commands.filter((command) => command.startsWith("afternic_delist_"))
       .map((command) => `"${command}"`).join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
+    commands.filter((command) => command.startsWith("afternic_listing_plan_"))
+      .map((command) => `invoke("${command}")`).join("\n"),
   );
   writeFile(
     root,

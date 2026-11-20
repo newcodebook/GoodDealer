@@ -9,7 +9,7 @@
 //!
 //! Qualifying a capability is a reviewed change to this list, never a runtime toggle, and each
 //! entry names the repository evidence that qualified it. Identifiers are
-//! `platform:role:capability`, the form the commercial Grant uses.
+//! `platform:role:capability`. Technical sub-capabilities do not add commercial Grant rights.
 
 /// One qualified capability and the path of the evidence that qualified it.
 #[allow(
@@ -19,6 +19,7 @@
 struct Qualification {
     capability: &'static str,
     evidence: &'static str,
+    target_os: Option<&'static str>,
 }
 
 /// Capabilities that passed ADR-0027 qualification. Empty: none has yet.
@@ -26,6 +27,16 @@ const QUALIFIED_CAPABILITIES: &[Qualification] = &[];
 
 /// Cloudflare Zone/DNS read-only observation, including the credential activation it needs.
 pub(crate) const CLOUDFLARE_DNS_OBSERVE: &str = "cloudflare:dns:observe";
+
+/// Separately reviewed technical admission; the commercial Grant still uses observe/write.
+pub(crate) const AFTERNIC_OWNERSHIP_REVIEW: &str = "afternic:marketplace:ownership-review";
+
+fn applies(capability: &str, target_os: Option<&str>) -> bool {
+    match target_os {
+        Some(target) => target == std::env::consts::OS,
+        None => capability != AFTERNIC_OWNERSHIP_REVIEW,
+    }
+}
 
 /// Whether one capability may execute.
 pub(crate) fn capability_qualified(capability: &str) -> bool {
@@ -42,7 +53,10 @@ pub(crate) fn role_qualified(platform: &str, role: &str) -> bool {
 
 #[cfg(not(test))]
 fn qualified() -> impl Iterator<Item = &'static str> {
-    QUALIFIED_CAPABILITIES.iter().map(|entry| entry.capability)
+    QUALIFIED_CAPABILITIES
+        .iter()
+        .filter(|entry| applies(entry.capability, entry.target_os))
+        .map(|entry| entry.capability)
 }
 
 #[cfg(test)]
@@ -50,8 +64,14 @@ fn qualified() -> impl Iterator<Item = &'static str> {
     let overrides = test_qualification::current();
     QUALIFIED_CAPABILITIES
         .iter()
+        .filter(|entry| applies(entry.capability, entry.target_os))
         .map(|entry| entry.capability)
-        .chain(overrides)
+        .chain(
+            overrides
+                .into_iter()
+                .filter(|(capability, os)| applies(capability, *os))
+                .map(|(capability, _)| capability),
+        )
 }
 
 /// Test-only qualification, scoped to the current thread and released when the guard drops, so
@@ -61,10 +81,10 @@ pub(crate) mod test_qualification {
     use std::cell::RefCell;
 
     thread_local! {
-        static QUALIFIED: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+        static QUALIFIED: RefCell<Vec<(&'static str, Option<&'static str>)>> = const { RefCell::new(Vec::new()) };
     }
 
-    pub(crate) struct Guard(&'static str);
+    pub(crate) struct Guard((&'static str, Option<&'static str>));
 
     impl Drop for Guard {
         fn drop(&mut self) {
@@ -78,11 +98,18 @@ pub(crate) mod test_qualification {
     }
 
     pub(crate) fn qualify(capability: &'static str) -> Guard {
-        QUALIFIED.with(|qualified| qualified.borrow_mut().push(capability));
-        Guard(capability)
+        qualify_for_target(capability, None)
     }
 
-    pub(super) fn current() -> Vec<&'static str> {
+    pub(crate) fn qualify_for_target(
+        capability: &'static str,
+        target_os: Option<&'static str>,
+    ) -> Guard {
+        QUALIFIED.with(|qualified| qualified.borrow_mut().push((capability, target_os)));
+        Guard((capability, target_os))
+    }
+
+    pub(super) fn current() -> Vec<(&'static str, Option<&'static str>)> {
         QUALIFIED.with(|qualified| qualified.borrow().clone())
     }
 }
@@ -90,6 +117,28 @@ pub(crate) mod test_qualification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ownership_review_requires_evidence_for_the_exact_target() {
+        let _commercial = test_qualification::qualify("afternic:marketplace:write");
+        let _unscoped = test_qualification::qualify(AFTERNIC_OWNERSHIP_REVIEW);
+        assert!(!capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
+        let wrong = if std::env::consts::OS == "windows" {
+            "macos"
+        } else {
+            "windows"
+        };
+        let _wrong = test_qualification::qualify_for_target(AFTERNIC_OWNERSHIP_REVIEW, Some(wrong));
+        assert!(!capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
+        {
+            let _exact = test_qualification::qualify_for_target(
+                AFTERNIC_OWNERSHIP_REVIEW,
+                Some(std::env::consts::OS),
+            );
+            assert!(capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
+        }
+        assert!(!capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
+    }
 
     #[test]
     fn nothing_is_qualified_before_its_review() {
@@ -108,6 +157,12 @@ mod tests {
     fn every_qualification_names_existing_evidence() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for entry in QUALIFIED_CAPABILITIES {
+            if entry.capability == AFTERNIC_OWNERSHIP_REVIEW {
+                assert!(matches!(
+                    entry.target_os,
+                    Some("windows" | "macos" | "linux")
+                ));
+            }
             assert_eq!(
                 entry.capability.split(':').count(),
                 3,

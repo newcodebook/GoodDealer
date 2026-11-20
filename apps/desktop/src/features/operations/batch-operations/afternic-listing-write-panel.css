@@ -12,6 +12,7 @@
 .afternic-listing-write-fields fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-3); border: 1px solid var(--gd-line); border-radius: var(--radius-sm); padding: var(--space-3); }
 .afternic-listing-write-field { display: grid; align-content: start; gap: var(--space-1); }
 .afternic-listing-write-field label { display: flex; align-items: center; gap: var(--space-1); overflow-wrap: anywhere; }
+.afternic-ownership-review-choice { min-block-size: 44px; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
 .afternic-listing-write-values { display: grid; gap: var(--space-1); }
 .afternic-listing-write-values div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .afternic-listing-write-values dd { margin: 0; }

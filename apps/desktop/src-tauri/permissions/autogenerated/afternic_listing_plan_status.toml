@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-afternic-listing-plan-status"
+description = "Enables the afternic_listing_plan_status command without any pre-configured scope."
+commands.allow = ["afternic_listing_plan_status"]
+
+[[permission]]
+identifier = "deny-afternic-listing-plan-status"
+description = "Denies the afternic_listing_plan_status command without any pre-configured scope."
+commands.deny = ["afternic_listing_plan_status"]

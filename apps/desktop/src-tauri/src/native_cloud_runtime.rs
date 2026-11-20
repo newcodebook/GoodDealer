@@ -296,6 +296,7 @@ impl NativeCloudCoordinator {
         let lane_power = power.clone();
         let delist_waker = provider_handle.clone();
         let provider_task = tauri::async_runtime::spawn(async move {
+            let mut listing_turn = crate::provider_credential_orchestrator::afternic_listing_write::ListingTurn::default();
             provider_lane
                 .run_with_power(
                     move || {
@@ -330,6 +331,8 @@ impl NativeCloudCoordinator {
                         let record = Arc::clone(&provider_record);
                         let power = provider_power.clone();
                         let wake = delist_waker.clone();
+                        let turn = matches!(operation, ProviderOperation::AfternicListingWriteStep)
+                            .then(|| listing_turn.take());
                         async move {
                             if matches!(operation, ProviderOperation::AfternicDelistStep) {
                                 if crate::provider_credential_orchestrator::afternic_delist::step(
@@ -340,9 +343,9 @@ impl NativeCloudCoordinator {
                                 {
                                     wake.wake_delist();
                                 }
-                            } else if matches!(operation, ProviderOperation::AfternicListingWriteStep) {
+                            } else if let Some(turn) = turn {
                                 if crate::provider_credential_orchestrator::afternic_listing_write::step(
-                                    host, cancel, power,
+                                    host, cancel, power, turn,
                                 ).await.unwrap_or(false) {
                                     wake.wake_listing_write();
                                 }

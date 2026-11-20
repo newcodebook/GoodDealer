@@ -21,6 +21,9 @@ use crate::portfolio_projection::{
 
 mod afternic;
 mod afternic_delist;
+mod afternic_ownership_review;
+mod afternic_listing_plan;
+pub(crate) use afternic_listing_plan::AfternicListingPlanWorkSeed;
 mod execution_evidence;
 mod execution_evidence_delivery;
 pub(crate) use afternic_delist::AfternicDelistWorkSeed;
@@ -1471,4 +1474,19 @@ pub use afternic_listing_write::{
     DesktopAfternicListingWriteStatus, DesktopAfternicListingWriteStatusRequest,
     DesktopAfternicListingWriteSummary, DesktopAfternicListingWriteUpdateItem,
     DesktopAfternicListingWriteValues, DesktopAfternicListingWriteWorkKind,
+};
+
+#[cfg(test)]
+mod afternic_ownership_review_tests;
+
+mod afternic_listing_plan_wire;
+pub use afternic_listing_plan_wire::{
+    DesktopAfternicListingPlan, DesktopAfternicListingPlanAction,
+    DesktopAfternicListingPlanApproveRequest,
+    DesktopAfternicListingPlanCurrentSummary, DesktopAfternicListingPlanDetail,
+    DesktopAfternicListingPlanItem, DesktopAfternicListingPlanOwnershipReview,
+    DesktopAfternicListingPlanOwnershipReviewObserved, DesktopAfternicListingPlanPreviewRequest,
+    DesktopAfternicListingPlanStatus,
+    DesktopAfternicListingPlanStatusRequest, DesktopAfternicListingPlanSummary,
+    DesktopAfternicListingPlanWrite,
 };

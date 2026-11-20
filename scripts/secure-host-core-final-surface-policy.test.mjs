@@ -260,6 +260,8 @@ const expectedLocalStorageExportModules = [
   "active_workspace::business",
   "desktop_local_host::afternic_listing_write",
   "active_workspace::business",
+  "active_workspace::business",
+  "desktop_local_host::afternic_listing_plan",
 ];
 const expectedLocalStoragePublicExports = [
   "DesktopAfternicControlledAcceptance",
@@ -308,6 +310,14 @@ const expectedLocalStoragePublicExports = [
   "DesktopAfternicListingWriteWorkKind",
   "DesktopAfternicListingWriteWork",
   "DesktopAfternicListingWriteClaim",
+  "DesktopAfternicListingPlan",
+  "DesktopAfternicListingPlanAction",
+  "DesktopAfternicListingPlanApproveRequest",
+  "DesktopAfternicListingPlanPreviewRequest",
+  "DesktopAfternicListingPlanStatus",
+  "DesktopAfternicListingPlanStatusRequest",
+  "DesktopAfternicListingPlanClaim",
+  "DesktopAfternicListingPlanWork",
   "DesktopApplicationRoot",
   "DesktopApplicationRootError",
   "DesktopAssetLibraryReadRequest",
@@ -502,7 +512,8 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   }
   const exactPublicItemSurfaces = [
     ["desktop_device_identity/execution_evidence.rs", [
-      "sign_afternic_delist_approval_transcript", "sign_afternic_listing_write_approval_transcript", "sign_device_audit_event_transcript",
+      "sign_afternic_delist_approval_transcript", "sign_afternic_listing_plan_approval_transcript",
+      "sign_afternic_listing_write_approval_transcript", "sign_afternic_ownership_review_approval_transcript", "sign_device_audit_event_transcript",
       "sign_execution_fact_transcript",
     ], "device execution evidence"],
     ["native_continuous_clock.rs", expectedNativeContinuousClockPublicItems, "native continuous clock"],
@@ -588,11 +599,13 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
       errors.push("execution context public surface must remain the exact Native admission boundary");
     }
     const port = context.match(/pub\s+trait\s+DesktopExecutionContextNativePort\s*:\s*Send\s*\+\s*Sync\s*\{([\s\S]*?)^\}/mu)?.[1];
-    const methods = [...(port ?? "").matchAll(/fn\s+[A-Za-z_][A-Za-z0-9_]*[\s\S]*?;[\t ]*$/gmu)]
-      .map((match) => match[0].replace(/\s+/gu, ""));
+    const methods = [...(port ?? "").matchAll(/^[\t ]*fn\s+[A-Za-z_][A-Za-z0-9_]*[\s\S]*?(?:;[\t ]*$|\{[\t ]*\n[\t ]*Err\(Error::Unavailable\)[\t ]*\n[\t ]*\}[\t ]*$)/gmu)]
+      .map((match) => match[0].replace(/\s+/gu, "").replace(/,\)/gu, ")"));
     if (!sameArray(methods, [
       "fnsign_afternic_delist_approval(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fnsign_afternic_listing_write_approval(&self,transcript:&[u8])->Result<[u8;64],Error>;",
+      "fnsign_afternic_listing_plan_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
+      "fnsign_afternic_ownership_review_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
       "fnsign_device_audit_event(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fnsign_execution_fact(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fncapture_clock(&self)->Result<DesktopContinuousClockReading,Error>;",

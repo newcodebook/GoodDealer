@@ -16,10 +16,10 @@ type Result<T> = std::result::Result<T, BusinessDatabaseError>;
 fn storage(_: rusqlite::Error) -> BusinessDatabaseError {
     BusinessDatabaseError::StorageRejected
 }
-fn encode<T: Serialize>(value: &T) -> Result<String> {
+pub(super) fn encode<T: Serialize>(value: &T) -> Result<String> {
     serde_json::to_string(value).map_err(|_| BusinessDatabaseError::InvalidInput)
 }
-fn decode<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
+pub(super) fn decode<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
     serde_json::from_str(value).map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 fn timestamp(value: &str) -> Result<()> {
@@ -39,11 +39,14 @@ fn sql_integer<T: TryInto<i64>>(value: T) -> Result<i64> {
         .try_into()
         .map_err(|_| BusinessDatabaseError::InvalidInput)
 }
-fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
+pub(super) fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(column)?;
     u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
 }
-fn optional_unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<Option<u64>> {
+pub(super) fn optional_unsigned(
+    row: &rusqlite::Row<'_>,
+    column: usize,
+) -> rusqlite::Result<Option<u64>> {
     let value: Option<i64> = row.get(column)?;
     value
         .map(|value| {
@@ -98,7 +101,7 @@ pub struct DesktopAfternicListingWritePatch {
     pub hidden: Option<bool>,
 }
 impl DesktopAfternicListingWritePatch {
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         if self.buynow_price_micro_usd.is_none()
             && self.floor_price_micro_usd.is_none()
             && self.minbid_price_micro_usd.is_none()
@@ -303,12 +306,12 @@ pub struct DesktopAfternicListingWriteStatus {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AfternicListingWriteFrozenItem {
-    schema_version: u8,
-    adapter_revision: String,
-    scan_id: String,
-    observation_id: Option<String>,
-    observation_digest: Option<String>,
-    observed_at: String,
+    pub(super) schema_version: u8,
+    pub(super) adapter_revision: String,
+    pub(super) scan_id: String,
+    pub(super) observation_id: Option<String>,
+    pub(super) observation_digest: Option<String>,
+    pub(super) observed_at: String,
     pub domain: String,
     pub entity_generation: u64,
     pub connection_id: String,
@@ -333,7 +336,7 @@ pub(crate) struct AfternicListingWriteWorkSeed {
     pub request_digest: String,
     pub frozen: AfternicListingWriteFrozenItem,
     pub kind: DesktopAfternicListingWriteWorkKind,
-    evidence_fence: execution_evidence::EvidenceReadFence,
+    pub(super) evidence_fence: execution_evidence::EvidenceReadFence,
 }
 
 type ItemReadFact = (
@@ -346,14 +349,14 @@ type ItemReadFact = (
     Option<String>,
     Option<String>,
 );
-struct StoredItem {
-    id: String,
-    frozen: AfternicListingWriteFrozenItem,
+pub(super) struct StoredItem {
+    pub(super) id: String,
+    pub(super) frozen: AfternicListingWriteFrozenItem,
 }
 
-fn validate_frozen(item: &AfternicListingWriteFrozenItem) -> Result<()> {
+pub(super) fn validate_frozen(item: &AfternicListingWriteFrozenItem) -> Result<()> {
     item.changes.validate()?;
-    if item.schema_version != 1
+    if !matches!(item.schema_version, 1 | 2)
         || item.adapter_revision != ADAPTER
         || item.entity_generation == 0
         || item.credential_generation == 0
@@ -407,12 +410,12 @@ fn validate_frozen(item: &AfternicListingWriteFrozenItem) -> Result<()> {
     }
     Ok(())
 }
-fn request_digest(item: &AfternicListingWriteFrozenItem) -> Result<String> {
+pub(super) fn request_digest(item: &AfternicListingWriteFrozenItem) -> Result<String> {
     Ok(hex_digest(
         encode(&(ADAPTER, item.action, item))?.as_bytes(),
     ))
 }
-fn intent(item: &AfternicListingWriteFrozenItem) -> Result<String> {
+pub(super) fn intent(item: &AfternicListingWriteFrozenItem) -> Result<String> {
     encode(&serde_json::json!({"action":item.action,"changes":item.changes}))
 }
 fn plan_hash(
@@ -427,7 +430,7 @@ fn plan_hash(
         encode(&(1, WRITE_KIND, workspace, id, at, expires, frozen))?.as_bytes(),
     ))
 }
-fn validate_source(
+pub(super) fn validate_source(
     c: &Connection,
     workspace: &str,
     item: &AfternicListingWriteFrozenItem,
@@ -508,10 +511,10 @@ fn items(c: &Connection, workspace: &str, plan: &str) -> Result<Vec<StoredItem>>
     }
     Ok(output)
 }
-fn next_sequence(c: &Connection, at: &str) -> Result<i64> {
+pub(super) fn next_sequence(c: &Connection, at: &str) -> Result<i64> {
     c.query_row("UPDATE active_workspace_metadata SET local_commit_sequence=local_commit_sequence+1,updated_at=?1 WHERE singleton=1 RETURNING local_commit_sequence",[at],|r|r.get(0)).map_err(storage)
 }
-fn plus_seconds(c: &Connection, at: &str, seconds: u32) -> Result<String> {
+pub(super) fn plus_seconds(c: &Connection, at: &str, seconds: u32) -> Result<String> {
     let next: String = c
         .query_row(
             "SELECT strftime('%Y-%m-%dT%H:%M:%SZ',?1,'+'||?2||' seconds')",
@@ -540,7 +543,7 @@ fn require_listing_write_open(c: &Connection, workspace: &str) -> Result<()> {
     }
     Ok(())
 }
-fn locally_current(
+pub(super) fn locally_current(
     c: &Connection,
     workspace: &str,
     item: &AfternicListingWriteFrozenItem,
@@ -556,20 +559,158 @@ fn locally_current(
     // against its precise resource history before any result is published, never used to resend.
     Ok(true)
 }
-fn no_live_binding(
+pub(super) fn no_live_binding(
     c: &Connection,
     workspace: &str,
     item: &AfternicListingWriteFrozenItem,
 ) -> Result<bool> {
     c.query_row("SELECT NOT EXISTS(SELECT 1 FROM domain_asset_provider_bindings WHERE workspace_id=?1 AND entity_id=?2 AND connection_id=?3 AND resource_kind='listing' AND validation_status!='detached')",params![workspace,item.domain,item.connection_id],|r|r.get(0)).map_err(storage)
 }
-fn other_execution(
+pub(super) fn other_execution(
     c: &Connection,
     workspace: &str,
     item: &AfternicListingWriteFrozenItem,
     except_plan: &str,
 ) -> Result<bool> {
     c.query_row("SELECT EXISTS(SELECT 1 FROM operation_plan_items i JOIN operation_attempts a USING(workspace_id,plan_id,item_id) JOIN operation_plans p USING(workspace_id,plan_id) WHERE i.workspace_id=?1 AND i.plan_id<>?2 AND p.operation_kind IN ('afternic_delist','afternic_listing_write') AND i.connection_id=?3 AND i.entity_id=?4 AND json_extract(i.precondition_json,'$.connectionIncarnationId')=?5 AND a.status IN ('queued','running','outcome_unknown') AND NOT EXISTS(SELECT 1 FROM afternic_delist_reconciliations d WHERE d.workspace_id=a.workspace_id AND d.operation_id=a.operation_id AND d.item_id=a.item_id AND d.outcome='absent') AND NOT EXISTS(SELECT 1 FROM afternic_listing_write_reconciliations r WHERE r.workspace_id=a.workspace_id AND r.operation_id=a.operation_id AND r.item_id=a.item_id AND r.item_state='applied'))",params![workspace,except_plan,item.connection_id,item.domain,item.connection_incarnation_id],|r|r.get(0)).map_err(storage)
+}
+
+pub(super) fn freeze_items(
+    tx: &Connection,
+    workspace: &str,
+    seed: &AfternicConnectionSeed,
+    request: &DesktopAfternicListingWritePreviewRequest,
+    at: &str,
+    plan_id: &str,
+) -> Result<Vec<StoredItem>> {
+    let patches = request.patches();
+    if request.schema_version() != 1
+        || request.connection_id() != seed.connection_id
+        || patches.is_empty()
+        || patches.len() > 500
+        || seed.publication_state != "active"
+    {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    let mut unique = BTreeSet::new();
+    for (domain, patch) in &patches {
+        patch.validate()?;
+        if !domain
+            .rsplit('.')
+            .next()
+            .is_some_and(|tld| tld.bytes().any(|b| b.is_ascii_lowercase()))
+        {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+        validate_domain_asset_id(domain).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        if !unique.insert(domain) {
+            return Err(BusinessDatabaseError::InvalidInput);
+        }
+    }
+    let scan:(String,Option<String>)=tx.query_row("SELECT scan_id,observation_run_id FROM afternic_inventory_scans WHERE workspace_id=?1 AND connection_id=?2 AND credential_generation=?3 ORDER BY completed_at DESC,rowid DESC LIMIT 1",params![workspace,seed.connection_id,sql_integer(seed.credential_generation)?],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|BusinessDatabaseError::MutationStale)?;
+    let run = scan.1;
+    let mut frozen = Vec::new();
+    for domain in unique {
+        let changes = patches
+            .iter()
+            .find(|(d, _)| d == domain)
+            .ok_or(BusinessDatabaseError::InvalidInput)?
+            .1
+            .clone();
+        let generation = tx.query_row("SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2 AND lifecycle_status='active'",params![workspace,domain],|r|unsigned(r,0)).map_err(|_|BusinessDatabaseError::MutationStale)?;
+        let mut item = AfternicListingWriteFrozenItem {
+            schema_version: 1,
+            adapter_revision: ADAPTER.into(),
+            scan_id: scan.0.clone(),
+            observation_id: None,
+            observation_digest: None,
+            observed_at: at.into(),
+            domain: domain.clone(),
+            entity_generation: generation,
+            connection_id: seed.connection_id.clone(),
+            connection_incarnation_id: seed.connection_incarnation_id.clone(),
+            credential_generation: seed.credential_generation,
+            binding_digest: None,
+            binding_generation: None,
+            listing: None,
+            action: request.action(),
+            changes,
+        };
+        if item.action == DesktopAfternicListingWriteAction::Update {
+            let observed = tx.query_row("SELECT m.listing_observation_id,m.provider_version_token,m.observed_at,m.binding_resource_digest,m.binding_generation,d.provider_status,d.buynow_price,d.floor_price,d.minbid_price,d.hidden,d.provider_created_at,d.provider_updated_at FROM marketplace_listing_observations m JOIN afternic_listing_details d USING(workspace_id,listing_observation_id) WHERE m.workspace_id=?1 AND m.observation_run_id=?2 AND m.entity_id=?3 AND m.binding_connection_id=?4 AND m.confirmed=1 AND m.observation_availability='available' AND m.evidence_status='confirmed'",params![workspace,run,domain,seed.connection_id],|r| { let mut frozen=item.clone(); frozen.observation_id=r.get(0)?;frozen.observation_digest=r.get(1)?;frozen.observed_at=r.get(2)?;frozen.binding_digest=r.get(3)?;frozen.binding_generation=optional_unsigned(r,4)?;frozen.listing=Some(DesktopAfternicListingObservation{domain:domain.clone(),status:r.get(5)?,buynow_price:optional_unsigned(r,6)?,floor_price:optional_unsigned(r,7)?,minbid_price:optional_unsigned(r,8)?,hidden:r.get(9)?,created_at:r.get(10)?,updated_at:r.get(11)?}); Ok(frozen) }).map_err(|_|BusinessDatabaseError::MutationStale)?;
+            item = observed;
+        } else if !no_live_binding(tx, workspace, &item)? {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        validate_frozen(&item)?;
+        validate_source(tx, workspace, &item)?;
+        if item.observed_at.as_str() > at
+            || !locally_current(tx, workspace, &item)?
+            || other_execution(tx, workspace, &item, plan_id)?
+        {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        frozen.push(StoredItem {
+            id: random_id()?,
+            frozen: item,
+        });
+    }
+    Ok(frozen)
+}
+
+pub(super) fn read_item(
+    c: &Connection,
+    workspace: &str,
+    plan: &str,
+    id: &str,
+    frozen: AfternicListingWriteFrozenItem,
+    approved: bool,
+) -> Result<DesktopAfternicListingWriteItem> {
+    let fact: Option<ItemReadFact> = c.query_row("SELECT a.status,r.item_state,r.reason,r.next_read_at,r.observation_json,r.fields_matched,r.observed_at,r.outcome FROM operation_attempts a LEFT JOIN afternic_listing_write_reconciliations r ON r.workspace_id=a.workspace_id AND r.operation_id=a.operation_id AND r.item_id=a.item_id AND r.sequence=(SELECT max(n.sequence) FROM afternic_listing_write_reconciliations n WHERE n.workspace_id=a.workspace_id AND n.operation_id=a.operation_id AND n.item_id=a.item_id) WHERE a.workspace_id=?1 AND a.plan_id=?2 AND a.item_id=?3",params![workspace,plan,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional().map_err(storage)?;
+    let (state, reason, retry, latest, matched) = match fact {
+        None if !approved => ("preview".into(), None, None, None, false),
+        Some((status, state, reason, retry, wire, matched, observed_at, _)) => {
+            let latest = wire
+                .map(|w| {
+                    let o: DesktopAfternicListingObservation = decode(&w)?;
+                    o.validate()?;
+                    Ok(DesktopAfternicListingWriteObserved::from_observation(
+                        &o,
+                        observed_at
+                            .as_deref()
+                            .ok_or(BusinessDatabaseError::StorageRejected)?,
+                    ))
+                })
+                .transpose()?;
+            (
+                state.unwrap_or_else(|| {
+                    if status == "queued" {
+                        "queued".into()
+                    } else {
+                        "reconciling".into()
+                    }
+                }),
+                reason,
+                retry,
+                latest,
+                matched.unwrap_or(false),
+            )
+        }
+        _ => return Err(BusinessDatabaseError::StorageRejected),
+    };
+    Ok(DesktopAfternicListingWriteItem {
+        domain: frozen.domain,
+        before: frozen
+            .listing
+            .as_ref()
+            .map(|o| DesktopAfternicListingWriteObserved::from_observation(o, &frozen.observed_at)),
+        changes: frozen.changes,
+        latest,
+        fields_matched: matched,
+        state,
+        reason,
+        retry_at: retry,
+    })
 }
 
 impl BusinessDatabase {
@@ -630,55 +771,8 @@ impl BusinessDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
         require_listing_write_open(&tx, &self.workspace_id)?;
-        let scan:(String,Option<String>)=tx.query_row("SELECT scan_id,observation_run_id FROM afternic_inventory_scans WHERE workspace_id=?1 AND connection_id=?2 AND credential_generation=?3 ORDER BY completed_at DESC,rowid DESC LIMIT 1",params![self.workspace_id,seed.connection_id,sql_integer(seed.credential_generation)?],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|BusinessDatabaseError::MutationStale)?;
-        let run = scan.1;
         let plan_id = random_id()?;
-        let mut frozen = Vec::new();
-        for domain in unique {
-            let changes = patches
-                .iter()
-                .find(|(d, _)| d == domain)
-                .ok_or(BusinessDatabaseError::InvalidInput)?
-                .1
-                .clone();
-            let generation = tx.query_row("SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?2 AND lifecycle_status='active'",params![self.workspace_id,domain],|r|unsigned(r,0)).map_err(|_|BusinessDatabaseError::MutationStale)?;
-            let mut item = AfternicListingWriteFrozenItem {
-                schema_version: 1,
-                adapter_revision: ADAPTER.into(),
-                scan_id: scan.0.clone(),
-                observation_id: None,
-                observation_digest: None,
-                observed_at: at.into(),
-                domain: domain.clone(),
-                entity_generation: generation,
-                connection_id: seed.connection_id.clone(),
-                connection_incarnation_id: seed.connection_incarnation_id.clone(),
-                credential_generation: seed.credential_generation,
-                binding_digest: None,
-                binding_generation: None,
-                listing: None,
-                action: request.action(),
-                changes,
-            };
-            if item.action == DesktopAfternicListingWriteAction::Update {
-                let observed = tx.query_row("SELECT m.listing_observation_id,m.provider_version_token,m.observed_at,m.binding_resource_digest,m.binding_generation,d.provider_status,d.buynow_price,d.floor_price,d.minbid_price,d.hidden,d.provider_created_at,d.provider_updated_at FROM marketplace_listing_observations m JOIN afternic_listing_details d USING(workspace_id,listing_observation_id) WHERE m.workspace_id=?1 AND m.observation_run_id=?2 AND m.entity_id=?3 AND m.binding_connection_id=?4 AND m.confirmed=1 AND m.observation_availability='available' AND m.evidence_status='confirmed'",params![self.workspace_id,run,domain,seed.connection_id],|r| { let mut frozen=item.clone(); frozen.observation_id=r.get(0)?;frozen.observation_digest=r.get(1)?;frozen.observed_at=r.get(2)?;frozen.binding_digest=r.get(3)?;frozen.binding_generation=optional_unsigned(r,4)?;frozen.listing=Some(DesktopAfternicListingObservation{domain:domain.clone(),status:r.get(5)?,buynow_price:optional_unsigned(r,6)?,floor_price:optional_unsigned(r,7)?,minbid_price:optional_unsigned(r,8)?,hidden:r.get(9)?,created_at:r.get(10)?,updated_at:r.get(11)?}); Ok(frozen) }).map_err(|_|BusinessDatabaseError::MutationStale)?;
-                item = observed;
-            } else if !no_live_binding(&tx, &self.workspace_id, &item)? {
-                return Err(BusinessDatabaseError::MutationStale);
-            }
-            validate_frozen(&item)?;
-            validate_source(&tx, &self.workspace_id, &item)?;
-            if item.observed_at.as_str() > at
-                || !locally_current(&tx, &self.workspace_id, &item)?
-                || other_execution(&tx, &self.workspace_id, &item, &plan_id)?
-            {
-                return Err(BusinessDatabaseError::MutationStale);
-            }
-            frozen.push(StoredItem {
-                id: random_id()?,
-                frozen: item,
-            });
-        }
+        let frozen = freeze_items(&tx, &self.workspace_id, seed, request, at, &plan_id)?;
         // Preview lifetime comes from the authenticated continuous-clock projection; wall time
         // remains only the local business timestamp and cannot extend approval admission.
         let expires = plus_seconds(&tx, authorization_time, 900)?;
@@ -802,51 +896,14 @@ impl BusinessDatabase {
         let action = stored[0].frozen.action;
         let mut output = Vec::with_capacity(stored.len());
         for item in stored {
-            let fact: Option<ItemReadFact> = c.query_row("SELECT a.status,r.item_state,r.reason,r.next_read_at,r.observation_json,r.fields_matched,r.observed_at,r.outcome FROM operation_attempts a LEFT JOIN afternic_listing_write_reconciliations r ON r.workspace_id=a.workspace_id AND r.operation_id=a.operation_id AND r.item_id=a.item_id AND r.sequence=(SELECT max(n.sequence) FROM afternic_listing_write_reconciliations n WHERE n.workspace_id=a.workspace_id AND n.operation_id=a.operation_id AND n.item_id=a.item_id) WHERE a.workspace_id=?1 AND a.plan_id=?2 AND a.item_id=?3",params![self.workspace_id,plan,item.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional().map_err(storage)?;
-            let (state, reason, retry, latest, matched) = match fact {
-                None if approved.is_none() => ("preview".into(), None, None, None, false),
-                Some((status, state, reason, retry, wire, matched, observed_at, _)) => {
-                    let latest = wire
-                        .map(|w| {
-                            let o: DesktopAfternicListingObservation = decode(&w)?;
-                            o.validate()?;
-                            Ok(DesktopAfternicListingWriteObserved::from_observation(
-                                &o,
-                                observed_at
-                                    .as_deref()
-                                    .ok_or(BusinessDatabaseError::StorageRejected)?,
-                            ))
-                        })
-                        .transpose()?;
-                    (
-                        state.unwrap_or_else(|| {
-                            if status == "queued" {
-                                "queued".into()
-                            } else {
-                                "reconciling".into()
-                            }
-                        }),
-                        reason,
-                        retry,
-                        latest,
-                        matched.unwrap_or(false),
-                    )
-                }
-                _ => return Err(BusinessDatabaseError::StorageRejected),
-            };
-            let frozen = item.frozen;
-            output.push(DesktopAfternicListingWriteItem {
-                domain: frozen.domain,
-                before: frozen.listing.as_ref().map(|o| {
-                    DesktopAfternicListingWriteObserved::from_observation(o, &frozen.observed_at)
-                }),
-                changes: frozen.changes,
-                latest,
-                fields_matched: matched,
-                state,
-                reason,
-                retry_at: retry,
-            });
+            output.push(read_item(
+                c,
+                &self.workspace_id,
+                plan,
+                &item.id,
+                item.frozen,
+                approved.is_some(),
+            )?);
         }
         let pending = output.iter().any(|i| {
             [
@@ -892,7 +949,7 @@ impl BusinessDatabase {
         selected: Option<&str>,
         at: &str,
     ) -> Result<DesktopAfternicListingWriteStatus> {
-        let mut q=self.store.raw_connection().prepare("SELECT plan_id FROM operation_plans WHERE workspace_id=?1 AND operation_kind='afternic_listing_write' ORDER BY created_at DESC,plan_id DESC LIMIT 50").map_err(storage)?;
+        let mut q=self.store.raw_connection().prepare("SELECT plan_id FROM operation_plans WHERE workspace_id=?1 AND operation_kind='afternic_listing_write' AND NOT EXISTS(SELECT 1 FROM operation_plan_items i WHERE i.workspace_id=operation_plans.workspace_id AND i.plan_id=operation_plans.plan_id AND json_extract(i.precondition_json,'$.schemaVersion')=2) ORDER BY created_at DESC,plan_id DESC LIMIT 50").map_err(storage)?;
         let ids = q
             .query_map([&self.workspace_id], |r| r.get::<_, String>(0))
             .map_err(storage)?
@@ -970,7 +1027,7 @@ impl BusinessDatabase {
         let mut selected = None;
         // Bound maintenance per wake so corrupt or stale histories cannot starve the application.
         for _ in 0..500 {
-            let row:Option<(String,String,String,String,String,String)>=tx.query_row("SELECT a.plan_id,a.operation_id,a.item_id,a.request_digest,a.status,i.precondition_json FROM afternic_listing_write_effective_attempts a JOIN operation_plan_items i USING(workspace_id,plan_id,item_id) JOIN operations o USING(workspace_id,operation_id) LEFT JOIN afternic_listing_write_reconciliations r ON r.workspace_id=a.workspace_id AND r.operation_id=a.operation_id AND r.item_id=a.item_id AND r.sequence=(SELECT max(n.sequence) FROM afternic_listing_write_reconciliations n WHERE n.workspace_id=a.workspace_id AND n.operation_id=a.operation_id AND n.item_id=a.item_id) WHERE a.workspace_id=?1 AND o.phase='running' AND a.effective_status IN ('queued','running','outcome_unknown') AND (?3 OR a.status!='queued') AND (r.next_read_at IS NULL OR r.next_read_at<=?2) ORDER BY a.status='queued',o.requested_at,a.operation_id,i.ordinal LIMIT 1",params![self.workspace_id,at,allow_write],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(storage)?;
+            let row:Option<(String,String,String,String,String,String)>=tx.query_row("SELECT a.plan_id,a.operation_id,a.item_id,a.request_digest,a.status,i.precondition_json FROM afternic_listing_write_effective_attempts a JOIN operation_plan_items i USING(workspace_id,plan_id,item_id) JOIN operations o USING(workspace_id,operation_id) LEFT JOIN afternic_listing_write_reconciliations r ON r.workspace_id=a.workspace_id AND r.operation_id=a.operation_id AND r.item_id=a.item_id AND r.sequence=(SELECT max(n.sequence) FROM afternic_listing_write_reconciliations n WHERE n.workspace_id=a.workspace_id AND n.operation_id=a.operation_id AND n.item_id=a.item_id) WHERE a.workspace_id=?1 AND json_extract(i.precondition_json,'$.schemaVersion')=1 AND o.phase='running' AND a.effective_status IN ('queued','running','outcome_unknown') AND (?3 OR a.status!='queued') AND (r.next_read_at IS NULL OR r.next_read_at<=?2) ORDER BY a.status='queued',o.requested_at,a.operation_id,i.ordinal LIMIT 1",params![self.workspace_id,at,allow_write],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(storage)?;
             let Some((plan_id, operation_id, item_id, digest, status, wire)) = row else {
                 break;
             };
@@ -1248,7 +1305,7 @@ fn check_work(c: &Connection, workspace: &str, seed: &AfternicListingWriteWorkSe
     Ok(())
 }
 
-fn blocked_status(status: &str) -> bool {
+pub(super) fn blocked_status(status: &str) -> bool {
     matches!(
         status,
         "SOLD"
@@ -1259,7 +1316,7 @@ fn blocked_status(status: &str) -> bool {
             | "VERIFIED_OWNER_CONFLICT"
     )
 }
-fn result_state(
+pub(super) fn result_state(
     seed: &AfternicListingWriteWorkSeed,
     outcome: &str,
     observation: Option<&DesktopAfternicListingObservation>,
@@ -1307,7 +1364,7 @@ fn result_state(
 }
 // A create may reuse a binding observed by a concurrent complete inventory only when the
 // same connection generation, canonical resource path and provider creation identity agree.
-fn create_binding_compatible(
+pub(super) fn create_binding_compatible(
     c: &Connection,
     workspace: &str,
     seed: &AfternicListingWriteWorkSeed,
@@ -1329,7 +1386,7 @@ fn create_binding_compatible(
     clippy::too_many_arguments,
     reason = "one concrete result and its signed audit commit with the original business transaction"
 )]
-fn record_fact(
+pub(super) fn record_fact(
     c: &Connection,
     workspace: &str,
     seed: &AfternicListingWriteWorkSeed,

@@ -430,3 +430,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [受控验收工作包](AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)已在 Linux debug 接入设置与批量页。真实 Grant/Lease 与单一凭据槽准入，完整库存读取，`wecin.com` 上架、改价和下架受确定范围和连续时间限制。新增本地 007，原 006 保持原字节，连接和库存恢复补齐电源栅栏。
 - 独立 Storage、Native 与客户入口验证通过；根 `pnpm check` 退出 0，主目录集成 PostgreSQL 18.6 矩阵 162/162。受控构建实际打开，用户现场核对本机。详细证据见 [受控审查](../reviews/2026-11-19-afternic-controlled-acceptance-review.md)。
 - 已按用户明确批准更新共享开发配置、重启两项服务并发送一次 Stripe 测试订阅 metadata 更新。真实签名 Webhook、对账及新投影确认两项 Afternic 权限，原账单字段与期限相同。开发 Cloud 030/031 尚未发布，真实库存和 Listing 继续现场验收。
+
+
+## 2026-11-20 Afternic 官方所有权审核复核
+
+- 批量上架或改价可逐域名选入一个条件性 `OWNERSHIP_REVIEW` 复核，也可为现有 Listing 单独预览。一次确认冻结全部步骤，复核单独签名并至多持久 claim 一次。官方请求受理后用认证 GET 对账，重开和未知结果沿原 ProviderLane 续查。
+- 本地 008、Cloud 032/033 仅追加，原 v1 计划、签名与迁移保留。SQLCipher 专项 25/25、旧 Afternic 回归 87/87、实际 Host→Client 7 个输出、Cloud PG18.6 升级与回归 184/184 通过。审查结果见 [独立记录](../reviews/2026-11-20-afternic-ownership-review.md)。
+- 正式复核资格仍未开放。缺少可信前任关闭证据的后继来源拒绝新 claim，保留旧 claim 的 GET 对账。受控 `wecin.com` 范围维持原三项 Listing 动作。真实账号连接与操作、认证私有验证和 DNS、Windows/macOS 及发行仍分别取证。

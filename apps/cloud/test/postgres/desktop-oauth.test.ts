@@ -1,3 +1,5 @@
+import { encodeAfternicListingPlanItemApprovalSignatureTranscript, encodeAfternicListingPlanItemApprovalEnvelope, encodeAfternicListingPlanItemApprovalJson,
+  encodeAfternicOwnershipReviewItemApprovalSignatureTranscript, encodeAfternicOwnershipReviewItemApprovalEnvelope, encodeAfternicOwnershipReviewItemApprovalJson } from "@gooddealer/protocol/execution-events";
 import { leaseIssuedOfflineHighWaterMigration } from "../../src/modules/devices/migrations/202611190026-lease-issued-offline-high-water";
 import { encodeAfternicListingWriteItemApprovalSignatureTranscript, encodeAfternicListingWriteItemApprovalEnvelope, encodeAfternicListingWriteItemApprovalJson } from "@gooddealer/protocol/execution-events";
 import { submittedSyncMutationSchema, computeWorkspaceCheckpointEntityDigests, encodeCheckpointEntityDigestsInput } from "@gooddealer/protocol/workspace";
@@ -493,14 +495,16 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect(await contextService().issue(request(78),active)).toBeNull();
     expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_execution_contexts")).rows).toEqual([{count:1}]);
   });
-  async function executionFixture(nonce=50, action:"remove"|"create"|"update"="remove"){
-    const approvalTranscript=action==="remove"?encodeAfternicDelistItemApprovalSignatureTranscript:encodeAfternicListingWriteItemApprovalSignatureTranscript;
-    const approvalEnvelope=action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
-    const approvalJson=action==="remove"?encodeAfternicDelistItemApprovalJson:encodeAfternicListingWriteItemApprovalJson;
-    if(nonce===50)await applyEntitlementState("active","evidence-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
-    const principal=await desktopGrantPrincipal();const response=await contextService().issue(request(nonce),principal);
+  async function executionFixture(nonce=50, action:"remove"|"create"|"update"|"plan-create"|"plan-update"|"ownership"|"ownership-linked-create"|"ownership-linked-update"="remove", deviceId:"device-a"|"device-b"="device-a"){
+    const deviceSigningKey=deviceId==="device-a"?deviceKeyPair:otherDeviceKeyPair;
+    const ownership=action.startsWith("ownership");const plan=action.startsWith("plan-");
+    const approvalTranscript=ownership?encodeAfternicOwnershipReviewItemApprovalSignatureTranscript:plan?encodeAfternicListingPlanItemApprovalSignatureTranscript:action==="remove"?encodeAfternicDelistItemApprovalSignatureTranscript:encodeAfternicListingWriteItemApprovalSignatureTranscript;
+    const approvalEnvelope=ownership?encodeAfternicOwnershipReviewItemApprovalEnvelope:plan?encodeAfternicListingPlanItemApprovalEnvelope:action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
+    const approvalJson=ownership?encodeAfternicOwnershipReviewItemApprovalJson:plan?encodeAfternicListingPlanItemApprovalJson:action==="remove"?encodeAfternicDelistItemApprovalJson:encodeAfternicListingWriteItemApprovalJson;
+    if(nonce===50&&deviceId==="device-a")await applyEntitlementState("active","evidence-afternic",2,["afternic:marketplace:observe","afternic:marketplace:write"]);
+    const principal=deviceId==="device-a"?await desktopGrantPrincipal():(await loginStandbyDevice()).principal;const response=await contextService().issue(request(nonce),principal);
     if(response===null)throw new Error("context refused");const c=response.context;
-    const v=JSON.parse(readFileSync(new URL(action==="remove"?"../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json":`../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/${action}.json`,import.meta.url),"utf8"));
+    const v=JSON.parse(readFileSync(new URL(ownership||plan?`../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/${action==="ownership"?"ownership-standalone":action.replace("plan-","")}.json`:action==="remove"?"../../../../packages/protocol/test-vectors/afternic-execution-evidence/valid.json":`../../../../packages/protocol/test-vectors/afternic-listing-write-evidence/${action}.json`,import.meta.url),"utf8"));
     // Distinct context fixtures retain each vector's internal UUID references without sharing event identities.
     if(nonce!==50){
       const replacements=new Map<string,string>();let sequence=1;
@@ -517,24 +521,168 @@ describe("PostgreSQL execution context historical evidence", () => {
     const base={accountId:c.accountId,workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch,credentialEpoch:c.credentialEpoch,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,trustedTimeAnchorId:hash(encodeDesktopExecutionContextEnvelope(c))};
     const boundary=(delta:number)=>new Date(Date.parse(c.serverObservedAt)+1000+delta).toISOString().replace(".000Z","Z");
     const approval={...v.approval,...base,authorizationHash:c.authorizationGrantDigest,approvedAt:boundary(1000)};
-    approval.deviceSignature=sign(null,approvalTranscript(approval),deviceKeyPair.privateKey).toString("base64url");
+    approval.deviceSignature=sign(null,approvalTranscript(approval),deviceSigningKey.privateKey).toString("base64url");
     const approvalDigest=hash(approvalEnvelope(approval));
     const audit=(draft:unknown)=>{
       const event=deviceAuditIngestRequestSchema.parse({schemaVersion:1,event:draft}).event;
-      event.eventHash=hash(encodeDeviceAuditEventHashInput(event));event.deviceSignature=sign(null,encodeDeviceAuditEventSignatureTranscript(event),deviceKeyPair.privateKey).toString("base64url");return event;
+      event.eventHash=hash(encodeDeviceAuditEventHashInput(event));event.deviceSignature=sign(null,encodeDeviceAuditEventSignatureTranscript(event),deviceSigningKey.privateKey).toString("base64url");return event;
     };
     const auditBase={...base,authorizationContextHash:c.authorizationGrantDigest,chainId:hash(encodeWorkspaceDeviceAuditChainDomain({workspaceId:c.workspaceId,sourceDeviceId:c.deviceId,activeLeaseEpoch:c.activeLeaseEpoch}))};
     const approvalAudit=audit({...v.approvalAudit,...auditBase,occurredAt:boundary(1000)});
     const claimAudit=audit({...v.claimAudit,...auditBase,occurredAt:boundary(2000),previousHash:approvalAudit.eventHash,payloadRedacted:{...v.claimAudit.payloadRedacted,approvalEnvelopeDigest:approvalDigest}});
     const {accountId:_account,...factBase}=base;
     const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash(encodeAfternicLocalDispatchKeyDigestInput({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(approvalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
-    const signFact=(draft:typeof fact)=>({...draft,deviceSignature:sign(null,encodeExecutionFactSignatureTranscript(draft),deviceKeyPair.privateKey).toString("base64url")});
+    const signFact=(draft:typeof fact)=>({...draft,deviceSignature:sign(null,encodeExecutionFactSignatureTranscript(draft),deviceSigningKey.privateKey).toString("base64url")});
     const authority=new PostgresExecutionEvidenceAuthority(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
     const contexts=new PostgresHistoricalExecutionContext();
     const audits=new PostgresDeviceAuditEvidenceService(authority,contexts,new PostgresExecutionFactEvidenceReader());
     const facts=new PostgresExecutionFactEvidenceService(authority,contexts,new PostgresDeviceAuditEvidenceReader());
-    return {principal,response,approval,approvalAudit,claimAudit,fact:signFact(fact),audits,facts,signFact,audit,authority,contexts};
+    return {principal,response,approval,approvalAudit,claimAudit,fact:signFact(fact),audits,facts,signFact,audit,authority,contexts,approvalTranscript,approvalEnvelope,approvalJson};
   }
+  describe.each(["plan-create","plan-update","ownership","ownership-linked-create","ownership-linked-update"] as const)("Afternic v2 %s production stream",action=>{
+    it("accepts the separately signed batch/item/claim/fact with exact lost-response replay",async()=>{
+      const f=await executionFixture(50,action);
+      await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"pending",code:"APPROVAL_AUDIT_MISSING"});
+      for(const event of [f.approvalAudit,f.claimAudit]) await expect(f.audits.ingest({schemaVersion:1,event},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+      const result=await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
+      expect(result).toMatchObject({outcome:"accepted"});
+      await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toEqual(result);
+      expect((await ownerPool.query("SELECT count(*)::int AS count FROM execution_fact_drain_records")).rows).toEqual([{count:1}]);
+    });
+    it("rejects purpose substitution even when the other-domain signature is mathematically valid",async()=>{
+      const f=await executionFixture(50,action);
+      const {deviceSignature:_signature,...claims}=f.approval;
+      const changed={...f.approval,deviceSignature:sign(null,encodeDomainSeparatedWireValue("GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1",claims),deviceKeyPair.privateKey).toString("base64url")};
+      const digest=hash(f.approvalEnvelope(changed));
+      const fact=f.signFact({...f.fact,payloadRedacted:{...f.fact.payloadRedacted,approvalEnvelopeDigest:digest},executionAuthorizationEvidence:{...f.fact.executionAuthorizationEvidence,approvedOperationDigest:digest,approvedOperationEnvelope:Buffer.from(f.approvalJson(changed)).toString("base64url")}});
+      await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+    it("actual account role rejects malformed v2 payloads and embedded duplicate/purpose fields directly",async()=>{
+      const f=await executionFixture(50,action);
+      for(const mutation of ["schema-string","unknown","parent","approval-purpose","duplicate","parent-pair","self-parent","count-string","missing-parent","missing-digest"]){
+        await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+          await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+          const fact=structuredClone(f.fact);
+          if(mutation==="schema-string")Object.assign(fact.payloadRedacted,{schemaVersion:String(fact.payloadRedacted.schemaVersion)});
+          if(mutation==="unknown")Object.assign(fact.payloadRedacted,{domain:"wecin.com"});
+          if(mutation==="parent")Object.assign(fact.payloadRedacted,{parentItemId:null});
+          if(mutation==="approval-purpose")fact.executionAuthorizationEvidence.approvedOperationEnvelope=Buffer.from(JSON.stringify({...f.approval,typ:"gd.afternic-listing-write-item-approval.v1"})).toString("base64url");
+          if(mutation==="duplicate")fact.executionAuthorizationEvidence.approvedOperationEnvelope=Buffer.from('{"\\u0061ction":"create",'+JSON.stringify(f.approval).slice(1)).toString("base64url");
+          if(["parent-pair","self-parent","count-string","missing-parent"].includes(mutation)){
+            const approval={...f.approval};
+            if(mutation==="parent-pair")Object.assign(approval,{parentItemId:approval.operationId,parentRequestDigest:null});
+            if(mutation==="self-parent")Object.assign(approval,{parentItemId:approval.operationItemId,parentRequestDigest:approval.requestDigest});
+            if(mutation==="count-string")Object.assign(approval,{targetCount:String(approval.targetCount)});
+            if(mutation==="missing-parent")Reflect.deleteProperty(approval,"parentItemId");
+            fact.executionAuthorizationEvidence.approvedOperationEnvelope=Buffer.from(JSON.stringify(approval)).toString("base64url");
+          }
+          if(mutation==="missing-digest")Reflect.deleteProperty(fact.payloadRedacted,action.startsWith("ownership")?"resourceBindingDigest":"requestDigest");
+          await tx.query("SELECT public.execution_fact_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL)",[fact,Buffer.from(encodeDrainStreamEnvelope("execution_fact",fact))]);
+        })).rejects.toMatchObject({code:"42501"});
+      }
+      for(const mutation of ["schema-string","unknown","missing-digest","wrong-target","count-string"]){
+        await expect(identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+          await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+          const event=structuredClone(mutation==="count-string"?f.approvalAudit:f.claimAudit);
+          if(mutation==="schema-string")Object.assign(event.payloadRedacted,{schemaVersion:String(event.payloadRedacted.schemaVersion)});
+          if(mutation==="unknown")Object.assign(event.payloadRedacted,{cookie:"must-not-be-stored"});
+          if(mutation==="missing-digest")Reflect.deleteProperty(event.payloadRedacted,action.startsWith("ownership")?"preflightObservationDigest":"requestDigest");
+          if(mutation==="wrong-target")Object.assign(event,{targetType:"afternic_listing_write_attempt"});
+          if(mutation==="count-string")Object.assign(event.payloadRedacted,{targetCount:"1"});
+          await tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL)",[event,Buffer.from(encodeDrainStreamEnvelope("device_audit",event))]);
+        })).rejects.toMatchObject({code:"42501"});
+      }
+    });
+  });
+  function satisfiedEvent(f:Awaited<ReturnType<typeof executionFixture>>,afterClaim=false){
+    const {attemptNo:_attempt,resourceBindingDigest:_binding,preflightObservationDigest:_observation,...fields}=f.claimAudit.payloadRedacted as Record<string,unknown>;
+    return f.audit({...f.claimAudit,auditEventId:"00000000-0000-4000-8000-000000000099",auditSequence:afterClaim?3:2,
+      previousHash:afterClaim?f.claimAudit.eventHash:f.approvalAudit.eventHash,
+      eventType:"runtime_security_lifecycle",authorizationSource:"runtime_security_context",
+      payloadRedacted:{...fields,stage:"preflight_satisfied"}});
+  }
+  describe("ownership no-dispatch evidence",()=>{
+    it.each(["claimed", "satisfied"] as const)("keeps a prior device's %s item exclusive after another device obtains a Lease",async prior=>{
+      const first=await executionFixture(50,"ownership");
+      await first.audits.ingest({schemaVersion:1,event:first.approvalAudit},first.principal);
+      await first.audits.ingest({schemaVersion:1,event:prior==="claimed"?first.claimAudit:satisfiedEvent(first)},first.principal);
+      if(prior==="claimed")await first.facts.ingest({schemaVersion:1,fact:first.fact},first.principal);
+      await releaseHeldLease();
+      const next=await executionFixture(50,"ownership","device-b");
+      expect(next.fact.activeLeaseEpoch).toBeGreaterThan(first.fact.activeLeaseEpoch);
+      await expect(next.audits.ingest({schemaVersion:1,event:next.approvalAudit},next.principal)).resolves.toMatchObject({outcome:"accepted"});
+      const event=prior==="claimed"?satisfiedEvent(next):next.claimAudit;
+      await identityTransactions.withAccountCredential(next.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[next.fact.workspaceId]);
+        const audits=new PostgresDeviceAuditEvidenceReader();
+        const facts=new PostgresExecutionFactEvidenceReader();
+        expect(await audits.itemSatisfied(tx,next.fact,next.fact.operationId,next.fact.operationItemId)).toBe(prior==="satisfied");
+        expect(await audits.itemClaimed(tx,next.fact,next.fact.operationId,next.fact.operationItemId)).toBe(prior==="claimed");
+        expect(await facts.itemClaimed(tx,next.fact,next.fact.operationId,next.fact.operationItemId)).toBe(prior==="claimed");
+        expect(await audits.itemSatisfied(tx,{workspaceId:"foreign-workspace"},next.fact.operationId,next.fact.operationItemId)).toBe(false);
+        const result=await tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL) AS response",[event,Buffer.from(encodeDrainStreamEnvelope("device_audit",event))]);
+        expect(result.rows[0]?.response).toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+      });
+      await expect(next.audits.ingest({schemaVersion:1,event},next.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+      if(prior==="satisfied")await expect(next.facts.ingest({schemaVersion:1,fact:next.fact},next.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+    it("serializes concurrent contradictory audit appends through the production role",async()=>{
+      const f=await executionFixture(50,"ownership");
+      await f.audits.ingest({schemaVersion:1,event:f.approvalAudit},f.principal);
+      const results=await Promise.all([satisfiedEvent(f),f.claimAudit].map(event=>identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+        const result=await tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL) AS response",[event,Buffer.from(encodeDrainStreamEnvelope("device_audit",event))]);
+        return result.rows[0]?.response;
+      })));
+      expect(results.filter(result=>result.outcome==="accepted")).toHaveLength(1);
+      expect(results.filter(result=>result.outcome==="quarantined")).toHaveLength(1);
+      const accepted=await ownerPool.query("SELECT signed_event->'payloadRedacted'->>'stage' AS stage FROM workspace_device_audit_drain_records WHERE signed_event->'payloadRedacted'->>'stage'<>'approved'");
+      expect(accepted.rows).toHaveLength(1);
+      const fact=await f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal);
+      expect(fact?.outcome).toBe(accepted.rows[0]?.stage==="preflight_satisfied"?"quarantined":"accepted");
+    });
+    it("records preflight satisfaction with no claim or fact and refuses a later claim",async()=>{
+      const f=await executionFixture(50,"ownership");
+      await f.audits.ingest({schemaVersion:1,event:f.approvalAudit},f.principal);
+      const satisfied=satisfiedEvent(f);
+      await expect(f.audits.ingest({schemaVersion:1,event:satisfied},f.principal)).resolves.toMatchObject({outcome:"accepted"});
+      expect((await ownerPool.query("SELECT count(*)::int AS count FROM execution_fact_drain_records")).rows).toEqual([{count:0}]);
+      const claim=f.audit({...f.claimAudit,auditSequence:3,previousHash:satisfied.eventHash});
+      await expect(f.audits.ingest({schemaVersion:1,event:claim},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+      await expect(f.facts.ingest({schemaVersion:1,fact:f.fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+    it("refuses satisfaction after a claim in both service and direct production-role SQL",async()=>{
+      const f=await executionFixture(50,"ownership");
+      for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+      const satisfied=satisfiedEvent(f,true);
+      const direct=await identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+        return tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL) AS response",[satisfied,Buffer.from(encodeDrainStreamEnvelope("device_audit",satisfied))]);
+      });
+      expect(direct.rows[0]?.response).toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+      await expect(f.audits.ingest({schemaVersion:1,event:satisfied},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+    it("direct production-role SQL refuses a claim after satisfaction",async()=>{
+      const f=await executionFixture(50,"ownership");
+      await f.audits.ingest({schemaVersion:1,event:f.approvalAudit},f.principal);
+      const satisfied=satisfiedEvent(f);await f.audits.ingest({schemaVersion:1,event:satisfied},f.principal);
+      const claim=f.audit({...f.claimAudit,auditSequence:3,previousHash:satisfied.eventHash});
+      const result=await identityTransactions.withAccountCredential(f.principal.transactionCredential!,"devices_account",async tx=>{
+        await tx.query("SELECT set_config('gooddealer.workspace_id',$1,true)",[f.fact.workspaceId]);
+        return tx.query("SELECT public.audit_execution_evidence_append($1::jsonb,$2::bytea,NULL,true,NULL) AS response",[claim,Buffer.from(encodeDrainStreamEnvelope("device_audit",claim))]);
+      });
+      expect(result.rows[0]?.response).toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+    it("requires identical resource and preflight observation digests in paired audit and fact",async()=>{
+      const f=await executionFixture(50,"ownership");
+      for(const event of [f.approvalAudit,f.claimAudit])await f.audits.ingest({schemaVersion:1,event},f.principal);
+      const changed=structuredClone(f.fact);
+      Object.assign(changed.payloadRedacted,{preflightObservationDigest:hash(Buffer.from("different-observation"))});
+      const fact=f.signFact(changed);
+      await expect(f.facts.ingest({schemaVersion:1,fact},f.principal)).resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+    });
+  });
+
   describe.each(["remove","create","update"] as const)("Afternic %s production stream",action=>{
   it("production evidence rejects a signed batch action substituted across the same opaque references",async()=>{
     const f=await executionFixture(50,action);

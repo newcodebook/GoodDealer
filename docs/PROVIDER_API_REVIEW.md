@@ -28,11 +28,11 @@
 
 [官方 Listing Statuses](https://api.afternic.com/docs/portfolio-api/guides/listing-statuses/)明确区分：
 
-- `OWNERSHIP_REVIEW`：可调用 Relist multiple domains，`mode=REACTIVATE`，重新进行完整性检查；
-  处理可达 24 小时，该窗口只能重提一次。
+- `OWNERSHIP_REVIEW`：官方 [Relist multiple domains](https://api.afternic.com/docs/portfolio-api/api/domains/relistMultipleDomains/) 的当前 OpenAPI 3.2.0（API 3.0.0）确认使用 `POST /v3/aftermarket/customers/my/domains/$each/relist`，请求显式 `mode=REACTIVATE`，`names` 为最多 500 个规范 ASCII 域名。顶层 200 按原域名返回各项 `code` 与可选错误，单项 204 表示 Listing 无变化。处理可达 24 小时，该窗口只允许重提一次，需用认证 GET 继续复核。此步骤不适用于 `FAILED_COMPLIANCE` 或 `INVENTORY_COMPLIANCE_ISSUE`。
 - `OWNERSHIP_UNVERIFIED`：域名在其他客户名下；从[账户 ownership 页面](https://www.afternic.com/account/ownership)
   取得 TXT 和/或 NS 记录，再由 [Resolution Center](https://www.afternic.com/domains/resolution-center)触发验证。
-  本轮没有取得这两步的公开 API 合同，也没有登录这两个页面或观察其网络请求。
+  2026-11-19 的 Afternic Web 构件 `0Cez0ZEw0NKKYg3PpDnxh` 配置当前 API 前缀 `https://www.afternic.com/fosv2/api`，浏览器请求启用凭据。账户页面读取 `GET /v1/account/verificationTxt`，使用 `verificationTxtRecord` 与 `nameServerRecord` 两个返回字段。该地址匿名读取返回 401。公共构件另声明 `POST /v1/domains/verifications/check`、`POST /v1/domains/verifications` 和 `POST /v1/domains/verificationStatus`；Resolution Center 将前端所选项送入 `verificationStatus`，读取 `verificationStatus` 映射。
+  当前证据来自部署页面和公开脚本。登录会话的请求保护、精确请求体、域名匹配与响应状态，以及提交的真实副作用仍须在受控账户中核对。此调查未发送 POST。[API 定义脚本](https://www.afternic.com/fosv2/_next/static/chunks/pages/_app-bd8822f2e43a7a30.js) [账户页面脚本](https://www.afternic.com/fosv2/_next/static/chunks/pages/account/ownership-241381db30b805a0.js) [Resolution Center 脚本](https://www.afternic.com/fosv2/_next/static/chunks/pages/domains/resolution-center-61423e0a569f5993.js)
 - `VERIFIED_OWNER_CONFLICT`：平台自动清理冲突；持续超过 24 小时则按官方说明处理。
 - `ACTIVE`、`HIDDEN`、`ON_HOLD`、`SOLD` 语义不同。隐藏与删除 Listing 也不是同一操作。
 

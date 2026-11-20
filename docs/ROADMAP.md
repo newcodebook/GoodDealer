@@ -39,7 +39,7 @@ S0 --> L1 --> D1 --> V1
 | **C1 Local Connector** | Cloudflare Zone/DNS 只读 Service、固定官方 origin HTTPS、Host-local Token custody、durable prewrite deny fence、ProviderLane、activation/observation Tauri 命令、bounded status/read 和本地优先结果已存在；现有资产本地资源绑定已持久化，域名能力目录和资金确认协议已定义但不可执行。 | Host 原子撤销已存在（`cloudflare_connection_revoke`：准备即拒绝凭据使用，Secure Host 以无 Token 墓碑替换 exact Active 信封）。真实受控 Zone 验证、撤销和 post-marker remediation 仍未取得生产资格；DNS 写入、DNSSEC、Registrar 和监控尚无生产执行链。 | 资产创建、绑定 UI、Grant/Lease 门禁和凭据维护入口已组合；按 ADR-0032 优先推进统一归集、交易上下架和所有权验证，逐项实现其余能力及真实资格。减少凭据持有的维护入口不以 Provider 执行资格为前置。 |
 | **V1 集成所有者** | 各底层模块已有大量局部测试和策略检查。`pnpm check:candidate` 在干净提交上分别以 umask `002` 与 `022` 运行根 `pnpm check`，生成可归因的冻结候选记录（[`docs/phase0/candidates/`](phase0/candidates/)）。 | **未完成。** 候选记录只是该提交的本地实现证据；D1+S1 的独立 PASS 是旧界面组合上的局部证据；域名合同尚未形成完整 Provider manifest 或生产执行链，全系统独立验收尚未进行。 | 阶段 2–3 完成后在新的冻结候选上执行账号/商业授权、Desktop 授权、本地业务、同步、Cloudflare、Cloud/PostgreSQL、Tauri/Rust 的全系统验收与独立复审。 |
 
-Afternic 设置已组合连接、完整市场库存扫描、原子资产归集和按连接代次的 Listing 观察。上架、改价、下架共用原 ProviderLane，整批预览批准一次，持久记录唯一尝试并以精确 GET 对账。Linux debug 已接入真实商业授权和单一凭据槽下的受控验收，目标为 `wecin.com`。真实账号、双系统实机及发行资格待验收，自动所有权验证和 DNS 继续实施。
+Afternic 设置已组合连接、完整市场库存扫描、原子资产归集和按连接代次的 Listing 观察。上架、改价、下架及官方 `OWNERSHIP_REVIEW` 复核共用原 ProviderLane，整批预览批准一次，持久记录唯一尝试并以精确 GET 对账。Linux debug 已接入真实商业授权和单一凭据槽下的受控验收，范围为库存与 `wecin.com` 的三项 Listing 变更。真实账号、双系统实机及发行资格待验收，私有验证、DNS 和换机后的复核资格继续实施。
 
 普通交接来源现已组合真实签名执行证据、三流封链、持久原请求对账、崩溃续作与设置确认入口；无已初始化副本的目标已可发现、一次确认后安装最后成功同步的资产/代次/墓碑并激活，或安全终止该次引导；未知结果及重开按持久原身份对账，Active 身份早于激活回执到达时保持受限，回执与新上下文齐备后开放业务。精确终止且可证明未写库的安装现可保留原始终态后重新确认接收；可能已写库仍保留并要求恢复。强制接管已组合专用重新认证、一次预览批准、持久等待/取消、期限后首次云恢复与激活；已有副本替换及无来源 Lease 云恢复仍未交付；首次安装的最终源码证据见执行台账，真实双设备验收仍待取得。Windows custody/录入与真实依赖目标编译已完成，双系统实机资格和恢复发布继续取证；平台线继续 Afternic 上架、改价与自动验证。
 
@@ -118,5 +118,5 @@ ADR-0027 的自研私有 API 开发路径，人工页面交接用于尚不可执
 市场顺序按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)：Afternic → Atom → SellerHub →
 Sedo → 易名 → 阿里云 → 22.cn，资产来源与 DNS 依赖同步推进。
 浏览器自动化、非域名 Provider 产品、清单外平台、团队/多工作区、凭据迁移和 CSV import 仍是排除项。
-当前生产源码已组合 Cloudflare Zone/DNS 只读观察及 Afternic 连接、库存与持久上架/改价/下架客户流程；真实接口与自动所有权验证未完成，不得把目标范围当作已完成能力。
+当前生产源码已组合 Cloudflare Zone/DNS 只读观察及 Afternic 连接、库存、持久上架/改价/下架和官方审核复核。真实账号接口和自动所有权验证闭环仍待交付。
 完整验收定义见 [VERIFICATION.md](VERIFICATION.md)。

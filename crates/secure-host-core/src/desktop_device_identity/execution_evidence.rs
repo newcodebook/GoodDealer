@@ -14,6 +14,11 @@ const APPROVAL: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
 const APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
 const WRITE_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1";
 const WRITE_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-ENVELOPE-V1";
+const PLAN_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-V2";
+const OWNERSHIP_APPROVAL: &str = "GOODDEALER-AFTERNIC-OWNERSHIP-REVIEW-ITEM-APPROVAL-V1";
+const PLAN_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-ENVELOPE-V2";
+const OWNERSHIP_APPROVAL_ENVELOPE: &str =
+    "GOODDEALER-AFTERNIC-OWNERSHIP-REVIEW-ITEM-APPROVAL-ENVELOPE-V1";
 const AUDIT: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-V1";
 const AUDIT_HASH: &str = "GOODDEALER-DEVICE-AUDIT-EVENT-HASH-V1";
 const FACT: &str = "GOODDEALER-EXECUTION-FACT-V1";
@@ -48,6 +53,36 @@ impl DesktopDeviceIdentity {
         let object = decode(transcript, WRITE_APPROVAL)
             .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
         if !listing_action(&object) || !approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs a v2 create/update item in a bounded Afternic Listing plan.
+    /// # Errors
+    /// Rejects another purpose, parent references, invalid claims or another device/key.
+    pub fn sign_afternic_listing_plan_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object =
+            decode(transcript, PLAN_APPROVAL).ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !plan_item_approval(&object, false) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs only a separately approved Afternic ownership-review item.
+    /// # Errors
+    /// Rejects Listing writes, another purpose, inconsistent parent claims or another device/key.
+    pub fn sign_afternic_ownership_review_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, OWNERSHIP_APPROVAL)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !plan_item_approval(&object, true) || !self.owns(&object) {
             return Err(DesktopDeviceIdentityError::SigningRejected);
         }
         self.sign_validated(transcript)
@@ -268,7 +303,10 @@ fn timestamp(value: &str) -> bool {
     (1..=days).contains(&day) && n(11, 13) < 24 && n(14, 16) < 60 && n(17, 19) < 60
 }
 fn common(object: &Object) -> bool {
-    number(object, "schemaVersion") == Some(1)
+    common_version(object, 1)
+}
+fn common_version(object: &Object, version: u64) -> bool {
+    number(object, "schemaVersion") == Some(version)
         && number(object, "signatureTranscriptVersion") == Some(1)
         && all(
             object,
@@ -285,14 +323,30 @@ fn listing_action(object: &Object) -> bool {
     matches!(text(object, "action"), Some("create" | "update"))
 }
 fn approval_domain(object: &Object) -> &'static str {
-    if listing_action(object) {
+    if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
+        PLAN_APPROVAL
+    } else if literal(
+        object,
+        "typ",
+        "gd.afternic-ownership-review-item-approval.v1",
+    ) {
+        OWNERSHIP_APPROVAL
+    } else if listing_action(object) {
         WRITE_APPROVAL
     } else {
         APPROVAL
     }
 }
 fn envelope_domain(object: &Object) -> &'static str {
-    if listing_action(object) {
+    if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
+        PLAN_APPROVAL_ENVELOPE
+    } else if literal(
+        object,
+        "typ",
+        "gd.afternic-ownership-review-item-approval.v1",
+    ) {
+        OWNERSHIP_APPROVAL_ENVELOPE
+    } else if listing_action(object) {
         WRITE_APPROVAL_ENVELOPE
     } else {
         APPROVAL_ENVELOPE
@@ -329,6 +383,51 @@ fn approval(object: &Object) -> bool {
         && all(object, "approvedAt", timestamp)
         && number(object, "targetCount").is_some_and(|n| (1..=500).contains(&n))
 }
+fn plan_item_approval(object: &Object, ownership: bool) -> bool {
+    let purpose = if ownership {
+        "gd.afternic-ownership-review-item-approval.v1"
+    } else {
+        "gd.afternic-listing-plan-item-approval.v2"
+    };
+    keys(
+        object,
+        "schemaVersion typ aud approvedOperationId operationId operationItemId planId planHash targetCount targetSetDigest capability action requestDigest parentItemId parentRequestDigest accountId workspaceId sourceDeviceId activeLeaseEpoch credentialEpoch signingKeyId signingKeyVersion authorizationHash trustedTimeAnchorId monotonicDeltaMs approvedAt signatureTranscriptVersion",
+    ) && common_version(object, if ownership { 1 } else { 2 })
+        && literal(object, "typ", purpose)
+        && literal(object, "aud", "gooddealer-cloud/execution-evidence")
+        && literal(object, "capability", "afternic:marketplace:write")
+        && if ownership {
+            literal(object, "action", "reactivate_ownership_review")
+        } else {
+            listing_action(object)
+        }
+        && all(
+            object,
+            "approvedOperationId operationId operationItemId planId",
+            uuid,
+        )
+        && all(
+            object,
+            "planHash targetSetDigest requestDigest authorizationHash",
+            digest,
+        )
+        && all(object, "accountId", identifier)
+        && all(object, "approvedAt", timestamp)
+        && number(object, "targetCount").is_some_and(|n| (1..=1000).contains(&n))
+        && match (
+            object.get("parentItemId"),
+            object.get("parentRequestDigest"),
+        ) {
+            (Some(Value::Null), Some(Value::Null)) => true,
+            (Some(Value::String(parent)), Some(Value::String(request))) if ownership => {
+                uuid(parent)
+                    && digest(request)
+                    && Some(parent.as_str()) != text(object, "operationItemId")
+            }
+            _ => false,
+        }
+}
+
 fn payload_common(object: &Object) -> bool {
     number(object, "schemaVersion") == Some(1)
         && literal(object, "provider", "afternic")
@@ -402,6 +501,158 @@ fn audit_payload(object: &Object, event: &Object) -> bool {
         _ => false,
     }
 }
+fn ownership_action(object: &Object) -> bool {
+    literal(object, "action", "reactivate_ownership_review")
+}
+fn plan_item_payload(object: &Object) -> bool {
+    literal(object, "provider", "afternic")
+        && ((number(object, "schemaVersion") == Some(2) && listing_action(object))
+            || (number(object, "schemaVersion") == Some(1) && ownership_action(object)))
+}
+fn plan_attempt_audit(event: &Object, payload: &Object) -> bool {
+    literal(event, "actorKind", "device_service")
+        && literal(
+            event,
+            "targetType",
+            if ownership_action(payload) {
+                "afternic_ownership_review_attempt"
+            } else {
+                "afternic_listing_plan_v2_attempt"
+            },
+        )
+        && payload.get("attemptId") == event.get("targetRef")
+}
+fn plan_audit_payload(object: &Object, event: &Object) -> bool {
+    if number(object, "schemaVersion") == Some(2) && literal(object, "action", "listing_plan_v2") {
+        return keys(
+            object,
+            "schemaVersion provider action stage approvedOperationId operationId planId planHash targetCount targetSetDigest",
+        ) && literal(object, "provider", "afternic")
+            && literal(object, "stage", "approved")
+            && all(object, "approvedOperationId operationId planId", uuid)
+            && all(object, "planHash targetSetDigest", digest)
+            && number(object, "targetCount").is_some_and(|n| (1..=1000).contains(&n))
+            && literal(event, "actorKind", "user")
+            && literal(event, "targetType", "afternic_listing_plan_v2_approval")
+            && object.get("approvedOperationId") == event.get("targetRef")
+            && approved_audit(event);
+    }
+    if !plan_item_payload(object) || !plan_attempt_audit(event, object) {
+        return false;
+    }
+    let ownership = ownership_action(object);
+    match text(object, "stage") {
+        Some("dispatch_claimed") => {
+            keys(
+                object,
+                if ownership {
+                    "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest resourceBindingDigest preflightObservationDigest"
+                } else {
+                    "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest"
+                },
+            ) && number(object, "attemptNo") == Some(1)
+                && claim_payload_fields(object)
+                && (!ownership
+                    || all(
+                        object,
+                        "resourceBindingDigest preflightObservationDigest",
+                        digest,
+                    ))
+                && approved_audit(event)
+        }
+        Some("preflight_satisfied") => {
+            ownership
+                && keys(
+                    object,
+                    "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest",
+                )
+                && claim_payload_fields(object)
+                && literal(event, "eventType", "runtime_security_lifecycle")
+                && literal(event, "authorizationSource", "runtime_security_context")
+        }
+        Some("preflight_refused") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest reason",
+            ) && claim_payload_fields(object)
+                && match text(object, "reason") {
+                    Some(
+                        "precondition_changed"
+                        | "connection_changed"
+                        | "listing_absent"
+                        | "provider_state_blocked",
+                    ) => true,
+                    Some("already_present") => !ownership,
+                    Some("cooldown" | "prior_outcome_unknown") => ownership,
+                    _ => false,
+                }
+                && literal(event, "eventType", "runtime_security_lifecycle")
+                && literal(event, "authorizationSource", "runtime_security_context")
+        }
+        Some("reconciled") => {
+            keys(
+                object,
+                "schemaVersion provider action stage operationId operationItemId attemptId originalExecutionFactId originalExecutionFactDigest outcome reason",
+            ) && all(
+                object,
+                "operationId operationItemId attemptId originalExecutionFactId",
+                uuid,
+            ) && all(object, "originalExecutionFactDigest", digest)
+                && literal(event, "eventType", "runtime_security_lifecycle")
+                && literal(event, "authorizationSource", "runtime_security_context")
+                && if ownership {
+                    ownership_outcome(object)
+                } else {
+                    reconciliation_outcome(object)
+                }
+        }
+        _ => false,
+    }
+}
+fn ownership_outcome(object: &Object) -> bool {
+    match (text(object, "outcome"), object.get("reason")) {
+        (Some("confirmed"), Some(Value::Null)) => true,
+        (Some("still_review"), Some(Value::String(reason))) => reason == "postcondition_pending",
+        (Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
+        (Some("conflict"), Some(Value::String(reason))) => matches!(
+            reason.as_str(),
+            "precondition_changed" | "connection_changed" | "provider_state_blocked"
+        ),
+        _ => false,
+    }
+}
+fn plan_fact_payload(payload: &Object, event: &Object) -> bool {
+    let ownership = ownership_action(payload);
+    plan_item_payload(payload)
+        && keys(
+            payload,
+            if ownership {
+                "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest resourceBindingDigest preflightObservationDigest"
+            } else {
+                "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest"
+            },
+        )
+        && literal(
+            event,
+            "eventType",
+            if ownership {
+                "afternic_ownership_review_dispatch_claimed"
+            } else {
+                "afternic_listing_plan_v2_dispatch_claimed"
+            },
+        )
+        && literal(payload, "stage", "dispatch_claimed")
+        && literal(payload, "dispatchSemantics", "local_claim_only")
+        && literal(payload, "deduplicationScope", "local_only")
+        && all(payload, "requestDigest approvalEnvelopeDigest", digest)
+        && (!ownership
+            || all(
+                payload,
+                "resourceBindingDigest preflightObservationDigest",
+                digest,
+            ))
+}
+
 fn reconciliation_outcome(object: &Object) -> bool {
     match (
         listing_action(object),
@@ -473,7 +724,7 @@ fn audit(object: &Object) -> bool {
         || !object
             .get("payloadRedacted")
             .and_then(Value::as_object)
-            .is_some_and(|p| audit_payload(p, object))
+            .is_some_and(|p| audit_payload(p, object) || plan_audit_payload(p, object))
     {
         return false;
     }
@@ -568,7 +819,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     let Some(payload) = object.get("payloadRedacted").and_then(Value::as_object) else {
         return false;
     };
-    if !fact_payload(payload, object) {
+    if !fact_payload(payload, object) && !plan_fact_payload(payload, object) {
         return false;
     }
     let Some(evidence) = object
@@ -609,6 +860,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     }
     if approved.get("requestDigest") != payload.get("requestDigest")
         || approved.get("action") != payload.get("action")
+        || approved.get("schemaVersion") != payload.get("schemaVersion")
     {
         return false;
     }
@@ -648,7 +900,9 @@ fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 
     let signature = approved
         .remove("deviceSignature")
         .and_then(|v| v.as_str().and_then(base64::<64>))?;
-    if !approval(&approved)
+    if !(approval(&approved)
+        || plan_item_approval(&approved, false)
+        || plan_item_approval(&approved, true))
         || UnparsedPublicKey::new(&ED25519, key)
             .verify(
                 &transcript(approval_domain(&approved), &approved),
@@ -1058,5 +1312,359 @@ mod tests {
                 ))
                 .is_err()
         );
+    }
+    fn plan_fixture(name: &str) -> Value {
+        let bytes = match name {
+            "create" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/create.json"
+            ),
+            "update" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/update.json"
+            ),
+            "ownership-linked-create" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/ownership-linked-create.json"
+            ),
+            "ownership-linked-update" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/ownership-linked-update.json"
+            ),
+            "ownership-standalone" => include_str!(
+                "../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/ownership-standalone.json"
+            ),
+            _ => panic!("closed fixture name"),
+        };
+        serde_json::from_str(bytes).unwrap()
+    }
+    fn sign_plan(
+        device: &DesktopDeviceIdentity,
+        ownership: bool,
+        bytes: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        if ownership {
+            device.sign_afternic_ownership_review_approval_transcript(bytes)
+        } else {
+            device.sign_afternic_listing_plan_approval_transcript(bytes)
+        }
+    }
+    #[test]
+    fn listing_plan_and_ownership_approvals_match_protocol_golden_vectors() {
+        let device = identity();
+        for name in [
+            "create",
+            "update",
+            "ownership-linked-create",
+            "ownership-linked-update",
+            "ownership-standalone",
+        ] {
+            let vector = plan_fixture(name);
+            let ownership = name.starts_with("ownership");
+            let object = unsigned(&vector, "approval");
+            let domain = if ownership {
+                OWNERSHIP_APPROVAL
+            } else {
+                PLAN_APPROVAL
+            };
+            let bytes = transcript(domain, &object);
+            assert_eq!(device.public_key_base64url(), vector["devicePublicKey"]);
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(sign_plan(&device, ownership, &bytes).unwrap()),
+                vector["approval"]["deviceSignature"],
+                "{name}"
+            );
+            let hex = vector["bytes"]["approvalTranscript"].as_str().unwrap();
+            let expected = (0..hex.len())
+                .step_by(2)
+                .map(|offset| u8::from_str_radix(&hex[offset..offset + 2], 16).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(bytes, expected, "{name}");
+            assert!(sign_plan(&device, !ownership, &bytes).is_err());
+            assert!(
+                device
+                    .sign_afternic_listing_write_approval_transcript(&bytes)
+                    .is_err()
+            );
+            assert!(
+                device
+                    .sign_afternic_delist_approval_transcript(&bytes)
+                    .is_err()
+            );
+            assert!(device.sign_execution_fact_transcript(&bytes).is_err());
+            assert!(device.sign_device_audit_event_transcript(&bytes).is_err());
+        }
+    }
+    #[test]
+    fn new_approvals_reject_wrong_purpose_parent_shape_and_device_authority() {
+        let device = identity();
+        for ownership in [false, true] {
+            let original = unsigned(
+                &plan_fixture(if ownership {
+                    "ownership-standalone"
+                } else {
+                    "create"
+                }),
+                "approval",
+            );
+            let domain = if ownership {
+                OWNERSHIP_APPROVAL
+            } else {
+                PLAN_APPROVAL
+            };
+            for (field, value) in [
+                ("schemaVersion", json!(if ownership { 2 } else { 1 })),
+                ("typ", json!("gd.afternic-listing-write-item-approval.v1")),
+                (
+                    "action",
+                    json!(if ownership {
+                        "create"
+                    } else {
+                        "reactivate_ownership_review"
+                    }),
+                ),
+                ("sourceDeviceId", json!("other-device")),
+                ("signingKeyId", json!("other-key")),
+                ("targetCount", json!(1001)),
+                ("targetCount", json!(0)),
+                ("activeLeaseEpoch", json!(0)),
+                ("approvedAt", json!("2026-02-30T00:00:00Z")),
+                (
+                    "parentItemId",
+                    json!("00000000-0000-4000-8000-000000000099"),
+                ),
+                (
+                    "parentRequestDigest",
+                    json!(URL_SAFE_NO_PAD.encode([9; 32])),
+                ),
+                ("secret", json!("not-a-claim")),
+            ] {
+                let mut object = original.clone();
+                object.insert(field.into(), value);
+                assert!(
+                    sign_plan(&device, ownership, &transcript(domain, &object)).is_err(),
+                    "{ownership}/{field}"
+                );
+            }
+            let mut linked = original.clone();
+            linked.insert(
+                "parentItemId".into(),
+                json!("00000000-0000-4000-8000-000000000099"),
+            );
+            linked.insert(
+                "parentRequestDigest".into(),
+                json!(URL_SAFE_NO_PAD.encode([9; 32])),
+            );
+            assert_eq!(
+                sign_plan(&device, ownership, &transcript(domain, &linked)).is_ok(),
+                ownership
+            );
+            linked.insert("parentItemId".into(), original["operationItemId"].clone());
+            assert!(sign_plan(&device, ownership, &transcript(domain, &linked)).is_err());
+            for missing in ["parentItemId", "parentRequestDigest"] {
+                let mut object = original.clone();
+                object.remove(missing);
+                assert!(sign_plan(&device, ownership, &transcript(domain, &object)).is_err());
+            }
+            for wrong_domain in [APPROVAL, WRITE_APPROVAL, FACT, AUDIT] {
+                assert!(
+                    sign_plan(&device, ownership, &transcript(wrong_domain, &original)).is_err()
+                );
+            }
+            let old = unsigned(&listing_fixture("create"), "approval");
+            assert!(sign_plan(&device, ownership, &transcript(domain, &old)).is_err());
+        }
+    }
+    #[test]
+    fn listing_plan_and_ownership_audits_and_facts_match_protocol_golden_vectors() {
+        let device = identity();
+        for name in [
+            "create",
+            "update",
+            "ownership-linked-create",
+            "ownership-linked-update",
+            "ownership-standalone",
+        ] {
+            let vector = plan_fixture(name);
+            for field in [
+                "approvalAudit",
+                "claimAudit",
+                "preflightAudit",
+                "reconciledAudit",
+                "fact",
+            ] {
+                let domain = if field == "fact" { FACT } else { AUDIT };
+                let bytes = transcript(domain, &unsigned(&vector, field));
+                let signature = if field == "fact" {
+                    device.sign_execution_fact_transcript(&bytes)
+                } else {
+                    device.sign_device_audit_event_transcript(&bytes)
+                }
+                .unwrap_or_else(|_| panic!("{name}/{field}"));
+                assert_eq!(
+                    URL_SAFE_NO_PAD.encode(signature),
+                    vector[field]["deviceSignature"],
+                    "{name}/{field}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn new_audits_keep_exact_item_version_purpose_and_observation_shape() {
+        let device = identity();
+        for name in ["create", "ownership-linked-create", "ownership-standalone"] {
+            let vector = plan_fixture(name);
+            for field in ["claimAudit", "preflightAudit", "reconciledAudit"] {
+                let original = unsigned(&vector, field);
+                let mut changed = original.clone();
+                changed["targetType"] = json!("afternic_listing_write_attempt");
+                rehash(&mut changed);
+                assert!(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                        .is_err()
+                );
+                let mut changed = original.clone();
+                changed["payloadRedacted"]["schemaVersion"] =
+                    json!(if name == "create" { 1 } else { 2 });
+                rehash(&mut changed);
+                assert!(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                        .is_err()
+                );
+                let mut changed = original.clone();
+                changed["payloadRedacted"]["parentItemId"] = Value::Null;
+                rehash(&mut changed);
+                assert!(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                        .is_err()
+                );
+            }
+            if name.starts_with("ownership") {
+                for digest_field in ["resourceBindingDigest", "preflightObservationDigest"] {
+                    let mut changed = unsigned(&vector, "claimAudit");
+                    changed["payloadRedacted"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(digest_field);
+                    rehash(&mut changed);
+                    assert!(
+                        device
+                            .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                            .is_err()
+                    );
+                }
+                let mut changed = unsigned(&vector, "reconciledAudit");
+                changed["payloadRedacted"]["outcome"] = json!("matched");
+                changed["payloadRedacted"]["reason"] = Value::Null;
+                rehash(&mut changed);
+                assert!(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                        .is_err()
+                );
+                let mut changed = unsigned(&vector, "preflightAudit");
+                changed["payloadRedacted"]["reason"] = json!("already_present");
+                rehash(&mut changed);
+                assert!(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                        .is_err()
+                );
+            }
+        }
+    }
+    #[test]
+    fn new_facts_bind_approval_version_and_separate_observation_digests() {
+        let device = identity();
+        for name in ["create", "ownership-linked-create", "ownership-standalone"] {
+            let vector = plan_fixture(name);
+            let original = unsigned(&vector, "fact");
+            let mut changed = original.clone();
+            changed["eventType"] = json!("afternic_listing_write_dispatch_claimed");
+            if name == "create" {
+                changed["payloadRedacted"]["schemaVersion"] = json!(1);
+            }
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &changed))
+                    .is_err()
+            );
+            let mut changed = original.clone();
+            changed["executionAuthorizationEvidence"]["approvedOperationEnvelope"] = json!(
+                URL_SAFE_NO_PAD
+                    .encode(serde_json::to_vec(&listing_fixture("create")["approval"]).unwrap())
+            );
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &changed))
+                    .is_err()
+            );
+            for digest_field in ["resourceBindingDigest", "preflightObservationDigest"] {
+                let mut changed = original.clone();
+                if name.starts_with("ownership") {
+                    changed["payloadRedacted"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(digest_field);
+                } else {
+                    changed["payloadRedacted"][digest_field] =
+                        json!(URL_SAFE_NO_PAD.encode([9; 32]));
+                }
+                assert!(
+                    device
+                        .sign_execution_fact_transcript(&transcript(FACT, &changed))
+                        .is_err()
+                );
+            }
+        }
+    }
+    #[test]
+    fn satisfied_preflight_is_an_observation_without_a_claim_or_refusal_reason() {
+        let vector: Value = serde_json::from_str(include_str!("../../../../packages/protocol/test-vectors/afternic-listing-plan-evidence/ownership-preflight-satisfied.json")).unwrap();
+        let original = unsigned(&vector, "satisfiedAudit");
+        let device = identity();
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &original))
+                    .unwrap()
+            ),
+            vector["satisfiedAudit"]["deviceSignature"]
+        );
+        for (field, value) in [
+            ("reason", json!("already_present")),
+            ("reason", Value::Null),
+            (
+                "resourceBindingDigest",
+                json!(URL_SAFE_NO_PAD.encode([9; 32])),
+            ),
+            ("action", json!("create")),
+            ("stage", json!("dispatch_claimed")),
+        ] {
+            let mut changed = original.clone();
+            changed["payloadRedacted"][field] = value;
+            rehash(&mut changed);
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                    .is_err(),
+                "{field}"
+            );
+        }
+        for (field, value) in [
+            ("actorKind", "user"),
+            ("authorizationSource", "approved_operation"),
+            ("eventType", "approved_operation_execution"),
+            ("targetType", "afternic_listing_plan_v2_attempt"),
+        ] {
+            let mut changed = original.clone();
+            changed[field] = json!(value);
+            rehash(&mut changed);
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &changed))
+                    .is_err(),
+                "{field}"
+            );
+        }
     }
 }

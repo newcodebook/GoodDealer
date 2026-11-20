@@ -311,3 +311,12 @@ pub use desktop_local_host::afternic_listing_write::{
 };
 
 pub use active_workspace::business::DesktopAfternicControlledAcceptance;
+
+pub use active_workspace::business::{
+    DesktopAfternicListingPlan, DesktopAfternicListingPlanAction,
+    DesktopAfternicListingPlanApproveRequest, DesktopAfternicListingPlanPreviewRequest,
+    DesktopAfternicListingPlanStatus, DesktopAfternicListingPlanStatusRequest,
+};
+pub use desktop_local_host::afternic_listing_plan::{
+    DesktopAfternicListingPlanClaim, DesktopAfternicListingPlanWork,
+};

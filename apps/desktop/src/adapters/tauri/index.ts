@@ -997,3 +997,4 @@ export { createForcedTakeoverPort, type ForcedTakeoverPort, type ForcedTakeoverP
   type ForcedTakeoverView, type ForcedTakeoverPreviewReason, type ForcedTakeoverStoppedReason } from "./forced-takeover";
 
 export { createAfternicListingWritePort } from "./afternic-listing-write";
+export { createAfternicListingPlanPort } from "./afternic-listing-plan";

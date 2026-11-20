@@ -3,7 +3,50 @@ use crate::afternic_provider::{
     AfternicError, AfternicListing, AfternicListingStatus, DOMAIN_PATH, MAX_DOMAINS, MAX_PRICE,
     ORIGIN, PAGE_SIZE, valid_domain, valid_price,
 };
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
+use std::fmt;
+
+/// API 3.0.0 returns an aggregate even for a single domain. An outer 200 says nothing
+/// about the requested item, and a duplicate key must not replace its first result.
+pub(super) fn confirm_reactivate_response(bytes: &[u8], domain: &str) -> Result<(), AfternicError> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct AcceptedItem {
+        code: u16,
+    }
+
+    struct ExactReactivateResult<'a>(&'a str);
+    impl<'de> de::Visitor<'de> for ExactReactivateResult<'_> {
+        type Value = ();
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("one successful Afternic ownership review operation")
+        }
+
+        fn visit_map<M: de::MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
+            let Some((domain, item)) = map.next_entry::<String, AcceptedItem>()? else {
+                return Err(de::Error::custom(
+                    "missing Afternic ownership review result",
+                ));
+            };
+            if domain != self.0
+                || !matches!(item.code, 200 | 204)
+                || map.next_key::<de::IgnoredAny>()?.is_some()
+            {
+                return Err(de::Error::custom(
+                    "unexpected Afternic ownership review result",
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer
+        .deserialize_map(ExactReactivateResult(domain))
+        .and_then(|()| deserializer.end())
+        .map_err(|_| AfternicError::ProtocolRejected)
+}
 
 fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     input: D,

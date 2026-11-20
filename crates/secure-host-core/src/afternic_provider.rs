@@ -131,6 +131,10 @@ pub enum AfternicListingIntent {
     Remove {
         domain: String,
     },
+    /// Resubmit an exact Listing observed in `OWNERSHIP_REVIEW` for integrity checks.
+    ReactivateOwnershipReview {
+        domain: String,
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AfternicWriteOutcome {
@@ -261,7 +265,13 @@ impl AfternicProviderClient {
         let (request, domain, statuses) = prepare_intent(intent)?;
         let response = self.request(credential, request, guard).await?;
         require_status(&response, statuses, true)?;
-        if response.status == 204 {
+        if matches!(
+            intent,
+            AfternicListingIntent::ReactivateOwnershipReview { .. }
+        ) {
+            afternic_wire::confirm_reactivate_response(&response.body, domain)
+                .map_err(|_| AfternicError::OutcomeUnknown)?;
+        } else if response.status == 204 {
             if !response.body.is_empty() {
                 return Err(AfternicError::OutcomeUnknown);
             }
@@ -304,7 +314,8 @@ fn prepare_intent(
     let (domain, fields) = match intent {
         AfternicListingIntent::Create { domain, fields }
         | AfternicListingIntent::Update { domain, fields } => (domain, Some(fields)),
-        AfternicListingIntent::Remove { domain } => (domain, None),
+        AfternicListingIntent::Remove { domain }
+        | AfternicListingIntent::ReactivateOwnershipReview { domain } => (domain, None),
     };
     if !valid_domain(domain) {
         return Err(AfternicError::InputRejected);
@@ -343,6 +354,12 @@ fn prepare_intent(
             format!("{DOMAIN_PATH}/{domain}"),
             None,
             &[204],
+        ),
+        AfternicListingIntent::ReactivateOwnershipReview { .. } => (
+            Method::POST,
+            format!("{DOMAIN_PATH}/$each/relist"),
+            Some(serde_json::json!({"mode": "REACTIVATE", "names": [domain]})),
+            &[200],
         ),
     };
     let body = body

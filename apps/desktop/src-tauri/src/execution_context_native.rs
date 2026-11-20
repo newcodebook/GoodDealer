@@ -117,6 +117,28 @@ impl DesktopExecutionContextNativePort for ExecutionContextNative {
             .map_err(|_| DesktopExecutionContextError::Rejected)
     }
 
+    fn sign_afternic_listing_plan_approval(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopExecutionContextError> {
+        self.identity
+            .as_ref()
+            .ok_or(DesktopExecutionContextError::Unavailable)?
+            .sign_afternic_listing_plan_approval_transcript(transcript)
+            .map_err(|_| DesktopExecutionContextError::Rejected)
+    }
+
+    fn sign_afternic_ownership_review_approval(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopExecutionContextError> {
+        self.identity
+            .as_ref()
+            .ok_or(DesktopExecutionContextError::Unavailable)?
+            .sign_afternic_ownership_review_approval_transcript(transcript)
+            .map_err(|_| DesktopExecutionContextError::Rejected)
+    }
+
     fn sign_device_audit_event(
         &self,
         transcript: &[u8],

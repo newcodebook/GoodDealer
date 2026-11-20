@@ -3,6 +3,7 @@ import {
   type DeviceDirectorySettingsPort,
   type AfternicConnectionPort,
   type AfternicDelistPort,
+  type AfternicListingPlanPort,
   type AfternicListingWritePort,
   type AssetLibraryViewModel,
   type BatchOperationsReadPort,
@@ -67,6 +68,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly cloudflare: CloudflareConnectionPort;
   readonly afternic: AfternicConnectionPort;
   readonly afternicDelist: AfternicDelistPort;
+  readonly afternicListingPlan?: AfternicListingPlanPort;
   readonly afternicListingWrite: AfternicListingWritePort;
   readonly portfolio: ValidatedPortfolioPresentationPort;
   readonly conflicts: LocalConflictPort;

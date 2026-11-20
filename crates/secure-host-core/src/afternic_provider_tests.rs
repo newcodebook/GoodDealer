@@ -272,6 +272,65 @@ async fn writes_are_per_domain_and_patch_contains_only_approved_fields() {
     assert!(sent[2].2.is_none());
 }
 #[tokio::test]
+async fn ownership_review_reactivation_sends_only_one_exact_domain_and_checks_its_result() {
+    let intent = AfternicListingIntent::ReactivateOwnershipReview {
+        domain: "a.test".into(),
+    };
+    let credential = credential();
+    for code in [200, 204] {
+        let (mut provider, sent) = client(vec![response(200, json!({"a.test": {"code": code}}))]);
+        assert_eq!(
+            provider.execute(&credential, &intent, &mut || Ok(())).await,
+            Ok(AfternicWriteOutcome::AcceptedPendingVerification)
+        );
+        let requests = sent.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, Method::POST);
+        assert_eq!(requests[0].1, format!("{DOMAIN_PATH}/$each/relist"));
+        assert_eq!(
+            requests[0].2,
+            Some(json!({"mode": "REACTIVATE", "names": ["a.test"]}))
+        );
+    }
+    for body in [
+        "{}",
+        r#"{"other.test":{"code":200}}"#,
+        r#"{"a.test":{"code":422,"error":{"code":"VALIDATION_ERROR"}}}"#,
+        r#"{"a.test":{"code":204},"a.test":{"code":200}}"#,
+        r#"{"a.test":{"code":204,"code":200}}"#,
+        r#"{"a.test":{"code":204,"error":null}}"#,
+        r#"{"a.test":{"code":204},"other.test":{"code":204}}"#,
+        r#"{"a.test":{"code":204}} []"#,
+    ] {
+        let (mut provider, sent) = client(vec![Ok(Response {
+            status: 200,
+            retry_after: None,
+            body: body.as_bytes().to_vec(),
+        })]);
+        assert_eq!(
+            provider.execute(&credential, &intent, &mut || Ok(())).await,
+            Err(AfternicError::OutcomeUnknown),
+            "{body}"
+        );
+        assert_eq!(sent.lock().unwrap().len(), 1);
+    }
+    let (mut provider, sent) = client(vec![]);
+    assert_eq!(
+        provider
+            .execute(
+                &credential,
+                &AfternicListingIntent::ReactivateOwnershipReview {
+                    domain: "a.test/?injected".into(),
+                },
+                &mut || Ok(())
+            )
+            .await,
+        Err(AfternicError::InputRejected)
+    );
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn uncertain_write_outcomes_never_retry_and_do_not_become_success() {
     for answer in [
         Err(AfternicError::OutcomeUnknown),

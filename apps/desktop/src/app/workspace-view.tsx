@@ -330,7 +330,8 @@ function BatchRoute({ locale, ports, readGeneration, onStale, readOnly }: {
     projectBatchOperationList, { windowSize: hostWindowSize },
   );
   return <div className="afternic-batch-route">
-    <AfternicListingWritePanel locale={locale} port={ports.afternicListingWrite} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
+    <AfternicListingWritePanel locale={locale} port={ports.afternicListingWrite} planPort={ports.afternicListingPlan}
+      connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
     <AfternicDelistPanel locale={locale} port={ports.afternicDelist} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
     <div className="afternic-batch-history">
       {state.kind === "ready" ? <BatchList locale={locale} jobs={state.value.items} creationAvailability={state.value.creationAvailability} /> : <HostRouteStatus state={state} copy={copy} onRetry={retry} />}

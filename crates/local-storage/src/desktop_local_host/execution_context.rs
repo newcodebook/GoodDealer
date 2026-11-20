@@ -134,6 +134,22 @@ pub trait DesktopExecutionContextNativePort: Send + Sync {
     /// # Errors
     /// Rejects the wrong purpose or unavailable Native identity key.
     fn sign_afternic_listing_write_approval(&self, transcript: &[u8]) -> Result<[u8; 64], Error>;
+    /// Signs only a v2 Listing plan item; older Native ports fail closed until upgraded.
+    /// # Errors
+    /// Rejects an unavailable purpose-specific signer.
+    fn sign_afternic_listing_plan_approval(&self, _transcript: &[u8]) -> Result<[u8; 64], Error> {
+        Err(Error::Unavailable)
+    }
+    /// Signs only an ownership review item; this is distinct from Listing writes.
+    /// # Errors
+    /// Rejects an unavailable purpose-specific signer.
+    fn sign_afternic_ownership_review_approval(
+        &self,
+        _transcript: &[u8],
+    ) -> Result<[u8; 64], Error> {
+        Err(Error::Unavailable)
+    }
+
     /// Signs only the fixed device audit transcript.
     /// # Errors
     /// Refuses wrong purpose, device, key or malformed transcript.
@@ -864,6 +880,12 @@ impl DesktopLocalHost {
             .as_ref()
             .ok_or(BusinessDatabaseError::MutationStale)?;
         match purpose {
+            EvidenceSignaturePurpose::AfternicListingPlanApproval => {
+                native.sign_afternic_listing_plan_approval(transcript)
+            }
+            EvidenceSignaturePurpose::AfternicOwnershipReviewApproval => {
+                native.sign_afternic_ownership_review_approval(transcript)
+            }
             EvidenceSignaturePurpose::AfternicListingWriteApproval => {
                 native.sign_afternic_listing_write_approval(transcript)
             }

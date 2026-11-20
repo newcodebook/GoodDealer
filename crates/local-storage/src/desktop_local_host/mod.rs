@@ -1074,3 +1074,4 @@ fn valid_opaque_identifier(value: &str) -> bool {
 }
 
 pub(crate) mod afternic_listing_write;
+pub(crate) mod afternic_listing_plan;

@@ -103,6 +103,8 @@ pub(crate) struct ExecutionEvidenceContext {
 pub(crate) enum EvidenceSignaturePurpose {
     AfternicDelistApproval,
     AfternicListingWriteApproval,
+    AfternicListingPlanApproval,
+    AfternicOwnershipReviewApproval,
     DeviceAudit,
     ExecutionFact,
 }
@@ -279,7 +281,7 @@ fn audit(
     )?);
     let runtime = matches!(
         payload["stage"].as_str(),
-        Some("reconciled" | "preflight_refused")
+        Some("reconciled" | "preflight_refused" | "preflight_satisfied")
     );
     let event_type = if runtime {
         "runtime_security_lifecycle"
@@ -532,6 +534,9 @@ pub(super) fn record_claim(
     request_digest: &str,
     signer: &mut EvidenceSigner<'_>,
 ) -> Result<()> {
+    if tx.query_row("SELECT EXISTS(SELECT 1 FROM afternic_listing_approvals WHERE workspace_id=?1 AND operation_id=?2 AND action='listing_plan_v2')",params![context.workspace_id,operation],|r|r.get::<_,bool>(0)).map_err(storage)? {
+        return listing_plan::record_listing_plan_claim(tx,context,operation,item,request_digest,None,signer);
+    }
     let action = stored_action(tx, &context.workspace_id, operation)?;
     let (approval_id,attempt_id,node_id,approval_json,approval_digest,plan_hash,local_key,source,epoch,credential,key,key_version,origin):(String,String,String,String,String,String,String,String,i64,i64,String,i64,String)=tx.query_row("SELECT a.approved_operation_id,i.attempt_id,i.workflow_node_id,i.envelope_json,i.envelope_digest,a.plan_hash,o.idempotency_key,a.source_device_id,a.active_lease_epoch,a.credential_epoch,a.signing_key_id,a.signing_key_version,a.source_installation_digest FROM afternic_listing_item_authorizations i JOIN afternic_listing_approvals a USING(workspace_id,approved_operation_id) JOIN operations o ON o.workspace_id=i.workspace_id AND o.operation_id=i.operation_id WHERE i.workspace_id=?1 AND i.operation_id=?2 AND i.item_id=?3 AND i.attempt_number=1 AND i.request_digest=?4",params![context.workspace_id,operation,item,hex_to_digest(request_digest)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?))).map_err(|_|rejected())?;
     if source != context.source_device_id
@@ -588,6 +593,9 @@ pub(super) fn require_claim(
     operation: &str,
     item: &str,
 ) -> Result<()> {
+    if tx.query_row("SELECT EXISTS(SELECT 1 FROM afternic_listing_approvals WHERE workspace_id=?1 AND operation_id=?2 AND action='listing_plan_v2')",params![context.workspace_id,operation],|r|r.get::<_,bool>(0)).map_err(storage)? {
+        return listing_plan::require_listing_plan_claim(tx,context,operation,item);
+    }
     let action = stored_action(tx, &context.workspace_id, operation)?;
     let stored: Option<(String,Vec<u8>,String)> = tx.query_row("SELECT envelope_json,canonical_envelope,envelope_digest FROM device_execution_fact_outbox WHERE workspace_id=?1 AND operation_id=?2 AND item_id=?3 AND attempt_number=1 AND source_device_id=?4 AND active_lease_epoch=?5 AND source_installation_digest=?6",params![context.workspace_id,operation,item,context.source_device_id,sql(context.active_lease_epoch)?,context.source_installation_digest],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(storage)?;
     let (wire, envelope, hash) = stored.ok_or_else(rejected)?;
@@ -641,7 +649,7 @@ pub(super) fn require_claim(
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ClaimFact {
+struct ClaimFact<P = ClaimPayload> {
     schema_version: u8,
     execution_fact_id: String,
     operation_id: String,
@@ -668,7 +676,7 @@ struct ClaimFact {
     authorization_hash: String,
     execution_authorization_evidence: ClaimAuthorization,
     signature_transcript_version: u8,
-    payload_redacted: ClaimPayload,
+    payload_redacted: P,
     audit_event_ref: String,
     audit_event_hash: String,
     device_signature: String,
@@ -879,6 +887,9 @@ pub(super) fn record_observation(
     preflight: bool,
     signer: &mut EvidenceSigner<'_>,
 ) -> Result<Option<String>> {
+    if tx.query_row("SELECT EXISTS(SELECT 1 FROM afternic_listing_approvals WHERE workspace_id=?1 AND operation_id=?2 AND action='listing_plan_v2')",params![context.workspace_id,operation],|r|r.get::<_,bool>(0)).map_err(storage)? {
+        return listing_plan::record_listing_plan_observation(tx,context,fence,operation,item,outcome,reason,preflight,signer);
+    }
     let action = stored_action(tx, &context.workspace_id, operation)?;
     if fence.source != context.source_device_id || fence.epoch != context.active_lease_epoch {
         return Err(rejected());
@@ -972,8 +983,14 @@ pub(super) fn validate_delivery_source(
             Some("approved") => {
                 "schemaVersion provider action stage approvedOperationId operationId planId planHash targetCount targetSetDigest"
             }
+            Some("dispatch_claimed") if payload["action"] == "reactivate_ownership_review" => {
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest resourceBindingDigest preflightObservationDigest"
+            }
             Some("dispatch_claimed") => {
                 "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest"
+            }
+            Some("preflight_satisfied") if payload["action"] == "reactivate_ownership_review" => {
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest"
             }
             Some("preflight_refused") => {
                 "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest reason"
@@ -986,8 +1003,10 @@ pub(super) fn validate_delivery_source(
         require_fields(payload, fields)?;
         value
     } else {
-        let fact: ClaimFact = serde_json::from_str(wire).map_err(|_| rejected())?;
-        serde_json::to_value(fact).map_err(|_| rejected())?
+        match serde_json::from_str::<ClaimFact>(wire) {
+            Ok(fact) => serde_json::to_value(fact).map_err(|_| rejected())?,
+            Err(_) => listing_plan::decode_ownership_fact(wire)?,
+        }
     };
     if value["workspaceId"] != context.workspace_id
         || value["sourceDeviceId"] != context.source_device_id
@@ -1043,3 +1062,10 @@ fn require_fields(value: &Value, fields: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[path = "execution_evidence_listing_plan.rs"]
+mod listing_plan;
+pub(super) use listing_plan::{
+    ListingPlanAction, ListingPlanApprovalTarget, OwnershipClaimDigests,
+    record_listing_plan_approval, record_listing_plan_claim, record_listing_plan_observation,
+};

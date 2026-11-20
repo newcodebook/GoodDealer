@@ -24,7 +24,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "generate:forced-takeover-vectors": "esbuild scripts/generate-forced-takeover-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-forced-takeover-vectors.mjs && node /tmp/gooddealer-forced-takeover-vectors.mjs",
-    "generate:afternic-listing-write-evidence-vectors": "esbuild scripts/generate-afternic-listing-write-evidence-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-afternic-listing-write-vectors.mjs && node /tmp/gooddealer-afternic-listing-write-vectors.mjs"
+    "generate:afternic-listing-write-evidence-vectors": "esbuild scripts/generate-afternic-listing-write-evidence-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-afternic-listing-write-vectors.mjs && node /tmp/gooddealer-afternic-listing-write-vectors.mjs",
+    "generate:afternic-listing-plan-approval-vectors": "esbuild scripts/generate-afternic-listing-plan-approval-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-afternic-listing-plan-vectors.mjs && node /tmp/gooddealer-afternic-listing-plan-vectors.mjs"
   },
   "dependencies": {
     "zod": "4.6.7"

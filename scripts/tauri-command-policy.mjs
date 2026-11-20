@@ -11,6 +11,9 @@ const reviewedCommands = [
   "afternic_delist_preview",
   "afternic_delist_status",
   "afternic_inventory_refresh",
+  "afternic_listing_plan_approve",
+  "afternic_listing_plan_preview",
+  "afternic_listing_plan_status",
   "afternic_listing_write_approve",
   "afternic_listing_write_preview",
   "afternic_listing_write_status",
@@ -307,6 +310,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/afternic.ts",
     "apps/desktop/src/adapters/tauri/afternic-delist.ts",
     "apps/desktop/src/adapters/tauri/forced-takeover.ts",
+    "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
     "apps/desktop/src/adapters/tauri/afternic-listing-write.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
@@ -351,7 +355,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
     adapter: unique(adapterSources.flatMap((source, index) => adapterCommands(source, {
-      literalInvocationsOnly: index === 3,
+      literalInvocationsOnly: index === 3 || index === 4,
     }))),
   };
   for (const [name, commands] of Object.entries(sets)) {

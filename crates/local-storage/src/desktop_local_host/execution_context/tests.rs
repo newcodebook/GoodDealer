@@ -15,6 +15,12 @@ impl Default for TestNative {
     }
 }
 impl DesktopExecutionContextNativePort for TestNative {
+    fn sign_afternic_listing_plan_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
+        Ok(test_signature(t))
+    }
+    fn sign_afternic_ownership_review_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
+        Ok(test_signature(t))
+    }
     fn sign_afternic_listing_write_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
         self.sign_afternic_delist_approval(t)
     }

@@ -1,5 +1,9 @@
 import { createHash, verify } from "node:crypto";
 import {
+  afternicListingPlanClaimPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema,
+  afternicOwnershipReviewClaimPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
+  decodeAfternicListingPlanItemApprovalJson, encodeAfternicListingPlanItemApprovalEnvelope, encodeAfternicListingPlanItemApprovalSignatureTranscript,
+  decodeAfternicOwnershipReviewItemApprovalJson, encodeAfternicOwnershipReviewItemApprovalEnvelope, encodeAfternicOwnershipReviewItemApprovalSignatureTranscript,
   executionFactIngestRequestSchema,
   executionEvidenceIngestResponseSchema,
   executionEvidenceReceiptsRequestSchema,
@@ -29,6 +33,7 @@ import type {
 } from "../devices/index";
 import type { DeviceAuditEvidenceReadPort } from "../audit/index";
 export interface ExecutionFactEvidenceReadPort {
+  itemClaimed(transaction: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean>;
   event(
     transaction: AccountTransaction,
     source: { workspaceId: string; sourceDeviceId: string },
@@ -36,6 +41,13 @@ export interface ExecutionFactEvidenceReadPort {
   ): Promise<ExecutionFact | null>;
 }
 export class PostgresExecutionFactEvidenceReader implements ExecutionFactEvidenceReadPort {
+  async itemClaimed(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean> {
+    const result = await tx.query<{ present: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM execution_fact_drain_records WHERE account_id=$1 AND workspace_id=$2
+       AND quarantine_reason IS NULL AND signed_event->>'operationId'=$3 AND signed_event->>'operationItemId'=$4) AS present`,
+      [tx.accountId, source.workspaceId, operationId, operationItemId]);
+    return result.rows[0]?.present === true;
+  }
   async event(
     tx: AccountTransaction,
     source: { workspaceId: string; sourceDeviceId: string },
@@ -149,13 +161,24 @@ export class PostgresExecutionFactEvidenceService {
     if (!signed) return verdict("signature");
     if (context.authorizationFailure !== null) return verdict(context.authorizationFailure);
     const evidence = fact.executionAuthorizationEvidence;
+    const ownershipPayload = afternicOwnershipReviewClaimPayloadSchema.safeParse(fact.payloadRedacted);
+    const planPayload = afternicListingPlanClaimPayloadSchema.safeParse(fact.payloadRedacted);
     const writePayload = afternicListingWriteClaimPayloadSchema.safeParse(fact.payloadRedacted);
-    const payload = writePayload.success ? writePayload.data : afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
-    const encodeApproval = writePayload.success ? encodeAfternicListingWriteItemApprovalEnvelope : encodeAfternicDelistItemApprovalEnvelope;
-    const encodeApprovalSignature = writePayload.success ? encodeAfternicListingWriteItemApprovalSignatureTranscript : encodeAfternicDelistItemApprovalSignatureTranscript;
+    const isPlan = ownershipPayload.success || planPayload.success;
+    const payload = ownershipPayload.success ? ownershipPayload.data : planPayload.success ? planPayload.data
+      : writePayload.success ? writePayload.data : afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
+    const encodeApproval = ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalEnvelope
+      : planPayload.success ? encodeAfternicListingPlanItemApprovalEnvelope
+        : writePayload.success ? encodeAfternicListingWriteItemApprovalEnvelope : encodeAfternicDelistItemApprovalEnvelope;
+    const encodeApprovalSignature = ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalSignatureTranscript
+      : planPayload.success ? encodeAfternicListingPlanItemApprovalSignatureTranscript
+        : writePayload.success ? encodeAfternicListingWriteItemApprovalSignatureTranscript : encodeAfternicDelistItemApprovalSignatureTranscript;
+    const decodeApproval = ownershipPayload.success ? decodeAfternicOwnershipReviewItemApprovalJson
+      : planPayload.success ? decodeAfternicListingPlanItemApprovalJson
+        : writePayload.success ? decodeAfternicListingWriteItemApprovalJson : decodeAfternicDelistItemApprovalJson;
     let approval;
     try {
-      approval = (writePayload.success ? decodeAfternicListingWriteItemApprovalJson : decodeAfternicDelistItemApprovalJson)(
+      approval = decodeApproval(
         Buffer.from(evidence.approvedOperationEnvelope, "base64url"),
       );
     } catch {
@@ -164,6 +187,7 @@ export class PostgresExecutionFactEvidenceService {
     const approvalDigest = hash(encodeApproval(approval));
     if (
       approval.action !== payload.action ||
+      approval.schemaVersion !== payload.schemaVersion ||
       approval.accountId !== source.transaction.accountId ||
       approval.workspaceId !== fact.workspaceId ||
       approval.sourceDeviceId !== fact.sourceDeviceId ||
@@ -220,11 +244,11 @@ export class PostgresExecutionFactEvidenceService {
       return verdict("authorization");
     const approvedAudit = await this.audits.approval(source.transaction, fact, fact.approvedOperationId);
     if (approvedAudit === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-    const batchResult = writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
+    const batchResult = isPlan ? afternicListingPlanApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
     if (!batchResult.success) return verdict("authorization");
     const batch = batchResult.data;
     if (
-      batch.action !== approval.action ||
+      batch.action !== (isPlan ? "listing_plan_v2" : approval.action) ||
       batch.planId !== approval.planId ||
       batch.planHash !== approval.planHash ||
       batch.operationId !== approval.operationId ||
@@ -239,13 +263,18 @@ export class PostgresExecutionFactEvidenceService {
       approvedAudit.signingKeyVersion !== approval.signingKeyVersion
     )
       return verdict("authorization");
+    if (ownershipPayload.success && await this.audits.itemSatisfied(source.transaction, fact, fact.operationId, fact.operationItemId)) return verdict("authorization");
     const audit = await this.audits.event(source.transaction, fact, fact.auditEventRef);
     if (audit === null) return verdict(null, "PAIRED_AUDIT_MISSING");
-    const paired = writePayload.success ? afternicListingWriteClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
+    const paired = ownershipPayload.success ? afternicOwnershipReviewClaimAuditPayloadSchema.safeParse(audit.payloadRedacted)
+      : planPayload.success ? afternicListingPlanClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : writePayload.success ? afternicListingWriteClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
     if (!paired.success) return verdict("authorization");
     const p = paired.data;
     return verdict(
-      p.action === approval.action &&
+      p.action === approval.action && p.schemaVersion === payload.schemaVersion &&
+        (!ownershipPayload.success || ("resourceBindingDigest" in p && "preflightObservationDigest" in p
+          && p.resourceBindingDigest === ownershipPayload.data.resourceBindingDigest
+          && p.preflightObservationDigest === ownershipPayload.data.preflightObservationDigest)) &&
         audit.eventHash === fact.auditEventHash &&
         audit.occurredAt === fact.occurredAt &&
         audit.monotonicDeltaMs === fact.monotonicDeltaMs &&

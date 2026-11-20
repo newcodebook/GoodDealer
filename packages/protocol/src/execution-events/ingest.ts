@@ -1,3 +1,7 @@
+import { afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
+  afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
+  afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema } from "./afternic-listing-plan-evidence";
 import { afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingWriteClaimPayloadSchema } from "./afternic-listing-write-evidence";
 import { z } from "zod";
 import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "../wire/index";
@@ -76,6 +80,7 @@ export const executionEvidenceIngestResponseSchema = z.discriminatedUnion("outco
     })
     .strict(),
 ]);
+import { afternicListingPlanClaimPayloadSchema, afternicOwnershipReviewClaimPayloadSchema } from "./afternic-listing-plan-evidence";
 const signature = z.string().regex(/^[A-Za-z0-9_-]{85}[AQgw]$/u);
 export const executionFactIngestRequestSchema = z
   .object({
@@ -93,13 +98,15 @@ export const executionFactIngestRequestSchema = z
         if (!eventId.safeParse(fact[field]).success)
           ctx.addIssue({ code: "custom", path: [field], message: "expected opaque business UUID" });
       if (
-        fact.eventType !== (fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed" : "afternic_listing_write_dispatch_claimed") ||
+        fact.eventType !== (fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed"
+          : fact.payloadRedacted.action === "reactivate_ownership_review" ? "afternic_ownership_review_dispatch_claimed"
+            : fact.payloadRedacted.schemaVersion === 2 ? "afternic_listing_plan_v2_dispatch_claimed" : "afternic_listing_write_dispatch_claimed") ||
         fact.evidenceLevel !== "durable_local_claim" ||
         fact.attemptNo !== 1 ||
         fact.signatureTranscriptVersion !== 1 ||
         !signature.safeParse(fact.deviceSignature).success ||
         !digest.safeParse(fact.trustedTimeAnchorId).success ||
-        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
+        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
       )
         ctx.addIssue({ code: "custom", message: "unsupported execution evidence" });
     }),
@@ -115,7 +122,10 @@ export const deviceAuditIngestRequestSchema = z
           afternicDelistClaimAuditPayloadSchema,
           afternicDelistReconciledAuditPayloadSchema,
           afternicDelistPreflightRefusedAuditPayloadSchema,
-          afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema,
+          afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
+  afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
+  afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema,
         ])
         .safeParse(event.payloadRedacted);
       if (
@@ -128,6 +138,23 @@ export const deviceAuditIngestRequestSchema = z
         !payload.success
       )
         ctx.addIssue({ code: "custom", message: "unsupported workspace execution audit" });
+      if (payload.success && payload.data.schemaVersion !== 2 && payload.data.action !== "reactivate_ownership_review"
+        && ["afternic_listing_plan_v2_approval", "afternic_listing_plan_v2_attempt", "afternic_ownership_review_attempt"].includes(event.targetType)) {
+        ctx.addIssue({ code: "custom", message: "listing plan purpose requires its matching payload version" });
+      }
+      if (payload.success && (payload.data.schemaVersion === 2 || payload.data.action === "reactivate_ownership_review")) {
+        const p = payload.data;
+        const approved = p.stage === "approved";
+        const claim = p.stage === "dispatch_claimed";
+        const target = approved ? "afternic_listing_plan_v2_approval"
+          : p.action === "reactivate_ownership_review" ? "afternic_ownership_review_attempt" : "afternic_listing_plan_v2_attempt";
+        if (event.targetType !== target || event.targetRef !== (approved ? p.approvedOperationId : p.attemptId)
+          || event.actorKind !== (approved ? "user" : "device_service")
+          || event.authorizationSource !== (approved || claim ? "approved_operation" : "runtime_security_context")
+          || event.eventType !== (approved || claim ? "approved_operation_execution" : "runtime_security_lifecycle")) {
+          ctx.addIssue({ code: "custom", message: "unsupported listing plan audit purpose" });
+        }
+      }
     }),
   })
   .strict();
