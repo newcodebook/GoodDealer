@@ -200,8 +200,14 @@ impl<'a> ActivePortfolioReader<'a> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| PortfolioReadError::ProjectionRejected)?;
         let total_value = sum_money(&values)?;
+        // Select the page before joining desired state and registrar facts. Deep offsets should
+        // only walk asset keys, without resolving each skipped asset's display fields.
         let mut statement = transaction.prepare(&format!(
-            "SELECT a.entity_id,
+            "WITH page AS MATERIALIZED (
+               SELECT workspace_id, entity_id FROM domain_assets
+               WHERE {filter} ORDER BY entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5
+             )
+             SELECT a.entity_id,
                (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id = a.workspace_id AND t.entity_id = a.entity_id ORDER BY tag COLLATE BINARY)),
                {registrar_name},
                a.lifecycle_status,
@@ -211,9 +217,11 @@ impl<'a> ActivePortfolioReader<'a> {
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only'
                  ELSE 'clean' END,
                d.target_price_currency, d.target_price_amount, {expiry}, a.local_commit_sequence, {expiring}
-             FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
+             FROM page p
+             JOIN domain_assets a ON a.workspace_id=p.workspace_id AND a.entity_id=p.entity_id
+             LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
              {registrar_inventory}
-             WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
+             ORDER BY a.entity_id COLLATE BINARY",
             registrar_name = inventory.name("a"),
             registrar_inventory = inventory.join("a"),
             expiry = inventory.field("a", "expires_on"),
