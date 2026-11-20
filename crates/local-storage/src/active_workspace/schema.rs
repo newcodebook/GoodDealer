@@ -150,6 +150,42 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sedo_marketplace_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "sedo_marketplace_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "sedo_marketplace_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
         "aliyun_registrar_connections",
         &[
             "workspace_id",
@@ -993,6 +1029,9 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "binding_generation",
             "atom_standard_asset_generation",
             "sellerhub_asset_generation",
+            "sedo_asset_generation",
+            "sedo_for_sale",
+            "sedo_fixed_price",
         ],
     ),
     (

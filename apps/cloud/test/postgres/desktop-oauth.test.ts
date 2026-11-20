@@ -1503,7 +1503,7 @@ describe("PostgreSQL Desktop OAuth and refresh persistence", () => {
     const first = await service.issue({ schemaVersion: 5 }, principal);
     expect(first).toMatchObject({ role: "active", grant: { schemaVersion: 4,
       commercialAuthority: { schemaVersion: 2, capabilities: ["cloudflare:dns:observe"] } } });
-    const capabilities = ["afternic:marketplace:observe", "afternic:marketplace:write", "aliyun:registrar:observe", "atom:marketplace:observe", "cloudflare:dns:observe", "cloudflare:registrar:observe", "godaddy:registrar:observe", "spaceship:marketplace:observe", "spaceship:marketplace:write", "spaceship:registrar:observe"];
+    const capabilities = ["afternic:marketplace:observe", "afternic:marketplace:write", "aliyun:registrar:observe", "atom:marketplace:observe", "cloudflare:dns:observe", "cloudflare:registrar:observe", "godaddy:registrar:observe", "sedo:marketplace:observe", "spaceship:marketplace:observe", "spaceship:marketplace:write", "spaceship:registrar:observe"];
     await applyEntitlementState("active", "features-expanded", 2, capabilities);
     const expanded = await service.issue({ schemaVersion: 5 }, principal);
     expect(expanded).toMatchObject({ role: "active", grant: { commercialAuthority: {

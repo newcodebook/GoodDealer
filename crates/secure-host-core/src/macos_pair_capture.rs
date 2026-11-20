@@ -7,6 +7,8 @@ pub(super) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    SedoIdentity,
+    SedoAccess,
     GoDaddy,
 }
 
@@ -55,6 +57,16 @@ return apiKey & linefeed & apiSecret"#
             r#"set sellerId to text returned of (display dialog "Atom seller user ID" default answer "" with hidden answer)
 set apiToken to text returned of (display dialog "Atom Seller API token" default answer "" with hidden answer)
 return sellerId & linefeed & apiToken"#
+        }
+        Purpose::SedoIdentity => {
+            r#"set partnerId to text returned of (display dialog "Sedo partner ID" default answer "" with hidden answer)
+set userName to text returned of (display dialog "Sedo username" default answer "" with hidden answer)
+return partnerId & linefeed & userName"#
+        }
+        Purpose::SedoAccess => {
+            r#"set signKey to text returned of (display dialog "Sedo sign key" default answer "" with hidden answer)
+set apiPassword to text returned of (display dialog "Sedo password" default answer "" with hidden answer)
+return signKey & linefeed & apiPassword"#
         }
         Purpose::GoDaddy => {
             r#"return text returned of (display dialog "GoDaddy Personal Access Token" default answer "" with hidden answer)"#

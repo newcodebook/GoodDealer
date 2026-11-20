@@ -18,7 +18,7 @@
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
 | GoDaddy | 官方 Domains v3 账户列表，Native PAT 与受限游标 | 设置中预检完整库存后托管、原子导入、持久刷新和重开续读；注册资料供资产及续费读取 | OTE 匿名 401 已核实；生产真实账户待验收 |
 | Porkbun | 未实现实际 Service | 未实现 | 未取得 |
-| Sedo | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
+| Sedo | 官方 Basic `DomainListExtended` | 设置已组合 Native 录入、账户库存归集、持久刷新与断开。同一设备和 Lease 可重开续读。Listing 写入和自动验证继续开发 | 匿名 XML 认证错误已取证，认证分页和目标系统资格待验收 |
 | 易名 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 阿里云 | 官方 `QueryDomainList`，ACS3 签名 | 中国站账户通过 Native 预检全量库存后托管凭据并原子导入。刷新受理前提交，重开使用同一连接、设备和 Lease 续读。本地断开可清理凭据。卖家上下架和所有权验证待实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
@@ -30,6 +30,8 @@ GoDaddy 按官方 Domains v3 读取 PAT 所属账户。追加迁移 `20261120000
 Atom 的设置库存同时核对无筛选与 `type=standard` 的两个完整响应。追加迁移 `202611200009` 将正向证据关联到同次库存、Listing 绑定与资产代次。设置可区分零命中及未获核对结果。会话或设备权威不再有效时整次拒绝提交；Standard 分支不可用或观察被隔离时，基础库存保留。此报告只说明保存扫描时的市场类别。
 
 SellerHub 一口价操作只接受当前账户中明确在售并已启用一口价的挂牌。确认冻结连接与挂牌代次、原价与新价，预检后在原 SQLCipher writer 保存一份签名认领。Native 只发送该项的金额，发送成功、断线和未知响应都由精确 GET 对账。退出重开只读取已认领的挂牌，读到目标价后保存结果并请求刷新销售投影。撤销或代次变化会阻止未发送项继续，已认领但无法核对的项目保持未知。本地追加迁移 `202611200011`；Cloud 证据接收追加 `202611200001` 和 `202611200002`，沿用原签名流并在同工作区核对前一设备、原 Lease 与事实摘要。具名开发资格及有 `sellerhub:read` 和 `sellerhub:write` 的认证卖家仍待现场验收。
+
+Sedo 使用与其他市场分立的 `sedo:marketplace:observe` 签名权限。设置通过固定 Native 窗口录入四项凭据，完整官方 XML 预检后才建槽。刷新先落盘，同一连接 incarnation、设备和 Lease 重开后从首面读取。资产、Outbox、原 Listing 绑定、价格观察和扫描回执同事务提交。源清单缺席只撤去旧观察的新鲜度，账户内记录保留官方 `forsale` 和 `fixedprice`，当前挂牌状态仍为未知。断开先撤销后精确清理槽位。
 
 ## 丢机强制接管与首次云恢复
 
@@ -106,9 +108,9 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
   Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码。Linux 已用真实账号导入 188 项，并在重开后复核相同数量。Windows/macOS 实机验收待完成。
 - Linux debug 的显式 `afternic-controlled-acceptance` 构建接入了设置、批准和重开恢复。追加迁移 `202611190007` 原子绑定真实账户、工作区、设备、Lease epoch 与唯一凭据槽，读同一连接完整市场库存，写入限 `wecin.com` 的三个 Listing 动作。截止取已验签执行上下文的连续时间投影。Host 向设置和批量页投影受控范围，使用当前 Grant、Lease 和商业权益。见[受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)。
-- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic、Atom 和 Spaceship 市场 observe/write，以及 Cloudflare DNS 与 Cloudflare、GoDaddy、Spaceship、阿里云 Registrar observe。市场 write 必须含同市场的 observe。空集合仍允许有授权的本地业务。
+- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic、Atom 和 Spaceship 市场 observe/write、Sedo 市场 observe，以及 Cloudflare DNS 与 Cloudflare、GoDaddy、Spaceship、阿里云 Registrar observe。市场 write 必须含同市场的 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
-- 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic、Spaceship、GoDaddy、阿里云和 Atom 已有 Native Service，其余六个平台仍需实现。各平台的完整能力与发行资格继续逐项推进。
+- 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic、Spaceship、GoDaddy、阿里云、Atom 和 Sedo 已有 Native Service，其余五个平台仍需实现。各平台的完整能力与发行资格继续逐项推进。
   Rust 与 TypeScript 读取合同按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)一致扩展；
   名录和展示名称不授予 Provider 执行能力，销售聚合的临时位图也已扩容以保留全部平台。
 - [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)已明确已确认官方能力使用官方 API，当前其余缺口全部自研私有 HTTP 接口；
@@ -131,7 +133,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   只有实际 mutation/fact/audit 三流精确回执与连续链全部匹配才构造 proof。旧版本未签名尝试仍拒绝空证明，不补造过去的批准或事实；其升级客户路径尚须接续。
 - Afternic 上架/改价已组合严格四字段 POST/所选键 PATCH、15 分钟持久预览、一次批准、单次 claim、写前/写后精确 GET 与关闭重开只读对账。批量页按连接读取历史和详情，字段匹配与平台状态分开；PENDING/ON_HOLD/UNKNOWN 保持平台等待，OWNERSHIP_* 保持待验证，SOLD/合规冲突保留失败原因。新增目标/价格/字段须新预览。
   本地追加 `202611190006` 保留原下架签名字节及 FK，复用原批准表与唯一 Listing 绑定，新增窄 append-only 对账事实；Cloud 030/031 和 purpose 独立的 create/update 批准/事实/审计支持真实两流与 drain。屏障冻结后迟到 GET 不追加旧 epoch 证据。
-  源码及独立测试范围见 [上架/改价审查](reviews/2026-11-19-afternic-listing-write-review.md)。真实账号、私有所有权验证和必要 DNS 尚未完成，不能以此声明完整 Afternic 或跨市场闭环。
+  源码及独立测试范围见 [上架/改价审查](reviews/2026-11-19-afternic-listing-write-review.md)。真实 Listing 写入、私有所有权验证和必要 DNS 尚未完成，不能以此声明完整 Afternic 或跨市场闭环。
 
 ## Cloud 与 Account Web
 

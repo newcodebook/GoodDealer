@@ -1,3 +1,7 @@
+#[expect(
+    clippy::too_many_lines,
+    reason = "the production IPC manifest enumerates each reviewed command at its declaration"
+)]
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(afternic_controlled_debug_linux)");
     // PROFILE collapses every custom dev-derived profile to "debug". OUT_DIR retains
@@ -57,6 +61,8 @@ fn main() {
             "cloudflare_registrar_account_submit",
             "atom_marketplace_status",
             "atom_marketplace_submit",
+            "sedo_marketplace_status",
+            "sedo_marketplace_submit",
             "local_business_status",
             "local_device_lease_read",
             "device_directory_read",

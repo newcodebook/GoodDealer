@@ -8,6 +8,7 @@ pub(super) enum Service {
     Spaceship,
     Aliyun,
     Atom,
+    Sedo,
     CloudflareRegistrar,
     GoDaddy,
 }
@@ -20,6 +21,7 @@ impl Service {
             Self::Spaceship => "com.gooddealer.desktop.spaceship.registrar.v1",
             Self::Aliyun => "com.gooddealer.desktop.aliyun.registrar.v1",
             Self::Atom => "com.gooddealer.desktop.atom.marketplace.v1",
+            Self::Sedo => "com.gooddealer.desktop.sedo.marketplace.v1",
             Self::CloudflareRegistrar => "com.gooddealer.desktop.cloudflare.registrar.v1",
             Self::GoDaddy => "com.gooddealer.desktop.godaddy.registrar.v3",
         }

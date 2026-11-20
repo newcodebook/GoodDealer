@@ -49,6 +49,7 @@ const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainPr
   aliyun: ["registrar.domain.observe"],
   godaddy: ["registrar.domain.observe"],
   atom: ["marketplace.listing.observe"],
+  sedo: ["marketplace.listing.observe"],
 };
 
 export const domainProviderCapabilityManifest: readonly DomainProviderManifestEntry[] = Object.freeze(

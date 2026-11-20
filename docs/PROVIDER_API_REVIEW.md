@@ -78,6 +78,7 @@ Native 已组合无筛选和 `type=standard` 的双完整读取。仅当两个�
   `onSaleStopped`、`saleProcessing`、`failed` 等。以账户内目标 Listing 的新鲜读取确认结果。
 - 一口价变更采用官方 `PATCH /v1/sellerhub/domains/{domain}`，需要 `sellerhub:write`。当前客户流程只提交 `binPrice.amount`，允许的输入以整数美分保存。精确 GET 必须返回同域名、在售且启用一口价，读回批准目标价才确认成功。HTTP 200 是发送回执，通用 404 保留未知。当前验收未取得获准卖家账户的认证响应。
 - 匿名读取精确域名与验证记录路径均返回 401 和 `application/problem+json`。公开合同列出精确 GET 的 404，但只规定 problem 的 `detail` 和通用错误码格式。后续下架对账仍需用获准账户区分目标缺席和其他 404，DELETE 204 作为操作回执保存。
+- Sedo 官方 `DomainListExtended` 接受 XML GET 或 POST，按 `startfrom` 偏移、`results` 上限和 `orderby=0` 的域名顺序读取。Native 使用固定 HTTPS POST，认证字段只放请求体。Linux 匿名 POST 返回 HTTP 200、`text/xml;charset=UTF-8` 和结构化 `SEDOFAULT` E1（用户名为空），证明匿名请求到达该端点。源码只接受完整校验的空 `SEDODOMAINLIST` 作为终页。通用 E15 缺少账户列表的终页证据，仍按故障处理。认证正向分页、空账户和全量边界待实测。 [官方合同](https://api.sedo.com/apidocs/v1/Basic/functions/sedoapi_DomainListExtended.html)
 - Sedo `DomainStatus.domainstatus` 只区分“不在 Sedo 数据库 / 在 Sedo 数据库”，`forsale` 只表示在售。
   它的参数表不要求用户名；不能单独作为账户归属或 owner 验证成功的证据。账户归属对账至少结合
   `DomainListExtended`，仍需另行取得所有权验证终态证据。

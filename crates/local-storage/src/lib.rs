@@ -179,9 +179,11 @@ pub use active_workspace::business::{
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
     DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopRegistrarScanReceipt,
-    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSellerHubBinApproval,
-    DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan, DesktopSellerHubBinPlanItem,
-    DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
+    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSedoConnectionState,
+    DesktopSedoCurrency, DesktopSedoMarketplaceConnectionSummary,
+    DesktopSedoMarketplaceListingFact, DesktopSedoMarketplaceScanReceipt,
+    DesktopSellerHubBinApproval, DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan,
+    DesktopSellerHubBinPlanItem, DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
     DesktopSellerHubBinStatusRequest, DesktopSellerHubBinTarget, DesktopSellerHubConnectionSummary,
     DesktopSellerHubListingFact, DesktopSellerHubListingState, DesktopSellerHubScanReceipt,
     DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
@@ -222,6 +224,9 @@ pub use desktop_local_host::cloudflare_registrar_account::{
 };
 pub use desktop_local_host::godaddy_registrar::{
     DesktopGoDaddyConnection, DesktopGoDaddyRegistrarStatus,
+};
+pub use desktop_local_host::sedo_marketplace::{
+    DesktopSedoConnection, DesktopSedoMarketplaceStatus,
 };
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,

@@ -49,6 +49,7 @@ mod macos_pair_capture;
 mod provider_credential_slot;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;
+mod sedo;
 mod spaceship;
 
 pub use aliyun::{
@@ -70,6 +71,11 @@ pub use godaddy::{
     purge_godaddy_credential_guarded,
 };
 
+pub use sedo::{
+    SedoCapture, SedoCredential, SedoCredentialPlan, SedoCurrency, SedoError, SedoGuard,
+    SedoListing, SedoPortfolioClient, load_sedo_credential_guarded,
+    publish_sedo_credential_guarded, purge_sedo_credential_guarded,
+};
 pub use spaceship::{
     SpaceshipCapture, SpaceshipClient, SpaceshipCredential, SpaceshipCredentialPlan,
     SpaceshipError, SpaceshipGuard, SpaceshipRegistration, SpaceshipRegistrationStanding,

@@ -10,6 +10,7 @@ import {
   type CloudflareRegistrarAccountPort,
   type AtomMarketplacePort,
   type AtomStandardDelistPort,
+  type SedoMarketplacePort,
   type AfternicDelistPort,
   type AfternicListingPlanPort,
   type AfternicListingWritePort,
@@ -83,6 +84,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly godaddy?: GoDaddyRegistrarPort;
   readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;
   readonly atom?: AtomMarketplacePort;
+  readonly sedo?: SedoMarketplacePort;
   readonly afternicDelist: AfternicDelistPort;
   readonly afternicListingPlan?: AfternicListingPlanPort;
   readonly afternicListingWrite: AfternicListingWritePort;

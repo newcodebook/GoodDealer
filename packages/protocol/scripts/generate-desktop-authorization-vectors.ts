@@ -40,6 +40,8 @@ const cases = [
   capabilityCase("cloudflare-registrar-only", ["cloudflare:registrar:observe"]),
   capabilityCase("aliyun-registrar-only", ["aliyun:registrar:observe"]),
   capabilityCase("atom-marketplace-only", ["atom:marketplace:observe"]),
+  capabilityCase("sedo-marketplace-only", ["sedo:marketplace:observe"]),
+  capabilityCase("unrecognized-sedo-write", ["sedo:marketplace:observe", "sedo:marketplace:write"]),
   capabilityCase("godaddy-registrar-only", ["godaddy:registrar:observe"]),
   capabilityCase("spaceship-registrar-only", ["spaceship:registrar:observe"]),
   capabilityCase("spaceship-marketplace-only", ["spaceship:marketplace:observe"]),

@@ -71,6 +71,8 @@ function createFixture() {
     "local_conflict_resolve",
     "local_device_lease_read",
     "local_sync_status",
+    "sedo_marketplace_status",
+    "sedo_marketplace_submit",
     "local_domain_asset_edit",
     "local_domain_asset_create",
     "local_domain_asset_delete",
@@ -197,6 +199,8 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
   writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
     commands.filter(command => command.startsWith("atom_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/sedo-marketplace.ts",
+    commands.filter(command => command.startsWith("sedo_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
     commands.filter(command => command.startsWith("cloudflare_registrar_account_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(

@@ -265,6 +265,8 @@ fn main() {
             command_handlers::cloudflare_registrar_account::cloudflare_registrar_account_submit,
             command_handlers::atom_marketplace::atom_marketplace_status,
             command_handlers::atom_marketplace::atom_marketplace_submit,
+            command_handlers::sedo_marketplace::sedo_marketplace_status,
+            command_handlers::sedo_marketplace::sedo_marketplace_submit,
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,

@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { parseCloudflareRegistrarAccountStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type GoDaddyRegistrarStatus, type SellerHubStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import { parseCloudflareRegistrarAccountStatus, parseSedoMarketplaceStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type GoDaddyRegistrarStatus, type SedoMarketplaceStatus, type SellerHubStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, GoDaddyRegistrarPanel, SellerHubPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
+import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, GoDaddyRegistrarPanel, SedoMarketplacePanel, SellerHubPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -235,6 +235,54 @@ it("connects a Cloudflare account without a Zone, and refreshes only a published
     expect(container.querySelector('[role="status"]')?.textContent).toContain("归集结果已保存");
     await act(async () => { button("刷新注册域名")!.click(); });
     expect(submit).toHaveBeenLastCalledWith({ schemaVersion: 1, action: "refresh", connectionId });
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("opens Sedo's Native connection flow and retains the saved scan after scope is lost", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  let root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const initial: SedoMarketplaceStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: SedoMarketplaceStatus = {
+    ...initial,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "sedo_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<SedoMarketplaceStatus>>()
+    .mockResolvedValueOnce({ ...initial, observeQualified: false })
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValueOnce(saved)
+    .mockResolvedValue({ ...saved, observeEntitled: false, lastOperation: null });
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = () => root.render(<SedoMarketplacePanel locale="zh-CN" port={port} writable onChanged={() => {}} />);
+  const button = (text: string) => [...container.querySelectorAll("button")].find((node) => node.textContent === text)!;
+  expect(parseSedoMarketplaceStatus(saved)).toEqual(saved);
+  expect(() => parseSedoMarketplaceStatus({
+    ...saved, connections: [{ ...saved.connections[0], username: "forbidden" }],
+  })).toThrow();
+  try {
+    await act(async () => render());
+    expect(button("连接 Sedo").disabled).toBe(true);
+    await act(async () => button("刷新状态").click());
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => button("连接 Sedo").click());
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "connect" });
+    expect(container.textContent).toContain("Sedo 卖家库存已保存。");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => render());
+    expect(container.textContent).toContain("读取 2 个，新增 1 个，跳过 0 个。");
+    expect(button("刷新 Sedo 库存").disabled).toBe(true);
+    expect(button("连接 Sedo").disabled).toBe(true);
+    expect(button("断开连接").disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
     container.remove();

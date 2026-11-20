@@ -113,6 +113,7 @@ mod cloudflare_registrar_account;
 mod cloudflare_retirement;
 mod godaddy_registrar;
 mod registrar_inventory;
+mod sedo_marketplace;
 mod spaceship_registrar;
 mod spaceship_sellerhub;
 mod spaceship_sellerhub_bin;
@@ -139,6 +140,11 @@ pub(crate) use godaddy_registrar::{GoDaddyConnectionSeed, GoDaddyInventoryCommit
 pub use registrar_inventory::{
     DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
 };
+pub use sedo_marketplace::{
+    DesktopSedoConnectionState, DesktopSedoCurrency, DesktopSedoMarketplaceConnectionSummary,
+    DesktopSedoMarketplaceListingFact, DesktopSedoMarketplaceScanReceipt,
+};
+pub(crate) use sedo_marketplace::{SedoMarketplaceConnectionSeed, SedoMarketplaceInventoryCommit};
 pub use spaceship_registrar::{DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary};
 pub(crate) use spaceship_registrar::{SpaceshipConnectionSeed, SpaceshipInventoryCommit};
 pub use spaceship_sellerhub::{

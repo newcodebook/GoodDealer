@@ -21,6 +21,8 @@ pub(crate) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    SedoIdentity,
+    SedoAccess,
     GoDaddy,
 }
 impl Purpose {
@@ -60,6 +62,18 @@ impl Purpose {
                 "Connect Atom - GoodDealer",
                 "Atom seller user ID",
                 "Atom Seller API token",
+                true,
+            ),
+            Self::SedoIdentity => (
+                "Sedo account - GoodDealer",
+                "Sedo partner ID",
+                "Sedo username",
+                true,
+            ),
+            Self::SedoAccess => (
+                "Sedo API credentials - GoodDealer",
+                "Sedo sign key",
+                "Sedo password",
                 true,
             ),
             Self::GoDaddy => (

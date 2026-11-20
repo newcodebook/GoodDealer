@@ -78,6 +78,13 @@ pub(crate) enum ProviderOperation {
     CloudflareRegistrarRefresh {
         connection_id: String,
     },
+    SedoConnect,
+    SedoRefresh {
+        connection_id: String,
+    },
+    SedoRevoke {
+        connection_id: String,
+    },
     CloudflareRegistrarAccountConnect,
     CloudflareRegistrarAccountRefresh {
         connection_id: String,
@@ -138,6 +145,7 @@ impl ProviderOperation {
             Self::AliyunConnect => "aliyun:new-connection",
             Self::GoDaddyConnect => "godaddy:new-connection",
             Self::AtomConnect => "atom:new-connection",
+            Self::SedoConnect => "sedo:new-connection",
             Self::CloudflareRegistrarAccountConnect => "cloudflare-registrar:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
@@ -148,11 +156,13 @@ impl ProviderOperation {
             | Self::AliyunRefresh { connection_id }
             | Self::GoDaddyRefresh { connection_id }
             | Self::AtomRefresh { connection_id }
+            | Self::SedoRefresh { connection_id }
             | Self::SpaceshipRevoke { connection_id }
             | Self::SellerHubRevoke { connection_id }
             | Self::AliyunRevoke { connection_id }
             | Self::GoDaddyRevoke { connection_id }
             | Self::AtomRevoke { connection_id }
+            | Self::SedoRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
             | Self::CloudflareRegistrarAccountRefresh { connection_id }
             | Self::CloudflareRegistrarAccountRevoke { connection_id }
@@ -211,6 +221,7 @@ pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) aliyun: ProviderRecovery,
     pub(crate) godaddy: ProviderRecovery,
     pub(crate) atom: ProviderRecovery,
+    pub(crate) sedo: ProviderRecovery,
 }
 
 impl ProviderRecoveryOutcome {
@@ -238,6 +249,9 @@ impl ProviderRecoveryOutcome {
             | ProviderOperation::AtomConnect
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AtomRevoke { .. } => self.atom,
+            ProviderOperation::SedoConnect
+            | ProviderOperation::SedoRefresh { .. }
+            | ProviderOperation::SedoRevoke { .. } => self.sedo,
             operation if operation.is_afternic() => self.afternic,
             _ => self.cloudflare,
         }
@@ -256,6 +270,7 @@ impl From<bool> for ProviderRecoveryOutcome {
             aliyun: recovery,
             godaddy: recovery,
             atom: recovery,
+            sedo: recovery,
         }
     }
 }
@@ -287,6 +302,10 @@ enum ProviderAdmission {
 }
 
 impl ProviderAdmissionState {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "each reviewed operation is explicitly admitted and classified in the serial lane"
+    )]
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
         // Serial execution still drains any queued/running recovery first. Only permanent
         // retirement may pass a failed recovery gate; the Host rejects possible live writers.
@@ -302,6 +321,7 @@ impl ProviderAdmissionState {
                         | ProviderOperation::AliyunRevoke { .. }
                         | ProviderOperation::GoDaddyRevoke { .. }
                         | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+                        | ProviderOperation::SedoRevoke { .. }
                         | ProviderOperation::AtomRevoke { .. }
                 ))
         {
@@ -337,6 +357,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AliyunConnect
             | ProviderOperation::GoDaddyConnect
             | ProviderOperation::CloudflareRegistrarAccountConnect
+            | ProviderOperation::SedoConnect
             | ProviderOperation::AtomConnect => {
                 if rate
                     .last_activation
@@ -353,6 +374,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::GoDaddyRefresh { .. }
+            | ProviderOperation::SedoRefresh { .. }
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
@@ -383,6 +405,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AliyunRevoke { .. }
             | ProviderOperation::GoDaddyRevoke { .. }
             | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+            | ProviderOperation::SedoRevoke { .. }
             | ProviderOperation::AtomRevoke { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
         }
@@ -448,6 +471,9 @@ impl ProviderLaneHandle {
     pub(crate) fn atom_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.atom)
     }
+    pub(crate) fn sedo_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.sedo)
+    }
     fn status_for(
         &self,
         is_recovering: impl FnOnce(&ProviderAdmissionState) -> ProviderRecovery,
@@ -504,6 +530,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::AtomRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_sedo_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SedoRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -740,6 +778,7 @@ impl ProviderLane {
                                 | ProviderOperation::AliyunRevoke { .. }
                                 | ProviderOperation::GoDaddyRevoke { .. }
                                 | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+                                | ProviderOperation::SedoRevoke { .. }
                                 | ProviderOperation::AtomRevoke { .. }
                         )
                     {
@@ -1079,6 +1118,7 @@ mod tests {
                 godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
+                sedo: true.into(),
             },
         );
         assert_eq!(handle.status(), ProviderStatus::Ready);
@@ -1103,6 +1143,7 @@ mod tests {
                 godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
+                sedo: true.into(),
             },
         );
         assert_eq!(
@@ -1144,6 +1185,7 @@ mod tests {
                 godaddy: false.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: false.into(),
+                sedo: false.into(),
             },
         );
         let refresh = ProviderOperation::AliyunRefresh {

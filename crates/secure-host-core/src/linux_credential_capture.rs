@@ -26,6 +26,8 @@ pub(super) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    SedoIdentity,
+    SedoAccess,
     GoDaddy,
 }
 impl Purpose {
@@ -37,6 +39,8 @@ impl Purpose {
             Self::Spaceship => "GoodDealer — Connect Spaceship",
             Self::Aliyun => "GoodDealer — Connect Alibaba Cloud",
             Self::Atom => "GoodDealer — Connect Atom",
+            Self::SedoIdentity => "GoodDealer — Sedo account",
+            Self::SedoAccess => "GoodDealer — Sedo API credentials",
             Self::GoDaddy => "GoodDealer — Connect GoDaddy Registrar",
         }
     }
@@ -201,6 +205,8 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Atom Seller API _token",
             "Connect Atom",
         ),
+        Purpose::SedoIdentity => ("Sedo _partner ID", "Sedo _username", "Continue"),
+        Purpose::SedoAccess => ("Sedo _sign key", "Sedo _password", "Connect Sedo"),
         Purpose::GoDaddy => ("", "GoDaddy Personal Access _Token", "Connect GoDaddy"),
     };
     if !first_label.is_empty() {
@@ -472,6 +478,8 @@ mod tests {
             let (first, second) = match purpose {
                 Purpose::Aliyun => ("NativeCanaryAccessKeyId", "native_canary_secret_1234"),
                 Purpose::Atom => ("123", "native_canary_token_1234"),
+                Purpose::SedoIdentity => ("1234", "native-canary-seller"),
+                Purpose::SedoAccess => ("native-canary-key", "canary-pass"),
                 Purpose::GoDaddy => ("", "native_canary_token_1234"),
                 Purpose::Afternic | Purpose::Spaceship => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
@@ -611,6 +619,24 @@ mod tests {
                 Purpose::Aliyun => run_aliyun_case(&worker_revoked, case),
                 Purpose::Atom => run_atom_case(&worker_revoked, case),
                 Purpose::GoDaddy => run_godaddy_case(&worker_revoked, case),
+                Purpose::SedoIdentity | Purpose::SedoAccess => {
+                    let result = capture(purpose, &mut || !worker_revoked.load(Ordering::SeqCst));
+                    match case {
+                        NativeCase::Submit => result.is_ok_and(|bytes| {
+                            bytes.as_slice()
+                                == match purpose {
+                                    Purpose::SedoIdentity => &b"1234\nnative-canary-seller"[..],
+                                    _ => &b"native-canary-key\ncanary-pass"[..],
+                                }
+                        }),
+                        NativeCase::Cancel => matches!(result, Err(CaptureError::Cancelled)),
+                        NativeCase::Revoke => matches!(result, Err(CaptureError::AuthorityStale)),
+                        NativeCase::Invalid => {
+                            result.is_ok_and(|bytes| bytes.ends_with(b"invalid secret with spaces"))
+                        }
+                    }
+                }
+
                 Purpose::Afternic => {
                     use crate::afternic_provider::AfternicError;
                     let result = crate::AfternicCapture::capture_guarded(&mut || {
@@ -718,6 +744,8 @@ mod tests {
             Purpose::Spaceship,
             Purpose::Aliyun,
             Purpose::Atom,
+            Purpose::SedoIdentity,
+            Purpose::SedoAccess,
             Purpose::GoDaddy,
         ] {
             assert!(matches!(

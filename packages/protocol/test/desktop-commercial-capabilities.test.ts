@@ -37,7 +37,7 @@ describe("Desktop commercial capability authority", () => {
   });
   it("signs the capability set so adding or removing a permission changes the transcript", () => {
     const digests = corpus.cases.filter((entry) => entry.accepted).map((entry) => entry.transcriptSha256);
-    expect(digests).toHaveLength(14);
+    expect(digests).toHaveLength(15);
     expect(new Set(digests).size).toBe(digests.length);
   });
 });

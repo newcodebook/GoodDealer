@@ -485,6 +485,7 @@ export const repositoryTopology = Object.freeze([
       "objc2-app-kit",
       "objc2-foundation",
       "rcgen",
+      "quick-xml",
       "reqwest",
       "ring",
       "rustix",

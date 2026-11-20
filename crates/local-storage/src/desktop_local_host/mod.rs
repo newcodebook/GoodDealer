@@ -26,6 +26,7 @@ mod portable_backup;
 mod provider;
 mod recovery;
 mod restore;
+pub(crate) mod sedo_marketplace;
 #[allow(
     dead_code,
     reason = "backup projection accessors await production native composition"

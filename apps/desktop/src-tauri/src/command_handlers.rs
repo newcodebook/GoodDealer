@@ -9,6 +9,7 @@ pub(crate) mod atom_standard_delist;
 pub(crate) mod cloudflare_registrar_account;
 pub(crate) mod forced_takeover;
 pub(crate) mod godaddy_registrar;
+pub(crate) mod sedo_marketplace;
 pub(crate) mod sellerhub_bin_price;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod spaceship_sellerhub;
@@ -706,6 +707,9 @@ fn cloudflare_connection_status_never_includes_other_platform_operations() {
         "atom_connect",
         "atom_refresh",
         "atom_revoke",
+        "sedo_connect",
+        "sedo_refresh",
+        "sedo_revoke",
         "spaceship_connect",
         "spaceship_refresh",
         "spaceship_revoke",

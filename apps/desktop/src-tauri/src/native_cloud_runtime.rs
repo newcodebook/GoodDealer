@@ -97,7 +97,8 @@ impl ProviderOperationRecord {
                     || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
-                    || kind.starts_with("atom_") =>
+                    || kind.starts_with("atom_")
+                    || kind.starts_with("sedo_") =>
             {
                 "credential_store_unavailable"
             }
@@ -107,7 +108,8 @@ impl ProviderOperationRecord {
                     || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
-                    || kind.starts_with("atom_") =>
+                    || kind.starts_with("atom_")
+                    || kind.starts_with("sedo_") =>
             {
                 "local_operation_blocked"
             }
@@ -118,6 +120,7 @@ impl ProviderOperationRecord {
                         | "sellerhub_connect"
                         | "aliyun_connect"
                         | "atom_connect"
+                        | "sedo_connect"
                         | "godaddy_connect"
                 ) =>
             {
@@ -374,6 +377,11 @@ impl NativeCloudCoordinator {
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
                                 ),
                             ).recover().await.is_ok();
+                            let sedo = Arc::new(
+                                crate::provider_credential_orchestrator::sedo::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
                             let atom = Arc::new(
                                 crate::provider_credential_orchestrator::atom::Run::new(
                                     host, cancel_fence, power, true,
@@ -388,6 +396,7 @@ impl NativeCloudCoordinator {
                                 aliyun: aliyun.into(),
                                 godaddy: godaddy.into(),
                                 atom: atom.into(),
+                                sedo: sedo.into(),
                             }
                         }
                     },
@@ -631,6 +640,30 @@ impl NativeCloudCoordinator {
             })
     }
 
+    pub(crate) fn submit_sedo_inventory_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_sedo_refresh_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_sedo_inventory_refresh(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
     pub(crate) fn submit_spaceship_inventory_refresh(
         &self,
         host: &DesktopLocalHost,
@@ -753,6 +786,10 @@ impl NativeCloudCoordinator {
         self.provider.atom_status()
     }
 
+    pub(crate) fn sedo_provider_status(&self) -> ProviderStatus {
+        self.provider.sedo_status()
+    }
+
     /// The latest Provider operation's closed outcome; none after the session is cancelled.
     ///
     /// It is read apart from `provider_status`, so while an operation runs it still names the
@@ -857,7 +894,8 @@ async fn run_provider_operation(
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
     use crate::provider_credential_orchestrator::{
-        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, godaddy, spaceship,
+        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, godaddy, sedo,
+        spaceship,
     };
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
@@ -1022,6 +1060,33 @@ async fn run_provider_operation(
             let run = Arc::new(atom::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "atom_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SedoConnect => {
+            let run = Arc::new(sedo::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sedo_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SedoRefresh { connection_id } => {
+            let run = Arc::new(sedo::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sedo_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SedoRevoke { connection_id } => {
+            let run = Arc::new(sedo::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sedo_revoke",
                 run.revoke(connection_id)
                     .await
                     .as_ref()

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sedo-marketplace-status"
+description = "Enables the sedo_marketplace_status command without any pre-configured scope."
+commands.allow = ["sedo_marketplace_status"]
+
+[[permission]]
+identifier = "deny-sedo-marketplace-status"
+description = "Denies the sedo_marketplace_status command without any pre-configured scope."
+commands.deny = ["sedo_marketplace_status"]

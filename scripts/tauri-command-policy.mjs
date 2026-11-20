@@ -75,6 +75,8 @@ const reviewedCommands = [
   "local_settings_read",
   "local_storage_repair",
   "local_sync_status",
+  "sedo_marketplace_status",
+  "sedo_marketplace_submit",
   "sellerhub_bin_price_approve",
   "sellerhub_bin_price_preview",
   "sellerhub_bin_price_status",
@@ -337,6 +339,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
     "apps/desktop/src/adapters/tauri/godaddy-registrar.ts",
     "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
+    "apps/desktop/src/adapters/tauri/sedo-marketplace.ts",
     "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
     "apps/desktop/src/adapters/tauri/portable-backup.ts",
   ].map((path) => requiredRegularFile(root, path, errors));

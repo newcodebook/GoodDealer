@@ -1027,6 +1027,7 @@ export { createSpaceshipRegistrarPort } from "./spaceship-registrar";
 export { createAliyunRegistrarPort } from "./aliyun-registrar";
 export { createGoDaddyRegistrarPort } from "./godaddy-registrar";
 export { createAtomMarketplacePort, createAtomStandardDelistPort } from "./atom-marketplace";
+export { createSedoMarketplacePort } from "./sedo-marketplace";
 export { createAfternicDelistPort } from "./afternic-delist";
 export { createForcedTakeoverPort, type ForcedTakeoverPort, type ForcedTakeoverPreview,
   type ForcedTakeoverView, type ForcedTakeoverPreviewReason, type ForcedTakeoverStoppedReason } from "./forced-takeover";

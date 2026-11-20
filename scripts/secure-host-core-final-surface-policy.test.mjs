@@ -51,6 +51,9 @@ const expectedSourceFiles = [
   "native_power/windows.rs",
   "provider_credential_slot.rs",
   "secret_service_custody.rs",
+  "sedo.rs",
+  "sedo/credentials.rs",
+  "sedo/portfolio_wire.rs",
   "spaceship.rs",
   "spaceship/credentials.rs",
   "spaceship/registrar_wire.rs",
@@ -88,6 +91,11 @@ const expectedAtomExports = [
   "AtomCapture", "AtomCredential", "AtomCredentialPlan", "AtomError", "AtomGuard",
   "AtomListing", "AtomListingState", "AtomPortfolioClient", "AtomSellerInventory",
   "load_atom_credential_guarded", "publish_atom_credential_guarded", "purge_atom_credential_guarded",
+];
+const expectedSedoExports = [
+  "SedoCapture", "SedoCredential", "SedoCredentialPlan", "SedoCurrency", "SedoError",
+  "SedoGuard", "SedoListing", "SedoPortfolioClient", "load_sedo_credential_guarded",
+  "publish_sedo_credential_guarded", "purge_sedo_credential_guarded",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -293,6 +301,7 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::atom_marketplace",
   "desktop_local_host::cloudflare_registrar_account",
   "desktop_local_host::godaddy_registrar",
+  "desktop_local_host::sedo_marketplace",
   "desktop_local_host::spaceship_registrar",
   "desktop_local_host::spaceship_sellerhub",
   "portfolio_projection",
@@ -455,6 +464,13 @@ const expectedLocalStoragePublicExports = [
   "DesktopAtomStandardDelistStatus",
   "DesktopAtomStandardDelistStatusRequest",
   "DesktopAtomStandardDelistWork",
+  "DesktopSedoConnection",
+  "DesktopSedoConnectionState",
+  "DesktopSedoCurrency",
+  "DesktopSedoMarketplaceConnectionSummary",
+  "DesktopSedoMarketplaceListingFact",
+  "DesktopSedoMarketplaceScanReceipt",
+  "DesktopSedoMarketplaceStatus",
   "DesktopCloudflareResolution",
   "DesktopCloudflareRetirement",
   "DesktopCloudflareRetirementCandidate",
@@ -576,12 +592,13 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|atom|godaddy|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|atom|godaddy|sedo|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "aliyun",
     "atom",
     "godaddy",
+    "sedo",
     "spaceship",
     "afternic_credentials",
     "afternic_provider",    "cloudflare_capture",
@@ -612,6 +629,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedAliyunExports,
     ...expectedGoDaddyExports,
     ...expectedAtomExports,
+    ...expectedSedoExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
     ...expectedCloudflareProviderExports,

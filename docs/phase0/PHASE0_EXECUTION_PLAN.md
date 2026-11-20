@@ -607,3 +607,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - Cloud 追加 `202611200003` 和 `202611200004`。独立审查发现 Atom 对账沿用旧平台名，修复后重新验证。隔离 PostgreSQL 18.4 从 77 条前缀升级，186 项通过，含 Atom、SellerHub 和 Afternic 回归。Linux 三 crate 全目标严格 Clippy 通过。[独立审查](../reviews/2026-11-20-atom-standard-delist-review.md)
 - 根 `pnpm check` 通过，含 Desktop 438 项、Tauri 196 项、SQLCipher 696 项和 Core 152 项。
 - 真实 Atom 下架和账户内缺席需要获准的 Atom Seller API 账户及受控 Standard 挂牌。开发 Cloud 未部署本切片。Windows/macOS 实机及发行资格仍需各自验收。
+
+## 2026-11-20 Sedo 卖家库存归集
+
+- 设置组合 Native 四项录入、基本接口完整库存预检、精确凭据槽发布、刷新与断开。刷新请求受理前持久化，重开只在原设备及 Lease 下续读。Local-storage 追加 `202611200013`，在同一 writer 原子保存资产、Outbox、原 Listing 绑定、价格观察和最新扫描回执。空清单使旧观察失去新鲜度，挂牌状态仍为未知。断开先持久撤销，再核对凭据槽清理。
+- 官方匿名 POST 实测 HTTP 200、`text/xml;charset=UTF-8` 与 E1 认证错误。独立复验通过 Native、SQLCipher/Host、严格 IPC、设置回显和权限合同。隔离 Linux GTK 实跑两个原生录入窗口，隔离 PostgreSQL 186 项通过，覆盖明确的 Sedo 只读权益。[审查记录](../reviews/2026-11-20-sedo-marketplace-inventory-review.md)
+- 最终根 `pnpm check` 和本机三 crate 全目标严格 Clippy 通过。含 Desktop 439 项、Tauri 197 项、SQLCipher 699 项及 Core 157 项。
+- 下一项真实验收需要 Basic API 卖家账号，核对成功分页、空账户及末页，并用设置和重开确认本机回执。Sedo 写入、自动验证、Windows/macOS 实机与发行资格继续推进。

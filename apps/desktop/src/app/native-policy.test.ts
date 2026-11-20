@@ -97,6 +97,8 @@ describe("Desktop native policy", () => {
       "allow-atom-standard-delist-approve",
       "allow-atom-standard-delist-preview",
       "allow-atom-standard-delist-status",
+      "allow-sedo-marketplace-status",
+      "allow-sedo-marketplace-submit",
       "allow-afternic-listing-plan-approve",
       "allow-afternic-listing-plan-preview",
       "allow-afternic-listing-plan-status",

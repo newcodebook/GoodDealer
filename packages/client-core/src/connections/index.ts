@@ -321,3 +321,5 @@ export { parseAtomMarketplaceStatus, atomMarketplaceIntentSchema, type AtomMarke
 
 export { parseCloudflareRegistrarAccountStatus, cloudflareRegistrarAccountIntentSchema, type CloudflareRegistrarAccountIntent, type CloudflareRegistrarAccountPort, type CloudflareRegistrarAccountStatus } from "./cloudflare-registrar-account";
 export { parseSellerHubStatus, sellerHubIntentSchema, type SellerHubIntent, type SellerHubPort, type SellerHubStatus } from "./sellerhub";
+
+export { parseSedoMarketplaceStatus, sedoMarketplaceIntentSchema, type SedoMarketplaceIntent, type SedoMarketplacePort, type SedoMarketplaceStatus } from "./sedo-marketplace";
