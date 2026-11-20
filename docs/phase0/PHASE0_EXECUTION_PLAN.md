@@ -549,3 +549,9 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 独立审查复现 SQLCipher 三项，覆盖原子发布、与 DNS 连接隔离、重开及交接栅栏、错账户和 Lease、撤销及迟到结果。Linux 在独立 GTK 显示复验提交、取消、撤销、非法输入和迟到回调；独立 D-Bus Secret Service 清理了损坏的重复条目并保留邻近用途槽位。设置与 Native 权限组合测试 10 项通过，Linux Core、Storage、Tauri 和 Windows GNU Core、Storage 严格 Clippy 通过。
 - 最终根 `pnpm check` 通过，含 Desktop 433 项、Tauri 187 项、SQLCipher 667 项和 Core 131 项；已应用迁移 SQL 保持原字节。
 - Windows 的 Tauri 交叉构建需要本机缺失的 MinGW 资源编译器，macOS Core 交叉构建未找到支持 Apple 目标的 C 工具链。真实 Cloudflare 账户、Windows/macOS 实机和发行资格继续单独验收。
+
+## 2026-11-20 Atom 卖家库存刷新重开续作
+
+- 设置的刷新由 Native 在回执前提交。追加迁移 `202611200005` 把请求固定在当前工作区、连接 incarnation、设备和 Lease。重开只恢复同一请求并从首面读取。完整库存同事务消费请求、更新资产与 Listing 观察、写入 Outbox 和回执。
+- 交接屏障、撤销和迟到结果关闭对应准入。旧版仅有 `scan_pending` 的连接可以显式刷新以建立当前范围的请求。运行中的第二次刷新返回忙碌，避免用上一请求代替新回执。
+- 独立复验 SQLCipher/Host 六项和迁移 manifest 一项，Tauri 回执顺序专项通过。根 `pnpm check` 通过，含 SQLCipher 669 项和 Tauri 188 项。Linux Storage 与 Tauri 严格 Clippy 通过。官方 Standard 筛选和匿名响应已取证，真实卖家账户与 Standard 下架仍待验收或实现。

@@ -269,7 +269,6 @@ impl ProviderAdmissionState {
                     | ProviderOperation::AfternicRefresh { .. }
                     | ProviderOperation::SpaceshipRefresh { .. }
                     | ProviderOperation::AliyunRefresh { .. }
-                    | ProviderOperation::AtomRefresh { .. }
             ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
@@ -437,6 +436,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::CloudflareRegistrarAccountRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_atom_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::AtomRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -723,6 +734,41 @@ mod tests {
             ProviderOperation::CloudflareRegistrarRefresh {
                 connection_id: "current".into()
             }
+        );
+        assert!(lane.commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn atom_refresh_is_acknowledged_only_after_its_own_durable_admission() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_atom_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        let mut persisted = false;
+        assert_eq!(
+            handle.submit_atom_refresh_after("current".into(), || {
+                persisted = true;
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert!(persisted);
+        // An in-flight callback might have consumed the request while the lane is still busy.
+        // A second click cannot get a receipt using that earlier request's authority.
+        assert_eq!(
+            handle.submit_atom_refresh_after("current".into(), || panic!(
+                "must not persist an overlapping request"
+            )),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::AtomRefresh {
+                connection_id: "current".into()
+            },
         );
         assert!(lane.commands.try_recv().is_err());
     }

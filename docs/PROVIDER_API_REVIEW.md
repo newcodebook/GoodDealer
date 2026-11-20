@@ -55,6 +55,8 @@ Linux 真实账户库存观察到两个响应行为。未投影的 `maxLeasePeri
 
 `add-domain`、`remove-domain`、`verify-dns` 的官方文档使用 **GET**；它们仍是有副作用的操作，
 不能进入通用只读缓存、预取、探活或自动重试路径。Token 在 query 内，完整 URL 不得进入日志、错误和遥测。
+官方 `GET /domains` 支持 `type=standard`，可在认证账户内核对下架前的类型及资源身份。`remove-domain` 只支持 Standard。筛选结果缺席仍需精确账户读取对账。`add-domain` 的 Premium 类型会扣除一枚 coin，并提交平台审核。[筛选](https://apidocs.atom.com/api-reference/seller_apis/domains) [下架](https://apidocs.atom.com/api-reference/seller_apis/remove_domain) [上架](https://apidocs.atom.com/api-reference/seller_apis/add_domain)
+匿名 Standard 筛选实测仍返回库存路由已知的凭据要求，状态为 HTTP 200、`text/html`。匿名 `domain-details` 同样返回 HTTP 200、`text/html`，JSON 与库存错误形状不同。现有库存错误规则不能直接用于详情，授权账号内精确缺席的结果仍需取证。
 `verify-dns` 只返回 `DNS check request accepted`。详情示例的 `status: Seller Approved` 是 Listing 状态示例，
 文档未证明它可替代 DNS/owner 验证终态；需核实 challenge 获取和可观测终态，不能据此宣称验证闭环完成。
 

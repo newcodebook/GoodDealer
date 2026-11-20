@@ -47,6 +47,7 @@ mod tests {
     use crate::active_workspace::business::LocalDatabaseKey;
 
     const AT: &str = "2026-11-20T00:00:00Z";
+    const EXECUTION: (&str, u64) = ("device-local", 1);
 
     fn fact(name: &str) -> DesktopAtomListingFact {
         DesktopAtomListingFact {
@@ -95,7 +96,9 @@ mod tests {
         let key = LocalDatabaseKey::from_bytes([0x71; 32]);
         let open = || BusinessDatabase::open(&path, &key, "workspace-local").unwrap();
         let mut db = open();
-        let seed = db.prepare_atom_connection("Atom", AT, || Ok(())).unwrap();
+        let seed = db
+            .prepare_atom_connection("Atom", AT, EXECUTION, || Ok(()))
+            .unwrap();
         let rows = [fact("example.test")];
         assert_eq!(
             import(&mut db, &seed, &rows, || Err(
@@ -109,7 +112,7 @@ mod tests {
         let mut db = open();
         let reopened = db.atom_connection(&seed.connection_id).unwrap();
         assert!(reopened == seed);
-        assert!(db.atom_connection_summaries().unwrap()[0].scan_pending);
+        assert!(db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0].scan_pending);
         let first = import(&mut db, &reopened, &rows, || Ok(())).unwrap();
         assert_eq!((first.observed, first.imported, first.skipped), (1, 1, 0));
         assert_eq!(counts(&db), (1, 1, 1, 1));
@@ -117,7 +120,8 @@ mod tests {
             import(&mut db, &reopened, &rows, || Ok(())),
             Err(BusinessDatabaseError::MutationStale)
         );
-        db.begin_atom_scan(&seed.connection_id, || Ok(())).unwrap();
+        db.queue_atom_scan(&seed.connection_id, EXECUTION, || Ok(()))
+            .unwrap();
         drop(db);
 
         let mut db = open();
@@ -130,14 +134,18 @@ mod tests {
             (1, 0, 0)
         );
         assert_eq!(counts(&db), (1, 1, 2, 2));
-        assert!(!db.atom_connection_summaries().unwrap()[0].scan_pending);
+        assert!(!db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0].scan_pending);
     }
 
     #[test]
     fn exact_connection_and_revocation_fence_reject_stale_or_cross_scope_results() {
         let mut db = super::super::tests::TestDatabase::open([0x72; 32]);
-        let a = db.prepare_atom_connection("First", AT, || Ok(())).unwrap();
-        let b = db.prepare_atom_connection("Second", AT, || Ok(())).unwrap();
+        let a = db
+            .prepare_atom_connection("First", AT, EXECUTION, || Ok(()))
+            .unwrap();
+        let b = db
+            .prepare_atom_connection("Second", AT, EXECUTION, || Ok(()))
+            .unwrap();
         let swapped = AtomConnectionSeed {
             connection_id: b.connection_id,
             ..a
@@ -161,7 +169,10 @@ mod tests {
             import(&mut db, &b, &[], || Ok(())),
             Err(BusinessDatabaseError::MutationStale)
         );
-        assert!(db.begin_atom_scan(&b.connection_id, || Ok(())).is_err());
+        assert!(
+            db.queue_atom_scan(&b.connection_id, EXECUTION, || Ok(()))
+                .is_err()
+        );
         db.confirm_atom_purge(&revoked, AT, || Ok(())).unwrap();
         assert!(db.atom_connection(&b.connection_id).is_err());
         assert_eq!(counts(&db), (0, 0, 0, 0));
@@ -170,8 +181,12 @@ mod tests {
     #[test]
     fn replacement_keeps_history_and_identity_is_scoped_to_the_exact_connection() {
         let mut db = super::super::tests::TestDatabase::open([0x73; 32]);
-        let a = db.prepare_atom_connection("First", AT, || Ok(())).unwrap();
-        let b = db.prepare_atom_connection("Second", AT, || Ok(())).unwrap();
+        let a = db
+            .prepare_atom_connection("First", AT, EXECUTION, || Ok(()))
+            .unwrap();
+        let b = db
+            .prepare_atom_connection("Second", AT, EXECUTION, || Ok(()))
+            .unwrap();
         let original = fact("example.test");
         let replacement = DesktopAtomListingFact {
             resource_digest: hex_digest(b"replacement"),
@@ -180,9 +195,13 @@ mod tests {
         for seed in [&a, &b] {
             import(&mut db, seed, std::slice::from_ref(&original), || Ok(())).unwrap();
         }
-        let head = db.begin_atom_scan(&a.connection_id, || Ok(())).unwrap();
+        let head = db
+            .queue_atom_scan(&a.connection_id, EXECUTION, || Ok(()))
+            .unwrap();
         import(&mut db, &head, &[replacement], || Ok(())).unwrap();
-        let head = db.begin_atom_scan(&a.connection_id, || Ok(())).unwrap();
+        let head = db
+            .queue_atom_scan(&a.connection_id, EXECUTION, || Ok(()))
+            .unwrap();
         assert!(import(&mut db, &head, &[original], || Ok(())).is_err());
         assert_eq!(counts(&db), (1, 1, 3, 3));
         let identities: (i64, i64, i64) = db.store.raw_connection().query_row(
@@ -191,6 +210,78 @@ mod tests {
             [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).unwrap();
         assert_eq!(identities, (3, 1, 2));
+    }
+
+    #[test]
+    fn a_legacy_pending_bit_cannot_restore_authority_and_a_late_scan_cannot_use_a_new_request() {
+        let mut db = super::super::tests::TestDatabase::open([0x74; 32]);
+        let connected = db
+            .prepare_atom_connection("Atom", AT, EXECUTION, || Ok(()))
+            .unwrap();
+        let id = &connected.connection_id;
+        import(&mut db, &connected, &[fact("example.test")], || Ok(())).unwrap();
+        db.store
+            .fixture_connection()
+            .execute(
+                "UPDATE atom_marketplace_connections SET scan_pending=1 WHERE connection_id=?1",
+                [id],
+            )
+            .unwrap();
+        let legacy = db.atom_connection(id).unwrap();
+        assert!(legacy.scan_pending && !legacy.has_scan_for(EXECUTION.0, EXECUTION.1));
+        assert!(!db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0].scan_pending);
+        assert_eq!(
+            import(&mut db, &legacy, &[], || Ok(())),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+
+        let old = db.queue_atom_scan(id, EXECUTION, || Ok(())).unwrap();
+        assert!(db.queue_atom_scan(id, EXECUTION, || Ok(())).unwrap() == old);
+        let next_execution = ("device-local", 2);
+        let next = db.queue_atom_scan(id, next_execution, || Ok(())).unwrap();
+        assert!(next.has_scan_for(next_execution.0, next_execution.1));
+        assert!(!next.has_scan_for("device-other", next_execution.1));
+        assert!(next != old);
+        assert_eq!(
+            import(&mut db, &old, &[], || Ok(())),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        assert_eq!(
+            import(&mut db, &next, &[], || Ok(())),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        assert_eq!(counts(&db), (1, 1, 1, 1));
+    }
+
+    #[test]
+    fn handoff_rejects_both_admission_and_completion_even_for_an_existing_request() {
+        let mut db = super::super::tests::TestDatabase::open([0x75; 32]);
+        let seed = db
+            .prepare_atom_connection("Atom", AT, EXECUTION, || Ok(()))
+            .unwrap();
+        let id = &seed.connection_id;
+        db.store.fixture_connection().execute(
+            "INSERT INTO device_handoff_barriers(workspace_id,device_switch_request_id,began_at)
+             VALUES ('workspace-local','test-switch',?1)", [AT],
+        ).unwrap();
+        assert!(matches!(
+            db.queue_atom_scan(id, EXECUTION, || Ok(())),
+            Err(BusinessDatabaseError::MutationStale)
+        ));
+        assert!(import(&mut db, &seed, &[], || Ok(())).is_err());
+        assert!(db.atom_connection(id).unwrap() == seed);
+        assert_eq!(counts(&db), (0, 0, 0, 0));
+        db.store
+            .fixture_connection()
+            .execute("DELETE FROM device_handoff_barriers", [])
+            .unwrap();
+        import(&mut db, &seed, &[], || Ok(())).unwrap();
+        let done = db.atom_connection(id).unwrap();
+        assert!(!done.has_scan_for(EXECUTION.0, EXECUTION.1));
+        assert_eq!(
+            done.last_scan_id.as_deref(),
+            seed.pending.as_ref().map(|request| request.id.as_str())
+        );
     }
 }
 
@@ -202,6 +293,46 @@ pub(crate) struct AtomConnectionSeed {
     pub state: DesktopAtomConnectionState,
     pub scan_pending: bool,
     pub last_scan_id: Option<String>,
+    pending: Option<AtomScanRequest>,
+}
+
+impl AtomConnectionSeed {
+    pub(crate) fn has_scan_for(&self, device_id: &str, lease_epoch: u64) -> bool {
+        self.pending.as_ref().is_some_and(|request| {
+            request.device_id == device_id && i64::try_from(lease_epoch) == Ok(request.lease_epoch)
+        })
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct AtomScanRequest {
+    id: String,
+    device_id: String,
+    lease_epoch: i64,
+}
+
+fn insert_scan_request(
+    tx: &Connection,
+    workspace: &str,
+    seed: &AtomConnectionSeed,
+    (device_id, lease_epoch): (&str, u64),
+) -> Result<()> {
+    let epoch = i64::try_from(lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    tx.execute(
+        "INSERT INTO atom_marketplace_pending_scans
+           (workspace_id,connection_id,incarnation_id,device_id,lease_epoch,request_id)
+         VALUES (?1,?2,?3,?4,?5,?6)",
+        params![
+            workspace,
+            seed.connection_id,
+            seed.incarnation_id,
+            device_id,
+            epoch,
+            random_id()?
+        ],
+    )
+    .map_err(storage)?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -395,8 +526,11 @@ fn connection_seed(
         "SELECT s.connection_id,s.incarnation_id,s.credential_proof,s.state,s.scan_pending,
                 (SELECT r.scan_id FROM atom_marketplace_scans r
                  WHERE r.workspace_id=s.workspace_id AND r.connection_id=s.connection_id
-                 ORDER BY r.rowid DESC LIMIT 1)
+                 ORDER BY r.rowid DESC LIMIT 1), p.request_id,p.device_id,p.lease_epoch
            FROM atom_marketplace_connections s JOIN local_provider_connections c USING(workspace_id,connection_id)
+           LEFT JOIN atom_marketplace_pending_scans p
+             ON p.workspace_id=s.workspace_id AND p.connection_id=s.connection_id
+               AND p.incarnation_id=s.incarnation_id
           WHERE s.workspace_id=?1 AND s.connection_id=?2 AND c.provider_kind='atom'
             AND c.connection_incarnation_id=s.incarnation_id AND json(c.capabilities_json)='[\"marketplace\"]'
             AND s.purged_at IS NULL AND c.deleted_at IS NULL AND (
@@ -404,13 +538,26 @@ fn connection_seed(
               OR (s.state='active' AND c.credential_use_state='active' AND c.lifecycle_status='active' AND c.validation_status='valid' AND c.revoked_at IS NULL)
               OR (s.state='revoked' AND c.credential_use_state='revoked' AND c.lifecycle_status='revoked' AND c.revoked_at IS NOT NULL)
             )",
-        params![workspace,id], |row| Ok(AtomConnectionSeed {
-            connection_id: row.get(0)?, incarnation_id: row.get(1)?, credential_proof: row.get(2)?,
-            state: read_state(row, 3)?, scan_pending: row.get(4)?, last_scan_id: row.get(5)?,
-        })
+        params![workspace,id], |row| {
+            let pending = if let Some(id) = row.get(6)? {
+                Some(AtomScanRequest { id, device_id: row.get(7)?, lease_epoch: row.get(8)? })
+            } else {
+                None
+            };
+            Ok(AtomConnectionSeed {
+                connection_id: row.get(0)?, incarnation_id: row.get(1)?, credential_proof: row.get(2)?,
+                state: read_state(row, 3)?, scan_pending: row.get(4)?, last_scan_id: row.get(5)?, pending,
+            })
+        }
     ).optional().map_err(storage)?.ok_or(BusinessDatabaseError::MutationStale)?;
     validate_sha256_hex(&seed.credential_proof)?;
-    if !is_uuid_v4(&seed.incarnation_id) || !is_uuid_v4(&seed.connection_id) {
+    if !is_uuid_v4(&seed.incarnation_id)
+        || !is_uuid_v4(&seed.connection_id)
+        || seed
+            .pending
+            .as_ref()
+            .is_some_and(|request| !seed.scan_pending || !is_uuid_v4(&request.id))
+    {
         return Err(BusinessDatabaseError::StorageRejected);
     }
     Ok(seed)
@@ -421,6 +568,7 @@ impl BusinessDatabase {
         &mut self,
         label: &str,
         at: &str,
+        execution: (&str, u64),
         guard: impl FnOnce() -> Result<G>,
     ) -> Result<AtomConnectionSeed> {
         if !crate::portfolio_projection::valid_connection_label(label) {
@@ -435,6 +583,7 @@ impl BusinessDatabase {
             state: DesktopAtomConnectionState::Prepared,
             scan_pending: true,
             last_scan_id: None,
+            pending: None,
         };
         let workspace = &self.workspace_id;
         let tx = self
@@ -462,6 +611,8 @@ impl BusinessDatabase {
              VALUES (?1,?2,?3,?4,'prepared',1,?5)",
              params![workspace,seed.connection_id,seed.incarnation_id,seed.credential_proof,at],
         ).map_err(storage)?;
+        insert_scan_request(&tx, workspace, &seed, execution)?;
+        let seed = connection_seed(&tx, workspace, &seed.connection_id)?;
         let _guard = guard()?;
         tx.commit().map_err(storage)?;
         Ok(seed)
@@ -474,9 +625,24 @@ impl BusinessDatabase {
         connection_seed(self.store.raw_connection(), &self.workspace_id, id)
     }
 
-    pub(crate) fn atom_connection_summaries(&self) -> Result<Vec<DesktopAtomConnectionSummary>> {
+    pub(crate) fn atom_connection_summaries(
+        &self,
+        execution: Option<(&str, u64)>,
+    ) -> Result<Vec<DesktopAtomConnectionSummary>> {
+        let (device_id, lease_epoch) = match execution {
+            Some((device, epoch)) => (
+                Some(device),
+                Some(i64::try_from(epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?),
+            ),
+            None => (None, None),
+        };
         let mut query = self.store.raw_connection().prepare(
-            "SELECT s.connection_id,s.state,r.observed_count,r.imported_count,r.skipped_count,r.completed_at,s.scan_pending
+            "SELECT s.connection_id,s.state,r.observed_count,r.imported_count,r.skipped_count,r.completed_at,
+               s.state='prepared' OR EXISTS (
+                 SELECT 1 FROM atom_marketplace_pending_scans p
+                 WHERE p.workspace_id=s.workspace_id AND p.connection_id=s.connection_id
+                   AND p.incarnation_id=s.incarnation_id AND p.device_id=?2 AND p.lease_epoch=?3
+               )
              FROM atom_marketplace_connections s
              JOIN local_provider_connections c USING(workspace_id,connection_id)
              LEFT JOIN atom_marketplace_scans r ON r.workspace_id=s.workspace_id
@@ -487,7 +653,7 @@ impl BusinessDatabase {
              ORDER BY s.created_at DESC,s.connection_id",
         ).map_err(storage)?;
         let summaries = query
-            .query_map([&self.workspace_id], |row| {
+            .query_map(params![self.workspace_id, device_id, lease_epoch], |row| {
                 Ok(DesktopAtomConnectionSummary {
                     connection_id: row.get(0)?,
                     state: read_state(row, 1)?,
@@ -513,9 +679,10 @@ impl BusinessDatabase {
         Ok(summaries)
     }
 
-    pub(crate) fn begin_atom_scan<G>(
+    pub(crate) fn queue_atom_scan<G>(
         &mut self,
         id: &str,
+        execution: (&str, u64),
         guard: impl FnOnce() -> Result<G>,
     ) -> Result<AtomConnectionSeed> {
         if !is_uuid_v4(id) {
@@ -527,17 +694,29 @@ impl BusinessDatabase {
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
-        let mut seed = connection_seed(&tx, workspace, id)?;
-        if seed.state == DesktopAtomConnectionState::Revoked {
+        let seed = connection_seed(&tx, workspace, id)?;
+        let handoff: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM device_handoff_barriers WHERE workspace_id=?1)",
+                [workspace],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        if seed.state == DesktopAtomConnectionState::Revoked || handoff {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        if !seed.scan_pending {
+        if !seed.has_scan_for(execution.0, execution.1) {
             tx.execute(
                 "UPDATE atom_marketplace_connections SET scan_pending=1 WHERE workspace_id=?1 AND connection_id=?2",
                 params![workspace,id],
             ).map_err(storage)?;
-            seed.scan_pending = true;
+            tx.execute(
+                "DELETE FROM atom_marketplace_pending_scans WHERE workspace_id=?1 AND connection_id=?2",
+                params![workspace,id],
+            ).map_err(storage)?;
+            insert_scan_request(&tx, workspace, &seed, execution)?;
         }
+        let seed = connection_seed(&tx, workspace, id)?;
         let _guard = guard()?;
         tx.commit().map_err(storage)?;
         Ok(seed)
@@ -556,6 +735,11 @@ impl BusinessDatabase {
         if seed.state == Revoked || !seed.scan_pending {
             return Err(BusinessDatabaseError::InvalidInput);
         }
+        let request = seed
+            .pending
+            .as_ref()
+            .filter(|_| seed.has_scan_for(input.device_id, input.lease_epoch))
+            .ok_or(BusinessDatabaseError::MutationStale)?;
         let tx = self
             .store
             .fixture_connection()
@@ -575,8 +759,8 @@ impl BusinessDatabase {
              validation_status='valid',last_validated_at=?1 WHERE workspace_id=?2 AND connection_id=?3",
             params![input.at,workspace,seed.connection_id],
         ).map_err(storage)?;
-        let run = random_id()?;
-        let (observation_run, receipt) = input.write(&tx, workspace, &run)?;
+        let run = &request.id;
+        let (observation_run, receipt) = input.write(&tx, workspace, run)?;
         tx.execute(
             "INSERT INTO atom_marketplace_scans (workspace_id,scan_id,connection_id,observation_run_id,
               observed_count,imported_count,skipped_count,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",

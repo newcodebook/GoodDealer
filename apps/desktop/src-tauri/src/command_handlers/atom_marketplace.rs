@@ -54,11 +54,18 @@ impl Intent {
 #[tauri::command]
 pub(crate) async fn atom_marketplace_submit(
     request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
     cloud: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<(), &'static str> {
     let intent: Intent =
         decode_provider_request(&request, 512).map_err(|_| "ATOM_INPUT_REJECTED")?;
-    match cloud.submit_provider(&intent.operation()?) {
+    let operation = intent.operation()?;
+    let submission = if let ProviderOperation::AtomRefresh { connection_id } = &operation {
+        cloud.submit_atom_inventory_refresh(&host, connection_id)
+    } else {
+        cloud.submit_provider(&operation)
+    };
+    match submission {
         ProviderSubmission::Accepted => Ok(()),
         ProviderSubmission::Busy => Err("ATOM_BUSY"),
         ProviderSubmission::RateLimited => Err("ATOM_RATE_LIMITED"),

@@ -68,7 +68,7 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 | `spaceship_registrar_connections` | 本地 Spaceship Registrar 连接 incarnation、随机托管见证、待扫描、撤销和清理状态。 | 否；凭据保存在 Native |
 | `spaceship_registrar_scans` | 同一连接完整扫描的导入数量、时间及本地观察运行引用。 | 否；新域名走通常的资产 Outbox |
 | `aliyun_registrar_connections` / `aliyun_registrar_scans` | 阿里云连接代次、托管见证、待扫描与撤销状态、已完成扫描的脱敏回执。注册事实沿用原注册商观察，新域名走原资产 Outbox。 | 否；AccessKey 只在 Native |
-| `atom_marketplace_connections` / `atom_marketplace_scans` | Atom 连接 incarnation、托管见证、持久扫描意图及完成回执。Listing 归属使用现有连接作用域的绑定，新增资产使用原 Outbox。 | 否，卖家用户 ID 和 API token 仅留 Native |
+| `atom_marketplace_connections` / `atom_marketplace_pending_scans` / `atom_marketplace_scans` | Atom 连接 incarnation、托管见证、绑定当前设备与 Lease 的扫描请求及完成回执。Listing 归属使用现有连接作用域的绑定，新增资产使用原 Outbox。 | 否，卖家用户 ID 和 API token 仅留 Native |
 | `provider_observation_targets` | 每次读取的逐资产 requested/succeeded/failed/missing 结果，用于部分失败和有界重试。 | 否；含本地运行 FK |
 | `registrar_observations` / `registrar_inventory_read_facts` | Registrar、注册/到期、续费、锁定和置信状态。账户归集记录资产代次，读取按同一代次和当前连接的最后完整扫描生成字段。冲突、缺席或撤销时保留历史并显示未知。 | 归集观察和读取事实留在本机。新增资产通过普通 Outbox 同步 |
 | `cloudflare_registrar_pending_scans` | 设置受理前保存的请求，与当前连接、凭据代次、设备和 Lease 绑定。完整导入消费请求。撤销移除待执行记录。 | 否 |

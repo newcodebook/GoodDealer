@@ -10,7 +10,9 @@ use crate::{
         business::{AtomConnectionSeed, AtomInventoryCommit},
         capability_qualification::{ATOM_MARKETPLACE_OBSERVE as OBSERVE, capability_qualified},
     },
-    desktop_sync_runtime::{DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime},
+    desktop_sync_runtime::{
+        DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime, require_provider_dispatch,
+    },
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -116,7 +118,8 @@ impl DesktopLocalHost {
         self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
             let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
             sync.recheck_sync_run(database, run)?;
-            require_observe(sync, run)
+            require_observe(sync, run)?;
+            require_provider_dispatch(database)
         })
     }
 
@@ -133,7 +136,10 @@ impl DesktopLocalHost {
                 observe_qualified: capability_qualified(OBSERVE),
                 observe_entitled: restriction == RuntimeRestriction::Active
                     && authority.capabilities.iter().any(|cap| cap == OBSERVE),
-                connections: runtime.database_for_backup().atom_connection_summaries()?,
+                connections: runtime.database_for_backup().atom_connection_summaries(
+                    (restriction == RuntimeRestriction::Active)
+                        .then_some((authority.device_id.as_str(), authority.lease_epoch)),
+                )?,
             })
         })
     }
@@ -150,13 +156,20 @@ impl DesktopLocalHost {
         let at = now()?;
         let seed =
             self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
+                sync.recheck_sync_run(business.database_for_backup(), run)?;
                 require_observe(sync, run)?;
+                require_provider_dispatch(business.database_for_backup())?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
                 let seed = business
                     .database_for_backup_mut()
-                    .prepare_atom_connection(label, &at, || fence.verify(sync, run))
+                    .prepare_atom_connection(
+                        label,
+                        &at,
+                        (run.device_id(), run.lease_epoch()),
+                        || fence.verify(sync, run),
+                    )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
                 Ok(seed)
@@ -164,28 +177,52 @@ impl DesktopLocalHost {
         Ok(DesktopAtomConnection::new(admission, seed))
     }
 
-    /// Durably starts or resumes a refresh before the first HTTP request.
+    /// Persists the exact refresh before the Native command acknowledges admission.
     ///
     /// # Errors
     /// Refuses revoked slots, stale authority and mismatched connection identifiers.
+    pub fn queue_atom_inventory_refresh(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
+            sync.recheck_sync_run(business.database_for_backup(), run)?;
+            require_observe(sync, run)?;
+            require_provider_dispatch(business.database_for_backup())?;
+            if !business.has_read_generation_capacity() {
+                return Err(DesktopSyncError::StorageRejected);
+            }
+            business
+                .database_for_backup_mut()
+                .queue_atom_scan(id, (run.device_id(), run.lease_epoch()), || {
+                    fence.verify(sync, run)
+                })
+                .map_err(database_error)?;
+            business.advance_read_generation_after_sync_commit();
+            Ok(())
+        })
+    }
+
+    /// Loads the previously admitted request. Recovery cannot assign a new device or Lease.
+    /// # Errors
+    /// Refuses a missing, revoked or out-of-scope request.
     pub fn resume_atom_connection(
         &self,
         admission: DesktopNativeCloudAdmission,
         id: &str,
     ) -> Result<DesktopAtomConnection, DesktopLocalHostError> {
-        let seed =
-            self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
-                require_observe(sync, run)?;
-                if !business.has_read_generation_capacity() {
-                    return Err(DesktopSyncError::StorageRejected);
-                }
-                let seed = business
-                    .database_for_backup_mut()
-                    .begin_atom_scan(id, || fence.verify(sync, run))
-                    .map_err(database_error)?;
-                business.advance_read_generation_after_sync_commit();
-                Ok(seed)
-            })?;
+        let seed = self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
+            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
+            sync.recheck_sync_run(database, run)?;
+            require_observe(sync, run)?;
+            require_provider_dispatch(database)?;
+            let seed = database.atom_connection(id).map_err(database_error)?;
+            if !seed.has_scan_for(run.device_id(), run.lease_epoch()) {
+                return Err(DesktopSyncError::StaleAuthority);
+            }
+            Ok(seed)
+        })?;
         Ok(DesktopAtomConnection::new(admission, seed))
     }
 
@@ -202,6 +239,13 @@ impl DesktopLocalHost {
             sync.recheck_sync_run(database, run)?;
             if connection.seed.state != DesktopAtomConnectionState::Revoked {
                 require_observe(sync, run)?;
+                require_provider_dispatch(database)?;
+                if !connection
+                    .seed
+                    .has_scan_for(run.device_id(), run.lease_epoch())
+                {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
             }
             let current = database
                 .atom_connection(connection.connection_id())
@@ -224,7 +268,9 @@ impl DesktopLocalHost {
     ) -> Result<DesktopAtomInventoryReceipt, DesktopLocalHostError> {
         let at = now()?;
         self.with_sync_business_write(&connection.admission.inner, |sync, business, run, fence| {
+            sync.recheck_sync_run(business.database_for_backup(), run)?;
             require_observe(sync, run)?;
+            require_provider_dispatch(business.database_for_backup())?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -384,7 +430,25 @@ mod tests {
                 .connections
                 .is_empty()
         );
+        let initial = local
+            .prepare_atom_connection(local.begin_native_cloud_run().unwrap(), "Atom")
+            .unwrap();
+        let id = initial.connection_id();
+        local.commit_atom_inventory(&initial, &[]).unwrap();
+        assert!(
+            local
+                .resume_atom_connection(local.begin_native_cloud_run().unwrap(), id)
+                .is_err()
+        );
+        assert!(other.queue_atom_inventory_refresh(&admission, id).is_err());
+        local.queue_atom_inventory_refresh(&admission, id).unwrap();
+        let refresh = local
+            .resume_atom_connection(local.begin_native_cloud_run().unwrap(), id)
+            .unwrap();
+        local.recheck_atom_connection(&refresh).unwrap();
+
         local.enter_security_lock().unwrap();
+        assert!(local.commit_atom_inventory(&refresh, &[]).is_err());
         assert!(
             local
                 .recheck_atom_connection_preparation(&admission)

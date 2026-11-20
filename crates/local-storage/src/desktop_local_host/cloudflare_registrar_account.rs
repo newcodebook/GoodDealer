@@ -11,7 +11,7 @@ use crate::{
         capability_qualification::{CLOUDFLARE_REGISTRAR_OBSERVE as OBSERVE, capability_qualified},
     },
     desktop_sync_runtime::{
-        DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime, require_registrar_dispatch,
+        DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime, require_provider_dispatch,
     },
 };
 use serde::Serialize;
@@ -116,7 +116,7 @@ fn authorize(
         return Err(DesktopSyncError::CapabilityUnqualified);
     }
     sync.require_provider_capability(run, OBSERVE)?;
-    require_registrar_dispatch(database)
+    require_provider_dispatch(database)
 }
 
 fn current_request(

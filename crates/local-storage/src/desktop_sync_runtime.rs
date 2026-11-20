@@ -607,7 +607,7 @@ impl DesktopSyncRuntime {
         connection_id: &str,
         guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<(), DesktopSyncError> {
-        require_registrar_dispatch(database)?;
+        require_provider_dispatch(database)?;
         let prepared =
             self.prepare_cloudflare_registrar_inventory(database, admission, connection_id)?;
         database
@@ -623,7 +623,7 @@ impl DesktopSyncRuntime {
         admission: &DesktopSyncRunAdmission,
         prepared: &PreparedCloudflareRegistrarData,
     ) -> Result<(), DesktopSyncError> {
-        require_registrar_dispatch(database)?;
+        require_provider_dispatch(database)?;
         let current = self.prepare_cloudflare_registrar_inventory(
             database,
             admission,
@@ -1821,7 +1821,7 @@ fn cloudflare_stored_credential(
     Ok((seed.connection_incarnation_id, credential))
 }
 
-pub(crate) fn require_registrar_dispatch(
+pub(crate) fn require_provider_dispatch(
     database: &BusinessDatabase,
 ) -> Result<(), DesktopSyncError> {
     if database

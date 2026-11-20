@@ -548,6 +548,30 @@ impl NativeCloudCoordinator {
         self.provider.cloudflare_registrar_account_status()
     }
 
+    pub(crate) fn submit_atom_inventory_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_atom_refresh_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_atom_inventory_refresh(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
     }
