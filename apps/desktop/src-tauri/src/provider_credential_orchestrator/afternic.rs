@@ -346,9 +346,11 @@ pub(crate) async fn recover(
             // Every slot shares the epoch captured before the initial await. A wake cannot
             // silently continue this recovery pass under new execution authority.
             run.check()?;
-            let result = refresh_in_run(Arc::clone(&run), connection.connection_id.clone()).await;
+            // A failed inventory read leaves the slot prepared or the last complete inventory
+            // intact. Only unresolved credential retirement needs to hold the recovery gate.
+            let _ = refresh_in_run(Arc::clone(&run), connection.connection_id.clone()).await;
             run.check()?;
-            result
+            continue;
         } else {
             continue;
         };
@@ -433,6 +435,7 @@ const fn native_error(error: AfternicError) -> ProviderCredentialError {
         AfternicError::RateLimited { .. } | AfternicError::Retryable => {
             ProviderCredentialError::ProviderRetryLater
         }
+        AfternicError::ProtocolRejected => ProviderCredentialError::ProviderResponseRejected,
         AfternicError::CustodyUnavailable | AfternicError::CustodyMismatch => {
             ProviderCredentialError::Keychain
         }

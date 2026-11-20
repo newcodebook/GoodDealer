@@ -671,6 +671,7 @@ pub(crate) enum ProviderCredentialError {
     /// the two an invalid token and which a missing permission produces, so both stay one
     /// outcome; nothing was written.
     CredentialRejected,
+    ProviderResponseRejected,
     Provider,
     Keychain,
     Unavailable,

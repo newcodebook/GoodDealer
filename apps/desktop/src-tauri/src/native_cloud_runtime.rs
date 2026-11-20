@@ -90,6 +90,13 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::ProviderUnreachable) => "unreachable",
             Err(ProviderCredentialError::ProviderRetryLater) => "retry_later",
             Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
+            Err(ProviderCredentialError::ProviderResponseRejected) => "provider_response_rejected",
+            Err(ProviderCredentialError::Keychain) if kind.starts_with("afternic_") => {
+                "credential_store_unavailable"
+            }
+            Err(ProviderCredentialError::Host) if kind.starts_with("afternic_") => {
+                "local_operation_blocked"
+            }
             Err(_) => "failed",
         };
         Self { kind, outcome }
@@ -1488,6 +1495,22 @@ mod tests {
         ] {
             assert_eq!(
                 ProviderOperationRecord::of("observe", Err(&error)).outcome,
+                outcome
+            );
+        }
+        for (error, outcome) in [
+            (
+                ProviderCredentialError::Keychain,
+                "credential_store_unavailable",
+            ),
+            (ProviderCredentialError::Host, "local_operation_blocked"),
+            (
+                ProviderCredentialError::ProviderResponseRejected,
+                "provider_response_rejected",
+            ),
+        ] {
+            assert_eq!(
+                ProviderOperationRecord::of("afternic_refresh", Err(&error)).outcome,
                 outcome
             );
         }

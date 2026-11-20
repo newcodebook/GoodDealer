@@ -57,6 +57,14 @@ export function AfternicPanel({ locale, port, readOnly, onChanged }: {
   const canConnect = canObserve && view.capturable && (controlled === null || controlled.connectionId === null);
   const busy = pending || view?.laneState === "busy" || view?.laneState === "recovering";
   const stateCopy = { prepared: copy.afternicPrepared, active: copy.afternicActive, remediation_required: copy.afternicRemediation, revoked: copy.afternicRevoked };
+  const lastOutcome = view?.lastOperation?.outcome;
+  const outcomeCopy = {
+    credential_rejected: copy.afternicCredentialRejected, credential_store_unavailable: copy.afternicCredentialStoreUnavailable,
+    local_operation_blocked: copy.afternicLocalOperationBlocked, provider_response_rejected: copy.afternicProviderResponseRejected,
+    retry_later: copy.afternicTryLater, unreachable: copy.afternicTryLater, unqualified: copy.afternicQualificationPending,
+    unconfirmed: copy.afternicActionUnconfirmed, failed: copy.afternicActionUnconfirmed, confirmed: null,
+  };
+  const failure = lastOutcome === undefined ? null : outcomeCopy[lastOutcome];
   return <Panel title={copy.afternicTitle} actions={<Button type="button" size="sm" disabled={pending} onClick={() => setAttempt((value) => value + 1)}>{copy.afternicRefreshStatus}</Button>}>
     <p>{copy.afternicInventoryHelp}</p>
     {controlled !== null ? <Banner tone="warning" title={copy.afternicControlledAcceptanceTitle}>{copy.afternicControlledAcceptanceScope.replace("{domain}", controlled.domain).replace("{expiresAt}", `${formatDate(locale, Date.parse(controlled.expiresAt), { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" })} UTC`)}</Banner> : null}
@@ -65,7 +73,7 @@ export function AfternicPanel({ locale, port, readOnly, onChanged }: {
     {view !== null && !readOnly && !view.observeEntitled ? <p>{copy.afternicEntitlementRequired}</p> : null}
     {view !== null && !readOnly && !view.observeQualified && controlled === null ? <p>{copy.afternicQualificationPending}</p> : null}
     {view !== null && !readOnly && !view.capturable ? <p>{copy.afternicCaptureUnavailable}</p> : null}
-    {view !== null && view.lastOperation !== null && view.lastOperation.outcome !== "confirmed" ? <Banner tone="warning" title={copy.afternicActionUnconfirmed} /> : null}
+    {!busy && failure !== null ? <Banner tone="warning" title={failure} /> : null}
     {view !== null ? <ul className="settings-device-directory" role="list">
       {view.connections.map((connection) => <li key={connection.connectionId} className="settings-device-row">
         <div><strong>{connection.displayLabel}</strong> <Badge>{stateCopy[connection.state]}</Badge>

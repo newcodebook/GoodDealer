@@ -26,7 +26,8 @@ export const afternicConnectionsStatusSchema = z.object({
   laneState: z.enum(["recovering", "ready", "busy", "blocked"]),
   lastOperation: z.object({
     kind: z.enum(["afternic_connect", "afternic_refresh", "afternic_revoke"]),
-    outcome: z.enum(["confirmed", "unconfirmed", "unqualified", "unreachable", "retry_later", "credential_rejected", "failed"]),
+    outcome: z.enum(["confirmed", "unconfirmed", "unqualified", "unreachable", "retry_later", "credential_rejected",
+      "credential_store_unavailable", "local_operation_blocked", "provider_response_rejected", "failed"]),
   }).strict().nullable(),
 }).strict().superRefine((status, context) => {
   if (new Set(status.connections.map((connection) => connection.connectionId)).size !== status.connections.length) {

@@ -20,6 +20,17 @@ it("shows persisted inventory without claiming ownership and removes writes on r
 it("reconciles a lost refresh response without sending it again",async()=>{
  const native=port();vi.mocked(native.refresh).mockRejectedValue(new Error("closed failure"));await mount(native);await click("Refresh inventory");expect(native.refresh).toHaveBeenCalledExactlyOnceWith(id);expect(native.status).toHaveBeenCalledTimes(2);expect(element.textContent).toContain("outcome is unconfirmed");
 });
+it("explains a rejected first inventory response and retries the saved connection without another capture", async () => {
+  const native = port();
+  vi.mocked(native.status).mockResolvedValue({ ...status, connections: [{ ...status.connections[0]!, state: "prepared", lastScan: null }],
+    lastOperation: { kind: "afternic_connect", outcome: "provider_response_rejected" } });
+  await mount(native);
+  expect(element.textContent).toContain("First inventory read incomplete");
+  expect(element.textContent).toContain("The Afternic inventory response could not be validated");
+  await click("Refresh inventory");
+  expect(native.refresh).toHaveBeenCalledExactlyOnceWith(id);
+  expect(native.connect).not.toHaveBeenCalled();
+});
 it("allows cleanup after entitlement removal but hides connect and inventory execution",async()=>{
  const native=port();vi.mocked(native.status).mockResolvedValue({...status,observeEntitled:false,controlledAcceptance: null, observeQualified:false});await mount(native);expect(element.querySelector("form")).toBeNull();expect(element.textContent).not.toContain("Refresh inventory");await click("Disconnect");expect(native.revoke).toHaveBeenCalledExactlyOnceWith(id);expect(native.connect).not.toHaveBeenCalled();
 });
