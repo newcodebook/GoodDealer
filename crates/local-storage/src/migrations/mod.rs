@@ -350,6 +350,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: "active-workspace/godaddy-registrar-inventory",
         sql: include_str!("../active_workspace/godaddy_registrar_inventory.sql"),
     },
+    ActiveMigration {
+        id: 202_611_200_009,
+        owner: "active-workspace/atom-standard-inventory",
+        sql: include_str!("../active_workspace/atom_standard_inventory.sql"),
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -712,7 +717,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 51);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 52);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection

@@ -575,3 +575,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 设置用受限 Native 窗口接收单个 PAT，完整预检后才托管凭据。原提交栅栏与追加迁移 `202611200008` 保护原子归集、资产及续费资料、刷新受理回执、重开续读和撤销。迟到结果、过期设备/Lease、外工作区和交接均不能提交。断开按专属固定槽删除并确认缺席，损坏凭据不会恢复使用权。
 - 独立复审修复并验证 Cloudflare 无 Zone 账户的现有读投影、损坏/重复 PAT 槽的撤销，以及两个 IPC 命令在 Renderer、Native 权限和证据清单中的一致性。SQLCipher/Host、Native 和 IPC 聚焦复验通过。本机 PostgreSQL 设备授权 184 项通过。Linux 的隔离 GTK 与 Secret Service canary 通过，Linux 和 Windows GNU 的相关 crate 全目标严格 Clippy 通过。真实 GoDaddy、Windows/macOS 实机和发行资格待分别验收。
 - 最终根 `pnpm check` 通过，含 SQLCipher 681 项、Tauri 192 项与 Core 136 项。新增设置文案、生成权限清单和两处独立命令策略已纳入同一完整检查。
+
+## 2026-11-20 Atom Standard 库存核对
+
+- Native 用同一凭据分别完整读取无筛选库存与官方 `type=standard` 库存。两份清单中的规范域名、Listing 摘要、已知状态及明确的 Standard 标签一致后，设置展示已归集的核对数量与最多十二个域名。过滤读取失败或两份结果不一致时，已完成的基础库存保留并显示 Standard 未获核对。认证、权限及当前执行权威失效会拒绝本次提交。
+- 追加迁移 `202611200009` 将正向证据关联至当次刷新请求、原 Listing 观察、Binding 和资产代次。重开可读回当次报告。零匹配与未知分别持久表达，旧扫描、撤销或包含隔离观察的报告不展示正向结果。独立复审复验未知状态（含两侧同一未知状态）、样本之外的隔离观察、SQLCipher 回滚/重开和原 IPC 的准入，17 项通过。
+- 重新观察到两个匿名官方只读响应均为 HTTP 200 与 `text/html`，`/domains?type=standard` 返回凭据缺失，`/domain-details` 返回凭据无效或权限不足。都没有提供认证账户内 Listing 精确缺席的证据。Standard 下架仍待执行流程与真实对账完成。[接口证据](../PROVIDER_API_REVIEW.md)
+- 根 `pnpm check` 通过，含 SQLCipher 682 项、Tauri 192 项和 Core 138 项。Linux 与 Windows GNU 的相关 crate 全目标严格 Clippy 通过。Linux 隔离 D-Bus 的原生 Atom 凭据槽读取及撤销通过。认证卖家接口与 Windows/macOS 实机分别待验收。

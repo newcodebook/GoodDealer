@@ -8,8 +8,9 @@ use gooddealer_local_storage::{
 };
 use gooddealer_secure_host_core::{
     AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
-    AtomListingState, AtomPortfolioClient, NativePowerCommitGuard, NativePowerGate,
-    load_atom_credential_guarded, publish_atom_credential_guarded, purge_atom_credential_guarded,
+    AtomListingState, AtomPortfolioClient, AtomSellerInventory, NativePowerCommitGuard,
+    NativePowerGate, load_atom_credential_guarded, publish_atom_credential_guarded,
+    purge_atom_credential_guarded,
 };
 use std::sync::Arc;
 
@@ -118,7 +119,7 @@ impl Run {
         .map_err(|_| ProviderCredentialError::Unavailable)??;
         // A rejected or incomplete first read never creates a durable connection. Once custody
         // confirms the same candidate bytes, the scan can be published without a second request.
-        let listings = self
+        let inventory = self
             .scan(&credential, &mut || {
                 self.check_preparation(&admission)
                     .map_err(|_| AtomError::AuthorityStale)
@@ -136,7 +137,7 @@ impl Run {
         })
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
-        self.commit_inventory(connection, listings).await
+        self.commit_inventory(connection, inventory).await
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>, id: String) -> Result<()> {
@@ -160,11 +161,11 @@ impl Run {
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
         let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
-        let listings = self
+        let inventory = self
             .scan(&credential, &mut || self.check(&connection))
             .await?;
         drop(credential);
-        self.commit_inventory(connection, listings).await
+        self.commit_inventory(connection, inventory).await
     }
 
     pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {
@@ -190,26 +191,26 @@ impl Run {
         &self,
         credential: &AtomCredential,
         guard: &mut AtomGuard<'_>,
-    ) -> Result<Vec<DesktopAtomListingFact>> {
+    ) -> Result<AtomSellerInventory> {
         let client = AtomPortfolioClient::production().map_err(native_error)?;
-        let listings = tokio::select! {
+        tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(AtomError::AuthorityStale),
             result = client.scan(credential, guard) => result,
         }
-        .map_err(native_error)?;
-        Ok(listings.into_iter().map(listing_fact).collect())
+        .map_err(native_error)
     }
 
     async fn commit_inventory(
         self: &Arc<Self>,
         connection: DesktopAtomConnection,
-        listings: Vec<DesktopAtomListingFact>,
+        inventory: AtomSellerInventory,
     ) -> Result<()> {
         let run = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || {
+            let listings: Vec<_> = inventory.listings.into_iter().map(listing_fact).collect();
             run.commit(|host| {
-                host.commit_atom_inventory(&connection, &listings)
+                host.commit_atom_inventory(&connection, &listings, inventory.standard_scan_checked)
                     .map(|_| ())
             })
         })
@@ -261,6 +262,7 @@ fn listing_fact(row: AtomListing) -> DesktopAtomListingFact {
     DesktopAtomListingFact {
         domain: row.domain,
         resource_digest: digest,
+        observed_in_standard_scan: row.observed_in_standard_scan,
         state: match row.state {
             AtomListingState::SellerApproved => DesktopAtomListingState::SellerApproved,
             AtomListingState::TransferComplete => DesktopAtomListingState::TransferComplete,

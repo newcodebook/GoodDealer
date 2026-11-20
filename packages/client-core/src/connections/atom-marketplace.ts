@@ -1,16 +1,26 @@
 import { canonicalUtcTimestamp } from "@gooddealer/protocol/wire";
 import { z } from "zod";
-import { copyPlainData } from "../portfolio/index";
+import { canonicalDomainNameSchema, copyPlainData } from "../portfolio/index";
 
 const connectionIdSchema = z.uuidv4().refine((value) => value === value.toLowerCase());
 const version = z.literal(1);
 const count = z.number().int().min(0).max(10_000);
+const standardSampleLimit = 12;
+const standardReviewSchema = z.object({
+  observed: count,
+  sample: z.array(canonicalDomainNameSchema).max(standardSampleLimit),
+}).strict().refine(({ observed, sample }) =>
+  sample.length === Math.min(observed, standardSampleLimit) &&
+  sample.every((domain, i) => i === 0 || sample[i - 1]! < domain));
+
 const scanSchema = z.object({
   observed: count,
   imported: count,
   skipped: count,
   completedAt: canonicalUtcTimestamp,
-}).strict().refine((scan) => scan.imported + scan.skipped <= scan.observed);
+  standardReview: standardReviewSchema.nullable(),
+}).strict().refine((scan) => scan.imported + scan.skipped <= scan.observed
+  && (scan.standardReview === null || scan.standardReview.observed <= scan.observed - scan.skipped));
 
 export const atomMarketplaceIntentSchema = z.discriminatedUnion("action", [
   z.object({ schemaVersion: version, action: z.literal("connect") }).strict(),
@@ -30,7 +40,7 @@ const statusSchema = z.object({
     scanPending: z.boolean(),
     lastScan: scanSchema.nullable(),
   }).strict().refine((row) => {
-    if (row.state === "revoked") return !row.scanPending;
+    if (row.state === "revoked") return !row.scanPending && row.lastScan?.standardReview == null;
     if (row.state === "prepared") return row.scanPending && row.lastScan === null;
     return row.lastScan !== null;
   })).max(64),

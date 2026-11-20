@@ -1,7 +1,7 @@
 //! Official Atom Seller API. The query credentials and raw response stay in Native.
 //! Evidence: Atom Marketplace `OpenAPI` 1.0.0 `GET /domains` and its live anonymous response.
 
-use std::{fmt, time::Duration};
+use std::{collections::BTreeMap, fmt, time::Duration};
 
 use futures_util::StreamExt;
 use reqwest::{Client, Request, StatusCode, header};
@@ -75,6 +75,13 @@ pub struct AtomListing {
     pub domain: String,
     pub resource_digest: [u8; 32],
     pub state: AtomListingState,
+    pub observed_in_standard_scan: bool,
+    reported_standard: bool,
+}
+
+pub struct AtomSellerInventory {
+    pub listings: Vec<AtomListing>,
+    pub standard_scan_checked: bool,
 }
 
 /// Seller labels do not establish verified ownership or whether a domain is currently purchasable.
@@ -110,7 +117,8 @@ impl AtomPortfolioClient {
             .map_err(|_| AtomError::Unavailable)
     }
 
-    /// Reads a bounded account portfolio without exposing raw seller data.
+    /// Reads the full account portfolio, then checks matching Standard inventory on the same slot.
+    /// A failed Standard read leaves the independent account inventory usable.
     ///
     /// # Errors
     /// Rejects stale authority, failed authentication, a nonterminal scan or invalid data.
@@ -118,13 +126,46 @@ impl AtomPortfolioClient {
         &self,
         credential: &AtomCredential,
         guard: &mut AtomGuard<'_>,
+    ) -> Result<AtomSellerInventory, AtomError> {
+        let mut listings = self.scan_portfolio(credential, false, guard).await?;
+        let standard_scan_checked = match self.scan_portfolio(credential, true, guard).await {
+            Ok(standard) => standard_inventory_matches(&listings, &standard),
+            Err(
+                error @ (AtomError::AuthorityStale
+                | AtomError::AuthenticationRequired
+                | AtomError::Forbidden),
+            ) => {
+                return Err(error);
+            }
+            Err(_) => false,
+        };
+        guard()?;
+        if standard_scan_checked {
+            for listing in &mut listings {
+                listing.observed_in_standard_scan = listing.reported_standard;
+            }
+        }
+        Ok(AtomSellerInventory {
+            listings,
+            standard_scan_checked,
+        })
+    }
+
+    async fn scan_portfolio(
+        &self,
+        credential: &AtomCredential,
+        standard_only: bool,
+        guard: &mut AtomGuard<'_>,
     ) -> Result<Vec<AtomListing>, AtomError> {
         let mut scan = portfolio_wire::PortfolioScan::default();
         for page in 1..=MAX_PAGES {
             guard()?;
             // Never log or forward a reqwest Request, Response or Error here. Even their
             // Debug representations can contain the credentials used by this official API.
-            let response = self.client.execute(self.request(credential, page)?).await;
+            let response = self
+                .client
+                .execute(self.request(credential, page, standard_only)?)
+                .await;
             guard()?;
             let response = response.map_err(|_| AtomError::Unavailable)?;
             let (json, body) = read_page(response, guard).await?;
@@ -137,13 +178,21 @@ impl AtomPortfolioClient {
         Err(AtomError::ProtocolRejected)
     }
 
-    fn request(&self, credential: &AtomCredential, page: usize) -> Result<Request, AtomError> {
+    fn request(
+        &self,
+        credential: &AtomCredential,
+        page: usize,
+        standard_only: bool,
+    ) -> Result<Request, AtomError> {
         let mut url = reqwest::Url::parse(DOMAINS).map_err(|_| AtomError::Unavailable)?;
         url.query_pairs_mut()
             .append_pair("api_token", &credential.token)
             .append_pair("user_id", &credential.user_id)
             .append_pair("page", &page.to_string())
             .append_pair("limit", &PAGE_SIZE.to_string());
+        if standard_only {
+            url.query_pairs_mut().append_pair("type", "standard");
+        }
         self.client
             .get(url)
             .header(header::ACCEPT, "application/json")
@@ -151,6 +200,23 @@ impl AtomPortfolioClient {
             .build()
             .map_err(|_| AtomError::InputRejected)
     }
+}
+
+// The full and filtered lists are separate requests, not a shared upstream snapshot.
+// Match identity, classification and visible status across complete reads; absence or drift
+// never creates a Standard observation.
+fn standard_inventory_matches(all: &[AtomListing], standard: &[AtomListing]) -> bool {
+    let expected: BTreeMap<_, _> = all
+        .iter()
+        .filter(|row| row.reported_standard)
+        .map(|row| (row.domain.as_str(), (row.resource_digest, row.state)))
+        .collect();
+    expected.len() == standard.len()
+        && standard.iter().all(|row| {
+            row.reported_standard
+                && row.state != AtomListingState::Unclassified
+                && expected.get(row.domain.as_str()) == Some(&(row.resource_digest, row.state))
+        })
 }
 
 fn require_inventory_json(json: bool, body: &[u8]) -> Result<&[u8], AtomError> {
@@ -231,7 +297,7 @@ mod tests {
         };
         let request = AtomPortfolioClient::production()
             .unwrap()
-            .request(&credential, 2)
+            .request(&credential, 2, false)
             .unwrap();
         assert_eq!(request.method(), reqwest::Method::GET);
         assert_eq!(request.url().host_str(), Some("www.atom.com"));
@@ -247,6 +313,72 @@ mod tests {
         );
         assert_eq!(request.headers()[header::CACHE_CONTROL], "no-store");
         assert!(!format!("{credential:?}").contains("synthetic"));
+    }
+
+    #[test]
+    fn standard_reads_add_only_the_official_filter_and_require_two_matching_inventories() {
+        let credential = AtomCredential {
+            user_id: Zeroizing::new("123".into()),
+            token: Zeroizing::new("synthetic".into()),
+        };
+        let request = AtomPortfolioClient::production()
+            .unwrap()
+            .request(&credential, 3, true)
+            .unwrap();
+        assert_eq!(request.url().path(), "/api/marketplace/domains");
+        assert_eq!(
+            request.url().query_pairs().last().unwrap(),
+            ("type".into(), "standard".into())
+        );
+        let sample = |domain: &str, digest: u8, standard: bool| AtomListing {
+            domain: domain.into(),
+            resource_digest: [digest; 32],
+            state: AtomListingState::SellerApproved,
+            observed_in_standard_scan: false,
+            reported_standard: standard,
+        };
+        let all = [
+            sample("standard.test", 1, true),
+            sample("other.test", 2, false),
+        ];
+        assert!(standard_inventory_matches(
+            &all,
+            &[sample("standard.test", 1, true)]
+        ));
+        assert!(!standard_inventory_matches(&all, &[]));
+        assert!(!standard_inventory_matches(
+            &all,
+            &[sample("standard.test", 2, true)]
+        ));
+        assert!(!standard_inventory_matches(
+            &all,
+            &[sample("standard.test", 1, false)]
+        ));
+        assert!(!standard_inventory_matches(
+            &all,
+            &[sample("other.test", 2, true)]
+        ));
+        assert!(standard_inventory_matches(&[], &[]));
+    }
+
+    #[test]
+    fn unknown_seller_states_never_add_standard_evidence() {
+        let inventory = |status: &str| {
+            let body = serde_json::to_vec(&serde_json::json!([{
+                "id": 3, "domain_name": "standard.test", "status": status, "listing_type": "Standard"
+            }])).unwrap();
+            let mut scan = portfolio_wire::PortfolioScan::default();
+            assert_eq!(scan.accept(&body), Ok(false));
+            assert_eq!(scan.accept(b"[]"), Ok(true));
+            scan.into_listings()
+        };
+        let a = inventory("Future state A");
+        let b = inventory("Future state B");
+        assert!(!standard_inventory_matches(&a, &b));
+        assert!(!standard_inventory_matches(&a, &a));
+        let known = inventory("Seller Approved");
+        assert!(standard_inventory_matches(&known, &known));
+        assert!(!known[0].observed_in_standard_scan);
     }
 
     #[test]

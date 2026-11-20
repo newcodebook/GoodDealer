@@ -13,7 +13,7 @@
 | Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护；设置页账户扫描在确认受理前入库，原子归集并在重开后从首面续读。资产详情和续费台读取完整扫描中的有效注册资料。可以从有效 Zone 读取其账户，或在设置直接连接 Registrar 账户；两条路径均须独立 Registrar 授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
 | Spaceship | 官方 Registrar 域名列表 | 设置页原生连接先预检完整库存，再托管凭据并原子导入。刷新受理前提交，重开使用同一连接、设备和 Lease 续读。本地断开可清理凭据。SellerHub 旅程待实现 | 未取得 |
-| Atom | 官方 Seller API 库存读取 | 首次连接预检后才建槽并原子导入清单。设置刷新在回执前提交，重开时以同一凭据 incarnation、设备和 Lease 从首面续读。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
+| Atom | 官方 Seller API 库存读取 | 首次连接预检后才建槽并原子导入清单。设置刷新在回执前提交，重开时以同一凭据 incarnation、设备和 Lease 从首面续读。设置显示完整扫描中经双读取核对的 Standard 计数与最多十二个域名。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
 | GoDaddy | 官方 Domains v3 账户列表，Native PAT 与受限游标 | 设置中预检完整库存后托管、原子导入、持久刷新和重开续读；注册资料供资产及续费读取 | OTE 匿名 401 已核实；生产真实账户待验收 |
@@ -26,6 +26,8 @@
 六个资产来源中，Cloudflare、Spaceship、阿里云和 GoDaddy 已组合账户级归集。四者仍待真实账户验收。Cloudflare 已组合设置中的独立 Registrar 账户连接与原有 Zone 衍生读取。独立入口会在受限 Native 窗口接收 Account ID 与用户 API Token，完整分页预检后发布凭据并在同事务保存资产、注册资料和回执。显式刷新持久绑定当前设备与 Lease，重开从首面续读。旧 Lease 的准备行可断开清理，需要新流程时重新连接。已组合 Linux GTK、Windows Win32 与 macOS 固定录入后端；受控授权、真实账户和目标系统资格仍待取得。Spaceship 的 Registrar 连接先用 Native 候选凭据预检全量库存，精确确认托管后才发布资产。追加迁移 `202611200006`，设置刷新受理前保存工作区、连接 incarnation、设备与 Lease。重开用同一请求从首面续读，完成时原子消费请求并保存观察、资产、Outbox 和回执。旧版待扫描位可通过显式刷新重新准入。仍需具名开发验收范围和真实 `domains:read` 账户。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
 
 GoDaddy 按官方 Domains v3 读取 PAT 所属账户。追加迁移 `202611200008`，在刷新回执前记录当前工作区、连接 incarnation、设备和 Lease，并由同一 SQLCipher 事务发布注册观察、资产、Outbox 和回执。完整扫描缺席时，历史资料在资产与续费台中降为未知。断开先撤销使用权，再按固定系统槽清理。未取得实际账户验收或发行资格。
+
+Atom 的设置库存同时核对无筛选与 `type=standard` 的两个完整响应。追加迁移 `202611200009` 将正向证据关联到同次库存、Listing 绑定与资产代次。设置可区分零命中及未获核对结果。会话或设备权威不再有效时整次拒绝提交；Standard 分支不可用或观察被隔离时，基础库存保留。此报告只说明保存扫描时的市场类别。
 
 ## 丢机强制接管与首次云恢复
 

@@ -265,6 +265,7 @@ impl DesktopLocalHost {
         &self,
         connection: &DesktopAtomConnection,
         listings: &[DesktopAtomListingFact],
+        standard_scan_checked: bool,
     ) -> Result<DesktopAtomInventoryReceipt, DesktopLocalHostError> {
         let at = now()?;
         self.with_sync_business_write(&connection.admission.inner, |sync, business, run, fence| {
@@ -280,6 +281,7 @@ impl DesktopLocalHost {
                     &AtomInventoryCommit {
                         seed: &connection.seed,
                         listings,
+                        standard_scan_checked,
                         device_id: run.device_id(),
                         lease_epoch: run.lease_epoch(),
                         at: &at,
@@ -434,7 +436,7 @@ mod tests {
             .prepare_atom_connection(local.begin_native_cloud_run().unwrap(), "Atom")
             .unwrap();
         let id = initial.connection_id();
-        local.commit_atom_inventory(&initial, &[]).unwrap();
+        local.commit_atom_inventory(&initial, &[], false).unwrap();
         assert!(
             local
                 .resume_atom_connection(local.begin_native_cloud_run().unwrap(), id)
@@ -448,7 +450,7 @@ mod tests {
         local.recheck_atom_connection(&refresh).unwrap();
 
         local.enter_security_lock().unwrap();
-        assert!(local.commit_atom_inventory(&refresh, &[]).is_err());
+        assert!(local.commit_atom_inventory(&refresh, &[], false).is_err());
         assert!(
             local
                 .recheck_atom_connection_preparation(&admission)

@@ -41,6 +41,7 @@ impl PortfolioScan {
         }
         for record in records {
             let domain = record.domain_name.to_ascii_lowercase();
+            let reported_standard = record.listing_type.as_deref() == Some("Standard");
             if record.id == 0
                 || !valid_domain(&domain)
                 || !valid_text(&record.status, 128)
@@ -73,6 +74,8 @@ impl PortfolioScan {
                 domain,
                 resource_digest: digest.finalize().into(),
                 state,
+                reported_standard,
+                observed_in_standard_scan: false,
             });
         }
         Ok(false)

@@ -4,8 +4,10 @@ use super::{
     hex_digest, is_uuid_v4, validate_domain_asset_id, validate_sha256_hex,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+
+const STANDARD_SAMPLE_LIMIT: u16 = 12;
 
 type Result<T> = std::result::Result<T, BusinessDatabaseError>;
 
@@ -22,6 +24,7 @@ pub struct DesktopAtomListingFact {
     pub domain: String,
     pub resource_digest: String,
     pub state: DesktopAtomListingState,
+    pub observed_in_standard_scan: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -39,6 +42,14 @@ pub struct DesktopAtomInventoryReceipt {
     pub imported: u32,
     pub skipped: u32,
     pub completed_at: String,
+    standard_review: Option<AtomStandardReview>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AtomStandardReview {
+    observed: u32,
+    sample: Vec<String>,
 }
 
 #[cfg(test)]
@@ -54,6 +65,7 @@ mod tests {
             domain: name.to_owned(),
             resource_digest: hex_digest(name.as_bytes()),
             state: DesktopAtomListingState::SellerApproved,
+            observed_in_standard_scan: false,
         }
     }
 
@@ -67,6 +79,7 @@ mod tests {
             &AtomInventoryCommit {
                 seed,
                 listings: rows,
+                standard_scan_checked: false,
                 device_id: "device-local",
                 lease_epoch: 1,
                 at: AT,
@@ -212,6 +225,152 @@ mod tests {
         assert_eq!(identities, (3, 1, 2));
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one reopen lifecycle distinguishes unavailable, matched and empty review evidence"
+    )]
+    #[test]
+    fn standard_review_is_bounded_and_reopens_with_the_exact_complete_scan() {
+        let dir = crate::test_tempdir::tempdir().unwrap();
+        let path = dir.path().join("workspace.db");
+        let key = LocalDatabaseKey::from_bytes([0x76; 32]);
+        let open = || BusinessDatabase::open(&path, &key, "workspace-local").unwrap();
+        let mut db = open();
+        let seed = db
+            .prepare_atom_connection("Atom", AT, EXECUTION, || Ok(()))
+            .unwrap();
+        let rows: Vec<_> = (0..15)
+            .rev()
+            .map(|n| DesktopAtomListingFact {
+                observed_in_standard_scan: true,
+                ..fact(&format!("domain-{n:02}.test"))
+            })
+            .collect();
+        assert_eq!(
+            import(&mut db, &seed, &rows, || Ok(())),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        let input = AtomInventoryCommit {
+            seed: &seed,
+            listings: &rows,
+            standard_scan_checked: true,
+            device_id: EXECUTION.0,
+            lease_epoch: EXECUTION.1,
+            at: AT,
+        };
+        let unclassified = [DesktopAtomListingFact {
+            observed_in_standard_scan: true,
+            state: DesktopAtomListingState::Unclassified,
+            ..fact("unclassified.test")
+        }];
+        assert_eq!(
+            db.import_atom_inventory(
+                &AtomInventoryCommit {
+                    listings: &unclassified,
+                    ..input
+                },
+                || Ok(())
+            ),
+            Err(BusinessDatabaseError::InvalidInput)
+        );
+        assert_eq!(
+            db.import_atom_inventory(&input, || Err::<(), _>(
+                BusinessDatabaseError::MutationStale
+            )),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        assert_eq!(counts(&db), (0, 0, 0, 0));
+        let receipt = db.import_atom_inventory(&input, || Ok(())).unwrap();
+        let review = receipt.standard_review.unwrap();
+        assert_eq!(review.observed, 15);
+        assert_eq!(review.sample.len(), 12);
+        assert_eq!(review.sample.first().unwrap(), "domain-00.test");
+        assert_eq!(review.sample.last().unwrap(), "domain-11.test");
+        assert!(
+            db.store
+                .fixture_connection()
+                .execute(
+                    "UPDATE marketplace_listing_observations SET atom_standard_asset_generation=2
+              WHERE workspace_id='workspace-local' AND entity_id='domain-00.test'",
+                    []
+                )
+                .is_err()
+        );
+        drop(db);
+
+        let mut db = open();
+        let summaries = db.atom_connection_summaries(Some(EXECUTION)).unwrap();
+        assert_eq!(
+            summaries[0]
+                .last_scan
+                .as_ref()
+                .unwrap()
+                .standard_review
+                .as_ref(),
+            Some(&review)
+        );
+        db.store
+            .fixture_connection()
+            .execute(
+                "INSERT INTO storage_repair_receipts
+             SELECT workspace_id,'listing_observation',listing_observation_id,?1,?2
+             FROM marketplace_listing_observations WHERE entity_id='domain-14.test'",
+                params!["a".repeat(64), AT],
+            )
+            .unwrap();
+        let repaired = db.atom_connection_summaries(Some(EXECUTION)).unwrap();
+        let saved = repaired[0].last_scan.as_ref().unwrap();
+        assert_eq!(saved.observed, 15);
+        assert!(saved.standard_review.is_none());
+        let id = &seed.connection_id;
+        let next = db.queue_atom_scan(id, EXECUTION, || Ok(())).unwrap();
+        let partial = import(&mut db, &next, &[fact("domain-00.test")], || Ok(())).unwrap();
+        assert_eq!(partial.observed, 1);
+        assert!(
+            db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0]
+                .last_scan
+                .as_ref()
+                .unwrap()
+                .standard_review
+                .is_none()
+        );
+
+        let next = db.queue_atom_scan(id, EXECUTION, || Ok(())).unwrap();
+        let empty = db
+            .import_atom_inventory(
+                &AtomInventoryCommit {
+                    seed: &next,
+                    listings: &[],
+                    ..input
+                },
+                || Ok(()),
+            )
+            .unwrap();
+        assert_eq!(
+            empty.standard_review,
+            Some(AtomStandardReview {
+                observed: 0,
+                sample: vec![]
+            })
+        );
+        assert_eq!(
+            db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0]
+                .last_scan
+                .as_ref(),
+            Some(&empty)
+        );
+        let active = db.atom_connection(id).unwrap();
+        db.revoke_atom_connection(&active, AT, || Ok(())).unwrap();
+        assert!(
+            db.atom_connection_summaries(Some(EXECUTION)).unwrap()[0]
+                .last_scan
+                .as_ref()
+                .unwrap()
+                .standard_review
+                .is_none()
+        );
+    }
+
     #[test]
     fn a_legacy_pending_bit_cannot_restore_authority_and_a_late_scan_cannot_use_a_new_request() {
         let mut db = super::super::tests::TestDatabase::open([0x74; 32]);
@@ -347,6 +506,7 @@ pub struct DesktopAtomConnectionSummary {
 pub(crate) struct AtomInventoryCommit<'a> {
     pub seed: &'a AtomConnectionSeed,
     pub listings: &'a [DesktopAtomListingFact],
+    pub standard_scan_checked: bool,
     pub device_id: &'a str,
     pub lease_epoch: u64,
     pub at: &'a str,
@@ -365,7 +525,12 @@ impl AtomInventoryCommit<'_> {
             validate_domain_asset_id(&item.domain)
                 .map_err(|_| BusinessDatabaseError::InvalidInput)?;
             validate_sha256_hex(&item.resource_digest)?;
-            if !domains.insert(&item.domain) || !resources.insert(&item.resource_digest) {
+            if !domains.insert(&item.domain)
+                || !resources.insert(&item.resource_digest)
+                || (item.observed_in_standard_scan
+                    && (!self.standard_scan_checked
+                        || matches!(item.state, DesktopAtomListingState::Unclassified)))
+            {
                 return Err(BusinessDatabaseError::InvalidInput);
             }
         }
@@ -386,6 +551,10 @@ impl AtomInventoryCommit<'_> {
             imported: 0,
             skipped: 0,
             completed_at: self.at.to_owned(),
+            standard_review: self.standard_scan_checked.then(|| AtomStandardReview {
+                observed: 0,
+                sample: Vec::new(),
+            }),
         };
         for (ordinal, item) in self.listings.iter().enumerate() {
             let Some(imported) = import_discovered_asset(
@@ -412,6 +581,18 @@ impl AtomInventoryCommit<'_> {
             }
             receipt.imported += u32::from(imported);
             self.write_listing(tx, workspace, run, ordinal, item)?;
+            if item.observed_in_standard_scan {
+                let review = receipt
+                    .standard_review
+                    .as_mut()
+                    .ok_or(BusinessDatabaseError::InvalidInput)?;
+                review.observed += 1;
+                review.sample.push(item.domain.clone());
+            }
+        }
+        if let Some(review) = &mut receipt.standard_review {
+            review.sample.sort_unstable();
+            review.sample.truncate(usize::from(STANDARD_SAMPLE_LIMIT));
         }
         if persisted_run.is_some() {
             tx.execute(
@@ -486,9 +667,10 @@ impl AtomInventoryCommit<'_> {
         tx.execute(
             "INSERT INTO marketplace_listing_observations (workspace_id,listing_observation_id,observation_run_id,
              entity_id,marketplace_kind,listing_status,observed_at,provider_version_token,observation_availability,
-             evidence_status,binding_connection_id,binding_resource_digest,binding_generation)
-             VALUES (?1,?2,?3,?4,'atom','unknown',?5,?6,'available','confirmed',?7,?8,1)",
-            params![workspace,random_id()?,run,domain,self.at,observation,id,resource],
+             evidence_status,binding_connection_id,binding_resource_digest,binding_generation,atom_standard_asset_generation)
+             VALUES (?1,?2,?3,?4,'atom','unknown',?5,?6,'available','confirmed',?7,?8,1,
+                CASE WHEN ?9 THEN (SELECT entity_generation FROM domain_assets WHERE workspace_id=?1 AND entity_id=?4) END)",
+            params![workspace,random_id()?,run,domain,self.at,observation,id,resource,item.observed_in_standard_scan],
         ).map_err(storage)?;
         tx.execute(
             "UPDATE provider_observation_targets SET status='succeeded',completed_at=?1
@@ -498,6 +680,27 @@ impl AtomInventoryCommit<'_> {
         .map_err(storage)?;
         Ok(())
     }
+}
+
+fn read_standard_review(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<AtomStandardReview>> {
+    let Some(raw) = row.get::<_, Option<String>>(7)? else {
+        return Ok(None);
+    };
+    let review: AtomStandardReview =
+        serde_json::from_str(&raw).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let expected = usize::try_from(review.observed)
+        .unwrap_or(usize::MAX)
+        .min(usize::from(STANDARD_SAMPLE_LIMIT));
+    if review.sample.len() != expected
+        || review.sample.windows(2).any(|pair| pair[0] >= pair[1])
+        || review
+            .sample
+            .iter()
+            .any(|domain| validate_domain_asset_id(domain).is_err())
+    {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(Some(review))
 }
 
 fn storage(_: rusqlite::Error) -> BusinessDatabaseError {
@@ -642,7 +845,22 @@ impl BusinessDatabase {
                  SELECT 1 FROM atom_marketplace_pending_scans p
                  WHERE p.workspace_id=s.workspace_id AND p.connection_id=s.connection_id
                    AND p.incarnation_id=s.incarnation_id AND p.device_id=?2 AND p.lease_epoch=?3
-               )
+               ),
+               CASE WHEN s.state='active' AND r.standard_observed_count IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM marketplace_listing_observations m
+                 JOIN storage_repair_receipts x ON x.workspace_id=m.workspace_id
+                   AND x.repair_kind='listing_observation' AND x.row_key=m.listing_observation_id
+                 WHERE m.workspace_id=r.workspace_id AND m.observation_run_id=r.observation_run_id
+                   AND m.binding_connection_id=r.connection_id AND m.atom_standard_asset_generation IS NOT NULL
+               ) THEN json_object('observed',r.standard_observed_count,'sample',json((
+                 SELECT json_group_array(entity_id) FROM (
+                   SELECT o.entity_id FROM marketplace_listing_observations o
+                   WHERE o.workspace_id=r.workspace_id AND o.observation_run_id=r.observation_run_id
+                     AND o.binding_connection_id=r.connection_id AND o.atom_standard_asset_generation IS NOT NULL
+                     AND o.confirmed=1
+                   ORDER BY o.entity_id COLLATE BINARY LIMIT ?4
+                 )
+               ))) END
              FROM atom_marketplace_connections s
              JOIN local_provider_connections c USING(workspace_id,connection_id)
              LEFT JOIN atom_marketplace_scans r ON r.workspace_id=s.workspace_id
@@ -653,23 +871,32 @@ impl BusinessDatabase {
              ORDER BY s.created_at DESC,s.connection_id",
         ).map_err(storage)?;
         let summaries = query
-            .query_map(params![self.workspace_id, device_id, lease_epoch], |row| {
-                Ok(DesktopAtomConnectionSummary {
-                    connection_id: row.get(0)?,
-                    state: read_state(row, 1)?,
-                    scan_pending: row.get(6)?,
-                    last_scan: if let Some(completed_at) = row.get::<_, Option<String>>(5)? {
-                        Some(DesktopAtomInventoryReceipt {
-                            observed: row.get(2)?,
-                            imported: row.get(3)?,
-                            skipped: row.get(4)?,
-                            completed_at,
-                        })
-                    } else {
-                        None
-                    },
-                })
-            })
+            .query_map(
+                params![
+                    self.workspace_id,
+                    device_id,
+                    lease_epoch,
+                    STANDARD_SAMPLE_LIMIT
+                ],
+                |row| {
+                    Ok(DesktopAtomConnectionSummary {
+                        connection_id: row.get(0)?,
+                        state: read_state(row, 1)?,
+                        scan_pending: row.get(6)?,
+                        last_scan: if let Some(completed_at) = row.get::<_, Option<String>>(5)? {
+                            Some(DesktopAtomInventoryReceipt {
+                                observed: row.get(2)?,
+                                imported: row.get(3)?,
+                                skipped: row.get(4)?,
+                                completed_at,
+                                standard_review: read_standard_review(row)?,
+                            })
+                        } else {
+                            None
+                        },
+                    })
+                },
+            )
             .map_err(storage)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(storage)?;
@@ -763,8 +990,10 @@ impl BusinessDatabase {
         let (observation_run, receipt) = input.write(&tx, workspace, run)?;
         tx.execute(
             "INSERT INTO atom_marketplace_scans (workspace_id,scan_id,connection_id,observation_run_id,
-              observed_count,imported_count,skipped_count,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![workspace,run,seed.connection_id,observation_run,receipt.observed,receipt.imported,receipt.skipped,input.at],
+              observed_count,imported_count,skipped_count,completed_at,standard_observed_count)
+              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![workspace,run,seed.connection_id,observation_run,receipt.observed,receipt.imported,receipt.skipped,input.at,
+                receipt.standard_review.as_ref().map(|review| review.observed)],
         ).map_err(storage)?;
         tx.execute(
             "UPDATE atom_marketplace_connections SET scan_pending=0 WHERE workspace_id=?1 AND connection_id=?2",

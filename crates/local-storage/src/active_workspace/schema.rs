@@ -189,6 +189,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "imported_count",
             "skipped_count",
             "completed_at",
+            "standard_observed_count",
         ],
     ),
     (
@@ -954,6 +955,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "binding_connection_id",
             "binding_resource_digest",
             "binding_generation",
+            "atom_standard_asset_generation",
         ],
     ),
     (

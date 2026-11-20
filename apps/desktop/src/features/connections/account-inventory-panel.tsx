@@ -134,6 +134,9 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
           <div><strong>{name}</strong> <Badge>{states[connection.state]}</Badge>
             <p>{summary}</p>
             {scan === null ? null : <p>{formatDate(locale, Date.parse(scan.completedAt), { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" })} UTC</p>}
+            {connection.state === "active" && scan !== null && "standardReview" in scan
+              ? <AtomStandardInventory review={scan.standardReview} locale={locale} />
+              : null}
           </div>
           {writable ? <div>
             {connection.state === "revoked" || (provider === "cloudflare_registrar_account" && connection.state === "prepared") ? null : <Button type="button" size="sm" disabled={!canScan}
@@ -149,4 +152,19 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     {writable ? <Button type="button" disabled={!canScan || !view?.capturable}
       onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${prefix}Connect`]}</Button> : null}
   </Panel>;
+}
+
+function AtomStandardInventory({ review, locale }: {
+  readonly review: NonNullable<AtomMarketplaceStatus["connections"][number]["lastScan"]>["standardReview"];
+  readonly locale: Locale;
+}) {
+  const copy = getPresentationCopy(locale, "settings");
+  if (review === null) return <p>{copy.atomStandardUnavailable}</p>;
+  return <>
+    <p>{copy.atomStandardCount.replace("{count}", formatNumber(locale, review.observed))}</p>
+    {review.sample.length > 0 ? <details>
+      <summary>{copy.atomStandardSample.replace("{count}", formatNumber(locale, review.sample.length))}</summary>
+      <ul>{review.sample.map((domain) => <li key={domain}>{domain}</li>)}</ul>
+    </details> : null}
+  </>;
 }

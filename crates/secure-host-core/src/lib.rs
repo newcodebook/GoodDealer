@@ -59,7 +59,7 @@ pub use aliyun::{
 
 pub use atom::{
     AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
-    AtomListingState, AtomPortfolioClient, load_atom_credential_guarded,
+    AtomListingState, AtomPortfolioClient, AtomSellerInventory, load_atom_credential_guarded,
     publish_atom_credential_guarded, purge_atom_credential_guarded,
 };
 

@@ -84,7 +84,7 @@ const expectedGoDaddyExports = [
 ];
 const expectedAtomExports = [
   "AtomCapture", "AtomCredential", "AtomCredentialPlan", "AtomError", "AtomGuard",
-  "AtomListing", "AtomListingState", "AtomPortfolioClient",
+  "AtomListing", "AtomListingState", "AtomPortfolioClient", "AtomSellerInventory",
   "load_atom_credential_guarded", "publish_atom_credential_guarded", "purge_atom_credential_guarded",
 ];
 const expectedCloudflareCaptureExports = [

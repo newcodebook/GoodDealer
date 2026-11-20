@@ -137,20 +137,30 @@ it("shows Atom portfolio results and only sends bound seller inventory intents",
   const saved: AtomMarketplaceStatus = {
     schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
     laneState: "ready", connections: [{ connectionId, state: "active", scanPending: false,
-      lastScan: { observed: 3, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+      lastScan: { observed: 3, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z",
+        standardReview: { observed: 2, sample: ["first.test", "second.test"] } } }],
     lastOperation: { kind: "atom_connect", outcome: "confirmed" },
   };
   const submit = vi.fn().mockResolvedValue(undefined);
-  const status = vi.fn<() => Promise<AtomMarketplaceStatus>>().mockResolvedValue(saved);
+  const status = vi.fn<() => Promise<AtomMarketplaceStatus>>().mockResolvedValueOnce(saved)
+    .mockResolvedValue({ ...saved, connections: saved.connections.map((connection) => ({
+      ...connection, lastScan: { ...connection.lastScan!, standardReview: null },
+    })) });
   try {
     await act(async () => {
       root.render(<AtomMarketplacePanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
     });
     expect(container.querySelector("input")).toBeNull();
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Atom 卖家库存已保存。");
+    expect(container.textContent).toContain("最近一次扫描核对了 2 个已归集的 Standard 挂牌。");
+    expect(container.querySelector("details summary")?.textContent).toBe("查看本次扫描中的 2 个域名");
+    expect(container.querySelector("details")?.textContent).toContain("first.test");
     const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="刷新卖家库存 Atom"]')!;
     await act(async () => { refresh.click(); });
     expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "refresh", connectionId });
+    expect(container.textContent).toContain("没有可核对的 Standard 挂牌明细");
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.textContent).toContain("读取 3 个，新增 1 个，跳过 0 个。");
   } finally {
     await act(async () => root.unmount());
     container.remove();
