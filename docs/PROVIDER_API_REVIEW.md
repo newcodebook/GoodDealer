@@ -30,6 +30,10 @@ Cloudflare 官方兼容性表将 Account-owned API token 标记为与 Registrar 
 
 2026-11-20 的公开 DNS 查询显示受控域名 `wecin.com` 的权威 NS 为 `ns1.ename.net` 和 `ns2.ename.net`。易名官网导航链接到「我的域名」`www.ename.net/manage/domainlist`、「云解析列表」`www.ename.net/cloudparse/domaincloudlist`、「等待上架」`auction.ename.com/publish/waitsale` 与「正在出售」`auction.ename.com/seller/onsale`。这些入口的匿名 GET 返回 200，出售页带尾斜杠时先 301 到规范路径。账户资产、TXT 读写、上下架及账户内结果的合同仍待从授权会话取证。若为 `wecin.com` 选择 Afternic TXT 验证，预览与执行需限定易名当前账户的 TXT 变更和新鲜读取。[易名域名管理](https://www.ename.net/) [云解析](https://www.ename.net/cloudparse) [易名交易](https://www.ename.com/)
 
+公开脚本 `7662.dca17162.js` 和 `common.prod.js` 已重新下载，HTTP 200，SHA-256 分别为 `7215c8aaa1114867fb5a11a3c53b06f79815257b795ccb749438a60cd0c33ab1` 和 `b413864d229ffaea27f5833f3c39ac634ea7d3f15cdf6f92bb07034c787e545c`。公共传输在当前站点的 `/api` 下设置 `X-Requested-With`、`Sign` 与 `TimeStr` 并携带浏览器会话。[卖家模块](https://auction.ename.com/transaction-static/transaction/7662.dca17162.js) [传输模块](https://auction.ename.com/transaction-static/common/common.prod.js)
+
+页面对出售范围内的域名选择使用 `GET /api/publish/getMyDomain`，对等待上架清单使用 `GET /api/publish/waitsale`。`/api/seller/onsale` 默认用 GET，提交非空域名筛选文件时用表单 POST。2026-11-20 三条固定路径的匿名 GET 都返回 HTTP 200、`text/html; charset=UTF-8` 和 JSON `{"code":"err10000","msg":"登录超时，请重新刷新登录"}`。读取合同须检查业务 code，且不能把域名选择接口当作注册资产完整清单。仍需在获准会话中核对请求绑定、正常页字段/分页、出售类型、写入结果与账户内对账。未发送写请求。
+
 ## 所有权验证与副作用语义
 
 ### Afternic
