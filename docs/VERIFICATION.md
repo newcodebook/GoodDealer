@@ -274,6 +274,8 @@ Host/SQLCipher 验证 claim 前持久安装资格、v3 forced origin、原请求
 
 ## Afternic 首次真实接口验收
 
+Linux 真实账号已通过连接、完整库存归集和重开复读。首次新增 188 个资产，重开再次读到 188 个且新增 0。用户已在桌面界面确认数据正确。剩余真实写入从受控 `wecin.com` 预览开始。 [执行台账](phase0/PHASE0_EXECUTION_PLAN.md#2026-11-20-afternic-linux-真实库存归集)
+
 通过真实开发 Cloud 的签名授权，在 Linux debug 构建使用设置中的 Afternic 入口。确认界面展示 `wecin.com` 和截止时间，原生窗口单独接收凭据，完整库存归集后可以查看持久资产及 Listing。预览整批一次确认，依次核验上架、改价和下架，记录精确 GET 的实际结果。重启使用同一槽，遗留未知写入只查对账。真实动作、签名与服务端证据按 [受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md) 记录。
 
 源码验收另覆盖默认构建关门、Linux debug 之外构建拒绝、续期内同一 Lease epoch 复用、越域与跨连接、代次漂移、休眠、过期签名与提交栅栏、SQLCipher 关闭重开以及迟到 UI 回复。Linux 开发取证后仍需确认 Windows/macOS 实机和生产资格。
