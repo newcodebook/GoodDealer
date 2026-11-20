@@ -37,8 +37,7 @@
    - 在该槽位的 Keychain 锁内删除（无论内容是什么），随后在同一锁内回读，要求槽位不存在。
    - 结果只有 `Purged`、`AlreadyAbsent` 与 `Unknown`（删除或回读失败）；不读取、不返回、不记录 Token，
      也不解析槽位内容。
-   - 只在当前平台具备 Cloudflare custody 后端时可用；其他平台返回
-     不可用。Linux 依 [ADR-0025](0025-linux-secret-service-custody.md) 不托管 Cloudflare 凭据，Windows/macOS 后端均为首发交付目标。
+   - 当前系统必须具备 Cloudflare 托管后端。Linux 按 [ADR-0025](0025-linux-secret-service-custody.md) 只用元数据核对固定槽位及确认删除，精确匹配的重复条目可在原槽位锁内一并退役。Windows/macOS 后端均为首发交付目标。
 
 3. **退役建立在 `cloudflare_credential_roots` 上，不另造凭据表状态。**
    - root 新增 `retirement_requested_at`（可空）。`retirement_requested_at` 与 `retired_at` 都只能从空

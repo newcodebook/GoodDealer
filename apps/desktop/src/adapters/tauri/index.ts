@@ -221,7 +221,7 @@ export interface CloudflareConnectionStatus {
   readonly displayLabel: string | null;
   /** False until Cloudflare DNS observation passes ADR-0027 qualification; nothing can run before then. */
   readonly qualified: boolean;
-  /** Whether this Host build can capture a token at all (macOS only); connecting needs it. */
+  /** Whether the current Host build has a Native token capture adapter. */
   readonly capturable: boolean;
   /** The latest Provider operation's closed outcome, or null when none ran this session. */
   readonly lastOperation: CloudflareProviderOperation | null;

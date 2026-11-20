@@ -613,6 +613,7 @@ async fn run_provider_operation(
                 host,
                 connection_id,
                 cancel_fence,
+                power,
             )
             .await;
             Some(ProviderOperationRecord::of(

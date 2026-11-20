@@ -458,4 +458,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 设置中对有资格且已授权的 Cloudflare 连接选择「归集注册域名」，Native 使用当前 Zone 的账户身份按游标逐页读取官方 Registrar 列表。平台账户 ID、Token 与 cursor 留在 Native。使用连接和令牌绑定的账户范围承诺，阻止同一凭据代次在账户变化后向新账户发请求。
 - 追加迁移 `202611190009`。完整结果在原 SQLCipher writer 原子保存注册商观察、扫描回执及新资产 Outbox。既有备注等用户字段保留，删除墓碑不会复活，空结果不删除资产。结果对 `cloudflare:registrar:observe` 独立验签准入，DNS 权限不能授权此扫描。休眠或退出中断读取时保留上一份完整结果；下一次从头读取。注册日期和到期日期已保存于注册商观察，续费提醒仍待接入。
 - 本地验收覆盖状态失败后只重读、完整分页、空清单、墓碑、重复归集、最后提交栅栏、错账户、授权更替、并发旧读取及 SQLCipher 重开。Zone 激活与其余 Cloudflare 操作已统一发送给现有严格原生解码器的原始字节。
-- 已组合的路径需要账户下可读的 Zone、能读 Registrar 列表的原生托管令牌、真实开发授权及资格。尚未对 Cloudflare 真实账户执行。无可用 Zone 的账户连接、Linux 的 Cloudflare 原生录入和托管仍待实现。Windows/macOS 实机待验证。
+- 提交 `422444c` 的根 `pnpm check` 及独立审查通过。本机 PostgreSQL 的完整设备授权与执行证据套件通过 184 项，验证已有 DNS 签名权限不会自动获得 Registrar 读取能力。
+- 已组合的路径需要账户下可读的 Zone、能读 Registrar 列表的原生托管令牌、真实开发授权及资格。无可用 Zone 的账户连接仍待实现。真实 Cloudflare 账户及 Windows/macOS 实机待验证。
+
+## Linux Cloudflare 原生录入与托管
+
+- Cloudflare 和 Afternic 使用同一 Native GTK 的窗口生命周期与取消处理。用途固定在对应的 Service 内，窗口接收各自有界字段。Cloudflare 复用 v3 信封与现有连接代次，Secret Service 条目由跨进程槽锁保护。退役仅检查固定槽元数据和删除结果，可处理无法解析的载荷与精确重复条目。
+- Cloudflare 激活检查当前 Native 电源纪元。收到平台结果后，按电源、取消、Host 的锁顺序准入准备与 prewrite。进入 prewrite 后，已开始的本地托管 CAS 沿原标记和回读完成，失去 Host 权威时保留可恢复状态。当前仍需真实开发授权及 Cloudflare 账户验收。
+- 真实 GTK 窗口与 Secret Service 测试槽分别通过。Native 验证覆盖两种窗口提交与取消、托管信封精确替换、损坏和重复条目退役及最终缺失确认。Core/Tauri 全模块测试、Storage 托管专项、严格 Clippy、平台无关检查及独立审查通过。

@@ -23,7 +23,7 @@
 | 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合完整注册列表扫描、设置入口及持久导入，当前需要账户下一个有效 Zone 作为连接锚点。Registrar 独立凭据录入、Linux 受控账户入口及真实资格仍待推进。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
+六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合完整注册列表扫描、设置入口及持久导入，当前需要账户下一个有效 Zone 作为连接锚点。Linux 已接入固定 GTK 凭据窗口及 Secret Service，独立 Registrar 账户连接、受控授权与真实资格仍待推进。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
 
 ## 丢机强制接管与首次云恢复
 

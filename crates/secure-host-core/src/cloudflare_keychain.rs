@@ -8,11 +8,11 @@ use zeroize::Zeroizing;
 
 use crate::cloudflare_capture::CloudflareCandidate;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 const SERVICE: &str = "com.gooddealer.desktop.cloudflare.dns.v1";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const LOCK_DIRECTORY_PREFIX: &str = "app.gooddealer.desktop.cloudflare-dns-keychain-cas-v1";
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 const MAX_ENVELOPE_BYTES: usize = 2_048;
 #[cfg(target_os = "macos")]
 const WHEN_UNLOCKED_THIS_DEVICE_ONLY_PROTECTION_DOMAIN: &str = "aku";
@@ -70,7 +70,7 @@ where
     purge_retired_cloudflare_slot_platform(plan, handle, admit_once, resolve_once)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
     plan: &Plan,
     handle: Handle,
@@ -93,7 +93,7 @@ where
     )
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn purge_retired_cloudflare_slot_platform<Plan, Handle, Resolved>(
     _plan: &Plan,
     _handle: Handle,
@@ -109,7 +109,7 @@ where
     Err(CloudflareKeychainError::Unavailable)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn purge_admitted_retirement<Handle, Resolved>(
     handle: Handle,
     admit_once: impl FnOnce(&Handle) -> Result<(), CloudflareKeychainError>,
@@ -124,7 +124,7 @@ fn purge_admitted_retirement<Handle, Resolved>(
     resolve_once(handle, purge_and_verify_absence(delete_once, exists_after))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn purge_and_verify_absence(
     delete_once: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
     exists_after: impl FnOnce() -> Result<bool, CloudflareKeychainError>,
@@ -187,7 +187,7 @@ pub(crate) struct CloudflareCredentialEnvelope {
     token: Option<Zeroizing<String>>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EnvelopeWireRef<'a> {
@@ -206,7 +206,7 @@ struct EnvelopeWireRef<'a> {
     token: Option<&'a str>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EnvelopeWire {
@@ -415,7 +415,7 @@ impl CloudflareCredentialEnvelope {
     pub(crate) fn zone_id(&self) -> &str {
         &self.zone_id
     }
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
     fn encode(&self) -> Result<Zeroizing<Vec<u8>>, CloudflareKeychainError> {
         self.validate()?;
         let wire = EnvelopeWireRef {
@@ -440,7 +440,7 @@ impl CloudflareCredentialEnvelope {
         }
         Ok(bytes)
     }
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
     fn decode(bytes: &[u8]) -> Result<Self, CloudflareKeychainError> {
         if bytes.len() > MAX_ENVELOPE_BYTES {
             return Err(CloudflareKeychainError::Malformed);
@@ -490,7 +490,7 @@ impl CloudflareCredentialEnvelope {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[allow(dead_code, reason = "called by Desktop Host composition")]
 /// Loads one purpose-isolated credential after acquiring its process lock.
 ///
@@ -525,7 +525,7 @@ fn load_unlocked(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn admit_loaded_envelope(
     bytes: &[u8],
     attribute_verification: Result<(), CloudflareKeychainError>,
@@ -534,7 +534,7 @@ fn admit_loaded_envelope(
     CloudflareCredentialEnvelope::decode(bytes)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 #[allow(dead_code, reason = "called only by macOS production composition")]
 /// Reports that strict Cloudflare credential custody is unavailable.
 ///
@@ -657,7 +657,7 @@ fn validate_tombstone_plan(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn publish_tombstone_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
     plan: &Plan,
     inspecting: Inspecting,
@@ -706,7 +706,7 @@ where
     )
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn publish_tombstone_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
     _plan: &Plan,
     _inspecting: Inspecting,
@@ -729,7 +729,7 @@ where
 
 /// Builds the tombstone only from an exact Active base, because the Zone identifier it keeps is
 /// read from that base; any other base remediates before anything is built or written.
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn tombstone_after_base<Plan, Inspecting, Marked, Resolved>(
     plan: &Plan,
     inspected: InspectedBase<'_, Inspecting>,
@@ -798,7 +798,7 @@ where
     inspect_cloudflare_recovery_platform(plan, handle, resolve_once)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn inspect_cloudflare_recovery_platform<Plan, Handle, Resolved>(
     plan: &Plan,
     handle: Handle,
@@ -815,7 +815,7 @@ where
     resolve_once(handle, comparison)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn inspect_cloudflare_recovery_platform<Plan, Handle, Resolved>(
     _plan: &Plan,
     handle: Handle,
@@ -876,7 +876,7 @@ fn validate_recovery_plan(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn classify_recovery_custody(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     current: Result<Option<CloudflareCredentialEnvelope>, CloudflareKeychainError>,
@@ -900,7 +900,7 @@ fn classify_recovery_custody(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn recovery_tuple_matches_target(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,
@@ -914,7 +914,7 @@ fn recovery_tuple_matches_target(
         && credential_public_kind(envelope.state()) == plan.target_kind()
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn recovery_tuple_matches_base(
     plan: &(impl CloudflareCredentialRecoveryPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,
@@ -928,7 +928,7 @@ fn recovery_tuple_matches_base(
         && credential_public_kind(envelope.state()) == plan.expected_base_kind()
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 const fn credential_public_kind(
     state: CloudflareCredentialState,
 ) -> CloudflareCredentialPublicKind {
@@ -938,7 +938,7 @@ const fn credential_public_kind(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn publish_active_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
     plan: &Plan,
     envelope: &CloudflareCredentialEnvelope,
@@ -989,7 +989,7 @@ where
     )
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn publish_active_envelope_guarded<Plan, Inspecting, Marked, Resolved>(
     _plan: &Plan,
     _envelope: &CloudflareCredentialEnvelope,
@@ -1057,7 +1057,7 @@ fn validate_provision_plan(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn matches_expected_base(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     current: Option<&CloudflareCredentialEnvelope>,
@@ -1076,13 +1076,13 @@ fn matches_expected_base(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 struct InspectedBase<'a, Inspecting> {
     current: Option<&'a CloudflareCredentialEnvelope>,
     handle: Inspecting,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn publish_after_base<Plan, Inspecting, Marked, Resolved>(
     plan: &Plan,
     target: &CloudflareCredentialEnvelope,
@@ -1113,7 +1113,7 @@ where
     )
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn base_mismatch_reason(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     current: Option<&CloudflareCredentialEnvelope>,
@@ -1125,7 +1125,7 @@ fn base_mismatch_reason(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 #[allow(
     clippy::too_many_arguments,
     reason = "the four fenced callbacks are one publication sequence"
@@ -1171,7 +1171,7 @@ where
     resolve_once(marked, comparison)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn matches_expected_tuple(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     envelope: &CloudflareCredentialEnvelope,
@@ -1184,7 +1184,7 @@ fn matches_expected_tuple(
         && Some(envelope.public_proof()) == plan.expected_base_public_proof()
 }
 
-#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+#[cfg(any(test, target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn matches_exact_envelope(
     actual: &CloudflareCredentialEnvelope,
     expected: &CloudflareCredentialEnvelope,
@@ -1192,7 +1192,7 @@ fn matches_exact_envelope(
     actual.encode().ok() == expected.encode().ok()
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn classify_current_custody(
     plan: &(impl CloudflareCredentialProvisionPlan + ?Sized),
     current: Result<Option<CloudflareCredentialEnvelope>, CloudflareKeychainError>,
@@ -1436,13 +1436,13 @@ fn valid_designated_application_group(value: &str) -> bool {
         })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 struct KeychainLock {
     _process_guard: std::sync::MutexGuard<'static, ()>,
     file: std::fs::File,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl KeychainLock {
     fn acquire(connection_digest: &str) -> Result<Self, CloudflareKeychainError> {
         let directory = production_lock_directory();
@@ -1555,7 +1555,13 @@ fn production_lock_directory() -> std::path::PathBuf {
     ))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "linux")]
+fn production_lock_directory() -> std::path::PathBuf {
+    let effective_user = rustix::process::geteuid().as_raw();
+    std::path::PathBuf::from(format!("/tmp/{LOCK_DIRECTORY_PREFIX}-{effective_user}"))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl Drop for KeychainLock {
     fn drop(&mut self) {
         let _ = fs2::FileExt::unlock(&self.file);
@@ -1608,6 +1614,47 @@ fn delete_slot(connection_digest: &str) -> Result<bool, CloudflareKeychainError>
 fn retired_slot_exists(connection_digest: &str) -> Result<bool, CloudflareKeychainError> {
     crate::windows_custody::exists(SERVICE, connection_digest)
         .map_err(|_| CloudflareKeychainError::Unavailable)
+}
+
+#[cfg(target_os = "linux")]
+const fn linux_custody_error(
+    error: crate::secret_service_custody::SecretServiceError,
+) -> CloudflareKeychainError {
+    match error {
+        crate::secret_service_custody::SecretServiceError::Rejected => {
+            CloudflareKeychainError::Malformed
+        }
+        crate::secret_service_custody::SecretServiceError::Unavailable => {
+            CloudflareKeychainError::Unavailable
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn load_unlocked(
+    connection_digest: &str,
+) -> Result<Option<CloudflareCredentialEnvelope>, CloudflareKeychainError> {
+    crate::secret_service_custody::load(SERVICE, connection_digest)
+        .map_err(linux_custody_error)?
+        .map(|bytes| admit_loaded_envelope(&bytes, Ok(())))
+        .transpose()
+}
+
+#[cfg(target_os = "linux")]
+fn store_envelope(connection_digest: &str, bytes: &[u8]) -> Result<(), CloudflareKeychainError> {
+    crate::secret_service_custody::store(SERVICE, connection_digest, bytes)
+        .map_err(linux_custody_error)
+}
+
+#[cfg(target_os = "linux")]
+fn retired_slot_exists(connection_digest: &str) -> Result<bool, CloudflareKeychainError> {
+    crate::secret_service_custody::exists(SERVICE, connection_digest).map_err(linux_custody_error)
+}
+
+#[cfg(target_os = "linux")]
+fn delete_slot(connection_digest: &str) -> Result<bool, CloudflareKeychainError> {
+    crate::secret_service_custody::delete_exact_items(SERVICE, connection_digest)
+        .map_err(linux_custody_error)
 }
 #[cfg(windows)]
 struct KeychainLock {
@@ -1696,7 +1743,7 @@ mod tests {
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     #[test]
     fn purge_is_unavailable_without_native_custody_and_does_not_complete_retirement() {
         let digest = "a".repeat(64);
@@ -2487,7 +2534,7 @@ mod tests {
         assert!(!wrote.load(Ordering::SeqCst));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn keychain_lock_child_process() {
         let Ok(root) = std::env::var("GOODDEALER_KEYCHAIN_LOCK_TEST_ROOT") else {
@@ -2509,7 +2556,7 @@ mod tests {
         panic!("parent did not release child lock");
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn kernel_lock_serializes_competing_processes_and_recovers_after_exit() {
         use std::process::{Child, Command};
@@ -2614,7 +2661,7 @@ mod tests {
         assert!(!synchronized_attribute_search_is_empty(2));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn lock_rejects_wide_directory_permissions_and_symlink_substitution() {
         use std::os::unix::fs::{PermissionsExt, symlink};
@@ -2637,5 +2684,52 @@ mod tests {
             KeychainLock::acquire_at(directory.path(), &"a".repeat(64)),
             Err(CloudflareKeychainError::Unavailable)
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an unlocked native Secret Service session"]
+    fn linux_cloudflare_custody_stores_replaces_and_purges_exact_canary_slot() {
+        struct Cleanup<'a>(&'a str);
+        impl Drop for Cleanup<'_> {
+            fn drop(&mut self) {
+                let _ = delete_slot(self.0);
+            }
+        }
+
+        let mut random = [0_u8; 32];
+        getrandom::fill(&mut random).unwrap();
+        let slot = encode_hex(random);
+        let _lock = KeychainLock::acquire(&slot).unwrap();
+        assert!(load_unlocked(&slot).unwrap().is_none());
+        let _cleanup = Cleanup(&slot);
+        let zone = "0123456789abcdef0123456789abcdef";
+        let published = active(&slot, zone, 1);
+        store_envelope(&slot, &published.encode().unwrap()).unwrap();
+        let read = load_unlocked(&slot).unwrap().unwrap();
+        assert!(matches_exact_envelope(&read, &published));
+
+        let revoked = tombstone(&slot, zone, 2);
+        store_envelope(&slot, &revoked.encode().unwrap()).unwrap();
+        let read = load_unlocked(&slot).unwrap().unwrap();
+        assert!(matches_exact_envelope(&read, &revoked));
+        assert!(read.token().is_none());
+        assert!(delete_slot(&slot).unwrap());
+        assert!(load_unlocked(&slot).unwrap().is_none());
+        assert!(!delete_slot(&slot).unwrap());
+
+        store_envelope(&slot, b"malformed canary envelope").unwrap();
+        assert!(matches!(
+            load_unlocked(&slot),
+            Err(CloudflareKeychainError::Malformed)
+        ));
+        crate::secret_service_custody::create_duplicate_canary(SERVICE, &slot).unwrap();
+        assert!(matches!(
+            crate::secret_service_custody::load(SERVICE, &slot),
+            Err(crate::secret_service_custody::SecretServiceError::Rejected)
+        ));
+        assert!(retired_slot_exists(&slot).unwrap());
+        assert!(delete_slot(&slot).unwrap());
+        assert!(!retired_slot_exists(&slot).unwrap());
     }
 }

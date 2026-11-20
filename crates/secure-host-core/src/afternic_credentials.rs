@@ -238,7 +238,24 @@ impl AfternicCapture {
         }
         #[cfg(target_os = "linux")]
         {
-            let bytes = crate::linux_afternic_capture::capture(guard)?;
+            use crate::linux_credential_capture::{CaptureError, Purpose, capture};
+            let mut guard_error = None;
+            let captured = capture(Purpose::Afternic, &mut || match guard() {
+                Ok(()) => true,
+                Err(error) => {
+                    guard_error = Some(error);
+                    false
+                }
+            });
+            if let Some(error) = guard_error {
+                return Err(error);
+            }
+            let bytes = captured.map_err(|error| match error {
+                // Linux input expiry has always been an abandoned Afternic capture.
+                CaptureError::Cancelled | CaptureError::Timeout => AfternicError::CaptureCancelled,
+                CaptureError::AuthorityStale => AfternicError::AuthorityStale,
+                CaptureError::Unavailable => AfternicError::CustodyUnavailable,
+            })?;
             guard()?;
             parse_capture(&bytes)
         }
@@ -422,6 +439,23 @@ fn native_delete(account: &str) -> Result<(), AfternicError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_capture_preserves_the_exact_host_guard_rejection() {
+        let mut calls = 0;
+        let result = AfternicCapture::capture_guarded(&mut || {
+            calls += 1;
+            if calls == 1 {
+                Ok(())
+            } else {
+                Err(AfternicError::OutcomeUnknown)
+            }
+        });
+        assert_eq!(result.unwrap_err(), AfternicError::OutcomeUnknown);
+        assert_eq!(calls, 2);
+    }
+
     struct Plan {
         digest: String,
         generation: u64,

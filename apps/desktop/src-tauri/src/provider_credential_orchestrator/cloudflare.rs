@@ -69,82 +69,71 @@ pub(crate) async fn activate(
     host: Arc<DesktopLocalHost>,
     connection_hint: String,
     cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+    power: NativePowerGate,
 ) -> Result<bool, ProviderCredentialError> {
     if provider_custody_quarantined(&connection_hint) {
         return Err(ProviderCredentialError::Host);
     }
     let quarantine_connection = connection_hint.clone();
-    let admission = host.begin_native_cloud_run().map_err(host_error)?;
-    let activation = host
-        .begin_cloudflare_activation(admission, &connection_hint)
-        .map_err(host_error)?;
-    let capture_host = Arc::clone(&host);
-    let capture_cancel_fence = Arc::clone(&cancel_fence);
-    let candidate = tauri::async_runtime::spawn_blocking(move || {
-        CloudflareCapture::capture_guarded(&mut || {
-            if capture_cancel_fence.is_cancelled() {
-                return Err(CloudflareCaptureError::AuthorityStale);
-            }
-            capture_host
-                .recheck_cloudflare_activation(&activation)
-                .map_err(|_| CloudflareCaptureError::AuthorityStale)
-        })
-        .map(|candidate| (activation, candidate))
-    })
-    .await
-    .map_err(|_| ProviderCredentialError::Unavailable)?
-    .map_err(|_| ProviderCredentialError::Capture)?;
-    let (activation, candidate) = candidate;
+    let epoch = power.snapshot().epoch;
+    let (activation, candidate) =
+        capture_activation_candidate(&host, &connection_hint, &cancel_fence, &power, epoch).await?;
 
     let mut provider = CloudflareProviderClient::production();
     let guard_host = Arc::clone(&host);
     let provider_cancel_fence = Arc::clone(&cancel_fence);
-    let guard_activation = &activation;
-    let observation = provider
-        .observe_candidate_guarded(&candidate, &mut || {
-            if provider_cancel_fence.is_cancelled() {
-                return Err(CloudflareProviderError::AuthorityStale);
-            }
-            guard_host
-                .recheck_cloudflare_activation(guard_activation)
-                .map_err(|_| CloudflareProviderError::AuthorityStale)
-        })
-        .await
-        .map_err(provider_error)?;
+    let mut provider_guard = || {
+        guard_host
+            .recheck_cloudflare_activation(&activation)
+            .map_err(|_| CloudflareProviderError::AuthorityStale)?;
+        let _power = power
+            .hold_write_epoch(epoch)
+            .map_err(|_| CloudflareProviderError::AuthorityStale)?;
+        if provider_cancel_fence.is_cancelled() {
+            return Err(CloudflareProviderError::AuthorityStale);
+        }
+        Ok(())
+    };
+    let observation = tokio::select! {
+        biased;
+        _ = power.wait_for_epoch_change(epoch) => Err(CloudflareProviderError::AuthorityStale),
+        result = provider.observe_candidate_guarded(&candidate, &mut provider_guard) => result,
+    }
+    .map_err(provider_error)?;
     let checked = checked_observation(&candidate.zone_binding_digest(), observation);
 
     let prepared_host = Arc::clone(&host);
+    let prepare_power = power.clone();
+    let prepare_cancel = Arc::clone(&cancel_fence);
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        prepared_host.prepare_cloudflare_provision(activation, &checked)
+        activation_commit(&prepare_power, &prepare_cancel, epoch, || {
+            prepared_host.prepare_cloudflare_provision(activation, &checked)
+        })
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map_err(host_error)?;
 
-    let prewrite_host = Arc::clone(&host);
-    let inspecting = cancel_fence
-        .commit(|| prewrite_host.begin_cloudflare_provision_prewrite_inspection(prepared))
-        .unwrap_or(Err(DesktopLocalHostError::AuthorityRejected))
-        .map_err(host_error)?;
+    let inspecting = activation_commit(&power, &cancel_fence, epoch, || {
+        host.begin_cloudflare_provision_prewrite_inspection(prepared)
+    })
+    .map_err(host_error)?;
 
     let publish_host = Arc::clone(&host);
     tauri::async_runtime::spawn_blocking(move || {
         inspecting.with_keychain_plan(|plan, inspecting| {
             let forwarded = ForwardedProvisionPlan(plan);
-            let marker_host = Arc::clone(&publish_host);
-            let remediation_host = Arc::clone(&publish_host);
-            let resolve_host = Arc::clone(&publish_host);
             publish_cloudflare_candidate_guarded(
                 &forwarded,
                 candidate,
                 ForwardedPrewriteInspection(inspecting),
-                move |ForwardedPrewriteInspection(inspecting)| {
-                    marker_host
+                |ForwardedPrewriteInspection(inspecting)| {
+                    publish_host
                         .mark_cloudflare_provision_write_started(inspecting)
                         .map_err(map_host_to_keychain)
                 },
-                move |ForwardedPrewriteInspection(inspecting), reason| {
-                    let result = remediation_host
+                |ForwardedPrewriteInspection(inspecting), reason| {
+                    let result = publish_host
                         .remediate_cloudflare_provision_prewrite(
                             inspecting,
                             map_prewrite_failure(reason),
@@ -155,8 +144,8 @@ pub(crate) async fn activate(
                     }
                     result
                 },
-                move |marked, comparison| {
-                    resolve_host
+                |marked, comparison| {
+                    publish_host
                         .resolve_cloudflare_provision(marked, map_comparison(comparison))
                         .map_err(map_host_to_keychain)
                 },
@@ -167,6 +156,63 @@ pub(crate) async fn activate(
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map(|resolution| resolution == DesktopCloudflareResolution::Confirmed)
     .map_err(|_| ProviderCredentialError::Keychain)
+}
+
+async fn capture_activation_candidate(
+    host: &Arc<DesktopLocalHost>,
+    connection_hint: &str,
+    cancel_fence: &Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+    power: &NativePowerGate,
+    epoch: u64,
+) -> Result<
+    (
+        gooddealer_local_storage::DesktopCloudflareActivationAdmission,
+        gooddealer_secure_host_core::CloudflareCandidate,
+    ),
+    ProviderCredentialError,
+> {
+    let admission = host.begin_native_cloud_run().map_err(host_error)?;
+    let activation = host
+        .begin_cloudflare_activation(admission, connection_hint)
+        .map_err(host_error)?;
+    let capture_host = Arc::clone(host);
+    let capture_cancel_fence = Arc::clone(cancel_fence);
+    let capture_power = power.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        CloudflareCapture::capture_guarded(&mut || {
+            if capture_cancel_fence.is_cancelled() {
+                return Err(CloudflareCaptureError::AuthorityStale);
+            }
+            capture_host
+                .recheck_cloudflare_activation(&activation)
+                .map_err(|_| CloudflareCaptureError::AuthorityStale)?;
+            let _power = capture_power
+                .hold_write_epoch(epoch)
+                .map_err(|_| CloudflareCaptureError::AuthorityStale)?;
+            if capture_cancel_fence.is_cancelled() {
+                return Err(CloudflareCaptureError::AuthorityStale);
+            }
+            Ok(())
+        })
+        .map(|candidate| (activation, candidate))
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map_err(|_| ProviderCredentialError::Capture)
+}
+
+fn activation_commit<T>(
+    power: &NativePowerGate,
+    cancel: &crate::native_cloud_runtime::NativeCloudCancelFence,
+    epoch: u64,
+    commit: impl FnOnce() -> Result<T, DesktopLocalHostError>,
+) -> Result<T, DesktopLocalHostError> {
+    let _power = power
+        .hold_write_epoch(epoch)
+        .map_err(|_| DesktopLocalHostError::AuthorityRejected)?;
+    cancel
+        .commit(commit)
+        .ok_or(DesktopLocalHostError::AuthorityRejected)?
 }
 
 const fn map_prewrite_failure(

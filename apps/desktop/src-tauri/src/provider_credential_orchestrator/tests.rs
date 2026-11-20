@@ -56,13 +56,15 @@ fn credential_orchestrator_is_the_only_native_forwarding_callsite() {
     let publish = production
         .find("publish_cloudflare_candidate_guarded(")
         .expect("Secure Host publication");
-    let observation = production
-        .find("pub(crate) async fn observe(")
-        .expect("observation boundary");
-    assert!(prewrite < publish && publish < observation);
-    let post_prewrite_activation = &production[prewrite..observation];
+    let activation_end = production
+        .find("async fn capture_activation_candidate(")
+        .expect("end of the activation boundary");
+    assert!(prewrite < publish && publish < activation_end);
+    assert!(production[..prewrite].contains("activation_commit(&power, &cancel_fence, epoch"));
+    let post_prewrite_activation = &production[prewrite..activation_end];
     assert!(!post_prewrite_activation.contains("is_cancelled()"));
     assert!(!post_prewrite_activation.contains(".commit("));
+    assert!(!post_prewrite_activation.contains("activation_commit("));
     for call in [
         "publish_cloudflare_tombstone_guarded(",
         ".begin_cloudflare_revocation_prewrite_inspection(",

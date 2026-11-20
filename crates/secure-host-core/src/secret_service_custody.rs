@@ -99,12 +99,7 @@ fn load_with(
         Selection::Single => {}
     }
     let item = found.unlocked.first().ok_or(SecretServiceError::Rejected)?;
-    let attributes = item
-        .get_attributes()
-        .map_err(|_| SecretServiceError::Unavailable)?;
-    if !attributes_match(&attributes, service, account) {
-        return Err(SecretServiceError::Rejected);
-    }
+    verify_item_attributes(item, service, account)?;
     let secret = Zeroizing::new(
         item.get_secret()
             .map_err(|_| SecretServiceError::Unavailable)?,
@@ -147,6 +142,38 @@ pub(crate) fn store(service: &str, account: &str, value: &[u8]) -> Result<(), Se
     }
 }
 
+#[cfg(target_os = "linux")]
+fn verify_item_attributes(
+    item: &secret_service::blocking::Item<'_>,
+    service: &str,
+    account: &str,
+) -> Result<(), SecretServiceError> {
+    let attributes = item
+        .get_attributes()
+        .map_err(|_| SecretServiceError::Unavailable)?;
+    if !attributes_match(&attributes, service, account) {
+        return Err(SecretServiceError::Rejected);
+    }
+    Ok(())
+}
+
+/// Checks for an exact item without asking Secret Service for its value.
+#[cfg(target_os = "linux")]
+#[allow(
+    dead_code,
+    reason = "fixed-item callers differ between the owning crates"
+)]
+pub(crate) fn exists(service: &str, account: &str) -> Result<bool, SecretServiceError> {
+    let store = connect()?;
+    let found = store
+        .search_items(expected_attributes(service, account))
+        .map_err(|_| SecretServiceError::Unavailable)?;
+    for item in found.unlocked.iter().chain(&found.locked) {
+        verify_item_attributes(item, service, account)?;
+    }
+    Ok(!found.unlocked.is_empty() || !found.locked.is_empty())
+}
+
 /// Removes the item; an absent item is already removed.
 ///
 /// # Errors
@@ -158,6 +185,13 @@ pub(crate) fn store(service: &str, account: &str, value: &[u8]) -> Result<(), Se
     reason = "fixed-item callers differ by target and enabled custody capability"
 )]
 pub(crate) fn delete(service: &str, account: &str) -> Result<(), SecretServiceError> {
+    delete_exact_items(service, account).map(|_| ())
+}
+
+/// Removes all exact unlocked matches and confirms absence using metadata. Reconciliation can
+/// retire ambiguous duplicate payloads without receiving any secret bytes.
+#[cfg(target_os = "linux")]
+pub(crate) fn delete_exact_items(service: &str, account: &str) -> Result<bool, SecretServiceError> {
     let store = connect()?;
     let found = store
         .search_items(expected_attributes(service, account))
@@ -166,16 +200,44 @@ pub(crate) fn delete(service: &str, account: &str) -> Result<(), SecretServiceEr
         return Err(SecretServiceError::Unavailable);
     }
     for item in &found.unlocked {
+        verify_item_attributes(item, service, account)?;
+    }
+    for item in &found.unlocked {
         item.delete().map_err(|_| SecretServiceError::Unavailable)?;
     }
     let remaining = store
         .search_items(expected_attributes(service, account))
         .map_err(|_| SecretServiceError::Unavailable)?;
     if remaining.unlocked.is_empty() && remaining.locked.is_empty() {
-        Ok(())
+        Ok(!found.unlocked.is_empty())
     } else {
         Err(SecretServiceError::Unavailable)
     }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[allow(
+    dead_code,
+    reason = "only the Cloudflare retirement canary creates duplicate items"
+)]
+pub(crate) fn create_duplicate_canary(
+    service: &str,
+    account: &str,
+) -> Result<(), SecretServiceError> {
+    let store = connect()?;
+    let collection = store
+        .get_default_collection()
+        .map_err(|_| SecretServiceError::Unavailable)?;
+    collection
+        .create_item(
+            "GoodDealer custody canary",
+            expected_attributes(service, account),
+            b"duplicate synthetic payload",
+            false,
+            CONTENT_TYPE,
+        )
+        .map_err(|_| SecretServiceError::Unavailable)?;
+    Ok(())
 }
 
 #[cfg(test)]

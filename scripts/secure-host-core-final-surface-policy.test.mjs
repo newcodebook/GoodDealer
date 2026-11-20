@@ -28,7 +28,7 @@ const expectedSourceFiles = [
   "desktop_device_directory.rs",
   "desktop_oauth.rs",
   "lib.rs",
-  "linux_afternic_capture.rs",
+  "linux_credential_capture.rs",
   "local_workspace_binding.rs",
   "native_continuous_clock.rs",
   "native_continuous_clock/macos.rs",
